@@ -1,0 +1,88 @@
+import type {
+  WorkflowActivitySummary,
+  WorkflowStageUpdatedEvent,
+  WorkflowTaskSummary,
+  WorkflowTaskUpdatedEvent,
+  WorkflowUpdatedEvent,
+} from './dto/workflow.js';
+import type { IpcChannelMap } from './ipc.js';
+
+type Assert<T extends true> = T;
+
+type Extends<A, B> = A extends B ? true : false;
+
+type _WorkflowActivitySummaryShape = Assert<
+  Extends<
+    WorkflowActivitySummary,
+    {
+      id: string;
+      workflowType: string;
+      projectId: string;
+      entityType: string;
+      entityId?: string;
+      status: string;
+      summary: string;
+      progress: number;
+      displayCategory: string;
+      displayLabel: string;
+      relatedEntityLabel?: string;
+      provider?: string;
+      modelKey?: string;
+      updatedAt: number;
+    }
+  >
+>;
+
+type _WorkflowTaskSummaryShape = Assert<
+  Extends<
+    WorkflowTaskSummary,
+    {
+      id: string;
+      workflowRunId: string;
+      stageRunId: string;
+      taskId: string;
+      kind: string;
+      status: string;
+      displayCategory: string;
+      displayLabel: string;
+      relatedEntityType?: string;
+      relatedEntityId?: string;
+      relatedEntityLabel?: string;
+      provider?: string;
+      modelKey?: string;
+      promptTemplateId?: string;
+      promptTemplateVersion?: string;
+      summary?: string;
+      updatedAt: number;
+    }
+  >
+>;
+
+type _WorkflowUpdatedEventShape = Assert<
+  Extends<WorkflowUpdatedEvent, { workflow: WorkflowActivitySummary }>
+>;
+
+type _WorkflowTaskUpdatedEventShape = Assert<
+  Extends<WorkflowTaskUpdatedEvent, { task: WorkflowTaskSummary }>
+>;
+
+type _WorkflowStageUpdatedEventShape = Assert<
+  Extends<WorkflowStageUpdatedEvent, { workflowRunId: string; stageId: string }>
+>;
+
+type IsEqual<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+type _WorkflowListResponse = Assert<
+  IsEqual<IpcChannelMap['workflow:list']['response'], WorkflowActivitySummary[]>
+>;
+
+type _WorkflowGetResponse = Assert<
+  IsEqual<IpcChannelMap['workflow:get']['response'], WorkflowActivitySummary>
+>;
+
+type _WorkflowGetTasksResponse = Assert<
+  IsEqual<IpcChannelMap['workflow:getTasks']['response'], WorkflowTaskSummary[]>
+>;
+
+export {};
