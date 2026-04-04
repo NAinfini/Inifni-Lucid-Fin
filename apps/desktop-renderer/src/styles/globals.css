@@ -1,0 +1,117 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-ring: hsl(var(--ring));
+  --color-input: hsl(var(--input));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* Light theme (default) */
+:root {
+  --background: 0 0% 98%;
+  --foreground: 0 0% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 9%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 94%;
+  --secondary-foreground: 0 0% 20%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 88%;
+  --ring: 217 91% 60%;
+  --radius: 0.5rem;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --input: 0 0% 88%;
+}
+
+/* Dark theme */
+.dark {
+  --background: 0 0% 4%;
+  --foreground: 0 0% 95%;
+  --card: 0 0% 7%;
+  --card-foreground: 0 0% 95%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 95%;
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 64%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 18%;
+  --ring: 217 91% 60%;
+  --radius: 0.5rem;
+  --popover: 0 0% 7%;
+  --popover-foreground: 0 0% 95%;
+  --input: 0 0% 18%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family:
+    'Inter',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Hide ReactFlow default node controls (delete button) */
+.react-flow__node .react-flow__handle-connecting {
+  display: none;
+}
+.react-flow__node-toolbar {
+  display: none !important;
+}
+.react-flow__node button[aria-label="delete"] {
+  display: none !important;
+}
