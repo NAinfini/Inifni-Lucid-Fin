@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+build/
+coverage/
+.vite/
+.turbo/
+*.tsbuildinfo
+apps/desktop-main/dist/

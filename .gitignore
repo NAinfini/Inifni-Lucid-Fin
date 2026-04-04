@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# Electron packager output
+release/
+*.exe
+*.dmg
+*.AppImage
+*.snap
+*.deb
+
+# Native module build artifacts
+**/*.node
+
+# Coverage
+coverage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# AI agent config (local only)
+.agents
+.claude
+.trellis
+*.rpm
+AGENTS.md
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# Cache
+.npm-cache/
+.vite/
+.turbo/
+*.tsbuildinfo
+
+# Test artifacts
+playwright-report/
+test-results/
+blob-report/
+
+# Misc
+*.orig

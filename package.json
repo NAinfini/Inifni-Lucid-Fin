@@ -1,0 +1,35 @@
+{
+  "name": "lucid-fin",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspaces --if-present && npm run dev --workspace=apps/desktop-main",
+    "build": "npm run build --workspaces --if-present",
+    "pretest": "npm rebuild better-sqlite3",
+    "test": "vitest run",
+    "predev": "npx @electron/rebuild -f -w better-sqlite3",
+    "postinstall": "npx @electron/rebuild -m .",
+    "lint": "eslint .",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "dist": "npm run build && npm run pack --workspace=apps/desktop-main",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.58.2",
+    "@vitest/coverage-v8": "^4.1.0",
+    "eslint": "^10.1.0",
+    "globals": "^17.4.0",
+    "jsdom": "^29.0.1",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.1",
+    "vitest": "^4.1.0"
+  }
+}

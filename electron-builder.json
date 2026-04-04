@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.lucid-fin.app",
+  "productName": "Lucid Fin",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "resources"
+  },
+  "files": [
+    "apps/desktop-main/dist/**",
+    "apps/desktop-renderer/dist/**",
+    "packages/**/dist/**",
+    "node_modules/**",
+    "!node_modules/**/{test,tests,__tests__}/**",
+    "!node_modules/**/*.map"
+  ],
+  "extraResources": [
+    {
+      "from": "resources/bin",
+      "to": "bin",
+      "filter": ["**/*"]
+    }
+  ],
+  "win": {
+    "target": ["nsis", "portable"],
+    "icon": "resources/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  },
+  "mac": {
+    "target": ["dmg", "zip"],
+    "icon": "resources/icon.icns",
+    "category": "public.app-category.video"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "resources/icons",
+    "category": "AudioVideo"
+  },
+  "asar": true,
+  "asarUnpack": ["resources/bin/**", "node_modules/better-sqlite3/**", "node_modules/keytar/**"]
+}
