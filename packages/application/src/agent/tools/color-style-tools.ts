@@ -1,0 +1,99 @@
+import type { AgentTool, ToolResult } from '../tool-registry.js';
+
+export interface ColorStyleToolDeps {
+  listColorStyles: () => Promise<unknown[]>;
+  saveColorStyle: (style: Record<string, unknown>) => Promise<void>;
+  deleteColorStyle: (id: string) => Promise<void>;
+}
+
+function ok(data?: unknown): ToolResult {
+  return data === undefined ? { success: true } : { success: true, data };
+}
+
+function fail(error: unknown): ToolResult {
+  return {
+    success: false,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function requireString(args: Record<string, unknown>, key: string): string {
+  const value = args[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${key} is required`);
+  }
+  return value.trim();
+}
+
+function requireStyle(args: Record<string, unknown>): Record<string, unknown> {
+  const value = args.style;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('style is required');
+  }
+  return value as Record<string, unknown>;
+}
+
+export function createColorStyleTools(deps: ColorStyleToolDeps): AgentTool[] {
+  const list: AgentTool = {
+    name: 'colorStyle.list',
+    description: 'List saved color styles in the current project.',
+    tier: 1,
+    parameters: { type: 'object', properties: {}, required: [] },
+    async execute() {
+      try {
+        return ok(await deps.listColorStyles());
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const save: AgentTool = {
+    name: 'colorStyle.save',
+    description: 'Save a color style definition to the current project.',
+    tier: 2,
+    parameters: {
+      type: 'object',
+      properties: {
+        style: {
+          type: 'object',
+          description: 'The color style definition to save.',
+        },
+      },
+      required: ['style'],
+    },
+    async execute(args) {
+      try {
+        const style = requireStyle(args);
+        await deps.saveColorStyle(style);
+        return ok({ style });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const remove: AgentTool = {
+    name: 'colorStyle.delete',
+    description: 'Delete a saved color style by ID.',
+    tier: 3,
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The color style ID to delete.' },
+      },
+      required: ['id'],
+    },
+    async execute(args) {
+      try {
+        const id = requireString(args, 'id');
+        await deps.deleteColorStyle(id);
+        return ok({ id });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  return [list, save, remove];
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@lucid-fin/application",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@lucid-fin/contracts": "*",
+    "@lucid-fin/storage": "*",
+    "@lucid-fin/adapters-ai": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  }
+}
