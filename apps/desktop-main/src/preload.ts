@@ -216,6 +216,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       subscribe('commander:canvas:updated', cb as Callback),
     onEntitiesUpdated: (cb: (data: { toolName: string }) => void) =>
       subscribe('commander:entities:updated', cb as Callback),
+    onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) =>
+      subscribe('commander:settings:dispatch', cb as Callback),
   },
 
   // App events

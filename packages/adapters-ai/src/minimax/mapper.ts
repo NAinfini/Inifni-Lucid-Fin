@@ -5,7 +5,7 @@ export function toMiniMaxRequest(req: GenerationRequest): Record<string, unknown
   const hasLastImage = req.referenceImages && req.referenceImages.length > 1;
   return {
     prompt: req.prompt,
-    model: (req.params?.model as string) ?? 'T2V-01',
+    model: (req.params?.model as string) ?? 'T2V-02',
     prompt_optimizer: req.params?.prompt_optimizer ?? true,
     ...(hasImage ? { first_frame_image: req.referenceImages![0] } : {}),
     ...(hasLastImage ? { last_frame_image: req.referenceImages![1] } : {}),

@@ -1,5 +1,5 @@
 import React, { type ComponentType } from 'react';
-import { Download, GitBranch, History, Info, ListTodo, StickyNote } from 'lucide-react';
+import { GitBranch, History, Info, ListTodo, ScrollText, Share2, StickyNote } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { toggleRightPanel, type RightPanelId } from '../../store/slices/ui.js';
@@ -25,7 +25,8 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { id: 'queue', panel: 'queue', icon: ListTodo, label: 'Generation Queue' },
   { id: 'history', panel: 'history', icon: History, label: 'History' },
   { id: 'notes', panel: 'notes', icon: StickyNote, label: 'Canvas Notes' },
-  { id: 'export', panel: 'export', icon: Download, label: 'Export / Render' },
+  { id: 'export', panel: 'export', icon: Share2, label: 'Export / Render' },
+  { id: 'logger', panel: 'logger', icon: ScrollText, label: 'Logger' },
 ];
 
 export function RightToolbar() {

@@ -16,6 +16,14 @@ import { applyCanvasFromCommander } from '../store/slices/canvas.js';
 import { setCharacters } from '../store/slices/characters.js';
 import { setEquipment } from '../store/slices/equipment.js';
 import { setLocations } from '../store/slices/locations.js';
+import {
+  setActiveProvider,
+  setProviderBaseUrl,
+  setProviderModel,
+  setProviderName,
+  addCustomProvider,
+  removeCustomProvider,
+} from '../store/slices/settings.js';
 import { selectActiveTemplates } from '../store/slices/promptTemplates.js';
 import { addLog } from '../store/slices/logger.js';
 import { getAPI, type LucidAPI } from '../utils/api.js';
@@ -239,10 +247,27 @@ export function useCommander(): {
       void syncCommanderEntitiesForTool(api, dispatch, data.toolName);
     });
 
+    const settingsActionMap: Record<string, (payload: never) => unknown> = {
+      setActiveProvider: setActiveProvider as (p: never) => unknown,
+      setProviderBaseUrl: setProviderBaseUrl as (p: never) => unknown,
+      setProviderModel: setProviderModel as (p: never) => unknown,
+      setProviderName: setProviderName as (p: never) => unknown,
+      addCustomProvider: addCustomProvider as (p: never) => unknown,
+      removeCustomProvider: removeCustomProvider as (p: never) => unknown,
+    };
+
+    const unsubSettings = api.commander.onSettingsDispatch?.((data) => {
+      const actionCreator = settingsActionMap[data.action];
+      if (actionCreator) {
+        dispatch(actionCreator(data.payload as never) as never);
+      }
+    });
+
     return () => {
       unsubStream();
       unsubCanvas();
       unsubEntities?.();
+      unsubSettings?.();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);

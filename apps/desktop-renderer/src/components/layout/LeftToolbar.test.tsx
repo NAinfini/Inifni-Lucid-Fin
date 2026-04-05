@@ -66,6 +66,18 @@ describe('LeftToolbar', () => {
     expect(assetsButton.getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('renders and toggles the shot template manager button', () => {
+    renderToolbar('/');
+
+    const shotTemplatesButton = screen.getByRole('button', { name: t('toolbar.shotTemplates') });
+    fireEvent.click(shotTemplatesButton);
+
+    expect(shotTemplatesButton.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(shotTemplatesButton);
+    expect(shotTemplatesButton.getAttribute('aria-pressed')).toBe('false');
+  });
+
   it('navigates to settings and marks route buttons active', () => {
     renderToolbar('/');
 

@@ -22,6 +22,11 @@ describe('uiSlice', () => {
     expect(state.activePanel).toBe('assets');
   });
 
+  it('accepts the shot template manager as a left panel', () => {
+    const state = uiSlice.reducer(undefined, setActivePanel('shotTemplates'));
+    expect(state.activePanel).toBe('shotTemplates');
+  });
+
   it('toggles the same panel off and switches between panels', () => {
     const opened = uiSlice.reducer(undefined, togglePanel('assets'));
     expect(opened.activePanel).toBe('assets');

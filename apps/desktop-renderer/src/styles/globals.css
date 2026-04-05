@@ -115,3 +115,13 @@ body {
 .react-flow__node button[aria-label="delete"] {
   display: none !important;
 }
+
+/* Node generating border glow animation */
+@keyframes border-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(59, 130, 246, 0.3); border-color: rgba(59, 130, 246, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.6); border-color: rgba(59, 130, 246, 0.8); }
+}
+@keyframes border-glow-purple {
+  0%, 100% { box-shadow: 0 0 8px rgba(168, 85, 247, 0.3); border-color: rgba(168, 85, 247, 0.4); }
+  50% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.6); border-color: rgba(168, 85, 247, 0.8); }
+}

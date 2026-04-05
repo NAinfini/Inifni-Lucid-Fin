@@ -21,7 +21,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
 
   private apiKey = '';
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
-  private model = 'gemini-2.5-pro';
+  private model = 'gemini-2.5-flash';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;

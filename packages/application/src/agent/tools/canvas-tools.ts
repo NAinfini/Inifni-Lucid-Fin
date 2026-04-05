@@ -256,6 +256,37 @@ function requireCanvasEdge(canvas: Canvas, edgeId: string): CanvasEdge {
   return edge;
 }
 
+function requireCanvasNodeById(canvas: Canvas, nodeId: string): CanvasNode {
+  const node = canvas.nodes.find((entry) => entry.id === nodeId);
+  if (!node) {
+    throw new Error(`Node not found: ${nodeId}`);
+  }
+  return node;
+}
+
+function selectEdgeHandles(sourceNode: CanvasNode, targetNode: CanvasNode): Pick<CanvasEdge, 'sourceHandle' | 'targetHandle'> {
+  const sourceCenter = {
+    x: sourceNode.position.x + (sourceNode.width ?? 0) / 2,
+    y: sourceNode.position.y + (sourceNode.height ?? 0) / 2,
+  };
+  const targetCenter = {
+    x: targetNode.position.x + (targetNode.width ?? 0) / 2,
+    y: targetNode.position.y + (targetNode.height ?? 0) / 2,
+  };
+  const deltaX = targetCenter.x - sourceCenter.x;
+  const deltaY = targetCenter.y - sourceCenter.y;
+
+  if (Math.abs(deltaY) >= Math.abs(deltaX)) {
+    return deltaY >= 0
+      ? { sourceHandle: 'bottom', targetHandle: 'top' }
+      : { sourceHandle: 'top', targetHandle: 'bottom' };
+  }
+
+  return deltaX >= 0
+    ? { sourceHandle: 'right', targetHandle: 'left' }
+    : { sourceHandle: 'left', targetHandle: 'right' };
+}
+
 function requireMediaNode(
   node: CanvasNode,
   message = `Node type "${node.type}" does not support this operation`,
@@ -760,16 +791,13 @@ export function createCanvasTools(deps: CanvasToolDeps): AgentTool[] {
         const sourceId = requireString(args, 'sourceId');
         const targetId = requireString(args, 'targetId');
         const canvas = await requireCanvas(deps, canvasId);
-        if (!canvas.nodes.some((entry) => entry.id === sourceId)) {
-          throw new Error(`Node not found: ${sourceId}`);
-        }
-        if (!canvas.nodes.some((entry) => entry.id === targetId)) {
-          throw new Error(`Node not found: ${targetId}`);
-        }
+        const sourceNode = requireCanvasNodeById(canvas, sourceId);
+        const targetNode = requireCanvasNodeById(canvas, targetId);
         const edge: CanvasEdge = {
           id: crypto.randomUUID(),
           source: sourceId,
           target: targetId,
+          ...selectEdgeHandles(sourceNode, targetNode),
           data: {
             label: typeof args.label === 'string' ? args.label : undefined,
             status: 'idle',
@@ -2212,6 +2240,7 @@ export function createCanvasTools(deps: CanvasToolDeps): AgentTool[] {
               id: crypto.randomUUID(),
               source: createdNodes[fromIdx].id,
               target: createdNodes[toIdx].id,
+              ...selectEdgeHandles(createdNodes[fromIdx], createdNodes[toIdx]),
               data: {
                 label: typeof edgeDesc.label === 'string' ? edgeDesc.label : undefined,
                 status: 'idle',

@@ -730,8 +730,8 @@ export function Settings() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto mt-8 pb-12">
-        <div className="flex items-center gap-3 mb-6">
+      <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
+        <div className="max-w-2xl mx-auto flex items-center gap-3 px-4 py-3">
           <button
             type="button"
             onClick={() => navigate('/')}
@@ -745,6 +745,8 @@ export function Settings() {
             {t('settings.title')}
           </h1>
         </div>
+      </div>
+      <div className="max-w-2xl mx-auto px-4 pt-6 pb-12">
 
         {/* Appearance */}
         <section className="mb-8">

@@ -7,6 +7,7 @@ export type LeftPanelId =
   | 'characters'
   | 'equipment'
   | 'locations'
+  | 'shotTemplates'
   | 'presets'
   | 'canvases';
 

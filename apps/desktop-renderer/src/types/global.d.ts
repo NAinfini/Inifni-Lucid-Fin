@@ -404,6 +404,7 @@ declare global {
         }) => void) => () => void;
         onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;
+        onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) => () => void;
       };
       onReady: (cb: () => void) => () => void;
       onInitError: (cb: (error: string) => void) => () => void;

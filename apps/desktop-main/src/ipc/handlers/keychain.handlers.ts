@@ -1,6 +1,7 @@
 import type { IpcMain } from 'electron';
 import type { Keychain } from '@lucid-fin/storage';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
+import { resolveMediaProviderIds } from '../../bootstrap/init-app.js';
 
 export function registerKeychainHandlers(
   ipcMain: IpcMain,
@@ -9,34 +10,38 @@ export function registerKeychainHandlers(
   llmRegistry: LLMRegistry,
 ): void {
   ipcMain.handle('keychain:isConfigured', async (_e, args: { provider: string }) => {
-    return keychain.isConfigured(args.provider);
+    return hasConfiguredKey(keychain, args.provider);
   });
 
   ipcMain.handle('keychain:get', async (_e, args: { provider: string }) => {
-    return keychain.getKey(args.provider);
+    return getStoredKey(keychain, args.provider);
   });
 
   ipcMain.handle('keychain:set', async (_e, args: { provider: string; apiKey: string }) => {
     await keychain.setKey(args.provider, args.apiKey);
-    // Apply key to media adapter
-    const mediaAdapter = registry.get(args.provider);
+    const mediaAdapter = resolveMediaAdapter(registry, args.provider);
     if (mediaAdapter) mediaAdapter.configure(args.apiKey);
-    // Apply key to LLM adapter
     const llmAdapter = llmRegistry.list().find((a) => a.id === args.provider);
     if (llmAdapter) llmAdapter.configure(args.apiKey);
   });
 
   ipcMain.handle('keychain:delete', async (_e, args: { provider: string }) => {
-    await keychain.deleteKey(args.provider);
-    const mediaAdapter = registry.get(args.provider);
+    await Promise.all(
+      resolveMediaProviderIds(args.provider).map((providerId) => keychain.deleteKey(providerId)),
+    );
+    const mediaAdapter = resolveMediaAdapter(registry, args.provider);
     if (mediaAdapter) mediaAdapter.configure('');
     const llmAdapter = llmRegistry.list().find((a) => a.id === args.provider);
     if (llmAdapter) llmAdapter.configure('');
   });
 
   ipcMain.handle('keychain:test', async (_e, args: { provider: string; baseUrl?: string; model?: string }) => {
-    const mediaAdapter = registry.get(args.provider);
+    const mediaAdapter = resolveMediaAdapter(registry, args.provider);
     if (mediaAdapter) {
+      const apiKey = await getStoredKey(keychain, args.provider);
+      if (apiKey) {
+        mediaAdapter.configure(apiKey);
+      }
       const valid = await mediaAdapter.validate();
       return { ok: valid };
     }
@@ -71,4 +76,28 @@ export function registerKeychainHandlers(
     }
     return { ok: false, error: 'Unknown provider' };
   });
+}
+
+async function getStoredKey(keychain: Keychain, provider: string): Promise<string | null> {
+  for (const providerId of resolveMediaProviderIds(provider)) {
+    const key = await keychain.getKey(providerId);
+    if (key) {
+      return key;
+    }
+  }
+  return null;
+}
+
+async function hasConfiguredKey(keychain: Keychain, provider: string): Promise<boolean> {
+  return (await getStoredKey(keychain, provider)) !== null;
+}
+
+function resolveMediaAdapter(registry: AdapterRegistry, provider: string) {
+  for (const providerId of resolveMediaProviderIds(provider)) {
+    const adapter = registry.get(providerId);
+    if (adapter) {
+      return adapter;
+    }
+  }
+  return undefined;
 }

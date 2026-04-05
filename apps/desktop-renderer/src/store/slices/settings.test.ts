@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { settingsSlice } from './settings.js';
 
 describe('settings defaults', () => {
-  it('uses the curated five-provider shortlist for each model group', () => {
+  it('uses the curated provider shortlist for each model group', () => {
     const state = settingsSlice.reducer(undefined, { type: '@@INIT' });
 
     expect(state.llm.activeProvider).toBe('openai');
     expect(state.llm.providers.map(({ id, model }) => ({ id, model }))).toEqual([
-      { id: 'openai', model: 'gpt-5.4' },
+      { id: 'openai', model: 'gpt-4.1' },
       { id: 'claude', model: 'claude-opus-4-6' },
       { id: 'gemini', model: 'gemini-2.5-flash' },
       { id: 'deepseek', model: 'deepseek-chat' },
@@ -15,30 +15,30 @@ describe('settings defaults', () => {
     ]);
 
     expect(state.image.activeProvider).toBe('openai-image');
-    expect(state.image.providers.map(({ id, model }) => ({ id, model }))).toEqual([
-      { id: 'openai-image', model: 'gpt-image-1.5' },
-      { id: 'google-imagen3', model: 'imagen-4.0-ultra-generate-001' },
-      { id: 'flux', model: 'FLUX.2-pro' },
-      { id: 'recraft-v4', model: 'recraftv4' },
-      { id: 'stability-image', model: 'stable-image-core' },
+    expect(state.image.providers.map(({ id, baseUrl, model }) => ({ id, baseUrl, model }))).toEqual([
+      { id: 'openai-image', baseUrl: 'https://api.openai.com/v1', model: 'gpt-image-1.5' },
+      { id: 'google-imagen3', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'imagen-4.0-ultra-generate-001' },
+      { id: 'flux', baseUrl: 'https://api.replicate.com/v1', model: 'FLUX.2-pro' },
+      { id: 'recraft-v4', baseUrl: 'https://external.api.recraft.ai/v1', model: 'recraftv4' },
+      { id: 'ideogram', baseUrl: 'https://api.ideogram.ai', model: 'ideogram-v3' },
     ]);
 
     expect(state.video.activeProvider).toBe('google-veo-2');
-    expect(state.video.providers.map(({ id, model }) => ({ id, model }))).toEqual([
-      { id: 'google-veo-2', model: 'veo-3.1-generate-preview' },
-      { id: 'runway-gen4', model: 'gen4.5' },
-      { id: 'luma-ray2', model: 'ray-2' },
-      { id: 'minimax-video01', model: 'MiniMax-Hailuo-2.3' },
-      { id: 'pika-v2', model: 'pika-2.5' },
+    expect(state.video.providers.map(({ id, baseUrl, model }) => ({ id, baseUrl, model }))).toEqual([
+      { id: 'google-veo-2', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'veo-3.1-generate-preview' },
+      { id: 'runway-gen4', baseUrl: 'https://api.dev.runwayml.com/v1', model: 'gen4.5' },
+      { id: 'luma-ray2', baseUrl: 'https://api.lumalabs.ai/dream-machine/v1', model: 'ray-3' },
+      { id: 'minimax-video01', baseUrl: 'https://api.minimax.chat/v1', model: 'MiniMax-Hailuo-2.3' },
+      { id: 'pika-v2', baseUrl: 'https://api.pika.art/v1', model: 'pika-2.5' },
     ]);
 
     expect(state.audio.activeProvider).toBe('elevenlabs');
-    expect(state.audio.providers.map(({ id, model }) => ({ id, model }))).toEqual([
-      { id: 'elevenlabs', model: 'eleven_v3' },
-      { id: 'fish-audio-v1', model: 's2-pro' },
-      { id: 'cartesia-sonic', model: 'sonic-3' },
-      { id: 'playht-3', model: 'PlayDialog' },
-      { id: 'openai-tts', model: 'gpt-4o-mini-tts' },
+    expect(state.audio.providers.map(({ id, baseUrl, model }) => ({ id, baseUrl, model }))).toEqual([
+      { id: 'elevenlabs', baseUrl: 'https://api.elevenlabs.io/v1', model: 'eleven_v3' },
+      { id: 'fish-audio-v1', baseUrl: 'https://api.fish.audio/v1', model: 's2-pro' },
+      { id: 'cartesia-sonic', baseUrl: 'https://api.cartesia.ai', model: 'sonic-3' },
+      { id: 'playht-3', baseUrl: 'https://api.play.ht/api/v2', model: 'PlayDialog' },
+      { id: 'openai-tts', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini-tts' },
     ]);
   });
 
@@ -85,7 +85,7 @@ describe('settings defaults', () => {
       'grok',
       'custom-llm-1',
     ]);
-    expect(restored.llm.providers.find((provider) => provider.id === 'openai')?.model).toBe('gpt-5.4');
+    expect(restored.llm.providers.find((provider) => provider.id === 'openai')?.model).toBe('gpt-4.1');
     expect(restored.llm.providers.find((provider) => provider.id === 'custom-llm-1')).toMatchObject({
       name: 'OpenRouter',
       baseUrl: 'https://openrouter.ai/api/v1',

@@ -19,10 +19,12 @@ export class VeoAdapter implements AIProviderAdapter {
 
   private apiKey = '';
   private baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+  private model = 'veo-3.0-generate-001';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
     if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.model) this.model = options.model as string;
   }
 
   async validate(): Promise<boolean> {
@@ -39,7 +41,7 @@ export class VeoAdapter implements AIProviderAdapter {
   async generate(req: GenerationRequest): Promise<GenerationResult> {
     const body = toVeoRequest(req);
     const res = await fetchWithTimeout(
-      `${this.baseUrl}/models/veo-2.0-generate-001:predictLongRunning`,
+      `${this.baseUrl}/models/${this.model}:predictLongRunning`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },

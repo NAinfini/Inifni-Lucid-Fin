@@ -65,6 +65,7 @@ export {
 } from './agent/tools/orchestration-tools.js';
 export { createSeriesTools, type SeriesToolDeps, type SeriesEpisode } from './agent/tools/series-tools.js';
 export { createColorStyleTools, type ColorStyleToolDeps } from './agent/tools/color-style-tools.js';
+export { createProviderTools, type ProviderToolDeps, type ProviderInfo } from './agent/tools/provider-tools.js';
 export { createAssetTools, type AssetToolDeps } from './agent/tools/asset-tools.js';
 export {
   createPromptTools,

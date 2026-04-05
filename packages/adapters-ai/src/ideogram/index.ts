@@ -46,7 +46,7 @@ export class IdeogramAdapter implements AIProviderAdapter {
           prompt: req.prompt,
           negative_prompt: req.negativePrompt,
           aspect_ratio: this.getAspectRatio(req.width, req.height),
-          model: 'V_2',
+          model: 'V_3',
           ...(req.seed != null && { seed: req.seed }),
         },
       }),

@@ -1,122 +1,135 @@
-import { useEffect, useState, useCallback } from 'react';
-import { ListTodo, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
-import { getAPI } from '../../utils/api.js';
+import { useSelector } from 'react-redux';
+import { ListTodo, Loader2, CheckCircle2, XCircle, X } from 'lucide-react';
+import { useDispatch } from 'react-redux';
+import type { RootState } from '../../store/index.js';
+import { setRightPanel } from '../../store/slices/ui.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 
-interface JobEntry {
-  id: string;
-  provider: string;
-  status: string;
-  progress: number;
-  error?: string;
-  currentStep?: string;
-}
-
 const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  pending: Clock,
-  queued: Clock,
-  running: Loader2,
-  completed: CheckCircle2,
+  empty: ListTodo,
+  generating: Loader2,
+  done: CheckCircle2,
   failed: XCircle,
-  cancelled: XCircle,
-  dead: XCircle,
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  pending: 'text-muted-foreground',
-  queued: 'text-muted-foreground',
-  running: 'text-blue-400',
-  completed: 'text-emerald-400',
+  empty: 'text-muted-foreground',
+  generating: 'text-blue-400',
+  done: 'text-emerald-400',
   failed: 'text-destructive',
-  cancelled: 'text-muted-foreground',
-  dead: 'text-destructive',
 };
-
-const ACTIVE_STATUSES = new Set(['pending', 'queued', 'running']);
 
 export function GenerationQueuePanel() {
   const { t } = useI18n();
-  const [jobs, setJobs] = useState<JobEntry[]>([]);
+  const dispatch = useDispatch();
+  const canvas = useSelector((state: RootState) => {
+    const id = state.canvas.activeCanvasId;
+    return state.canvas.canvases.find((c) => c.id === id);
+  });
 
-  const refresh = useCallback(async () => {
-    const api = getAPI();
-    if (!api) return;
-    try {
-      const list = await api.job.list();
-      setJobs(list as unknown as JobEntry[]);
-    } catch { /* ignore */ }
-  }, []);
+  const generationNodes = (canvas?.nodes ?? [])
+    .filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio')
+    .map((n) => {
+      const data = n.data as { status?: string; progress?: number; error?: string; providerId?: string; jobId?: string };
+      return {
+        id: n.id,
+        title: n.title || n.type,
+        type: n.type,
+        status: data.status ?? 'empty',
+        progress: data.progress ?? 0,
+        error: data.error,
+        providerId: data.providerId,
+      };
+    })
+    .filter((n) => n.status !== 'empty');
 
-  useEffect(() => {
-    void refresh();
-
-    const api = getAPI();
-    if (!api) return;
-
-    // Progress/complete events don't send full job objects — use them as refresh triggers
-    const offProgress = api.job.onProgress(() => { void refresh(); });
-    const offComplete = api.job.onComplete(() => { void refresh(); });
-
-    return () => {
-      offProgress();
-      offComplete();
-    };
-  }, [refresh]);
-
-  const active = jobs.filter((j) => ACTIVE_STATUSES.has(j.status));
-  const finished = jobs.filter((j) => !ACTIVE_STATUSES.has(j.status));
+  const generating = generationNodes.filter((n) => n.status === 'generating');
+  const completed = generationNodes.filter((n) => n.status === 'done');
+  const failed = generationNodes.filter((n) => n.status === 'failed');
 
   return (
-    <div className="h-full bg-card border-l flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
+    <div className="h-full flex flex-col bg-card border-l overflow-auto">
+      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
         <div className="flex items-center gap-2">
           <ListTodo className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm font-medium">{t('generationQueue.title')}</span>
+          <span className="text-sm font-semibold">{t('toolbar.queue')}</span>
         </div>
-        {active.length > 0 && (
-          <span className="text-[10px] rounded-full bg-blue-400/20 text-blue-400 px-2 py-0.5 font-medium">
-            {active.length} {t('generationQueue.active')}
-          </span>
-        )}
+        <button
+          onClick={() => dispatch(setRightPanel(null))}
+          className="p-1 rounded hover:bg-muted transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
-      {jobs.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-          {t('generationQueue.empty')}
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-          {[...active, ...finished].map((job) => {
-            const Icon = STATUS_ICON[job.status] ?? Clock;
-            const isRunning = job.status === 'running';
-            return (
-              <div key={job.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/40 border border-border/60">
-                <Icon className={cn('w-4 h-4 mt-0.5 shrink-0', isRunning ? 'animate-spin' : '', STATUS_COLOR[job.status] ?? 'text-muted-foreground')} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{job.provider ?? t('generationQueue.unknown')}</div>
-                  <div className="text-xs text-muted-foreground">{job.id.slice(0, 8)}</div>
-                  {job.currentStep && (
-                    <div className="text-xs text-muted-foreground truncate mt-0.5">{job.currentStep}</div>
-                  )}
-                  {isRunning && (
-                    <div className="mt-1.5 h-1 rounded-full bg-border overflow-hidden">
-                      <div
-                        className="h-full bg-blue-400 rounded-full transition-all"
-                        style={{ width: `${job.progress ?? 0}%` }}
-                      />
+      <div className="flex-1 overflow-auto p-3 space-y-2">
+        {generating.length === 0 && completed.length === 0 && failed.length === 0 ? (
+          <div className="text-xs text-muted-foreground text-center py-8">
+            {t('generation.noJobs')}
+          </div>
+        ) : null}
+
+        {generating.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              {t('generation.active')} ({generating.length})
+            </div>
+            {generating.map((node) => {
+              const Icon = STATUS_ICON[node.status] ?? ListTodo;
+              return (
+                <div key={node.id} className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-2.5">
+                  <div className="flex items-center gap-2">
+                    <Icon className={cn('h-3.5 w-3.5 shrink-0', node.status === 'generating' && 'animate-spin', STATUS_COLOR[node.status])} />
+                    <span className="flex-1 truncate text-xs font-medium">{node.title}</span>
+                    <span className="text-[10px] text-muted-foreground">{node.progress}%</span>
+                  </div>
+                  {node.progress > 0 && (
+                    <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+                      <div className="h-full bg-blue-500 transition-all" style={{ width: `${node.progress}%` }} />
                     </div>
                   )}
-                  {job.error && (
-                    <div className="mt-1 text-xs text-destructive truncate">{job.error}</div>
-                  )}
                 </div>
-                <span className="text-[10px] text-muted-foreground capitalize shrink-0">{job.status}</span>
+              );
+            })}
+          </div>
+        )}
+
+        {failed.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              {t('generation.failed')} ({failed.length})
+            </div>
+            {failed.map((node) => (
+              <div key={node.id} className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5">
+                <div className="flex items-center gap-2">
+                  <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                  <span className="flex-1 truncate text-xs font-medium">{node.title}</span>
+                </div>
+                {node.error && (
+                  <div className="mt-1 text-[10px] text-destructive truncate">{node.error}</div>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+
+        {completed.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              {t('generation.completed')} ({completed.length})
+            </div>
+            {completed.map((node) => (
+              <div key={node.id} className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                  <span className="flex-1 truncate text-xs font-medium">{node.title}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

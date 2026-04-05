@@ -12,6 +12,7 @@ import {
   Paperclip,
   Send,
   Shield,
+  ShieldAlert,
   Trash2,
   X,
   Zap,
@@ -352,6 +353,7 @@ export function CommanderPanel() {
     return state.canvas.canvases.find((c) => c.id === activeId)?.nodes ?? [];
   });
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [permPickerOpen, setPermPickerOpen] = useState(false);
   const [nodePickerOpen, setNodePickerOpen] = useState(false);
 
   // Auto-expanding input rows
@@ -374,17 +376,18 @@ export function CommanderPanel() {
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!modelPickerOpen && !nodePickerOpen) return;
+    if (!modelPickerOpen && !nodePickerOpen && !permPickerOpen) return;
     const handle = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest('[data-dropdown-menu]')) {
         setModelPickerOpen(false);
         setNodePickerOpen(false);
+        setPermPickerOpen(false);
       }
     };
     window.addEventListener('mousedown', handle);
     return () => window.removeEventListener('mousedown', handle);
-  }, [modelPickerOpen, nodePickerOpen]);
+  }, [modelPickerOpen, nodePickerOpen, permPickerOpen]);
 
   useEffect(() => {
     if (!open) {
@@ -848,16 +851,51 @@ export function CommanderPanel() {
               )}
             </div>
 
-            <select
-              value={permissionMode}
-              onChange={(event) => dispatch(setPermissionMode(event.target.value as PermissionMode))}
-              title={t(`commander.permissionMode.${permissionMode}Desc`)}
-              className="rounded bg-transparent px-1.5 py-0.5 text-[10px] text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <option value="auto">{t('commander.permissionMode.auto')}</option>
-              <option value="normal">{t('commander.permissionMode.normal')}</option>
-              <option value="strict">{t('commander.permissionMode.strict')}</option>
-            </select>
+            {/* Permission mode selector */}
+            <div className="relative" data-dropdown-menu>
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setPermPickerOpen((v) => !v)}
+              >
+                {permissionMode === 'auto' && <Zap className="h-2.5 w-2.5 text-emerald-400" />}
+                {permissionMode === 'normal' && <Shield className="h-2.5 w-2.5 text-amber-400" />}
+                {permissionMode === 'strict' && <ShieldAlert className="h-2.5 w-2.5 text-red-400" />}
+                <span>{t(`commander.permissionMode.${permissionMode}`)}</span>
+                <ChevronDown className="h-2.5 w-2.5" />
+              </button>
+              {permPickerOpen && (
+                <div className="absolute bottom-7 right-0 z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
+                  {([
+                    { value: 'auto' as const, icon: Zap, color: 'text-emerald-400' },
+                    { value: 'normal' as const, icon: Shield, color: 'text-amber-400' },
+                    { value: 'strict' as const, icon: ShieldAlert, color: 'text-red-400' },
+                  ]).map((m) => {
+                    const Icon = m.icon;
+                    return (
+                      <button
+                        key={m.value}
+                        type="button"
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-muted',
+                          permissionMode === m.value && 'bg-primary/10 text-primary',
+                        )}
+                        onClick={() => {
+                          dispatch(setPermissionMode(m.value));
+                          setPermPickerOpen(false);
+                        }}
+                      >
+                        <Icon className={cn('h-3.5 w-3.5', m.color)} />
+                        <div>
+                          <div className="font-medium">{t(`commander.permissionMode.${m.value}`)}</div>
+                          <div className="text-[9px] text-muted-foreground">{t(`commander.permissionMode.${m.value}Desc`)}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Send / Cancel button */}
             {isStreaming ? (

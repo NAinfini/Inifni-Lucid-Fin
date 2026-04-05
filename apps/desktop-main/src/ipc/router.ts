@@ -66,6 +66,7 @@ export function registerAllHandlers(
     cas,
     db,
     canvasStore,
+    keychain,
   });
   registerPresetHandlers(ipcMain, db);
   registerCommanderHandlers(ipcMain, getWindow, {

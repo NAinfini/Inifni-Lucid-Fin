@@ -25,7 +25,7 @@ export class GoogleImagen3Adapter implements AIProviderAdapter {
   readonly maxConcurrent = 5;
 
   private apiKey = '';
-  private model = 'imagen-3.0-generate-002';
+  private model = 'imagen-4.0-generate-001';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;

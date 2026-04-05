@@ -4,6 +4,8 @@ import { OpenAILLMAdapter } from './openai-llm.js';
 import { ClaudeLLMAdapter } from './claude-llm.js';
 import { GeminiLLMAdapter } from './gemini-llm.js';
 import { OllamaLLMAdapter } from './ollama-llm.js';
+import { QwenLLMAdapter } from './qwen-llm.js';
+import { GrokLLMAdapter } from './grok-llm.js';
 import type { LLMAdapter } from '@lucid-fin/contracts';
 
 function mockLLM(id = 'mock-llm'): LLMAdapter {
@@ -71,5 +73,10 @@ describe('LLMAdapter completeWithTools', () => {
   it('OllamaLLMAdapter has completeWithTools method', () => {
     const adapter = new OllamaLLMAdapter();
     expect(typeof adapter.completeWithTools).toBe('function');
+  });
+
+  it('QwenLLMAdapter and GrokLLMAdapter have completeWithTools method', () => {
+    expect(typeof new QwenLLMAdapter().completeWithTools).toBe('function');
+    expect(typeof new GrokLLMAdapter().completeWithTools).toBe('function');
   });
 });

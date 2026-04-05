@@ -1,10 +1,7 @@
 import type { ReactNode } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { Download, Grid2X2, Map, Search, ScrollText, Upload } from 'lucide-react';
+import { Download, Grid2X2, Map, Search, Upload } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
-import type { RootState } from '../../store/index.js';
-import { toggleRightPanel } from '../../store/slices/ui.js';
 import {
   Tooltip,
   TooltipContent,
@@ -59,8 +56,6 @@ export function CanvasToolbar({
   onExportWorkflow,
   onImportWorkflow,
 }: CanvasToolbarProps) {
-  const dispatch = useDispatch();
-  const loggerOpen = useSelector((s: RootState) => s.ui.rightPanel === 'logger');
   const buttons = [
     {
       id: 'search',
@@ -94,13 +89,6 @@ export function CanvasToolbar({
       label: t('canvas.importWorkflow'),
       icon: <Upload className="h-4 w-4" />,
       onClick: onImportWorkflow,
-    },
-    {
-      id: 'logger',
-      active: loggerOpen,
-      label: t('logger.title'),
-      icon: <ScrollText className="h-4 w-4" />,
-      onClick: () => dispatch(toggleRightPanel('logger')),
     },
   ];
 

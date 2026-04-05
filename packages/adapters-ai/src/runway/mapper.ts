@@ -3,7 +3,7 @@ import type { GenerationRequest } from '@lucid-fin/contracts';
 export function toRunwayRequest(req: GenerationRequest): Record<string, unknown> {
   return {
     promptText: req.prompt,
-    model: 'gen4',
+    model: 'gen4.5',
     width: req.width ?? 1280,
     height: req.height ?? 768,
     duration: req.duration ?? 5,

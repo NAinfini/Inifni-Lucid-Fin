@@ -21,7 +21,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
 
   private apiKey = '';
   private baseUrl = 'https://api.anthropic.com';
-  private model = 'claude-sonnet-4-5-20250514';
+  private model = 'claude-sonnet-4-6';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;

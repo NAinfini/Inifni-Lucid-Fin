@@ -5,15 +5,39 @@ import { fileURLToPath } from 'node:url';
 import { ProjectFS, CAS, SqliteIndex, Keychain, PromptStore } from '@lucid-fin/storage';
 import {
   AdapterRegistry,
+  // Image adapters
   OpenAIDalleAdapter,
-  RunwayAdapter,
   FluxAdapter,
   IdeogramAdapter,
+  GoogleImagen3Adapter,
+  RecraftAdapter,
+  // Video adapters
+  RunwayAdapter,
+  VeoAdapter,
+  LumaAdapter,
+  MiniMaxAdapter,
+  PikaAdapter,
+  KlingAdapter,
+  WanAdapter,
+  SeedanceAdapter,
+  HunyuanVideoAdapter,
+  // Audio adapters
+  ElevenLabsAdapter,
+  ElevenLabsSFXAdapter,
+  OpenAITTSAdapter,
+  CartesiaSonicAdapter,
+  PlayHTAdapter,
+  FishAudioAdapter,
+  StabilityAudioAdapter,
+  // LLM adapters
   LLMRegistry,
   OpenAILLMAdapter,
   ClaudeLLMAdapter,
   GeminiLLMAdapter,
   OllamaLLMAdapter,
+  DeepSeekLLMAdapter,
+  GrokLLMAdapter,
+  QwenLLMAdapter,
 } from '@lucid-fin/adapters-ai';
 import { AgentToolRegistry } from '@lucid-fin/application';
 import type { LLMAdapter } from '@lucid-fin/contracts';
@@ -21,6 +45,70 @@ import type { LLMAdapter } from '@lucid-fin/contracts';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const APP_DIR = path.join(os.homedir(), '.lucid-fin');
+
+const MEDIA_PROVIDER_KEY_ALIASES: Record<string, readonly string[]> = {
+  'openai-dalle': ['openai-image'],
+  'recraft-v3': ['recraft-v4'],
+  'elevenlabs-v2': ['elevenlabs'],
+  'openai-tts-1-hd': ['openai-tts'],
+};
+
+export function resolveMediaProviderIds(providerId: string): string[] {
+  const ids = new Set<string>([providerId]);
+  const aliases = MEDIA_PROVIDER_KEY_ALIASES[providerId];
+  if (aliases) {
+    for (const alias of aliases) {
+      ids.add(alias);
+    }
+  }
+  for (const [adapterId, legacyIds] of Object.entries(MEDIA_PROVIDER_KEY_ALIASES)) {
+    if (legacyIds.includes(providerId)) {
+      ids.add(adapterId);
+    }
+  }
+  return Array.from(ids);
+}
+
+export function createAdapterRegistry(): AdapterRegistry {
+  const adapterRegistry = new AdapterRegistry();
+  // Image
+  adapterRegistry.register(new OpenAIDalleAdapter());
+  adapterRegistry.register(new FluxAdapter());
+  adapterRegistry.register(new IdeogramAdapter());
+  adapterRegistry.register(new GoogleImagen3Adapter());
+  adapterRegistry.register(new RecraftAdapter());
+  // Video
+  adapterRegistry.register(new RunwayAdapter());
+  adapterRegistry.register(new VeoAdapter());
+  adapterRegistry.register(new LumaAdapter());
+  adapterRegistry.register(new MiniMaxAdapter());
+  adapterRegistry.register(new PikaAdapter());
+  adapterRegistry.register(new KlingAdapter());
+  adapterRegistry.register(new WanAdapter());
+  adapterRegistry.register(new SeedanceAdapter());
+  adapterRegistry.register(new HunyuanVideoAdapter());
+  // Audio
+  adapterRegistry.register(new ElevenLabsAdapter());
+  adapterRegistry.register(new ElevenLabsSFXAdapter());
+  adapterRegistry.register(new OpenAITTSAdapter());
+  adapterRegistry.register(new CartesiaSonicAdapter());
+  adapterRegistry.register(new PlayHTAdapter());
+  adapterRegistry.register(new FishAudioAdapter());
+  adapterRegistry.register(new StabilityAudioAdapter());
+  return adapterRegistry;
+}
+
+export function createLLMRegistry(): LLMRegistry {
+  const llmRegistry = new LLMRegistry();
+  llmRegistry.register(new OpenAILLMAdapter());
+  llmRegistry.register(new ClaudeLLMAdapter());
+  llmRegistry.register(new GeminiLLMAdapter());
+  llmRegistry.register(new OllamaLLMAdapter());
+  llmRegistry.register(new DeepSeekLLMAdapter());
+  llmRegistry.register(new GrokLLMAdapter());
+  llmRegistry.register(new QwenLLMAdapter());
+  return llmRegistry;
+}
 
 export function initApp() {
   // Ensure app directory exists before DB/assets creation
@@ -38,19 +126,8 @@ export function initApp() {
   const cas = new CAS(assetsRoot, workerPath);
   const keychain = new Keychain();
 
-  // Register media AI adapters
-  const adapterRegistry = new AdapterRegistry();
-  adapterRegistry.register(new OpenAIDalleAdapter());
-  adapterRegistry.register(new RunwayAdapter());
-  adapterRegistry.register(new FluxAdapter());
-  adapterRegistry.register(new IdeogramAdapter());
-
-  // Register LLM adapters
-  const llmRegistry = new LLMRegistry();
-  llmRegistry.register(new OpenAILLMAdapter());
-  llmRegistry.register(new ClaudeLLMAdapter());
-  llmRegistry.register(new GeminiLLMAdapter());
-  llmRegistry.register(new OllamaLLMAdapter());
+  const adapterRegistry = createAdapterRegistry();
+  const llmRegistry = createLLMRegistry();
 
   // Prompt template store
   const promptStore = new PromptStore(promptDbPath);
@@ -64,11 +141,19 @@ export function initApp() {
 export async function selectConfiguredLLMAdapter(
   adapters: readonly LLMAdapter[],
 ): Promise<LLMAdapter> {
-  for (const adapter of adapters) {
-    if (await adapter.validate()) {
-      return adapter;
-    }
-  }
+  // Check all adapters in parallel, return first valid one by original order
+  const results = await Promise.all(
+    adapters.map(async (adapter) => {
+      try {
+        const valid = await adapter.validate();
+        return { adapter, valid };
+      } catch {
+        return { adapter, valid: false };
+      }
+    }),
+  );
+  const found = results.find((r) => r.valid);
+  if (found) return found.adapter;
   throw new Error('No configured LLM adapter');
 }
 
@@ -78,12 +163,40 @@ export async function restoreAdapterKeys(
   registry: AdapterRegistry,
   llmRegistry: LLMRegistry,
 ): Promise<void> {
-  for (const adapter of registry.list()) {
-    const key = await keychain.getKey(adapter.id);
+  // Run all keychain lookups in parallel to avoid sequential blocking
+  const mediaAdapters = registry.list();
+  const llmAdapters = llmRegistry.list();
+
+  const mediaResults = await Promise.all(
+    mediaAdapters.map(async (adapter) => {
+      const key = await getFirstConfiguredKey(keychain, resolveMediaProviderIds(adapter.id));
+      return { adapter, key };
+    }),
+  );
+  for (const { adapter, key } of mediaResults) {
     if (key) adapter.configure(key);
   }
-  for (const adapter of llmRegistry.list()) {
-    const key = await keychain.getKey(adapter.id);
+
+  const llmResults = await Promise.all(
+    llmAdapters.map(async (adapter) => {
+      const key = await getFirstConfiguredKey(keychain, [adapter.id]);
+      return { adapter, key };
+    }),
+  );
+  for (const { adapter, key } of llmResults) {
     if (key) adapter.configure(key);
   }
+}
+
+async function getFirstConfiguredKey(
+  keychain: Keychain,
+  providerIds: readonly string[],
+): Promise<string | null> {
+  for (const providerId of providerIds) {
+    const key = await keychain.getKey(providerId);
+    if (key) {
+      return key;
+    }
+  }
+  return null;
 }

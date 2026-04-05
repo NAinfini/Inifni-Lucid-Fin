@@ -61,6 +61,7 @@ describe('canvas generation reducers', () => {
 
     const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
     const data = node?.data as { status: string; progress?: number; jobId?: string };
+    expect(node?.status).toBe('generating');
     expect(data.status).toBe('generating');
     expect(data.progress).toBe(45);
     expect(data.jobId).toBe('job-1');
@@ -68,6 +69,7 @@ describe('canvas generation reducers', () => {
 
   it('completes generation and sets variants/primary asset', () => {
     let state = setup();
+    state = canvasSlice.reducer(state, setNodeGenerating({ id: 'vid-1', jobId: 'job-video' }));
     state = canvasSlice.reducer(
       state,
       setNodeGenerationComplete({
@@ -89,6 +91,7 @@ describe('canvas generation reducers', () => {
       estimatedCost?: number;
       generationTimeMs?: number;
     };
+    expect(node?.status).toBe('done');
     expect(data.status).toBe('done');
     expect(data.variants).toEqual(['hash-a', 'hash-b']);
     expect(data.selectedVariantIndex).toBe(0);
@@ -108,6 +111,7 @@ describe('canvas generation reducers', () => {
 
     const node = state.canvases[0].nodes.find((n) => n.id === 'aud-1');
     const data = node?.data as { status: string; error?: string; progress?: number };
+    expect(node?.status).toBe('failed');
     expect(data.status).toBe('failed');
     expect(data.error).toBe('provider timeout');
     expect(data.progress).toBeUndefined();

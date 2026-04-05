@@ -16,6 +16,7 @@ import {
   createLocationTools,
   createPresetTools,
   createProjectTools,
+  createProviderTools,
   createRenderTools,
   createScriptTools,
   createSeriesTools,
@@ -461,8 +462,8 @@ export function buildContext(
 
 function emitToWindow(
   getWindow: () => BrowserWindow | null,
-  channel: 'commander:stream' | 'commander:canvas:updated' | 'commander:entities:updated',
-  payload: CommanderStreamPayload | { canvasId: string; canvas: Canvas } | { toolName: string },
+  channel: string,
+  payload: unknown,
 ): void {
   const win = getWindow();
   if (!win || win.isDestroyed()) {
@@ -585,6 +586,7 @@ export function registerCommanderHandlers(
         cas: deps.cas,
         db: deps.db,
         canvasStore: deps.canvasStore,
+        keychain: deps.keychain,
       };
 
       const canvasToolDeps = {
@@ -1081,6 +1083,56 @@ export function registerCommanderHandlers(
         },
         deleteColorStyle: async (id: string) => {
           deps.db.deleteColorStyle(id);
+        },
+      })) {
+        registry.register(tool);
+      }
+      for (const tool of createProviderTools({
+        listProviders: async (group: string) => {
+          const win = getWindow();
+          if (!win) return [];
+          return win.webContents.executeJavaScript(`
+            (function() {
+              var state = window.__REDUX_STORE__?.getState?.();
+              if (!state?.settings?.['${group}']) return [];
+              return state.settings['${group}'].providers.map(function(p) {
+                return { id: p.id, name: p.name, baseUrl: p.baseUrl, model: p.model, isCustom: p.isCustom, hasKey: p.hasKey };
+              });
+            })()
+          `);
+        },
+        getActiveProvider: async (group: string) => {
+          const win = getWindow();
+          if (!win) return null;
+          return win.webContents.executeJavaScript(`
+            window.__REDUX_STORE__?.getState?.()?.settings?.['${group}']?.activeProvider ?? null
+          `);
+        },
+        setActiveProvider: async (group: string, providerId: string) => {
+          const win = getWindow();
+          if (!win) return;
+          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setActiveProvider', payload: { group, provider: providerId } });
+        },
+        setProviderBaseUrl: async (group: string, providerId: string, baseUrl: string) => {
+          const win = getWindow();
+          if (!win) return;
+          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setProviderBaseUrl', payload: { group, provider: providerId, baseUrl } });
+        },
+        setProviderModel: async (group: string, providerId: string, model: string) => {
+          const win = getWindow();
+          if (!win) return;
+          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setProviderModel', payload: { group, provider: providerId, model } });
+        },
+        setProviderName: async (group: string, providerId: string, name: string) => {
+          const win = getWindow();
+          if (!win) return;
+          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setProviderName', payload: { group, provider: providerId, name } });
+        },
+        addCustomProvider: async (group: string, id: string, name: string) => {
+          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'addCustomProvider', payload: { group, id, name } });
+        },
+        removeCustomProvider: async (group: string, providerId: string) => {
+          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'removeCustomProvider', payload: { group, provider: providerId } });
         },
       })) {
         registry.register(tool);

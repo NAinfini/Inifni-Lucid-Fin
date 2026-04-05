@@ -2,7 +2,7 @@ import type { GenerationRequest } from '@lucid-fin/contracts';
 
 export function toOpenAIRequest(req: GenerationRequest): Record<string, unknown> {
   return {
-    model: 'dall-e-3',
+    model: 'gpt-image-1',
     prompt: req.prompt,
     n: 1,
     size: `${req.width ?? 1024}x${req.height ?? 1024}`,

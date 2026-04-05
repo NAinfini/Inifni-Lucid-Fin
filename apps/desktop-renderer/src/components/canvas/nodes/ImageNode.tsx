@@ -2,7 +2,7 @@ import { memo, useState } from 'react';
 import { Handle, Position, NodeResizer, type NodeProps } from '@xyflow/react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
-import { Image, Sparkles, RefreshCw, Lock, Unlock, Upload } from 'lucide-react';
+import { Image, Loader2, Sparkles, RefreshCw, Lock, Unlock, Upload } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import { CanvasNodeTooltip } from '../CanvasNodeTooltip.js';
@@ -83,7 +83,7 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
       >
         <div
           className={cn(
-            'relative rounded-lg border-2 bg-card shadow-md min-w-[200px]',
+            'relative flex flex-col overflow-hidden rounded-lg border-2 bg-card shadow-md min-w-[200px]',
             'transition-shadow',
             selected ? 'border-blue-400 ring-[3px] ring-blue-400/50' : 'border-blue-500/40',
             d.bypassed && 'opacity-40',
@@ -99,7 +99,9 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
           />
           <NodeStatusBadge status={d.status} />
           {d.generationStatus === 'generating' && (
-            <div className="pointer-events-none absolute inset-0 z-10 animate-pulse rounded-lg border-2 border-blue-500 bg-blue-500/5" />
+            <div className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-blue-500 bg-blue-500/5" style={{
+              animation: 'border-glow 2s ease-in-out infinite',
+            }} />
           )}
 
           <div className="flex items-center gap-1.5 border-b border-blue-500/20 px-3 py-2">
@@ -109,7 +111,7 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
             </span>
           </div>
 
-          <div className="flex min-h-[80px] max-h-[240px] items-center justify-center px-3 py-3 overflow-hidden">
+          <div className="flex items-center justify-center px-3 py-2 overflow-hidden" style={{ maxHeight: '60%' }}>
             {hasThumbnail && !imgError ? (
               activeUrl ? (
                 <img
@@ -124,6 +126,11 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
                   {t('node.loading')}
                 </div>
               )
+            ) : isGenerating ? (
+              <div className="flex flex-col items-center gap-1.5 text-blue-400">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="text-[10px]">{t('node.generating')}</span>
+              </div>
             ) : (
               <button
                 type="button"
@@ -146,8 +153,8 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
           )}
 
           {d.generationStatus === 'failed' && d.error && (
-            <div className="px-3 pb-1">
-              <span className="block truncate text-[10px] text-destructive">{d.error}</span>
+            <div className="px-3 pb-1 overflow-hidden">
+              <span className="block text-[10px] text-destructive line-clamp-2">{d.error}</span>
             </div>
           )}
 

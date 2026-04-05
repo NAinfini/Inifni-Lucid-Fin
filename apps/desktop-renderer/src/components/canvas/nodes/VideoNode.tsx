@@ -2,7 +2,7 @@ import { memo, useCallback, useRef, useState } from 'react';
 import { Handle, Position, NodeResizer, type NodeProps } from '@xyflow/react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
-import { Video, Sparkles, RefreshCw, Play, Pause, Lock, Unlock } from 'lucide-react';
+import { Video, Loader2, Sparkles, RefreshCw, Play, Pause, Lock, Unlock } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import { CanvasNodeTooltip } from '../CanvasNodeTooltip.js';
@@ -102,7 +102,7 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
       >
         <div
           className={cn(
-            'relative rounded-lg border-2 bg-card shadow-md min-w-[200px]',
+            'relative overflow-hidden rounded-lg border-2 bg-card shadow-md min-w-[200px]',
             'transition-shadow',
             selected ? 'border-purple-400 ring-[3px] ring-purple-400/50' : 'border-purple-500/40',
             d.bypassed && 'opacity-40',
@@ -118,7 +118,9 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
           />
           <NodeStatusBadge status={d.status} />
           {d.generationStatus === 'generating' && (
-            <div className="pointer-events-none absolute inset-0 z-10 animate-pulse rounded-lg border-2 border-purple-500 bg-purple-500/5" />
+            <div className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-purple-500 bg-purple-500/5" style={{
+              animation: 'border-glow-purple 2s ease-in-out infinite',
+            }} />
           )}
 
           <div className="flex items-center gap-1.5 border-b border-purple-500/20 px-3 py-2">
@@ -162,6 +164,11 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
                     : <Play className="h-8 w-8 text-white" fill="white" />}
                 </button>
               </div>
+            ) : isGenerating ? (
+              <div className="flex flex-col items-center gap-1.5 text-purple-400">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="text-[10px]">{t('node.generating')}</span>
+              </div>
             ) : (
               <div className="flex flex-col items-center gap-1 text-muted-foreground">
                 <Video className="h-8 w-8 opacity-30" />
@@ -180,8 +187,8 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
           )}
 
           {d.generationStatus === 'failed' && d.error && (
-            <div className="px-3 pb-1">
-              <span className="block truncate text-[10px] text-destructive">{d.error}</span>
+            <div className="px-3 pb-1 overflow-hidden">
+              <span className="block text-[10px] text-destructive line-clamp-2">{d.error}</span>
             </div>
           )}
 

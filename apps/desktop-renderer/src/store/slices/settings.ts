@@ -33,7 +33,7 @@ const DEFAULT_ACTIVE_PROVIDERS: Record<APIGroup, string> = {
 
 const DEFAULT_PROVIDERS: Record<APIGroup, ProviderConfig[]> = {
   llm: [
-    { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.4', hasKey: false, isCustom: false },
+    { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1', hasKey: false, isCustom: false },
     { id: 'claude', name: 'Anthropic Claude', baseUrl: 'https://api.anthropic.com', model: 'claude-opus-4-6', hasKey: false, isCustom: false },
     { id: 'gemini', name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'gemini-2.5-flash', hasKey: false, isCustom: false },
     { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', hasKey: false, isCustom: false },
@@ -42,19 +42,19 @@ const DEFAULT_PROVIDERS: Record<APIGroup, ProviderConfig[]> = {
   image: [
     { id: 'openai-image', name: 'OpenAI GPT Image', baseUrl: 'https://api.openai.com/v1', model: 'gpt-image-1.5', hasKey: false, isCustom: false },
     { id: 'google-imagen3', name: 'Google Imagen 4', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'imagen-4.0-ultra-generate-001', hasKey: false, isCustom: false },
-    { id: 'flux', name: 'FLUX.2 Pro (BFL)', baseUrl: 'https://api.bfl.ml', model: 'FLUX.2-pro', hasKey: false, isCustom: false },
+    { id: 'flux', name: 'FLUX.2 Pro (BFL)', baseUrl: 'https://api.replicate.com/v1', model: 'FLUX.2-pro', hasKey: false, isCustom: false },
     { id: 'recraft-v4', name: 'Recraft V4', baseUrl: 'https://external.api.recraft.ai/v1', model: 'recraftv4', hasKey: false, isCustom: false },
-    { id: 'stability-image', name: 'Stability Image Core', baseUrl: 'https://api.stability.ai', model: 'stable-image-core', hasKey: false, isCustom: false },
+    { id: 'ideogram', name: 'Ideogram', baseUrl: 'https://api.ideogram.ai', model: 'ideogram-v3', hasKey: false, isCustom: false },
   ],
   video: [
     { id: 'google-veo-2', name: 'Google Veo 3.1', baseUrl: 'https://generativelanguage.googleapis.com/v1beta', model: 'veo-3.1-generate-preview', hasKey: false, isCustom: false },
     { id: 'runway-gen4', name: 'Runway Gen-4.5', baseUrl: 'https://api.dev.runwayml.com/v1', model: 'gen4.5', hasKey: false, isCustom: false },
-    { id: 'luma-ray2', name: 'Luma Ray 2', baseUrl: 'https://api.lumalabs.ai/dream-machine/v1', model: 'ray-2', hasKey: false, isCustom: false },
+    { id: 'luma-ray2', name: 'Luma Ray 3', baseUrl: 'https://api.lumalabs.ai/dream-machine/v1', model: 'ray-3', hasKey: false, isCustom: false },
     { id: 'minimax-video01', name: 'MiniMax Hailuo 2.3', baseUrl: 'https://api.minimax.chat/v1', model: 'MiniMax-Hailuo-2.3', hasKey: false, isCustom: false },
     { id: 'pika-v2', name: 'Pika 2.5', baseUrl: 'https://api.pika.art/v1', model: 'pika-2.5', hasKey: false, isCustom: false },
   ],
   audio: [
-    { id: 'elevenlabs', name: 'ElevenLabs', baseUrl: 'https://api.elevenlabs.io', model: 'eleven_v3', hasKey: false, isCustom: false },
+    { id: 'elevenlabs', name: 'ElevenLabs', baseUrl: 'https://api.elevenlabs.io/v1', model: 'eleven_v3', hasKey: false, isCustom: false },
     { id: 'fish-audio-v1', name: 'Fish Audio', baseUrl: 'https://api.fish.audio/v1', model: 's2-pro', hasKey: false, isCustom: false },
     { id: 'cartesia-sonic', name: 'Cartesia Sonic', baseUrl: 'https://api.cartesia.ai', model: 'sonic-3', hasKey: false, isCustom: false },
     { id: 'playht-3', name: 'PlayAI', baseUrl: 'https://api.play.ht/api/v2', model: 'PlayDialog', hasKey: false, isCustom: false },

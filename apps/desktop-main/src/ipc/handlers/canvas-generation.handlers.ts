@@ -27,7 +27,7 @@ import type {
   VideoNodeData,
 } from '@lucid-fin/contracts';
 import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet, JobStatus } from '@lucid-fin/contracts';
-import type { CAS, SqliteIndex } from '@lucid-fin/storage';
+import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
 import { getCurrentProjectId, getCurrentProjectPath } from '../project-context.js';
 import { assertWithinRoot } from '../validation.js';
@@ -37,6 +37,7 @@ type CanvasGenerationDeps = {
   cas: CAS;
   db: SqliteIndex;
   canvasStore: CanvasStore;
+  keychain: Keychain;
 };
 
 type SendTarget = {
@@ -119,16 +120,21 @@ const STYLE_GUIDE_LIGHTING_PRESETS: Record<StyleGuide['global']['lighting'], str
   custom: undefined,
 };
 const LEGACY_CANVAS_PROVIDER_ALIASES: Record<string, string> = {
+  // Settings ID → Adapter ID
+  'openai-image': 'openai-dalle',
+  'recraft-v4': 'recraft-v3',
+  'elevenlabs': 'elevenlabs-v2',
+  'openai-tts': 'openai-tts-1-hd',
+  // Legacy shorthand
   runway: 'runway-gen4',
   veo: 'google-veo-2',
   pika: 'pika-v2',
-  'openai-dalle': 'openai-image',
   imagen: 'google-imagen3',
-  'fish-audio': 'fish-audio-v1',
-  cartesia: 'cartesia-sonic',
-  playht: 'playht-3',
   luma: 'luma-ray2',
   minimax: 'minimax-video01',
+  cartesia: 'cartesia-sonic',
+  playht: 'playht-3',
+  'fish-audio': 'fish-audio-v1',
 };
 
 export function registerCanvasGenerationHandlers(ipcMain: IpcMain, deps: CanvasGenerationDeps): void {
@@ -143,7 +149,7 @@ export function registerCanvasGenerationHandlers(ipcMain: IpcMain, deps: CanvasG
   ipcMain.handle('canvas:estimateCost', async (_event, args: EstimateArgs) => {
     try {
       const parsed = requireEstimateArgs(args);
-      const context = buildGenerationContext(deps, {
+      const context = await buildGenerationContext(deps, {
         canvasId: parsed.canvasId,
         nodeId: parsed.nodeId,
         requestedProviderId: parsed.providerId,
@@ -175,6 +181,13 @@ export async function cancelCanvasGeneration(
   running.cancelReason = 'Generation cancelled by user';
   sendProgress(sender, parsed.canvasId, parsed.nodeId, 0, 'cancelling');
 
+  // Send failed event so frontend updates node status
+  sender.send('canvas:generation:failed', {
+    canvasId: parsed.canvasId,
+    nodeId: parsed.nodeId,
+    error: 'Cancelled by user',
+  });
+
   const adapter = deps.adapterRegistry.get(running.adapterId);
   if (!adapter) return;
 
@@ -202,7 +215,7 @@ export async function startCanvasGeneration(
     throw new Error(`Generation already running for node ${nodeId}`);
   }
 
-  const context = buildGenerationContext(deps, {
+  const context = await buildGenerationContext(deps, {
     canvasId,
     nodeId,
     requestedProviderId: normalizeOptionalString(args.providerId),
@@ -278,7 +291,55 @@ async function executeGeneration(args: {
       const materialized = await materializeAsset(generated);
       try {
         const assetType = mapGenerationTypeToAssetType(generationType);
-        const { ref, meta } = await deps.cas.importAsset(materialized.filePath, assetType);
+        const fileExists = fs.existsSync(materialized.filePath);
+        const fileStats = fileExists ? fs.statSync(materialized.filePath) : undefined;
+        log.info('[canvas:generation] materialized asset ready for import', {
+          canvasId: runningJob.canvasId,
+          nodeId: runningJob.nodeId,
+          variant: index + 1,
+          adapterId: adapter.id,
+          assetType,
+          filePath: materialized.filePath,
+          sourceUrl: materialized.sourceUrl,
+          cleanupPath: materialized.cleanupPath,
+          fileExists,
+          fileSize: fileStats?.size,
+        });
+
+        const importedAsset = await (async () => {
+          try {
+            return await deps.cas.importAsset(materialized.filePath, assetType);
+          } catch (error) {
+            log.error('[canvas:generation] asset import failed', {
+              canvasId: runningJob.canvasId,
+              nodeId: runningJob.nodeId,
+              variant: index + 1,
+              adapterId: adapter.id,
+              assetType,
+              filePath: materialized.filePath,
+              sourceUrl: materialized.sourceUrl,
+              cleanupPath: materialized.cleanupPath,
+              fileExists,
+              fileSize: fileStats?.size,
+              error: normalizeErrorMessage(error),
+            });
+            throw error;
+          }
+        })();
+        const { ref, meta } = importedAsset;
+        log.info('[canvas:generation] asset import succeeded', {
+          canvasId: runningJob.canvasId,
+          nodeId: runningJob.nodeId,
+          variant: index + 1,
+          adapterId: adapter.id,
+          assetType,
+          filePath: materialized.filePath,
+          hash: ref.hash,
+          format: ref.format,
+          storedPath: ref.path,
+          metaFileSize: meta.fileSize,
+          metaOriginalName: meta.originalName,
+        });
         const projectId = getCurrentProjectId();
 
         deps.db.insertAsset({
@@ -341,7 +402,7 @@ async function executeGeneration(args: {
   }
 }
 
-function buildGenerationContext(
+async function buildGenerationContext(
   deps: CanvasGenerationDeps,
   input: {
     canvasId: string;
@@ -351,7 +412,7 @@ function buildGenerationContext(
     requestedVariantCount?: number;
     requestedSeed?: number;
   },
-): BuiltGenerationContext {
+): Promise<BuiltGenerationContext> {
   const canvas = deps.canvasStore.get(input.canvasId);
   if (!canvas) throw new Error(`Canvas not found: ${input.canvasId}`);
 
@@ -368,7 +429,7 @@ function buildGenerationContext(
   const mode = determinePromptMode(canvas, node);
   const generationType = determineGenerationType(node);
   const providerId = resolveNodeProviderId(node, input.requestedProviderId);
-  const adapter = resolveAdapter(deps.adapterRegistry, providerId, generationType, mode, input.requestedProviderConfig);
+  const adapter = await resolveAdapter(deps.adapterRegistry, providerId, generationType, mode, input.requestedProviderConfig, deps.keychain, deps.cas);
   const nodeData = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
   const variantCount = resolveVariantCount(nodeData, input.requestedVariantCount);
   const baseSeed = resolveBaseSeed(nodeData, input.requestedSeed);
@@ -502,27 +563,119 @@ function resolveNodeProviderId(node: CanvasNode, requestedProviderId?: string): 
   );
 }
 
-function buildAdhocAdapter(id: string, config: ProviderConfigOverride): AIProviderAdapter {
-  const { baseUrl, model, apiKey = '' } = config;
+async function buildAdhocAdapter(id: string, config: ProviderConfigOverride, keychain: Keychain, genType: GenerationType = 'image', cas?: CAS): Promise<AIProviderAdapter> {
+  const { baseUrl, model } = config;
+  const apiKey = config.apiKey || await keychain.getKey(id) || '';
+  // Send API key in all common header formats — provider ignores the ones it doesn't use
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${apiKey}`,
+    'X-API-Key': apiKey,
+    'api-key': apiKey,
+    'Ocp-Apim-Subscription-Key': apiKey,
+  };
+
+  // Detect endpoint type from URL
+  const isChatEndpoint = baseUrl.includes('/chat/completions');
+  const adapterType = genType === 'video' ? 'video' as const : genType === 'voice' || genType === 'music' || genType === 'sfx' ? 'voice' as const : 'image' as const;
+  const capability = genType === 'video' ? 'text-to-video' as Capability : genType === 'voice' ? 'text-to-voice' as Capability : genType === 'music' ? 'text-to-music' as Capability : genType === 'sfx' ? 'text-to-sfx' as Capability : 'text-to-image' as Capability;
+
   return {
     id,
     name: id,
-    type: 'image' as const,
-    capabilities: ['text-to-image'] as Capability[],
+    type: adapterType,
+    capabilities: [capability],
     maxConcurrent: 1,
     configure(key: string) { void key; },
     async validate() { return true; },
     async generate(req: GenerationRequest): Promise<import('@lucid-fin/contracts').GenerationResult> {
-      const res = await fetch(`${baseUrl}/images/generations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, prompt: req.prompt, n: 1, size: '1024x1024', response_format: 'url' }),
-      });
-      if (!res.ok) throw new Error(`Custom provider error: ${res.status}`);
-      const json = await res.json() as { data: Array<{ url: string }> };
-      const url = json.data[0]?.url;
-      if (!url) throw new Error('No image URL in response');
-      return { assetHash: '', assetPath: url, provider: id };
+      // Build request body based on endpoint type and generation type
+      let body: Record<string, unknown>;
+      if (isChatEndpoint) {
+        body = { messages: [{ role: 'user', content: req.prompt }] };
+      } else if (genType === 'image') {
+        body = { prompt: req.prompt, n: 1, size: '1024x1024', response_format: 'url' };
+      } else if (genType === 'video') {
+        body = { prompt: req.prompt, duration: req.duration ?? 5 };
+        // Resolve first reference image to a data URL for image-to-video
+        const firstRef = req.referenceImages?.[0];
+        if (firstRef) {
+          if (firstRef.startsWith('http')) {
+            body.image = firstRef;
+          } else if (firstRef.startsWith('data:')) {
+            body.image = firstRef;
+          } else if (cas) {
+            // Asset hash — read from CAS and convert to base64 data URL
+            for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
+              const filePath = cas.getAssetPath(firstRef, 'image', ext);
+              if (fs.existsSync(filePath)) {
+                const buf = fs.readFileSync(filePath);
+                const mime = ext === 'jpg' ? 'jpeg' : ext;
+                body.image = `data:image/${mime};base64,${buf.toString('base64')}`;
+                break;
+              }
+            }
+          }
+        }
+      } else {
+        body = { prompt: req.prompt };
+      }
+      // Only include model if non-empty
+      if (model) body.model = model;
+
+      log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, { model, bodyKeys: Object.keys(body) });
+      const res = await fetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        // Provide helpful context for common errors
+        const hint = res.status === 404
+          ? ` (endpoint not found — check your base URL is correct for ${genType} generation)`
+          : res.status === 500
+            ? ` (server error — the model "${model}" may not support ${genType} generation)`
+            : '';
+        throw new Error(`Provider error ${res.status}${hint}: ${errBody.slice(0, 400)}`);
+      }
+      const json = await res.json() as Record<string, unknown>;
+      log.info(`Ad-hoc adapter response for ${genType}: ${JSON.stringify(json).slice(0, 1000)}`);
+
+      // --- Extract asset from response (supports multiple formats) ---
+
+      // Format: { data: [{ url }] } or { data: [{ b64_json }] } — OpenAI images
+      const dataArr = json.data as Array<{ url?: string; b64_json?: string }> | undefined;
+      if (dataArr?.[0]?.url) return { assetHash: '', assetPath: dataArr[0].url, provider: id };
+      if (dataArr?.[0]?.b64_json) {
+        const mime = genType === 'video' ? 'video/mp4' : 'image/png';
+        return { assetHash: '', assetPath: `data:${mime};base64,${dataArr[0].b64_json}`, provider: id };
+      }
+
+      // Format: { choices: [{ message: { content, images } }] } — chat completions
+      const choices = json.choices as Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }> | undefined;
+      const msg = choices?.[0]?.message;
+      if (msg?.images?.[0]?.image_url?.url) return { assetHash: '', assetPath: msg.images[0].image_url.url, provider: id };
+      const content = msg?.content ?? '';
+      if (content.startsWith('data:')) return { assetHash: '', assetPath: content, provider: id };
+      const mediaUrlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|mp4|mov|webm)\S*)/i);
+      if (mediaUrlMatch?.[1]) return { assetHash: '', assetPath: mediaUrlMatch[1], provider: id };
+      if (content.startsWith('http')) return { assetHash: '', assetPath: content.trim(), provider: id };
+
+      // Format: { id, status } — async job (Runway, Luma, Pixazo, etc.)
+      // We cannot reliably poll unknown providers — each has a different status endpoint.
+      // Return error with the task ID so user can check manually.
+      const taskId = json.id ?? json.taskId ?? json.task_id ?? json.generation_id;
+      if (taskId) {
+        // Check if the response already contains an output URL alongside the task ID
+        const immediateOutput = json.output ?? json.video_url ?? json.url ?? json.download_url;
+        if (typeof immediateOutput === 'string' && immediateOutput.startsWith('http')) {
+          return { assetHash: '', assetPath: immediateOutput, provider: id };
+        }
+        throw new Error(`Generation submitted to provider (task: ${taskId}). Video is being generated on the provider's servers — check your provider dashboard to download the result.`);
+      }
+
+      // Format: { url } or { video_url } or { output } — direct URL
+      const directUrl = json.url ?? json.video_url ?? json.audio_url ?? json.output;
+      if (typeof directUrl === 'string') return { assetHash: '', assetPath: directUrl, provider: id };
+
+      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
     },
     estimateCost(_req: GenerationRequest): import('@lucid-fin/contracts').CostEstimate { return { estimatedCost: 0, currency: 'USD', provider: id, unit: 'image' }; },
     checkStatus(_jobId: string): Promise<JobStatus> { return Promise.resolve(JobStatus.Completed); },
@@ -530,13 +683,15 @@ function buildAdhocAdapter(id: string, config: ProviderConfigOverride): AIProvid
   };
 }
 
-function resolveAdapter(
+async function resolveAdapter(
   registry: AdapterRegistry,
   requestedProviderId: string | undefined,
   generationType: GenerationType,
   mode: PromptMode,
   providerConfig?: ProviderConfigOverride,
-): AIProviderAdapter {
+  keychain?: Keychain,
+  cas?: CAS,
+): Promise<AIProviderAdapter> {
   const canonicalProviderId = canonicalizeCanvasProviderId(requestedProviderId);
   if (canonicalProviderId) {
     const adapter = registry.get(canonicalProviderId);
@@ -544,11 +699,9 @@ function resolveAdapter(
       ensureAdapterSupports(adapter, generationType, mode);
       return adapter;
     }
-    // Custom provider not in registry — build ad-hoc OpenAI-compatible adapter
-    if (providerConfig) {
-      return buildAdhocAdapter(canonicalProviderId, providerConfig);
+    if (providerConfig && keychain) {
+      return buildAdhocAdapter(canonicalProviderId, providerConfig, keychain, generationType, cas);
     }
-    // Fall through to any available adapter for this generation type
   }
 
   const candidates = registry.list(mapGenerationTypeToAdapterType(generationType));
@@ -966,21 +1119,42 @@ async function materializeAsset(generated: {
 }): Promise<MaterializedAsset> {
   const assetPath = normalizeOptionalString(generated.assetPath);
   if (assetPath) {
+    // Handle base64 data URLs (image, video, audio from OpenRouter etc.)
+    if (assetPath.startsWith('data:image/') || assetPath.startsWith('data:video/') || assetPath.startsWith('data:audio/')) {
+      return decodeBase64DataUrl(assetPath);
+    }
     if (isRemoteUrl(assetPath)) {
       return downloadRemoteAsset(assetPath);
     }
     if (!fs.existsSync(assetPath)) {
-      throw new Error(`Generated asset path not found: ${assetPath}`);
+      throw new Error(`Generated asset path not found: ${assetPath.slice(0, 80)}`);
     }
     return { filePath: assetPath };
   }
 
-  const metadataUrl = normalizeOptionalString(generated.metadata?.url as string | undefined);
+  const metadataUrl = normalizeOptionalString(generated.metadata?.url as string | undefined)
+    ?? normalizeOptionalString(generated.metadata?.video_url as string | undefined)
+    ?? normalizeOptionalString(generated.metadata?.output as string | undefined)
+    ?? normalizeOptionalString(generated.metadata?.download_url as string | undefined);
   if (metadataUrl) {
+    if (metadataUrl.startsWith('data:image/') || metadataUrl.startsWith('data:video/') || metadataUrl.startsWith('data:audio/')) {
+      return decodeBase64DataUrl(metadataUrl);
+    }
     return downloadRemoteAsset(metadataUrl);
   }
 
   throw new Error('Generated asset did not include a usable file path or URL');
+}
+
+async function decodeBase64DataUrl(dataUrl: string): Promise<MaterializedAsset> {
+  // Parse data:image/png;base64,... or data:video/mp4;base64,...
+  const match = dataUrl.match(/^data:(?:image|video|audio)\/(\w+);base64,(.+)$/);
+  if (!match) throw new Error('Invalid base64 data URL');
+  const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+  const buffer = Buffer.from(match[2], 'base64');
+  const tmpPath = path.join(os.tmpdir(), `lucid-fin-gen-${Date.now()}.${ext}`);
+  fs.writeFileSync(tmpPath, buffer);
+  return { filePath: tmpPath };
 }
 
 async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
@@ -994,6 +1168,13 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
   const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
   const buffer = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(filePath, buffer);
+  log.info('[canvas:generation] downloaded remote asset', {
+    url,
+    statusCode: response.status,
+    contentType: response.headers.get('content-type'),
+    filePath,
+    fileSize: buffer.byteLength,
+  });
 
   return {
     filePath,

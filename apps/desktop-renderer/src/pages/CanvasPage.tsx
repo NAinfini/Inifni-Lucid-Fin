@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layers, Plus } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { Canvas } from '@lucid-fin/contracts';
 import type { AppDispatch, RootState } from '../store/index.js';
 import {
@@ -12,7 +11,6 @@ import {
 } from '../store/slices/canvas.js';
 import { toggleCommander } from '../store/slices/commander.js';
 import { setPresets, setPresetsLoading } from '../store/slices/presets.js';
-import { setPanelWidth, setRightPanelWidth } from '../store/slices/ui.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import { AddNodePanel } from '../components/canvas/AddNodePanel.js';
@@ -32,24 +30,50 @@ import { HistoryPanel } from '../components/canvas/HistoryPanel.js';
 import { InspectorPanel } from '../components/canvas/InspectorPanel.js';
 import { LoggerPanel } from '../components/canvas/LoggerPanel.js';
 import { PresetManagerPanel } from '../components/canvas/PresetManagerPanel.js';
+import { ShotTemplateManagerPanel } from '../components/canvas/ShotTemplateManagerPanel.js';
 import { LeftToolbar } from '../components/layout/LeftToolbar.js';
 import { RightToolbar } from '../components/layout/RightToolbar.js';
 import { addLog } from '../store/slices/logger.js';
 
-function ResizeHandle({ direction }: { direction: 'horizontal' | 'vertical' }) {
+function DragHandle({ side, onResize }: { side: 'left' | 'right'; onResize: (delta: number) => void }) {
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    lastX.current = e.clientX;
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      const delta = ev.clientX - lastX.current;
+      lastX.current = ev.clientX;
+      onResize(side === 'left' ? delta : -delta);
+    };
+    const onMouseUp = () => {
+      dragging.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [onResize, side]);
+
   return (
-    <Separator
-      className={
-        direction === 'horizontal'
-          ? 'w-1 bg-border transition-colors hover:bg-primary/30'
-          : 'h-1 bg-border transition-colors hover:bg-primary/30'
-      }
+    <div
+      onMouseDown={onMouseDown}
+      className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 transition-colors"
     />
   );
 }
 
 export function CanvasPage() {
   const dispatch = useDispatch<AppDispatch>();
+  const [leftWidth, setLeftWidth] = useState(320);
+  const [rightWidth, setRightWidth] = useState(320);
   const { canvases, activeCanvasId, loading } = useSelector(
     (state: RootState) => state.canvas,
   );
@@ -182,6 +206,8 @@ export function CanvasPage() {
         return <EquipmentManagerPanel />;
       case 'locations':
         return <LocationManagerPanel />;
+      case 'shotTemplates':
+        return <ShotTemplateManagerPanel />;
       case 'presets':
         return <PresetManagerPanel />;
       case 'canvases':
@@ -241,45 +267,29 @@ export function CanvasPage() {
           </div>
         ) : (
           <ReactFlowProvider>
-          <Group orientation="horizontal" className="h-full w-full">
+          <div className="flex h-full w-full">
             {activePanel ? (
               <>
-                <Panel
-                  id="left-panel"
-                  defaultSize="25%"
-                  minSize="200px"
-                  maxSize="40%"
-                  onResize={(panelSize) => {
-                    dispatch(setPanelWidth(Math.round(panelSize.inPixels)));
-                  }}
-                >
+                <div className="h-full shrink-0 overflow-hidden" style={{ width: leftWidth }}>
                   {renderActivePanel()}
-                </Panel>
-                <ResizeHandle direction="horizontal" />
+                </div>
+                <DragHandle side="left" onResize={(d) => setLeftWidth((w) => Math.max(200, Math.min(500, w + d)))} />
               </>
             ) : null}
 
-            <Panel id="canvas-area" minSize="30%">
-                <CanvasWorkspace />
-            </Panel>
+            <div className="flex-1 min-w-0 h-full">
+              <CanvasWorkspace />
+            </div>
 
             {rightPanel !== null ? (
               <>
-                <ResizeHandle direction="horizontal" />
-                <Panel
-                  id="right-panel"
-                  defaultSize="25%"
-                  minSize="200px"
-                  maxSize="40%"
-                  onResize={(panelSize) => {
-                    dispatch(setRightPanelWidth(Math.round(panelSize.inPixels)));
-                  }}
-                >
+                <DragHandle side="right" onResize={(d) => setRightWidth((w) => Math.max(200, Math.min(500, w + d)))} />
+                <div className="h-full shrink-0 overflow-hidden" style={{ width: rightWidth }}>
                   {renderRightPanel()}
-                </Panel>
+                </div>
               </>
             ) : null}
-          </Group>
+          </div>
           </ReactFlowProvider>
         )}
       </div>

@@ -40,7 +40,6 @@ import {
 } from '../../store/slices/canvas.js';
 import { getAPI } from '../../utils/api.js';
 import { setRightPanel } from '../../store/slices/ui.js';
-import { addCustomTemplate } from '../../store/slices/shotTemplates.js';
 import { setCharacters } from '../../store/slices/characters.js';
 import { setEquipment } from '../../store/slices/equipment.js';
 import { setLocations } from '../../store/slices/locations.js';
@@ -61,7 +60,6 @@ import {
   Trash2,
   Upload,
   Clapperboard,
-  Save,
 } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -558,8 +556,6 @@ export function InspectorPanel() {
   const [configuredProviders, setConfiguredProviders] = useState<import('../../store/slices/settings.js').ProviderConfig[]>([]);
   const [providerLoading, setProviderLoading] = useState(false);
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
-  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
-  const [newTemplateName, setNewTemplateName] = useState('');
 
   const selectedNode: CanvasNode | undefined =
     selectedNodeIds.length === 1
@@ -754,28 +750,6 @@ export function InspectorPanel() {
     },
     [dispatch, selectedNode],
   );
-
-  const handleSaveAsTemplate = useCallback(() => {
-    if (!selectedNode || !hasTracks(selectedNode) || !newTemplateName.trim()) return;
-    const tracks: Partial<Record<PresetCategory, PresetTrack>> = {};
-    for (const [cat, track] of Object.entries(selectedNode.data.presetTracks)) {
-      if (track.entries.length > 0) {
-        tracks[cat as PresetCategory] = { ...track };
-      }
-    }
-    dispatch(
-      addCustomTemplate({
-        id: `custom-tmpl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        name: newTemplateName.trim(),
-        description: '',
-        builtIn: false,
-        tracks,
-        createdAt: Date.now(),
-      }),
-    );
-    setNewTemplateName('');
-    setSaveTemplateDialogOpen(false);
-  }, [dispatch, selectedNode, newTemplateName]);
 
   const handleContentChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1040,18 +1014,9 @@ export function InspectorPanel() {
             {/* Shot Template Selector */}
             {hasTracks(selectedNode) && (
               <div className="px-4 py-4 border-b space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    <Clapperboard className="w-3.5 h-3.5" />
-                    {t('shotTemplate.title')}
-                  </div>
-                  <button
-                    className="text-[10px] text-primary hover:underline"
-                    onClick={() => setSaveTemplateDialogOpen(true)}
-                  >
-                    <Save className="w-3 h-3 inline mr-0.5" />
-                    {t('shotTemplate.saveCurrent')}
-                  </button>
+                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <Clapperboard className="w-3.5 h-3.5" />
+                  {t('shotTemplate.title')}
                 </div>
 
                 <div className="relative">
@@ -1111,33 +1076,6 @@ export function InspectorPanel() {
                     </div>
                   )}
                 </div>
-
-                {/* Save template dialog */}
-                <Dialog open={saveTemplateDialogOpen} onOpenChange={setSaveTemplateDialogOpen}>
-                  <DialogContent className="sm:max-w-[340px]">
-                    <DialogHeader>
-                      <DialogTitle>{t('shotTemplate.saveCurrent')}</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-3 py-2">
-                      <input
-                        className="w-full bg-muted px-3 py-2 rounded-lg text-sm outline-none focus:ring-1 focus:ring-ring"
-                        value={newTemplateName}
-                        onChange={(e) => setNewTemplateName(e.target.value)}
-                        placeholder={t('shotTemplate.templateName')}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSaveAsTemplate();
-                        }}
-                      />
-                      <button
-                        className="w-full rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                        onClick={handleSaveAsTemplate}
-                        disabled={!newTemplateName.trim()}
-                      >
-                        {t('shotTemplate.saveCurrent')}
-                      </button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
               </div>
             )}
 
