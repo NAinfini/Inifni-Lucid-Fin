@@ -8,6 +8,8 @@ import type {
   Equipment,
   EquipmentLoadout,
   EquipmentType,
+  LLMProviderRuntimeInput,
+  LLMProviderRuntimeConfig,
   Location,
   LocationType,
   PresetCategory,
@@ -230,6 +232,15 @@ interface UpdaterStatus {
   error?: string;
 }
 
+interface MainLoggerEntry {
+  id: string;
+  timestamp: number;
+  level: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+  category: string;
+  message: string;
+  detail?: string;
+}
+
 declare global {
   interface Window {
     lucidAPI: {
@@ -363,7 +374,11 @@ declare global {
         get: (provider: string) => Promise<string | null>;
         set: (provider: string, apiKey: string) => Promise<void>;
         delete: (provider: string) => Promise<void>;
-        test: (provider: string, baseUrl?: string, model?: string) => Promise<{ ok: boolean; error?: string }>;
+        test: (
+          provider: string,
+          providerConfig?: LLMProviderRuntimeInput,
+          group?: 'llm' | 'image' | 'video' | 'audio',
+        ) => Promise<{ ok: boolean; error?: string }>;
       };
       ai: {
         chat: (message: string, context?: Record<string, unknown>) => Promise<unknown>;
@@ -381,7 +396,7 @@ declare global {
           history: Array<{ role: 'user' | 'assistant'; content: string }>,
           selectedNodeIds: string[],
           promptGuides?: Array<{ id: string; name: string; content: string }>,
-          customLLMProvider?: { id: string; name: string; baseUrl: string; model: string },
+          customLLMProvider?: LLMProviderRuntimeConfig,
           permissionMode?: 'auto' | 'normal' | 'strict',
         ) => Promise<void>;
         cancel: (canvasId: string) => Promise<void>;
@@ -417,6 +432,10 @@ declare global {
       };
       app: {
         version: () => Promise<string>;
+      };
+      logger: {
+        getRecent: () => Promise<MainLoggerEntry[]>;
+        onEntry: (cb: (entry: MainLoggerEntry) => void) => () => void;
       };
       render: {
         start: (request: RenderRequest) => Promise<RenderResult>;

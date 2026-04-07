@@ -1,7 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { Download, Film, FileCode, Package, Play, Loader2 } from 'lucide-react';
-import type { RootState } from '../store/index.js';
+import type { AppDispatch, RootState } from '../store/index.js';
+import { addLog } from '../store/slices/logger.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 
@@ -23,6 +24,7 @@ const RESOLUTIONS = [
 const FPS_OPTIONS = [24, 25, 30, 60];
 
 export function ExportEngine() {
+  const dispatch = useDispatch<AppDispatch>();
   const [activeTab, setActiveTab] = useState<ExportTab>('render');
   const [format, setFormat] = useState('h264');
   const [resolution, setResolution] = useState('1080p');
@@ -53,11 +55,18 @@ export function ExportEngine() {
       });
       setProgress(100);
     } catch (err) {
-      console.error('Render failed:', err);
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'export',
+          message: 'Render failed',
+          detail: err instanceof Error ? err.stack ?? err.message : String(err),
+        }),
+      );
     } finally {
       setExporting(false);
     }
-  }, [format, fps, resolution, title]);
+  }, [dispatch, format, fps, resolution, title]);
 
   const handleNleExport = useCallback(async () => {
     setExporting(true);
@@ -66,11 +75,18 @@ export function ExportEngine() {
       if (!api) return;
       await api.export.nle({ format: nleFormat, includeAudio: true, includeSubtitles: true });
     } catch (err) {
-      console.error('NLE export failed:', err);
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'export',
+          message: 'NLE export failed',
+          detail: err instanceof Error ? err.stack ?? err.message : String(err),
+        }),
+      );
     } finally {
       setExporting(false);
     }
-  }, [nleFormat]);
+  }, [dispatch, nleFormat]);
 
   const handleAssetPack = useCallback(async () => {
     setExporting(true);
@@ -79,11 +95,18 @@ export function ExportEngine() {
       if (!api) return;
       await api.export.assetBundle(`${title || 'project'}-assets.zip`);
     } catch (err) {
-      console.error('Asset pack failed:', err);
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'export',
+          message: 'Asset pack failed',
+          detail: err instanceof Error ? err.stack ?? err.message : String(err),
+        }),
+      );
     } finally {
       setExporting(false);
     }
-  }, [title]);
+  }, [dispatch, title]);
 
   const tabs = [
     { key: 'render' as const, icon: Film, label: t('export.render') },

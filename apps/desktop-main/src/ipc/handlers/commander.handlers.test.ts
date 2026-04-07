@@ -1,10 +1,31 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Canvas } from '@lucid-fin/contracts';
 import { SqliteIndex } from '@lucid-fin/storage';
 import { clearCurrentProject, setCurrentProject } from '../project-context.js';
+
+vi.mock('../../logger.js', () => {
+  const logger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    fatal: vi.fn(),
+  };
+
+  return {
+    default: logger,
+    log: vi.fn(),
+    debug: logger.debug,
+    info: logger.info,
+    warn: logger.warn,
+    error: logger.error,
+    fatal: logger.fatal,
+  };
+});
+
 import { buildContext, entityMutatingToolNames } from './commander.handlers.js';
 
 function tmpDir() {
@@ -82,7 +103,7 @@ describe('buildContext', () => {
     fs.rmSync(base, { recursive: true, force: true });
   });
 
-  it('builds a minimal canvas snapshot and caps selected nodes to ten entries', () => {
+  it('builds lazy canvas context with only ids for selected nodes', () => {
     const context = buildContext(
       makeCanvas(),
       [],
@@ -91,30 +112,15 @@ describe('buildContext', () => {
     );
 
     const extra = context.extra as Record<string, unknown>;
-    const snapshot = extra.canvasSnapshot as {
-      name: string;
-      nodeCount: number;
-      edgeCount: number;
-      selectedNodes: Array<{ id: string; type: string; title: string }>;
-      nodes?: unknown[];
-      edges?: unknown[];
-    };
-
-    expect(snapshot).toEqual({
-      name: 'Storyboard',
+    expect(extra).toEqual({
+      canvasId: 'canvas-1',
       nodeCount: 12,
       edgeCount: 2,
-      selectedNodes: Array.from({ length: 10 }, (_, index) => ({
-        id: `node-${index + 1}`,
-        type: 'text',
-        title: `Node ${index + 1}`,
-      })),
+      selectedNodeIds: Array.from({ length: 10 }, (_, index) => `node-${index + 1}`),
     });
-    expect(snapshot.nodes).toBeUndefined();
-    expect(snapshot.edges).toBeUndefined();
   });
 
-  it('truncates character and location descriptions and removes nonessential fields', () => {
+  it('does not inject project entities into commander context', () => {
     db.upsertCharacter({
       id: 'char-1',
       projectId: 'project-1',
@@ -135,34 +141,11 @@ describe('buildContext', () => {
 
     const context = buildContext(makeCanvas(2), [], ['node-1'], db);
     const extra = context.extra as Record<string, unknown>;
-    const characters = extra.characters as Array<Record<string, unknown>>;
-    const locations = extra.locations as Array<Record<string, unknown>>;
-
-    expect(characters).toHaveLength(1);
-    expect(characters[0]).toEqual({
-      id: 'char-1',
-      name: 'Hero',
-      role: 'protagonist',
-      description: expect.any(String),
-    });
-    expect((characters[0]?.description as string).length).toBeLessThanOrEqual(120);
-    expect(characters[0]?.description).not.toContain('CHAR-TAIL');
-
-    expect(locations).toHaveLength(1);
-    expect(locations[0]).toEqual({
-      id: 'loc-1',
-      name: 'Warehouse',
-      type: 'interior',
-      description: expect.any(String),
-    });
-    expect((locations[0]?.description as string).length).toBeLessThanOrEqual(120);
-    expect(locations[0]?.description).not.toContain('LOC-TAIL');
-    expect(locations[0]).not.toHaveProperty('mood');
-    expect(locations[0]).not.toHaveProperty('weather');
-    expect(locations[0]).not.toHaveProperty('lighting');
+    expect(extra).not.toHaveProperty('characters');
+    expect(extra).not.toHaveProperty('locations');
   });
 
-  it('limits prompt guides to three entries and truncates each guide body', () => {
+  it('does not inject prompt guide content into commander context', () => {
     const context = buildContext(
       makeCanvas(2),
       [],
@@ -176,15 +159,6 @@ describe('buildContext', () => {
     );
 
     const extra = context.extra as Record<string, unknown>;
-    const promptGuides = extra.promptGuides as string;
-
-    expect(promptGuides).toContain('Guide 1');
-    expect(promptGuides).toContain('Guide 2');
-    expect(promptGuides).toContain('Guide 3');
-    expect(promptGuides).not.toContain('Guide 4');
-    expect(promptGuides).not.toContain('TAIL-1');
-    expect(promptGuides).not.toContain('TAIL-2');
-    expect(promptGuides).not.toContain('TAIL-3');
-    expect(promptGuides).not.toContain('TAIL-4');
+    expect(extra).not.toHaveProperty('promptGuides');
   });
 });

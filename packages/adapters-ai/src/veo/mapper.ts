@@ -1,4 +1,5 @@
-import type { GenerationRequest } from '@lucid-fin/contracts';
+import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import { parseAdapterError } from '../error-utils.js';
 
 export function toVeoRequest(req: GenerationRequest): Record<string, unknown> {
   return {
@@ -23,4 +24,8 @@ export function parseVeoResponse(data: Record<string, unknown>): {
     done: data['done'] === true,
     error: data['error'] ? JSON.stringify(data['error']) : undefined,
   };
+}
+
+export function parseError(data: unknown, status?: number): AdapterError {
+  return parseAdapterError({ provider: 'Veo', status, error: data });
 }

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import type { IpcMain } from 'electron';
-import log from 'electron-log';
+import log from '../../logger.js';
 import {
   exportFCPXML,
   exportEDL,

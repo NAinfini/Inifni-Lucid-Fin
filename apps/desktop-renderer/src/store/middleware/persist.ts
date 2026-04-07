@@ -2,6 +2,7 @@ import type { Middleware } from '@reduxjs/toolkit';
 import { getAPI } from '../../utils/api.js';
 import { t } from '../../i18n.js';
 import { enqueueToast } from '../slices/toast.js';
+import { addLog } from '../slices/logger.js';
 import type { RootState } from '../index.js';
 
 const PROJECT_PERSIST_SLICES = [
@@ -70,6 +71,9 @@ const CANVAS_MUTATE_PREFIXES = [
   'canvas/addCanvasNote',
   'canvas/updateCanvasNote',
   'canvas/deleteCanvasNote',
+  'canvas/setNodeResolution',
+  'canvas/setNodeDuration',
+  'canvas/setNodeFps',
 ];
 
 const DEBOUNCE_MS = 500;
@@ -98,7 +102,14 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
             consecutiveFailures = 0;
           })
           .catch((error: unknown) => {
-            console.error(error);
+            store.dispatch(
+              addLog({
+                level: 'error',
+                category: 'persistence',
+                message: 'Project autosave failed',
+                detail: error instanceof Error ? error.stack ?? error.message : String(error),
+              }),
+            );
             consecutiveFailures += 1;
             store.dispatch(
               enqueueToast({
@@ -128,7 +139,14 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
         getAPI()
           ?.canvas.save(canvas)
           .catch((error: unknown) => {
-            console.error('[canvas:save] failed:', error);
+            store.dispatch(
+              addLog({
+                level: 'error',
+                category: 'persistence',
+                message: 'Canvas save failed',
+                detail: error instanceof Error ? error.stack ?? error.message : String(error),
+              }),
+            );
           });
       }, DEBOUNCE_MS);
     }
@@ -142,7 +160,14 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
         getAPI()
           ?.settings.save(currentState.settings)
           .catch((error: unknown) => {
-            console.error('[settings:save] failed:', error);
+            store.dispatch(
+              addLog({
+                level: 'error',
+                category: 'persistence',
+                message: 'Settings save failed',
+                detail: error instanceof Error ? error.stack ?? error.message : String(error),
+              }),
+            );
           });
       }, DEBOUNCE_MS);
     }

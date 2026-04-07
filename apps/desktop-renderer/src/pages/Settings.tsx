@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   Key,
@@ -7,41 +7,46 @@ import {
   Trash2,
   Check,
   Copy,
-  FileText,
   RotateCcw,
-  Save,
   ArrowLeft,
-  Moon,
-  Sun,
   ChevronDown,
   ChevronUp,
   Cpu,
   Image,
   Video,
   Volume2,
-  Globe,
   ExternalLink,
   Zap,
   AlertCircle,
   Plus,
   Download,
   Loader2,
+  Workflow,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAPI } from '../utils/api.js';
 import { t, setLocale, getLocale, onLocaleChange, type Locale } from '../i18n.js';
 import type { RootState } from '../store/index.js';
-import { setTheme } from '../store/slices/ui.js';
+import { setTheme, type Theme } from '../store/slices/ui.js';
+import { SettingsAppearanceSection } from '../components/settings/SettingsAppearanceSection.js';
+import { SettingsPromptTemplatesSection } from '../components/settings/SettingsPromptTemplatesSection.js';
+import {
+  SettingsSidebarNav,
+  translateOrFallback,
+  type SettingsTab,
+} from '../components/settings/SettingsSidebarNav.js';
 import { Progress } from '../components/ui/Progress.js';
 import {
-  setActiveProvider,
   setProviderBaseUrl,
   setProviderModel,
+  setProviderProtocol,
   setProviderHasKey,
   setProviderName,
   addCustomProvider,
   removeCustomProvider,
+  getProviderMetadata,
   type APIGroup,
+  type ProviderMetadata,
   type ProviderConfig,
 } from '../store/slices/settings.js';
 import {
@@ -51,46 +56,60 @@ import {
 } from '../store/slices/promptTemplates.js';
 import { cn } from '../lib/utils.js';
 
-const GROUP_META: Record<APIGroup, { labelKey: string; icon: React.ComponentType<{ className?: string }> }> = {
+const GROUP_META: Record<
+  APIGroup,
+  { labelKey: string; icon: React.ComponentType<{ className?: string }> }
+> = {
   llm: { labelKey: 'settings.group.llm', icon: Cpu },
   image: { labelKey: 'settings.group.image', icon: Image },
   video: { labelKey: 'settings.group.video', icon: Video },
   audio: { labelKey: 'settings.group.audio', icon: Volume2 },
 };
 
-const PROVIDER_KEY_URLS: Record<string, string> = {
-  openai: 'https://platform.openai.com/api-keys',
-  'openai-image': 'https://platform.openai.com/api-keys',
-  'openai-tts': 'https://platform.openai.com/api-keys',
-  claude: 'https://console.anthropic.com/settings/keys',
-  gemini: 'https://aistudio.google.com/apikey',
-  'google-imagen3': 'https://aistudio.google.com/apikey',
-  'google-veo-2': 'https://aistudio.google.com/apikey',
-  deepseek: 'https://platform.deepseek.com/api_keys',
-  grok: 'https://console.x.ai/team/api-keys',
-  flux: 'https://api.bfl.ml/auth/login',
-  'recraft-v4': 'https://www.recraft.ai/account',
-  'stability-image': 'https://platform.stability.ai/account/keys',
-  'runway-gen4': 'https://docs.dev.runwayml.com/',
-  'luma-ray2': 'https://lumalabs.ai/dream-machine/api',
-  'minimax-video01': 'https://platform.minimaxi.com/api-key',
-  'pika-v2': 'https://pika.art/api',
-  elevenlabs: 'https://elevenlabs.io/app/settings/api-keys',
-  'fish-audio-v1': 'https://fish.audio/dashboard',
-  'cartesia-sonic': 'https://play.cartesia.ai/keys',
-  'playht-3': 'https://play.ht/studio/api-access',
-};
+function WorkflowsPlaceholderSection() {
+  return (
+    <section className="space-y-4">
+      <div className="rounded-2xl border border-dashed border-border bg-card/60 p-5">
+        <div className="flex items-start gap-3">
+          <div className="rounded-xl border border-primary/20 bg-primary/10 p-2 text-primary">
+            <Workflow className="h-5 w-5" />
+          </div>
+          <div className="space-y-2">
+            <div className="text-base font-semibold">
+              {translateOrFallback('settings.workflows.title', 'Workflows & Skills')}
+            </div>
+            <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+              {translateOrFallback(
+                'settings.workflows.description',
+                'Workflow and skill management will land here in the next step.',
+              )}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <div className="text-sm font-medium">
+          {translateOrFallback('settings.workflows.placeholderTitle', 'Planned surface')}
+        </div>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+          {translateOrFallback(
+            'settings.workflows.placeholderDescription',
+            'Built-in workflows and skills will appear alongside editable custom entries here, while existing settings behavior stays unchanged until that work lands.',
+          )}
+        </p>
+      </div>
+    </section>
+  );
+}
 
 function ProviderCard({
   group,
   provider,
-  isActive,
-  onSetActive,
+  metadata,
 }: {
   group: APIGroup;
   provider: ProviderConfig;
-  isActive: boolean;
-  onSetActive: () => void;
+  metadata?: ProviderMetadata;
 }) {
   const dispatch = useDispatch();
   const [expanded, setExpanded] = useState(false);
@@ -98,13 +117,20 @@ function ProviderCard({
   const [keyVisible, setKeyVisible] = useState(false);
   const [keyLoaded, setKeyLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'ok' | 'fail' | null>(null);
 
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
-
-  const keyUrl = PROVIDER_KEY_URLS[provider.id];
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+  const keyUrl = metadata?.keyUrl;
+  const docsUrl = metadata?.docsUrl;
+  const showHubGuidance = metadata?.kind === 'hub';
 
   useEffect(() => {
     if (!expanded || !provider.hasKey || keyLoaded) return;
@@ -124,14 +150,26 @@ function ProviderCard({
   }, [expanded, keyLoaded, provider.hasKey, provider.id]);
 
   async function handleSaveKey() {
-    if (!keyValue.trim()) return;
     setSaving(true);
     try {
-      await getAPI()?.keychain.set(provider.id, keyValue.trim());
-      if (!mountedRef.current) return;
-      dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
-      setKeyValue(keyValue.trim());
-      setKeyLoaded(true);
+      const trimmed = keyValue.trim();
+      if (trimmed) {
+        await getAPI()?.keychain.set(provider.id, trimmed);
+        if (!mountedRef.current) return;
+        dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
+        setKeyValue(trimmed);
+        setKeyLoaded(true);
+        setSaved(true);
+        setTimeout(() => { if (mountedRef.current) setSaved(false); }, 2000);
+      } else {
+        await getAPI()?.keychain.delete(provider.id);
+        if (!mountedRef.current) return;
+        dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: false }));
+        setKeyValue('');
+        setKeyLoaded(false);
+        setKeyVisible(false);
+        setTestResult(null);
+      }
     } finally {
       if (mountedRef.current) setSaving(false);
     }
@@ -156,7 +194,14 @@ function ProviderCard({
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await getAPI()?.keychain.test(provider.id, provider.baseUrl, provider.model);
+      const result = await getAPI()?.keychain.test(provider.id, {
+        id: provider.id,
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        model: provider.model,
+        protocol: provider.protocol,
+        authStyle: provider.authStyle,
+      }, group);
       if (!mountedRef.current) return;
       setTestResult(result?.ok ? 'ok' : 'fail');
     } catch {
@@ -171,23 +216,11 @@ function ProviderCard({
     <div
       className={cn(
         'rounded-xl border transition-colors',
-        isActive ? 'border-primary/40 bg-primary/5' : 'border-border bg-card',
+        expanded ? 'border-primary/40 bg-primary/5' : 'border-border bg-card',
       )}
     >
       {/* Header row */}
       <div className="flex items-center gap-3 px-4 py-3">
-        <button
-          type="button"
-          onClick={onSetActive}
-          aria-label={t('settings.providerCard.active')}
-          className={cn(
-            'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-colors',
-            isActive ? 'border-primary bg-primary' : 'border-muted-foreground',
-          )}
-        >
-          {isActive && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
-        </button>
-
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             {provider.isCustom ? (
@@ -202,9 +235,6 @@ function ProviderCard({
             ) : (
               <span className="text-sm font-medium">{provider.name}</span>
             )}
-            {isActive && (
-              <span className="text-[10px] rounded-full bg-primary/20 text-primary px-1.5 py-0.5 font-medium">{t('settings.providerCard.active')}</span>
-            )}
           </div>
           <div className="text-xs text-muted-foreground truncate">{provider.baseUrl}</div>
         </div>
@@ -215,15 +245,23 @@ function ProviderCard({
               <Check className="w-3 h-3" /> {t('settings.providerCard.keySet')}
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground">{t('settings.providerCard.noKey')}</span>
+            <span className="text-xs text-muted-foreground">
+              {t('settings.providerCard.noKey')}
+            </span>
           )}
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
             className="p-1 rounded hover:bg-muted text-muted-foreground"
-            aria-label={expanded ? t('settings.providerCard.collapse') : t('settings.providerCard.expand')}
+            aria-label={
+              expanded ? t('settings.providerCard.collapse') : t('settings.providerCard.expand')
+            }
           >
-            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            {expanded ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
           </button>
         </div>
       </div>
@@ -233,33 +271,107 @@ function ProviderCard({
         <div className="border-t border-border/60 px-4 py-3 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] text-muted-foreground mb-1">{t('settings.providerCard.baseUrl')}</label>
+              <label className="block text-[10px] text-muted-foreground mb-1">
+                {t('settings.providerCard.baseUrl')}
+              </label>
               <input
                 type="url"
                 value={provider.baseUrl}
                 onChange={(e) =>
-                  dispatch(setProviderBaseUrl({ group, provider: provider.id, url: e.target.value }))
+                  dispatch(
+                    setProviderBaseUrl({ group, provider: provider.id, url: e.target.value }),
+                  )
                 }
                 className="w-full px-2 py-1 text-xs rounded bg-secondary border border-border focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
             {provider.model !== undefined && (
               <div>
-                <label className="block text-[10px] text-muted-foreground mb-1">{t('settings.providerCard.model')}</label>
+                <label className="block text-[10px] text-muted-foreground mb-1">
+                  {t('settings.providerCard.model')}
+                </label>
                 <input
                   type="text"
                   value={provider.model}
                   onChange={(e) =>
-                    dispatch(setProviderModel({ group, provider: provider.id, model: e.target.value }))
+                    dispatch(
+                      setProviderModel({ group, provider: provider.id, model: e.target.value }),
+                    )
                   }
                   className="w-full px-2 py-1 text-xs rounded bg-secondary border border-border focus:outline-none focus:ring-1 focus:ring-ring"
                 />
+                {showHubGuidance && (
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                    <span>
+                      {metadata.modelExample
+                        ? `${translateOrFallback('settings.providerCard.modelExample', 'Example:')} ${metadata.modelExample}`
+                        : translateOrFallback(
+                            'settings.providerCard.modelExampleEmpty',
+                            'No official model example yet',
+                          )}
+                    </span>
+                    {docsUrl && (
+                      <button
+                        type="button"
+                        onClick={() => getAPI()?.openExternal(docsUrl)}
+                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        {translateOrFallback('settings.providerCard.viewModels', 'View Models')}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
 
+          {group === 'llm' && provider.isCustom && (
+            <div>
+              <label className="block text-[10px] text-muted-foreground mb-1">
+                {t('settings.providerCard.protocol')}
+              </label>
+              <select
+                value={provider.protocol ?? 'openai-compatible'}
+                onChange={(e) =>
+                  dispatch(
+                    setProviderProtocol({
+                      group,
+                      provider: provider.id,
+                      protocol: e.target
+                        .value as import('@lucid-fin/contracts').LLMProviderProtocol,
+                    }),
+                  )
+                }
+                className="w-full px-2 py-1 text-xs rounded bg-secondary border border-border focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="openai-compatible">
+                  {t('settings.providerCard.protocolOptions.openaiCompatible')}
+                </option>
+                <option value="openai-responses">
+                  {t('settings.providerCard.protocolOptions.openaiResponses')}
+                </option>
+                <option value="anthropic">
+                  {t('settings.providerCard.protocolOptions.anthropic')}
+                </option>
+                <option value="gemini">
+                  {t('settings.providerCard.protocolOptions.gemini')}
+                </option>
+                <option value="cohere">
+                  {t('settings.providerCard.protocolOptions.cohere')}
+                </option>
+              </select>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                {t('settings.providerCard.authLabel')}{' '}
+                {t(`settings.providerCard.authStyles.${provider.authStyle ?? 'bearer'}`)}
+              </div>
+            </div>
+          )}
+
           <div>
-            <label className="block text-[10px] text-muted-foreground mb-1">{t('settings.providerCard.apiKey')}</label>
+            <label className="block text-[10px] text-muted-foreground mb-1">
+              {t('settings.providerCard.apiKey')}
+            </label>
             <div className="space-y-2">
               {provider.hasKey && (
                 <div className="flex items-center gap-1 text-xs text-green-400">
@@ -273,7 +385,9 @@ function ProviderCard({
                     placeholder={t('settings.providerCard.keyPlaceholder')}
                     value={keyValue}
                     onChange={(e) => setKeyValue(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveKey(); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void handleSaveKey();
+                    }}
                     className="flex-1 px-2 py-1 text-xs bg-transparent focus:outline-none"
                   />
                   <button
@@ -298,10 +412,14 @@ function ProviderCard({
                 <button
                   type="button"
                   onClick={() => void handleSaveKey()}
-                  disabled={!keyValue.trim() || saving}
-                  className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground disabled:opacity-50"
+                  disabled={saving}
+                  className={cn('px-2 py-1 text-xs rounded disabled:opacity-50 transition-colors', saved ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground')}
                 >
-                  {saving ? t('settings.providerCard.saving') : t('settings.providerCard.save')}
+                  {saving
+                    ? t('settings.providerCard.saving')
+                    : saved
+                      ? t('settings.providerCard.saved')
+                      : t('settings.providerCard.save')}
                 </button>
               </div>
             </div>
@@ -336,7 +454,9 @@ function ProviderCard({
                 className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-border hover:bg-muted disabled:opacity-50"
               >
                 <Zap className="w-3 h-3" />
-                {testing ? t('settings.providerCard.testing') : t('settings.providerCard.testConnection')}
+                {testing
+                  ? t('settings.providerCard.testing')
+                  : t('settings.providerCard.testConnection')}
               </button>
             )}
             {testResult === 'ok' && (
@@ -356,12 +476,50 @@ function ProviderCard({
   );
 }
 
+function ProviderSubsection({
+  title,
+  group,
+  providers,
+}: {
+  title: string;
+  group: APIGroup;
+  providers: Array<{ provider: ProviderConfig; metadata?: ProviderMetadata }>;
+}) {
+  if (providers.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="px-1 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground/80">
+        {title}
+      </div>
+      {providers.map(({ provider, metadata }) => (
+        <ProviderCard
+          key={provider.id}
+          group={group}
+          provider={provider}
+          metadata={metadata}
+        />
+      ))}
+    </div>
+  );
+}
+
 function ProviderGroupSection({ group }: { group: APIGroup }) {
   const dispatch = useDispatch();
   const groupState = useSelector((state: RootState) => state.settings[group]);
   const { labelKey, icon: Icon } = GROUP_META[group];
   const [addingCustom, setAddingCustom] = useState(false);
   const [customName, setCustomName] = useState('');
+  const builtinProviders = groupState.providers
+    .map((provider) => ({ provider, metadata: getProviderMetadata(group, provider.id) }))
+    .filter((entry) => entry.metadata);
+  const officialProviders = builtinProviders.filter((entry) => entry.metadata?.kind === 'official');
+  const hubProviders = builtinProviders.filter((entry) => entry.metadata?.kind === 'hub');
+  const customProviders = groupState.providers
+    .filter((provider) => !getProviderMetadata(group, provider.id))
+    .map((provider) => ({ provider }));
 
   // Hydrate hasKey status on mount only
   const providerIds = groupState.providers.map((p) => p.id);
@@ -374,8 +532,10 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
         if (mounted) dispatch(setProviderHasKey({ group, provider: id, hasKey: configured }));
       });
     }
-    return () => { mounted = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleAddCustom() {
@@ -392,16 +552,22 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
         <Icon className="w-3.5 h-3.5" />
         {t(labelKey)}
       </h2>
-      <div className="space-y-2">
-        {groupState.providers.map((provider) => (
-          <ProviderCard
-            key={provider.id}
-            group={group}
-            provider={provider}
-            isActive={groupState.activeProvider === provider.id}
-            onSetActive={() => dispatch(setActiveProvider({ group, provider: provider.id }))}
-          />
-        ))}
+      <div className="space-y-4">
+        <ProviderSubsection
+          title={translateOrFallback('settings.providerSections.official', 'Official Providers')}
+          group={group}
+          providers={officialProviders}
+        />
+        <ProviderSubsection
+          title={translateOrFallback('settings.providerSections.hub', 'API Hubs')}
+          group={group}
+          providers={hubProviders}
+        />
+        <ProviderSubsection
+          title={translateOrFallback('settings.providerSections.custom', 'Custom Providers')}
+          group={group}
+          providers={customProviders}
+        />
         {addingCustom ? (
           <div className="rounded-xl border border-primary/40 bg-primary/5 px-4 py-3 flex items-center gap-2">
             <input
@@ -409,7 +575,9 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
               placeholder={t('settings.customProvider.namePlaceholder')}
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleAddCustom(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddCustom();
+              }}
               autoFocus
               className="flex-1 px-2 py-1 text-sm rounded bg-secondary border border-border focus:outline-none focus:ring-1 focus:ring-ring"
             />
@@ -423,7 +591,10 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
             </button>
             <button
               type="button"
-              onClick={() => { setAddingCustom(false); setCustomName(''); }}
+              onClick={() => {
+                setAddingCustom(false);
+                setCustomName('');
+              }}
               className="px-2 py-1 text-xs rounded hover:bg-muted text-muted-foreground"
             >
               {t('action.cancel')}
@@ -528,19 +699,25 @@ function UpdateSection() {
       });
     };
 
-    void api.app.version().then((appVersion) => {
-      if (isMounted) setVersion(appVersion);
-    }).catch(() => {
-      if (isMounted) setVersion('dev');
-    });
-
-    void api.updater.status().then(applyStatus).catch((error: unknown) => {
-      if (!isMounted) return;
-      setState({
-        phase: 'error',
-        message: error instanceof Error ? error.message : String(error),
+    void api.app
+      .version()
+      .then((appVersion) => {
+        if (isMounted) setVersion(appVersion);
+      })
+      .catch(() => {
+        if (isMounted) setVersion('dev');
       });
-    });
+
+    void api.updater
+      .status()
+      .then(applyStatus)
+      .catch((error: unknown) => {
+        if (!isMounted) return;
+        setState({
+          phase: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
 
     const unsubscribe = api.updater.onProgress((status) => applyStatus(status as UpdaterStatus));
 
@@ -674,7 +851,9 @@ function UpdateSection() {
         {state.phase === 'ready' && (
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-medium text-emerald-400">{t('settings.update.ready')}</div>
+              <div className="text-sm font-medium text-emerald-400">
+                {t('settings.update.ready')}
+              </div>
               <div className="text-xs text-muted-foreground">
                 {t('settings.update.version')} {state.availableVersion}
               </div>
@@ -718,6 +897,7 @@ export function Settings() {
   const dispatch = useDispatch();
   const theme = useSelector((state: RootState) => state.ui.theme);
   const [locale, setLocaleState] = useState<Locale>(getLocale());
+  const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
   const templates = useSelector((state: RootState) => state.promptTemplates.templates);
 
   useEffect(() => {
@@ -728,10 +908,73 @@ export function Settings() {
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [templateDrafts, setTemplateDrafts] = useState<Record<string, string>>({});
 
+  const handleTabChange = useCallback((tab: SettingsTab) => {
+    setActiveTab(tab);
+  }, []);
+
+  const handleThemeChange = useCallback(
+    (nextTheme: Theme) => {
+      dispatch(setTheme(nextTheme));
+    },
+    [dispatch],
+  );
+
+  const handleLocaleChange = useCallback((nextLocale: Locale) => {
+    setLocale(nextLocale);
+    window.location.reload();
+  }, []);
+
+  const handleExpandedTemplateIdChange = useCallback((id: string | null) => {
+    setExpandedTemplateId(id);
+  }, []);
+
+  const handleTemplateDraftChange = useCallback((id: string, value: string) => {
+    setTemplateDrafts((previous) => ({ ...previous, [id]: value }));
+  }, []);
+
+  const handleResetAllTemplates = useCallback(() => {
+    dispatch(resetAllContent());
+    setExpandedTemplateId(null);
+    setTemplateDrafts({});
+  }, [dispatch]);
+
+  const handleResetTemplate = useCallback(
+    (id: string) => {
+      dispatch(resetContent(id));
+    },
+    [dispatch],
+  );
+
+  const handleSaveTemplate = useCallback(
+    (id: string, content: string) => {
+      dispatch(setCustomContent({ id, content }));
+    },
+    [dispatch],
+  );
+
+  const activeTabTitle =
+    activeTab === 'appearance'
+      ? t('settings.appearance.title')
+      : activeTab === 'promptTemplates'
+        ? t('settings.promptTemplates')
+        : activeTab === 'workflows'
+          ? translateOrFallback('settings.workflows.title', 'Workflows & Skills')
+          : activeTab === 'about'
+            ? t('settings.update.title')
+            : translateOrFallback('settings.nav.providers', 'Providers');
+
+  const activeTabDescription =
+    activeTab === 'workflows'
+      ? translateOrFallback(
+          'settings.workflows.subtitle',
+          'Dedicated space for workflow and skill controls.',
+        )
+      : undefined;
+
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="flex h-full flex-col overflow-hidden">
       <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
-        <div className="max-w-2xl mx-auto flex items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
           <button
             type="button"
             onClick={() => navigate('/')}
@@ -746,213 +989,62 @@ export function Settings() {
           </h1>
         </div>
       </div>
-      <div className="max-w-2xl mx-auto px-4 pt-6 pb-12">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="mx-auto flex h-full max-w-6xl flex-col gap-6 px-4 py-6 md:flex-row">
+          <SettingsSidebarNav activeTab={activeTab} onTabChange={handleTabChange} />
 
-        {/* Appearance */}
-        <section className="mb-8">
-          <h2 className="text-sm font-medium text-muted-foreground mb-3">{t('settings.appearance.title')}</h2>
-          <div className="rounded-xl border border-border bg-card p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
-                {t('settings.appearance.theme')}
+          <section className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card">
+            <div className="flex h-full flex-col">
+              <div className="border-b border-border px-5 py-4">
+                <div className="text-lg font-semibold">{activeTabTitle}</div>
+                {activeTabDescription && (
+                  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                    {activeTabDescription}
+                  </p>
+                )}
               </div>
-              <div className="flex rounded-lg border border-border overflow-hidden text-sm">
-                <button
-                  type="button"
-                  onClick={() => dispatch(setTheme('light'))}
-                  className={`px-3 py-1.5 flex items-center gap-1.5 transition-colors ${
-                    theme === 'light'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  <Sun className="w-3.5 h-3.5" />
-                  {t('settings.appearance.light')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => dispatch(setTheme('dark'))}
-                  className={`px-3 py-1.5 flex items-center gap-1.5 transition-colors ${
-                    theme === 'dark'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  <Moon className="w-3.5 h-3.5" />
-                  {t('settings.appearance.dark')}
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center justify-between border-t border-border pt-4">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Globe className="w-4 h-4" />
-                {t('settings.appearance.language')}
-              </div>
-              <div className="flex rounded-lg border border-border overflow-hidden text-sm">
-                <button
-                  type="button"
-                  onClick={() => { setLocale('zh-CN'); window.location.reload(); }}
-                  className={`px-3 py-1.5 transition-colors ${
-                    locale === 'zh-CN'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  {t('settings.appearance.chinese')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setLocale('en-US'); window.location.reload(); }}
-                  className={`px-3 py-1.5 transition-colors ${
-                    locale === 'en-US'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  {t('settings.appearance.english')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Provider groups */}
-        <ProviderGroupSection group="llm" />
-        <ProviderGroupSection group="image" />
-        <ProviderGroupSection group="video" />
-        <ProviderGroupSection group="audio" />
-
-        {/* Prompt Templates */}
-        <section className="mb-8">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <FileText className="w-3.5 h-3.5" />
-              {t('settings.promptTemplates')}
-            </h2>
-            {templates.some((tpl) => tpl.customContent !== null) && (
-              <button
-                onClick={() => {
-                  dispatch(resetAllContent());
-                  setExpandedTemplateId(null);
-                  setTemplateDrafts({});
-                }}
-                className="flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-muted text-muted-foreground"
-              >
-                <RotateCcw className="w-3 h-3" />
-                {t('settings.resetAll')}
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            {templates.map((tpl) => {
-              const isExpanded = expandedTemplateId === tpl.id;
-              const isModified = tpl.customContent !== null;
-              const draft = templateDrafts[tpl.id] ?? (tpl.customContent ?? tpl.defaultContent);
-
-              return (
-                <div
-                  key={tpl.id}
-                  className={cn(
-                    'rounded-lg border transition-colors',
-                    isExpanded ? 'border-primary/40 bg-primary/5' : 'border-border bg-card',
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+                <div className="mx-auto w-full max-w-4xl">
+                  {activeTab === 'appearance' && (
+                    <SettingsAppearanceSection
+                      locale={locale}
+                      onLocaleChange={handleLocaleChange}
+                      onThemeChange={handleThemeChange}
+                      theme={theme}
+                    />
                   )}
-                >
+
+                  {activeTab === 'providers' && (
+                    <>
+                      <ProviderGroupSection group="llm" />
+                      <ProviderGroupSection group="image" />
+                      <ProviderGroupSection group="video" />
+                      <ProviderGroupSection group="audio" />
+                    </>
+                  )}
+
+                  {activeTab === 'promptTemplates' && (
+                    <SettingsPromptTemplatesSection
+                      expandedTemplateId={expandedTemplateId}
+                      onExpandedTemplateIdChange={handleExpandedTemplateIdChange}
+                      onResetAll={handleResetAllTemplates}
+                      onResetTemplate={handleResetTemplate}
+                      onSaveTemplate={handleSaveTemplate}
+                      onTemplateDraftChange={handleTemplateDraftChange}
+                      templateDrafts={templateDrafts}
+                      templates={templates}
+                    />
+                  )}
                   {/* Header row — click to toggle */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isExpanded) {
-                        setExpandedTemplateId(null);
-                      } else {
-                        setExpandedTemplateId(tpl.id);
-                        // initialize draft from current content
-                        setTemplateDrafts((prev) => ({
-                          ...prev,
-                          [tpl.id]: tpl.customContent ?? tpl.defaultContent,
-                        }));
-                      }
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
-                  >
-                    <span className="flex-1 text-sm font-medium">{tpl.name}</span>
-                    {isModified && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 shrink-0">
-                        {t('settings.customized')}
-                      </span>
-                    )}
-                    <span className={cn(
-                      'text-[10px] px-1.5 py-0.5 rounded shrink-0',
-                      tpl.category === 'system' ? 'bg-violet-500/10 text-violet-400' :
-                      tpl.category === 'core' ? 'bg-blue-500/10 text-blue-400' :
-                      tpl.category === 'visual' ? 'bg-emerald-500/10 text-emerald-400' :
-                      tpl.category === 'process' ? 'bg-amber-500/10 text-amber-400' :
-                      'bg-muted text-muted-foreground',
-                    )}>
-                      {t(`settings.category.${tpl.category}`)}
-                    </span>
-                    {isExpanded ? (
-                      <ChevronUp className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    )}
-                  </button>
 
-                  {/* Expanded editor */}
-                  {isExpanded && (
-                    <div className="px-3 pb-3 space-y-2 border-t border-border/50 pt-2">
-                      <textarea
-                        value={draft}
-                        onChange={(e) =>
-                          setTemplateDrafts((prev) => ({ ...prev, [tpl.id]: e.target.value }))
-                        }
-                        rows={14}
-                        className="w-full px-3 py-2 text-xs rounded bg-background border border-border resize-y font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <div className="flex items-center gap-2 justify-end">
-                        {isModified && (
-                          <button
-                            onClick={() => {
-                              dispatch(resetContent(tpl.id));
-                              setTemplateDrafts((prev) => ({
-                                ...prev,
-                                [tpl.id]: tpl.defaultContent,
-                              }));
-                            }}
-                            className="flex items-center gap-1 px-2 py-1 text-xs rounded hover:bg-muted text-muted-foreground"
-                          >
-                            <RotateCcw className="w-3 h-3" />
-                            {t('settings.restoreDefault')}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setExpandedTemplateId(null)}
-                          className="px-2 py-1 text-xs rounded hover:bg-muted text-muted-foreground"
-                        >
-                          {t('action.cancel')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            dispatch(setCustomContent({ id: tpl.id, content: draft }));
-                            setExpandedTemplateId(null);
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-primary text-primary-foreground"
-                        >
-                          <Save className="w-3 h-3" />
-                          {t('action.save')}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {activeTab === 'workflows' && <WorkflowsPlaceholderSection />}
+
+                  {activeTab === 'about' && <UpdateSection />}
                 </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* About & Updates */}
-        <UpdateSection />
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
     </div>
   );

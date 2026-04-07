@@ -7,7 +7,7 @@ import {
   AdapterRegistry,
   // Image adapters
   OpenAIDalleAdapter,
-  FluxAdapter,
+  ReplicateAdapter,
   IdeogramAdapter,
   GoogleImagen3Adapter,
   RecraftAdapter,
@@ -34,10 +34,8 @@ import {
   OpenAILLMAdapter,
   ClaudeLLMAdapter,
   GeminiLLMAdapter,
-  OllamaLLMAdapter,
-  DeepSeekLLMAdapter,
-  GrokLLMAdapter,
-  QwenLLMAdapter,
+  buildRuntimeLLMAdapter,
+  listBuiltinLLMProviderPresets,
 } from '@lucid-fin/adapters-ai';
 import { AgentToolRegistry } from '@lucid-fin/application';
 import type { LLMAdapter } from '@lucid-fin/contracts';
@@ -47,10 +45,19 @@ const __dirname = path.dirname(__filename);
 const APP_DIR = path.join(os.homedir(), '.lucid-fin');
 
 const MEDIA_PROVIDER_KEY_ALIASES: Record<string, readonly string[]> = {
-  'openai-dalle': ['openai-image'],
-  'recraft-v3': ['recraft-v4'],
+  'openai-dalle': ['openai-image', 'openai'],
+  'google-imagen3': ['google-image'],
+  'google-veo-2': ['google-video'],
+  'recraft-v3': ['recraft-v4', 'recraft'],
+  'runway-gen4': ['runway'],
+  'luma-ray2': ['luma'],
+  'minimax-video01': ['minimax'],
+  'pika-v2': ['pika'],
   'elevenlabs-v2': ['elevenlabs'],
-  'openai-tts-1-hd': ['openai-tts'],
+  'openai-tts-1-hd': ['openai-tts', 'openai'],
+  'cartesia-sonic': ['cartesia'],
+  'playht-3': ['playht'],
+  'fish-audio-v1': ['fish-audio'],
 };
 
 export function resolveMediaProviderIds(providerId: string): string[] {
@@ -73,7 +80,7 @@ export function createAdapterRegistry(): AdapterRegistry {
   const adapterRegistry = new AdapterRegistry();
   // Image
   adapterRegistry.register(new OpenAIDalleAdapter());
-  adapterRegistry.register(new FluxAdapter());
+  adapterRegistry.register(new ReplicateAdapter());
   adapterRegistry.register(new IdeogramAdapter());
   adapterRegistry.register(new GoogleImagen3Adapter());
   adapterRegistry.register(new RecraftAdapter());
@@ -100,13 +107,9 @@ export function createAdapterRegistry(): AdapterRegistry {
 
 export function createLLMRegistry(): LLMRegistry {
   const llmRegistry = new LLMRegistry();
-  llmRegistry.register(new OpenAILLMAdapter());
-  llmRegistry.register(new ClaudeLLMAdapter());
-  llmRegistry.register(new GeminiLLMAdapter());
-  llmRegistry.register(new OllamaLLMAdapter());
-  llmRegistry.register(new DeepSeekLLMAdapter());
-  llmRegistry.register(new GrokLLMAdapter());
-  llmRegistry.register(new QwenLLMAdapter());
+  for (const preset of listBuiltinLLMProviderPresets()) {
+    llmRegistry.register(buildRuntimeLLMAdapter(preset));
+  }
   return llmRegistry;
 }
 

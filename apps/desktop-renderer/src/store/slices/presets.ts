@@ -8,6 +8,7 @@ export interface PresetsState {
   search: string;
   selectedCategory: PresetCategory | 'all';
   managerSelectedPresetId: string | null;
+  hiddenIds: string[];
 }
 
 const initialState: PresetsState = {
@@ -17,6 +18,7 @@ const initialState: PresetsState = {
   search: '',
   selectedCategory: 'all',
   managerSelectedPresetId: null,
+  hiddenIds: [],
 };
 
 export const presetsSlice = createSlice({
@@ -65,6 +67,12 @@ export const presetsSlice = createSlice({
     selectManagerPreset(state, action: PayloadAction<string | null>) {
       state.managerSelectedPresetId = action.payload;
     },
+    togglePresetHidden(state, action: PayloadAction<string>) {
+      const id = action.payload;
+      const idx = state.hiddenIds.indexOf(id);
+      if (idx === -1) state.hiddenIds.push(id);
+      else state.hiddenIds.splice(idx, 1);
+    },
     restore(_state, action: PayloadAction<PresetsState>) {
       return action.payload;
     },
@@ -79,5 +87,6 @@ export const {
   setPresetsSearch,
   setPresetsCategoryFilter,
   selectManagerPreset,
+  togglePresetHidden,
 } = presetsSlice.actions;
 

@@ -2,7 +2,7 @@
 export { AdapterRegistry } from './adapter-registry.js';
 export { OpenAIDalleAdapter } from './openai-dalle/index.js';
 export { RunwayAdapter } from './runway/index.js';
-export { FluxAdapter } from './flux/index.js';
+export { ReplicateAdapter } from './replicate/index.js';
 export { IdeogramAdapter } from './ideogram/index.js';
 export { KlingAdapter } from './kling/index.js';
 export { VeoAdapter } from './veo/index.js';
@@ -35,10 +35,17 @@ export { SDWebUIAdapter } from './sd-webui/index.js';
 // LLM adapters
 export { LLMRegistry } from './llm/llm-registry.js';
 export { OpenAICompatibleLLM } from './llm/openai-compatible-base.js';
+export { OpenAIResponsesLLM } from './llm/openai-responses-llm.js';
 export { OpenAILLMAdapter } from './llm/openai-llm.js';
 export { ClaudeLLMAdapter } from './llm/claude-llm.js';
 export { GeminiLLMAdapter } from './llm/gemini-llm.js';
+export { CohereLLMAdapter } from './llm/cohere-llm.js';
 export { OllamaLLMAdapter } from './llm/ollama-llm.js';
 export { DeepSeekLLMAdapter } from './llm/deepseek-llm.js';
 export { QwenLLMAdapter } from './llm/qwen-llm.js';
 export { GrokLLMAdapter } from './llm/grok-llm.js';
+export {
+  buildRuntimeLLMAdapter,
+  getBuiltinLLMProviderPreset,
+  listBuiltinLLMProviderPresets,
+} from './llm/provider-runtime.js';

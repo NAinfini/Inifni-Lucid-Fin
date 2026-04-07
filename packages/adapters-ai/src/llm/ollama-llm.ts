@@ -112,7 +112,7 @@ export class OllamaLLMAdapter implements LLMAdapter {
       model: this.model,
       messages: messages.map((m) => {
         if (m.role === 'tool') {
-          return { role: 'tool', content: m.content };
+          return { role: 'tool', tool_call_id: m.toolCallId, content: m.content };
         }
         const msg: Record<string, unknown> = { role: m.role, content: m.content };
         if (m.toolCalls?.length) {

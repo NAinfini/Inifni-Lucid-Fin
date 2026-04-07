@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { IpcMain } from 'electron';
-import log from 'electron-log';
+import log from '../../logger.js';
 import { createCommand, runCommand, detectFfmpeg } from '@lucid-fin/media-engine';
 
 function requireFilePath(args: unknown, channel: string): string {

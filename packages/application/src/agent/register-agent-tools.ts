@@ -13,17 +13,19 @@ import {
 } from './tools/orchestration-tools.js';
 import { createSeriesTools, type SeriesToolDeps } from './tools/series-tools.js';
 import { createColorStyleTools, type ColorStyleToolDeps } from './tools/color-style-tools.js';
+import { createEquipmentTools, type EquipmentToolDeps } from './tools/equipment-tools.js';
 import { createAssetTools, type AssetToolDeps } from './tools/asset-tools.js';
 import { createPromptTools, type PromptToolDeps } from './tools/prompt-tools.js';
 import { createProjectTools, type ProjectToolDeps } from './tools/project-tools.js';
 import { createRenderTools, type RenderToolDeps } from './tools/render-tools.js';
 import { createPresetTools, type PresetToolDeps } from './tools/preset-tools.js';
 import { createWorkflowTools, type WorkflowToolDeps } from './tools/workflow-tools.js';
+import { createMetaTools, type MetaToolDeps } from './tools/meta-tools.js';
 
 export interface AllToolDeps
   extends ScriptToolDeps,
-    CharacterToolDeps,
-    SceneToolDeps,
+    Omit<CharacterToolDeps, 'getCanvas'>,
+    Omit<SceneToolDeps, 'getCanvas'>,
     SegmentToolDeps,
     StoryboardToolDeps,
     CanvasToolDeps,
@@ -32,12 +34,14 @@ export interface AllToolDeps
     OrchestrationToolDeps,
     SeriesToolDeps,
     ColorStyleToolDeps,
+    Omit<EquipmentToolDeps, 'getCanvas'>,
     AssetToolDeps,
     PromptToolDeps,
     ProjectToolDeps,
     RenderToolDeps,
     PresetToolDeps,
-    WorkflowToolDeps {}
+    WorkflowToolDeps,
+    Partial<MetaToolDeps> {}
 
 export function registerAgentTools(
   registry: AgentToolRegistry,
@@ -54,11 +58,13 @@ export function registerAgentTools(
   for (const tool of createOrchestrationTools(deps)) registry.register(tool);
   for (const tool of createSeriesTools(deps)) registry.register(tool);
   for (const tool of createColorStyleTools(deps)) registry.register(tool);
+  for (const tool of createEquipmentTools(deps)) registry.register(tool);
   for (const tool of createAssetTools(deps)) registry.register(tool);
   for (const tool of createPromptTools(deps)) registry.register(tool);
   for (const tool of createProjectTools(deps)) registry.register(tool);
   for (const tool of createRenderTools(deps)) registry.register(tool);
   for (const tool of createPresetTools(deps)) registry.register(tool);
   for (const tool of createWorkflowTools(deps)) registry.register(tool);
+  for (const tool of createMetaTools(registry, { promptGuides: deps.promptGuides })) registry.register(tool);
   return registry;
 }

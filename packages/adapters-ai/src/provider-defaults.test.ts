@@ -4,6 +4,7 @@ import { OpenAILLMAdapter } from './llm/openai-llm.js';
 import { ClaudeLLMAdapter } from './llm/claude-llm.js';
 import { GeminiLLMAdapter } from './llm/gemini-llm.js';
 import { GrokLLMAdapter } from './llm/grok-llm.js';
+import { CohereLLMAdapter } from './llm/cohere-llm.js';
 import { GoogleImagen3Adapter } from './imagen/index.js';
 import { toOpenAIRequest } from './openai-dalle/mapper.js';
 import { toOpenAITTSRequest } from './openai-tts/mapper.js';
@@ -31,9 +32,10 @@ function makeVideoRequest(): GenerationRequest {
 describe('adapter defaults', () => {
   it('uses the approved hosted llm defaults', () => {
     expect(Reflect.get(new OpenAILLMAdapter(), 'model')).toBe('gpt-4.1');
-    expect(Reflect.get(new ClaudeLLMAdapter(), 'model')).toBe('claude-sonnet-4-6');
+    expect(Reflect.get(new ClaudeLLMAdapter(), 'model')).toBe('claude-sonnet-4-20250514');
     expect(Reflect.get(new GeminiLLMAdapter(), 'model')).toBe('gemini-2.5-flash');
     expect(Reflect.get(new GrokLLMAdapter(), 'model')).toBe('grok-3');
+    expect(Reflect.get(new CohereLLMAdapter(), 'model')).toBe('command-a-03-2025');
   });
 
   it('uses the approved image, video, and audio mapper defaults', () => {

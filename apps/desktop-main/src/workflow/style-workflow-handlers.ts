@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import log from 'electron-log';
+import log from '../logger.js';
 import type { LLMRegistry } from '@lucid-fin/adapters-ai';
 import type { WorkflowTaskExecutionContext, WorkflowTaskHandler } from '@lucid-fin/application';
 import type {

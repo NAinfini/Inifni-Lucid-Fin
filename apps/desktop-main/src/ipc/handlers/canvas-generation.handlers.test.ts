@@ -82,11 +82,18 @@ describe('canonicalizeCanvasProviderId', () => {
     expect(canonicalizeCanvasProviderId('runway')).toBe('runway-gen4');
     expect(canonicalizeCanvasProviderId('veo')).toBe('google-veo-2');
     expect(canonicalizeCanvasProviderId('pika')).toBe('pika-v2');
-    expect(canonicalizeCanvasProviderId('openai-image')).toBe('openai-dalle');
+    expect(canonicalizeCanvasProviderId('openai-image', 'image')).toBe('openai-dalle');
+    expect(canonicalizeCanvasProviderId('openai', 'image')).toBe('openai-dalle');
+    expect(canonicalizeCanvasProviderId('openai', 'voice')).toBe('openai-tts-1-hd');
+    expect(canonicalizeCanvasProviderId('google-image', 'image')).toBe('google-imagen3');
+    expect(canonicalizeCanvasProviderId('google-video', 'video')).toBe('google-veo-2');
+    expect(canonicalizeCanvasProviderId('recraft', 'image')).toBe('recraft-v3');
     expect(canonicalizeCanvasProviderId('recraft-v4')).toBe('recraft-v3');
     expect(canonicalizeCanvasProviderId('elevenlabs')).toBe('elevenlabs-v2');
-    expect(canonicalizeCanvasProviderId('openai-tts')).toBe('openai-tts-1-hd');
-    expect(canonicalizeCanvasProviderId('fish-audio')).toBe('fish-audio-v1');
+    expect(canonicalizeCanvasProviderId('openai-tts', 'voice')).toBe('openai-tts-1-hd');
+    expect(canonicalizeCanvasProviderId('cartesia', 'voice')).toBe('cartesia-sonic');
+    expect(canonicalizeCanvasProviderId('playht', 'voice')).toBe('playht-3');
+    expect(canonicalizeCanvasProviderId('fish-audio', 'voice')).toBe('fish-audio-v1');
   });
 
   it('passes through already-canonical ids', () => {
@@ -143,7 +150,15 @@ function makeCanvas(nodeType: 'image' | 'video' | 'audio' = 'image'): Canvas {
   };
 }
 
-function makeDeps(canvas: Canvas, adapter: { generate: (req: import('@lucid-fin/contracts').GenerationRequest) => Promise<GenerationResult> } | null) {
+function makeDeps(
+  canvas: Canvas,
+  adapter:
+    | {
+        generate: (req: import('@lucid-fin/contracts').GenerationRequest) => Promise<GenerationResult>;
+        subscribe?: import('@lucid-fin/contracts').AIProviderAdapter['subscribe'];
+      }
+    | null,
+) {
   const save = vi.fn();
   return {
     deps: {
@@ -157,6 +172,7 @@ function makeDeps(canvas: Canvas, adapter: { generate: (req: import('@lucid-fin/
           configure: vi.fn(),
           validate: vi.fn(async () => true),
           generate: adapter.generate,
+          subscribe: adapter.subscribe,
           estimateCost: vi.fn(() => ({ estimatedCost: 0, currency: 'USD', provider: 'mock-provider', unit: 'image' })),
           checkStatus: vi.fn(async () => 'completed'),
           cancel: vi.fn(async () => undefined),
@@ -170,6 +186,7 @@ function makeDeps(canvas: Canvas, adapter: { generate: (req: import('@lucid-fin/
           configure: vi.fn(),
           validate: vi.fn(async () => true),
           generate: adapter.generate,
+          subscribe: adapter.subscribe,
           estimateCost: vi.fn(() => ({ estimatedCost: 0, currency: 'USD', provider: 'mock-provider', unit: 'image' })),
           checkStatus: vi.fn(async () => 'completed'),
           cancel: vi.fn(async () => undefined),
@@ -234,6 +251,69 @@ afterEach(() => {
 });
 
 describe('startCanvasGeneration progress events', () => {
+  it('prefers adapter subscribe callbacks when the adapter supports realtime updates', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-subscribe-'));
+    const assetPath = path.join(tmpDir, 'subscribed.png');
+    fs.writeFileSync(assetPath, Buffer.from([1, 2, 3, 4]));
+
+    const canvas = makeCanvas('image');
+    const adapter = {
+      generate: vi.fn(async () => {
+        throw new Error('generate should not be used when subscribe exists');
+      }),
+      subscribe: vi.fn(async (_request, callbacks) => {
+        callbacks.onQueueUpdate?.({
+          status: 'processing',
+          jobId: 'provider-job-1',
+        });
+        callbacks.onProgress?.({
+          type: 'progress',
+          percentage: 60,
+          currentStep: 'rendering',
+          jobId: 'provider-job-1',
+        });
+
+        return {
+          assetHash: '',
+          assetPath,
+          provider: 'mock-provider',
+          metadata: {
+            taskId: 'provider-job-1',
+          },
+        };
+      }),
+    };
+    const { deps } = makeDeps(canvas, adapter);
+    const { sender, events, done } = createSender();
+
+    await startCanvasGeneration(
+      sender,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        variantCount: 1,
+      },
+      deps as never,
+    );
+
+    await done;
+
+    expect(adapter.subscribe).toHaveBeenCalledOnce();
+    const progressEvents = events.filter((event) => event.channel === 'canvas:generation:progress');
+    expect(progressEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            currentStep: 'rendering',
+          }),
+        }),
+      ]),
+    );
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it('emits variant-by-variant progress updates for built-in adapters', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-gen-'));
     const assetPath = path.join(tmpDir, 'built-in.png');
@@ -273,6 +353,62 @@ describe('startCanvasGeneration progress events', () => {
           }),
         }),
       ]),
+    );
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('passes node media options through to the generation request', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-video-'));
+    const assetPath = path.join(tmpDir, 'video.mp4');
+    fs.writeFileSync(assetPath, Buffer.from([1, 2, 3, 4]));
+
+    const canvas = makeCanvas('video');
+    const node = canvas.nodes[0];
+    if (!node || node.type !== 'video') {
+      throw new Error('expected video node');
+    }
+    Object.assign(node.data, {
+      width: 1920,
+      height: 1080,
+      duration: 8,
+      fps: 60,
+      seed: 123456,
+    });
+
+    const adapter = {
+      generate: vi.fn(async () => ({
+        assetHash: '',
+        assetPath,
+        provider: 'mock-provider',
+      })),
+    };
+    const { deps } = makeDeps(canvas, adapter);
+    const { sender, done } = createSender();
+
+    await startCanvasGeneration(
+      sender,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        variantCount: 1,
+      },
+      deps as never,
+    );
+
+    await done;
+
+    expect(adapter.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 1920,
+        height: 1080,
+        duration: 8,
+        seed: 123456,
+        params: expect.objectContaining({
+          fps: 60,
+        }),
+      }),
     );
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -328,5 +464,100 @@ describe('startCanvasGeneration progress events', () => {
     );
 
     vi.useRealTimers();
+  });
+
+  it('configures registered adapters with aliased keys and runtime provider overrides', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-provider-config-'));
+    const assetPath = path.join(tmpDir, 'configured.png');
+    fs.writeFileSync(assetPath, Buffer.from([1, 2, 3, 4]));
+
+    const canvas = makeCanvas('image');
+    const configure = vi.fn();
+    const generate = vi.fn(async () => ({
+      assetHash: '',
+      assetPath,
+      provider: 'openai-dalle',
+    }));
+    const adapter = {
+      id: 'openai-dalle',
+      name: 'OpenAI Image',
+      type: 'image',
+      capabilities: ['text-to-image'],
+      maxConcurrent: 1,
+      configure,
+      validate: vi.fn(async () => true),
+      generate,
+      estimateCost: vi.fn(() => ({
+        estimatedCost: 0,
+        currency: 'USD',
+        provider: 'openai-dalle',
+        unit: 'image',
+      })),
+      checkStatus: vi.fn(async () => 'completed'),
+      cancel: vi.fn(async () => undefined),
+    };
+    const save = vi.fn();
+    const { sender, done } = createSender();
+
+    await startCanvasGeneration(
+      sender,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'openai-image',
+        providerConfig: {
+          baseUrl: 'https://proxy.example/v1',
+          model: 'gpt-image-1',
+        },
+        variantCount: 1,
+      },
+      {
+        adapterRegistry: {
+          get: vi.fn((id: string) => (id === 'openai-dalle' ? adapter : undefined)),
+          list: vi.fn(() => [adapter]),
+        },
+        cas: {
+          importAsset: vi.fn(async () => ({
+            ref: { hash: 'hash-configured' },
+            meta: {
+              hash: 'hash-configured',
+              type: 'image',
+              mimeType: 'image/png',
+              size: 4,
+              width: 1,
+              height: 1,
+              duration: undefined,
+              createdAt: Date.now(),
+            },
+          })),
+        },
+        db: {
+          insertAsset: vi.fn(),
+          getCharacter: vi.fn(() => undefined),
+          getEquipment: vi.fn(() => undefined),
+          getLocation: vi.fn(() => undefined),
+        },
+        canvasStore: {
+          get: vi.fn(() => canvas),
+          save,
+        },
+        keychain: {
+          getKey: vi.fn(async (provider: string) => (provider === 'openai' ? 'sk-openai' : null)),
+        },
+      } as never,
+    );
+
+    await done;
+
+    expect(configure).toHaveBeenCalledWith(
+      'sk-openai',
+      expect.objectContaining({
+        baseUrl: 'https://proxy.example/v1',
+        model: 'gpt-image-1',
+      }),
+    );
+    expect(generate).toHaveBeenCalled();
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

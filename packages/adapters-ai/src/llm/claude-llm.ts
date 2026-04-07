@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type {
   LLMAdapter,
   LLMMessage,
@@ -7,10 +8,73 @@ import type {
   Capability,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
+import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
+
+type ClaudeAdapterConfig = {
+  id?: string;
+  name?: string;
+  defaultBaseUrl?: string;
+  defaultModel?: string;
+};
+
+interface ClaudeRequestResult {
+  response: Response;
+  endpoint: string;
+  requestBody: Record<string, unknown>;
+  requestId: string;
+  streaming: boolean;
+  hasTools: boolean;
+}
+
+function sanitizeClaudeToolName(name: string): string {
+  return name.replace(/\./g, '_');
+}
+
+function stringifyUrl(url: URL): string {
+  const pathname = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '');
+  return `${url.origin}${pathname}${url.search}${url.hash}`;
+}
+
+function normalizeClaudeBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const normalizedPath = parsed.pathname
+      .replace(/\/+$/, '')
+      .replace(/\/messages$/i, '');
+
+    parsed.pathname = normalizedPath || '/';
+    return stringifyUrl(parsed);
+  } catch {
+    return trimmed.replace(/\/+$/, '').replace(/\/messages$/i, '');
+  }
+}
+
+function buildClaudeMessagesEndpoint(baseUrl: string): string {
+  const normalized = normalizeClaudeBaseUrl(baseUrl);
+  if (!normalized) {
+    return normalized;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+    parsed.pathname = /\/v1$/i.test(pathname)
+      ? `${pathname}/messages`
+      : `${pathname || ''}/v1/messages`;
+    return stringifyUrl(parsed);
+  } catch {
+    return /\/v1$/i.test(normalized) ? `${normalized}/messages` : `${normalized}/v1/messages`;
+  }
+}
 
 export class ClaudeLLMAdapter implements LLMAdapter {
-  readonly id = 'claude';
-  readonly name = 'Anthropic Claude';
+  readonly id: string;
+  readonly name: string;
   readonly capabilities: Capability[] = [
     'text-generation',
     'script-expand',
@@ -20,19 +84,26 @@ export class ClaudeLLMAdapter implements LLMAdapter {
   ];
 
   private apiKey = '';
-  private baseUrl = 'https://api.anthropic.com';
-  private model = 'claude-sonnet-4-6';
+  private baseUrl: string;
+  private model: string;
+
+  constructor(cfg: ClaudeAdapterConfig = {}) {
+    this.id = cfg.id ?? 'claude';
+    this.name = cfg.name ?? 'Anthropic Claude';
+    this.baseUrl = normalizeClaudeBaseUrl(cfg.defaultBaseUrl ?? 'https://api.anthropic.com');
+    this.model = cfg.defaultModel ?? 'claude-sonnet-4-5';
+  }
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) this.baseUrl = normalizeClaudeBaseUrl(options.baseUrl as string);
     if (options?.model) this.model = options.model as string;
   }
 
   async validate(): Promise<boolean> {
     try {
       // Send a minimal request to check key validity
-      const res = await fetch(`${this.baseUrl}/v1/messages`, {
+      const res = await fetch(buildClaudeMessagesEndpoint(this.baseUrl), {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({
@@ -49,10 +120,8 @@ export class ClaudeLLMAdapter implements LLMAdapter {
 
   async complete(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<string> {
     const { system, msgs } = this.splitSystem(messages);
-    const res = await fetch(`${this.baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
+    const result = await this.request(
+      {
         model: this.model,
         max_tokens: opts?.maxTokens ?? 4096,
         temperature: opts?.temperature ?? 0.7,
@@ -60,19 +129,22 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         stop_sequences: opts?.stop,
         system,
         messages: msgs,
-      }),
-    });
-    if (!res.ok) this.throwError(res.status);
-    const data = (await res.json()) as { content: Array<{ text: string }> };
-    return data.content[0]?.text ?? '';
+      },
+      {
+        hasTools: false,
+        streaming: false,
+      },
+    );
+    const data = await this.parseJsonResponse<{ content: Array<{ type?: string; text?: string }> }>(
+      result,
+    );
+    return data.content?.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('') ?? '';
   }
 
   async *stream(messages: LLMMessage[], opts?: LLMRequestOptions): AsyncIterable<string> {
     const { system, msgs } = this.splitSystem(messages);
-    const res = await fetch(`${this.baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
+    const result = await this.request(
+      {
         model: this.model,
         max_tokens: opts?.maxTokens ?? 4096,
         temperature: opts?.temperature ?? 0.7,
@@ -81,11 +153,14 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         system,
         messages: msgs,
         stream: true,
-      }),
-    });
-    if (!res.ok) this.throwError(res.status);
+      },
+      {
+        hasTools: false,
+        streaming: true,
+      },
+    );
 
-    const reader = res.body?.getReader();
+    const reader = result.response.body?.getReader();
     if (!reader) return;
     const decoder = new TextDecoder();
     let buffer = '';
@@ -118,6 +193,41 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     };
   }
 
+  private async request(
+    body: Record<string, unknown>,
+    options: { hasTools: boolean; streaming: boolean },
+  ): Promise<ClaudeRequestResult> {
+    const endpoint = buildClaudeMessagesEndpoint(this.baseUrl);
+    const requestId = randomUUID();
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          ...this.headers(),
+          'X-Client-Request-Id': requestId,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (error) {
+      throw this.buildTransportError(error, endpoint, body, options);
+    }
+
+    if (!response.ok) {
+      throw await this.buildHttpError(response, endpoint, body, requestId, options);
+    }
+
+    return {
+      response,
+      endpoint,
+      requestBody: body,
+      requestId,
+      streaming: options.streaming,
+      hasTools: options.hasTools,
+    };
+  }
+
   private splitSystem(messages: LLMMessage[]): {
     system: string | undefined;
     msgs: Array<{ role: string; content: unknown }>;
@@ -136,7 +246,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
           const content: unknown[] = [];
           if (m.content) content.push({ type: 'text', text: m.content });
           for (const tc of m.toolCalls) {
-            content.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.arguments });
+            content.push({ type: 'tool_use', id: tc.id, name: sanitizeClaudeToolName(tc.name), input: tc.arguments });
           }
           return { role: 'assistant', content };
         }
@@ -145,11 +255,22 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     return { system: systemMsgs.map((m) => m.content).join('\n') || undefined, msgs };
   }
 
+  private async parseJsonResponse<T>(result: ClaudeRequestResult): Promise<T> {
+    const responseText = await result.response.text();
+    const parsed = this.tryParseJson(responseText);
+    if (parsed !== undefined) {
+      return parsed as T;
+    }
+
+    throw this.buildInvalidJsonResponseError(result, responseText);
+  }
+
   async completeWithTools(
     messages: LLMMessage[],
     opts?: LLMRequestOptions,
   ): Promise<LLMCompletionResult> {
     const { system, msgs } = this.splitSystem(messages);
+    const toolNameMap = new Map<string, string>();
     const body: Record<string, unknown> = {
       model: this.model,
       max_tokens: opts?.maxTokens ?? 4096,
@@ -161,29 +282,30 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     };
 
     if (opts?.tools?.length) {
-      body.tools = opts.tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        input_schema: t.parameters,
-      }));
+      body.tools = opts.tools.map((t) => {
+        const sanitized = sanitizeClaudeToolName(t.name);
+        toolNameMap.set(sanitized, t.name);
+        return {
+          name: sanitized,
+          description: t.description,
+          input_schema: t.parameters,
+        };
+      });
       if (opts.toolChoice) {
         body.tool_choice =
           typeof opts.toolChoice === 'string'
             ? opts.toolChoice === 'auto'
               ? { type: 'auto' }
               : { type: 'none' }
-            : { type: 'tool', name: opts.toolChoice.name };
+            : { type: 'tool', name: sanitizeClaudeToolName(opts.toolChoice.name) };
       }
     }
 
-    const res = await fetch(`${this.baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
+    const result = await this.request(body, {
+      hasTools: Boolean(opts?.tools?.length),
+      streaming: false,
     });
-    if (!res.ok) this.throwError(res.status);
-
-    const data = (await res.json()) as {
+    const data = await this.parseJsonResponse<{
       content: Array<{
         type: string;
         text?: string;
@@ -192,14 +314,19 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         input?: Record<string, unknown>;
       }>;
       stop_reason: string;
-    };
+    }>(result);
 
     let content = '';
     const toolCalls: LLMToolCall[] = [];
     for (const block of data.content) {
       if (block.type === 'text') content += block.text ?? '';
       if (block.type === 'tool_use') {
-        toolCalls.push({ id: block.id!, name: block.name!, arguments: block.input ?? {} });
+        const rawName = block.name ?? '';
+        toolCalls.push({
+          id: block.id!,
+          name: toolNameMap.get(rawName) ?? rawName,
+          arguments: block.input ?? {},
+        });
       }
     }
 
@@ -215,9 +342,177 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     };
   }
 
-  private throwError(status: number): never {
-    if (status === 401) throw new LucidError(ErrorCode.AuthFailed, 'Invalid Anthropic API key');
-    if (status === 429) throw new LucidError(ErrorCode.RateLimited, 'Claude rate limited');
-    throw new LucidError(ErrorCode.ServiceUnavailable, `Claude error: ${status}`);
+  private async buildHttpError(
+    response: Response,
+    endpoint: string,
+    requestBody: Record<string, unknown>,
+    requestId: string,
+    options: { hasTools: boolean; streaming: boolean },
+  ): Promise<LucidError> {
+    const responseText = await response.text();
+    const responseBody = this.tryParseJson(responseText);
+    const normalized = parseAdapterError({
+      provider: this.name,
+      status: response.status,
+      error: responseBody ?? responseText ?? this.defaultStatusMessage(response.status),
+    });
+    const lucid = adapterErrorToLucidError(normalized);
+
+    return new LucidError(this.resolveErrorCode(response.status, lucid.code), this.resolveErrorMessage(normalized.message, response.status), {
+      retryable: normalized.retryable,
+      retryAfter: normalized.retryAfter,
+      providerCode: normalized.providerCode,
+      status: response.status,
+      statusText: response.statusText,
+      endpoint,
+      requestId,
+      upstreamRequestId:
+        response.headers.get('request-id')
+        ?? response.headers.get('x-request-id')
+        ?? undefined,
+      provider: this.name,
+      providerId: this.id,
+      baseUrl: this.baseUrl,
+      model: this.model,
+      streaming: options.streaming,
+      hasTools: options.hasTools,
+      ...this.measureRequestDiagnostics(requestBody),
+      requestBody,
+      responseText: responseText || undefined,
+      responseBody,
+    });
+  }
+
+  private buildTransportError(
+    error: unknown,
+    endpoint: string,
+    requestBody: Record<string, unknown>,
+    options: { hasTools: boolean; streaming: boolean },
+  ): LucidError {
+    const normalized = parseAdapterError({
+      provider: this.name,
+      error,
+    });
+    const lucid = adapterErrorToLucidError(normalized);
+
+    return new LucidError(lucid.code, this.resolveErrorMessage(normalized.message, undefined), {
+      retryable: normalized.retryable,
+      retryAfter: normalized.retryAfter,
+      providerCode: normalized.providerCode,
+      endpoint,
+      provider: this.name,
+      providerId: this.id,
+      baseUrl: this.baseUrl,
+      model: this.model,
+      streaming: options.streaming,
+      hasTools: options.hasTools,
+      ...this.measureRequestDiagnostics(requestBody),
+      requestBody,
+      transportError: this.serializeError(error),
+    });
+  }
+
+  private buildInvalidJsonResponseError(
+    result: ClaudeRequestResult,
+    responseText: string,
+  ): LucidError {
+    return new LucidError(ErrorCode.ServiceUnavailable, `${this.name} returned a non-JSON response`, {
+      status: result.response.status,
+      statusText: result.response.statusText,
+      endpoint: result.endpoint,
+      requestId: result.requestId,
+      upstreamRequestId:
+        result.response.headers.get('request-id')
+        ?? result.response.headers.get('x-request-id')
+        ?? undefined,
+      provider: this.name,
+      providerId: this.id,
+      baseUrl: this.baseUrl,
+      model: this.model,
+      streaming: result.streaming,
+      hasTools: result.hasTools,
+      contentType: result.response.headers.get('content-type') ?? undefined,
+      responseBytes: Buffer.byteLength(responseText, 'utf8'),
+      ...this.measureRequestDiagnostics(result.requestBody),
+      requestBody: result.requestBody,
+      responseText: responseText || undefined,
+      responseTextSnippet: this.truncateForDiagnostics(responseText),
+    });
+  }
+
+  private resolveErrorCode(status: number, fallback: ErrorCode): ErrorCode {
+    if (status === 404) {
+      return ErrorCode.NotFound;
+    }
+    return fallback;
+  }
+
+  private resolveErrorMessage(message: string, status: number | undefined): string {
+    return message !== `${this.name} request failed` ? message : this.defaultStatusMessage(status);
+  }
+
+  private defaultStatusMessage(status: number | undefined): string {
+    if (status === 401 || status === 403) {
+      return 'Invalid Anthropic API key';
+    }
+    if (status === 429) {
+      return 'Claude rate limited';
+    }
+    if (status === 404) {
+      return 'Claude resource not found';
+    }
+    if (status === 400) {
+      return 'Claude invalid request';
+    }
+    return `Claude error: ${status ?? 'request failed'}`;
+  }
+
+  private tryParseJson(value: string): unknown {
+    if (!value.trim()) {
+      return undefined;
+    }
+
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private serializeError(error: unknown): Record<string, unknown> | string {
+    if (error instanceof Error) {
+      const serialized: Record<string, unknown> = {
+        name: error.name,
+        message: error.message,
+      };
+      if (error.stack) {
+        serialized.stack = error.stack;
+      }
+      return serialized;
+    }
+    return typeof error === 'string' ? error : JSON.stringify(error);
+  }
+
+  private measureRequestDiagnostics(requestBody: Record<string, unknown>): Record<string, unknown> {
+    const messages = Array.isArray(requestBody.messages)
+      ? requestBody.messages as Array<Record<string, unknown>>
+      : [];
+    const tools = Array.isArray(requestBody.tools)
+      ? requestBody.tools as Array<Record<string, unknown>>
+      : [];
+
+    return {
+      requestBytes: Buffer.byteLength(JSON.stringify(requestBody), 'utf8'),
+      messageCount: messages.length,
+      toolCount: tools.length,
+      systemPromptChars: typeof requestBody.system === 'string' ? requestBody.system.length : 0,
+    };
+  }
+
+  private truncateForDiagnostics(value: string, maxChars = 4000): string {
+    if (value.length <= maxChars) {
+      return value;
+    }
+    return `${value.slice(0, maxChars)}...`;
   }
 }

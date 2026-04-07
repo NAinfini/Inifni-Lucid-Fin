@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store/index.js';
 import { setProject } from '../store/slices/project.js';
 import { restore as restoreSettings } from '../store/slices/settings.js';
+import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import type { SettingsState } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
@@ -52,7 +53,14 @@ export function useAutoProject() {
           dispatch(setProject({ ...manifest, path: entry?.path ?? '' }));
         }
       } catch (err) {
-        console.error('[useAutoProject] failed:', err);
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'startup',
+            message: 'Auto project bootstrap failed',
+            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          }),
+        );
         ran.current = false;
       }
     });

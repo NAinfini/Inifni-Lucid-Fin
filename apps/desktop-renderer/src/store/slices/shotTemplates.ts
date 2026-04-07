@@ -5,12 +5,14 @@ export interface ShotTemplatesState {
   builtIn: ShotTemplate[];
   custom: ShotTemplate[];
   loading: boolean;
+  hiddenIds: string[];
 }
 
 const initialState: ShotTemplatesState = {
   builtIn: BUILT_IN_SHOT_TEMPLATES,
   custom: [],
   loading: false,
+  hiddenIds: [],
 };
 
 export const shotTemplatesSlice = createSlice({
@@ -34,6 +36,16 @@ export const shotTemplatesSlice = createSlice({
     removeCustomTemplate(state, action: PayloadAction<string>) {
       state.custom = state.custom.filter((t) => t.id !== action.payload);
     },
+    updateCustomTemplateTracks(state, action: PayloadAction<{ id: string; tracks: ShotTemplate['tracks'] }>) {
+      const template = state.custom.find((t) => t.id === action.payload.id);
+      if (template) template.tracks = action.payload.tracks;
+    },
+    toggleTemplateHidden(state, action: PayloadAction<string>) {
+      const id = action.payload;
+      const idx = state.hiddenIds.indexOf(id);
+      if (idx === -1) state.hiddenIds.push(id);
+      else state.hiddenIds.splice(idx, 1);
+    },
     setLoading(state, action: PayloadAction<boolean>) {
       state.loading = action.payload;
     },
@@ -47,5 +59,7 @@ export const {
   setCustomTemplates,
   addCustomTemplate,
   updateCustomTemplate,
+  updateCustomTemplateTracks,
   removeCustomTemplate,
+  toggleTemplateHidden,
 } = shotTemplatesSlice.actions;

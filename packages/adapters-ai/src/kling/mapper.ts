@@ -1,4 +1,5 @@
-import type { GenerationRequest } from '@lucid-fin/contracts';
+import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import { parseAdapterError } from '../error-utils.js';
 
 export function toKlingRequest(req: GenerationRequest): Record<string, unknown> {
   const isImg2Vid = req.referenceImages && req.referenceImages.length > 0;
@@ -23,4 +24,8 @@ export function parseKlingResponse(data: Record<string, unknown>): {
     taskId: (d['task_id'] ?? d['id'] ?? '') as string,
     status: (d['task_status'] ?? d['status'] ?? '') as string,
   };
+}
+
+export function parseError(data: unknown, status?: number): AdapterError {
+  return parseAdapterError({ provider: 'Kling', status, error: data });
 }

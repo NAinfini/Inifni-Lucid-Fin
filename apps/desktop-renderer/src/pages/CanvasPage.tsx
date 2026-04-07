@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layers, Plus } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { Canvas } from '@lucid-fin/contracts';
@@ -13,27 +13,28 @@ import { toggleCommander } from '../store/slices/commander.js';
 import { setPresets, setPresetsLoading } from '../store/slices/presets.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
-import { AddNodePanel } from '../components/canvas/AddNodePanel.js';
-import { AssetBrowserPanel } from '../components/canvas/AssetBrowserPanel.js';
-import { CanvasNavigatorPanel } from '../components/canvas/CanvasNavigatorPanel.js';
-import { CanvasNotesPanel } from '../components/canvas/CanvasNotesPanel.js';
 import { CanvasWorkspace } from '../components/canvas/CanvasWorkspace.js';
 import { ReactFlowProvider } from '@xyflow/react';
-import { CharacterManagerPanel } from '../components/canvas/CharacterManagerPanel.js';
-import { CommanderPanel } from '../components/canvas/CommanderPanel.js';
-import { DependenciesPanel } from '../components/canvas/DependenciesPanel.js';
-import { EquipmentManagerPanel } from '../components/canvas/EquipmentManagerPanel.js';
-import { LocationManagerPanel } from '../components/canvas/LocationManagerPanel.js';
-import { ExportRenderPanel } from '../components/canvas/ExportRenderPanel.js';
-import { GenerationQueuePanel } from '../components/canvas/GenerationQueuePanel.js';
-import { HistoryPanel } from '../components/canvas/HistoryPanel.js';
-import { InspectorPanel } from '../components/canvas/InspectorPanel.js';
-import { LoggerPanel } from '../components/canvas/LoggerPanel.js';
-import { PresetManagerPanel } from '../components/canvas/PresetManagerPanel.js';
-import { ShotTemplateManagerPanel } from '../components/canvas/ShotTemplateManagerPanel.js';
 import { LeftToolbar } from '../components/layout/LeftToolbar.js';
 import { RightToolbar } from '../components/layout/RightToolbar.js';
 import { addLog } from '../store/slices/logger.js';
+
+const AddNodePanel = lazy(() => import('../components/canvas/AddNodePanel.js').then(m => ({ default: m.AddNodePanel })));
+const AssetBrowserPanel = lazy(() => import('../components/canvas/AssetBrowserPanel.js').then(m => ({ default: m.AssetBrowserPanel })));
+const CanvasNavigatorPanel = lazy(() => import('../components/canvas/CanvasNavigatorPanel.js').then(m => ({ default: m.CanvasNavigatorPanel })));
+const CanvasNotesPanel = lazy(() => import('../components/canvas/CanvasNotesPanel.js').then(m => ({ default: m.CanvasNotesPanel })));
+const CharacterManagerPanel = lazy(() => import('../components/canvas/CharacterManagerPanel.js').then(m => ({ default: m.CharacterManagerPanel })));
+const CommanderPanel = lazy(() => import('../components/canvas/CommanderPanel.js').then(m => ({ default: m.CommanderPanel })));
+const DependenciesPanel = lazy(() => import('../components/canvas/DependenciesPanel.js').then(m => ({ default: m.DependenciesPanel })));
+const EquipmentManagerPanel = lazy(() => import('../components/canvas/EquipmentManagerPanel.js').then(m => ({ default: m.EquipmentManagerPanel })));
+const LocationManagerPanel = lazy(() => import('../components/canvas/LocationManagerPanel.js').then(m => ({ default: m.LocationManagerPanel })));
+const ExportRenderPanel = lazy(() => import('../components/canvas/ExportRenderPanel.js').then(m => ({ default: m.ExportRenderPanel })));
+const GenerationQueuePanel = lazy(() => import('../components/canvas/GenerationQueuePanel.js').then(m => ({ default: m.GenerationQueuePanel })));
+const HistoryPanel = lazy(() => import('../components/canvas/HistoryPanel.js').then(m => ({ default: m.HistoryPanel })));
+const InspectorPanel = lazy(() => import('../components/canvas/InspectorPanel.js').then(m => ({ default: m.InspectorPanel })));
+const LoggerPanel = lazy(() => import('../components/canvas/LoggerPanel.js').then(m => ({ default: m.LoggerPanel })));
+const PresetManagerPanel = lazy(() => import('../components/canvas/PresetManagerPanel.js').then(m => ({ default: m.PresetManagerPanel })));
+const ShotTemplateManagerPanel = lazy(() => import('../components/canvas/ShotTemplateManagerPanel.js').then(m => ({ default: m.ShotTemplateManagerPanel })));
 
 function DragHandle({ side, onResize }: { side: 'left' | 'right'; onResize: (delta: number) => void }) {
   const dragging = useRef(false);
@@ -90,9 +91,11 @@ export function CanvasPage() {
   useEffect(() => {
     if (!projectLoaded) return;
     if (canvases.length > 0) {
-      if (loading) dispatch(setLoading(false));
       return;
     }
+
+    let cancelled = false;
+
     const loadCanvases = async () => {
       dispatch(setLoading(true));
       try {
@@ -106,17 +109,24 @@ export function CanvasPage() {
           loaded.push(await api.canvas.load(item.id));
         }
 
+        if (cancelled) return;
         dispatch(setCanvases(loaded));
         if (!activeCanvasId && loaded.length > 0) {
           dispatch(setActiveCanvas(loaded[0].id));
         }
       } finally {
-        dispatch(setLoading(false));
+        if (!cancelled) {
+          dispatch(setLoading(false));
+        }
       }
     };
 
     void loadCanvases();
-  }, [dispatch, projectLoaded, canvases.length, loading]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCanvasId, canvases.length, dispatch, projectLoaded]);
 
   useEffect(() => {
     if (!projectLoaded) return;
@@ -145,6 +155,59 @@ export function CanvasPage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [dispatch]);
+
+  useEffect(() => {
+    const api = getAPI();
+    if (!api?.logger || !api.onReady) return;
+
+    const seenIds = new Set<string>();
+    const pushEntry = (entry: {
+      id: string;
+      level: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+      category: string;
+      message: string;
+      detail?: string;
+    }) => {
+      if (seenIds.has(entry.id)) return;
+      seenIds.add(entry.id);
+      dispatch(
+        addLog({
+          level: entry.level === 'fatal' ? 'error' : entry.level,
+          category: entry.category,
+          message: entry.message,
+          detail: entry.detail,
+        }),
+      );
+    };
+
+    const unsubscribeEntry = api.logger.onEntry((entry) => {
+      pushEntry(entry);
+    });
+
+    const unsubscribeReady = api.onReady(() => {
+      void api.logger.getRecent()
+        .then((entries) => {
+          for (const entry of entries) {
+            pushEntry(entry);
+          }
+        })
+        .catch((error) => {
+          dispatch(
+            addLog({
+              level: 'error',
+              category: 'logger',
+              message: 'Failed to load recent logs from main process',
+              detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
+            }),
+          );
+        });
+    });
+
+    return () => {
+      unsubscribeReady();
+      unsubscribeEntry();
+    };
   }, [dispatch]);
 
   useEffect(() => {
@@ -195,47 +258,32 @@ export function CanvasPage() {
   }, [canvases.length, dispatch]);
 
   const renderActivePanel = () => {
+    let Panel: React.ComponentType | null = null;
     switch (activePanel) {
-      case 'add':
-        return <AddNodePanel />;
-      case 'assets':
-        return <AssetBrowserPanel />;
-      case 'characters':
-        return <CharacterManagerPanel />;
-      case 'equipment':
-        return <EquipmentManagerPanel />;
-      case 'locations':
-        return <LocationManagerPanel />;
-      case 'shotTemplates':
-        return <ShotTemplateManagerPanel />;
-      case 'presets':
-        return <PresetManagerPanel />;
-      case 'canvases':
-        return <CanvasNavigatorPanel />;
-      default:
-        return null;
+      case 'add': Panel = AddNodePanel; break;
+      case 'assets': Panel = AssetBrowserPanel; break;
+      case 'characters': Panel = CharacterManagerPanel; break;
+      case 'equipment': Panel = EquipmentManagerPanel; break;
+      case 'locations': Panel = LocationManagerPanel; break;
+      case 'shotTemplates': Panel = ShotTemplateManagerPanel; break;
+      case 'presets': Panel = PresetManagerPanel; break;
+      case 'canvases': Panel = CanvasNavigatorPanel; break;
     }
+    return Panel ? <Suspense fallback={null}><Panel /></Suspense> : null;
   };
 
   const renderRightPanel = () => {
+    let Panel: React.ComponentType | null = null;
     switch (rightPanel) {
-      case 'inspector':
-        return <InspectorPanel />;
-      case 'logger':
-        return <LoggerPanel />;
-      case 'dependencies':
-        return <DependenciesPanel />;
-      case 'queue':
-        return <GenerationQueuePanel />;
-      case 'history':
-        return <HistoryPanel />;
-      case 'notes':
-        return <CanvasNotesPanel />;
-      case 'export':
-        return <ExportRenderPanel />;
-      default:
-        return null;
+      case 'inspector': Panel = InspectorPanel; break;
+      case 'logger': Panel = LoggerPanel; break;
+      case 'dependencies': Panel = DependenciesPanel; break;
+      case 'queue': Panel = GenerationQueuePanel; break;
+      case 'history': Panel = HistoryPanel; break;
+      case 'notes': Panel = CanvasNotesPanel; break;
+      case 'export': Panel = ExportRenderPanel; break;
     }
+    return Panel ? <Suspense fallback={null}><Panel /></Suspense> : null;
   };
 
   return (
@@ -294,7 +342,7 @@ export function CanvasPage() {
         )}
       </div>
 
-      <CommanderPanel />
+      <Suspense fallback={null}><CommanderPanel /></Suspense>
       <RightToolbar />
     </div>
   );

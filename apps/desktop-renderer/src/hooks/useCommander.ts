@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { normalizeLLMProviderRuntimeConfig } from '@lucid-fin/contracts';
 import { store, type AppDispatch, type RootState } from '../store/index.js';
 import {
   addToolCall,
@@ -7,6 +8,7 @@ import {
   appendStreamChunk,
   finishStreaming,
   resolveToolCall,
+  setProviderId,
   setPendingConfirmation,
   setPendingQuestion,
   startStreaming,
@@ -17,7 +19,6 @@ import { setCharacters } from '../store/slices/characters.js';
 import { setEquipment } from '../store/slices/equipment.js';
 import { setLocations } from '../store/slices/locations.js';
 import {
-  setActiveProvider,
   setProviderBaseUrl,
   setProviderModel,
   setProviderName,
@@ -100,17 +101,34 @@ export function useCommander(): {
       dispatch(addUserMessage(trimmed));
       dispatch(startStreaming());
 
-      const activeProvider = llmSettings.providers.find((p) => p.id === llmSettings.activeProvider);
-      // Only pass customLLMProvider for user-added custom providers — built-in providers use their registered adapters
-      const customLLMProvider = activeProvider?.isCustom
-        ? { id: activeProvider.id, name: activeProvider.name, baseUrl: activeProvider.baseUrl, model: activeProvider.model }
+      const activeProvider =
+        llmSettings.providers.find((p) => p.id === state.commander.providerId) ??
+        llmSettings.providers[0];
+      const customLLMProvider = activeProvider
+        ? normalizeLLMProviderRuntimeConfig({
+            id: activeProvider.id,
+            name: activeProvider.name,
+            baseUrl: activeProvider.baseUrl,
+            model: activeProvider.model,
+            protocol: activeProvider.protocol,
+            authStyle: activeProvider.authStyle,
+          })
         : undefined;
       const permissionMode = state.commander.permissionMode;
 
       try {
         await api.commander.chat(currentCanvasId, trimmed, history, selectedNodeIds, activeTemplates, customLLMProvider, permissionMode);
       } catch (error) {
-        dispatch(streamError(error instanceof Error ? error.message : String(error)));
+        const message = error instanceof Error ? error.message : String(error);
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'commander',
+            message,
+            detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          }),
+        );
+        dispatch(streamError(message));
       }
     },
     [dispatch],
@@ -228,14 +246,7 @@ export function useCommander(): {
       }
 
       if (data.type === 'done') {
-        dispatch(
-          addLog({
-            level: 'info',
-            category: 'commander',
-            message: 'Session complete',
-          }),
-        );
-        dispatch(finishStreaming());
+        dispatch(finishStreaming(data.content));
       }
     });
 
@@ -248,7 +259,6 @@ export function useCommander(): {
     });
 
     const settingsActionMap: Record<string, (payload: never) => unknown> = {
-      setActiveProvider: setActiveProvider as (p: never) => unknown,
       setProviderBaseUrl: setProviderBaseUrl as (p: never) => unknown,
       setProviderModel: setProviderModel as (p: never) => unknown,
       setProviderName: setProviderName as (p: never) => unknown,
@@ -257,6 +267,13 @@ export function useCommander(): {
     };
 
     const unsubSettings = api.commander.onSettingsDispatch?.((data) => {
+      if (
+        data.action === 'setProviderId' &&
+        typeof data.payload?.providerId === 'string'
+      ) {
+        dispatch(setProviderId(data.payload.providerId));
+        return;
+      }
       const actionCreator = settingsActionMap[data.action];
       if (actionCreator) {
         dispatch(actionCreator(data.payload as never) as never);

@@ -1,6 +1,6 @@
 import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
-import log from 'electron-log';
+import log from '../../logger.js';
 import type { Canvas } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { getCurrentProjectId } from '../project-context.js';

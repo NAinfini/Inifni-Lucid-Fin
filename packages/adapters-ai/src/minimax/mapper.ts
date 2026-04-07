@@ -1,4 +1,5 @@
-import type { GenerationRequest } from '@lucid-fin/contracts';
+import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import { parseAdapterError } from '../error-utils.js';
 
 export function toMiniMaxRequest(req: GenerationRequest): Record<string, unknown> {
   const hasImage = req.referenceImages && req.referenceImages.length > 0;
@@ -33,4 +34,8 @@ export function parseMiniMaxStatus(data: Record<string, unknown>): {
     status: (data['status'] ?? '') as string,
     fileId: (data['file_id'] ?? '') as string,
   };
+}
+
+export function parseError(data: unknown, status?: number): AdapterError {
+  return parseAdapterError({ provider: 'MiniMax', status, error: data });
 }

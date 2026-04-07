@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import type { IpcMain } from 'electron';
-import log from 'electron-log';
+import log from '../../logger.js';
 import {
   renderTimeline,
   getOutputExtension,

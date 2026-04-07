@@ -6,12 +6,15 @@ import {
   selectVariant,
   setActiveCanvas,
   setCanvases,
+  setNodeDuration,
   setNodeEstimatedCost,
+  setNodeFps,
   setNodeGenerationComplete,
   setNodeGenerationFailed,
   setNodeGenerating,
   setNodeProgress,
   setNodeProvider,
+  setNodeResolution,
   setNodeSeed,
   setNodeVariantCount,
   toggleSeedLock,
@@ -177,6 +180,47 @@ describe('canvas generation reducers', () => {
     expect(data.estimatedCost).toBe(0.14);
   });
 
+  it('stores resolution, duration, and fps on generation nodes only', () => {
+    let state = setup();
+    state = canvasSlice.reducer(
+      state,
+      setNodeResolution({ id: 'img-1', width: 2048, height: 2048 }),
+    );
+    state = canvasSlice.reducer(
+      state,
+      setNodeResolution({ id: 'vid-1', width: 1920, height: 1080 }),
+    );
+    state = canvasSlice.reducer(state, setNodeDuration({ id: 'vid-1', duration: 8 }));
+    state = canvasSlice.reducer(state, setNodeFps({ id: 'vid-1', fps: 60 }));
+    state = canvasSlice.reducer(state, setNodeDuration({ id: 'txt-1', duration: 12 }));
+    state = canvasSlice.reducer(state, setNodeFps({ id: 'txt-1', fps: 30 }));
+
+    const imageNode = state.canvases[0].nodes.find((node) => node.id === 'img-1');
+    const videoNode = state.canvases[0].nodes.find((node) => node.id === 'vid-1');
+    const textNode = state.canvases[0].nodes.find((node) => node.id === 'txt-1');
+
+    expect(imageNode?.data).toEqual(
+      expect.objectContaining({
+        width: 2048,
+        height: 2048,
+      }),
+    );
+    expect(videoNode?.data).toEqual(
+      expect.objectContaining({
+        width: 1920,
+        height: 1080,
+        duration: 8,
+        fps: 60,
+      }),
+    );
+    expect(textNode?.data).not.toEqual(
+      expect.objectContaining({
+        duration: 12,
+        fps: 30,
+      }),
+    );
+  });
+
   it('is a no-op for generation actions on text nodes', () => {
     let state = setup();
     state = canvasSlice.reducer(state, setNodeGenerating({ id: 'txt-1', jobId: 'job-x' }));
@@ -196,6 +240,12 @@ describe('canvas generation reducers', () => {
     state = canvasSlice.reducer(state, setNodeProvider({ id: 'txt-1', providerId: 'kling' }));
     state = canvasSlice.reducer(state, setNodeVariantCount({ id: 'txt-1', count: 2 }));
     state = canvasSlice.reducer(state, setNodeEstimatedCost({ id: 'txt-1', estimatedCost: 0.1 }));
+    state = canvasSlice.reducer(
+      state,
+      setNodeResolution({ id: 'txt-1', width: 1280, height: 720 }),
+    );
+    state = canvasSlice.reducer(state, setNodeDuration({ id: 'txt-1', duration: 7 }));
+    state = canvasSlice.reducer(state, setNodeFps({ id: 'txt-1', fps: 24 }));
     state = canvasSlice.reducer(state, selectVariant({ id: 'txt-1', index: 0 }));
 
     const node = state.canvases[0].nodes.find((n) => n.id === 'txt-1');
@@ -203,5 +253,9 @@ describe('canvas generation reducers', () => {
     expect(data.status).toBeUndefined();
     expect(data.seed).toBeUndefined();
     expect(data.providerId).toBeUndefined();
+    expect(data.width).toBeUndefined();
+    expect(data.height).toBeUndefined();
+    expect(data.duration).toBeUndefined();
+    expect(data.fps).toBeUndefined();
   });
 });

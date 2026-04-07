@@ -1,4 +1,5 @@
-import type { GenerationRequest } from '@lucid-fin/contracts';
+import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import { parseAdapterError } from '../error-utils.js';
 
 export function toLumaRequest(req: GenerationRequest): Record<string, unknown> {
   const hasStartImage = req.referenceImages && req.referenceImages.length > 0;
@@ -13,7 +14,7 @@ export function toLumaRequest(req: GenerationRequest): Record<string, unknown> {
     prompt: req.prompt,
     aspect_ratio: req.params?.aspect_ratio ?? '16:9',
     loop: req.params?.loop ?? false,
-    ...(req.duration ? { duration: `${req.duration}s` } : {}),
+    ...(req.duration ? { duration: req.duration } : {}),
     ...(Object.keys(keyframes).length > 0 ? { keyframes } : {}),
   };
 }
@@ -26,4 +27,8 @@ export function parseLumaResponse(data: Record<string, unknown>): {
     generationId: (data['id'] ?? '') as string,
     status: (data['state'] ?? data['status'] ?? '') as string,
   };
+}
+
+export function parseError(data: unknown, status?: number): AdapterError {
+  return parseAdapterError({ provider: 'Luma', status, error: data });
 }

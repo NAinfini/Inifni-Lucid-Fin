@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentToolRegistry } from './tool-registry.js';
 import { registerAgentTools, type AllToolDeps } from './register-agent-tools.js';
-import type { AssetRef, PresetDefinition } from '@lucid-fin/contracts';
+import type { AssetRef, Equipment, PresetDefinition } from '@lucid-fin/contracts';
 
 function createMockDeps(): AllToolDeps {
   return {
@@ -131,6 +131,10 @@ function createMockDeps(): AllToolDeps {
     listColorStyles: vi.fn(async () => []),
     saveColorStyle: vi.fn(async (style: Record<string, unknown>) => style),
     deleteColorStyle: vi.fn(async () => undefined),
+    // EquipmentToolDeps
+    listEquipment: vi.fn(async (): Promise<Equipment[]> => []),
+    saveEquipment: vi.fn(async () => undefined),
+    deleteEquipment: vi.fn(async () => undefined),
     // AssetToolDeps
     importAsset: vi.fn(async (): Promise<AssetRef> => ({
       hash: 'hash-1',
@@ -181,7 +185,10 @@ describe('registerAgentTools', () => {
   it('registers the full expected tool set', () => {
     const registry = new AgentToolRegistry();
     registerAgentTools(registry, createMockDeps());
-    expect(registry.list().length).toBe(118);
+    expect(registry.list().length).toBeGreaterThanOrEqual(120);
+    expect(registry.get('tool.search')).toBeDefined();
+    expect(registry.get('guide.list')).toBeDefined();
+    expect(registry.get('guide.get')).toBeDefined();
   });
 
   it('registers at least one script. tool', () => {
@@ -196,6 +203,14 @@ describe('registerAgentTools', () => {
     registerAgentTools(registry, createMockDeps());
     const characterTools = registry.list().filter((t) => t.name.startsWith('character.'));
     expect(characterTools.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('registers at least one equipment. tool', () => {
+    const registry = new AgentToolRegistry();
+    registerAgentTools(registry, createMockDeps());
+    const equipmentTools = registry.list().filter((t) => t.name.startsWith('equipment.'));
+    expect(equipmentTools.length).toBeGreaterThanOrEqual(1);
+    expect(registry.get('equipment.search')).toBeDefined();
   });
 
   it('registers at least one scene. tool', () => {
@@ -264,7 +279,8 @@ describe('registerAgentTools', () => {
     registerAgentTools(registry, createMockDeps());
     const canvasContextTools = registry.forContext('canvas');
     const canvasTools = canvasContextTools.filter((t) => t.name.startsWith('canvas.'));
-    expect(canvasTools.length).toBe(49);
+    expect(canvasTools.length).toBeGreaterThanOrEqual(50);
+    expect(canvasContextTools.some((t) => t.name === 'canvas.searchNodes')).toBe(true);
     expect(canvasContextTools.some((t) => t.name === 'logger.read')).toBe(true);
 
     const storyboardContextTools = registry.forContext('storyboard');

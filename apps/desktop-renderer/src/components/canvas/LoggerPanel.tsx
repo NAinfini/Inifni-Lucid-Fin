@@ -140,71 +140,74 @@ export function LoggerPanel() {
         {filteredEntries.map((entry) => {
           const expandable = Boolean(entry.detail);
           const expanded = expandedIds.includes(entry.id);
-          const content = (
-            <>
-              <div className="flex items-start gap-2 text-xs">
-                <span className="shrink-0 font-mono text-muted-foreground">
-                  [{formatTimestamp(entry.timestamp)}]
-                </span>
-                <span
-                  className={cn(
-                    'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
-                    LEVEL_STYLES[entry.level],
-                  )}
+          return (
+            <div
+              key={entry.id}
+              className={cn(
+                'w-full rounded-lg border border-border/60 bg-muted/40 p-3 text-left',
+                expandable && 'transition-colors hover:bg-muted/60',
+              )}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div
+                  data-testid={`logger-entry-meta-${entry.id}`}
+                  className="flex min-w-0 flex-wrap items-center gap-2 text-xs"
                 >
-                  {entry.level}
-                </span>
-                <span className="shrink-0 text-muted-foreground">{entry.category}</span>
-                <span className="min-w-0 flex-1 break-words text-foreground">{entry.message}</span>
-                <button
-                  type="button"
-                  onClick={(e) => handleCopyEntry(entry, e)}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
-                  title="Copy"
-                >
-                  {copiedId === entry.id ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                </button>
-                {expandable ? (
-                  expanded ? (
-                    <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )
-                ) : null}
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    [{formatTimestamp(entry.timestamp)}]
+                  </span>
+                  <span
+                    className={cn(
+                      'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
+                      LEVEL_STYLES[entry.level],
+                    )}
+                  >
+                    {entry.level}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">{entry.category}</span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyEntry(entry, e)}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                    title="Copy"
+                  >
+                    {copiedId === entry.id ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                  </button>
+                  {expandable ? (
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() =>
+                        setExpandedIds((current) =>
+                          current.includes(entry.id)
+                            ? current.filter((id) => id !== entry.id)
+                            : [...current, entry.id],
+                        )
+                      }
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                      title={expanded ? t('logger.hideDetails') : t('logger.showDetails')}
+                    >
+                      {expanded ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div data-testid={`logger-entry-body-${entry.id}`} className="mt-2 min-w-0">
+                <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">
+                  {entry.message}
+                </p>
               </div>
               {expandable && expanded ? (
                 <pre className="mt-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap">
                   {entry.detail}
                 </pre>
               ) : null}
-            </>
-          );
-
-          if (expandable) {
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() =>
-                  setExpandedIds((current) =>
-                    current.includes(entry.id)
-                      ? current.filter((id) => id !== entry.id)
-                      : [...current, entry.id],
-                  )
-                }
-                className="w-full rounded-lg border border-border/60 bg-muted/40 p-3 text-left transition-colors hover:bg-muted/60"
-              >
-                {content}
-              </button>
-            );
-          }
-
-          return (
-            <div
-              key={entry.id}
-              className="w-full rounded-lg border border-border/60 bg-muted/40 p-3 text-left"
-            >
-              {content}
             </div>
           );
         })}

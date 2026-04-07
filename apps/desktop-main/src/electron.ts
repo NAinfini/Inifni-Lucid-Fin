@@ -2,7 +2,6 @@ import { app, BrowserWindow, ipcMain, Menu, protocol, net, shell } from 'electro
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import log from 'electron-log';
 import {
   AgentOrchestrator,
   JobQueue,
@@ -15,7 +14,7 @@ import { createStoryboardWorkflowHandlers } from './workflow/storyboard-workflow
 import { initDb } from './bootstrap/init-db.js';
 import { initIpc } from './bootstrap/init-ipc.js';
 import { initApp, restoreAdapterKeys, selectConfiguredLLMAdapter } from './bootstrap/init-app.js';
-import { initLogger } from './logger.js';
+import log, { getBufferedLogs, initLogger, setLogForwarder } from './logger.js';
 import { initCrashReporter } from './crash-reporter.js';
 import { mark, logStartupMetrics } from './startup-metrics.js';
 import { configureUserDataPath } from './user-data-path.js';
@@ -37,6 +36,17 @@ initCrashReporter();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
+let earlyIpcRegistered = false;
+
+function registerEarlyIpcHandlers(): void {
+  if (earlyIpcRegistered) return;
+  earlyIpcRegistered = true;
+  ipcMain.handle('logger:getRecent', () => getBufferedLogs());
+  log.debug('Registered early IPC handler', {
+    category: 'ipc',
+    channel: 'logger:getRecent',
+  });
+}
 
 function createWindow(): BrowserWindow {
   // Hide the default menu bar — navigation is handled by the in-app Navbar
@@ -89,11 +99,17 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'lucid-asset', privileges: { standard: true, supportFetchAPI: true, stream: true } },
 ]);
 
+registerEarlyIpcHandlers();
+
 app.whenReady().then(async () => {
   log.info('Lucid Fin starting...');
 
   // 1. Create window immediately (skeleton-first for <3s boot)
   mainWindow = createWindow();
+  setLogForwarder((entry) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('logger:entry', entry);
+  });
   mark('window-created');
 
   // 2. Background async initialization

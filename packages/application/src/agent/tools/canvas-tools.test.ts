@@ -320,7 +320,60 @@ describe('createCanvasTools', () => {
 
     const result = await getTool('canvas.getState', deps).execute({ canvasId: 'canvas-1' });
 
-    expect(result).toEqual({ success: true, data: canvas });
+    expect(result).toEqual({
+      success: true,
+      data: {
+        id: 'canvas-1',
+        name: 'Canvas',
+        nodeCount: 3,
+        edgeCount: 0,
+        edges: [],
+      },
+    });
+  });
+
+  it('searches canvas nodes with lightweight summaries and filters', async () => {
+    const canvas = createCanvas();
+    canvas.nodes.push({
+      id: 'video-1',
+      type: 'video',
+      title: 'Video 1',
+      position: { x: 90, y: 110 },
+      data: {
+        status: 'queued',
+        providerId: 'runway',
+        variants: [],
+        selectedVariantIndex: 0,
+      },
+      status: 'idle',
+      bypassed: false,
+      locked: false,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const deps = createDeps(canvas);
+
+    const result = await getTool('canvas.searchNodes', deps).execute({
+      canvasId: 'canvas-1',
+      type: 'video',
+      titleContains: 'video',
+      status: 'queued',
+      providerId: 'runway',
+      limit: 5,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      data: [
+        {
+          id: 'video-1',
+          type: 'video',
+          title: 'Video 1',
+          status: 'queued',
+          providerId: 'runway',
+        },
+      ],
+    });
   });
 
   it('layout repositions nodes with correct spacing', async () => {
@@ -521,7 +574,8 @@ describe('createCanvasTools', () => {
       category: 'camera',
       presetId: 'builtin-camera-crane-up',
     });
-    const secondEntryId = tracksAfterAdd.camera.entries[1].id;
+    const tracksAfterSecondAdd = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
+    const secondEntryId = tracksAfterSecondAdd.camera.entries[1].id;
 
     await expect(getTool('canvas.movePresetTrackEntry', deps).execute({
       canvasId: 'canvas-1',
@@ -539,8 +593,9 @@ describe('createCanvasTools', () => {
       },
     });
 
-    expect(tracksAfterAdd.camera.entries[0].id).toBe(secondEntryId);
-    expect(tracksAfterAdd.camera.entries[1]).toEqual(
+    const tracksAfterMove = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
+    expect(tracksAfterMove.camera.entries[0].id).toBe(secondEntryId);
+    expect(tracksAfterMove.camera.entries[1]).toEqual(
       expect.objectContaining({
         id: entryId,
         intensity: 60,
@@ -563,9 +618,10 @@ describe('createCanvasTools', () => {
       },
     });
 
-    expect(tracksAfterAdd.camera.entries).toHaveLength(1);
-    expect(tracksAfterAdd.camera.entries[0].id).toBe(secondEntryId);
-    expect(tracksAfterAdd.camera.entries[0].order).toBe(0);
+    const tracksAfterRemove = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
+    expect(tracksAfterRemove.camera.entries).toHaveLength(1);
+    expect(tracksAfterRemove.camera.entries[0].id).toBe(secondEntryId);
+    expect(tracksAfterRemove.camera.entries[0].order).toBe(0);
   });
 
   it('reads recent logs through logger.read', async () => {

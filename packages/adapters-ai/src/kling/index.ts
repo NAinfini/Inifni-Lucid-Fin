@@ -17,21 +17,37 @@ export class KlingAdapter implements AIProviderAdapter {
   readonly capabilities: Capability[] = ['text-to-video', 'image-to-video'];
   readonly maxConcurrent = 2;
 
-  private apiKey = '';
+  private accessKeyId = '';
+  private secretKey = '';
   private baseUrl = 'https://api.klingai.com/v1';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
-    this.apiKey = apiKey;
+    const [ak, sk] = apiKey.split(':');
+    this.accessKeyId = ak ?? apiKey;
+    this.secretKey = sk ?? '';
     if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+  }
+
+  private async authHeader(): Promise<string> {
+    if (!this.secretKey) return `Bearer ${this.accessKeyId}`;
+    const encoder = new TextEncoder();
+    const now = Math.floor(Date.now() / 1000);
+    const headerB64 = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const payloadB64 = btoa(JSON.stringify({ iss: this.accessKeyId, exp: now + 1800, nbf: now - 5 })).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const sigInput = `${headerB64}.${payloadB64}`;
+    const key = await crypto.subtle.importKey('raw', encoder.encode(this.secretKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(sigInput));
+    const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    return `Bearer ${sigInput}.${sigB64}`;
   }
 
   async validate(): Promise<boolean> {
     try {
-      const res = await fetchWithTimeout(`${this.baseUrl}/videos`, {
+      const res = await fetchWithTimeout(`${this.baseUrl}/videos/text2video`, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${this.apiKey}` },
+        headers: { Authorization: await this.authHeader() },
       });
-      return res.ok;
+      return res.ok || res.status === 405;
     } catch {
       return false;
     }
@@ -41,13 +57,11 @@ export class KlingAdapter implements AIProviderAdapter {
     const isImg2Vid = req.referenceImages && req.referenceImages.length > 0;
     const endpoint = isImg2Vid ? '/videos/image2video' : '/videos/text2video';
     const body = toKlingRequest(req);
+    const auth = await this.authHeader();
 
     const res = await fetchWithTimeout(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
+      headers: { 'Content-Type': 'application/json', Authorization: auth },
       body: JSON.stringify(body),
     });
 
@@ -64,7 +78,7 @@ export class KlingAdapter implements AIProviderAdapter {
       assetHash: '',
       assetPath: '',
       provider: this.id,
-      metadata: { taskId: parsed.taskId, status: parsed.status },
+      metadata: { taskId: parsed.taskId, status: parsed.status, endpoint },
     };
   }
 
@@ -77,15 +91,14 @@ export class KlingAdapter implements AIProviderAdapter {
     };
   }
 
-  async checkStatus(jobId: string): Promise<JobStatus> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/videos/${jobId}`, {
-      headers: { Authorization: `Bearer ${this.apiKey}` },
+  async checkStatus(jobId: string, metadata?: Record<string, unknown>): Promise<JobStatus> {
+    const endpoint = String(metadata?.endpoint ?? '/videos/text2video');
+    const auth = await this.authHeader();
+    const res = await fetchWithTimeout(`${this.baseUrl}${endpoint}/${jobId}`, {
+      headers: { Authorization: auth },
     });
     if (!res.ok)
-      throw new LucidError(
-        ErrorCode.ServiceUnavailable,
-        `Kling status check failed: ${res.status}`,
-      );
+      throw new LucidError(ErrorCode.ServiceUnavailable, `Kling status check failed: ${res.status}`);
 
     const data = (await res.json()) as Record<string, unknown>;
     const parsed = parseKlingResponse(data);
@@ -99,9 +112,10 @@ export class KlingAdapter implements AIProviderAdapter {
   }
 
   async cancel(jobId: string): Promise<void> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/videos/${jobId}/cancel`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.apiKey}` },
+    const auth = await this.authHeader();
+    const res = await fetchWithTimeout(`${this.baseUrl}/videos/text2video/${jobId}`, {
+      method: 'DELETE',
+      headers: { Authorization: auth },
     });
     if (!res.ok)
       throw new LucidError(ErrorCode.ServiceUnavailable, `Kling cancel failed: ${res.status}`);

@@ -8,6 +8,7 @@ import {
   setPresetsCategoryFilter,
   setPresetsLoading,
   setPresetsSearch,
+  togglePresetHidden,
   upsertPreset,
 } from '../../store/slices/presets.js';
 import { getAPI } from '../../utils/api.js';
@@ -21,7 +22,7 @@ import type {
   PresetParamMap,
   PresetResetScope,
 } from '@lucid-fin/contracts';
-import { Download, Search, Upload, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { Download, Eye, EyeOff, Search, Upload, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizePresetName } from '../../i18n.js';
 
@@ -151,7 +152,7 @@ function toImportPayload(input: unknown): PresetLibraryImportPayload {
 export function PresetManagerPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
-  const { byId, allIds, loading, search, selectedCategory, managerSelectedPresetId } = useSelector(
+  const { byId, allIds, loading, search, selectedCategory, managerSelectedPresetId, hiddenIds } = useSelector(
     (s: RootState) => s.presets,
   );
   const presets = useMemo(() => allIds.map((id) => byId[id]).filter(Boolean), [allIds, byId]);
@@ -423,32 +424,47 @@ export function PresetManagerPanel() {
             <div className="text-xs text-muted-foreground p-3">{t('presetManager.loading')}</div>
           ) : (
             <div className="p-1.5 space-y-1">
-              {filtered.map((preset) => (
-                <button
-                  key={preset.id}
-                  onClick={() => {
-                    if (preset.id === managerSelectedPresetId) return;
-                    if (!confirmDiscardIfDirty()) return;
-                    dispatch(selectManagerPreset(preset.id));
-                  }}
-                  className={cn(
-                    'w-full text-left rounded border px-2 py-1.5 text-[11px]',
-                    managerSelectedPresetId === preset.id
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border/70 hover:bg-muted',
-                  )}
-                >
-                  <div className="font-medium truncate">{localizePresetName(preset.name)}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">
-                    {t('presetCategory.' + preset.category)}
+              {filtered.map((preset) => {
+                const isHidden = hiddenIds.includes(preset.id);
+                return (
+                  <div key={preset.id} className={cn(isHidden && 'opacity-40')}>
+                    <button
+                      onClick={() => {
+                        if (preset.id === managerSelectedPresetId) return;
+                        if (!confirmDiscardIfDirty()) return;
+                        dispatch(selectManagerPreset(preset.id));
+                      }}
+                      className={cn(
+                        'w-full text-left rounded border px-2 py-1.5 text-[11px]',
+                        managerSelectedPresetId === preset.id
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border/70 hover:bg-muted',
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{localizePresetName(preset.name)}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {t('presetCategory.' + preset.category)}
+                          </div>
+                          {preset.builtIn && (
+                            <div className="text-[10px] text-muted-foreground">
+                              {preset.modified ? t('presetManager.builtInModified') : t('presetManager.builtIn')}
+                            </div>
+                          )}
+                        </div>
+                        <span
+                          role="button"
+                          onClick={(e) => { e.stopPropagation(); dispatch(togglePresetHidden(preset.id)); }}
+                          className="shrink-0 p-0.5 rounded hover:bg-muted text-muted-foreground"
+                        >
+                          {isHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        </span>
+                      </div>
+                    </button>
                   </div>
-                  {preset.builtIn && (
-                    <div className="text-[10px] text-muted-foreground">
-                      {preset.modified ? t('presetManager.builtInModified') : t('presetManager.builtIn')}
-                    </div>
-                  )}
-                </button>
-              ))}
+                );
+              })}
               {filtered.length === 0 && (
                 <div className="text-[11px] text-muted-foreground px-2 py-1.5">{t('presetManager.noResults')}</div>
               )}

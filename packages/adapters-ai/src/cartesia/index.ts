@@ -22,7 +22,7 @@ export class CartesiaSonicAdapter implements AIProviderAdapter {
 
   private apiKey = '';
   private baseUrl = 'https://api.cartesia.ai';
-  private apiVersion = '2024-06-10';
+  private apiVersion = '2025-04-16';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;

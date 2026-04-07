@@ -1,5 +1,5 @@
 import type { BrowserWindow, IpcMain } from 'electron';
-import log from 'electron-log';
+import log, { getBufferedLogs } from '../../logger.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,17 +20,19 @@ import {
   createRenderTools,
   createScriptTools,
   createSeriesTools,
+  createMetaTools,
   createWorkflowTools,
+  createUtilityWorkflowTools,
   type JobQueue,
   type WorkflowEngine,
   type AgentContext,
   type AgentEvent,
 } from '@lucid-fin/application';
-import { OpenAICompatibleLLM } from '@lucid-fin/adapters-ai';
 import { parseScript } from '@lucid-fin/domain';
 import {
   BUILT_IN_SHOT_TEMPLATES,
   createEmptyPresetTrackSet,
+  type LLMProviderRuntimeConfig,
   type ScriptDocument,
   type Canvas,
   type CanvasEdge,
@@ -46,6 +48,11 @@ import type { CAS, SqliteIndex, ProjectFS } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
 import { cancelCanvasGeneration, startCanvasGeneration } from './canvas-generation.handlers.js';
 import { getCurrentProjectId, getCurrentProjectPath, setCurrentProject } from '../project-context.js';
+import {
+  createConfiguredLLMAdapter,
+  getLLMProviderLogFields,
+  resolveLLMProviderRuntimeConfig,
+} from '../../llm-provider-runtime.js';
 
 type CommanderStreamPayload = {
   type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question';
@@ -69,22 +76,6 @@ type RunningCommanderSession = {
 };
 
 const runningSessions = new Map<string, RunningCommanderSession>();
-
-// In-memory log buffer for Commander AI logger.read tool
-interface MainLogEntry {
-  id: string;
-  timestamp: number;
-  level: 'debug' | 'info' | 'warn' | 'error';
-  category: string;
-  message: string;
-  detail?: string;
-}
-const LOG_BUFFER_MAX = 200;
-const mainLogBuffer: MainLogEntry[] = [];
-function pushLog(level: MainLogEntry['level'], category: string, message: string, detail?: string): void {
-  mainLogBuffer.push({ id: `ml-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, timestamp: Date.now(), level, category, message, detail });
-  if (mainLogBuffer.length > LOG_BUFFER_MAX) mainLogBuffer.splice(0, mainLogBuffer.length - LOG_BUFFER_MAX);
-}
 const mutatingToolNames = new Set([
   'canvas.addNode',
   'canvas.moveNode',
@@ -148,12 +139,6 @@ export const entityMutatingToolNames = new Set([
 ]);
 
 const MAX_CONTEXT_SELECTED_NODES = 10;
-const MAX_CONTEXT_CHARACTERS = 20;
-const MAX_CONTEXT_LOCATIONS = 20;
-const CONTEXT_DESCRIPTION_CHAR_LIMIT = 120;
-const MAX_CONTEXT_PROMPT_GUIDES = 3;
-const CONTEXT_PROMPT_GUIDE_CHAR_LIMIT = 600;
-
 function requireCanvas(store: CanvasStore, canvasId: string): Canvas {
   const canvas = store.get(canvasId);
   if (!canvas) {
@@ -294,13 +279,6 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function truncateContextText(value: string, maxLength: number): string {
-  if (value.length <= maxLength) {
-    return value;
-  }
-  return `${value.slice(0, maxLength - 3)}...`;
-}
-
 function requireCurrentProject(): { projectId: string; projectPath: string } {
   const projectId = getCurrentProjectId();
   const projectPath = getCurrentProjectPath();
@@ -374,88 +352,64 @@ function saveScriptDocument(
 async function selectConfiguredAdapter(
   llmRegistry: LLMRegistry,
   keychain: import('@lucid-fin/storage').Keychain,
-  customProvider?: { id: string; name: string; baseUrl: string; model: string },
+  customProvider?: LLMProviderRuntimeConfig,
 ) {
-  // If a custom provider is specified, create an OpenAI-compatible adapter on the fly
-  if (customProvider?.baseUrl && customProvider?.model) {
-    const apiKey = await keychain.getKey(customProvider.id);
-    if (apiKey) {
-      const adapter = new OpenAICompatibleLLM({
-        id: customProvider.id,
-        name: customProvider.name,
-        defaultBaseUrl: customProvider.baseUrl,
-        defaultModel: customProvider.model,
+  const logAttempt = (level: 'info' | 'warn' | 'error', message: string, detail: Record<string, unknown>) => {
+    log[level](message, { category: 'provider', ...detail });
+  };
+
+  if (customProvider?.id) {
+    if (!customProvider.baseUrl || !customProvider.model) {
+      const runtimeConfig = resolveLLMProviderRuntimeConfig(customProvider);
+      logAttempt('warn', 'Selected LLM provider is missing runtime connection fields', {
+        ...getLLMProviderLogFields(runtimeConfig),
       });
-      adapter.configure(apiKey);
-      if (await adapter.validate()) return adapter;
+      throw new Error(
+        `Selected LLM provider "${runtimeConfig.name}" is missing a base URL or model.`,
+      );
     }
-  }
-  // Fall back to registered adapters
-  for (const adapter of llmRegistry.list()) {
-    if (await adapter.validate()) {
-      return adapter;
+
+    const runtimeConfig = resolveLLMProviderRuntimeConfig(customProvider);
+    const apiKey = await keychain.getKey(runtimeConfig.id);
+    const configuredAdapter = createConfiguredLLMAdapter(llmRegistry, runtimeConfig, apiKey);
+    const source = llmRegistry.list().find((adapter) => adapter.id === runtimeConfig.id)
+      ? 'selected-registered-provider'
+      : 'selected-custom-provider';
+
+    if (!apiKey && runtimeConfig.authStyle !== 'none') {
+      logAttempt('warn', 'Selected LLM provider has no stored API key', {
+        ...getLLMProviderLogFields(runtimeConfig),
+        source,
+      });
+      throw new Error(`Selected LLM provider "${runtimeConfig.name}" has no API key configured.`);
     }
+
+    logAttempt('info', 'Selected LLM provider configured for commander chat', {
+      ...getLLMProviderLogFields(runtimeConfig),
+      source,
+    });
+    return configuredAdapter;
   }
+
+  logAttempt('warn', 'Commander chat requested without a selected LLM provider runtime config', {
+    source: 'missing-selected-provider',
+  });
   throw new Error('No configured LLM adapter. Please configure an AI provider in Settings.');
 }
 
 export function buildContext(
   canvas: Canvas,
-  presetLibrary: PresetDefinition[],
+  _presetLibrary: PresetDefinition[],
   selectedNodeIds: string[],
-  db: SqliteIndex,
-  promptGuides?: Array<{ id: string; name: string; content: string }>,
+  _db: SqliteIndex,
+  _promptGuides?: Array<{ id: string; name: string; content: string }>,
 ): AgentContext {
-  const selectedNodes = selectedNodeIds
-    .slice(0, MAX_CONTEXT_SELECTED_NODES)
-    .map((nodeId) => canvas.nodes.find((node) => node.id === nodeId))
-    .filter((node): node is CanvasNode => !!node)
-    .map((node) => ({
-      id: node.id,
-      type: node.type,
-      title: node.title,
-    }));
-
   const extra: Record<string, unknown> = {
     canvasId: canvas.id,
-    presetCount: presetLibrary.length,
-    presetCategories: Array.from(new Set(presetLibrary.map((preset) => preset.category))),
-    canvasSnapshot: {
-      name: canvas.name,
-      nodeCount: canvas.nodes.length,
-      edgeCount: canvas.edges.length,
-      selectedNodes,
-    },
+    nodeCount: canvas.nodes.length,
+    edgeCount: canvas.edges.length,
+    selectedNodeIds: selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES),
   };
-
-  if (promptGuides && promptGuides.length > 0) {
-    extra.promptGuides = promptGuides
-      .slice(0, MAX_CONTEXT_PROMPT_GUIDES)
-      .map((guide) => `### ${guide.name}\n\n${truncateContextText(guide.content, CONTEXT_PROMPT_GUIDE_CHAR_LIMIT)}`)
-      .join('\n\n---\n\n');
-  }
-
-  const pid = getCurrentProjectId();
-  if (pid) {
-    const chars = db.listCharacters(pid);
-    if (chars.length > 0) {
-      extra.characters = chars.slice(0, MAX_CONTEXT_CHARACTERS).map((c) => ({
-        id: c.id,
-        name: c.name,
-        role: c.role,
-        description: truncateContextText(c.description, CONTEXT_DESCRIPTION_CHAR_LIMIT),
-      }));
-    }
-    const locs = db.listLocations(pid);
-    if (locs.length > 0) {
-      extra.locations = locs.slice(0, MAX_CONTEXT_LOCATIONS).map((l) => ({
-        id: l.id,
-        name: l.name,
-        type: l.type,
-        description: truncateContextText(l.description, CONTEXT_DESCRIPTION_CHAR_LIMIT),
-      }));
-    }
-  }
 
   return { page: 'canvas', extra };
 }
@@ -482,6 +436,49 @@ function validateHistoryEntries(history: Array<{ role: 'user' | 'assistant'; con
       throw new Error('history entries must contain a valid role and content');
     }
   }
+}
+
+function safeStringifyForLog(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatErrorDetail(error: unknown): string {
+  if (error instanceof Error) {
+    const lines: string[] = [];
+    if (error.stack?.trim()) {
+      lines.push(error.stack);
+    } else {
+      lines.push(`${error.name}: ${error.message}`);
+    }
+
+    const extended = error as Error & {
+      code?: unknown;
+      details?: unknown;
+      cause?: unknown;
+    };
+    const extra: Record<string, unknown> = {};
+    if (extended.code !== undefined) {
+      extra.code = extended.code;
+    }
+    if (extended.details !== undefined) {
+      extra.details = extended.details;
+    }
+    if (extended.cause !== undefined) {
+      extra.cause = extended.cause;
+    }
+
+    if (Object.keys(extra).length > 0) {
+      lines.push(safeStringifyForLog(extra));
+    }
+
+    return lines.join('\n');
+  }
+
+  return typeof error === 'string' ? error : safeStringifyForLog(error);
 }
 
 export function registerCommanderHandlers(
@@ -511,7 +508,7 @@ export function registerCommanderHandlers(
         history: Array<{ role: 'user' | 'assistant'; content: string }>;
         selectedNodeIds: string[];
         promptGuides?: Array<{ id: string; name: string; content: string }>;
-        customLLMProvider?: { id: string; name: string; baseUrl: string; model: string };
+        customLLMProvider?: LLMProviderRuntimeConfig;
         permissionMode?: 'auto' | 'normal' | 'strict';
       },
     ) => {
@@ -532,14 +529,32 @@ export function registerCommanderHandlers(
         throw new Error('Commander already has an active session');
       }
 
-      const canvas = requireCanvas(deps.canvasStore, args.canvasId);
-      const llmAdapter = await selectConfiguredAdapter(deps.llmRegistry, deps.keychain, args.customLLMProvider);
-      const registry = new AgentToolRegistry();
-      const generateImage = makeGenerateImage(deps);
-      const listCommanderPresets = async (category?: PresetCategory): Promise<PresetDefinition[]> => {
-        return deps.presetLibrary.filter((preset) => !category || preset.category === category);
-      };
-      const persistCommanderPreset = async (preset: PresetDefinition): Promise<PresetDefinition> => {
+      let session: RunningCommanderSession | undefined;
+      try {
+        const canvas = requireCanvas(deps.canvasStore, args.canvasId);
+        log.info('Commander chat request received', {
+          category: 'commander',
+          canvasId: args.canvasId,
+          selectedNodeCount: args.selectedNodeIds.length,
+          historyCount: args.history.length,
+          promptGuideCount: Array.isArray(args.promptGuides) ? args.promptGuides.length : 0,
+          promptGuideChars: Array.isArray(args.promptGuides)
+            ? args.promptGuides.reduce((sum, guide) => sum + guide.content.length, 0)
+            : 0,
+          providerId: args.customLLMProvider?.id,
+          providerBaseUrl: args.customLLMProvider?.baseUrl,
+          providerModel: args.customLLMProvider?.model,
+          providerProtocol: args.customLLMProvider?.protocol,
+          providerAuthStyle: args.customLLMProvider?.authStyle,
+          permissionMode: args.permissionMode ?? 'normal',
+        });
+        const llmAdapter = await selectConfiguredAdapter(deps.llmRegistry, deps.keychain, args.customLLMProvider);
+        const registry = new AgentToolRegistry();
+        const generateImage = makeGenerateImage(deps);
+        const listCommanderPresets = async (category?: PresetCategory): Promise<PresetDefinition[]> => {
+          return deps.presetLibrary.filter((preset) => !category || preset.category === category);
+        };
+        const persistCommanderPreset = async (preset: PresetDefinition): Promise<PresetDefinition> => {
         const existing = deps.presetLibrary.findIndex((entry) => entry.id === preset.id);
         if (existing >= 0) {
           deps.presetLibrary[existing] = preset;
@@ -567,7 +582,7 @@ export function registerCommanderHandlers(
 
         return preset;
       };
-      const deleteCommanderPreset = async (presetId: string): Promise<void> => {
+        const deleteCommanderPreset = async (presetId: string): Promise<void> => {
         const presetIndex = deps.presetLibrary.findIndex((entry) => entry.id === presetId);
         if (presetIndex === -1) {
           throw new Error(`Preset not found: ${presetId}`);
@@ -581,15 +596,15 @@ export function registerCommanderHandlers(
         deps.presetLibrary.splice(presetIndex, 1);
         deps.db.deletePresetOverride(presetId);
       };
-      const canvasGenerationDeps = {
+        const canvasGenerationDeps = {
         adapterRegistry: deps.adapterRegistry,
         cas: deps.cas,
         db: deps.db,
         canvasStore: deps.canvasStore,
         keychain: deps.keychain,
-      };
+        };
 
-      const canvasToolDeps = {
+        const canvasToolDeps = {
         getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
         deleteCanvas: async (canvasId: string) => {
           requireCanvas(deps.canvasStore, canvasId);
@@ -755,7 +770,10 @@ export function registerCommanderHandlers(
           if (!adapter) throw new Error(`LLM provider not found: ${providerId}`);
           const win = getWindow();
           if (win) {
-            win.webContents.send('settings:setActiveLLM', { providerId });
+            emitToWindow(getWindow, 'commander:settings:dispatch', {
+              action: 'setProviderId',
+              payload: { providerId },
+            });
           }
         },
         setLLMProviderApiKey: async (providerId: string, apiKey: string) => {
@@ -805,7 +823,7 @@ export function registerCommanderHandlers(
           return { id: `note-${content.slice(0, 8)}-${now}`, content, createdAt: now, updatedAt: now };
         },
         getRecentLogs: async (level?: string, category?: string, limit?: number) => {
-          let entries: MainLogEntry[] = [...mainLogBuffer];
+          let entries = getBufferedLogs();
           if (level) entries = entries.filter((e) => e.level === level);
           if (category) entries = entries.filter((e) => e.category === category);
           return entries.slice(-(limit ?? 50)) as unknown as Array<Record<string, unknown>>;
@@ -867,6 +885,7 @@ export function registerCommanderHandlers(
         saveCharacter: async (c) => deps.db.upsertCharacter(c),
         deleteCharacter: async (id) => deps.db.deleteCharacter(id),
         generateImage,
+        getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
       })) {
         registry.register(tool);
       }
@@ -878,6 +897,7 @@ export function registerCommanderHandlers(
         createScene: async (s) => deps.db.upsertScene(s),
         updateScene: async (s) => deps.db.upsertScene(s),
         deleteScene: async (id) => deps.db.deleteScene(id),
+        getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
       })) {
         registry.register(tool);
       }
@@ -900,6 +920,7 @@ export function registerCommanderHandlers(
         saveEquipment: async (e) => deps.db.upsertEquipment(e),
         deleteEquipment: async (id) => deps.db.deleteEquipment(id),
         generateImage,
+        getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
       })) {
         registry.register(tool);
       }
@@ -1104,14 +1125,31 @@ export function registerCommanderHandlers(
         getActiveProvider: async (group: string) => {
           const win = getWindow();
           if (!win) return null;
-          return win.webContents.executeJavaScript(`
-            window.__REDUX_STORE__?.getState?.()?.settings?.['${group}']?.activeProvider ?? null
-          `);
+          if (group === 'llm') {
+            return win.webContents.executeJavaScript(`
+              (function() {
+                var state = window.__REDUX_STORE__?.getState?.();
+                var selected = state?.commander?.providerId ?? null;
+                if (selected) return selected;
+                return state?.settings?.llm?.providers?.[0]?.id ?? null;
+              })()
+            `);
+          }
+          return null;
         },
         setActiveProvider: async (group: string, providerId: string) => {
           const win = getWindow();
           if (!win) return;
-          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setActiveProvider', payload: { group, provider: providerId } });
+          if (group === 'llm') {
+            emitToWindow(getWindow, 'commander:settings:dispatch', {
+              action: 'setProviderId',
+              payload: { providerId },
+            });
+            return;
+          }
+          throw new Error(
+            `Global active provider is no longer supported for ${group}; select the provider in the generation UI instead.`,
+          );
         },
         setProviderBaseUrl: async (group: string, providerId: string, baseUrl: string) => {
           const win = getWindow();
@@ -1128,8 +1166,8 @@ export function registerCommanderHandlers(
           if (!win) return;
           emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setProviderName', payload: { group, provider: providerId, name } });
         },
-        addCustomProvider: async (group: string, id: string, name: string) => {
-          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'addCustomProvider', payload: { group, id, name } });
+        addCustomProvider: async (group: string, id: string, name: string, baseUrl?: string, model?: string) => {
+          emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'addCustomProvider', payload: { group, id, name, baseUrl, model } });
         },
         removeCustomProvider: async (group: string, providerId: string) => {
           emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'removeCustomProvider', payload: { group, provider: providerId } });
@@ -1204,14 +1242,31 @@ export function registerCommanderHandlers(
       })) {
         registry.register(tool);
       }
+      for (const tool of createMetaTools(registry, {
+        promptGuides: args.promptGuides ?? [],
+        context: 'canvas',
+      })) {
+        registry.register(tool);
+      }
+      for (const tool of createUtilityWorkflowTools()) {
+        registry.register(tool);
+      }
 
-      const orchestrator = new AgentOrchestrator(llmAdapter, registry, deps.resolvePrompt);
-      const session: RunningCommanderSession = { aborted: false, canvasId: args.canvasId, orchestrator };
-      runningSessions.set(args.canvasId, session);
+        const orchestrator = new AgentOrchestrator(llmAdapter, registry, deps.resolvePrompt);
+        session = { aborted: false, canvasId: args.canvasId, orchestrator };
+        runningSessions.set(args.canvasId, session);
 
-      const context = buildContext(canvas, deps.presetLibrary, args.selectedNodeIds, deps.db, args.promptGuides);
+        const context = buildContext(canvas, deps.presetLibrary, args.selectedNodeIds, deps.db, args.promptGuides);
+        const contextExtra = context.extra as Record<string, unknown> | undefined;
+        log.info('Commander context prepared', {
+          category: 'commander',
+          canvasId: args.canvasId,
+          contextKeys: contextExtra ? Object.keys(contextExtra) : [],
+          compactPromptGuideChars: 0,
+          compactPromptGuideCount: 0,
+        });
 
-      const emit = (event: AgentEvent) => {
+        const emit = (event: AgentEvent) => {
         const payload: CommanderStreamPayload =
           event.type === 'stream_chunk'
             ? { type: 'chunk', content: event.content }
@@ -1260,16 +1315,34 @@ export function registerCommanderHandlers(
 
         emitToWindow(getWindow, 'commander:stream', payload);
 
-        // Mirror events to main-process log buffer for logger.read
         if (event.type === 'tool_call') {
-          pushLog('debug', 'commander', `Tool: ${event.toolName}`, event.arguments ? JSON.stringify(event.arguments).slice(0, 500) : undefined);
+          log.debug(`Tool: ${event.toolName}`, {
+            category: 'commander',
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            detail: event.arguments ? JSON.stringify(event.arguments, null, 2) : undefined,
+          });
         } else if (event.type === 'tool_result') {
-          const resultStr = event.result != null ? JSON.stringify(event.result).slice(0, 500) : '';
-          pushLog('debug', 'commander', `Result: ${event.toolName}`, resultStr);
+          const resultStr = event.result != null ? JSON.stringify(event.result, null, 2) : '';
+          log.debug(`Result: ${event.toolName}`, {
+            category: 'commander',
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            detail: resultStr || undefined,
+          });
         } else if (event.type === 'error') {
-          pushLog('error', 'commander', event.error ?? 'Unknown error', event.toolCallId ? `Tool call: ${event.toolCallId}` : undefined);
+          log.error(event.error ?? 'Unknown error', {
+            category: 'commander',
+            toolCallId: event.toolCallId,
+            detail: event.toolCallId ? `Tool call: ${event.toolCallId}` : undefined,
+          });
         } else if (event.type === 'done') {
-          pushLog('info', 'commander', 'Session complete');
+          log.info('Session complete', {
+            category: 'commander',
+            canvasId: args.canvasId,
+            responseChars: typeof event.content === 'string' ? event.content.length : 0,
+            hasContent: typeof event.content === 'string' ? event.content.trim().length > 0 : false,
+          });
         }
 
         if (event.type === 'tool_result' && event.toolName && mutatingToolNames.has(event.toolName)) {
@@ -1285,16 +1358,50 @@ export function registerCommanderHandlers(
         if (event.type === 'tool_result' && event.toolName && entityMutatingToolNames.has(event.toolName)) {
           emitToWindow(getWindow, 'commander:entities:updated', { toolName: event.toolName });
         }
-      };
+        };
 
-      try {
         await orchestrator.execute(args.message, context, emit, {
           history: args.history,
-          isAborted: () => session.aborted,
+          isAborted: () => session?.aborted ?? false,
           permissionMode: args.permissionMode ?? 'normal',
+          onLLMRequest: (diagnostics: {
+            step: number;
+            toolCount: number;
+            toolSchemaChars: number;
+            messageCount: number;
+            messageChars: number;
+            systemPromptChars: number;
+            promptGuideChars: number;
+          }) => {
+            log.info('Commander LLM request prepared', {
+              category: 'commander',
+              canvasId: args.canvasId,
+              providerId: args.customLLMProvider?.id,
+              providerBaseUrl: args.customLLMProvider?.baseUrl,
+              providerModel: args.customLLMProvider?.model,
+              step: diagnostics.step,
+              toolCount: diagnostics.toolCount,
+              toolSchemaChars: diagnostics.toolSchemaChars,
+              messageCount: diagnostics.messageCount,
+              messageChars: diagnostics.messageChars,
+              systemPromptChars: diagnostics.systemPromptChars,
+              promptGuideChars: diagnostics.promptGuideChars,
+            });
+          },
         });
       } catch (error) {
-        log.error('Commander chat failed', error);
+        log.error('Commander chat failed', {
+          category: 'commander',
+          canvasId: args.canvasId,
+          selectedNodeCount: args.selectedNodeIds.length,
+          historyCount: args.history.length,
+          providerId: args.customLLMProvider?.id,
+          providerBaseUrl: args.customLLMProvider?.baseUrl,
+          providerModel: args.customLLMProvider?.model,
+          providerProtocol: args.customLLMProvider?.protocol,
+          providerAuthStyle: args.customLLMProvider?.authStyle,
+          detail: formatErrorDetail(error),
+        });
         emitToWindow(getWindow, 'commander:stream', {
           type: 'error',
           error: error instanceof Error ? error.message : String(error),

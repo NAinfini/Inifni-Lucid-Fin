@@ -50,6 +50,7 @@ export {
   type AgentEvent,
   type AgentOptions,
   type AgentExecutionOptions,
+  type AgentLLMRequestDiagnostics,
 } from './agent/agent-orchestrator.js';
 export { registerAgentTools, type AllToolDeps } from './agent/register-agent-tools.js';
 export { createCanvasTools, type CanvasToolDeps } from './agent/tools/canvas-tools.js';
@@ -76,5 +77,6 @@ export {
 export { createProjectTools, type ProjectToolDeps } from './agent/tools/project-tools.js';
 export { createRenderTools, type RenderToolDeps } from './agent/tools/render-tools.js';
 export { createPresetTools, type PresetToolDeps } from './agent/tools/preset-tools.js';
-export { createWorkflowTools, type WorkflowToolDeps } from './agent/tools/workflow-tools.js';
+export { createWorkflowTools, createUtilityWorkflowTools, type WorkflowToolDeps } from './agent/tools/workflow-tools.js';
 export { createEquipmentTools, type EquipmentToolDeps } from './agent/tools/equipment-tools.js';
+export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';

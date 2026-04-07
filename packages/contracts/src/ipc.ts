@@ -24,6 +24,7 @@ import type {
   PresetLibraryImportPayload,
   PresetResetRequest,
 } from './dto/presets.js';
+import type { LLMProviderRuntimeConfig, LLMProviderRuntimeInput } from './llm-provider.js';
 
 export interface IpcChannelMap {
   // --- Project ---
@@ -273,6 +274,16 @@ export interface IpcChannelMap {
     request: { provider: string };
     response: void;
   };
+  'keychain:test': {
+    request: {
+      provider: string;
+      group?: 'llm' | 'image' | 'video' | 'audio';
+      providerConfig?: LLMProviderRuntimeInput;
+      baseUrl?: string;
+      model?: string;
+    };
+    response: { ok: boolean; error?: string };
+  };
 
   // --- AI Commander ---
   'ai:chat': {
@@ -316,7 +327,7 @@ export interface IpcChannelMap {
       history: Array<{ role: 'user' | 'assistant'; content: string }>;
       selectedNodeIds: string[];
       promptGuides?: Array<{ id: string; name: string; content: string }>;
-      customLLMProvider?: { id: string; name: string; baseUrl: string; model: string };
+      customLLMProvider?: LLMProviderRuntimeConfig;
       permissionMode?: 'auto' | 'normal' | 'strict';
     };
     response: void;

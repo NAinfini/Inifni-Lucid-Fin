@@ -1,5 +1,5 @@
 import type { IpcMain } from 'electron';
-import log from 'electron-log';
+import log from '../../logger.js';
 import type { StyleGuide } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
 

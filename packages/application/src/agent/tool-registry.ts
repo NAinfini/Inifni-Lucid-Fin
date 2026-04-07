@@ -9,6 +9,7 @@ export interface ToolResult {
 export interface AgentTool {
   name: string;
   description: string;
+  tags?: string[];
   /** If set, tool is only available when Commander is on one of these pages */
   context?: string[];
   /** Permission tier: 1=safe/read, 2=single-entity mutation, 3=batch/destructive, 4=system */
@@ -48,6 +49,33 @@ export class AgentToolRegistry {
   /** Return tools available for a given context page */
   forContext(context: string): AgentTool[] {
     return this.list().filter((t) => !t.context || t.context.includes(context));
+  }
+
+  search(filters?: {
+    context?: string;
+    tags?: string[];
+    query?: string;
+  }): AgentTool[] {
+    const tools = filters?.context ? this.forContext(filters.context) : this.list();
+    const requestedTags = (filters?.tags ?? [])
+      .map((tag) => tag.trim().toLowerCase())
+      .filter((tag) => tag.length > 0);
+    const query = filters?.query?.trim().toLowerCase() ?? '';
+
+    return tools.filter((tool) => {
+      if (
+        requestedTags.length > 0
+        && !requestedTags.every((tag) => tool.tags?.some((toolTag) => toolTag.toLowerCase() === tag))
+      ) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return `${tool.name}\n${tool.description}`.toLowerCase().includes(query);
+    });
   }
 
   async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {

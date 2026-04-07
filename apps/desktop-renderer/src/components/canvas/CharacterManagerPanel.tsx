@@ -22,10 +22,9 @@ import type {
   EquipmentLoadout,
   CharacterGender,
 } from '@lucid-fin/contracts';
-import { STANDARD_ANGLE_SLOTS } from '@lucid-fin/contracts';
 import { Plus, Search, Trash2, Save, Upload, User } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizeSlot } from '../../i18n.js';
+import { t as translate } from '../../i18n.js';
 
 
 const ROLE_OPTIONS: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
@@ -70,7 +69,6 @@ export function CharacterManagerPanel() {
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loadoutName, setLoadoutName] = useState('');
-  const [customRefSlot, setCustomRefSlot] = useState('');
 
   const isDirty = useMemo(() => {
     if (!draft || !originalDraft) return false;
@@ -282,31 +280,6 @@ export function CharacterManagerPanel() {
     },
     [dispatch, selectedChar],
   );
-
-  const refImageBySlot = useMemo(() => {
-    if (!selectedChar) return {};
-    const map: Record<string, ReferenceImage> = {};
-    for (const ref of selectedChar.referenceImages) {
-      map[ref.slot] = ref;
-    }
-    return map;
-  }, [selectedChar]);
-
-  const standardSlotSet = useMemo(() => new Set<string>(STANDARD_ANGLE_SLOTS), []);
-  const customRefImages = useMemo(
-    () => selectedChar?.referenceImages.filter((r) => !standardSlotSet.has(r.slot)) ?? [],
-    [selectedChar, standardSlotSet],
-  );
-  const completedStandardCount = useMemo(
-    () => STANDARD_ANGLE_SLOTS.filter((s) => refImageBySlot[s]?.assetHash).length,
-    [refImageBySlot],
-  );
-
-  const handleCustomRefImageUpload = useCallback(async () => {
-    if (!selectedChar || !customRefSlot.trim()) return;
-    await handleRefImageUpload(customRefSlot.trim(), false);
-    setCustomRefSlot('');
-  }, [selectedChar, customRefSlot, handleRefImageUpload]);
 
   return (
     <div className="h-full border-r bg-card flex flex-col">
@@ -524,62 +497,16 @@ export function CharacterManagerPanel() {
                 />
               </div>
 
-              {/* Reference Images */}
+              {/* Reference Image - Single large image */}
               <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                    {t('characterManager.referenceImages')}
-                  </label>
-                  <span className="text-[9px] text-muted-foreground">
-                    {completedStandardCount}/{STANDARD_ANGLE_SLOTS.length} {t('characterManager.standard')}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  {STANDARD_ANGLE_SLOTS.map((slot) => {
-                    const ref = refImageBySlot[slot];
-                    return (
-                      <StandardSlotCard
-                        key={slot}
-                        slot={slot}
-                        refImage={ref}
-                        onUpload={() => handleRefImageUpload(slot, true)}
-                        onRemove={() => handleRefImageRemove(slot)}
-                      />
-                    );
-                  })}
-                </div>
-                {customRefImages.length > 0 && (
-                  <div className="space-y-1 mt-1">
-                    <div className="text-[9px] text-muted-foreground uppercase tracking-wider">{t('characterManager.custom')}</div>
-                    <div className="grid grid-cols-3 gap-1">
-                      {customRefImages.map((ref) => (
-                        <StandardSlotCard
-                          key={ref.slot}
-                          slot={ref.slot}
-                          refImage={ref}
-                          onUpload={() => handleRefImageUpload(ref.slot, false)}
-                          onRemove={() => handleRefImageRemove(ref.slot)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-1 mt-1">
-                  <input
-                    value={customRefSlot}
-                    onChange={(e) => setCustomRefSlot(e.target.value)}
-                    className="flex-1 rounded bg-muted px-2 py-1 text-[10px]"
-                    placeholder={t('characterManager.customSlotPlaceholder')}
-                  />
-                  <button
-                    onClick={() => void handleCustomRefImageUpload()}
-                    disabled={!customRefSlot.trim()}
-                    className="text-[10px] rounded border border-border px-1.5 py-1 hover:bg-muted disabled:opacity-50 flex items-center gap-0.5"
-                  >
-                    <Upload className="w-3 h-3" />
-                    {t('characterManager.addCustomSlot')}
-                  </button>
-                </div>
+                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                  {t('characterManager.referenceImages')}
+                </label>
+                <SingleReferenceImage
+                  referenceImages={selectedChar?.referenceImages ?? []}
+                  onUpload={() => handleRefImageUpload('main', true)}
+                  onRemove={() => handleRefImageRemove('main')}
+                />
               </div>
 
               {/* Equipment Loadouts */}
@@ -636,52 +563,52 @@ export function CharacterManagerPanel() {
   );
 }
 
-function StandardSlotCard({
-  slot,
-  refImage,
+function SingleReferenceImage({
+  referenceImages,
   onUpload,
   onRemove,
 }: {
-  slot: string;
-  refImage: ReferenceImage | undefined;
+  referenceImages: ReferenceImage[];
   onUpload: () => void;
   onRemove: () => void;
 }) {
-  const { url } = useAssetUrl(refImage?.assetHash, 'image', 'jpg');
+  const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
+  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'jpg');
+
   return (
     <button
       type="button"
       onClick={onUpload}
       className={cn(
-        'rounded border overflow-hidden text-left w-full cursor-pointer',
-        refImage?.assetHash ? 'border-primary/50' : 'border-dashed border-border/70',
+        'rounded border w-full cursor-pointer relative',
+        mainRef?.assetHash
+          ? 'border-primary/50 bg-primary/5'
+          : 'border-dashed border-border/70 hover:bg-muted/50',
       )}
     >
-      <div className="relative h-16 bg-muted flex items-center justify-center">
-        {url ? (
-          <img src={url} alt={slot} className="h-full w-full object-cover" />
-        ) : (
-          <Upload className="w-4 h-4 text-muted-foreground/40" />
-        )}
-        {refImage?.assetHash && (
+      {url ? (
+        <div className="relative w-full h-[240px] bg-muted rounded overflow-hidden">
+          <img src={url} alt="Reference" className="h-full w-full object-contain" />
           <div
             role="toolbar"
-            className="absolute top-0.5 right-0.5 opacity-0 hover:opacity-100 transition-opacity"
+            className="absolute top-2 right-2 opacity-0 hover:opacity-100 transition-opacity"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               onClick={onRemove}
-              className="rounded bg-black/60 px-1 py-0.5 text-[9px] text-destructive hover:bg-black/80"
+              className="rounded bg-black/60 px-2 py-1 text-xs text-destructive hover:bg-black/80"
             >
-              x
+              ×
             </button>
           </div>
-        )}
-      </div>
-      <div className="text-[9px] text-muted-foreground text-center py-0.5 truncate px-1">
-        {localizeSlot(slot)}
-      </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center h-[240px] gap-2">
+          <Upload className="w-8 h-8 text-muted-foreground/40" />
+          <span className="text-xs text-muted-foreground">{translate('characterManager.upload')}</span>
+        </div>
+      )}
     </button>
   );
 }

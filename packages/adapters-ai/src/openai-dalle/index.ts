@@ -1,14 +1,16 @@
 import type {
   AIProviderAdapter,
+  AdapterError,
   AdapterType,
   Capability,
+  CostEstimate,
   GenerationRequest,
   GenerationResult,
-  CostEstimate,
   JobStatus,
+  SubscribeCallbacks,
 } from '@lucid-fin/contracts';
-import { LucidError, ErrorCode } from '@lucid-fin/contracts';
-import { toOpenAIRequest, parseOpenAIResponse } from './mapper.js';
+import { adapterErrorToLucidError } from '../error-utils.js';
+import { parseError, parseOpenAIResponse, toOpenAIRequest } from './mapper.js';
 
 export class OpenAIDalleAdapter implements AIProviderAdapter {
   readonly id = 'openai-dalle';
@@ -16,6 +18,13 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
   readonly type: AdapterType = 'image';
   readonly capabilities: Capability[] = ['text-to-image'];
   readonly maxConcurrent = 5;
+  readonly executionCapabilities = {
+    subscribe: true,
+    queueUpdates: true,
+    progressUpdates: true,
+    webhook: false,
+    cancellation: false,
+  } as const;
 
   private apiKey = '';
   private baseUrl = 'https://api.openai.com/v1';
@@ -36,6 +45,10 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
     }
   }
 
+  normalizeError(error: unknown, status?: number): AdapterError {
+    return parseError(error, status);
+  }
+
   async generate(req: GenerationRequest): Promise<GenerationResult> {
     const body = toOpenAIRequest(req);
     const res = await fetch(`${this.baseUrl}/images/generations`, {
@@ -49,15 +62,7 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
 
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      const status = res.status;
-      if (status === 401) throw new LucidError(ErrorCode.AuthFailed, 'Invalid API key');
-      if (status === 429) throw new LucidError(ErrorCode.RateLimited, 'Rate limited');
-      if (status === 400)
-        throw new LucidError(
-          ErrorCode.ContentModeration,
-          (err as Record<string, Record<string, string>>).error?.message ?? 'Bad request',
-        );
-      throw new LucidError(ErrorCode.ServiceUnavailable, `OpenAI error: ${status}`);
+      throw adapterErrorToLucidError(this.normalizeError(err, res.status));
     }
 
     const data = (await res.json()) as Record<string, unknown>;
@@ -69,6 +74,32 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
       provider: this.id,
       cost: this.estimateCost(req).estimatedCost,
     };
+  }
+
+  async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<GenerationResult> {
+    callbacks.onQueueUpdate?.({
+      status: 'processing',
+      currentStep: 'submitting',
+    });
+    callbacks.onProgress?.({
+      type: 'progress',
+      percentage: 5,
+      currentStep: 'submitting',
+    });
+
+    const result = await this.generate(req);
+
+    callbacks.onProgress?.({
+      type: 'progress',
+      percentage: 100,
+      currentStep: 'completed',
+    });
+    callbacks.onQueueUpdate?.({
+      status: 'completed',
+      currentStep: 'completed',
+    });
+
+    return result;
   }
 
   estimateCost(req: GenerationRequest): CostEstimate {
@@ -87,11 +118,8 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
   }
 
   async checkStatus(_jobId: string): Promise<JobStatus> {
-    // DALL-E is synchronous — if generate() returned, it's completed
     return 'completed' as JobStatus;
   }
 
-  async cancel(_jobId: string): Promise<void> {
-    // DALL-E is synchronous — cannot cancel in-flight
-  }
+  async cancel(_jobId: string): Promise<void> {}
 }

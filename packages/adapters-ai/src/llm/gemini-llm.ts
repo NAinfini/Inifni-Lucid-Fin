@@ -8,9 +8,16 @@ import type {
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 
+type GeminiAdapterConfig = {
+  id?: string;
+  name?: string;
+  defaultBaseUrl?: string;
+  defaultModel?: string;
+};
+
 export class GeminiLLMAdapter implements LLMAdapter {
-  readonly id = 'gemini';
-  readonly name = 'Google Gemini';
+  readonly id: string;
+  readonly name: string;
   readonly capabilities: Capability[] = [
     'text-generation',
     'script-expand',
@@ -20,8 +27,15 @@ export class GeminiLLMAdapter implements LLMAdapter {
   ];
 
   private apiKey = '';
-  private baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
-  private model = 'gemini-2.5-flash';
+  private baseUrl: string;
+  private model: string;
+
+  constructor(cfg: GeminiAdapterConfig = {}) {
+    this.id = cfg.id ?? 'gemini';
+    this.name = cfg.name ?? 'Google Gemini';
+    this.baseUrl = cfg.defaultBaseUrl ?? 'https://generativelanguage.googleapis.com/v1beta';
+    this.model = cfg.defaultModel ?? 'gemini-2.5-flash';
+  }
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
@@ -96,8 +110,14 @@ export class GeminiLLMAdapter implements LLMAdapter {
   private buildBody(messages: LLMMessage[], opts?: LLMRequestOptions): Record<string, unknown> {
     const systemMsgs = messages.filter((m) => m.role === 'system');
     const contents = messages
-      .filter((m) => m.role !== 'system' && m.role !== 'tool')
+      .filter((m) => m.role !== 'system')
       .map((m) => {
+        if (m.role === 'tool') {
+          return {
+            role: 'user',
+            parts: [{ functionResponse: { name: m.toolCallId ?? '', response: { content: m.content } } }],
+          };
+        }
         if (m.role === 'assistant' && m.toolCalls?.length) {
           const parts: unknown[] = [];
           if (m.content) parts.push({ text: m.content });
@@ -111,14 +131,6 @@ export class GeminiLLMAdapter implements LLMAdapter {
           parts: [{ text: m.content }],
         };
       });
-
-    // Insert tool results as function responses
-    for (const m of messages.filter((m) => m.role === 'tool')) {
-      contents.push({
-        role: 'user',
-        parts: [{ functionResponse: { name: '', response: { content: m.content } } }],
-      });
-    }
 
     const body: Record<string, unknown> = {
       ...(systemMsgs.length > 0 && {

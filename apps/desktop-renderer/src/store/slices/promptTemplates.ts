@@ -10,6 +10,11 @@ import styleAesthetics from '../../../../../docs/ai-video-prompt-guide/05-style-
 import workflowMethods from '../../../../../docs/ai-video-prompt-guide/06-workflow-methods.md?raw';
 import modelAdaptation from '../../../../../docs/ai-video-prompt-guide/07-model-specific-adaptation.md?raw';
 import audioPrompting from '../../../../../docs/ai-video-prompt-guide/08-audio-prompting.md?raw';
+import styleTransfer from '../../../../../docs/ai-video-prompt-guide/09-style-transfer.md?raw';
+import shotListFromScript from '../../../../../docs/ai-video-prompt-guide/10-shot-list-from-script.md?raw';
+import batchRePrompt from '../../../../../docs/ai-video-prompt-guide/11-batch-re-prompt.md?raw';
+import continuityCheck from '../../../../../docs/ai-video-prompt-guide/12-continuity-check.md?raw';
+import storyboardExport from '../../../../../docs/ai-video-prompt-guide/13-storyboard-export.md?raw';
 
 const STORAGE_KEY = 'lucid-prompt-templates-v1';
 
@@ -31,6 +36,11 @@ const DEFAULTS: Omit<PromptTemplate, 'customContent'>[] = [
   { id: 'workflow-methods', name: 'Workflow Methods', category: 'process', defaultContent: workflowMethods },
   { id: 'model-adaptation', name: 'Model-Specific Adaptation', category: 'system', defaultContent: modelAdaptation },
   { id: 'audio-prompting', name: 'Audio Prompting', category: 'audio', defaultContent: audioPrompting },
+  { id: 'style-transfer', name: 'Style Transfer', category: 'workflow', defaultContent: styleTransfer },
+  { id: 'shot-list-from-script', name: 'Shot List from Script', category: 'workflow', defaultContent: shotListFromScript },
+  { id: 'batch-re-prompt', name: 'Batch Re-Prompt', category: 'workflow', defaultContent: batchRePrompt },
+  { id: 'continuity-check', name: 'Continuity Check', category: 'workflow', defaultContent: continuityCheck },
+  { id: 'storyboard-export', name: 'Storyboard Export', category: 'workflow', defaultContent: storyboardExport },
 ];
 
 function loadCustoms(): Record<string, string | null> {

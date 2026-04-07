@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   Canvas,
+  LLMProviderRuntimeInput,
+  LLMProviderRuntimeConfig,
   PresetCategory,
   PresetDefinition,
   PresetLibraryExportPayload,
@@ -34,6 +36,17 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   },
   app: {
     version: () => invoke<string>('app:version'),
+  },
+  logger: {
+    getRecent: () => invoke<Array<{
+      id: string;
+      timestamp: number;
+      level: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+      category: string;
+      message: string;
+      detail?: string;
+    }>>('logger:getRecent'),
+    onEntry: (cb: Callback) => subscribe('logger:entry', cb),
   },
 
   // Project
@@ -164,7 +177,16 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     get: (provider: string) => invoke<string | null>('keychain:get', { provider }),
     set: (provider: string, apiKey: string) => invoke('keychain:set', { provider, apiKey }),
     delete: (provider: string) => invoke('keychain:delete', { provider }),
-    test: (provider: string, baseUrl?: string, model?: string) => invoke<{ ok: boolean; error?: string }>('keychain:test', { provider, baseUrl, model }),
+    test: (
+      provider: string,
+      providerConfig?: LLMProviderRuntimeInput,
+      group?: 'llm' | 'image' | 'video' | 'audio',
+    ) =>
+      invoke<{ ok: boolean; error?: string }>('keychain:test', {
+        provider,
+        providerConfig,
+        group,
+      }),
   },
 
   // AI Commander
@@ -186,7 +208,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       history: Array<{ role: 'user' | 'assistant'; content: string }>,
       selectedNodeIds: string[],
       promptGuides?: Array<{ id: string; name: string; content: string }>,
-      customLLMProvider?: { id: string; name: string; baseUrl: string; model: string },
+      customLLMProvider?: LLMProviderRuntimeConfig,
       permissionMode?: 'auto' | 'normal' | 'strict',
     ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode }),
     cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),

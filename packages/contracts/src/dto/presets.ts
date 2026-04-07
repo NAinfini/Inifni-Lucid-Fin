@@ -230,6 +230,22 @@ const PRESET_NAME_LIBRARY = {
     'glass-crisp',
     'concrete-porous',
     'fabric-weave',
+    'wes-anderson-pastel',
+    'wong-karwai-neon',
+    'kubrick-symmetry',
+    'shinkai-luminous',
+    'kodak-portra-400',
+    'cinestill-800t',
+    'fujifilm-eterna',
+    'ilford-hp5',
+    'french-new-wave',
+    'y2k-chrome',
+    'vaporwave',
+    'brutalist-concrete',
+    'stop-motion-clay',
+    'cross-stitch',
+    'rotoscope',
+    'needle-felt',
   ],
   scene: [
     'golden-hour',
@@ -530,6 +546,22 @@ const PRESET_PROMPT_LIBRARY: Record<string, string> = {
   'look:glass-crisp': 'crisp glass surface, transparent refractive material with sharp reflections and caustic light patterns',
   'look:concrete-porous': 'porous concrete texture, rough aggregate surface with air pockets and mineral variation',
   'look:fabric-weave': 'woven fabric texture, visible thread interlocking pattern with textile drape and fiber detail',
+  'look:wes-anderson-pastel': 'symmetrical centered one-point composition, pastel warm yellows and pinks, flat even diffused lighting with no harsh shadows, precise deadpan framing, storybook whimsy, Kodak Vision3 250D color science',
+  'look:wong-karwai-neon': 'smeared neon reflections on wet surfaces, step-printed motion blur on subject, saturated deep reds and smoky greens, expired film grain, 135mm telephoto compression isolating protagonist in crowd, CineStill 800T halation',
+  'look:kubrick-symmetry': 'strict one-point perspective symmetry, cold clinical overhead lighting with no fill, wide-angle 18mm lens distortion, deep shadow corridors converging to vanishing point, unsettling geometric precision',
+  'look:shinkai-luminous': 'hyper-detailed luminous sky gradients with vivid blues and oranges, dust motes floating and glowing in golden backlight, cinematic anime still quality, volumetric god rays through clouds, Tyndall effect atmosphere',
+  'look:kodak-portra-400': 'Kodak Portra 400 film color science, warm natural skin tones with gentle highlight rolloff, soft organic grain, lifted shadows with creamy mid-tones, slightly warm color temperature bias',
+  'look:cinestill-800t': 'CineStill 800T tungsten-balanced color science, red halation halos bleeding around practical light sources, warm orange skin tones against cool blue shadows, cinematic night atmosphere with visible grain',
+  'look:fujifilm-eterna': 'Fujifilm Eterna color grading, cool muted desaturated tones, restrained cinematic palette with subtle green-blue cast in shadows, low contrast rolloff, documentary restraint',
+  'look:ilford-hp5': 'Ilford HP5 black and white film, rich organic grain structure, deep pure blacks with bright whites, high dynamic range, classic analog texture with natural tonal separation',
+  'look:french-new-wave': 'handheld natural available light, casual spontaneous framing with slight imperfection, desaturated documentary realism, jump-cut aesthetic energy, 35mm wide lens, Fujifilm Eterna muted tones',
+  'look:y2k-chrome': 'brushed chrome and iridescent metallic surfaces, cold blue-teal color grading, soft-focus halation around highlights, chromatic aberration at edges, retro-futurist millennium aesthetic, long exposure light trails',
+  'look:vaporwave': 'pastel pink and purple gradient atmosphere, glitch artifact overlays, lo-fi digital dreamscape, greek statue motifs, 80s nostalgia grid lines, low saturation with neon accent pops',
+  'look:brutalist-concrete': 'raw exposed concrete surfaces with aggregate texture, monumental geometric forms casting harsh directional shadows, oppressive architectural scale, minimal ornamentation, desaturated cool palette',
+  'look:stop-motion-clay': 'plasticine clay figures with visible fingerprint impressions on surface, low frame rate jitter at 8fps, warm practical tungsten lighting, handmade tactile imperfection, stop-motion animation aesthetic',
+  'look:cross-stitch': 'dense colored cotton thread on Aida cloth grid, X-shaped stitch pattern visible at pixel level, slight fabric weave texture beneath, craft textile aesthetic with warm thread sheen variation between rows',
+  'look:rotoscope': 'hand-traced animation over live footage, painterly organic line art with fluid movement, semi-transparent layered color fills, visible brush stroke quality, rotoscope animation style',
+  'look:needle-felt': 'coarse mixed-color wool fibers with fuzzy soft surface detail, needle-felted texture with visible fiber direction, handmade doll aesthetic, warm diffused lighting on tactile craft surface',
 
   // ── scene (was lighting + environment) ──
   'scene:golden-hour': 'warm golden hour sunlight, low sun angle casting long shadows with rich amber and orange tones',
@@ -669,8 +701,8 @@ const builtInPresetLibrary = PRESET_CATEGORIES.flatMap((category) => {
   });
 });
 
-if (builtInPresetLibrary.length !== 170) {
-  throw new Error(`BUILT_IN_PRESET_LIBRARY must contain 170 presets, got ${builtInPresetLibrary.length}`);
+if (builtInPresetLibrary.length !== 186) {
+  throw new Error(`BUILT_IN_PRESET_LIBRARY must contain 186 presets, got ${builtInPresetLibrary.length}`);
 }
 
 export const BUILT_IN_PRESET_LIBRARY: PresetDefinition[] = builtInPresetLibrary;
@@ -787,6 +819,143 @@ export const BUILT_IN_SHOT_TEMPLATES: ShotTemplate[] = [
       camera: shotTrack('camera', 'steadicam-follow', 80),
       composition: shotTrack('composition', 'negative-space', 70),
       emotion: shotTrack('emotion', 'triumphant', 75),
+    },
+  },
+  // Director styles
+  {
+    id: 'builtin-tmpl-wes-anderson',
+    name: 'Wes Anderson',
+    description: 'Symmetrical centered framing with pastel look and playful emotion',
+    builtIn: true,
+    tracks: {
+      composition: shotTrack('composition', 'symmetrical', 90),
+      look: shotTrack('look', 'wes-anderson-pastel', 85),
+      emotion: shotTrack('emotion', 'playful', 70),
+    },
+  },
+  {
+    id: 'builtin-tmpl-wong-karwai',
+    name: 'Wong Kar-wai',
+    description: 'Telephoto compression with neon look and melancholic emotion',
+    builtIn: true,
+    tracks: {
+      lens: shotTrack('lens', 'telephoto-135mm', 80),
+      look: shotTrack('look', 'wong-karwai-neon', 90),
+      emotion: shotTrack('emotion', 'melancholic', 85),
+    },
+  },
+  {
+    id: 'builtin-tmpl-kubrick',
+    name: 'Kubrick One-Point',
+    description: 'One-point symmetry with wide lens and ominous tension',
+    builtIn: true,
+    tracks: {
+      composition: shotTrack('composition', 'leading-lines', 95),
+      look: shotTrack('look', 'kubrick-symmetry', 90),
+      emotion: shotTrack('emotion', 'ominous', 80),
+    },
+  },
+  {
+    id: 'builtin-tmpl-shinkai',
+    name: 'Shinkai Luminous',
+    description: 'Luminous sky with golden-hour scene and awe emotion',
+    builtIn: true,
+    tracks: {
+      look: shotTrack('look', 'shinkai-luminous', 90),
+      scene: shotTrack('scene', 'golden-hour', 85),
+      emotion: shotTrack('emotion', 'awe', 80),
+    },
+  },
+  // Genre scenes
+  {
+    id: 'builtin-tmpl-sci-fi-wide',
+    name: 'Sci-Fi Wide',
+    description: 'Ultra-wide lens with neon-noir scene and awe emotion',
+    builtIn: true,
+    tracks: {
+      lens: shotTrack('lens', 'ultra-wide-14mm', 85),
+      scene: shotTrack('scene', 'neon-noir', 90),
+      emotion: shotTrack('emotion', 'awe', 75),
+    },
+  },
+  {
+    id: 'builtin-tmpl-war-documentary',
+    name: 'War Documentary',
+    description: 'Handheld telephoto with gritty look and urgent emotion',
+    builtIn: true,
+    tracks: {
+      camera: shotTrack('camera', 'handheld-shake', 85),
+      lens: shotTrack('lens', 'telephoto-135mm', 75),
+      look: shotTrack('look', 'documentary-gritty', 80),
+      emotion: shotTrack('emotion', 'urgent', 90),
+    },
+  },
+  {
+    id: 'builtin-tmpl-romance-golden',
+    name: 'Romance Golden',
+    description: 'Portrait lens with golden hour and intimate emotion',
+    builtIn: true,
+    tracks: {
+      lens: shotTrack('lens', 'portrait-85mm', 80),
+      scene: shotTrack('scene', 'golden-hour', 85),
+      emotion: shotTrack('emotion', 'intimate', 90),
+    },
+  },
+  {
+    id: 'builtin-tmpl-western-duel',
+    name: 'Western Duel',
+    description: 'Extreme close-up with harsh sun and tense emotion',
+    builtIn: true,
+    tracks: {
+      composition: shotTrack('composition', 'extreme-close-up', 90),
+      scene: shotTrack('scene', 'high-key', 70),
+      emotion: shotTrack('emotion', 'tense', 95),
+      flow: shotTrack('flow', 'stop-and-breathe', 80),
+    },
+  },
+  // Compound movements
+  {
+    id: 'builtin-tmpl-dolly-zoom',
+    name: 'Dolly Zoom (Vertigo)',
+    description: 'Pull-out camera with snap-zoom and ominous dread',
+    builtIn: true,
+    tracks: {
+      camera: shotTrack('camera', 'pull-out', 90),
+      emotion: shotTrack('emotion', 'ominous', 85),
+    },
+  },
+  {
+    id: 'builtin-tmpl-crane-pan-reveal',
+    name: 'Crane Pan Reveal',
+    description: 'Crane-up with pan and awe-inspiring establishing scale',
+    builtIn: true,
+    tracks: {
+      camera: shotTrack('camera', 'crane-up', 90),
+      scene: shotTrack('scene', 'volumetric-godrays', 75),
+      emotion: shotTrack('emotion', 'awe', 85),
+    },
+  },
+  // Mood/atmosphere
+  {
+    id: 'builtin-tmpl-neon-rain-noir',
+    name: 'Neon Rain Noir',
+    description: 'Neon-noir scene with film noir look and melancholic mood',
+    builtIn: true,
+    tracks: {
+      scene: shotTrack('scene', 'neon-noir', 90),
+      look: shotTrack('look', 'noir-film', 80),
+      emotion: shotTrack('emotion', 'melancholic', 75),
+    },
+  },
+  {
+    id: 'builtin-tmpl-blizzard-isolation',
+    name: 'Blizzard Isolation',
+    description: 'Blizzard scene with negative space and melancholic emotion',
+    builtIn: true,
+    tracks: {
+      scene: shotTrack('scene', 'snow-blizzard', 90),
+      composition: shotTrack('composition', 'negative-space', 85),
+      emotion: shotTrack('emotion', 'melancholic', 80),
     },
   },
 ];

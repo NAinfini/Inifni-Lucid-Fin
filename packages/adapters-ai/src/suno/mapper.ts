@@ -1,4 +1,5 @@
-import type { GenerationRequest } from '@lucid-fin/contracts';
+import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import { parseAdapterError } from '../error-utils.js';
 
 export function toSunoRequest(req: GenerationRequest): Record<string, unknown> {
   return {
@@ -19,4 +20,8 @@ export function parseSunoResponse(data: Record<string, unknown>): {
     status: (data['status'] ?? '') as string,
     audioUrl: (data['audio_url'] ?? undefined) as string | undefined,
   };
+}
+
+export function parseError(data: unknown, status?: number): AdapterError {
+  return parseAdapterError({ provider: 'Suno', status, error: data });
 }

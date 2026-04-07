@@ -38,7 +38,7 @@ export class StabilityAudioAdapter implements AIProviderAdapter {
 
   async generate(req: GenerationRequest): Promise<GenerationResult> {
     const body = toStabilityAudioRequest(req);
-    const res = await fetchWithTimeout(`${this.baseUrl}/audio/generate`, {
+    const res = await fetchWithTimeout(`${this.baseUrl}/audio/stable-audio/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

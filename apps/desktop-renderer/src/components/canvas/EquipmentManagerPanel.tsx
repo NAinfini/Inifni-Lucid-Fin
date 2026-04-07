@@ -430,30 +430,16 @@ export function EquipmentManagerPanel() {
                 />
               </div>
 
-              {/* Reference Images */}
+              {/* Reference Image - Single large image */}
               <div className="space-y-1">
                 <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
                   {t('equipmentManager.referenceImages')}
                 </label>
-                <div className="grid grid-cols-3 gap-1">
-                  {EQUIPMENT_STANDARD_SLOTS.map((slot) => {
-                    const ref = refImageBySlot[slot];
-                    return (
-                      <EquipmentSlotCard
-                        key={slot}
-                        slot={slot}
-                        refImage={ref}
-                        onUpload={() => handleRefImageUpload(slot, true)}
-                        onRemove={() => handleRefImageRemove(slot)}
-                      />
-                    );
-                  })}
-                </div>
-                {EQUIPMENT_STANDARD_SLOTS.some((s) => !refImageBySlot[s]?.assetHash) && (
-                  <div className="text-[9px] text-amber-500">
-                    {t('equipmentManager.warningMissingSlots')}
-                  </div>
-                )}
+                <SingleReferenceImage
+                  referenceImages={selectedEquip?.referenceImages ?? []}
+                  onUpload={() => handleRefImageUpload('main', true)}
+                  onRemove={() => handleRefImageRemove('main')}
+                />
               </div>
 
             </>
@@ -466,52 +452,52 @@ export function EquipmentManagerPanel() {
   );
 }
 
-function EquipmentSlotCard({
-  slot,
-  refImage,
+function SingleReferenceImage({
+  referenceImages,
   onUpload,
   onRemove,
 }: {
-  slot: string;
-  refImage: ReferenceImage | undefined;
+  referenceImages: ReferenceImage[];
   onUpload: () => void;
   onRemove: () => void;
 }) {
-  const { url } = useAssetUrl(refImage?.assetHash, 'image', 'jpg');
+  const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
+  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'jpg');
+
   return (
     <button
       type="button"
       onClick={onUpload}
       className={cn(
-        'rounded border p-1.5 text-center w-full cursor-pointer',
-        refImage?.assetHash
+        'rounded border w-full cursor-pointer relative',
+        mainRef?.assetHash
           ? 'border-primary/50 bg-primary/5'
           : 'border-dashed border-border/70 hover:bg-muted/50',
       )}
     >
       {url ? (
-        <div className="relative aspect-square mb-1 bg-muted rounded overflow-hidden">
-          <img src={url} alt={slot} className="h-full w-full object-cover" />
+        <div className="relative w-full h-[240px] bg-muted rounded overflow-hidden">
+          <img src={url} alt="Reference" className="h-full w-full object-contain" />
           <div
             role="toolbar"
-            className="absolute top-0 right-0 opacity-0 hover:opacity-100 transition-opacity"
+            className="absolute top-2 right-2 opacity-0 hover:opacity-100 transition-opacity"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               type="button"
               onClick={onRemove}
-              className="rounded-bl bg-black/60 px-1 py-0.5 text-[9px] text-destructive hover:bg-black/80"
+              className="rounded bg-black/60 px-2 py-1 text-xs text-destructive hover:bg-black/80"
             >
-              x
+              ×
             </button>
           </div>
         </div>
       ) : (
-        <Upload className="w-3 h-3 mx-auto mb-1 text-muted-foreground/40" />
+        <div className="flex flex-col items-center justify-center h-[240px] gap-2">
+          <Upload className="w-8 h-8 text-muted-foreground/40" />
+          <span className="text-xs text-muted-foreground">点击上传参考图</span>
+        </div>
       )}
-      <div className="text-[9px] text-muted-foreground truncate">
-        {localizeSlot(slot)}
-      </div>
     </button>
   );
 }

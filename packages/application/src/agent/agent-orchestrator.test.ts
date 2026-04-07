@@ -177,6 +177,58 @@ describe('AgentOrchestrator', () => {
     expect(opts.tools[0].name).toBe('global.tool');
   });
 
+  it('compacts tool definitions before sending them to the LLM', async () => {
+    toolRegistry.register({
+      name: 'canvas.addNode',
+      description: 'Add a new node to the current canvas at a specific position with very verbose explanation text.',
+      parameters: {
+        type: 'object',
+        properties: {
+          canvasId: {
+            type: 'string',
+            description: 'The target canvas identifier with extra explanatory prose that should not be forwarded verbatim.',
+          },
+          position: {
+            type: 'object',
+            description: 'The desired node coordinates on the canvas surface.',
+            properties: {
+              x: {
+                type: 'number',
+                description: 'Horizontal coordinate with long explanation.',
+              },
+              y: {
+                type: 'number',
+                description: 'Vertical coordinate with long explanation.',
+              },
+            },
+          },
+        },
+        required: ['canvasId', 'position'],
+      },
+      execute: vi.fn(async () => ({ success: true, data: { id: 'node-1' } })),
+    });
+
+    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    await agent.execute('add node', { page: 'canvas' }, () => {});
+
+    const opts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      tools: Array<Record<string, unknown>>;
+    };
+    const tool = opts.tools[0] as {
+      description?: string;
+      parameters: {
+        properties: Record<string, Record<string, unknown>>;
+      };
+    };
+
+    expect(tool.description).toBe('Add a new node to the current canvas at a specific position with very verbose explanation text.');
+    expect(tool.parameters.properties.canvasId?.description).toBe('');
+    expect(tool.parameters.properties.position?.description).toBe('');
+    expect((tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).x?.description).toBe('');
+    expect((tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).y?.description).toBe('');
+  });
+
   it('injects history into the LLM message list', async () => {
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
 
@@ -298,7 +350,7 @@ describe('AgentOrchestrator', () => {
   it('injects steering messages into the next LLM iteration', async () => {
     let agent!: AgentOrchestrator;
     toolRegistry.register({
-      name: 'canvas.listNodes',
+      name: 'canvas.searchNodes',
       description: 'List nodes',
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => {
@@ -313,7 +365,7 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-inject', name: 'canvas.listNodes', arguments: {} }],
+        toolCalls: [{ id: 'tc-inject', name: 'canvas.searchNodes', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -414,6 +466,34 @@ describe('AgentOrchestrator', () => {
     expect(systemMsg?.content).not.toContain('TAIL-OBJECT');
   });
 
+  it('caps oversized system prompts to a smaller budget before sending them to the LLM', async () => {
+    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+    await agent.execute(
+      'test',
+      {
+        page: 'canvas',
+        extra: {
+          promptGuides: `guide-start-${'G'.repeat(5000)}-guide-tail`,
+          canvasSnapshot: { description: `snapshot-${'S'.repeat(3000)}-snapshot-tail` },
+        },
+      },
+      () => {},
+    );
+
+    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const systemMsg = messages.find((message) => message.role === 'system');
+
+    expect(systemMsg).toBeDefined();
+    expect(systemMsg!.content.length).toBeLessThanOrEqual(2500);
+    expect(systemMsg!.content).not.toContain('guide-tail');
+    expect(systemMsg!.content).not.toContain('snapshot-tail');
+  });
+
   it('caps summarized collection payloads to a total item budget', async () => {
     toolRegistry.register({
       name: 'character.list',
@@ -461,5 +541,92 @@ describe('AgentOrchestrator', () => {
     expect(parsed.success).toBe(true);
     expect(parsed.data?.count).toBe(10);
     expect(parsed.data?.items?.length).toBeLessThan(10);
+  });
+
+  it('uses lazy tool discovery when tool.search is available', async () => {
+    const searchExecute = vi.fn(async () => ({
+      success: true,
+      data: [
+        {
+          name: 'character.search',
+          description: 'Search characters',
+          tags: ['character', 'read', 'search'],
+        },
+      ],
+    }));
+
+    toolRegistry.register({
+      name: 'tool.search',
+      description: 'Search available tools',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: searchExecute,
+    });
+    toolRegistry.register({
+      name: 'guide.list',
+      description: 'List prompt guides',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: [] })),
+    });
+    toolRegistry.register({
+      name: 'guide.get',
+      description: 'Get prompt guide content',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: null })),
+    });
+    toolRegistry.register({
+      name: 'commander.askUser',
+      description: 'Ask the user a question',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: null })),
+    });
+    toolRegistry.register({
+      name: 'character.search',
+      description: 'Search characters',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: [] })),
+    });
+    toolRegistry.register({
+      name: 'character.delete',
+      description: 'Delete a character',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true })),
+    });
+
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-discover', name: 'tool.search', arguments: { query: 'character' } }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: 'ready',
+        toolCalls: [],
+        finishReason: 'stop',
+      },
+    ]);
+
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    await agent.execute('find character tools', { page: 'canvas' }, () => {});
+
+    const firstOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      tools: Array<{ name: string }>;
+    };
+    const secondOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][1] as {
+      tools: Array<{ name: string }>;
+    };
+
+    expect(firstOpts.tools.map((tool) => tool.name)).toEqual([
+      'tool.search',
+      'guide.list',
+      'guide.get',
+      'commander.askUser',
+    ]);
+    expect(secondOpts.tools.map((tool) => tool.name)).toEqual([
+      'tool.search',
+      'guide.list',
+      'guide.get',
+      'commander.askUser',
+      'character.search',
+    ]);
   });
 });

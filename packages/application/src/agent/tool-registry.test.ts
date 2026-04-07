@@ -118,4 +118,39 @@ describe('AgentToolRegistry', () => {
     expect(registry.toLLMTools('page-a')[0].name).toBe('a');
     expect(registry.toLLMTools()).toHaveLength(2);
   });
+
+  it('searches tools by tag and query within a context', () => {
+    const registry = new AgentToolRegistry();
+    registry.register({
+      name: 'canvas.searchNodes',
+      description: 'Search nodes on the canvas',
+      tags: ['canvas', 'read', 'search'],
+      context: ['canvas'],
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(),
+    });
+    registry.register({
+      name: 'character.search',
+      description: 'Search characters',
+      tags: ['character', 'read', 'search'],
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(),
+    });
+    registry.register({
+      name: 'canvas.deleteNode',
+      description: 'Delete a node',
+      tags: ['canvas', 'mutate'],
+      context: ['canvas'],
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(),
+    });
+
+    expect(
+      registry.search({
+        context: 'canvas',
+        tags: ['search'],
+        query: 'node',
+      }).map((tool) => tool.name),
+    ).toEqual(['canvas.searchNodes']);
+  });
 });

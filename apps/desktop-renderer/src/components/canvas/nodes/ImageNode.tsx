@@ -111,18 +111,18 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
             </span>
           </div>
 
-          <div className="flex items-center justify-center px-3 py-2 overflow-hidden" style={{ maxHeight: '60%' }}>
+          <div className="flex flex-1 items-center justify-center px-3 py-2 overflow-hidden min-h-0">
             {hasThumbnail && !imgError ? (
               activeUrl ? (
                 <img
                   src={activeUrl}
                   alt={d.title || t('node.image')}
-                  className="max-w-full max-h-full rounded object-contain"
+                  className="w-full h-full rounded object-cover"
                   draggable={false}
                   onError={() => setImgError(true)}
                 />
               ) : (
-                <div className="flex aspect-video w-full items-center justify-center rounded bg-muted text-xs text-muted-foreground">
+                <div className="flex w-full h-full items-center justify-center rounded bg-muted text-xs text-muted-foreground">
                   {t('node.loading')}
                 </div>
               )

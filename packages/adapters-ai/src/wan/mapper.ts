@@ -1,4 +1,5 @@
-import type { GenerationRequest } from '@lucid-fin/contracts';
+import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import { parseAdapterError } from '../error-utils.js';
 
 export function toWanInput(req: GenerationRequest): Record<string, unknown> {
   const hasFirstFrame = req.referenceImages && req.referenceImages.length > 0;
@@ -13,4 +14,8 @@ export function toWanInput(req: GenerationRequest): Record<string, unknown> {
     ...(hasLastFrame ? { last_frame_image: req.referenceImages![1] } : {}),
     ...(req.seed != null ? { seed: req.seed } : {}),
   };
+}
+
+export function parseError(data: unknown, status?: number): AdapterError {
+  return parseAdapterError({ provider: 'Wan', status, error: data });
 }

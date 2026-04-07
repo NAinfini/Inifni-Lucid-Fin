@@ -242,6 +242,10 @@ describe('new agent tool groups', () => {
       resumeWorkflow: vi.fn(async () => undefined),
       cancelWorkflow: vi.fn(async () => undefined),
       retryWorkflow: vi.fn(async () => undefined),
+      expandIdea: vi.fn(async (prompt: string) => ({
+        workflowRunId: 'wf-expand-1',
+        prompt,
+      })),
     });
 
     await expect(getTool(jobTools, 'job.cancel').execute({ jobId: 'job-1' })).resolves.toEqual({
@@ -264,6 +268,44 @@ describe('new agent tool groups', () => {
       success: true,
       data: { id: 'wf-1' },
     });
+  });
+
+  it('workflow tools support idea expansion delegation', async () => {
+    const workflowTools = createWorkflowTools({
+      pauseWorkflow: vi.fn(async () => undefined),
+      resumeWorkflow: vi.fn(async () => undefined),
+      cancelWorkflow: vi.fn(async () => undefined),
+      retryWorkflow: vi.fn(async () => undefined),
+      expandIdea: vi.fn(async (prompt: string) => ({
+        workflowRunId: 'wf-expand-1',
+        prompt,
+      })),
+    });
+
+    await expect(
+      getTool(workflowTools, 'workflow.expandIdea').execute({ prompt: 'samurai travels through time' }),
+    ).resolves.toEqual({
+      success: true,
+      data: {
+        workflowRunId: 'wf-expand-1',
+        prompt: 'samurai travels through time',
+      },
+    });
+  });
+
+  it('workflow expandIdea reports unavailable when no handler is provided', async () => {
+    const workflowTools = createWorkflowTools({
+      pauseWorkflow: vi.fn(async () => undefined),
+      resumeWorkflow: vi.fn(async () => undefined),
+      cancelWorkflow: vi.fn(async () => undefined),
+      retryWorkflow: vi.fn(async () => undefined),
+    });
+
+    await expect(getTool(workflowTools, 'workflow.expandIdea').execute({ prompt: 'samurai travels through time' }))
+      .resolves.toEqual({
+        success: false,
+        error: 'workflow.expandIdea is not available',
+      });
   });
 
   it('series and color style tools support compatible save/list/delete flows', async () => {

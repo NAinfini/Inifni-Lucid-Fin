@@ -74,14 +74,15 @@ export class LeonardoAdapter implements AIProviderAdapter {
     });
     if (!res.ok)
       throw new LucidError(ErrorCode.ServiceUnavailable, `Leonardo status failed: ${res.status}`);
-    const data = (await res.json()) as { generations_by_pk: { status: string } };
+    const data = (await res.json()) as { generation?: { status: string } };
+    const status = data.generation?.status ?? '';
     const map: Record<string, JobStatus> = {
       PENDING: JobStatus.Queued,
       PROCESSING: JobStatus.Running,
       COMPLETE: JobStatus.Completed,
       FAILED: JobStatus.Failed,
     };
-    return map[data.generations_by_pk.status] ?? JobStatus.Running;
+    return map[status] ?? JobStatus.Running;
   }
 
   async cancel(_jobId: string): Promise<void> {}

@@ -186,6 +186,8 @@ function createNodeRecord(payload: {
     text: { content: '' },
     image: {
       status: 'empty',
+      width: 1024,
+      height: 1024,
       variants: [],
       selectedVariantIndex: 0,
       variantCount: 1,
@@ -194,6 +196,10 @@ function createNodeRecord(payload: {
     },
     video: {
       status: 'empty',
+      width: 1280,
+      height: 720,
+      duration: 5,
+      fps: 24,
       variants: [],
       selectedVariantIndex: 0,
       variantCount: 1,
@@ -537,7 +543,7 @@ const internalCanvasSlice = createSlice({
       canvas.updatedAt = node.updatedAt;
     },
 
-    setNodeProgress(state, action: PayloadAction<{ id: string; progress: number }>) {
+    setNodeProgress(state, action: PayloadAction<{ id: string; progress: number; currentStep?: string }>) {
       const canvas = findActiveCanvas(state);
       if (!canvas) return;
       const node = canvas.nodes.find((n) => n.id === action.payload.id);
@@ -545,6 +551,26 @@ const internalCanvasSlice = createSlice({
       const data = getGenerationNodeData(node);
       if (!data) return;
       data.progress = Math.max(0, Math.min(100, action.payload.progress));
+      if (action.payload.currentStep !== undefined) {
+        data.currentStep = action.payload.currentStep;
+      }
+      node.updatedAt = Date.now();
+      canvas.updatedAt = node.updatedAt;
+    },
+
+    clearNodeGenerationStatus(state, action: PayloadAction<{ id: string }>) {
+      const canvas = findActiveCanvas(state);
+      if (!canvas) return;
+      const node = canvas.nodes.find((n) => n.id === action.payload.id);
+      if (!node) return;
+      const data = getGenerationNodeData(node);
+      if (!data) return;
+      data.status = 'empty';
+      data.progress = undefined;
+      data.error = undefined;
+      data.currentStep = undefined;
+      data.jobId = undefined;
+      node.status = 'idle';
       node.updatedAt = Date.now();
       canvas.updatedAt = node.updatedAt;
     },
@@ -611,7 +637,7 @@ const internalCanvasSlice = createSlice({
       canvas.updatedAt = node.updatedAt;
     },
 
-    setNodeSeed(state, action: PayloadAction<{ id: string; seed: number }>) {
+    setNodeSeed(state, action: PayloadAction<{ id: string; seed: number | undefined }>) {
       const canvas = findActiveCanvas(state);
       if (!canvas) return;
       const node = canvas.nodes.find((n) => n.id === action.payload.id);
@@ -619,6 +645,43 @@ const internalCanvasSlice = createSlice({
       const data = getGenerationNodeData(node);
       if (!data) return;
       data.seed = action.payload.seed;
+      node.updatedAt = Date.now();
+      canvas.updatedAt = node.updatedAt;
+    },
+
+    setNodeResolution(
+      state,
+      action: PayloadAction<{ id: string; width: number; height: number }>,
+    ) {
+      const canvas = findActiveCanvas(state);
+      if (!canvas) return;
+      const node = canvas.nodes.find((n) => n.id === action.payload.id);
+      if (!node || (node.type !== 'image' && node.type !== 'video')) return;
+      const data = node.data as ImageNodeData | VideoNodeData;
+      data.width = action.payload.width;
+      data.height = action.payload.height;
+      node.updatedAt = Date.now();
+      canvas.updatedAt = node.updatedAt;
+    },
+
+    setNodeDuration(state, action: PayloadAction<{ id: string; duration: number }>) {
+      const canvas = findActiveCanvas(state);
+      if (!canvas) return;
+      const node = canvas.nodes.find((n) => n.id === action.payload.id);
+      if (!node || (node.type !== 'video' && node.type !== 'audio')) return;
+      const data = node.data as VideoNodeData | AudioNodeData;
+      data.duration = action.payload.duration;
+      node.updatedAt = Date.now();
+      canvas.updatedAt = node.updatedAt;
+    },
+
+    setNodeFps(state, action: PayloadAction<{ id: string; fps: number }>) {
+      const canvas = findActiveCanvas(state);
+      if (!canvas) return;
+      const node = canvas.nodes.find((n) => n.id === action.payload.id);
+      if (!node || node.type !== 'video') return;
+      const data = node.data as VideoNodeData;
+      data.fps = action.payload.fps;
       node.updatedAt = Date.now();
       canvas.updatedAt = node.updatedAt;
     },
@@ -1525,10 +1588,14 @@ export const {
   setNodeStatus,
   setNodeGenerating,
   setNodeProgress,
+  clearNodeGenerationStatus,
   setNodeGenerationComplete,
   setNodeGenerationFailed,
   selectVariant,
   setNodeSeed,
+  setNodeResolution,
+  setNodeDuration,
+  setNodeFps,
   toggleSeedLock,
   toggleBypass,
   setNodeColorTag,

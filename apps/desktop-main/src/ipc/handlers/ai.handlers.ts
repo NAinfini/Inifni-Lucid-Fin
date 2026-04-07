@@ -1,5 +1,5 @@
 import type { IpcMain, BrowserWindow } from 'electron';
-import log from 'electron-log';
+import log from '../../logger.js';
 import type { AgentOrchestrator, AgentEvent } from '@lucid-fin/application';
 import type { PromptStore } from '@lucid-fin/storage';
 

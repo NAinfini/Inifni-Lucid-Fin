@@ -1,5 +1,5 @@
 import { ipcMain, type BrowserWindow } from 'electron';
-import log from 'electron-log';
+import log from '../logger.js';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { ProjectFS, CAS, Keychain, type PromptStore } from '@lucid-fin/storage';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';

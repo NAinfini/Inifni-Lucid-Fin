@@ -1,4 +1,5 @@
-import type { GenerationRequest } from '@lucid-fin/contracts';
+import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import { parseAdapterError } from '../error-utils.js';
 
 export function toElevenLabsRequest(req: GenerationRequest): Record<string, unknown> {
   return {
@@ -11,4 +12,8 @@ export function toElevenLabsRequest(req: GenerationRequest): Record<string, unkn
       use_speaker_boost: true,
     },
   };
+}
+
+export function parseError(data: unknown, status?: number): AdapterError {
+  return parseAdapterError({ provider: 'ElevenLabs', status, error: data });
 }

@@ -1,6 +1,6 @@
 import type { SqliteIndex } from '@lucid-fin/storage';
 import fs from 'node:fs';
-import log from 'electron-log';
+import log from '../logger.js';
 
 /**
  * DB self-healing: validates the database on startup.

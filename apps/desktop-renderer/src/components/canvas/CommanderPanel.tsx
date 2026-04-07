@@ -23,6 +23,7 @@ import {
   clearHistory,
   minimizeCommander,
   setCommanderOpen,
+  setProviderId,
   setPosition,
   setSize,
   setPermissionMode,
@@ -30,7 +31,6 @@ import {
   clearPendingQuestion,
   type PermissionMode,
 } from '../../store/slices/commander.js';
-import { setActiveProvider } from '../../store/slices/settings.js';
 import { useCommander } from '../../hooks/useCommander.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { cn } from '../../lib/utils.js';
@@ -339,7 +339,7 @@ export function CommanderPanel() {
   const dispatch = useDispatch();
   const { t } = useI18n();
   const { sendMessage, cancel, isStreaming } = useCommander();
-  const { open, minimized, messages, currentStreamContent, currentToolCalls, currentSegments, position, size, error, permissionMode, pendingConfirmation, pendingQuestion } =
+  const { open, minimized, providerId, messages, currentStreamContent, currentToolCalls, currentSegments, position, size, error, permissionMode, pendingConfirmation, pendingQuestion } =
     useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -527,7 +527,8 @@ export function CommanderPanel() {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const activeProvider = llmSettings.providers.find((p) => p.id === llmSettings.activeProvider);
+  const activeProvider =
+    llmSettings.providers.find((p) => p.id === providerId) ?? llmSettings.providers[0];
 
   return (
     <section
@@ -829,17 +830,17 @@ export function CommanderPanel() {
                 <ChevronDown className="h-2.5 w-2.5" />
               </button>
               {modelPickerOpen && (
-                <div className="absolute bottom-7 right-0 z-50 w-48 rounded-lg border border-border bg-card p-1 shadow-xl">
+                <div className="absolute bottom-7 right-0 z-50 w-48 rounded-lg border border-border bg-card p-1 shadow-xl max-h-48 overflow-y-auto">
                   {llmSettings.providers.map((p) => (
                     <button
                       key={p.id}
                       type="button"
                       className={cn(
                         'w-full rounded px-2 py-1 text-left text-[11px] hover:bg-muted',
-                        p.id === llmSettings.activeProvider && 'bg-primary/10 text-primary',
+                        p.id === activeProvider?.id && 'bg-primary/10 text-primary',
                       )}
                       onClick={() => {
-                        dispatch(setActiveProvider({ group: 'llm', provider: p.id }));
+                        dispatch(setProviderId(p.id));
                         setModelPickerOpen(false);
                       }}
                     >

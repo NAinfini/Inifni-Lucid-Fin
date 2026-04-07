@@ -9,6 +9,24 @@ export enum ErrorCode {
   Unknown = 'UNKNOWN',
 }
 
+export enum ErrorCategory {
+  Auth = 'auth',
+  RateLimit = 'rate_limit',
+  ContentModeration = 'content_moderation',
+  InvalidInput = 'invalid_input',
+  ServiceError = 'service_error',
+  Timeout = 'timeout',
+}
+
+export interface AdapterError {
+  category: ErrorCategory;
+  message: string;
+  retryable: boolean;
+  retryAfter?: number;
+  providerCode?: string;
+  originalError?: unknown;
+}
+
 export class LucidError extends Error {
   constructor(
     public readonly code: ErrorCode,

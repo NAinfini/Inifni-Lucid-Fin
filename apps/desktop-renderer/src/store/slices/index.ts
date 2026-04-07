@@ -65,14 +65,12 @@ export {
   setProviders,
   toggleProvider,
   setRenderPreset,
-  setActiveProvider,
   setProviderBaseUrl,
   setProviderModel,
   setProviderHasKey,
   restore as restoreSettings,
   type APIGroup,
   type ProviderConfig,
-  type APIGroupConfig,
   type SettingsState,
 } from './settings.js';
 export {
@@ -89,6 +87,7 @@ export {
   commanderSlice,
   toggleCommander,
   setCommanderOpen,
+  setProviderId,
   addUserMessage,
   startStreaming,
   appendStreamChunk,

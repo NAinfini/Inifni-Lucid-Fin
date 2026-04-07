@@ -9,6 +9,7 @@ import {
   minimizeCommander,
   resolveToolCall,
   setCommanderOpen,
+  setProviderId,
   setPosition,
   setSize,
   startStreaming,
@@ -125,6 +126,12 @@ describe('commander slice', () => {
 
     expect(state.position).toEqual({ x: 100, y: 120 });
     expect(state.size).toEqual({ width: 480, height: 640 });
+  });
+
+  it('stores the commander-selected provider independently from settings', () => {
+    const state = commanderSlice.reducer(undefined, setProviderId('claude'));
+
+    expect(state.providerId).toBe('claude');
   });
 
   describe('toggleCommander state machine', () => {

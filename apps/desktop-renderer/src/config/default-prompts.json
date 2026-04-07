@@ -1,0 +1,147 @@
+{
+  "$schema": "./prompt-config.schema.json",
+  "version": "1.0.0",
+  "lastModified": "2026-04-07",
+  "prompts": {
+    "referenceImage": {
+      "character": {
+        "enabled": true,
+        "name": "Character Turnaround Sheet",
+        "description": "Multi-angle character reference with front, 3/4, side, and back views",
+        "template": "Character turnaround reference sheet, {description}, showing front view, three-quarter view, side profile view, and back view in a single image, all views aligned horizontally on white background, consistent lighting across all angles, neutral standing pose, full body visible, professional character design model sheet, clean lines, detailed costume and features, same character from multiple angles, orthographic projection style",
+        "negativePrompt": "blurry, inconsistent lighting, different poses, different characters, cropped, low quality, perspective distortion, single view only, dynamic pose, action pose",
+        "recommendedSettings": {
+          "aspectRatio": "16:9",
+          "width": 1920,
+          "height": 1080,
+          "providers": ["google-imagen3", "openai-dalle", "midjourney"],
+          "variantCount": 3
+        }
+      },
+      "equipment": {
+        "enabled": true,
+        "name": "Equipment Reference Sheet",
+        "description": "Technical reference with orthographic views (front, side, top)",
+        "template": "Equipment reference sheet, {description}, showing front orthographic view, side orthographic view, and top orthographic view in a single image, all views aligned in technical drawing layout on white background, consistent scale across all views, clean technical illustration style, detailed mechanical parts visible, material indications, professional product design reference sheet, blueprint style",
+        "negativePrompt": "blurry, perspective view, artistic rendering, inconsistent scale, cropped, low quality, single view only, photorealistic, dynamic angle",
+        "recommendedSettings": {
+          "aspectRatio": "16:9",
+          "width": 1920,
+          "height": 1080,
+          "providers": ["google-imagen3", "openai-dalle"],
+          "variantCount": 2
+        }
+      },
+      "location": {
+        "enabled": true,
+        "name": "Location Reference Sheet",
+        "description": "Multi-angle location with establishing shot and key views",
+        "template": "Location reference sheet, {description}, showing wide establishing shot in top panel and 2-3 different key camera angles in bottom panels, all views in a single composite image with consistent lighting and atmosphere, {timeOfDay} lighting, consistent weather and mood across all views, professional environment concept art reference sheet, cinematic composition, architectural details visible",
+        "negativePrompt": "blurry, inconsistent lighting, different locations, different time of day, low quality, single view only, cropped, people as main focus",
+        "recommendedSettings": {
+          "aspectRatio": "16:9",
+          "width": 1920,
+          "height": 1080,
+          "providers": ["google-imagen3", "midjourney"],
+          "variantCount": 3
+        }
+      }
+    },
+    "nodeGeneration": {
+      "image": {
+        "enabled": true,
+        "name": "Image Node Generation",
+        "description": "Standard image generation for canvas nodes",
+        "template": "{prompt}",
+        "negativePrompt": "blurry, low quality, distorted, watermark, text, signature",
+        "recommendedSettings": {
+          "width": 1024,
+          "height": 1024,
+          "providers": ["google-imagen3", "openai-dalle"],
+          "variantCount": 1
+        }
+      },
+      "video": {
+        "enabled": true,
+        "name": "Video Node Generation",
+        "description": "Standard video generation for canvas nodes",
+        "template": "{prompt}",
+        "negativePrompt": "blurry, low quality, distorted, flickering, artifacts",
+        "recommendedSettings": {
+          "width": 1280,
+          "height": 720,
+          "duration": 5,
+          "fps": 24,
+          "providers": ["google-veo-2", "runway-gen4", "luma-ray2"],
+          "variantCount": 1
+        }
+      },
+      "audio": {
+        "voice": {
+          "enabled": true,
+          "name": "Voice Generation",
+          "description": "Voice/narration generation",
+          "template": "{prompt}",
+          "negativePrompt": "robotic, distorted, unclear, background noise",
+          "recommendedSettings": {
+            "duration": 5,
+            "providers": ["elevenlabs-v2", "openai-tts-1-hd"],
+            "variantCount": 1
+          }
+        },
+        "music": {
+          "enabled": true,
+          "name": "Music Generation",
+          "description": "Background music generation",
+          "template": "{prompt}",
+          "negativePrompt": "distorted, low quality, abrupt ending",
+          "recommendedSettings": {
+            "duration": 30,
+            "providers": ["suno", "udio"],
+            "variantCount": 1
+          }
+        },
+        "sfx": {
+          "enabled": true,
+          "name": "Sound Effects Generation",
+          "description": "Sound effects generation",
+          "template": "{prompt}",
+          "negativePrompt": "distorted, low quality, unclear",
+          "recommendedSettings": {
+            "duration": 3,
+            "providers": ["elevenlabs-v2"],
+            "variantCount": 1
+          }
+        }
+      }
+    },
+    "characterConsistency": {
+      "enabled": true,
+      "name": "Character Consistency Prompt",
+      "description": "Maintain character consistency across generations",
+      "template": "{characterDescription}, consistent appearance, same facial features, same clothing, same proportions, {additionalContext}",
+      "negativePrompt": "different character, inconsistent features, different clothing, different proportions",
+      "notes": "Define 15-20 specific physical attributes. Generate 8-10 reference images for best consistency."
+    },
+    "presetCombination": {
+      "enabled": true,
+      "name": "Preset Combination Guide",
+      "description": "Guidance for combining multiple presets",
+      "notes": "When combining presets from different categories, adjust intensity based on desired emphasis. Look category presets typically use 0.7-1.0 intensity, Scene presets 0.5-0.8, Camera presets 0.6-0.9."
+    },
+    "storyboard": {
+      "enabled": true,
+      "name": "Storyboard Generation",
+      "description": "Generate shot list from script",
+      "template": "Based on this script: {script}, generate a detailed shot list including: shot number, scene description, character actions, shot type (wide/medium/close-up), camera movement, emotion/atmosphere",
+      "notes": "Use Commander AI for storyboard generation"
+    }
+  },
+  "userCustomPrompts": [],
+  "settings": {
+    "allowUserEdit": true,
+    "showResetOption": true,
+    "autoSaveEdits": true,
+    "promptHistoryLimit": 10
+  }
+}

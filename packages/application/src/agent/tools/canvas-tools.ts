@@ -505,6 +505,7 @@ const askUser: AgentTool = {
   name: 'commander.askUser',
   description:
     'Ask the user a question with multiple choice options. Use this when you need user input to proceed — for preferences, confirmations, or clarification.',
+  tags: ['meta', 'interaction'],
   tier: 1,
   context: CANVAS_CONTEXT,
   parameters: {
@@ -1172,7 +1173,8 @@ export function createCanvasTools(deps: CanvasToolDeps): AgentTool[] {
 
   const getState: AgentTool = {
     name: 'canvas.getState',
-    description: 'Read canvas metadata and edge list only (no node details). Use canvas.listNodes to see nodes, canvas.getNode for a single node.',
+    description: 'Read canvas metadata and edge list only (no node details). Use canvas.searchNodes to find nodes, canvas.getNode for a single node.',
+    tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
     parameters: {
@@ -1199,15 +1201,21 @@ export function createCanvasTools(deps: CanvasToolDeps): AgentTool[] {
     },
   };
 
-  const listNodes: AgentTool = {
-    name: 'canvas.listNodes',
-    description: 'List all nodes on the canvas with basic info (id, type, title, status, providerId). Use canvas.getNode to read full details of a specific node.',
+  const searchNodes: AgentTool = {
+    name: 'canvas.searchNodes',
+    description: 'Search canvas nodes with lightweight summaries. Use canvas.getNode to read full details of a specific node.',
+    tags: ['canvas', 'read', 'search'],
     context: CANVAS_CONTEXT,
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
+        type: { type: 'string', description: 'Optional node type filter.' },
+        titleContains: { type: 'string', description: 'Optional case-insensitive title substring filter.' },
+        status: { type: 'string', description: 'Optional status filter.' },
+        providerId: { type: 'string', description: 'Optional provider id filter.' },
+        limit: { type: 'number', description: 'Optional max number of summaries to return.' },
       },
       required: ['canvasId'],
     },
@@ -1215,13 +1223,35 @@ export function createCanvasTools(deps: CanvasToolDeps): AgentTool[] {
       try {
         const canvasId = requireString(args, 'canvasId');
         const canvas = await requireCanvas(deps, canvasId);
-        return ok(canvas.nodes.map((n) => ({
-          id: n.id,
-          type: n.type,
-          title: (n.data as Record<string, unknown>).title ?? '',
-          status: (n.data as Record<string, unknown>).status ?? '',
-          providerId: (n.data as Record<string, unknown>).providerId ?? null,
-        })));
+        const type = typeof args.type === 'string' ? args.type : undefined;
+        const titleContains = typeof args.titleContains === 'string' ? args.titleContains.trim().toLowerCase() : '';
+        const status = typeof args.status === 'string' ? args.status : undefined;
+        const providerId = typeof args.providerId === 'string' ? args.providerId : undefined;
+        const limit =
+          typeof args.limit === 'number' && Number.isFinite(args.limit)
+            ? Math.max(1, Math.floor(args.limit))
+            : canvas.nodes.length;
+
+        return ok(
+          canvas.nodes
+            .map((node) => {
+              const data = node.data as Record<string, unknown>;
+              return {
+                id: node.id,
+                type: node.type,
+                title: node.title,
+                status: typeof data.status === 'string' ? data.status : node.status,
+                providerId: typeof data.providerId === 'string' ? data.providerId : null,
+              };
+            })
+            .filter((node) => (
+              (type === undefined || node.type === type)
+              && (titleContains.length === 0 || node.title.toLowerCase().includes(titleContains))
+              && (status === undefined || node.status === status)
+              && (providerId === undefined || node.providerId === providerId)
+            ))
+            .slice(0, limit),
+        );
       } catch (error) {
         return fail(error);
       }
@@ -1231,6 +1261,7 @@ export function createCanvasTools(deps: CanvasToolDeps): AgentTool[] {
   const getNode: AgentTool = {
     name: 'canvas.getNode',
     description: 'Read full details of a single node by ID, including prompt, presets, refs, variants.',
+    tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
     parameters: {
@@ -3051,7 +3082,7 @@ export function createCanvasTools(deps: CanvasToolDeps): AgentTool[] {
 
   return [
     addNode, moveNode, renameNode, renameCanvas, loadCanvas, saveCanvas, deleteCanvas, connectNodes, duplicateNodes, cutNodes, toggleBypass, toggleLock,
-    selectNodes, setPresets, getState, listNodes, getNode, layout, generate, cancelGeneration, setSeed, setVariantCount, generateAll,
+    selectNodes, setPresets, getState, searchNodes, getNode, layout, generate, cancelGeneration, setSeed, setVariantCount, generateAll,
     deleteNode, deleteEdge, swapEdgeDirection, disconnectNode, editNodeContent, setNodeProvider,
     setCharacterRefs, setEquipmentRefs, setLocationRefs, removeCharacterRef, removeEquipmentRef, removeLocationRef, batchCreate,
     readNodePresetTracks, writeNodePresetTracks,

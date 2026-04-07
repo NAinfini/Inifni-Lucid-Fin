@@ -168,4 +168,71 @@ describe('JobQueue', () => {
       expect(() => queue.pause(id)).toThrow('Invalid job transition');
     });
   });
+
+  describe('subscribe support', () => {
+    it('prefers adapter.subscribe and persists callback progress before completion', async () => {
+      const id = queue.submit({
+        projectId: 'p1',
+        type: 'image',
+        providerId: 'mock',
+        prompt: 'subscribe flow',
+      });
+
+      const subscribe = vi.fn(async (_request, callbacks) => {
+        callbacks.onQueueUpdate?.({
+          status: 'queued',
+          queuePosition: 2,
+          estimatedWaitTime: 9,
+          jobId: 'provider-job-1',
+        });
+        expect(db.getJob(id)?.currentStep).toContain('Queued');
+
+        callbacks.onProgress?.({
+          type: 'progress',
+          percentage: 65,
+          currentStep: 'rendering',
+          jobId: 'provider-job-1',
+        });
+        expect(db.getJob(id)?.progress).toBe(65);
+        expect(db.getJob(id)?.currentStep).toBe('rendering');
+
+        return {
+          assetHash: 'abc123',
+          assetPath: '/tmp/abc.png',
+          provider: 'mock',
+          cost: 0.01,
+          metadata: {
+            taskId: 'provider-job-1',
+          },
+        } satisfies GenerationResult;
+      });
+
+      registry.unregister('mock');
+      registry.register(
+        mockAdapter({
+          subscribe,
+          generate: vi.fn(async () => {
+            throw new Error('generate should not be called when subscribe exists');
+          }),
+        }),
+      );
+
+      await (queue as unknown as { tick(): Promise<void> }).tick();
+
+      expect(subscribe).toHaveBeenCalledOnce();
+      const job = db.getJob(id);
+      expect(job).toEqual(
+        expect.objectContaining({
+          status: JobStatus.Completed,
+          progress: 100,
+          currentStep: 'Completed',
+          result: expect.objectContaining({
+            metadata: expect.objectContaining({
+              taskId: 'provider-job-1',
+            }),
+          }),
+        }),
+      );
+    });
+  });
 });

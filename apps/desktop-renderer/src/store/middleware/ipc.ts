@@ -2,6 +2,7 @@ import type { Middleware } from '@reduxjs/toolkit';
 import { getAPI } from '../../utils/api.js';
 import { t } from '../../i18n.js';
 import { enqueueToast } from '../slices/toast.js';
+import { addLog } from '../slices/logger.js';
 import type { GenerationRequest } from '@lucid-fin/contracts';
 import {
   cancelWorkflow,
@@ -21,6 +22,17 @@ import {
   workflowStarted,
 } from '../slices/workflows.js';
 
+function logIpcError(store: Parameters<Middleware>[0], message: string, error: unknown): void {
+  store.dispatch(
+    addLog({
+      level: 'error',
+      category: 'ipc',
+      message,
+      detail: error instanceof Error ? error.stack ?? error.message : String(error),
+    }),
+  );
+}
+
 const IPC_ACTION_MAP: Record<string, (payload: unknown) => Promise<unknown> | undefined> = {
   'jobs/submitJob': (p) => getAPI()?.job.submit(p as GenerationRequest & { projectId: string }),
   'jobs/cancelJob': (p) => getAPI()?.job.cancel(p as string),
@@ -37,7 +49,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
     const handler = IPC_ACTION_MAP[typed.type];
     if (handler) {
       handler(typed.payload)?.catch((error: unknown) => {
-        console.error(error);
+        logIpcError(store, 'IPC action failed', error);
         store.dispatch(
           enqueueToast({
             variant: 'error',
@@ -65,7 +77,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
           store.dispatch(setWorkflowSummaries(workflows));
         })
         .catch((error: unknown) => {
-          console.error(error);
+          logIpcError(store, 'Workflow start failed', error);
           store.dispatch(removeWorkflowPlaceholder(payload.placeholderId));
           store.dispatch(
             enqueueToast({
@@ -85,7 +97,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
           store.dispatch(setWorkflowSummaries(workflows));
         })
         .catch((error: unknown) => {
-          console.error(error);
+          logIpcError(store, 'Workflow list failed', error);
           store.dispatch(
             enqueueToast({
               variant: 'error',
@@ -105,7 +117,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
           store.dispatch(setWorkflowStages({ workflowRunId, stages }));
         })
         .catch((error: unknown) => {
-          console.error(error);
+          logIpcError(store, 'Workflow stages load failed', error);
           store.dispatch(
             enqueueToast({
               variant: 'error',
@@ -125,7 +137,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
           store.dispatch(setWorkflowTasks({ workflowRunId, tasks }));
         })
         .catch((error: unknown) => {
-          console.error(error);
+          logIpcError(store, 'Workflow tasks load failed', error);
           store.dispatch(
             enqueueToast({
               variant: 'error',
@@ -139,7 +151,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
 
     if (typed.type === pauseWorkflow.type) {
       api?.workflow.pause(typed.payload as string)?.catch((error: unknown) => {
-        console.error(error);
+        logIpcError(store, 'Workflow pause failed', error);
         store.dispatch(
           enqueueToast({
             variant: 'error',
@@ -153,7 +165,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
 
     if (typed.type === resumeWorkflow.type) {
       api?.workflow.resume(typed.payload as string)?.catch((error: unknown) => {
-        console.error(error);
+        logIpcError(store, 'Workflow resume failed', error);
         store.dispatch(
           enqueueToast({
             variant: 'error',
@@ -167,7 +179,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
 
     if (typed.type === cancelWorkflow.type) {
       api?.workflow.cancel(typed.payload as string)?.catch((error: unknown) => {
-        console.error(error);
+        logIpcError(store, 'Workflow cancel failed', error);
         store.dispatch(
           enqueueToast({
             variant: 'error',
@@ -181,7 +193,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
 
     if (typed.type === retryWorkflowTask.type) {
       api?.workflow.retryTask(typed.payload as string)?.catch((error: unknown) => {
-        console.error(error);
+        logIpcError(store, 'Workflow task retry failed', error);
         store.dispatch(
           enqueueToast({
             variant: 'error',
@@ -195,7 +207,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
 
     if (typed.type === retryWorkflowStage.type) {
       api?.workflow.retryStage(typed.payload as string)?.catch((error: unknown) => {
-        console.error(error);
+        logIpcError(store, 'Workflow stage retry failed', error);
         store.dispatch(
           enqueueToast({
             variant: 'error',
@@ -209,7 +221,7 @@ export const ipcMiddleware: Middleware = (store) => (next) => (action) => {
 
     if (typed.type === retryWorkflow.type) {
       api?.workflow.retryWorkflow(typed.payload as string)?.catch((error: unknown) => {
-        console.error(error);
+        logIpcError(store, 'Workflow retry failed', error);
         store.dispatch(
           enqueueToast({
             variant: 'error',

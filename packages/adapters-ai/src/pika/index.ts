@@ -18,7 +18,7 @@ export class PikaAdapter implements AIProviderAdapter {
   readonly maxConcurrent = 3;
 
   private apiKey = '';
-  private baseUrl = 'https://api.pika.art/v1';
+  private baseUrl = 'https://api.pika.art/v2';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
@@ -75,7 +75,7 @@ export class PikaAdapter implements AIProviderAdapter {
   }
 
   async checkStatus(jobId: string): Promise<JobStatus> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/generation/${jobId}`, {
+    const res = await fetchWithTimeout(`${this.baseUrl}/generations/${jobId}`, {
       headers: { Authorization: `Bearer ${this.apiKey}`, 'X-Pika-Version': '2024-12-01' },
     });
     if (!res.ok)
@@ -93,7 +93,7 @@ export class PikaAdapter implements AIProviderAdapter {
   }
 
   async cancel(jobId: string): Promise<void> {
-    const res = await fetchWithTimeout(`${this.baseUrl}/generation/${jobId}`, {
+    const res = await fetchWithTimeout(`${this.baseUrl}/generations/${jobId}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${this.apiKey}`, 'X-Pika-Version': '2024-12-01' },
     });

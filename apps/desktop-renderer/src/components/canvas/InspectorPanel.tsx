@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { enqueueToast } from '../../store/slices/toast.js';
@@ -10,11 +10,14 @@ import {
   setNodeGenerating,
   setNodeGenerationFailed,
   setNodeProvider,
+  setNodeResolution,
   setNodeSeed,
   setNodeTrackAiDecide,
   setAllTracksAiDecide,
   setVideoFrameNode,
   setNodeVariantCount,
+  setNodeDuration,
+  setNodeFps,
   setNodeUploadedAsset,
   clearNodeAsset,
   toggleSeedLock,
@@ -60,11 +63,26 @@ import {
   Trash2,
   Upload,
   Clapperboard,
+  Dice5,
 } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizePresetName, localizeSlot } from '../../i18n.js';
+import { localizePresetName, localizeSlot, localizeShotTemplateName, localizeShotTemplateDescription } from '../../i18n.js';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
+import {
+  CUSTOM_RESOLUTION_VALUE,
+  DURATION_PRESETS,
+  FPS_PRESETS,
+  RESOLUTION_PRESETS,
+  createRandomSeed,
+  getDefaultResolution,
+  getResolutionPresetDimensions,
+  getResolutionPresetValue,
+  resolveSeedRequest,
+  type VisualGenerationNodeType,
+  type ResolutionPreset,
+  type ResolutionPresetValue,
+} from './inspector-generation-utils.js';
 import {
   Dialog,
   DialogContent,
@@ -121,6 +139,17 @@ const CATEGORY_ACCENT: Record<string, string> = {
 };
 
 const VARIANT_OPTIONS = [1, 2, 4, 9];
+const RESOLUTION_PRESET_GROUPS = RESOLUTION_PRESETS.reduce<
+  Array<{ label: ResolutionPreset['groupLabel']; options: ResolutionPreset[] }>
+>((groups, preset) => {
+  const existing = groups.find((group) => group.label === preset.groupLabel);
+  if (existing) {
+    existing.options.push(preset);
+    return groups;
+  }
+  groups.push({ label: preset.groupLabel, options: [preset] });
+  return groups;
+}, []);
 
 function createId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -142,6 +171,13 @@ function isGenerationNode(node: CanvasNode | undefined): node is CanvasNode & {
   data: ImageNodeData | VideoNodeData | AudioNodeData;
 } {
   return Boolean(node && (node.type === 'image' || node.type === 'video' || node.type === 'audio'));
+}
+
+function isVisualGenerationNode(node: CanvasNode | undefined): node is CanvasNode & {
+  type: VisualGenerationNodeType;
+  data: ImageNodeData | VideoNodeData;
+} {
+  return Boolean(node && (node.type === 'image' || node.type === 'video'));
 }
 
 interface TrackEditorProps {
@@ -190,10 +226,11 @@ function TrackEditor({ nodeId, category, presets, presetById, track }: TrackEdit
   );
 
   return (
-    <div className="rounded border border-border/70 bg-muted/20">
-      <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-border/60">
-        <span className="text-[11px] font-medium">{t('presetCategory.' + category)}</span>
-        <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+    <div className="rounded-lg border border-border bg-card">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/60">
+        <span className="text-xs font-semibold text-foreground">{t('presetCategory.' + category)}</span>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+          <span>{t('commander.aiDecide')}</span>
           <input
             type="checkbox"
             checked={track.aiDecide}
@@ -206,24 +243,25 @@ function TrackEditor({ nodeId, category, presets, presetById, track }: TrackEdit
                 }),
               )
             }
+            className="w-4 h-4 rounded border-border accent-primary cursor-pointer"
           />
-          {t('commander.aiDecide')}
         </label>
       </div>
 
-      <div className={cn('space-y-1 p-2', track.aiDecide && 'opacity-50')}>
+      <div className={cn('space-y-2 p-3', track.aiDecide && 'opacity-50')}>
         {track.aiDecide ? (
-          <div className="rounded border border-dashed border-border/60 bg-muted/30 px-2 py-1 text-[10px] text-muted-foreground">
+          <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+            <span className="text-primary">✨</span>
             {t('commander.aiWillChoose')}
           </div>
         ) : null}
         {track.entries.map((entry, index) => {
           const preset = presetById[entry.presetId];
           return (
-            <div key={entry.id} className="rounded border border-border/60 bg-card px-2 py-1">
+            <div key={entry.id} className="rounded-lg border border-border bg-card/50 px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] truncate">{preset ? localizePresetName(preset.name) : entry.presetId}</span>
-                <div className="flex items-center gap-1">
+                <span className="text-xs font-medium text-foreground truncate">{preset ? localizePresetName(preset.name) : entry.presetId}</span>
+                <div className="flex items-center gap-1.5">
                   <input
                     type="number"
                     min={0}
@@ -244,12 +282,12 @@ function TrackEditor({ nodeId, category, presets, presetById, track }: TrackEdit
                         }),
                       )
                     }
-                    className="w-14 bg-muted rounded px-1 text-[10px]"
+                    className="w-16 bg-muted rounded-md px-2 py-1 text-xs"
                     placeholder={t('inspector.seconds')}
                     disabled={track.aiDecide}
                   />
                   <button
-                    className="text-[10px] px-1 rounded border border-border hover:bg-muted"
+                    className="text-xs px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50"
                     onClick={() =>
                       dispatch(
                         moveNodePresetTrackEntry({
@@ -265,7 +303,7 @@ function TrackEditor({ nodeId, category, presets, presetById, track }: TrackEdit
                     ↑
                   </button>
                   <button
-                    className="text-[10px] px-1 rounded border border-border hover:bg-muted"
+                    className="text-xs px-2 py-1 rounded-md border border-border hover:bg-muted disabled:opacity-50"
                     onClick={() =>
                       dispatch(
                         moveNodePresetTrackEntry({
@@ -281,13 +319,13 @@ function TrackEditor({ nodeId, category, presets, presetById, track }: TrackEdit
                     ↓
                   </button>
                   <button
-                    className="text-[10px] px-1 rounded border border-border hover:bg-destructive/20"
+                    className="text-xs px-2 py-1 rounded-md border border-border hover:bg-destructive/20 hover:text-destructive disabled:opacity-50"
                     onClick={() =>
                       dispatch(removeNodePresetTrackEntry({ id: nodeId, category, entryId: entry.id }))
                     }
                     disabled={track.aiDecide}
                   >
-                    x
+                    ×
                   </button>
                 </div>
               </div>
@@ -295,45 +333,45 @@ function TrackEditor({ nodeId, category, presets, presetById, track }: TrackEdit
           );
         })}
 
-        <div className="pt-1 space-y-1">
-          <div className="flex items-center gap-1">
+        <div className="pt-2 space-y-2">
+          <div className="flex items-center gap-2">
             <button
-              className="inline-flex items-center gap-1 text-[10px] rounded border border-border px-1.5 py-0.5 hover:bg-muted"
+              className="inline-flex items-center gap-1.5 text-xs rounded-md border border-border px-3 py-2 hover:bg-muted transition-colors disabled:opacity-50"
               onClick={() => setPickerOpen((v) => !v)}
               disabled={track.aiDecide}
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
               {t('inspector.addPreset')}
-              <ChevronDown className="w-3 h-3" />
+              <ChevronDown className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {pickerOpen && (
-            <div className="rounded border border-border/70 bg-card p-1.5 space-y-1">
+            <div className="rounded-lg border border-border bg-card p-3 space-y-2">
               <div className="relative">
-                <Search className="w-3 h-3 absolute left-1.5 top-1.5 text-muted-foreground" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  className="w-full bg-muted pl-6 pr-1.5 py-1 rounded text-[10px]"
+                  className="w-full bg-muted pl-9 pr-3 py-2 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder={t('inspector.searchPresets')}
                   disabled={track.aiDecide}
                 />
               </div>
-              <div className="max-h-28 overflow-auto space-y-0.5">
+              <div className="max-h-64 overflow-auto space-y-1">
                 {filteredPresets.map((preset) => (
                   <button
                     key={preset.id}
                     onClick={() => addPreset(preset.id)}
-                    className="w-full text-left text-[10px] px-1.5 py-1 rounded hover:bg-muted"
+                    className="w-full text-left text-xs px-3 py-2 rounded-md border border-border hover:border-primary hover:bg-primary/5 transition-colors"
                     disabled={track.aiDecide}
                   >
-                    <div className="font-medium">{localizePresetName(preset.name)}</div>
-                    <div className="text-muted-foreground truncate">{preset.description}</div>
+                    <div className="font-medium text-foreground">{localizePresetName(preset.name)}</div>
+                    <div className="text-xs text-muted-foreground truncate">{preset.description}</div>
                   </button>
                 ))}
                 {filteredPresets.length === 0 && (
-                  <div className="text-[10px] text-muted-foreground px-1.5 py-1">{t('inspector.noPresets')}</div>
+                  <div className="text-xs text-muted-foreground text-center py-4">{t('inspector.noPresets')}</div>
                 )}
               </div>
             </div>
@@ -381,10 +419,10 @@ function TrackGridCell({ nodeId, category, presets, presetById, track }: TrackGr
         {/* accent left bar */}
         <div className={cn('absolute left-0 top-0 bottom-0 w-0.5 rounded-l-lg', accent)} />
 
-        <div className="pl-3 pr-2 pt-2 pb-1.5 w-full">
+        <div className="pl-3 pr-2 pt-2.5 pb-2 w-full">
           {/* header row */}
-          <div className="flex items-center justify-between gap-1 mb-1">
-            <span className="text-[10px] font-semibold truncate leading-none">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
+            <span className="text-xs font-semibold truncate leading-none text-foreground">
               {t('presetCategory.' + category)}
             </span>
             {/* AI pill toggle */}
@@ -403,7 +441,7 @@ function TrackGridCell({ nodeId, category, presets, presetById, track }: TrackGr
                 }
               }}
               className={cn(
-                'shrink-0 cursor-pointer rounded-full px-1.5 py-0.5 text-[8px] font-bold leading-none transition-colors select-none',
+                'shrink-0 cursor-pointer rounded-full px-2 py-1 text-[9px] font-bold leading-none transition-colors select-none',
                 track.aiDecide
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:bg-muted/80',
@@ -415,23 +453,23 @@ function TrackGridCell({ nodeId, category, presets, presetById, track }: TrackGr
 
           {/* preset chips / empty hint */}
           {hasEntries ? (
-            <div className="flex flex-wrap gap-0.5">
+            <div className="flex flex-wrap gap-1">
               {previewNames.map((name, i) => (
                 <span
                   key={i}
-                  className="rounded bg-primary/10 text-primary px-1 py-0.5 text-[9px] leading-none truncate max-w-full"
+                  className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] leading-none truncate max-w-full"
                 >
                   {name}
                 </span>
               ))}
               {track.entries.length > 2 && (
-                <span className="rounded bg-muted text-muted-foreground px-1 py-0.5 text-[9px] leading-none">
+                <span className="rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-[10px] leading-none">
                   +{track.entries.length - 2}
                 </span>
               )}
             </div>
           ) : (
-            <span className="text-[9px] text-muted-foreground/60 leading-none">{t('inspector.empty')}</span>
+            <span className="text-[10px] text-muted-foreground/60 leading-none">{t('inspector.empty')}</span>
           )}
         </div>
       </button>
@@ -471,6 +509,58 @@ function FrameThumb({ node }: { node: CanvasNode & { data: ImageNodeData } }) {
   );
 }
 
+function InspectorVariantThumb({
+  hash,
+  index,
+  selected,
+  mediaType,
+  onClick,
+}: {
+  hash?: string;
+  index: number;
+  selected: boolean;
+  mediaType: 'image' | 'video' | 'audio';
+  onClick: () => void;
+}) {
+  const assetType = mediaType === 'audio' ? 'audio' : mediaType;
+  const assetExt =
+    mediaType === 'image' ? 'png' : mediaType === 'video' ? 'mp4' : 'mp3';
+  const { url } = useAssetUrl(hash, assetType, assetExt);
+  const isSelectable = Boolean(hash);
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        'relative h-16 overflow-hidden rounded-md border bg-muted/40',
+        selected ? 'border-primary ring-1 ring-primary/40' : 'border-border',
+        isSelectable ? 'hover:bg-muted' : 'cursor-default opacity-70',
+      )}
+      onClick={onClick}
+      disabled={!isSelectable}
+      aria-label={`Select variant ${index + 1}`}
+    >
+      {hash && mediaType === 'image' && url ? (
+        <img src={url} alt={`Variant ${index + 1}`} className="h-full w-full object-cover" />
+      ) : hash && mediaType === 'video' && url ? (
+        <video
+          src={url}
+          className="h-full w-full object-cover"
+          muted
+          preload="metadata"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-xs font-medium text-muted-foreground">
+          V{index + 1}
+        </div>
+      )}
+      <span className="absolute bottom-1 right-1 rounded bg-background/85 px-1 py-0.5 text-[9px] font-semibold uppercase leading-none text-foreground shadow-sm">
+        v{index + 1}
+      </span>
+    </button>
+  );
+}
+
 export function InspectorPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
@@ -480,17 +570,16 @@ export function InspectorPanel() {
     s.canvas.canvases.find((c) => c.id === activeCanvasId),
   );
   const presets = useSelector((s: RootState) => s.presets.allIds.map((id) => s.presets.byId[id]));
+  const hiddenPresetIds = useSelector((s: RootState) => s.presets.hiddenIds);
   const builtInTemplates = useSelector((s: RootState) => s.shotTemplates.builtIn);
   const customTemplates = useSelector((s: RootState) => s.shotTemplates.custom);
+  const hiddenTemplateIds = useSelector((s: RootState) => s.shotTemplates.hiddenIds);
   const characters = useSelector((s: RootState) => s.characters.items);
   const equipmentItems = useSelector((s: RootState) => s.equipment.items);
   const locationItems = useSelector((s: RootState) => s.locations.items);
   const imageProviders = useSelector((s: RootState) => s.settings.image.providers);
   const videoProviders = useSelector((s: RootState) => s.settings.video.providers);
   const audioProviders = useSelector((s: RootState) => s.settings.audio.providers);
-  const imageProviderIds = imageProviders.map((p) => p.id);
-  const videoProviderIds = videoProviders.map((p) => p.id);
-  const audioProviderIds = audioProviders.map((p) => p.id);
 
   useEffect(() => {
     const api = getAPI();
@@ -556,6 +645,9 @@ export function InspectorPanel() {
   const [configuredProviders, setConfiguredProviders] = useState<import('../../store/slices/settings.js').ProviderConfig[]>([]);
   const [providerLoading, setProviderLoading] = useState(false);
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
+  const [resolutionSelectValue, setResolutionSelectValue] = useState<ResolutionPresetValue | null>(null);
+  const [durationSelectValue, setDurationSelectValue] = useState<string | null>(null);
+  const pendingRandomSeedByNodeId = useRef<Record<string, number>>({});
 
   const selectedNode: CanvasNode | undefined =
     selectedNodeIds.length === 1
@@ -580,6 +672,39 @@ export function InspectorPanel() {
   const activeSeedLocked = generationData?.seedLocked ?? false;
   const activeVariants = generationData?.variants ?? [];
   const selectedVariantIndex = generationData?.selectedVariantIndex ?? 0;
+  const visualGenerationNode = isVisualGenerationNode(selectedNode) ? selectedNode : undefined;
+  const defaultResolution = visualGenerationNode
+    ? getDefaultResolution(visualGenerationNode.type)
+    : undefined;
+  const activeWidth = visualGenerationNode
+    ? visualGenerationNode.data.width ?? defaultResolution?.width
+    : undefined;
+  const activeHeight = visualGenerationNode
+    ? visualGenerationNode.data.height ?? defaultResolution?.height
+    : undefined;
+  const activeResolutionPreset = visualGenerationNode
+    ? getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight)
+    : CUSTOM_RESOLUTION_VALUE;
+  const activeDuration =
+    selectedNode?.type === 'video' ? (selectedNode.data as VideoNodeData).duration ?? 5 : undefined;
+  const activeDurationPreset =
+    selectedNode?.type === 'video' &&
+    activeDuration != null &&
+    DURATION_PRESETS.some((preset) => preset === activeDuration)
+      ? String(activeDuration)
+      : CUSTOM_RESOLUTION_VALUE;
+  const activeFps =
+    selectedNode?.type === 'video' ? (selectedNode.data as VideoNodeData).fps ?? 24 : undefined;
+  const visibleVariantCount = Math.max(activeVariantCount, activeVariants.length);
+  const shouldShowVariantGrid = visibleVariantCount > 0 && generationData?.status !== 'empty';
+  const selectedVariantMediaType: 'image' | 'video' | 'audio' =
+    selectedNode?.type === 'video'
+      ? 'video'
+      : selectedNode?.type === 'audio'
+        ? 'audio'
+        : 'image';
+  const resolutionControlValue = resolutionSelectValue ?? activeResolutionPreset;
+  const durationControlValue = durationSelectValue ?? activeDurationPreset;
   const providerCandidates = useMemo(() => {
     if (!isGenerationNode(selectedNode)) return [];
     if (selectedNode.type === 'audio') return audioProviders;
@@ -649,6 +774,43 @@ export function InspectorPanel() {
       dispatch(setVideoFrameNode({ id: selectedNode.id, role: 'last', frameNodeId: undefined }));
     }
   }, [canvas, selectedNode, dispatch]);
+
+  useEffect(() => {
+    if (!visualGenerationNode) {
+      setResolutionSelectValue(null);
+      return;
+    }
+    setResolutionSelectValue(
+      getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight),
+    );
+  }, [activeHeight, activeWidth, visualGenerationNode?.id, visualGenerationNode?.type]);
+
+  useEffect(() => {
+    if (selectedNode?.type !== 'video') {
+      setDurationSelectValue(null);
+      return;
+    }
+    setDurationSelectValue(
+      DURATION_PRESETS.some((preset) => preset === activeDuration)
+        ? String(activeDuration)
+        : CUSTOM_RESOLUTION_VALUE,
+    );
+  }, [activeDuration, selectedNode?.id, selectedNode?.type]);
+
+  useEffect(() => {
+    if (!canvas) return;
+    for (const node of canvas.nodes) {
+      const pendingSeed = pendingRandomSeedByNodeId.current[node.id];
+      if (typeof pendingSeed !== 'number' || !isGenerationNode(node)) {
+        continue;
+      }
+      if (node.data.status === 'generating' || node.data.status === 'empty') {
+        continue;
+      }
+      delete pendingRandomSeedByNodeId.current[node.id];
+      dispatch(setNodeSeed({ id: node.id, seed: pendingSeed }));
+    }
+  }, [canvas, dispatch]);
 
   const handleAddCharacterRef = useCallback(
     (characterId: string) => {
@@ -827,23 +989,91 @@ export function InspectorPanel() {
   );
 
   const handleSeedChange = useCallback(
-    (seed: number) => {
+    (seed: number | undefined) => {
       if (!isGenerationNode(selectedNode)) return;
       dispatch(setNodeSeed({ id: selectedNode.id, seed }));
     },
     [dispatch, selectedNode],
   );
 
+  const handleResolutionChange = useCallback(
+    (value: ResolutionPresetValue) => {
+      if (!visualGenerationNode) return;
+      setResolutionSelectValue(value);
+      if (value === CUSTOM_RESOLUTION_VALUE) {
+        if (typeof activeWidth === 'number' && typeof activeHeight === 'number') {
+          dispatch(
+            setNodeResolution({
+              id: visualGenerationNode.id,
+              width: activeWidth,
+              height: activeHeight,
+            }),
+          );
+        }
+        return;
+      }
+      const preset = getResolutionPresetDimensions(value);
+      if (!preset) return;
+      dispatch(
+        setNodeResolution({
+          id: visualGenerationNode.id,
+          width: preset.width,
+          height: preset.height,
+        }),
+      );
+    },
+    [activeHeight, activeWidth, dispatch, visualGenerationNode],
+  );
+
+  const handleDurationChange = useCallback(
+    (duration: number) => {
+      if (selectedNode?.type !== 'video') return;
+      dispatch(setNodeDuration({ id: selectedNode.id, duration }));
+    },
+    [dispatch, selectedNode],
+  );
+
+  const handleFpsChange = useCallback(
+    (fps: number) => {
+      if (selectedNode?.type !== 'video') return;
+      dispatch(setNodeFps({ id: selectedNode.id, fps }));
+    },
+    [dispatch, selectedNode],
+  );
+
+  const handleRandomizeSeed = useCallback(() => {
+    if (!isGenerationNode(selectedNode)) return;
+    handleSeedChange(createRandomSeed());
+  }, [handleSeedChange, selectedNode]);
+
   const handleToggleSeedLock = useCallback(() => {
     if (!isGenerationNode(selectedNode)) return;
+    if (!activeSeedLocked && activeSeed == null) {
+      handleSeedChange(createRandomSeed());
+    }
     dispatch(toggleSeedLock({ id: selectedNode.id }));
-  }, [dispatch, selectedNode]);
+  }, [activeSeed, activeSeedLocked, dispatch, handleSeedChange, selectedNode]);
 
   const handleGenerate = useCallback(async () => {
     if (!isGenerationNode(selectedNode)) return;
     if (!activeCanvasId) return;
     const api = getAPI();
     if (!api?.canvasGeneration) return;
+    const randomSeed = createRandomSeed();
+    const seedRequest = resolveSeedRequest({
+      seed: activeSeed,
+      seedLocked: activeSeedLocked,
+      randomSeed,
+    });
+
+    if (typeof seedRequest.persistImmediately === 'number') {
+      dispatch(setNodeSeed({ id: selectedNode.id, seed: seedRequest.persistImmediately }));
+    }
+    if (typeof seedRequest.persistAfterCompletion === 'number') {
+      pendingRandomSeedByNodeId.current[selectedNode.id] = seedRequest.persistAfterCompletion;
+    } else {
+      delete pendingRandomSeedByNodeId.current[selectedNode.id];
+    }
 
     dispatch(setNodeGenerating({ id: selectedNode.id, jobId: `pending-${Date.now()}` }));
     try {
@@ -852,16 +1082,27 @@ export function InspectorPanel() {
         selectedNode.id,
         activeProviderId,
         activeVariantCount,
-        activeSeed,
+        seedRequest.requestSeed,
         activeProviderConfig,
       );
       dispatch(setNodeGenerating({ id: selectedNode.id, jobId: result.jobId }));
     } catch (error) {
+      delete pendingRandomSeedByNodeId.current[selectedNode.id];
       const msg = error instanceof Error ? error.message : String(error);
       dispatch(setNodeGenerationFailed({ id: selectedNode.id, error: msg }));
       dispatch(enqueueToast({ title: t('generation.failed'), message: msg, variant: 'error' }));
     }
-  }, [activeCanvasId, activeProviderId, activeSeed, activeVariantCount, dispatch, selectedNode]);
+  }, [
+    activeCanvasId,
+    activeProviderConfig,
+    activeProviderId,
+    activeSeed,
+    activeSeedLocked,
+    activeVariantCount,
+    dispatch,
+    selectedNode,
+    t,
+  ]);
 
   const handleCancelGeneration = useCallback(async () => {
     if (!isGenerationNode(selectedNode)) return;
@@ -1011,53 +1252,50 @@ export function InspectorPanel() {
               </div>
             )}
 
-            {/* Shot Template Selector */}
+            {/* Shot Template + Preset Tracks */}
             {hasTracks(selectedNode) && (
-              <div className="px-4 py-4 border-b space-y-2">
+              <div className="px-4 py-4 border-b space-y-3">
+                {/* Template selector */}
                 <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   <Clapperboard className="w-3.5 h-3.5" />
                   {t('shotTemplate.title')}
                 </div>
-
                 <div className="relative">
                   <button
                     type="button"
                     className="w-full flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors"
                     onClick={() => setTemplateDropdownOpen((v) => !v)}
                   >
-                    <span className="text-muted-foreground text-xs">
-                      {t('shotTemplate.selectTemplate')}
-                    </span>
+                    <span className="text-muted-foreground text-xs">{t('shotTemplate.selectTemplate')}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
-
                   {templateDropdownOpen && (
                     <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
-                      {builtInTemplates.length > 0 && (
+                      {builtInTemplates.filter((t) => !hiddenTemplateIds.includes(t.id)).length > 0 && (
                         <div>
                           <div className="px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/40">
                             {t('shotTemplate.builtIn')}
                           </div>
-                          {builtInTemplates.map((tmpl) => (
+                          {builtInTemplates.filter((tmpl) => !hiddenTemplateIds.includes(tmpl.id)).map((tmpl) => (
                             <button
                               key={tmpl.id}
                               className="w-full text-left px-2.5 py-1.5 hover:bg-muted/50 transition-colors"
                               onClick={() => handleApplyTemplate(tmpl)}
                             >
-                              <div className="text-xs font-medium">{tmpl.name}</div>
+                              <div className="text-xs font-medium">{localizeShotTemplateName(tmpl.id, tmpl.name)}</div>
                               <div className="text-[10px] text-muted-foreground truncate">
-                                {tmpl.description}
+                                {localizeShotTemplateDescription(tmpl.id, tmpl.description)}
                               </div>
                             </button>
                           ))}
                         </div>
                       )}
-                      {customTemplates.length > 0 && (
+                      {customTemplates.filter((t) => !hiddenTemplateIds.includes(t.id)).length > 0 && (
                         <div>
                           <div className="px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/40 border-t border-border/50">
                             {t('shotTemplate.custom')}
                           </div>
-                          {customTemplates.map((tmpl) => (
+                          {customTemplates.filter((tmpl) => !hiddenTemplateIds.includes(tmpl.id)).map((tmpl) => (
                             <button
                               key={tmpl.id}
                               className="w-full text-left px-2.5 py-1.5 hover:bg-muted/50 transition-colors"
@@ -1065,9 +1303,7 @@ export function InspectorPanel() {
                             >
                               <div className="text-xs font-medium">{tmpl.name}</div>
                               {tmpl.description && (
-                                <div className="text-[10px] text-muted-foreground truncate">
-                                  {tmpl.description}
-                                </div>
+                                <div className="text-[10px] text-muted-foreground truncate">{tmpl.description}</div>
                               )}
                             </button>
                           ))}
@@ -1076,13 +1312,9 @@ export function InspectorPanel() {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
 
-            {/* Preset Tracks */}
-            {hasTracks(selectedNode) && (
-              <div className="px-4 py-4 border-b space-y-3">
-                <div className="flex items-center justify-between">
+                {/* Preset Tracks grid — override here, save in Shot Templates */}
+                <div className="flex items-center justify-between pt-1">
                   <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     {t('inspector.presetTracks')}
                   </div>
@@ -1110,7 +1342,7 @@ export function InspectorPanel() {
                       key={category}
                       nodeId={selectedNode.id}
                       category={category}
-                      presets={presets.filter((preset) => preset.category === category)}
+                      presets={presets.filter((preset) => preset.category === category && !hiddenPresetIds.includes(preset.id))}
                       presetById={presetById}
                       track={
                         selectedNode.data.presetTracks[category] ?? {
@@ -1693,28 +1925,156 @@ export function InspectorPanel() {
                   </div>
                 </div>
 
+                {visualGenerationNode && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground">{t('export.resolution')}</label>
+                    <select
+                      value={resolutionControlValue}
+                      onChange={(event) =>
+                        handleResolutionChange(event.target.value as ResolutionPresetValue)
+                      }
+                      className="w-full bg-muted px-3 py-2 rounded-lg text-sm"
+                    >
+                      {RESOLUTION_PRESET_GROUPS.map((group) => (
+                        <optgroup key={group.label} label={group.label}>
+                          {group.options.map((preset) => (
+                            <option key={preset.value} value={preset.value}>
+                              {preset.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                      <option value={CUSTOM_RESOLUTION_VALUE}>Custom</option>
+                    </select>
+                    {resolutionControlValue === CUSTOM_RESOLUTION_VALUE && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-full bg-muted px-3 py-2 rounded-lg text-sm"
+                          value={activeWidth ?? ''}
+                          onChange={(event) => {
+                            const nextWidth = event.target.valueAsNumber;
+                            if (!Number.isFinite(nextWidth) || nextWidth < 1) return;
+                            dispatch(
+                              setNodeResolution({
+                                id: visualGenerationNode.id,
+                                width: Math.round(nextWidth),
+                                height: activeHeight ?? defaultResolution?.height ?? 1024,
+                              }),
+                            );
+                          }}
+                          placeholder="W"
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-full bg-muted px-3 py-2 rounded-lg text-sm"
+                          value={activeHeight ?? ''}
+                          onChange={(event) => {
+                            const nextHeight = event.target.valueAsNumber;
+                            if (!Number.isFinite(nextHeight) || nextHeight < 1) return;
+                            dispatch(
+                              setNodeResolution({
+                                id: visualGenerationNode.id,
+                                width: activeWidth ?? defaultResolution?.width ?? 1024,
+                                height: Math.round(nextHeight),
+                              }),
+                            );
+                          }}
+                          placeholder="H"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedNode.type === 'video' && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground">{t('node.duration')}</label>
+                    <select
+                      value={durationControlValue}
+                      onChange={(event) => {
+                        if (event.target.value === CUSTOM_RESOLUTION_VALUE) {
+                          setDurationSelectValue(CUSTOM_RESOLUTION_VALUE);
+                          return;
+                        }
+                        setDurationSelectValue(event.target.value);
+                        handleDurationChange(Number(event.target.value));
+                      }}
+                      className="w-full bg-muted px-3 py-2 rounded-lg text-sm"
+                    >
+                      {DURATION_PRESETS.map((duration) => (
+                        <option key={duration} value={duration}>
+                          {duration}s
+                        </option>
+                      ))}
+                      <option value={CUSTOM_RESOLUTION_VALUE}>Custom</option>
+                    </select>
+                    {durationControlValue === CUSTOM_RESOLUTION_VALUE && (
+                      <input
+                        type="number"
+                        min={1}
+                        max={60}
+                        className="w-full bg-muted px-3 py-2 rounded-lg text-sm"
+                        value={activeDuration ?? ''}
+                        onChange={(event) => {
+                          const nextDuration = event.target.valueAsNumber;
+                          if (!Number.isFinite(nextDuration) || nextDuration < 1 || nextDuration > 60) {
+                            return;
+                          }
+                          handleDurationChange(Math.round(nextDuration));
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {selectedNode.type === 'video' && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-muted-foreground">{t('export.fps')}</label>
+                    <select
+                      value={String(activeFps ?? FPS_PRESETS[0])}
+                      onChange={(event) => handleFpsChange(Number(event.target.value))}
+                      className="w-full bg-muted px-3 py-2 rounded-lg text-sm"
+                    >
+                      {FPS_PRESETS.map((fps) => (
+                        <option key={fps} value={fps}>
+                          {fps}fps
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <label className="text-xs text-muted-foreground">{t('generation.seed')}</label>
                   <div className="flex items-center gap-1.5">
-                    <button
-                      className="px-3 py-1.5 rounded-md border border-border text-sm hover:bg-muted"
-                      onClick={() => handleSeedChange((activeSeed ?? 0) - 1)}
-                    >
-                      -1
-                    </button>
                     <input
                       type="number"
                       className="flex-1 bg-muted px-3 py-1.5 rounded-md text-sm"
-                      value={activeSeed ?? 0}
-                      onChange={(event) => handleSeedChange(Number(event.target.value))}
+                      value={activeSeed ?? ''}
+                      onChange={(event) => {
+                        if (event.target.value === '') {
+                          handleSeedChange(undefined);
+                          return;
+                        }
+                        const nextSeed = event.target.valueAsNumber;
+                        if (!Number.isFinite(nextSeed)) return;
+                        handleSeedChange(Math.round(nextSeed));
+                      }}
                     />
                     <button
-                      className="px-3 py-1.5 rounded-md border border-border text-sm hover:bg-muted"
-                      onClick={() => handleSeedChange((activeSeed ?? 0) + 1)}
+                      type="button"
+                      className="px-2.5 py-1.5 rounded-md border border-border text-sm hover:bg-muted"
+                      onClick={handleRandomizeSeed}
+                      aria-label="Randomize seed"
+                      title="Randomize seed"
                     >
-                      +1
+                      <Dice5 className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       className={cn(
                         'px-3 py-1.5 rounded-md border text-xs font-medium',
                         activeSeedLocked
@@ -1734,24 +2094,23 @@ export function InspectorPanel() {
                   </div>
                 )}
 
-                {activeVariants.length > 0 && (
+                {shouldShowVariantGrid && (
                   <div className="space-y-1.5">
                     <label className="text-xs text-muted-foreground">{t('generation.variants')}</label>
                     <div className="grid grid-cols-4 gap-1.5">
-                      {activeVariants.slice(0, 9).map((hash: string, index: number) => (
-                        <button
-                          key={hash}
-                          className={cn(
-                            'h-10 rounded-md border text-xs font-medium truncate px-1',
-                            selectedVariantIndex === index
-                              ? 'border-primary text-primary bg-primary/10'
-                              : 'border-border text-muted-foreground hover:bg-muted',
-                          )}
-                          onClick={() => handleSelectVariant(index)}
-                        >
-                          V{index + 1}
-                        </button>
-                      ))}
+                      {Array.from({ length: Math.min(visibleVariantCount, 9) }, (_, index) => {
+                        const hash = activeVariants[index];
+                        return (
+                          <InspectorVariantThumb
+                            key={hash ?? `variant-placeholder-${index}`}
+                            hash={hash}
+                            index={index}
+                            selected={selectedVariantIndex === index}
+                            mediaType={selectedVariantMediaType}
+                            onClick={() => handleSelectVariant(index)}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 )}

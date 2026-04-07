@@ -511,25 +511,16 @@ export function LocationManagerPanel() {
                 />
               </div>
 
-              {/* Reference Images */}
+              {/* Reference Image - Single large image */}
               <div className="space-y-1">
                 <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
                   {t('locationManager.referenceImages')}
                 </label>
-                <div className="grid grid-cols-3 gap-1">
-                  {LOCATION_STANDARD_SLOTS.map((slot) => {
-                    const ref = refImageBySlot[slot];
-                    return (
-                      <LocationSlotCard
-                        key={slot}
-                        slot={slot}
-                        refImage={ref}
-                        onUpload={() => handleRefImageUpload(slot, true)}
-                        onRemove={() => handleRefImageRemove(slot)}
-                      />
-                    );
-                  })}
-                </div>
+                <SingleReferenceImage
+                  referenceImages={selectedLoc?.referenceImages ?? []}
+                  onUpload={() => handleRefImageUpload('main', true)}
+                  onRemove={() => handleRefImageRemove('main')}
+                />
               </div>
 
             </>
@@ -539,6 +530,56 @@ export function LocationManagerPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SingleReferenceImage({
+  referenceImages,
+  onUpload,
+  onRemove,
+}: {
+  referenceImages: ReferenceImage[];
+  onUpload: () => void;
+  onRemove: () => void;
+}) {
+  const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
+  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'jpg');
+
+  return (
+    <button
+      type="button"
+      onClick={onUpload}
+      className={cn(
+        'rounded border w-full cursor-pointer relative',
+        mainRef?.assetHash
+          ? 'border-primary/50 bg-primary/5'
+          : 'border-dashed border-border/70 hover:bg-muted/50',
+      )}
+    >
+      {url ? (
+        <div className="relative w-full h-[240px] bg-muted rounded overflow-hidden">
+          <img src={url} alt="Reference" className="h-full w-full object-contain" />
+          <div
+            role="toolbar"
+            className="absolute top-2 right-2 opacity-0 hover:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={onRemove}
+              className="rounded bg-black/60 px-2 py-1 text-xs text-destructive hover:bg-black/80"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center h-[240px] gap-2">
+          <Upload className="w-8 h-8 text-muted-foreground/40" />
+          <span className="text-xs text-muted-foreground">点击上传参考图</span>
+        </div>
+      )}
+    </button>
   );
 }
 

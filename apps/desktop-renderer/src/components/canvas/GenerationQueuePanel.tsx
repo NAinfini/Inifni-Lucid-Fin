@@ -1,10 +1,13 @@
 import { useSelector } from 'react-redux';
-import { ListTodo, Loader2, CheckCircle2, XCircle, X } from 'lucide-react';
+import { ListTodo, Loader2, CheckCircle2, XCircle, X, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { useDispatch } from 'react-redux';
+import { useEffect, useState } from 'react';
 import type { RootState } from '../../store/index.js';
 import { setRightPanel } from '../../store/slices/ui.js';
+import { setNodeProgress, clearNodeGenerationStatus } from '../../store/slices/canvas.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { getAPI } from '../../utils/api.js';
 
 const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   empty: ListTodo,
@@ -28,10 +31,29 @@ export function GenerationQueuePanel() {
     return state.canvas.canvases.find((c) => c.id === id);
   });
 
+  // Listen for real-time progress updates from backend
+  useEffect(() => {
+    const api = getAPI();
+    if (!api?.canvasGeneration || !canvas) return;
+
+    const unsubscribe = api.canvasGeneration.onProgress((data) => {
+      // Only update if the progress event is for the active canvas
+      if (data.canvasId !== canvas.id) return;
+
+      dispatch(setNodeProgress({
+        id: data.nodeId,
+        progress: data.progress,
+        currentStep: data.currentStep
+      }));
+    });
+
+    return unsubscribe;
+  }, [dispatch, canvas]);
+
   const generationNodes = (canvas?.nodes ?? [])
     .filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio')
     .map((n) => {
-      const data = n.data as { status?: string; progress?: number; error?: string; providerId?: string; jobId?: string };
+      const data = n.data as { status?: string; progress?: number; error?: string; providerId?: string; jobId?: string; currentStep?: string };
       return {
         id: n.id,
         title: n.title || n.type,
@@ -40,6 +62,8 @@ export function GenerationQueuePanel() {
         progress: data.progress ?? 0,
         error: data.error,
         providerId: data.providerId,
+        jobId: data.jobId,
+        currentStep: data.currentStep,
       };
     })
     .filter((n) => n.status !== 'empty');
@@ -47,6 +71,21 @@ export function GenerationQueuePanel() {
   const generating = generationNodes.filter((n) => n.status === 'generating');
   const completed = generationNodes.filter((n) => n.status === 'done');
   const failed = generationNodes.filter((n) => n.status === 'failed');
+
+  const handleRemoveTask = async (nodeId: string, status: string) => {
+    if (!canvas) return;
+
+    if (status === 'generating') {
+      // Cancel ongoing generation
+      const api = getAPI();
+      if (api?.canvasGeneration) {
+        await api.canvasGeneration.cancel(canvas.id, nodeId);
+      }
+    } else {
+      // Clear completed/failed status
+      dispatch(clearNodeGenerationStatus({ id: nodeId }));
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-card border-l overflow-auto">
@@ -75,23 +114,13 @@ export function GenerationQueuePanel() {
             <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
               {t('generation.active')} ({generating.length})
             </div>
-            {generating.map((node) => {
-              const Icon = STATUS_ICON[node.status] ?? ListTodo;
-              return (
-                <div key={node.id} className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-2.5">
-                  <div className="flex items-center gap-2">
-                    <Icon className={cn('h-3.5 w-3.5 shrink-0', node.status === 'generating' && 'animate-spin', STATUS_COLOR[node.status])} />
-                    <span className="flex-1 truncate text-xs font-medium">{node.title}</span>
-                    <span className="text-[10px] text-muted-foreground">{node.progress}%</span>
-                  </div>
-                  {node.progress > 0 && (
-                    <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
-                      <div className="h-full bg-blue-500 transition-all" style={{ width: `${node.progress}%` }} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {generating.map((node) => (
+              <TaskItem
+                key={node.id}
+                node={node}
+                onRemove={handleRemoveTask}
+              />
+            ))}
           </div>
         )}
 
@@ -101,15 +130,11 @@ export function GenerationQueuePanel() {
               {t('generation.failed')} ({failed.length})
             </div>
             {failed.map((node) => (
-              <div key={node.id} className="rounded-lg border border-destructive/30 bg-destructive/5 p-2.5">
-                <div className="flex items-center gap-2">
-                  <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                  <span className="flex-1 truncate text-xs font-medium">{node.title}</span>
-                </div>
-                {node.error && (
-                  <div className="mt-1 text-[10px] text-destructive truncate">{node.error}</div>
-                )}
-              </div>
+              <TaskItem
+                key={node.id}
+                node={node}
+                onRemove={handleRemoveTask}
+              />
             ))}
           </div>
         )}
@@ -120,16 +145,115 @@ export function GenerationQueuePanel() {
               {t('generation.completed')} ({completed.length})
             </div>
             {completed.map((node) => (
-              <div key={node.id} className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                  <span className="flex-1 truncate text-xs font-medium">{node.title}</span>
-                </div>
-              </div>
+              <TaskItem
+                key={node.id}
+                node={node}
+                onRemove={handleRemoveTask}
+              />
             ))}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function TaskItem({
+  node,
+  onRemove,
+}: {
+  node: {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    progress: number;
+    error?: string;
+    providerId?: string;
+    jobId?: string;
+    currentStep?: string;
+  };
+  onRemove: (nodeId: string, status: string) => void;
+}) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const Icon = STATUS_ICON[node.status] ?? ListTodo;
+  const colorClass = STATUS_COLOR[node.status];
+
+  const borderColor = node.status === 'generating'
+    ? 'border-blue-500/30 bg-blue-500/5'
+    : node.status === 'failed'
+    ? 'border-destructive/30 bg-destructive/5'
+    : 'border-emerald-500/30 bg-emerald-500/5';
+
+  const removeLabel = node.status === 'generating'
+    ? t('generation.cancel')
+    : t('generation.remove');
+
+  const expandLabel = expanded
+    ? t('generation.collapse')
+    : t('generation.expand');
+
+  return (
+    <div className={cn('rounded-lg border p-2.5', borderColor)}>
+      <div className="flex items-center gap-2">
+        <Icon className={cn('h-3.5 w-3.5 shrink-0', node.status === 'generating' && 'animate-spin', colorClass)} />
+        <span className="flex-1 truncate text-xs font-medium">{node.title}</span>
+        {node.status === 'generating' && (
+          <span className="text-[10px] text-muted-foreground">{node.progress}%</span>
+        )}
+        {(node.providerId || node.jobId) && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-0.5 rounded hover:bg-muted/50 transition-colors"
+            aria-label={expandLabel}
+          >
+            {expanded ? (
+              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+            )}
+          </button>
+        )}
+        <button
+          onClick={() => onRemove(node.id, node.status)}
+          className="p-0.5 rounded hover:bg-destructive/20 transition-colors"
+          aria-label={removeLabel}
+        >
+          <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+        </button>
+      </div>
+
+      {node.status === 'generating' && node.progress > 0 && (
+        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+          <div className="h-full bg-blue-500 transition-all" style={{ width: `${node.progress}%` }} />
+        </div>
+      )}
+
+      {node.status === 'generating' && node.currentStep && (
+        <div className="mt-1 text-[10px] text-muted-foreground truncate">{node.currentStep}</div>
+      )}
+
+      {node.status === 'failed' && node.error && (
+        <div className="mt-1 text-[10px] text-destructive truncate">{node.error}</div>
+      )}
+
+      {expanded && (
+        <div className="mt-2 pt-2 border-t border-current/10 space-y-1">
+          {node.providerId && (
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-muted-foreground">{t('generation.provider')}:</span>
+              <span className="font-mono">{node.providerId}</span>
+            </div>
+          )}
+          {node.jobId && (
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-muted-foreground">{t('generation.jobId')}:</span>
+              <span className="font-mono truncate max-w-[120px]" title={node.jobId}>{node.jobId}</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

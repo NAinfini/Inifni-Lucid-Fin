@@ -1,5 +1,5 @@
 import { LOCATION_STANDARD_SLOTS, type Location } from '@lucid-fin/contracts';
-import type { AgentTool } from '../tool-registry.js';
+import type { AgentTool, ToolResult } from '../tool-registry.js';
 
 export interface LocationToolDeps {
   listLocations: () => Promise<Location[]>;
@@ -8,10 +8,15 @@ export interface LocationToolDeps {
   generateImage?: (prompt: string, providerId?: string) => Promise<{ assetHash: string }>;
 }
 
+function ok(data?: unknown): ToolResult {
+  return { success: true, data };
+}
+
 export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationList: AgentTool = {
     name: 'location.list',
     description: 'List all locations in the current project.',
+    tags: ['location', 'read', 'search'],
     tier: 1,
     parameters: {
       type: 'object',
@@ -31,6 +36,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationCreate: AgentTool = {
     name: 'location.create',
     description: 'Create a new location in the current project.',
+    tags: ['location', 'mutate'],
     tier: 2,
     parameters: {
       type: 'object',
@@ -80,6 +86,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationUpdate: AgentTool = {
     name: 'location.update',
     description: 'Update an existing location by ID.',
+    tags: ['location', 'mutate'],
     tier: 2,
     parameters: {
       type: 'object',
@@ -130,6 +137,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationDelete: AgentTool = {
     name: 'location.delete',
     description: 'Delete a location by ID.',
+    tags: ['location', 'mutate'],
     tier: 3,
     parameters: {
       type: 'object',
@@ -151,6 +159,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationGenerateReferenceImage: AgentTool = {
     name: 'location.generateReferenceImage',
     description: 'Generate a reference image for a location slot.',
+    tags: ['location', 'generation'],
     tier: 3,
     parameters: {
       type: 'object',
@@ -204,6 +213,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationSetReferenceImage: AgentTool = {
     name: 'location.setReferenceImage',
     description: 'Set a reference image asset for a location slot.',
+    tags: ['location', 'mutate'],
     tier: 2,
     parameters: {
       type: 'object',
@@ -251,6 +261,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationDeleteReferenceImage: AgentTool = {
     name: 'location.deleteReferenceImage',
     description: 'Remove a reference image from a location slot.',
+    tags: ['location', 'mutate'],
     tier: 3,
     parameters: {
       type: 'object',
@@ -280,8 +291,46 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
+  const locationSearch: AgentTool = {
+    name: 'location.search',
+    description: 'Search locations by name or type. Returns lightweight summaries.',
+    tags: ['location', 'read', 'search'],
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Optional name query. Matches location names case-insensitively.',
+        },
+        type: {
+          type: 'string',
+          description: 'Optional exact type match.',
+        },
+      },
+      required: [],
+    },
+    async execute(args) {
+      try {
+        const locations = await deps.listLocations();
+        const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+        const type = typeof args.type === 'string' ? args.type : undefined;
+        const matches = locations
+          .filter((location) => (
+            (query.length === 0 || location.name.toLowerCase().includes(query))
+            && (type === undefined || location.type === type)
+          ))
+          .map(({ id, name, type: locationType }) => ({ id, name, type: locationType }));
+        return ok(matches);
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
   return [
     locationList,
+    locationSearch,
     locationCreate,
     locationUpdate,
     locationDelete,

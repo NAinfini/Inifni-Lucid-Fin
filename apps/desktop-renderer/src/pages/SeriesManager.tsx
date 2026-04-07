@@ -18,6 +18,7 @@ import {
   removeEpisode,
   updateEpisode,
 } from '../store/slices/series.js';
+import { addLog } from '../store/slices/logger.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 
@@ -69,7 +70,16 @@ export function SeriesManager() {
           dispatch(setSeries({ id: data.id, title: data.title, description: data.description }));
         }
       })
-      .catch((err) => console.error('Failed to load series:', err));
+      .catch((err) => {
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'series',
+            message: 'Failed to load series',
+            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          }),
+        );
+      });
   }, [dispatch]);
 
   const handleCreate = useCallback(async () => {
@@ -82,7 +92,14 @@ export function SeriesManager() {
       try {
         await api.series.save({ id, title: newName.trim(), description: newDescription.trim() });
       } catch (err) {
-        console.error('Failed to save series:', err);
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'series',
+            message: 'Failed to save series',
+            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          }),
+        );
       }
     }
     setNewName('');
@@ -99,7 +116,14 @@ export function SeriesManager() {
       try {
         await api.series.delete();
       } catch (err) {
-        console.error('Failed to delete series:', err);
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'series',
+            message: 'Failed to delete series',
+            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          }),
+        );
       }
     }
   }, [dispatch]);
@@ -122,7 +146,14 @@ export function SeriesManager() {
           updatedAt: Date.now(),
         });
       } catch (err) {
-        console.error('Failed to add episode:', err);
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'series',
+            message: 'Failed to add episode',
+            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          }),
+        );
       }
     }
     setNewEpisodeTitle('');
@@ -136,7 +167,14 @@ export function SeriesManager() {
         try {
           await api.series.episodes.remove(episodeId);
         } catch (err) {
-          console.error('Failed to remove episode:', err);
+          dispatch(
+            addLog({
+              level: 'error',
+              category: 'series',
+              message: 'Failed to remove episode',
+              detail: err instanceof Error ? err.stack ?? err.message : String(err),
+            }),
+          );
         }
       }
     },

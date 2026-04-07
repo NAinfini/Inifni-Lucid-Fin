@@ -18,7 +18,7 @@ export class WanAdapter implements AIProviderAdapter {
   readonly maxConcurrent = 2;
 
   private apiKey = '';
-  private model = 'wan-ai/wan-2.1:latest';
+  private model = 'wan-ai/wan2.1-t2v-480p';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;

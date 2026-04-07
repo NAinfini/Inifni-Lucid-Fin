@@ -1,4 +1,11 @@
-import type { LLMAdapter, LLMMessage, LLMCompletionResult } from '@lucid-fin/contracts';
+import type {
+  LLMAdapter,
+  LLMMessage,
+  LLMCompletionResult,
+  LLMToolDefinition,
+  LLMToolParameter,
+} from '@lucid-fin/contracts';
+import { LucidError } from '@lucid-fin/contracts';
 import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
 
 export interface AgentContext {
@@ -35,6 +42,17 @@ export interface AgentExecutionOptions {
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   isAborted?: () => boolean;
   permissionMode?: 'auto' | 'normal' | 'strict';
+  onLLMRequest?: (diagnostics: AgentLLMRequestDiagnostics) => void;
+}
+
+export interface AgentLLMRequestDiagnostics {
+  step: number;
+  toolCount: number;
+  toolSchemaChars: number;
+  messageCount: number;
+  messageChars: number;
+  systemPromptChars: number;
+  promptGuideChars: number;
 }
 
 const HISTORY_TOKEN_BUDGET = 8000;
@@ -42,7 +60,10 @@ const ESTIMATED_CHARS_PER_TOKEN = 4;
 const HISTORY_CHAR_BUDGET = HISTORY_TOKEN_BUDGET * ESTIMATED_CHARS_PER_TOKEN;
 const SMALL_RESULT_LIMIT = 500;
 const COLLECTION_SUMMARY_CHAR_BUDGET = 2000;
-const CONTEXT_EXTRA_VALUE_CHAR_LIMIT = 2000;
+const CONTEXT_EXTRA_VALUE_CHAR_LIMIT = 600;
+const TOOL_DESCRIPTION_CHAR_LIMIT = 160;
+const SYSTEM_PROMPT_CHAR_BUDGET = 2200;
+const LAZY_DISCOVERY_TOOL_NAMES = ['tool.search', 'guide.list', 'guide.get', 'commander.askUser'] as const;
 const LIST_ACTION_PREFIXES = ['list', 'search'];
 const MUTATION_ACTION_PREFIXES = [
   'add',
@@ -245,6 +266,67 @@ function stringifyContextExtraValue(value: unknown): string {
   return truncateString(serialized, CONTEXT_EXTRA_VALUE_CHAR_LIMIT);
 }
 
+function compactToolParameter(parameter: LLMToolParameter): LLMToolParameter {
+  const compacted: LLMToolParameter = {
+    type: parameter.type,
+    description: '',
+  };
+
+  if (parameter.enum?.length) {
+    compacted.enum = [...parameter.enum];
+  }
+  if (parameter.properties) {
+    compacted.properties = Object.fromEntries(
+      Object.entries(parameter.properties).map(([key, value]) => [key, compactToolParameter(value)]),
+    );
+  }
+  if (parameter.items) {
+    compacted.items = compactToolParameter(parameter.items);
+  }
+
+  return compacted;
+}
+
+function compactToolDefinitions(tools: AgentToolRegistry, contextPage?: string): LLMToolDefinition[] {
+  const sourceTools = contextPage ? tools.forContext(contextPage) : tools.list();
+  return sourceTools.map((tool) => ({
+    name: tool.name,
+    description: truncateString(tool.description, TOOL_DESCRIPTION_CHAR_LIMIT),
+    parameters: {
+      type: 'object' as const,
+      required: tool.parameters.required,
+      properties: Object.fromEntries(
+        Object.entries(tool.parameters.properties).map(([key, value]) => [key, compactToolParameter(value)]),
+      ),
+    },
+  }));
+}
+
+function compactNamedToolDefinitions(
+  tools: AgentToolRegistry,
+  toolNames: string[],
+  contextPage?: string,
+): LLMToolDefinition[] {
+  const sourceTools = contextPage ? tools.forContext(contextPage) : tools.list();
+  return sourceTools
+    .filter((tool) => toolNames.includes(tool.name))
+    .map((tool) => ({
+      name: tool.name,
+      description: truncateString(tool.description, TOOL_DESCRIPTION_CHAR_LIMIT),
+      parameters: {
+        type: 'object' as const,
+        required: tool.parameters.required,
+        properties: Object.fromEntries(
+          Object.entries(tool.parameters.properties).map(([key, value]) => [key, compactToolParameter(value)]),
+        ),
+      },
+    }));
+}
+
+function measureMessageChars(messages: LLMMessage[]): number {
+  return messages.reduce((total, message) => total + message.content.length, 0);
+}
+
 function summarizeMutationResult(value: unknown): unknown {
   if (!isRecord(value)) {
     return summarizeValue(value);
@@ -338,8 +420,9 @@ export class AgentOrchestrator {
     emit: (event: AgentEvent) => void,
     options?: AgentExecutionOptions,
   ): Promise<LLMCompletionResult> {
-    const systemPrompt = this.buildSystemPrompt(context);
-    const availableTools = this.tools.toLLMTools(context.page);
+    const lazyDiscovery = this.tools.get('tool.search') !== undefined;
+    const discoveredToolNames = new Set<string>();
+    const systemPrompt = this.buildSystemPrompt(context, lazyDiscovery);
     const history = pruneHistory(options?.history);
 
     const messages: LLMMessage[] = [
@@ -364,7 +447,21 @@ export class AgentOrchestrator {
 
         steps++;
 
-        lastResult = await this.adapter.completeWithTools(messages, {
+        const availableTools = lazyDiscovery
+          ? this.buildLazyAvailableTools(context.page, discoveredToolNames)
+          : compactToolDefinitions(this.tools, context.page);
+
+        options?.onLLMRequest?.({
+          step: steps,
+          toolCount: availableTools.length,
+          toolSchemaChars: safeStringify(availableTools).length,
+          messageCount: messages.length,
+          messageChars: measureMessageChars(messages),
+          systemPromptChars: systemPrompt.length,
+          promptGuideChars: typeof context.extra?.promptGuides === 'string' ? context.extra.promptGuides.length : 0,
+        });
+
+        lastResult = await this.completeWithRetry(messages, {
           tools: availableTools.length > 0 ? availableTools : undefined,
           toolChoice: availableTools.length > 0 ? 'auto' : undefined,
           temperature: this.temperature,
@@ -377,7 +474,8 @@ export class AgentOrchestrator {
 
         // No tool calls, we're done.
         if (lastResult.toolCalls.length === 0 || lastResult.finishReason !== 'tool_calls') {
-          emit({ type: 'done', content: lastResult.content });
+          const finalContent = lastResult.content || (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
+          emit({ type: 'done', content: finalContent });
           return lastResult;
         }
 
@@ -471,6 +569,18 @@ export class AgentOrchestrator {
             const toolResult = await this.tools.execute(tc.name, tc.arguments);
             const completedAt = Date.now();
             resultContent = summarizeToolResult(tc.name, toolResult);
+            if (lazyDiscovery && tc.name === 'tool.search' && toolResult.success && Array.isArray(toolResult.data)) {
+              for (const item of toolResult.data) {
+                if (
+                  isRecord(item)
+                  && typeof item.name === 'string'
+                  && this.tools.get(item.name)
+                  && !LAZY_DISCOVERY_TOOL_NAMES.includes(item.name as (typeof LAZY_DISCOVERY_TOOL_NAMES)[number])
+                ) {
+                  discoveredToolNames.add(item.name);
+                }
+              }
+            }
             emit({
               type: 'tool_result',
               toolCallId: tc.id,
@@ -496,15 +606,49 @@ export class AgentOrchestrator {
         }
       }
 
-      emit({ type: 'done', content: lastResult.content || 'Reached maximum steps.' });
+      const finalContent = lastResult.content || (steps > 1 ? 'Task completed.' : 'No response generated.');
+      emit({ type: 'done', content: finalContent });
       return lastResult;
     } finally {
       this.activeMessages = null;
     }
   }
 
-  private buildSystemPrompt(context: AgentContext): string {
+  private async completeWithRetry(
+    messages: LLMMessage[],
+    opts: Parameters<LLMAdapter['completeWithTools']>[1],
+    maxRetries = 2,
+  ): Promise<LLMCompletionResult> {
+    let lastErr: unknown;
+    for (let i = 0; i <= maxRetries; i++) {
+      try {
+        return await this.adapter.completeWithTools(messages, opts);
+      } catch (err) {
+        lastErr = err;
+        const isRetryable =
+          err instanceof LucidError &&
+          (err.code === 'SERVICE_UNAVAILABLE' || err.code === 'RATE_LIMITED');
+        if (!isRetryable || i === maxRetries) throw err;
+        await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
+    throw lastErr;
+  }
+
+  private buildLazyAvailableTools(contextPage: string | undefined, discoveredToolNames: Set<string>): LLMToolDefinition[] {
+    const toolNames = new Set<string>(LAZY_DISCOVERY_TOOL_NAMES.filter((name) => this.tools.get(name)));
+    for (const toolName of discoveredToolNames) {
+      toolNames.add(toolName);
+    }
+    return compactNamedToolDefinitions(this.tools, Array.from(toolNames), contextPage);
+  }
+
+  private buildSystemPrompt(context: AgentContext, lazyDiscovery = false): string {
     let prompt = this.resolvePrompt('agent-system');
+
+    if (lazyDiscovery) {
+      prompt += '\n\nTool discovery is lazy. Start with tool.search to find the specific tools you need before attempting non-discovery tool calls. Use guide.list to inspect available guides and guide.get to load one guide only when needed.';
+    }
 
     const contextLines: string[] = [];
     if (context.page) contextLines.push(`Current page: ${context.page}`);
@@ -522,6 +666,6 @@ export class AgentOrchestrator {
       prompt += `\n\n## Current Context\n${contextLines.join('\n')}`;
     }
 
-    return prompt;
+    return truncateString(prompt, SYSTEM_PROMPT_CHAR_BUDGET);
   }
 }

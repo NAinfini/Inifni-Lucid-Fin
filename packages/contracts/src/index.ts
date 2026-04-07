@@ -13,12 +13,14 @@ export * from './dto/color-style.js';
 export * from './dto/workflow.js';
 export * from './dto/canvas.js';
 export * from './dto/presets.js';
+export * from './llm-provider.js';
 
 // Events
 export * from './events/index.js';
 
 // Errors
 export * from './errors/index.js';
+export * from './error.js';
 
 // IPC
 export type { IpcChannelMap } from './ipc.js';

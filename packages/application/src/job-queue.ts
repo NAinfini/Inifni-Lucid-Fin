@@ -4,6 +4,8 @@ import type {
   GenerationRequest,
   GenerationResult,
   AIProviderAdapter,
+  ProgressUpdate,
+  QueueUpdate,
 } from '@lucid-fin/contracts';
 import { JobStatus, LucidError, ErrorCode } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
@@ -227,12 +229,27 @@ export class JobQueue {
     let keepInRunning = false;
 
     try {
-      const result = await adapter.generate({
+      const request: GenerationRequest = {
         type: job.type,
         providerId: job.provider,
         prompt: job.prompt,
         params: job.params,
-      });
+      };
+      const result = adapter.subscribe
+        ? await adapter.subscribe(request, {
+            onQueueUpdate: (update) => {
+              const current = this.db.getJob(job.id) ?? job;
+              this.db.updateJob(job.id, buildQueueUpdatePatch(current, update));
+            },
+            onProgress: (update) => {
+              const current = this.db.getJob(job.id) ?? job;
+              this.db.updateJob(job.id, buildProgressUpdatePatch(current, update));
+            },
+            onLog: (log) => {
+              this.db.updateJob(job.id, { currentStep: log });
+            },
+          })
+        : await adapter.generate(request);
 
       if (controller.signal.aborted) return;
 
@@ -247,7 +264,7 @@ export class JobQueue {
 
       this.db.updateJob(job.id, {
         status: JobStatus.Completed,
-        result,
+        result: mergeGenerationResult(this.db.getJob(job.id)?.result, result),
         cost: result.cost,
         progress: 100,
         completedSteps: 1,
@@ -303,4 +320,50 @@ export class JobQueue {
       throw new LucidError(ErrorCode.InvalidRequest, `Invalid job transition: ${from} → ${to}`);
     }
   }
+}
+
+function buildQueueUpdatePatch(job: Job, update: QueueUpdate): Partial<Job> {
+  const metadata = update.jobId ? { taskId: update.jobId } : undefined;
+  const step =
+    update.currentStep
+    ?? (update.status === 'queued' && update.queuePosition != null
+      ? `Queued (${update.queuePosition})`
+      : capitalizeStatus(update.status));
+
+  return {
+    currentStep: step,
+    progress: job.progress ?? (update.status === 'queued' ? 0 : undefined),
+    result: metadata ? mergeGenerationResult(job.result, { assetHash: '', assetPath: '', provider: job.provider, metadata }) : job.result,
+  };
+}
+
+function buildProgressUpdatePatch(job: Job, update: ProgressUpdate): Partial<Job> {
+  const metadata = update.jobId ? { taskId: update.jobId } : undefined;
+  return {
+    progress: Math.max(0, Math.min(100, Math.round(update.percentage))),
+    currentStep: update.currentStep ?? job.currentStep,
+    result: metadata ? mergeGenerationResult(job.result, { assetHash: '', assetPath: '', provider: job.provider, metadata }) : job.result,
+  };
+}
+
+function mergeGenerationResult(
+  existing: GenerationResult | undefined,
+  incoming: GenerationResult,
+): GenerationResult {
+  return {
+    assetHash: incoming.assetHash || existing?.assetHash || '',
+    assetPath: incoming.assetPath || existing?.assetPath || '',
+    provider: incoming.provider || existing?.provider || '',
+    ...(typeof incoming.cost === 'number' || typeof existing?.cost === 'number'
+      ? { cost: incoming.cost ?? existing?.cost }
+      : {}),
+    metadata: {
+      ...(existing?.metadata ?? {}),
+      ...(incoming.metadata ?? {}),
+    },
+  };
+}
+
+function capitalizeStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }

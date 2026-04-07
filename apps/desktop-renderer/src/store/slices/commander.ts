@@ -41,6 +41,7 @@ export interface PendingQuestion {
 export interface CommanderState {
   open: boolean;
   minimized: boolean;
+  providerId: string | null;
   messages: CommanderMessage[];
   streaming: boolean;
   currentStreamContent: string;
@@ -54,9 +55,20 @@ export interface CommanderState {
   pendingQuestion: PendingQuestion | null;
 }
 
+const COMMANDER_PROVIDER_KEY = 'lucid-commander-provider-v1';
+
+function loadPersistedProviderId(): string | null {
+  try {
+    return localStorage.getItem(COMMANDER_PROVIDER_KEY);
+  } catch {
+    return null;
+  }
+}
+
 const initialState: CommanderState = {
   open: false,
   minimized: false,
+  providerId: loadPersistedProviderId(),
   messages: [],
   streaming: false,
   currentStreamContent: '',
@@ -93,6 +105,18 @@ export const commanderSlice = createSlice({
     },
     minimizeCommander(state) {
       if (state.open) state.minimized = true;
+    },
+    setProviderId(state, action: PayloadAction<string | null>) {
+      state.providerId = action.payload;
+      try {
+        if (action.payload) {
+          localStorage.setItem(COMMANDER_PROVIDER_KEY, action.payload);
+        } else {
+          localStorage.removeItem(COMMANDER_PROVIDER_KEY);
+        }
+      } catch {
+        // localStorage unavailable
+      }
     },
     addUserMessage(state, action: PayloadAction<string>) {
       state.messages.push({
@@ -169,12 +193,13 @@ export const commanderSlice = createSlice({
         seg.toolCall.completedAt = toolCall.completedAt;
       }
     },
-    finishStreaming(state) {
-      if (state.currentStreamContent || state.currentToolCalls.length > 0) {
+    finishStreaming(state, action: PayloadAction<string | undefined>) {
+      const content = state.currentStreamContent || action.payload || '';
+      if (content || state.currentToolCalls.length > 0) {
         state.messages.push({
           id: createMessageId('assistant'),
           role: 'assistant',
-          content: state.currentStreamContent,
+          content,
           segments: state.currentSegments.length > 0 ? [...state.currentSegments] : undefined,
           toolCalls: state.currentToolCalls.length > 0 ? [...state.currentToolCalls] : undefined,
           timestamp: Date.now(),
@@ -237,6 +262,7 @@ export const {
   toggleCommander,
   setCommanderOpen,
   minimizeCommander,
+  setProviderId,
   addUserMessage,
   startStreaming,
   appendStreamChunk,

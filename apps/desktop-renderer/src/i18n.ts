@@ -640,6 +640,10 @@ export const messages: Record<Locale, NestedMessages> = {
       active: '进行中',
       completed: '已完成',
       failed: '失败',
+      remove: '移除',
+      expand: '展开',
+      collapse: '折叠',
+      jobId: '任务ID',
     },
     canvas: {
       openSearch: '搜索画布',
@@ -843,18 +847,39 @@ export const messages: Record<Locale, NestedMessages> = {
         expand: '展开',
         baseUrl: 'API 端点',
         model: '模型',
+        protocol: '协议',
         apiKey: 'API 密钥',
         configuredInKeychain: '已在钥匙串中配置',
         remove: '移除',
         removeProvider: '删除提供方',
+        authLabel: '认证:',
+        authStyles: {
+          bearer: 'Bearer',
+          'x-api-key': 'x-api-key',
+          'x-goog-api-key': 'x-goog-api-key',
+          none: '无',
+        },
+        protocolOptions: {
+          openaiCompatible: 'OpenAI 兼容',
+          openaiResponses: 'OpenAI Responses',
+          anthropic: 'Anthropic 原生',
+          gemini: 'Gemini 原生',
+          cohere: 'Cohere 原生',
+        },
         saving: '保存中…',
         save: '保存',
+        saved: '✓ 已保存',
         getApiKey: '获取 API 密钥',
         testing: '测试中…',
         testConnection: '测试连接',
         connected: '已连接',
         connectionFailed: '连接失败，请检查你的密钥',
         keyPlaceholder: 'sk-...',
+      },
+      providerSections: {
+        official: '官方提供方',
+        hub: 'API 聚合平台',
+        custom: '自定义提供方',
       },
       customProvider: {
         add: '添加自定义提供方',
@@ -1977,6 +2002,10 @@ export const messages: Record<Locale, NestedMessages> = {
       active: 'Active',
       completed: 'Completed',
       failed: 'Failed',
+      remove: 'Remove',
+      expand: 'Expand',
+      collapse: 'Collapse',
+      jobId: 'Job ID',
     },
     canvas: {
       openSearch: 'Search canvas',
@@ -2180,18 +2209,39 @@ export const messages: Record<Locale, NestedMessages> = {
         expand: 'Expand',
         baseUrl: 'API Endpoint',
         model: 'Model',
+        protocol: 'Protocol',
         apiKey: 'API Key',
         configuredInKeychain: 'Configured in keychain',
         remove: 'Remove',
         removeProvider: 'Remove Provider',
+        authLabel: 'Auth:',
+        authStyles: {
+          bearer: 'bearer',
+          'x-api-key': 'x-api-key',
+          'x-goog-api-key': 'x-goog-api-key',
+          none: 'none',
+        },
+        protocolOptions: {
+          openaiCompatible: 'OpenAI Compatible',
+          openaiResponses: 'OpenAI Responses',
+          anthropic: 'Anthropic Native',
+          gemini: 'Gemini Native',
+          cohere: 'Cohere Native',
+        },
         saving: 'Saving…',
         save: 'Save',
+        saved: '✓ Saved',
         getApiKey: 'Get API Key',
         testing: 'Testing…',
         testConnection: 'Test Connection',
         connected: 'Connected',
         connectionFailed: 'Connection failed — check your key',
         keyPlaceholder: 'sk-...',
+      },
+      providerSections: {
+        official: 'Official Providers',
+        hub: 'API Hubs',
+        custom: 'Custom Providers',
       },
       customProvider: {
         add: 'Add Custom Provider',
@@ -2738,3 +2788,28 @@ export function localizeSlot(slot: string): string {
   if (result !== key) return result;
   return slot.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+export function localizeShotTemplateName(id: string, fallback: string): string {
+  const key = 'shotTemplateNames.' + id;
+  const result = t(key);
+  return result !== key ? result : fallback;
+}
+
+export function localizeShotTemplateDescription(id: string, fallback: string): string {
+  const key = 'shotTemplateDescriptions.' + id;
+  const result = t(key);
+  return result !== key ? result : fallback;
+}
+
+export function localizePromptTemplateName(id: string, fallback: string): string {
+  const key = 'promptTemplateNames.' + id;
+  const result = t(key);
+  return result !== key ? result : fallback;
+}
+
+export function localizeSettingsCategory(category: string): string {
+  const key = 'settingsCategories.' + category;
+  const result = t(key);
+  return result !== key ? result : category;
+}
+

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { IpcMain } from 'electron';
-import log from 'electron-log';
+import log from '../../logger.js';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 import { compilePrompt, type PromptMode, type ResolvedCharacter } from '@lucid-fin/application';
 import type {
@@ -19,16 +19,20 @@ import type {
   ImageNodeData,
   Location,
   LocationRef,
+  ProgressUpdate,
   PresetCategory,
   PresetDefinition,
   PresetTrack,
   PresetTrackSet,
+  QueueUpdate,
+  SubscribeCallbacks,
   StyleGuide,
   VideoNodeData,
 } from '@lucid-fin/contracts';
 import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet, JobStatus } from '@lucid-fin/contracts';
 import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
+import { resolveMediaProviderIds } from '../../bootstrap/init-app.js';
 import { getCurrentProjectId, getCurrentProjectPath } from '../project-context.js';
 import { assertWithinRoot } from '../validation.js';
 
@@ -89,6 +93,10 @@ type BuiltGenerationContext = {
   baseSeed?: number;
 };
 
+type GenerationMediaConfig = Pick<GenerationRequest, 'width' | 'height' | 'duration'> & {
+  fps?: number;
+};
+
 type MaterializedAsset = {
   filePath: string;
   cleanupPath?: string;
@@ -122,6 +130,9 @@ const STYLE_GUIDE_LIGHTING_PRESETS: Record<StyleGuide['global']['lighting'], str
 const LEGACY_CANVAS_PROVIDER_ALIASES: Record<string, string> = {
   // Settings ID → Adapter ID
   'openai-image': 'openai-dalle',
+  'google-image': 'google-imagen3',
+  'google-video': 'google-veo-2',
+  recraft: 'recraft-v3',
   'recraft-v4': 'recraft-v3',
   'elevenlabs': 'elevenlabs-v2',
   'openai-tts': 'openai-tts-1-hd',
@@ -277,12 +288,19 @@ async function executeGeneration(args: {
     for (let index = 0; index < variantCount; index += 1) {
       throwIfCancelled(runningJob);
       const progress = Math.round((index / variantCount) * 100);
-      sendProgress(sender, runningJob.canvasId, runningJob.nodeId, progress, `variant ${index + 1}/${variantCount}`);
+      sendProgress(sender, runningJob.canvasId, runningJob.nodeId, progress, `Generating variant ${index + 1}`);
 
       const variantSeed = typeof baseSeed === 'number' ? baseSeed + index : undefined;
-      const generated = await adapter.generate({
-        ...requestBase,
-        seed: variantSeed,
+      const generated = await runAdapterGeneration({
+        adapter,
+        request: {
+          ...requestBase,
+          seed: variantSeed,
+        },
+        sender,
+        runningJob,
+        variantIndex: index,
+        variantCount,
       });
 
       collectProviderJobId(runningJob, generated.metadata);
@@ -402,6 +420,89 @@ async function executeGeneration(args: {
   }
 }
 
+async function runAdapterGeneration(input: {
+  adapter: AIProviderAdapter;
+  request: GenerationRequest;
+  sender: SendTarget;
+  runningJob: RunningCanvasJob;
+  variantIndex: number;
+  variantCount: number;
+}): Promise<import('@lucid-fin/contracts').GenerationResult> {
+  const { adapter, request, sender, runningJob, variantIndex, variantCount } = input;
+  if (!adapter.subscribe) {
+    return adapter.generate(request);
+  }
+
+  return adapter.subscribe(request, createVariantCallbacks({
+    sender,
+    runningJob,
+    variantIndex,
+    variantCount,
+  }));
+}
+
+function createVariantCallbacks(input: {
+  sender: SendTarget;
+  runningJob: RunningCanvasJob;
+  variantIndex: number;
+  variantCount: number;
+}): SubscribeCallbacks {
+  const { sender, runningJob, variantIndex, variantCount } = input;
+
+  return {
+    onQueueUpdate: (update) => {
+      collectProviderJobIdFromUpdate(runningJob, update);
+      sendProgress(
+        sender,
+        runningJob.canvasId,
+        runningJob.nodeId,
+        progressForVariantUpdate(variantIndex, variantCount),
+        describeQueueUpdate(variantIndex, update),
+      );
+    },
+    onProgress: (update) => {
+      collectProviderJobIdFromUpdate(runningJob, update);
+      sendProgress(
+        sender,
+        runningJob.canvasId,
+        runningJob.nodeId,
+        progressForVariantUpdate(variantIndex, variantCount, update.percentage),
+        describeProgressUpdate(variantIndex, update),
+      );
+    },
+    onLog: (logLine) => {
+      sendProgress(
+        sender,
+        runningJob.canvasId,
+        runningJob.nodeId,
+        progressForVariantUpdate(variantIndex, variantCount),
+        logLine,
+      );
+    },
+  };
+}
+
+function progressForVariantUpdate(
+  variantIndex: number,
+  variantCount: number,
+  providerPercentage = 0,
+): number {
+  const clamped = Math.max(0, Math.min(100, Math.round(providerPercentage)));
+  return Math.round(((variantIndex + clamped / 100) / variantCount) * 100);
+}
+
+function describeQueueUpdate(variantIndex: number, update: QueueUpdate): string {
+  if (update.currentStep) return update.currentStep;
+  if (update.status === 'queued' && update.queuePosition != null) {
+    return `Queued variant ${variantIndex + 1} (${update.queuePosition})`;
+  }
+  return capitalizeUpdateStatus(update.status);
+}
+
+function describeProgressUpdate(variantIndex: number, update: ProgressUpdate): string {
+  return update.currentStep ?? `Generating variant ${variantIndex + 1}`;
+}
+
 async function buildGenerationContext(
   deps: CanvasGenerationDeps,
   input: {
@@ -428,7 +529,7 @@ async function buildGenerationContext(
   const connectedTextContent = collectConnectedTextContent(canvas, node.id);
   const mode = determinePromptMode(canvas, node);
   const generationType = determineGenerationType(node);
-  const providerId = resolveNodeProviderId(node, input.requestedProviderId);
+  const providerId = resolveNodeProviderId(node, generationType, input.requestedProviderId);
   const adapter = await resolveAdapter(deps.adapterRegistry, providerId, generationType, mode, input.requestedProviderConfig, deps.keychain, deps.cas);
   const nodeData = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
   const variantCount = resolveVariantCount(nodeData, input.requestedVariantCount);
@@ -467,6 +568,8 @@ async function buildGenerationContext(
     presetLibrary: BUILT_IN_PRESET_LIBRARY,
     referenceImages,
   });
+  const mediaConfig = resolveMediaDimensions(node, generationType);
+  const { fps, ...mediaRequest } = mediaConfig;
 
   const requestBase: GenerationRequest = {
     type: generationType,
@@ -475,8 +578,8 @@ async function buildGenerationContext(
     negativePrompt: compiled.negativePrompt,
     referenceImages: compiled.referenceImages,
     seed: baseSeed,
-    params: compiled.params,
-    ...resolveMediaDimensions(node, generationType),
+    params: mergeGenerationParams(compiled.params, fps),
+    ...mediaRequest,
   };
 
   return {
@@ -495,28 +598,50 @@ async function buildGenerationContext(
 function resolveMediaDimensions(
   node: CanvasNode,
   generationType: GenerationType,
-): Pick<GenerationRequest, 'width' | 'height' | 'duration'> {
+): GenerationMediaConfig {
   if (generationType === 'image') {
+    const data = node.data as ImageNodeData;
     return {
-      width: DEFAULT_IMAGE_SIZE.width,
-      height: DEFAULT_IMAGE_SIZE.height,
+      width: resolvePositiveInteger(data.width, DEFAULT_IMAGE_SIZE.width),
+      height: resolvePositiveInteger(data.height, DEFAULT_IMAGE_SIZE.height),
     };
   }
   if (generationType === 'video') {
     const data = node.data as VideoNodeData;
     return {
-      width: DEFAULT_VIDEO_SIZE.width,
-      height: DEFAULT_VIDEO_SIZE.height,
-      duration: data.duration ?? DEFAULT_VIDEO_DURATION,
+      width: resolvePositiveInteger(data.width, DEFAULT_VIDEO_SIZE.width),
+      height: resolvePositiveInteger(data.height, DEFAULT_VIDEO_SIZE.height),
+      duration: resolvePositiveInteger(data.duration, DEFAULT_VIDEO_DURATION),
+      fps: resolvePositiveInteger(data.fps, 24),
     };
   }
   if (generationType === 'voice' || generationType === 'music' || generationType === 'sfx') {
     const data = node.data as AudioNodeData;
     return {
-      duration: data.duration ?? DEFAULT_AUDIO_DURATION,
+      duration: resolvePositiveInteger(data.duration, DEFAULT_AUDIO_DURATION),
     };
   }
   return {};
+}
+
+function mergeGenerationParams(
+  baseParams: GenerationRequest['params'],
+  fps: number | undefined,
+): GenerationRequest['params'] {
+  if (typeof fps !== 'number') {
+    return baseParams;
+  }
+  return {
+    ...(baseParams ?? {}),
+    fps,
+  };
+}
+
+function resolvePositiveInteger(value: number | undefined, fallback: number): number {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  return fallback;
 }
 
 function determinePromptMode(canvas: Canvas, node: CanvasNode): PromptMode {
@@ -548,18 +673,30 @@ function determineGenerationType(node: CanvasNode): GenerationType {
   return audio.audioType;
 }
 
-export function canonicalizeCanvasProviderId(providerId: string | undefined): string | undefined {
+export function canonicalizeCanvasProviderId(
+  providerId: string | undefined,
+  generationType?: GenerationType,
+): string | undefined {
   const normalized = normalizeOptionalString(providerId);
   if (!normalized) return undefined;
+  if (normalized === 'openai') {
+    if (generationType === 'image') return 'openai-dalle';
+    if (generationType === 'voice') return 'openai-tts-1-hd';
+  }
   return LEGACY_CANVAS_PROVIDER_ALIASES[normalized] ?? normalized;
 }
 
-function resolveNodeProviderId(node: CanvasNode, requestedProviderId?: string): string | undefined {
-  if (requestedProviderId) return canonicalizeCanvasProviderId(requestedProviderId);
+function resolveNodeProviderId(
+  node: CanvasNode,
+  generationType: GenerationType,
+  requestedProviderId?: string,
+): string | undefined {
+  if (requestedProviderId) return canonicalizeCanvasProviderId(requestedProviderId, generationType);
   const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
   return canonicalizeCanvasProviderId(
     normalizeOptionalString(data.providerId) ??
       normalizeOptionalString((data as AudioNodeData).provider),
+    generationType,
   );
 }
 
@@ -580,12 +717,157 @@ async function buildAdhocAdapter(id: string, config: ProviderConfigOverride, key
   const adapterType = genType === 'video' ? 'video' as const : genType === 'voice' || genType === 'music' || genType === 'sfx' ? 'voice' as const : 'image' as const;
   const capability = genType === 'video' ? 'text-to-video' as Capability : genType === 'voice' ? 'text-to-voice' as Capability : genType === 'music' ? 'text-to-music' as Capability : genType === 'sfx' ? 'text-to-sfx' as Capability : 'text-to-image' as Capability;
 
+  function buildBody(req: GenerationRequest): Record<string, unknown> {
+    let body: Record<string, unknown>;
+    if (isChatEndpoint) {
+      body = { messages: [{ role: 'user', content: req.prompt }] };
+    } else if (genType === 'image') {
+      body = { prompt: req.prompt, n: 1, size: '1024x1024', response_format: 'url' };
+    } else if (genType === 'video') {
+      body = { prompt: req.prompt, duration: req.duration ?? 5 };
+      const firstRef = req.referenceImages?.[0];
+      if (firstRef) {
+        if (firstRef.startsWith('http') || firstRef.startsWith('data:')) {
+          body.image = firstRef;
+        } else if (cas) {
+          for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
+            const filePath = cas.getAssetPath(firstRef, 'image', ext);
+            if (!fs.existsSync(filePath)) continue;
+            const buf = fs.readFileSync(filePath);
+            const mime = ext === 'jpg' ? 'jpeg' : ext;
+            body.image = `data:image/${mime};base64,${buf.toString('base64')}`;
+            break;
+          }
+        }
+      }
+    } else {
+      body = { prompt: req.prompt };
+    }
+
+    if (model) body.model = model;
+    return body;
+  }
+
+  function extractAssetPath(json: Record<string, unknown>): string | undefined {
+    const dataArr = json.data as Array<{ url?: string; b64_json?: string }> | undefined;
+    if (dataArr?.[0]?.url) return dataArr[0].url;
+    if (dataArr?.[0]?.b64_json) {
+      const mime = genType === 'video' ? 'video/mp4' : 'image/png';
+      return `data:${mime};base64,${dataArr[0].b64_json}`;
+    }
+
+    const choices = json.choices as Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }> | undefined;
+    const msg = choices?.[0]?.message;
+    if (msg?.images?.[0]?.image_url?.url) return msg.images[0].image_url.url;
+    const content = msg?.content ?? '';
+    if (content.startsWith('data:')) return content;
+    const mediaUrlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|mp4|mov|webm)\S*)/i);
+    if (mediaUrlMatch?.[1]) return mediaUrlMatch[1];
+    if (content.startsWith('http')) return content.trim();
+
+    const directUrl = json.url ?? json.video_url ?? json.audio_url ?? json.output ?? json.download_url;
+    return typeof directUrl === 'string' ? directUrl : undefined;
+  }
+
+  function extractAsyncSubmission(json: Record<string, unknown>): {
+    taskId?: string;
+    statusUrl?: string;
+    status?: string;
+  } {
+    return {
+      taskId: normalizeOptionalString(json.id ?? json.taskId ?? json.task_id ?? json.generation_id),
+      statusUrl: normalizeOptionalString(json.status_url ?? json.statusUrl),
+      status: normalizeOptionalString(json.status),
+    };
+  }
+
+  async function submit(req: GenerationRequest): Promise<Record<string, unknown>> {
+    const body = buildBody(req);
+    log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, { model, bodyKeys: Object.keys(body) });
+    const res = await fetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      const hint = res.status === 404
+        ? ` (endpoint not found - check your base URL is correct for ${genType} generation)`
+        : res.status === 500
+          ? ` (server error - the model "${model}" may not support ${genType} generation)`
+          : '';
+      throw new Error(`Provider error ${res.status}${hint}: ${errBody.slice(0, 400)}`);
+    }
+
+    const json = await res.json() as Record<string, unknown>;
+    log.info(`Ad-hoc adapter response for ${genType}: ${JSON.stringify(json).slice(0, 1000)}`);
+    return json;
+  }
+
+  async function pollStatus(statusUrl: string, taskId: string, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
+    for (;;) {
+      const res = await fetch(statusUrl, { headers });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Provider status error ${res.status}: ${errBody.slice(0, 400)}`);
+      }
+
+      const json = await res.json() as Record<string, unknown>;
+      const status = normalizeOptionalString(json.status)?.toLowerCase() ?? 'processing';
+      const progress = typeof json.progress === 'number'
+        ? Math.round(json.progress <= 1 ? json.progress * 100 : json.progress)
+        : undefined;
+      const assetPath = extractAssetPath(json);
+
+      if (status === 'queued' || status === 'pending') {
+        callbacks.onQueueUpdate?.({ status: 'queued', currentStep: status, jobId: taskId });
+      } else {
+        callbacks.onQueueUpdate?.({ status: 'processing', currentStep: status, jobId: taskId });
+        callbacks.onProgress?.({
+          type: 'progress',
+          percentage: progress ?? 0,
+          currentStep: status,
+          jobId: taskId,
+        });
+      }
+
+      if (status === 'completed' && assetPath) {
+        callbacks.onProgress?.({
+          type: 'progress',
+          percentage: 100,
+          currentStep: 'completed',
+          jobId: taskId,
+        });
+        callbacks.onQueueUpdate?.({
+          status: 'completed',
+          currentStep: 'completed',
+          jobId: taskId,
+        });
+        return {
+          assetHash: '',
+          assetPath,
+          provider: id,
+          metadata: { taskId, status, statusUrl },
+        };
+      }
+
+      if (status === 'failed' || status === 'error') {
+        throw new Error(`Provider task ${taskId} failed`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+  }
+
   return {
     id,
     name: id,
     type: adapterType,
     capabilities: [capability],
     maxConcurrent: 1,
+    executionCapabilities: {
+      subscribe: true,
+      queueUpdates: true,
+      progressUpdates: true,
+      webhook: false,
+      cancellation: false,
+    },
     configure(key: string) { void key; },
     async validate() { return true; },
     async generate(req: GenerationRequest): Promise<import('@lucid-fin/contracts').GenerationResult> {
@@ -677,6 +959,38 @@ async function buildAdhocAdapter(id: string, config: ProviderConfigOverride, key
 
       throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
     },
+    async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
+      const json = await submit(req);
+      const assetPath = extractAssetPath(json);
+      if (assetPath) {
+        callbacks.onProgress?.({
+          type: 'progress',
+          percentage: 100,
+          currentStep: 'completed',
+        });
+        callbacks.onQueueUpdate?.({
+          status: 'completed',
+          currentStep: 'completed',
+        });
+        return { assetHash: '', assetPath, provider: id };
+      }
+
+      const asyncSubmission = extractAsyncSubmission(json);
+      if (asyncSubmission.taskId && asyncSubmission.statusUrl) {
+        callbacks.onQueueUpdate?.({
+          status: 'queued',
+          currentStep: asyncSubmission.status ?? 'queued',
+          jobId: asyncSubmission.taskId,
+        });
+        return pollStatus(asyncSubmission.statusUrl, asyncSubmission.taskId, callbacks);
+      }
+
+      if (asyncSubmission.taskId) {
+        throw new Error(`Generation submitted to provider (task: ${asyncSubmission.taskId}). The provider did not return a status URL for subscribe polling.`);
+      }
+
+      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
+    },
     estimateCost(_req: GenerationRequest): import('@lucid-fin/contracts').CostEstimate { return { estimatedCost: 0, currency: 'USD', provider: id, unit: 'image' }; },
     checkStatus(_jobId: string): Promise<JobStatus> { return Promise.resolve(JobStatus.Completed); },
     cancel(_jobId: string): Promise<void> { return Promise.resolve(); },
@@ -692,11 +1006,20 @@ async function resolveAdapter(
   keychain?: Keychain,
   cas?: CAS,
 ): Promise<AIProviderAdapter> {
-  const canonicalProviderId = canonicalizeCanvasProviderId(requestedProviderId);
+  const canonicalProviderId = canonicalizeCanvasProviderId(requestedProviderId, generationType);
   if (canonicalProviderId) {
     const adapter = registry.get(canonicalProviderId);
     if (adapter) {
       ensureAdapterSupports(adapter, generationType, mode);
+      const apiKey = await resolveProviderApiKey(keychain, canonicalProviderId, providerConfig);
+      const options: Record<string, unknown> = {};
+      if (providerConfig?.baseUrl) {
+        options.baseUrl = providerConfig.baseUrl;
+      }
+      if (providerConfig?.model) {
+        options.model = providerConfig.model;
+      }
+      adapter.configure(apiKey ?? '', Object.keys(options).length > 0 ? options : undefined);
       return adapter;
     }
     if (providerConfig && keychain) {
@@ -717,6 +1040,28 @@ async function resolveAdapter(
     throw new Error(`No configured adapter available for ${generationType}`);
   }
   return supported;
+}
+
+async function resolveProviderApiKey(
+  keychain: Keychain | undefined,
+  providerId: string,
+  providerConfig?: ProviderConfigOverride,
+): Promise<string | undefined> {
+  if (providerConfig?.apiKey) {
+    return providerConfig.apiKey;
+  }
+  if (!keychain) {
+    return undefined;
+  }
+
+  for (const candidateId of resolveMediaProviderIds(providerId)) {
+    const apiKey = await keychain.getKey(candidateId);
+    if (apiKey) {
+      return apiKey;
+    }
+  }
+
+  return undefined;
 }
 
 function ensureAdapterSupports(
@@ -1096,6 +1441,19 @@ function collectProviderJobId(job: RunningCanvasJob, metadata: Record<string, un
   if (providerTaskId) {
     job.providerJobIds.add(providerTaskId);
   }
+}
+
+function collectProviderJobIdFromUpdate(
+  job: RunningCanvasJob,
+  update: QueueUpdate | ProgressUpdate,
+): void {
+  if (update.jobId) {
+    job.providerJobIds.add(update.jobId);
+  }
+}
+
+function capitalizeUpdateStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function sendProgress(

@@ -32,6 +32,8 @@ export interface ImageNodeData {
   prompt?: string;
   presetTracks?: PresetTrackSet;
   sourceImageHash?: string;
+  width?: number;
+  height?: number;
   seed?: number;
   seedLocked?: boolean;
   variants: string[];
@@ -40,6 +42,7 @@ export interface ImageNodeData {
   variantCount?: number;
   jobId?: string;
   progress?: number;
+  currentStep?: string;
   error?: string;
   estimatedCost?: number;
   cost?: number;
@@ -47,12 +50,16 @@ export interface ImageNodeData {
   characterRefs?: CharacterRef[];
   equipmentRefs?: Array<EquipmentRef | string>;
   locationRefs?: LocationRef[];
+  anchorRole?: 'first-frame' | 'last-frame';
 }
 
 export interface VideoNodeData {
   assetHash?: string;
   status: 'empty' | 'generating' | 'done' | 'failed';
+  width?: number;
+  height?: number;
   duration?: number;
+  fps?: number;
   prompt?: string;
   presetTracks?: PresetTrackSet;
   seed?: number;
@@ -64,6 +71,7 @@ export interface VideoNodeData {
   variantCount?: number;
   jobId?: string;
   progress?: number;
+  currentStep?: string;
   error?: string;
   estimatedCost?: number;
   cost?: number;
@@ -90,6 +98,7 @@ export interface AudioNodeData {
   variantCount?: number;
   jobId?: string;
   progress?: number;
+  currentStep?: string;
   error?: string;
   estimatedCost?: number;
   cost?: number;
