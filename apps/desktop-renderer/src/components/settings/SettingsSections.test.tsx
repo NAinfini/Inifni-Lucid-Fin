@@ -3,13 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React, { useState } from 'react';
 import type { Locale } from '../../i18n.js';
-import { setLocale } from '../../i18n.js';
+import { setLocale, t } from '../../i18n.js';
 import type { PromptTemplate } from '../../store/slices/promptTemplates.js';
 import type { Theme } from '../../store/slices/ui.js';
-import {
-  SettingsSidebarNav,
-  type SettingsTab,
-} from './SettingsSidebarNav.js';
+import { SettingsSidebarNav, type SettingsTab } from './SettingsSidebarNav.js';
 import { SettingsAppearanceSection } from './SettingsAppearanceSection.js';
 import { SettingsPromptTemplatesSection } from './SettingsPromptTemplatesSection.js';
 
@@ -49,7 +46,7 @@ describe('settings extracted sections', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Light' }));
-    fireEvent.click(screen.getByRole('button', { name: '中文' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Chinese' }));
 
     expect(onThemeChange).toHaveBeenCalledWith('light');
     expect(onLocaleChange).toHaveBeenCalledWith('zh-CN');
@@ -75,8 +72,13 @@ describe('settings extracted sections', () => {
 
     function PromptTemplatesHarness() {
       const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>('meta-prompt');
-      const [templateDrafts, setTemplateDrafts] = useState<Record<string, string>>({
-        'meta-prompt': 'Draft content',
+      const [templateDrafts, setTemplateDrafts] = useState<
+        Record<string, { content: string; name: string }>
+      >({
+        'meta-prompt': {
+          content: 'Draft content',
+          name: 'Custom Meta Prompt',
+        },
       });
 
       return (
@@ -89,9 +91,9 @@ describe('settings extracted sections', () => {
           onResetAll={onResetAll}
           onResetTemplate={onResetTemplate}
           onSaveTemplate={onSaveTemplate}
-          onTemplateDraftChange={(id, value) => {
-            setTemplateDrafts((previous) => ({ ...previous, [id]: value }));
-            onTemplateDraftChange(id, value);
+          onTemplateDraftChange={(id, draft) => {
+            setTemplateDrafts((previous) => ({ ...previous, [id]: draft }));
+            onTemplateDraftChange(id, draft);
           }}
           templateDrafts={templateDrafts}
           templates={templates}
@@ -102,20 +104,29 @@ describe('settings extracted sections', () => {
     render(<PromptTemplatesHarness />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset all' }));
+    fireEvent.change(screen.getByDisplayValue('Custom Meta Prompt'), {
+      target: { value: 'Director Notes' },
+    });
     fireEvent.change(screen.getByDisplayValue('Draft content'), {
       target: { value: 'Updated content' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    fireEvent.click(screen.getByText('Meta-Prompt (AI Instructor)').closest('button')!);
+    fireEvent.click(screen.getByText('Meta Prompt').closest('button')!);
     fireEvent.click(screen.getByRole('button', { name: 'Restore default' }));
 
     expect(onResetAll).toHaveBeenCalledTimes(1);
-    expect(onTemplateDraftChange).toHaveBeenCalledWith('meta-prompt', 'Updated content');
+    expect(onTemplateDraftChange).toHaveBeenCalledWith('meta-prompt', {
+      content: 'Updated content',
+      name: 'Director Notes',
+    });
     expect(onResetTemplate).toHaveBeenCalledWith('meta-prompt');
-    expect(onSaveTemplate).toHaveBeenCalledWith('meta-prompt', 'Updated content');
+    expect(onSaveTemplate).toHaveBeenCalledWith('meta-prompt', {
+      content: 'Updated content',
+      name: 'Director Notes',
+    });
   });
 
-  it('localizes prompt template titles and category badges', () => {
+  it('localizes built-in prompt templates but preserves renamed titles', () => {
     setLocale('zh-CN');
 
     const templates: PromptTemplate[] = [
@@ -124,7 +135,7 @@ describe('settings extracted sections', () => {
         customContent: null,
         defaultContent: 'Default audio content',
         id: 'audio-prompting',
-        name: 'Audio Prompting',
+        name: 'My Audio Template',
       },
       {
         category: 'workflow',
@@ -148,9 +159,9 @@ describe('settings extracted sections', () => {
       />,
     );
 
-    expect(screen.getByText('\u97f3\u9891\u63d0\u793a\u8bcd')).toBeTruthy();
-    expect(screen.getByText('\u5206\u955c\u677f\u5bfc\u51fa')).toBeTruthy();
-    expect(screen.getByText('\u97f3\u9891')).toBeTruthy();
-    expect(screen.getByText('\u5de5\u4f5c\u6d41')).toBeTruthy();
+    expect(screen.getByText('My Audio Template')).toBeTruthy();
+    expect(screen.getByText(t('promptTemplateNames.storyboard-export'))).toBeTruthy();
+    expect(screen.getByText(t('settings.category.audio'))).toBeTruthy();
+    expect(screen.getByText(t('settings.category.workflow'))).toBeTruthy();
   });
 });

@@ -20,61 +20,84 @@
   --color-input: hsl(var(--input));
   --color-popover: hsl(var(--popover));
   --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-surface: hsl(var(--surface));
+  --color-surface-foreground: hsl(var(--surface-foreground));
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
 }
 
-/* Light theme (default) */
+/* ═══════════════════════════════════════════════════
+   Light theme
+   ═══════════════════════════════════════════════════ */
 :root {
-  --background: 0 0% 98%;
-  --foreground: 0 0% 9%;
+  --background: 220 14% 96%;
+  --foreground: 220 14% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 9%;
-  --primary: 217 91% 60%;
+  --card-foreground: 220 14% 10%;
+  --surface: 220 14% 93%;
+  --surface-foreground: 220 14% 10%;
+  --primary: 213 94% 56%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 94%;
-  --secondary-foreground: 0 0% 20%;
-  --muted: 0 0% 95%;
-  --muted-foreground: 0 0% 45%;
-  --accent: 217 91% 60%;
+  --secondary: 220 14% 90%;
+  --secondary-foreground: 220 14% 20%;
+  --muted: 220 14% 92%;
+  --muted-foreground: 220 10% 46%;
+  --accent: 213 94% 56%;
   --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;
+  --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 88%;
-  --ring: 217 91% 60%;
-  --radius: 0.5rem;
+  --border: 220 13% 86%;
+  --ring: 213 94% 56%;
+  --radius: 0.375rem;
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 9%;
-  --input: 0 0% 88%;
+  --popover-foreground: 220 14% 10%;
+  --input: 220 13% 86%;
 }
 
-/* Dark theme */
+/* ═══════════════════════════════════════════════════
+   Dark theme — DaVinci Resolve / After Effects inspired
+   Cool-neutral base, subtle blue undertone, high contrast text
+   ═══════════════════════════════════════════════════ */
 .dark {
-  --background: 0 0% 4%;
-  --foreground: 0 0% 95%;
-  --card: 0 0% 7%;
-  --card-foreground: 0 0% 95%;
-  --primary: 217 91% 60%;
+  --background: 220 16% 6%;       /* deepest bg — workspace */
+  --foreground: 220 10% 88%;      /* primary text — high contrast */
+  --card: 220 14% 9%;             /* panels, cards */
+  --card-foreground: 220 10% 88%;
+  --surface: 220 14% 12%;         /* elevated surfaces, inputs */
+  --surface-foreground: 220 10% 80%;
+  --primary: 213 94% 56%;         /* accent blue — actions, focus */
   --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 15%;
-  --secondary-foreground: 0 0% 95%;
-  --muted: 0 0% 12%;
-  --muted-foreground: 0 0% 64%;
-  --accent: 217 91% 60%;
+  --secondary: 220 14% 14%;       /* subtle bg for grouped elements */
+  --secondary-foreground: 220 10% 78%;
+  --muted: 220 14% 11%;           /* disabled bg, dividers */
+  --muted-foreground: 220 10% 50%; /* secondary text */
+  --accent: 213 94% 56%;
   --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;
+  --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 18%;
-  --ring: 217 91% 60%;
-  --radius: 0.5rem;
-  --popover: 0 0% 7%;
-  --popover-foreground: 0 0% 95%;
-  --input: 0 0% 18%;
+  --border: 220 14% 15%;          /* subtle borders */
+  --ring: 213 94% 56%;
+  --radius: 0.375rem;
+  --popover: 220 14% 10%;
+  --popover-foreground: 220 10% 88%;
+  --input: 220 14% 13%;
 }
 
+/* ═══════════════════════════════════════════════════
+   Base resets & global styles
+   ═══════════════════════════════════════════════════ */
 * {
   border-color: hsl(var(--border));
+}
+
+*:focus {
+  outline: none;
+}
+*:focus-visible {
+  outline: 2px solid hsl(var(--primary) / 0.5);
+  outline-offset: -2px;
+  border-radius: var(--radius);
 }
 
 body {
@@ -82,30 +105,230 @@ body {
   color: hsl(var(--foreground));
   font-family:
     'Inter',
-    system-ui,
     -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    system-ui,
     sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   margin: 0;
   overflow: hidden;
 }
 
-/* Scrollbar styling */
+/* ═══════════════════════════════════════════════════
+   Typography scale
+   ═══════════════════════════════════════════════════ */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════
+   Scrollbar — thin, unobtrusive
+   ═══════════════════════════════════════════════════ */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / 0.3);
-  border-radius: 3px;
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / 0.5);
+  background: hsl(var(--muted-foreground) / 0.4);
 }
 
-/* Hide ReactFlow default node controls (delete button) */
+/* ═══════════════════════════════════════════════════
+   Global transitions — smooth micro-interactions
+   ═══════════════════════════════════════════════════ */
+button, a, input, select, textarea,
+[role="button"], [role="tab"] {
+  transition: background-color 0.15s ease, color 0.15s ease,
+              border-color 0.15s ease, box-shadow 0.15s ease,
+              opacity 0.15s ease;
+}
+
+/* ═══════════════════════════════════════════════════
+   Selection
+   ═══════════════════════════════════════════════════ */
+::selection {
+  background: hsl(var(--primary) / 0.3);
+  color: hsl(var(--foreground));
+}
+
+/* ═══════════════════════════════════════════════════
+   Panel chrome — consistent panel look
+   ═══════════════════════════════════════════════════ */
+.lucid-panel {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+}
+.lucid-panel-header {
+  padding: 8px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--muted-foreground));
+}
+
+/* ═══════════════════════════════════════════════════
+   Inputs — professional, tight
+   ═══════════════════════════════════════════════════ */
+input[type="text"],
+input[type="number"],
+input[type="search"],
+input[type="url"],
+input[type="email"],
+textarea,
+select {
+  background: hsl(var(--input));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  padding: 5px 8px;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: hsl(var(--primary) / 0.6);
+  box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2);
+}
+input::placeholder, textarea::placeholder {
+  color: hsl(var(--muted-foreground) / 0.6);
+}
+
+/* ═══════════════════════════════════════════════════
+   Tabs — DaVinci-style flat tabs
+   ═══════════════════════════════════════════════════ */
+.lucid-tab {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lucid-tab:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted) / 0.5);
+}
+.lucid-tab[data-active="true"],
+.lucid-tab.active {
+  color: hsl(var(--primary));
+  border-bottom-color: hsl(var(--primary));
+}
+
+/* ═══════════════════════════════════════════════════
+   Badges / pills
+   ═══════════════════════════════════════════════════ */
+.lucid-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: 3px;
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  letter-spacing: 0.02em;
+}
+.lucid-badge-primary {
+  background: hsl(var(--primary) / 0.15);
+  color: hsl(var(--primary));
+}
+
+/* ═══════════════════════════════════════════════════
+   Buttons — professional hierarchy
+   ═══════════════════════════════════════════════════ */
+.lucid-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.lucid-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.lucid-btn-primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.lucid-btn-primary:hover {
+  background: hsl(var(--primary) / 0.85);
+}
+.lucid-btn-ghost {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+.lucid-btn-ghost:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+.lucid-btn-outline {
+  background: transparent;
+  border-color: hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+}
+.lucid-btn-outline:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--muted-foreground) / 0.3);
+}
+.lucid-btn-destructive {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
+.lucid-btn-destructive:hover {
+  background: hsl(var(--destructive) / 0.2);
+}
+
+/* ═══════════════════════════════════════════════════
+   Tooltips / popovers
+   ═══════════════════════════════════════════════════ */
+.lucid-popover {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 30px hsl(0 0% 0% / 0.4), 0 0 1px hsl(0 0% 0% / 0.2);
+}
+
+/* ═══════════════════════════════════════════════════
+   Dividers
+   ═══════════════════════════════════════════════════ */
+hr, .lucid-divider {
+  border: none;
+  height: 1px;
+  background: hsl(var(--border));
+}
+
+/* ═══════════════════════════════════════════════════
+   Status colors — consistent across app
+   ═══════════════════════════════════════════════════ */
+.status-idle     { color: hsl(220 10% 50%); }
+.status-active   { color: hsl(213 94% 56%); }
+.status-success  { color: hsl(142 71% 45%); }
+.status-warning  { color: hsl(38 92% 50%); }
+.status-error    { color: hsl(0 72% 51%); }
+
+/* ═══════════════════════════════════════════════════
+   ReactFlow overrides
+   ═══════════════════════════════════════════════════ */
 .react-flow__node .react-flow__handle-connecting {
   display: none;
 }
@@ -124,4 +347,115 @@ body {
 @keyframes border-glow-purple {
   0%, 100% { box-shadow: 0 0 8px rgba(168, 85, 247, 0.3); border-color: rgba(168, 85, 247, 0.4); }
   50% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.6); border-color: rgba(168, 85, 247, 0.8); }
+}
+
+/* ── Node Resize Handles ── */
+/* Corner handles: revert to original small style */
+.react-flow__resize-control.handle {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 50% !important;
+  border: 2px solid hsl(var(--background)) !important;
+  opacity: 0;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  z-index: 20;
+}
+.react-flow__node:hover .react-flow__resize-control.handle,
+.react-flow__node.selected .react-flow__resize-control.handle {
+  opacity: 1;
+}
+.react-flow__resize-control.handle:hover {
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.3);
+}
+
+/* Line (edge) resize controls: all 4 sides */
+.react-flow__resize-control.line {
+  border: none !important;
+  background: transparent !important;
+  z-index: 15;
+  padding: 0;
+}
+.react-flow__resize-control.line.top {
+  height: 10px !important;
+  top: -5px !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: auto !important;
+  cursor: ns-resize;
+}
+.react-flow__resize-control.line.bottom {
+  height: 10px !important;
+  bottom: -5px !important;
+  top: auto !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: auto !important;
+  cursor: ns-resize;
+}
+.react-flow__resize-control.line.left {
+  width: 10px !important;
+  left: -5px !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  height: auto !important;
+  cursor: ew-resize;
+}
+.react-flow__resize-control.line.right {
+  width: 10px !important;
+  right: -5px !important;
+  left: auto !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  height: auto !important;
+  cursor: ew-resize;
+}
+/* Visible bar indicator */
+.react-flow__resize-control.line::after {
+  content: '';
+  position: absolute;
+  background: hsl(var(--primary) / 0.4);
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.react-flow__resize-control.line.top::after,
+.react-flow__resize-control.line.bottom::after {
+  left: 30%;
+  right: 30%;
+  height: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.react-flow__resize-control.line.left::after,
+.react-flow__resize-control.line.right::after {
+  top: 30%;
+  bottom: 30%;
+  width: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.react-flow__node:hover .react-flow__resize-control.line::after,
+.react-flow__node.selected .react-flow__resize-control.line::after {
+  opacity: 1;
+}
+.react-flow__resize-control.line:hover::after {
+  opacity: 1;
+  background: hsl(var(--primary) / 0.8);
+}
+
+/* ── Node Connection Anchor Handles ── */
+.lucid-anchor {
+  opacity: 0 !important;
+  background: hsl(var(--primary)) !important;
+  cursor: cell !important;
+}
+.react-flow__node:hover .lucid-anchor,
+.react-flow__node.selected .lucid-anchor {
+  opacity: 0.6 !important;
+}
+.lucid-anchor:hover {
+  opacity: 1 !important;
+  scale: 2;
+  background: hsl(var(--primary)) !important;
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.3);
 }

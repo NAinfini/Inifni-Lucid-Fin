@@ -53,6 +53,7 @@ export interface CommanderState {
   permissionMode: PermissionMode;
   pendingConfirmation: PendingConfirmation | null;
   pendingQuestion: PendingQuestion | null;
+  messageQueue: string[];
 }
 
 const COMMANDER_PROVIDER_KEY = 'lucid-commander-provider-v1';
@@ -80,6 +81,7 @@ const initialState: CommanderState = {
   permissionMode: 'normal',
   pendingConfirmation: null,
   pendingQuestion: null,
+  messageQueue: [],
 };
 
 function createMessageId(prefix: string): string {
@@ -246,6 +248,18 @@ export const commanderSlice = createSlice({
     clearPendingQuestion(state) {
       state.pendingQuestion = null;
     },
+    enqueueMessage(state, action: PayloadAction<string>) {
+      state.messageQueue.push(action.payload);
+    },
+    dequeueMessage(state) {
+      state.messageQueue.shift();
+    },
+    removeQueuedMessage(state, action: PayloadAction<number>) {
+      state.messageQueue.splice(action.payload, 1);
+    },
+    editQueuedMessage(state, action: PayloadAction<{ index: number; content: string }>) {
+      state.messageQueue[action.payload.index] = action.payload.content;
+    },
     restore(_state, action: PayloadAction<CommanderState>) {
       return {
         ...initialState,
@@ -253,6 +267,7 @@ export const commanderSlice = createSlice({
         permissionMode: action.payload.permissionMode ?? 'normal',
         pendingConfirmation: null,
         pendingQuestion: null,
+        messageQueue: [],
       };
     },
   },
@@ -278,4 +293,8 @@ export const {
   clearPendingConfirmation,
   setPendingQuestion,
   clearPendingQuestion,
+  enqueueMessage,
+  dequeueMessage,
+  removeQueuedMessage,
+  editQueuedMessage,
 } = commanderSlice.actions;

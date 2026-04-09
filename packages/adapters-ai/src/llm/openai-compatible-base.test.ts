@@ -487,6 +487,91 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       finishReason: 'stop',
     });
   });
+
+  it('throws a structured error when tool-enabled fallback streaming still returns no assistant content', async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+
+      if (body.stream === false) {
+        return new Response(
+          JSON.stringify({
+            id: 'resp-empty',
+            choices: [
+              {
+                message: {
+                  role: 'assistant',
+                },
+                finish_reason: 'stop',
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{}}]}\n\n'));
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAICompatibleLLM({
+      id: 'custom-local',
+      name: 'Custom Local',
+      defaultBaseUrl: 'http://127.0.0.1:37123/v1',
+      defaultModel: 'gpt-5.4',
+    });
+    adapter.configure('test-key', {
+      baseUrl: 'http://127.0.0.1:37123/v1',
+      model: 'gpt-5.4',
+    });
+
+    await expect(
+      adapter.completeWithTools(
+        [{ role: 'user', content: 'hello' }],
+        {
+          tools: [
+            {
+              name: 'tool.search',
+              description: 'Search tools',
+              parameters: {
+                type: 'object',
+                properties: {},
+              },
+            },
+          ],
+        },
+      ),
+    ).rejects.toMatchObject<Partial<LucidError>>({
+      code: ErrorCode.ServiceUnavailable,
+      message: 'Custom Local returned JSON without extractable assistant content',
+      details: expect.objectContaining({
+        endpoint: 'http://127.0.0.1:37123/v1/chat/completions',
+        provider: 'Custom Local',
+        providerId: 'custom-local',
+        finishReason: 'stop',
+        toolCallCount: 0,
+        requestBody: expect.objectContaining({
+          tools: expect.any(Array),
+        }),
+      }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('normalizeOpenAICompatibleBaseUrl', () => {

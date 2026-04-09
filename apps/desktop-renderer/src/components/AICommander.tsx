@@ -43,6 +43,7 @@ export function AICommander() {
   const [input, setInput] = useState('');
   const [toolsCollapsed, setToolsCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Subscribe to AI stream
   useEffect(() => {
@@ -94,6 +95,23 @@ export function AICommander() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, streamBuffer, toolCalls]);
+
+  // Auto-expand textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // Reset height to auto to get correct scrollHeight
+    textarea.style.height = 'auto';
+
+    // Set height to scrollHeight, but not exceeding maxHeight (400px)
+    const maxHeight = 400;
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+    textarea.style.height = `${newHeight}px`;
+
+    // Enable scrollbar if content exceeds max
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [input]);
 
   const sendText = useCallback(
     async (text: string) => {
@@ -267,12 +285,13 @@ export function AICommander() {
         )}
         <div className="flex gap-1">
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            rows={2}
             placeholder={t('ai.commander.inputPlaceholder')}
             className="flex-1 px-2 py-1.5 text-xs rounded border bg-background resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            style={{ minHeight: '40px', maxHeight: '400px' }}
             disabled={loading}
           />
           <button

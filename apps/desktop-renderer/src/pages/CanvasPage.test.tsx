@@ -196,4 +196,87 @@ describe('CanvasPage logger startup', () => {
 
     expect(listCanvases).toHaveBeenCalledTimes(1);
   });
+
+  it('deduplicates recent and streamed log entries and normalizes fatal entries to error', async () => {
+    const store = createStore();
+    let onEntryCallback:
+      | ((entry: {
+          id: string;
+          level: 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+          category: string;
+          message: string;
+          detail?: string;
+        }) => void)
+      | undefined;
+    let readyCallback: (() => void) | undefined;
+
+    vi.mocked(getAPI).mockReturnValue({
+      canvas: {
+        list: vi.fn().mockResolvedValue([]),
+      },
+      preset: {
+        list: vi.fn().mockResolvedValue([]),
+      },
+      logger: {
+        getRecent: vi.fn().mockResolvedValue([
+          {
+            id: 'entry-1',
+            level: 'info',
+            category: 'startup',
+            message: 'Boot complete',
+          },
+          {
+            id: 'entry-2',
+            level: 'fatal',
+            category: 'provider',
+            message: 'Provider crashed',
+            detail: 'stack',
+          },
+        ]),
+        onEntry: vi.fn((cb) => {
+          onEntryCallback = cb;
+          return () => {};
+        }),
+      },
+      onReady: vi.fn((cb: () => void) => {
+        readyCallback = cb;
+        return () => {};
+      }),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    render(
+      <Provider store={store}>
+        <CanvasPage />
+      </Provider>,
+    );
+
+    readyCallback?.();
+
+    await waitFor(() => {
+      expect(store.getState().logger.entries).toHaveLength(2);
+    });
+
+    onEntryCallback?.({
+      id: 'entry-1',
+      level: 'info',
+      category: 'startup',
+      message: 'Boot complete',
+    });
+    onEntryCallback?.({
+      id: 'entry-2',
+      level: 'fatal',
+      category: 'provider',
+      message: 'Provider crashed',
+      detail: 'stack',
+    });
+
+    expect(store.getState().logger.entries).toHaveLength(2);
+    expect(store.getState().logger.entries[1]).toEqual(
+      expect.objectContaining({
+        level: 'error',
+        category: 'provider',
+        message: 'Provider crashed',
+      }),
+    );
+  });
 });

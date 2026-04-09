@@ -1,12 +1,13 @@
 import { memo } from 'react';
-import { Handle, Position, NodeResizer, type NodeProps } from '@xyflow/react';
+import type { NodeProps } from '@xyflow/react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
 import { FileText, Sparkles } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
-import { CanvasNodeTooltip } from '../CanvasNodeTooltip.js';
 import type { NodeStatus } from '@lucid-fin/contracts';
+import { NodeBorderHandles } from './node-border-handles.js';
+import { NodeResizeControls } from './node-resize-controls.js';
 
 export interface TextNodeFlowData {
   nodeId: string;
@@ -49,31 +50,23 @@ function TextNodeComponent({ data, selected }: NodeProps) {
       onGenerate={() => {}}
       onColorTag={d.onColorTag ?? (() => {})}
     >
-      <CanvasNodeTooltip
-        title={d.title || t('node.textNode')}
-        subtitle={t('node.text')}
-        items={[
-          { label: t('node.status'), value: d.status },
-          { label: t('node.length'), value: `${d.content?.length ?? 0} ${t('node.chars')}` },
-          { label: t('node.mode'), value: d.locked ? t('node.locked') : t('node.editable') },
-        ]}
-      >
+      <div className="relative min-w-[200px]">
+        <NodeBorderHandles colorClassName="!bg-primary" />
+        <NodeResizeControls
+          minWidth={200}
+          minHeight={120}
+          isVisible={selected}
+          className="!h-2.5 !w-2.5 !border-background !bg-blue-400"
+        />
         <div
           className={cn(
-            'relative rounded-lg border-2 bg-card shadow-md min-w-[200px]',
+            'relative rounded-md border bg-card shadow-sm min-w-[200px]',
             'transition-shadow',
-            selected ? 'border-blue-400 ring-[3px] ring-blue-400/50' : 'border-border',
+            selected ? 'border-blue-400 ring-2 ring-blue-400/40' : 'border-border',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}
         >
-          <NodeResizer
-            minWidth={200}
-            minHeight={120}
-            isVisible={selected}
-            lineClassName="!border-blue-400/60"
-            handleClassName="!h-2.5 !w-2.5 !border-background !bg-blue-400"
-          />
           <NodeStatusBadge status={d.status} />
 
           <div className="flex items-center gap-1.5 border-b px-3 py-2">
@@ -97,33 +90,8 @@ function TextNodeComponent({ data, selected }: NodeProps) {
               {t('node.generate')}
             </button>
           </div>
-
-          <Handle
-            type="source"
-            position={Position.Top}
-            id="top"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary"
-          />
-          <Handle
-            type="source"
-            position={Position.Right}
-            id="right"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary"
-          />
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="bottom"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary"
-          />
-          <Handle
-            type="source"
-            position={Position.Left}
-            id="left"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-primary"
-          />
         </div>
-      </CanvasNodeTooltip>
+      </div>
     </NodeContextMenu>
   );
 }

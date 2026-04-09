@@ -1,13 +1,15 @@
 import { memo, useCallback, useRef, useState } from 'react';
-import { Handle, Position, NodeResizer, type NodeProps } from '@xyflow/react';
-import { cn } from '../../../lib/utils.js';
+import type { NodeProps } from '@xyflow/react';
+import { getProviderDisplayName } from '../../../utils/provider-names.js';
 import { t } from '../../../i18n.js';
 import { Video, Loader2, Sparkles, RefreshCw, Play, Pause, Lock, Unlock } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
-import { CanvasNodeTooltip } from '../CanvasNodeTooltip.js';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
+import { cn } from '../../../lib/utils.js';
 import type { NodeStatus } from '@lucid-fin/contracts';
+import { NodeBorderHandles } from './node-border-handles.js';
+import { NodeResizeControls } from './node-resize-controls.js';
 
 export interface VideoNodeFlowData {
   nodeId: string;
@@ -90,32 +92,23 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
       onGenerate={d.onGenerate ?? (() => {})}
       onColorTag={d.onColorTag ?? (() => {})}
     >
-      <CanvasNodeTooltip
-        title={d.title || t('node.videoNode')}
-        subtitle={t('node.video')}
-        items={[
-          { label: t('node.status'), value: d.generationStatus },
-          { label: t('node.variants'), value: d.variants.length || d.variantCount || 0 },
-          { label: t('node.seed'), value: d.seed ?? '-' },
-          { label: t('node.cost'), value: typeof d.estimatedCost === 'number' ? `$${d.estimatedCost.toFixed(2)}` : '-' },
-        ]}
-      >
+      <div className="relative min-w-[200px]">
+        <NodeBorderHandles colorClassName="!bg-purple-500" />
+        <NodeResizeControls
+          minWidth={200}
+          minHeight={140}
+          isVisible={selected}
+          className="!h-2.5 !w-2.5 !border-background !bg-purple-400"
+        />
         <div
           className={cn(
-            'relative overflow-hidden rounded-lg border-2 bg-card shadow-md min-w-[200px]',
+            'relative flex h-full min-w-[200px] flex-col overflow-hidden rounded-md border bg-card shadow-sm',
             'transition-shadow',
-            selected ? 'border-purple-400 ring-[3px] ring-purple-400/50' : 'border-purple-500/40',
+            selected ? 'border-purple-400 ring-2 ring-purple-400/40' : 'border-purple-500/30',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}
         >
-          <NodeResizer
-            minWidth={200}
-            minHeight={140}
-            isVisible={selected}
-            lineClassName="!border-purple-400/60"
-            handleClassName="!h-2.5 !w-2.5 !border-background !bg-purple-400"
-          />
           <NodeStatusBadge status={d.status} />
           {d.generationStatus === 'generating' && (
             <div className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-purple-500 bg-purple-500/5" style={{
@@ -128,6 +121,7 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             <span className="flex-1 truncate text-xs font-medium">
               {d.title || t('node.videoNode')}
             </span>
+            {d.providerId && <span className="text-[9px] text-muted-foreground/70">{getProviderDisplayName(d.providerId)}</span>}
             {d.duration != null && (
               <span className="rounded bg-purple-500/10 px-1.5 text-[10px] text-purple-400">
                 {d.duration.toFixed(1)}s
@@ -135,17 +129,21 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             )}
           </div>
 
-          <div className="flex min-h-[80px] max-h-[240px] items-center justify-center px-3 py-3 overflow-hidden">
+          <div
+            data-testid="video-media-viewport"
+            className="flex min-h-[80px] min-w-0 flex-1 items-center justify-center overflow-hidden px-3 py-3"
+          >
             {hasVideo ? (
               <div
-                className="relative flex aspect-video max-w-full max-h-full items-center justify-center overflow-hidden rounded bg-muted"
+                className="relative flex h-full w-full items-center justify-center overflow-hidden rounded bg-muted"
                 onMouseMove={handleScrub}
               >
                 {activeUrl ? (
                   <video
+                    data-testid="video-media-element"
                     ref={videoRef}
                     src={activeUrl}
-                    className="max-w-full max-h-full object-contain"
+                    className="h-full w-full object-contain"
                     muted
                     preload="metadata"
                     onEnded={() => setPlaying(false)}
@@ -212,18 +210,8 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             <FrameRow firstHash={d.firstFrameHash} lastHash={d.lastFrameHash} />
           )}
 
-          <div className="flex items-center gap-1 border-t border-purple-500/20 px-3 py-1.5">
-            <button
-              className="flex items-center gap-1 rounded bg-purple-500/10 px-2 py-0.5 text-[10px] text-purple-400 transition-colors hover:bg-purple-500/20"
-              aria-label={t('node.generate')}
-              onClick={() => d.onGenerate?.(d.nodeId)}
-              onContextMenu={(e) => e.preventDefault()}
-              disabled={isGenerating}
-            >
-              <Sparkles className="h-3 w-3" />
-              {t('node.generate')}
-            </button>
-            {hasVideo && (
+          <div className="flex items-center gap-1 border-t border-purple-500/20 px-3 py-1.5 nopan nodrag">
+            {hasVideo ? (
               <button
                 className="flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/80"
                 aria-label={t('node.regenerate')}
@@ -233,6 +221,17 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
               >
                 <RefreshCw className="h-3 w-3" />
                 {t('node.regen')}
+              </button>
+            ) : (
+              <button
+                className="flex items-center gap-1 rounded bg-purple-500/10 px-2 py-0.5 text-[10px] text-purple-400 transition-colors hover:bg-purple-500/20"
+                aria-label={t('node.generate')}
+                onClick={() => d.onGenerate?.(d.nodeId)}
+                onContextMenu={(e) => e.preventDefault()}
+                disabled={isGenerating}
+              >
+                <Sparkles className="h-3 w-3" />
+                {t('node.generate')}
               </button>
             )}
             <span className="ml-auto inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -252,33 +251,8 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
               {d.presetSummary}
             </div>
           )}
-
-          <Handle
-            type="source"
-            position={Position.Top}
-            id="top"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-purple-500"
-          />
-          <Handle
-            type="source"
-            position={Position.Right}
-            id="right"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-purple-500"
-          />
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="bottom"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-purple-500"
-          />
-          <Handle
-            type="source"
-            position={Position.Left}
-            id="left"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-purple-500"
-          />
         </div>
-      </CanvasNodeTooltip>
+      </div>
     </NodeContextMenu>
   );
 }

@@ -26,21 +26,32 @@ import { createCanvasStore, registerCanvasHandlers } from './handlers/canvas.han
 import { registerCanvasGenerationHandlers } from './handlers/canvas-generation.handlers.js';
 import { registerPresetHandlers } from './handlers/preset.handlers.js';
 import { registerCommanderHandlers } from './handlers/commander.handlers.js';
+import { registerEntityHandlers } from './handlers/entity.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
+
+export interface AppDeps {
+  db: SqliteIndex;
+  projectFS: ProjectFS;
+  cas: CAS;
+  keychain: Keychain;
+  registry: AdapterRegistry;
+  jobQueue: JobQueue;
+  llmRegistry: LLMRegistry;
+  workflowEngine: WorkflowEngine;
+  agent: AgentOrchestrator | null;
+  promptStore: PromptStore;
+}
 
 export function registerAllHandlers(
   getWindow: () => BrowserWindow | null,
-  db: SqliteIndex,
-  projectFS: ProjectFS,
-  cas: CAS,
-  keychain: Keychain,
-  registry: AdapterRegistry,
-  jobQueue: JobQueue,
-  llmRegistry: LLMRegistry,
-  workflowEngine: WorkflowEngine,
-  agent: AgentOrchestrator | null,
-  promptStore: PromptStore,
+  deps: AppDeps,
 ): void {
+  const { db, projectFS, cas, keychain, registry, jobQueue, llmRegistry, workflowEngine, agent, promptStore } = deps;
+  log.info('Registering IPC handlers', {
+    category: 'ipc',
+    hasWindowGetter: typeof getWindow === 'function',
+    hasAgent: Boolean(agent),
+  });
   registerProjectHandlers(ipcMain, projectFS, db, cas);
   registerAssetHandlers(ipcMain, cas, db);
   registerJobHandlers(ipcMain, getWindow, db, jobQueue);
@@ -82,5 +93,10 @@ export function registerAllHandlers(
     keychain,
     resolvePrompt: (code: string) => promptStore.resolve(code),
   });
-  log.info('IPC handlers registered');
+  registerEntityHandlers(ipcMain, { adapterRegistry: registry, cas, db });
+  log.info('IPC handlers registered', {
+    category: 'ipc',
+    canvasStoreReady: true,
+    hasAgent: Boolean(agent),
+  });
 }

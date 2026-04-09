@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, protocol, net, shell } from 'electro
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { startClipboardWatcher, stopClipboardWatcher, setClipboardWatcherEnabled } from './clipboard-watcher.js';
 import {
   AgentOrchestrator,
   JobQueue,
@@ -45,6 +46,35 @@ function registerEarlyIpcHandlers(): void {
   log.debug('Registered early IPC handler', {
     category: 'ipc',
     channel: 'logger:getRecent',
+  });
+}
+
+export function logWindowCreated(): void {
+  mark('window-created');
+  log.debug('Main window created', {
+    category: 'startup',
+  });
+}
+
+export function attachWindowLogForwarder(window: BrowserWindow | null): void {
+  setLogForwarder((entry) => {
+    if (!window || window.isDestroyed()) return;
+    window.webContents.send('logger:entry', entry);
+  });
+  log.debug('Logger forwarder attached', {
+    category: 'startup',
+  });
+}
+
+export function logJobQueueRecovered(): void {
+  log.info('Job queue recovered and started', {
+    category: 'startup',
+  });
+}
+
+export function logWorkflowEngineRecovered(): void {
+  log.info('Workflow engine recovered', {
+    category: 'startup',
   });
 }
 
@@ -106,11 +136,14 @@ app.whenReady().then(async () => {
 
   // 1. Create window immediately (skeleton-first for <3s boot)
   mainWindow = createWindow();
-  setLogForwarder((entry) => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send('logger:entry', entry);
+  attachWindowLogForwarder(mainWindow);
+  logWindowCreated();
+
+  // Clipboard watcher — monitors clipboard when app is not focused
+  startClipboardWatcher(mainWindow);
+  ipcMain.handle('clipboard:setEnabled', (_e, args: { enabled: boolean }) => {
+    setClipboardWatcherEnabled(args.enabled);
   });
-  mark('window-created');
 
   // 2. Background async initialization
   try {
@@ -145,7 +178,46 @@ app.whenReady().then(async () => {
           // meta.json not found — use requested ext
         }
 
-        const filePath = cas.getAssetPath(hash, assetType, ext);
+        let filePath = cas.getAssetPath(hash, assetType, ext);
+        if (!fs.existsSync(filePath)) {
+          // Fallback: try common extensions for this asset type
+          const fallbackExts: Record<string, string[]> = {
+            image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+            video: ['mp4', 'webm', 'mov', 'avi', 'mkv', 'bin'],
+            audio: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'],
+          };
+          const candidates = fallbackExts[assetType] ?? [];
+          let found = false;
+          for (const tryExt of candidates) {
+            if (tryExt === ext) continue;
+            const tryPath = cas.getAssetPath(hash, assetType, tryExt);
+            if (fs.existsSync(tryPath)) {
+              filePath = tryPath;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            // Try other asset type directories
+            for (const tryType of ['image', 'video', 'audio'] as const) {
+              if (tryType === assetType) continue;
+              const tryExts = fallbackExts[tryType] ?? [];
+              for (const tryExt of tryExts) {
+                const tryPath = cas.getAssetPath(hash, tryType, tryExt);
+                if (fs.existsSync(tryPath)) {
+                  filePath = tryPath;
+                  found = true;
+                  break;
+                }
+              }
+              if (found) break;
+            }
+          }
+          if (!found) {
+            log.warn('lucid-asset: file not found', { hash, assetType, ext });
+            return new Response('Not found', { status: 404 });
+          }
+        }
         return net.fetch(pathToFileURL(filePath).href);
       } catch (err) {
         log.error('lucid-asset protocol error:', err);
@@ -171,7 +243,7 @@ app.whenReady().then(async () => {
     const jobQueue = new JobQueue(db, adapterRegistry);
     await jobQueue.recover();
     jobQueue.start();
-    log.info('Job queue recovered and started');
+    logJobQueueRecovered();
 
     const workflowRegistry = registerDefaultWorkflows();
     const workflowEngine = new WorkflowEngine({
@@ -190,21 +262,20 @@ app.whenReady().then(async () => {
     });
     const workflowRecovery = new WorkflowRecovery(workflowEngine);
     await workflowRecovery.recover();
-    log.info('Workflow engine recovered');
+    logWorkflowEngineRecovered();
 
-    initIpc(
-      () => mainWindow,
+    initIpc(() => mainWindow, {
       db,
       projectFS,
       cas,
       keychain,
-      adapterRegistry,
+      registry: adapterRegistry,
       jobQueue,
       llmRegistry,
       workflowEngine,
       agent,
       promptStore,
-    );
+    });
 
     // Auto-updater init + IPC handlers
     await initAutoUpdater(mainWindow);
@@ -227,7 +298,7 @@ app.whenReady().then(async () => {
         if (fs.existsSync(settingsPath)) {
           return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
         }
-      } catch { /* corrupt file — return null to use defaults */ }
+      } catch (err) { log.warn('Settings file corrupt, using defaults', { error: String(err) }); }
       return null;
     });
     ipcMain.handle('settings:save', async (_e, data: unknown) => {
@@ -248,11 +319,14 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  stopClipboardWatcher();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('activate', () => {
   if (mainWindow === null) {
     mainWindow = createWindow();
+    attachWindowLogForwarder(mainWindow);
+    logWindowCreated();
   }
 });

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { getBezierPath, BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react';
+import { getSmoothStepPath, BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { ArrowLeftRight, FileText, Image, LayoutTemplate, Trash2, Video, Volume2, X } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
@@ -17,10 +17,10 @@ export interface LinkEdgeData {
 }
 
 const EDGE_COLORS: Record<EdgeStatus, string> = {
-  idle: '#6b7280', // gray-500
-  generating: '#f59e0b', // amber-500
-  done: '#22c55e', // green-500
-  failed: '#ef4444', // red-500
+  idle: '#4b5563',     // gray-600 — subtler
+  generating: '#d97706', // amber-600
+  done: '#16a34a',     // green-600
+  failed: '#dc2626',   // red-600
 };
 
 export function LinkEdge({
@@ -39,13 +39,15 @@ export function LinkEdge({
   const d = (data ?? { status: 'idle' }) as unknown as LinkEdgeData;
   const [hovered, setHovered] = useState(false);
 
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 8,
+    offset: 24,
   });
 
   const strokeColor =
@@ -95,14 +97,14 @@ export function LinkEdge({
           />
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className="z-50 min-w-[180px] rounded-xl border border-border bg-card p-1 text-popover-foreground shadow-xl">
+          <ContextMenu.Content className="z-50 min-w-[170px] rounded-md border border-border/60 bg-card p-0.5 text-popover-foreground shadow-xl">
             <ContextMenu.Sub>
               <ContextMenu.SubTrigger className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs outline-none hover:bg-accent hover:text-accent-foreground">
                 <LayoutTemplate className="h-3.5 w-3.5" />
                 {t('contextMenu.insertNode')}
               </ContextMenu.SubTrigger>
               <ContextMenu.Portal>
-                <ContextMenu.SubContent className="z-50 min-w-[170px] rounded-xl border border-border bg-card p-1 shadow-xl">
+                <ContextMenu.SubContent className="z-50 min-w-[160px] rounded-md border border-border/60 bg-card p-0.5 shadow-xl">
                   {insertActions.map((action) => {
                     const Icon = action.icon;
                     return (

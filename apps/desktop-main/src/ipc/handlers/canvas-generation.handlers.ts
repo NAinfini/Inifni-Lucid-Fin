@@ -1,152 +1,52 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import type { IpcMain } from 'electron';
 import log from '../../logger.js';
-import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
-import { compilePrompt, type PromptMode, type ResolvedCharacter } from '@lucid-fin/application';
 import type {
-  AIProviderAdapter,
   AudioNodeData,
   Canvas,
   CanvasNode,
-  Capability,
-  Equipment,
-  EquipmentRef,
-  GenerationRequest,
   GenerationType,
   ImageNodeData,
-  Location,
-  LocationRef,
   ProgressUpdate,
-  PresetCategory,
-  PresetDefinition,
-  PresetTrack,
-  PresetTrackSet,
   QueueUpdate,
   SubscribeCallbacks,
-  StyleGuide,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet, JobStatus } from '@lucid-fin/contracts';
-import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
-import type { CanvasStore } from './canvas.handlers.js';
-import { resolveMediaProviderIds } from '../../bootstrap/init-app.js';
-import { getCurrentProjectId, getCurrentProjectPath } from '../project-context.js';
-import { assertWithinRoot } from '../validation.js';
+import { getCurrentProjectId } from '../project-context.js';
 
-type CanvasGenerationDeps = {
-  adapterRegistry: AdapterRegistry;
-  cas: CAS;
-  db: SqliteIndex;
-  canvasStore: CanvasStore;
-  keychain: Keychain;
-};
+import type {
+  CanvasGenerationDeps,
+  GenerateArgs,
+  EstimateArgs,
+  CancelArgs,
+  SendTarget,
+  RunningCanvasJob,
+} from './generation-helpers.js';
+import {
+  normalizeOptionalString,
+  normalizeErrorMessage,
+  capitalizeUpdateStatus,
+  materializeAsset,
+  requireGenerateArgs,
+  requireEstimateArgs,
+  requireCancelArgs,
+} from './generation-helpers.js';
+import { buildGenerationContext, mapGenerationTypeToAssetType } from './generation-context.js';
 
-type SendTarget = {
-  send: (channel: string, payload: unknown) => void;
-};
+// Re-export for external consumers
+export { canonicalizeCanvasProviderId } from './generation-helpers.js';
+export { applyStyleGuideDefaultsToEmptyTracks } from './generation-prompt-compiler.js';
 
-type RunningCanvasJob = {
-  jobId: string;
-  canvasId: string;
-  nodeId: string;
-  adapterId: string;
-  providerJobIds: Set<string>;
-  cancelled: boolean;
-  cancelReason?: string;
-};
+// ---------------------------------------------------------------------------
+// Running job state
+// ---------------------------------------------------------------------------
 
-type ProviderConfigOverride = { baseUrl: string; model: string; apiKey?: string };
-
-type GenerateArgs = {
-  canvasId: string;
-  nodeId: string;
-  providerId?: string;
-  providerConfig?: ProviderConfigOverride;
-  variantCount?: number;
-  seed?: number;
-};
-
-type EstimateArgs = {
-  canvasId: string;
-  nodeId: string;
-  providerId: string;
-  providerConfig?: ProviderConfigOverride;
-};
-
-type CancelArgs = {
-  canvasId: string;
-  nodeId: string;
-};
-
-type BuiltGenerationContext = {
-  canvas: Canvas;
-  node: CanvasNode;
-  requestBase: GenerationRequest;
-  adapter: AIProviderAdapter;
-  nodeType: 'image' | 'video' | 'audio';
-  generationType: GenerationType;
-  mode: PromptMode;
-  variantCount: number;
-  baseSeed?: number;
-};
-
-type GenerationMediaConfig = Pick<GenerationRequest, 'width' | 'height' | 'duration'> & {
-  fps?: number;
-};
-
-type MaterializedAsset = {
-  filePath: string;
-  cleanupPath?: string;
-  sourceUrl?: string;
-};
-
-const DEFAULT_IMAGE_SIZE = { width: 1024, height: 1024 };
-const DEFAULT_VIDEO_SIZE = { width: 1280, height: 720 };
-const DEFAULT_VIDEO_DURATION = 5;
-const DEFAULT_AUDIO_DURATION = 5;
-const MAX_VARIANTS = 9;
 const runningJobs = new Map<string, RunningCanvasJob>();
-const DEFAULT_STYLE_GUIDE: StyleGuide = {
-  global: {
-    artStyle: '',
-    colorPalette: { primary: '', secondary: '', forbidden: [] },
-    lighting: 'natural',
-    texture: '',
-    referenceImages: [],
-    freeformDescription: '',
-  },
-  sceneOverrides: {},
-};
-const STYLE_GUIDE_LIGHTING_PRESETS: Record<StyleGuide['global']['lighting'], string | undefined> = {
-  natural: undefined,
-  studio: 'scene:high-key',
-  dramatic: 'scene:low-key',
-  neon: 'scene:neon-noir',
-  custom: undefined,
-};
-const LEGACY_CANVAS_PROVIDER_ALIASES: Record<string, string> = {
-  // Settings ID → Adapter ID
-  'openai-image': 'openai-dalle',
-  'google-image': 'google-imagen3',
-  'google-video': 'google-veo-2',
-  recraft: 'recraft-v3',
-  'recraft-v4': 'recraft-v3',
-  'elevenlabs': 'elevenlabs-v2',
-  'openai-tts': 'openai-tts-1-hd',
-  // Legacy shorthand
-  runway: 'runway-gen4',
-  veo: 'google-veo-2',
-  pika: 'pika-v2',
-  imagen: 'google-imagen3',
-  luma: 'luma-ray2',
-  minimax: 'minimax-video01',
-  cartesia: 'cartesia-sonic',
-  playht: 'playht-3',
-  'fish-audio': 'fish-audio-v1',
-};
+
+// ---------------------------------------------------------------------------
+// IPC handler registration
+// ---------------------------------------------------------------------------
 
 export function registerCanvasGenerationHandlers(ipcMain: IpcMain, deps: CanvasGenerationDeps): void {
   ipcMain.handle('canvas:generate', async (event, args: GenerateArgs) => {
@@ -172,11 +72,16 @@ export function registerCanvasGenerationHandlers(ipcMain: IpcMain, deps: CanvasG
       setNodeEstimatedCost(context.node, estimate.estimatedCost);
       touchCanvas(context.canvas, deps);
       return { estimatedCost: estimate.estimatedCost, currency: estimate.currency };
-    } catch {
+    } catch (err) {
+      log.warn('estimateCost failed, falling back to 0', { error: String(err) });
       return { estimatedCost: 0, currency: 'USD' };
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Cancel
+// ---------------------------------------------------------------------------
 
 export async function cancelCanvasGeneration(
   sender: SendTarget,
@@ -215,6 +120,10 @@ export async function cancelCanvasGeneration(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Start generation
+// ---------------------------------------------------------------------------
+
 export async function startCanvasGeneration(
   sender: SendTarget,
   args: GenerateArgs,
@@ -233,6 +142,19 @@ export async function startCanvasGeneration(
     requestedProviderConfig: args.providerConfig,
     requestedVariantCount: args.variantCount,
     requestedSeed: args.seed,
+  });
+
+  log.info('Canvas generation requested', {
+    category: 'canvas-generation',
+    canvasId,
+    nodeId,
+    providerId: context.adapter.id,
+    generationType: context.generationType,
+    mode: context.mode,
+    variantCount: context.variantCount,
+    hasProviderConfig: Boolean(args.providerConfig),
+    requestedProviderId: normalizeOptionalString(args.providerId),
+    baseSeed: context.baseSeed,
   });
 
   const estimated = context.adapter.estimateCost(context.requestBase);
@@ -270,10 +192,14 @@ export async function startCanvasGeneration(
   return { jobId };
 }
 
+// ---------------------------------------------------------------------------
+// Generation execution
+// ---------------------------------------------------------------------------
+
 async function executeGeneration(args: {
   sender: SendTarget;
   deps: CanvasGenerationDeps;
-  context: BuiltGenerationContext;
+  context: import('./generation-helpers.js').BuiltGenerationContext;
   runningJob: RunningCanvasJob;
   initialEstimatedCost: number;
 }): Promise<void> {
@@ -398,6 +324,17 @@ async function executeGeneration(args: {
     touchCanvas(canvas, deps);
 
     sendProgress(sender, runningJob.canvasId, runningJob.nodeId, 100, 'completed');
+    log.info('Canvas generation completed', {
+      category: 'canvas-generation',
+      canvasId: runningJob.canvasId,
+      nodeId: runningJob.nodeId,
+      providerId: adapter.id,
+      generationType,
+      variantCount,
+      generatedAssetCount: variantHashes.length,
+      generationTimeMs,
+      cost: finalCost,
+    });
     sender.send('canvas:generation:complete', {
       canvasId: runningJob.canvasId,
       nodeId: runningJob.nodeId,
@@ -408,6 +345,15 @@ async function executeGeneration(args: {
     });
   } catch (error) {
     const message = normalizeErrorMessage(error);
+    log.error('Canvas generation failed', {
+      category: 'canvas-generation',
+      nodeId: runningJob.nodeId,
+      canvasId: runningJob.canvasId,
+      providerId: adapter.id,
+      generationType,
+      variantCount,
+      error: message,
+    });
     markNodeFailed(node, message);
     touchCanvas(canvas, deps);
     sender.send('canvas:generation:failed', {
@@ -420,9 +366,13 @@ async function executeGeneration(args: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Adapter invocation helpers
+// ---------------------------------------------------------------------------
+
 async function runAdapterGeneration(input: {
-  adapter: AIProviderAdapter;
-  request: GenerationRequest;
+  adapter: import('@lucid-fin/contracts').AIProviderAdapter;
+  request: import('@lucid-fin/contracts').GenerationRequest;
   sender: SendTarget;
   runningJob: RunningCanvasJob;
   variantIndex: number;
@@ -503,859 +453,9 @@ function describeProgressUpdate(variantIndex: number, update: ProgressUpdate): s
   return update.currentStep ?? `Generating variant ${variantIndex + 1}`;
 }
 
-async function buildGenerationContext(
-  deps: CanvasGenerationDeps,
-  input: {
-    canvasId: string;
-    nodeId: string;
-    requestedProviderId?: string;
-    requestedProviderConfig?: ProviderConfigOverride;
-    requestedVariantCount?: number;
-    requestedSeed?: number;
-  },
-): Promise<BuiltGenerationContext> {
-  const canvas = deps.canvasStore.get(input.canvasId);
-  if (!canvas) throw new Error(`Canvas not found: ${input.canvasId}`);
-
-  const node = canvas.nodes.find((entry) => entry.id === input.nodeId);
-  if (!node) throw new Error(`Node not found: ${input.nodeId}`);
-  if (node.type === 'text') {
-    throw new Error('Text nodes cannot be generated');
-  }
-
-  const generableNodeType: 'image' | 'video' | 'audio' =
-    node.type === 'backdrop' ? 'image' : node.type;
-
-  const connectedTextContent = collectConnectedTextContent(canvas, node.id);
-  const mode = determinePromptMode(canvas, node);
-  const generationType = determineGenerationType(node);
-  const providerId = resolveNodeProviderId(node, generationType, input.requestedProviderId);
-  const adapter = await resolveAdapter(deps.adapterRegistry, providerId, generationType, mode, input.requestedProviderConfig, deps.keychain, deps.cas);
-  const nodeData = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
-  const variantCount = resolveVariantCount(nodeData, input.requestedVariantCount);
-  const baseSeed = resolveBaseSeed(nodeData, input.requestedSeed);
-  const referenceImages = resolveReferenceImages(deps.db, canvas, node);
-
-  const presetTracks =
-    generableNodeType === 'audio'
-      ? undefined
-      : applyStyleGuideDefaultsToEmptyTracks(
-          hasPresetTracks(nodeData) ? nodeData.presetTracks : undefined,
-          loadCurrentProjectStyleGuide(),
-          BUILT_IN_PRESET_LIBRARY,
-        );
-  const characterRefs = hasCharacterRefs(nodeData) ? nodeData.characterRefs : undefined;
-  const equipmentRefs = hasEquipmentRefs(nodeData) ? nodeData.equipmentRefs : undefined;
-  const locationRefs = hasLocationRefs(nodeData) ? nodeData.locationRefs : undefined;
-
-  const resolvedCharacters = resolveCharacterEntities(deps.db, characterRefs);
-  const resolvedLocations = resolveLocationEntities(deps.db, locationRefs);
-  const resolvedEquipment = resolveStandaloneEquipment(deps.db, equipmentRefs, resolvedCharacters);
-
-  const compiled = compilePrompt({
-    nodeType: generableNodeType,
-    prompt: normalizeOptionalString(nodeData.prompt) ?? node.title,
-    presetTracks: presetTracks as PresetTrackSet | undefined,
-    characterRefs,
-    equipmentRefs,
-    locationRefs,
-    characters: resolvedCharacters.length > 0 ? resolvedCharacters : undefined,
-    equipmentItems: resolvedEquipment.length > 0 ? resolvedEquipment : undefined,
-    locations: resolvedLocations.length > 0 ? resolvedLocations : undefined,
-    connectedTextContent,
-    providerId: adapter.id,
-    mode,
-    presetLibrary: BUILT_IN_PRESET_LIBRARY,
-    referenceImages,
-  });
-  const mediaConfig = resolveMediaDimensions(node, generationType);
-  const { fps, ...mediaRequest } = mediaConfig;
-
-  const requestBase: GenerationRequest = {
-    type: generationType,
-    providerId: adapter.id,
-    prompt: compiled.prompt,
-    negativePrompt: compiled.negativePrompt,
-    referenceImages: compiled.referenceImages,
-    seed: baseSeed,
-    params: mergeGenerationParams(compiled.params, fps),
-    ...mediaRequest,
-  };
-
-  return {
-    canvas,
-    node,
-    requestBase,
-    adapter,
-    nodeType: generableNodeType,
-    generationType,
-    mode,
-    variantCount,
-    baseSeed,
-  };
-}
-
-function resolveMediaDimensions(
-  node: CanvasNode,
-  generationType: GenerationType,
-): GenerationMediaConfig {
-  if (generationType === 'image') {
-    const data = node.data as ImageNodeData;
-    return {
-      width: resolvePositiveInteger(data.width, DEFAULT_IMAGE_SIZE.width),
-      height: resolvePositiveInteger(data.height, DEFAULT_IMAGE_SIZE.height),
-    };
-  }
-  if (generationType === 'video') {
-    const data = node.data as VideoNodeData;
-    return {
-      width: resolvePositiveInteger(data.width, DEFAULT_VIDEO_SIZE.width),
-      height: resolvePositiveInteger(data.height, DEFAULT_VIDEO_SIZE.height),
-      duration: resolvePositiveInteger(data.duration, DEFAULT_VIDEO_DURATION),
-      fps: resolvePositiveInteger(data.fps, 24),
-    };
-  }
-  if (generationType === 'voice' || generationType === 'music' || generationType === 'sfx') {
-    const data = node.data as AudioNodeData;
-    return {
-      duration: resolvePositiveInteger(data.duration, DEFAULT_AUDIO_DURATION),
-    };
-  }
-  return {};
-}
-
-function mergeGenerationParams(
-  baseParams: GenerationRequest['params'],
-  fps: number | undefined,
-): GenerationRequest['params'] {
-  if (typeof fps !== 'number') {
-    return baseParams;
-  }
-  return {
-    ...(baseParams ?? {}),
-    fps,
-  };
-}
-
-function resolvePositiveInteger(value: number | undefined, fallback: number): number {
-  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
-    return value;
-  }
-  return fallback;
-}
-
-function determinePromptMode(canvas: Canvas, node: CanvasNode): PromptMode {
-  if (node.type === 'image') {
-    const data = node.data as ImageNodeData;
-    if (normalizeOptionalString(data.sourceImageHash)) {
-      throw new Error('Image node image-to-image generation is not supported yet');
-    }
-    return 'text-to-image';
-  }
-  if (node.type === 'video') {
-    const data = node.data as VideoNodeData;
-    if (normalizeOptionalString(data.sourceImageHash)) {
-      return 'image-to-video';
-    }
-    const connectedSource = findConnectedImageHash(canvas, node.id);
-    if (connectedSource) {
-      return 'image-to-video';
-    }
-    return 'text-to-video';
-  }
-  return 'text-to-video';
-}
-
-function determineGenerationType(node: CanvasNode): GenerationType {
-  if (node.type === 'image') return 'image';
-  if (node.type === 'video') return 'video';
-  const audio = node.data as AudioNodeData;
-  return audio.audioType;
-}
-
-export function canonicalizeCanvasProviderId(
-  providerId: string | undefined,
-  generationType?: GenerationType,
-): string | undefined {
-  const normalized = normalizeOptionalString(providerId);
-  if (!normalized) return undefined;
-  if (normalized === 'openai') {
-    if (generationType === 'image') return 'openai-dalle';
-    if (generationType === 'voice') return 'openai-tts-1-hd';
-  }
-  return LEGACY_CANVAS_PROVIDER_ALIASES[normalized] ?? normalized;
-}
-
-function resolveNodeProviderId(
-  node: CanvasNode,
-  generationType: GenerationType,
-  requestedProviderId?: string,
-): string | undefined {
-  if (requestedProviderId) return canonicalizeCanvasProviderId(requestedProviderId, generationType);
-  const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
-  return canonicalizeCanvasProviderId(
-    normalizeOptionalString(data.providerId) ??
-      normalizeOptionalString((data as AudioNodeData).provider),
-    generationType,
-  );
-}
-
-async function buildAdhocAdapter(id: string, config: ProviderConfigOverride, keychain: Keychain, genType: GenerationType = 'image', cas?: CAS): Promise<AIProviderAdapter> {
-  const { baseUrl, model } = config;
-  const apiKey = config.apiKey || await keychain.getKey(id) || '';
-  // Send API key in all common header formats — provider ignores the ones it doesn't use
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${apiKey}`,
-    'X-API-Key': apiKey,
-    'api-key': apiKey,
-    'Ocp-Apim-Subscription-Key': apiKey,
-  };
-
-  // Detect endpoint type from URL
-  const isChatEndpoint = baseUrl.includes('/chat/completions');
-  const adapterType = genType === 'video' ? 'video' as const : genType === 'voice' || genType === 'music' || genType === 'sfx' ? 'voice' as const : 'image' as const;
-  const capability = genType === 'video' ? 'text-to-video' as Capability : genType === 'voice' ? 'text-to-voice' as Capability : genType === 'music' ? 'text-to-music' as Capability : genType === 'sfx' ? 'text-to-sfx' as Capability : 'text-to-image' as Capability;
-
-  function buildBody(req: GenerationRequest): Record<string, unknown> {
-    let body: Record<string, unknown>;
-    if (isChatEndpoint) {
-      body = { messages: [{ role: 'user', content: req.prompt }] };
-    } else if (genType === 'image') {
-      body = { prompt: req.prompt, n: 1, size: '1024x1024', response_format: 'url' };
-    } else if (genType === 'video') {
-      body = { prompt: req.prompt, duration: req.duration ?? 5 };
-      const firstRef = req.referenceImages?.[0];
-      if (firstRef) {
-        if (firstRef.startsWith('http') || firstRef.startsWith('data:')) {
-          body.image = firstRef;
-        } else if (cas) {
-          for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
-            const filePath = cas.getAssetPath(firstRef, 'image', ext);
-            if (!fs.existsSync(filePath)) continue;
-            const buf = fs.readFileSync(filePath);
-            const mime = ext === 'jpg' ? 'jpeg' : ext;
-            body.image = `data:image/${mime};base64,${buf.toString('base64')}`;
-            break;
-          }
-        }
-      }
-    } else {
-      body = { prompt: req.prompt };
-    }
-
-    if (model) body.model = model;
-    return body;
-  }
-
-  function extractAssetPath(json: Record<string, unknown>): string | undefined {
-    const dataArr = json.data as Array<{ url?: string; b64_json?: string }> | undefined;
-    if (dataArr?.[0]?.url) return dataArr[0].url;
-    if (dataArr?.[0]?.b64_json) {
-      const mime = genType === 'video' ? 'video/mp4' : 'image/png';
-      return `data:${mime};base64,${dataArr[0].b64_json}`;
-    }
-
-    const choices = json.choices as Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }> | undefined;
-    const msg = choices?.[0]?.message;
-    if (msg?.images?.[0]?.image_url?.url) return msg.images[0].image_url.url;
-    const content = msg?.content ?? '';
-    if (content.startsWith('data:')) return content;
-    const mediaUrlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|mp4|mov|webm)\S*)/i);
-    if (mediaUrlMatch?.[1]) return mediaUrlMatch[1];
-    if (content.startsWith('http')) return content.trim();
-
-    const directUrl = json.url ?? json.video_url ?? json.audio_url ?? json.output ?? json.download_url;
-    return typeof directUrl === 'string' ? directUrl : undefined;
-  }
-
-  function extractAsyncSubmission(json: Record<string, unknown>): {
-    taskId?: string;
-    statusUrl?: string;
-    status?: string;
-  } {
-    return {
-      taskId: normalizeOptionalString(json.id ?? json.taskId ?? json.task_id ?? json.generation_id),
-      statusUrl: normalizeOptionalString(json.status_url ?? json.statusUrl),
-      status: normalizeOptionalString(json.status),
-    };
-  }
-
-  async function submit(req: GenerationRequest): Promise<Record<string, unknown>> {
-    const body = buildBody(req);
-    log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, { model, bodyKeys: Object.keys(body) });
-    const res = await fetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      const hint = res.status === 404
-        ? ` (endpoint not found - check your base URL is correct for ${genType} generation)`
-        : res.status === 500
-          ? ` (server error - the model "${model}" may not support ${genType} generation)`
-          : '';
-      throw new Error(`Provider error ${res.status}${hint}: ${errBody.slice(0, 400)}`);
-    }
-
-    const json = await res.json() as Record<string, unknown>;
-    log.info(`Ad-hoc adapter response for ${genType}: ${JSON.stringify(json).slice(0, 1000)}`);
-    return json;
-  }
-
-  async function pollStatus(statusUrl: string, taskId: string, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
-    for (;;) {
-      const res = await fetch(statusUrl, { headers });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`Provider status error ${res.status}: ${errBody.slice(0, 400)}`);
-      }
-
-      const json = await res.json() as Record<string, unknown>;
-      const status = normalizeOptionalString(json.status)?.toLowerCase() ?? 'processing';
-      const progress = typeof json.progress === 'number'
-        ? Math.round(json.progress <= 1 ? json.progress * 100 : json.progress)
-        : undefined;
-      const assetPath = extractAssetPath(json);
-
-      if (status === 'queued' || status === 'pending') {
-        callbacks.onQueueUpdate?.({ status: 'queued', currentStep: status, jobId: taskId });
-      } else {
-        callbacks.onQueueUpdate?.({ status: 'processing', currentStep: status, jobId: taskId });
-        callbacks.onProgress?.({
-          type: 'progress',
-          percentage: progress ?? 0,
-          currentStep: status,
-          jobId: taskId,
-        });
-      }
-
-      if (status === 'completed' && assetPath) {
-        callbacks.onProgress?.({
-          type: 'progress',
-          percentage: 100,
-          currentStep: 'completed',
-          jobId: taskId,
-        });
-        callbacks.onQueueUpdate?.({
-          status: 'completed',
-          currentStep: 'completed',
-          jobId: taskId,
-        });
-        return {
-          assetHash: '',
-          assetPath,
-          provider: id,
-          metadata: { taskId, status, statusUrl },
-        };
-      }
-
-      if (status === 'failed' || status === 'error') {
-        throw new Error(`Provider task ${taskId} failed`);
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
-    }
-  }
-
-  return {
-    id,
-    name: id,
-    type: adapterType,
-    capabilities: [capability],
-    maxConcurrent: 1,
-    executionCapabilities: {
-      subscribe: true,
-      queueUpdates: true,
-      progressUpdates: true,
-      webhook: false,
-      cancellation: false,
-    },
-    configure(key: string) { void key; },
-    async validate() { return true; },
-    async generate(req: GenerationRequest): Promise<import('@lucid-fin/contracts').GenerationResult> {
-      // Build request body based on endpoint type and generation type
-      let body: Record<string, unknown>;
-      if (isChatEndpoint) {
-        body = { messages: [{ role: 'user', content: req.prompt }] };
-      } else if (genType === 'image') {
-        body = { prompt: req.prompt, n: 1, size: '1024x1024', response_format: 'url' };
-      } else if (genType === 'video') {
-        body = { prompt: req.prompt, duration: req.duration ?? 5 };
-        // Resolve first reference image to a data URL for image-to-video
-        const firstRef = req.referenceImages?.[0];
-        if (firstRef) {
-          if (firstRef.startsWith('http')) {
-            body.image = firstRef;
-          } else if (firstRef.startsWith('data:')) {
-            body.image = firstRef;
-          } else if (cas) {
-            // Asset hash — read from CAS and convert to base64 data URL
-            for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
-              const filePath = cas.getAssetPath(firstRef, 'image', ext);
-              if (fs.existsSync(filePath)) {
-                const buf = fs.readFileSync(filePath);
-                const mime = ext === 'jpg' ? 'jpeg' : ext;
-                body.image = `data:image/${mime};base64,${buf.toString('base64')}`;
-                break;
-              }
-            }
-          }
-        }
-      } else {
-        body = { prompt: req.prompt };
-      }
-      // Only include model if non-empty
-      if (model) body.model = model;
-
-      log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, { model, bodyKeys: Object.keys(body) });
-      const res = await fetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        // Provide helpful context for common errors
-        const hint = res.status === 404
-          ? ` (endpoint not found — check your base URL is correct for ${genType} generation)`
-          : res.status === 500
-            ? ` (server error — the model "${model}" may not support ${genType} generation)`
-            : '';
-        throw new Error(`Provider error ${res.status}${hint}: ${errBody.slice(0, 400)}`);
-      }
-      const json = await res.json() as Record<string, unknown>;
-      log.info(`Ad-hoc adapter response for ${genType}: ${JSON.stringify(json).slice(0, 1000)}`);
-
-      // --- Extract asset from response (supports multiple formats) ---
-
-      // Format: { data: [{ url }] } or { data: [{ b64_json }] } — OpenAI images
-      const dataArr = json.data as Array<{ url?: string; b64_json?: string }> | undefined;
-      if (dataArr?.[0]?.url) return { assetHash: '', assetPath: dataArr[0].url, provider: id };
-      if (dataArr?.[0]?.b64_json) {
-        const mime = genType === 'video' ? 'video/mp4' : 'image/png';
-        return { assetHash: '', assetPath: `data:${mime};base64,${dataArr[0].b64_json}`, provider: id };
-      }
-
-      // Format: { choices: [{ message: { content, images } }] } — chat completions
-      const choices = json.choices as Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }> | undefined;
-      const msg = choices?.[0]?.message;
-      if (msg?.images?.[0]?.image_url?.url) return { assetHash: '', assetPath: msg.images[0].image_url.url, provider: id };
-      const content = msg?.content ?? '';
-      if (content.startsWith('data:')) return { assetHash: '', assetPath: content, provider: id };
-      const mediaUrlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|mp4|mov|webm)\S*)/i);
-      if (mediaUrlMatch?.[1]) return { assetHash: '', assetPath: mediaUrlMatch[1], provider: id };
-      if (content.startsWith('http')) return { assetHash: '', assetPath: content.trim(), provider: id };
-
-      // Format: { id, status } — async job (Runway, Luma, Pixazo, etc.)
-      // We cannot reliably poll unknown providers — each has a different status endpoint.
-      // Return error with the task ID so user can check manually.
-      const taskId = json.id ?? json.taskId ?? json.task_id ?? json.generation_id;
-      if (taskId) {
-        // Check if the response already contains an output URL alongside the task ID
-        const immediateOutput = json.output ?? json.video_url ?? json.url ?? json.download_url;
-        if (typeof immediateOutput === 'string' && immediateOutput.startsWith('http')) {
-          return { assetHash: '', assetPath: immediateOutput, provider: id };
-        }
-        throw new Error(`Generation submitted to provider (task: ${taskId}). Video is being generated on the provider's servers — check your provider dashboard to download the result.`);
-      }
-
-      // Format: { url } or { video_url } or { output } — direct URL
-      const directUrl = json.url ?? json.video_url ?? json.audio_url ?? json.output;
-      if (typeof directUrl === 'string') return { assetHash: '', assetPath: directUrl, provider: id };
-
-      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
-    },
-    async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
-      const json = await submit(req);
-      const assetPath = extractAssetPath(json);
-      if (assetPath) {
-        callbacks.onProgress?.({
-          type: 'progress',
-          percentage: 100,
-          currentStep: 'completed',
-        });
-        callbacks.onQueueUpdate?.({
-          status: 'completed',
-          currentStep: 'completed',
-        });
-        return { assetHash: '', assetPath, provider: id };
-      }
-
-      const asyncSubmission = extractAsyncSubmission(json);
-      if (asyncSubmission.taskId && asyncSubmission.statusUrl) {
-        callbacks.onQueueUpdate?.({
-          status: 'queued',
-          currentStep: asyncSubmission.status ?? 'queued',
-          jobId: asyncSubmission.taskId,
-        });
-        return pollStatus(asyncSubmission.statusUrl, asyncSubmission.taskId, callbacks);
-      }
-
-      if (asyncSubmission.taskId) {
-        throw new Error(`Generation submitted to provider (task: ${asyncSubmission.taskId}). The provider did not return a status URL for subscribe polling.`);
-      }
-
-      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
-    },
-    estimateCost(_req: GenerationRequest): import('@lucid-fin/contracts').CostEstimate { return { estimatedCost: 0, currency: 'USD', provider: id, unit: 'image' }; },
-    checkStatus(_jobId: string): Promise<JobStatus> { return Promise.resolve(JobStatus.Completed); },
-    cancel(_jobId: string): Promise<void> { return Promise.resolve(); },
-  };
-}
-
-async function resolveAdapter(
-  registry: AdapterRegistry,
-  requestedProviderId: string | undefined,
-  generationType: GenerationType,
-  mode: PromptMode,
-  providerConfig?: ProviderConfigOverride,
-  keychain?: Keychain,
-  cas?: CAS,
-): Promise<AIProviderAdapter> {
-  const canonicalProviderId = canonicalizeCanvasProviderId(requestedProviderId, generationType);
-  if (canonicalProviderId) {
-    const adapter = registry.get(canonicalProviderId);
-    if (adapter) {
-      ensureAdapterSupports(adapter, generationType, mode);
-      const apiKey = await resolveProviderApiKey(keychain, canonicalProviderId, providerConfig);
-      const options: Record<string, unknown> = {};
-      if (providerConfig?.baseUrl) {
-        options.baseUrl = providerConfig.baseUrl;
-      }
-      if (providerConfig?.model) {
-        options.model = providerConfig.model;
-      }
-      adapter.configure(apiKey ?? '', Object.keys(options).length > 0 ? options : undefined);
-      return adapter;
-    }
-    if (providerConfig && keychain) {
-      return buildAdhocAdapter(canonicalProviderId, providerConfig, keychain, generationType, cas);
-    }
-  }
-
-  const candidates = registry.list(mapGenerationTypeToAdapterType(generationType));
-  const supported = candidates.find((adapter) => {
-    try {
-      ensureAdapterSupports(adapter, generationType, mode);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  if (!supported) {
-    throw new Error(`No configured adapter available for ${generationType}`);
-  }
-  return supported;
-}
-
-async function resolveProviderApiKey(
-  keychain: Keychain | undefined,
-  providerId: string,
-  providerConfig?: ProviderConfigOverride,
-): Promise<string | undefined> {
-  if (providerConfig?.apiKey) {
-    return providerConfig.apiKey;
-  }
-  if (!keychain) {
-    return undefined;
-  }
-
-  for (const candidateId of resolveMediaProviderIds(providerId)) {
-    const apiKey = await keychain.getKey(candidateId);
-    if (apiKey) {
-      return apiKey;
-    }
-  }
-
-  return undefined;
-}
-
-function ensureAdapterSupports(
-  adapter: AIProviderAdapter,
-  generationType: GenerationType,
-  mode: PromptMode,
-): void {
-  const adapterTypes = Array.isArray(adapter.type) ? adapter.type : [adapter.type];
-  const expectedType = mapGenerationTypeToAdapterType(generationType);
-  if (!adapterTypes.includes(expectedType)) {
-    throw new Error(`Provider "${adapter.id}" does not support ${generationType}`);
-  }
-
-  const requiredCapability = resolveRequiredCapability(generationType, mode);
-  if (requiredCapability && !adapter.capabilities.includes(requiredCapability)) {
-    throw new Error(
-      `Provider "${adapter.id}" does not support capability ${requiredCapability}`,
-    );
-  }
-}
-
-function resolveRequiredCapability(
-  generationType: GenerationType,
-  mode: PromptMode,
-): Capability | undefined {
-  if (generationType === 'image') return 'text-to-image';
-  if (generationType === 'video') {
-    return mode === 'image-to-video' ? 'image-to-video' : 'text-to-video';
-  }
-  if (generationType === 'voice') return 'text-to-voice';
-  if (generationType === 'music') return 'text-to-music';
-  if (generationType === 'sfx') return 'text-to-sfx';
-  return undefined;
-}
-
-function mapGenerationTypeToAdapterType(generationType: GenerationType): 'image' | 'video' | 'voice' | 'music' | 'sfx' {
-  if (generationType === 'image') return 'image';
-  if (generationType === 'video') return 'video';
-  if (generationType === 'voice') return 'voice';
-  if (generationType === 'music') return 'music';
-  return 'sfx';
-}
-
-function mapGenerationTypeToAssetType(generationType: GenerationType): 'image' | 'video' | 'audio' {
-  if (generationType === 'image') return 'image';
-  if (generationType === 'video') return 'video';
-  return 'audio';
-}
-
-function resolveVariantCount(
-  data: ImageNodeData | VideoNodeData | AudioNodeData,
-  requestedVariantCount?: number,
-): number {
-  const candidate = requestedVariantCount ?? data.variantCount ?? 1;
-  if (!Number.isInteger(candidate) || candidate <= 0 || candidate > MAX_VARIANTS) {
-    throw new Error(`variantCount must be an integer between 1 and ${MAX_VARIANTS}`);
-  }
-  return candidate;
-}
-
-function resolveBaseSeed(
-  data: ImageNodeData | VideoNodeData | AudioNodeData,
-  requestedSeed?: number,
-): number | undefined {
-  const seed = requestedSeed ?? data.seed;
-  if (seed == null) return undefined;
-  if (!Number.isInteger(seed)) {
-    throw new Error('seed must be an integer');
-  }
-  return seed;
-}
-
-function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: CanvasNode): string[] {
-  const hashes = new Set<string>();
-
-  if (node.type === 'video') {
-    const sourceHash = findConnectedImageHash(canvas, node.id);
-    if (sourceHash) hashes.add(sourceHash);
-    const nodeHash = normalizeOptionalString((node.data as VideoNodeData).sourceImageHash);
-    if (nodeHash) hashes.add(nodeHash);
-  }
-
-  const withCharacterRefs = node.data as ImageNodeData | VideoNodeData;
-  for (const ref of withCharacterRefs.characterRefs ?? []) {
-    const character = db.getCharacter(ref.characterId);
-    if (!character) continue;
-
-    // Prefer explicit hash on ref, then angle slot lookup, then legacy single image, then all images
-    const explicitHash = normalizeOptionalString(ref.referenceImageHash);
-    if (explicitHash) {
-      hashes.add(explicitHash);
-      continue;
-    }
-    const slotHash = ref.angleSlot
-      ? normalizeOptionalString(character.referenceImages?.find((r) => r.slot === ref.angleSlot)?.assetHash)
-      : undefined;
-    if (slotHash) {
-      hashes.add(slotHash);
-      continue;
-    }
-    if (normalizeOptionalString(character.referenceImage)) {
-      hashes.add(character.referenceImage as string);
-    }
-    for (const image of character.referenceImages ?? []) {
-      if (normalizeOptionalString(image.assetHash)) {
-        hashes.add(image.assetHash as string);
-      }
-    }
-  }
-
-  for (const rawRef of (withCharacterRefs as { equipmentRefs?: Array<EquipmentRef | string> }).equipmentRefs ?? []) {
-    const ref: EquipmentRef = typeof rawRef === 'string' ? { equipmentId: rawRef } : rawRef;
-    const equipment = db.getEquipment(ref.equipmentId);
-    if (!equipment) continue;
-
-    const explicitHash = normalizeOptionalString(ref.referenceImageHash);
-    if (explicitHash) {
-      hashes.add(explicitHash);
-      continue;
-    }
-    const slotHash = ref.angleSlot
-      ? normalizeOptionalString(equipment.referenceImages?.find((r) => r.slot === ref.angleSlot)?.assetHash)
-      : undefined;
-    if (slotHash) {
-      hashes.add(slotHash);
-      continue;
-    }
-    for (const image of equipment.referenceImages ?? []) {
-      if (normalizeOptionalString(image.assetHash)) {
-        hashes.add(image.assetHash as string);
-      }
-    }
-  }
-
-  return Array.from(hashes);
-}
-
-function collectConnectedTextContent(canvas: Canvas, nodeId: string): string[] {
-  const connectedNodeIds = new Set<string>();
-  for (const edge of canvas.edges) {
-    if (edge.source === nodeId) connectedNodeIds.add(edge.target);
-    if (edge.target === nodeId) connectedNodeIds.add(edge.source);
-  }
-
-  const textContent: string[] = [];
-  for (const candidateId of connectedNodeIds) {
-    const node = canvas.nodes.find((entry) => entry.id === candidateId);
-    if (!node || node.type !== 'text') continue;
-    const data = node.data as { content?: unknown };
-    const content = normalizeOptionalString(data.content);
-    if (content) textContent.push(content);
-  }
-  return textContent;
-}
-
-function findConnectedImageHash(canvas: Canvas, nodeId: string): string | undefined {
-  // Prefer incoming image edges (image -> video)
-  for (const edge of canvas.edges) {
-    if (edge.target !== nodeId) continue;
-    const sourceNode = canvas.nodes.find((node) => node.id === edge.source && node.type === 'image');
-    if (!sourceNode) continue;
-    const hash = normalizeOptionalString((sourceNode.data as ImageNodeData).assetHash);
-    if (hash) return hash;
-  }
-  // Fallback: any connected image node
-  for (const edge of canvas.edges) {
-    const otherNodeId = edge.source === nodeId ? edge.target : edge.target === nodeId ? edge.source : undefined;
-    if (!otherNodeId) continue;
-    const imageNode = canvas.nodes.find((node) => node.id === otherNodeId && node.type === 'image');
-    if (!imageNode) continue;
-    const hash = normalizeOptionalString((imageNode.data as ImageNodeData).assetHash);
-    if (hash) return hash;
-  }
-  return undefined;
-}
-
-type TrackMap = Record<PresetCategory, PresetTrack>;
-
-export function applyStyleGuideDefaultsToEmptyTracks(
-  tracks: PresetTrackSet | undefined,
-  styleGuide: StyleGuide,
-  presetLibrary: PresetDefinition[],
-): PresetTrackSet {
-  const next = structuredClone(tracks ?? createEmptyPresetTrackSet()) as TrackMap;
-  const lookPresetId = findStyleGuidePresetId('look', styleGuide.global.artStyle, presetLibrary);
-  const scenePresetId = STYLE_GUIDE_LIGHTING_PRESETS[styleGuide.global.lighting];
-
-  maybeFillTrack(next, 'look', lookPresetId);
-  maybeFillTrack(next, 'scene', scenePresetId);
-
-  return next as PresetTrackSet;
-}
-
-function maybeFillTrack(tracks: TrackMap, category: PresetCategory, presetId: string | undefined): void {
-  if (!presetId) return;
-  const current = tracks[category];
-  if (current?.entries.length) return;
-  tracks[category] = {
-    category,
-    aiDecide: false,
-    entries: [
-      {
-        id: randomUUID(),
-        category,
-        presetId,
-        params: {},
-        order: 0,
-      },
-    ],
-  };
-}
-
-function findStyleGuidePresetId(
-  category: PresetCategory,
-  rawValue: string | undefined,
-  presetLibrary: PresetDefinition[],
-): string | undefined {
-  const normalizedValue = normalizePresetLookupValue(rawValue);
-  if (!normalizedValue) return undefined;
-
-  const candidates = presetLibrary.filter((preset) => preset.category === category);
-  const exactMatch = candidates.find((preset) => {
-    return [
-      normalizePresetLookupValue(preset.name),
-      normalizePresetLookupValue(preset.id.split(':')[1]),
-    ].includes(normalizedValue);
-  });
-  if (exactMatch) return exactMatch.id;
-
-  const fuzzyMatches = candidates.filter((preset) => {
-    const presetKeys = [
-      normalizePresetLookupValue(preset.name),
-      normalizePresetLookupValue(preset.id.split(':')[1]),
-    ].filter(Boolean);
-    return presetKeys.some((key) => key.includes(normalizedValue) || normalizedValue.includes(key));
-  });
-  return fuzzyMatches.length === 1 ? fuzzyMatches[0]?.id : undefined;
-}
-
-function normalizePresetLookupValue(value: string | undefined): string {
-  return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function loadCurrentProjectStyleGuide(): StyleGuide {
-  const projectPath = getCurrentProjectPath();
-  if (!projectPath) {
-    return DEFAULT_STYLE_GUIDE;
-  }
-
-  const stylePath = assertWithinRoot(projectPath, 'style-guide.json');
-  if (fs.existsSync(stylePath)) {
-    const raw = JSON.parse(fs.readFileSync(stylePath, 'utf-8')) as unknown;
-    if (isStyleGuide(raw)) {
-      return raw;
-    }
-  }
-
-  const manifestPath = assertWithinRoot(projectPath, 'project.json');
-  if (fs.existsSync(manifestPath)) {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as { styleGuide?: unknown };
-    if (isStyleGuide(manifest.styleGuide)) {
-      return manifest.styleGuide;
-    }
-  }
-
-  return DEFAULT_STYLE_GUIDE;
-}
-
-function isStyleGuide(value: unknown): value is StyleGuide {
-  if (!value || typeof value !== 'object') return false;
-  const guide = value as Record<string, unknown>;
-  return (
-    typeof guide.global === 'object' &&
-    guide.global !== null &&
-    typeof guide.sceneOverrides === 'object' &&
-    guide.sceneOverrides !== null
-  );
-}
-
-function hasPresetTracks(data: unknown): data is { presetTracks?: PresetTrackSet } {
-  return typeof data === 'object' && data !== null && 'presetTracks' in data;
-}
-
-function hasCharacterRefs(data: unknown): data is { characterRefs?: ImageNodeData['characterRefs'] } {
-  return typeof data === 'object' && data !== null && 'characterRefs' in data;
-}
-
-function hasEquipmentRefs(data: unknown): data is { equipmentRefs?: ImageNodeData['equipmentRefs'] } {
-  return typeof data === 'object' && data !== null && 'equipmentRefs' in data;
-}
-
-function hasLocationRefs(data: unknown): data is { locationRefs?: LocationRef[] } {
-  return typeof data === 'object' && data !== null && 'locationRefs' in data;
-}
+// ---------------------------------------------------------------------------
+// Node mutation helpers
+// ---------------------------------------------------------------------------
 
 function setNodeEstimatedCost(node: CanvasNode, estimatedCost: number): void {
   const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
@@ -1421,6 +521,10 @@ function touchCanvas(canvas: Canvas, deps: CanvasGenerationDeps): void {
   deps.canvasStore.save(canvas);
 }
 
+// ---------------------------------------------------------------------------
+// Job tracking helpers
+// ---------------------------------------------------------------------------
+
 function runningKey(canvasId: string, nodeId: string): string {
   return `${canvasId}:${nodeId}`;
 }
@@ -1452,10 +556,6 @@ function collectProviderJobIdFromUpdate(
   }
 }
 
-function capitalizeUpdateStatus(status: string): string {
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
 function sendProgress(
   sender: SendTarget,
   canvasId: string,
@@ -1471,219 +571,3 @@ function sendProgress(
   });
 }
 
-async function materializeAsset(generated: {
-  assetPath?: string;
-  metadata?: Record<string, unknown>;
-}): Promise<MaterializedAsset> {
-  const assetPath = normalizeOptionalString(generated.assetPath);
-  if (assetPath) {
-    // Handle base64 data URLs (image, video, audio from OpenRouter etc.)
-    if (assetPath.startsWith('data:image/') || assetPath.startsWith('data:video/') || assetPath.startsWith('data:audio/')) {
-      return decodeBase64DataUrl(assetPath);
-    }
-    if (isRemoteUrl(assetPath)) {
-      return downloadRemoteAsset(assetPath);
-    }
-    if (!fs.existsSync(assetPath)) {
-      throw new Error(`Generated asset path not found: ${assetPath.slice(0, 80)}`);
-    }
-    return { filePath: assetPath };
-  }
-
-  const metadataUrl = normalizeOptionalString(generated.metadata?.url as string | undefined)
-    ?? normalizeOptionalString(generated.metadata?.video_url as string | undefined)
-    ?? normalizeOptionalString(generated.metadata?.output as string | undefined)
-    ?? normalizeOptionalString(generated.metadata?.download_url as string | undefined);
-  if (metadataUrl) {
-    if (metadataUrl.startsWith('data:image/') || metadataUrl.startsWith('data:video/') || metadataUrl.startsWith('data:audio/')) {
-      return decodeBase64DataUrl(metadataUrl);
-    }
-    return downloadRemoteAsset(metadataUrl);
-  }
-
-  throw new Error('Generated asset did not include a usable file path or URL');
-}
-
-async function decodeBase64DataUrl(dataUrl: string): Promise<MaterializedAsset> {
-  // Parse data:image/png;base64,... or data:video/mp4;base64,...
-  const match = dataUrl.match(/^data:(?:image|video|audio)\/(\w+);base64,(.+)$/);
-  if (!match) throw new Error('Invalid base64 data URL');
-  const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-  const buffer = Buffer.from(match[2], 'base64');
-  const tmpPath = path.join(os.tmpdir(), `lucid-fin-gen-${Date.now()}.${ext}`);
-  fs.writeFileSync(tmpPath, buffer);
-  return { filePath: tmpPath };
-}
-
-async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download generated asset: ${response.status}`);
-  }
-
-  const ext = inferRemoteExtension(url, response.headers.get('content-type'));
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-'));
-  const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(filePath, buffer);
-  log.info('[canvas:generation] downloaded remote asset', {
-    url,
-    statusCode: response.status,
-    contentType: response.headers.get('content-type'),
-    filePath,
-    fileSize: buffer.byteLength,
-  });
-
-  return {
-    filePath,
-    cleanupPath: dir,
-    sourceUrl: url,
-  };
-}
-
-function inferRemoteExtension(url: string, contentType: string | null): string {
-  const byUrl = extensionFromUrl(url);
-  if (byUrl) return byUrl;
-  const normalized = contentType?.split(';')[0].trim().toLowerCase();
-  switch (normalized) {
-    case 'image/jpeg':
-      return 'jpg';
-    case 'image/webp':
-      return 'webp';
-    case 'image/png':
-      return 'png';
-    case 'video/mp4':
-      return 'mp4';
-    case 'audio/mpeg':
-      return 'mp3';
-    case 'audio/wav':
-      return 'wav';
-    default:
-      return 'bin';
-  }
-}
-
-function extensionFromUrl(url: string): string | undefined {
-  try {
-    const pathname = new URL(url).pathname;
-    const ext = path.extname(pathname).slice(1).toLowerCase();
-    return ext.length > 0 ? ext : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isRemoteUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value);
-}
-
-function requireGenerateArgs(value: GenerateArgs | undefined): {
-  canvasId: string;
-  nodeId: string;
-} {
-  if (!value) throw new Error('canvas:generate request is required');
-  const canvasId = normalizeOptionalString(value.canvasId);
-  const nodeId = normalizeOptionalString(value.nodeId);
-  if (!canvasId || !nodeId) throw new Error('canvasId and nodeId are required');
-  return { canvasId, nodeId };
-}
-
-function requireEstimateArgs(value: EstimateArgs | undefined): {
-  canvasId: string;
-  nodeId: string;
-  providerId: string;
-  providerConfig?: ProviderConfigOverride;
-} {
-  if (!value) throw new Error('canvas:estimateCost request is required');
-  const canvasId = normalizeOptionalString(value.canvasId);
-  const nodeId = normalizeOptionalString(value.nodeId);
-  const providerId = normalizeOptionalString(value.providerId);
-  if (!canvasId || !nodeId || !providerId) {
-    throw new Error('canvasId, nodeId and providerId are required');
-  }
-  return { canvasId, nodeId, providerId, providerConfig: value.providerConfig };
-}
-
-function requireCancelArgs(value: CancelArgs | undefined): {
-  canvasId: string;
-  nodeId: string;
-} {
-  if (!value) throw new Error('canvas:cancelGeneration request is required');
-  const canvasId = normalizeOptionalString(value.canvasId);
-  const nodeId = normalizeOptionalString(value.nodeId);
-  if (!canvasId || !nodeId) throw new Error('canvasId and nodeId are required');
-  return { canvasId, nodeId };
-}
-
-function resolveCharacterEntities(
-  db: SqliteIndex,
-  refs: ImageNodeData['characterRefs'] | undefined,
-): ResolvedCharacter[] {
-  if (!refs?.length) return [];
-  const result: ResolvedCharacter[] = [];
-  for (const ref of refs) {
-    const character = db.getCharacter(ref.characterId);
-    if (!character) continue;
-    const loadout = character.loadouts.find((l) => l.id === ref.loadoutId)
-      ?? character.loadouts.find((l) => l.id === character.defaultLoadoutId);
-    const equipment: Equipment[] = [];
-    if (loadout) {
-      for (const eqId of loadout.equipmentIds) {
-        const eq = db.getEquipment(eqId);
-        if (eq) equipment.push(eq);
-      }
-    }
-    result.push({
-      character,
-      loadout,
-      equipment: equipment.length > 0 ? equipment : undefined,
-      emotion: ref.emotion,
-      costume: ref.costume,
-    });
-  }
-  return result;
-}
-
-function resolveLocationEntities(
-  db: SqliteIndex,
-  refs: LocationRef[] | undefined,
-): Location[] {
-  if (!refs?.length) return [];
-  const result: Location[] = [];
-  for (const ref of refs) {
-    const location = db.getLocation(ref.locationId);
-    if (location) result.push(location);
-  }
-  return result;
-}
-
-function resolveStandaloneEquipment(
-  db: SqliteIndex,
-  refs: Array<EquipmentRef | string> | undefined,
-  resolvedCharacters: ResolvedCharacter[],
-): Equipment[] {
-  if (!refs?.length) return [];
-  const loadoutEquipmentIds = new Set<string>();
-  for (const rc of resolvedCharacters) {
-    if (rc.equipment) {
-      for (const eq of rc.equipment) loadoutEquipmentIds.add(eq.id);
-    }
-  }
-  const result: Equipment[] = [];
-  for (const rawRef of refs) {
-    const eqId = typeof rawRef === 'string' ? rawRef : rawRef.equipmentId;
-    if (loadoutEquipmentIds.has(eqId)) continue;
-    const equipment = db.getEquipment(eqId);
-    if (equipment) result.push(equipment);
-  }
-  return result;
-}
-
-function normalizeOptionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function normalizeErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}

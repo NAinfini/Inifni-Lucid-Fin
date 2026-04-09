@@ -18,6 +18,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { LeftToolbar } from '../components/layout/LeftToolbar.js';
 import { RightToolbar } from '../components/layout/RightToolbar.js';
 import { addLog } from '../store/slices/logger.js';
+import { useClipboardWatcher } from '../hooks/useClipboardWatcher.js';
 
 const AddNodePanel = lazy(() => import('../components/canvas/AddNodePanel.js').then(m => ({ default: m.AddNodePanel })));
 const AssetBrowserPanel = lazy(() => import('../components/canvas/AssetBrowserPanel.js').then(m => ({ default: m.AssetBrowserPanel })));
@@ -66,13 +67,14 @@ function DragHandle({ side, onResize }: { side: 'left' | 'right'; onResize: (del
   return (
     <div
       onMouseDown={onMouseDown}
-      className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 transition-colors"
+      className="w-[3px] shrink-0 cursor-col-resize bg-border/60 hover:bg-primary/30 active:bg-primary/50 transition-colors"
     />
   );
 }
 
 export function CanvasPage() {
   const dispatch = useDispatch<AppDispatch>();
+  useClipboardWatcher();
   const [leftWidth, setLeftWidth] = useState(320);
   const [rightWidth, setRightWidth] = useState(320);
   const { canvases, activeCanvasId, loading } = useSelector(

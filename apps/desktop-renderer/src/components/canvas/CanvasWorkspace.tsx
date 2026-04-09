@@ -5,12 +5,14 @@ import {
   Background,
   MiniMap,
   ConnectionMode,
+  ConnectionLineType,
   useReactFlow,
   type NodeTypes,
   type EdgeTypes,
   type OnNodesChange,
   type OnEdgesChange,
   type OnConnect,
+  type OnReconnect,
   type Node,
   type Edge,
   MarkerType,
@@ -18,7 +20,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import type { RootState } from '../../store/index.js';
+import type { AppDispatch, RootState } from '../../store/index.js';
 import {
   addNode,
   applyCanvasFromCommander,
@@ -47,6 +49,7 @@ import {
   updateNode,
   updateViewport,
   updateContainerSize,
+  reconnectCanvasEdge,
   type CanvasClipboardPayload,
 } from '../../store/slices/canvas.js';
 import {
@@ -82,10 +85,12 @@ import { CanvasSearchPanel } from './CanvasSearchPanel.js';
 import { CanvasToolbar } from './CanvasToolbar.js';
 import { CanvasContextMenu, setContextMenuPosition } from './CanvasContextMenu.js';
 import { useCanvasGeneration } from '../../hooks/useCanvasGeneration.js';
+import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard.js';
 import { debounce } from '../../utils/performance.js';
 import { getAPI } from '../../utils/api.js';
 import { downloadWorkflowDocument } from '../../utils/workflowExport.js';
 import { materializeImportedCanvas, readWorkflowDocument } from '../../utils/workflowImport.js';
+import { buildExternalAIPrompt } from '../../utils/prompt-export.js';
 import { t } from '../../i18n.js';
 import {
   duplicateNode,
@@ -121,6 +126,7 @@ interface NodeContextCallbacks {
   onGenerate: (id: string) => void;
   onLock: (id: string) => void;
   onColorTag: (id: string, color: string | undefined) => void;
+  onCopyPromptForAI: (id: string) => void;
   onUpload: (id: string) => void;
   onSelectVariant: (id: string, index: number) => void;
   onToggleSeedLock: (id: string) => void;
@@ -143,6 +149,12 @@ interface FlowVisualState {
   dimmed: boolean;
 }
 
+function localizePresetName(name: string): string {
+  const key = `presetNames.${name}`;
+  const localized = t(key);
+  return localized !== key ? localized : name;
+}
+
 function firstPresetNameFromCategory(
   data: PresetTrackNodeData,
   category: PresetCategory,
@@ -154,11 +166,14 @@ function firstPresetNameFromCategory(
   if (first.blend) {
     const a = first.presetId ? presetById[first.presetId]?.name : undefined;
     const b = first.blend.presetIdB ? presetById[first.blend.presetIdB]?.name : undefined;
-    if (a && b) return `${a} + ${b}`;
-    return a ?? b ?? null;
+    const la = a ? localizePresetName(a) : undefined;
+    const lb = b ? localizePresetName(b) : undefined;
+    if (la && lb) return `${la} + ${lb}`;
+    return la ?? lb ?? null;
   }
   if (!first.presetId) return null;
-  return presetById[first.presetId]?.name ?? null;
+  const name = presetById[first.presetId]?.name;
+  return name ? localizePresetName(name) : null;
 }
 
 function createNodePayloadFromAsset(asset: DragAssetPayload): {
@@ -533,7 +548,7 @@ function toFlowEdge(
 // ---- Main component --------------------------------------------------------
 
 export function CanvasWorkspace() {
-  const dispatch = useDispatch();
+  const dispatch = useDispatch<AppDispatch>();
   const reactFlow = useReactFlow();
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
   const workflowImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -667,6 +682,31 @@ export function CanvasWorkspace() {
     [dispatch],
   );
 
+  const handleCopyPromptForAI = useCallback(
+    (id: string) => {
+      if (!canvas) return;
+      // targetSummaryByNodeId is computed later in the render, use flowNodes directly
+      const summaries: Record<string, string> = {};
+      for (const node of (canvas.nodes ?? [])) {
+        const presetData = node.data as unknown as { presetTracks?: Record<string, unknown> };
+        if (presetData.presetTracks) {
+          const names: string[] = [];
+          for (const [, track] of Object.entries(presetData.presetTracks)) {
+            const t = track as { entries?: Array<{ presetId?: string }> };
+            if (t.entries?.[0]?.presetId) {
+              const p = presetById[t.entries[0].presetId];
+              if (p?.name) names.push(localizePresetName(p.name));
+            }
+          }
+          if (names.length > 0) summaries[node.id] = names.join(', ');
+        }
+      }
+      const prompt = buildExternalAIPrompt(canvas, id, summaries);
+      void navigator.clipboard.writeText(prompt);
+    },
+    [canvas, presetById],
+  );
+
   const handleNodeColorTag = useCallback(
     (id: string, color: string | undefined) => {
       dispatch(setNodeColorTag({ id, colorTag: color }));
@@ -736,6 +776,7 @@ export function CanvasWorkspace() {
       onGenerate: handleNodeGenerate,
       onLock: handleNodeLock,
       onColorTag: handleNodeColorTag,
+      onCopyPromptForAI: handleCopyPromptForAI,
       onUpload: (id: string) => { void handleNodeUpload(id); },
       onSelectVariant: handleSelectVariant,
       onToggleSeedLock: handleToggleSeedLock,
@@ -755,6 +796,7 @@ export function CanvasWorkspace() {
       handleNodeGenerate,
       handleNodeLock,
       handleNodeColorTag,
+      handleCopyPromptForAI,
       handleNodeUpload,
       handleSelectVariant,
       handleToggleSeedLock,
@@ -1070,6 +1112,27 @@ export function CanvasWorkspace() {
     [dispatch],
   );
 
+  const onReconnect: OnReconnect = useCallback(
+    (oldEdge, newConnection) => {
+      if (!newConnection.source || !newConnection.target) {
+        return;
+      }
+
+      dispatch(
+        reconnectCanvasEdge({
+          edgeId: oldEdge.id,
+          connection: {
+            source: newConnection.source,
+            target: newConnection.target,
+            sourceHandle: newConnection.sourceHandle ?? null,
+            targetHandle: newConnection.targetHandle ?? null,
+          },
+        }),
+      );
+    },
+    [dispatch],
+  );
+
   const onSelectionChange = useCallback(
     ({ nodes, edges }: { nodes: Node[]; edges: Edge[] }) => {
       dispatch(
@@ -1140,6 +1203,36 @@ export function CanvasWorkspace() {
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
+
+      // Handle file drops (.txt, .md) → create text nodes
+      const files = event.dataTransfer.files;
+      if (files.length > 0) {
+        const rfInstance = rfInstanceRef.current;
+        if (!rfInstance) return;
+        const basePos = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+        let offsetY = 0;
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const ext = file.name.split('.').pop()?.toLowerCase();
+          if (ext !== 'txt' && ext !== 'md') continue;
+          const title = file.name.replace(/\.[^.]+$/, '');
+          void file.text().then((content) => {
+            dispatch(
+              addNode({
+                id: crypto.randomUUID(),
+                type: 'text' as CanvasNodeType,
+                title,
+                data: { content },
+                position: { x: basePos.x, y: basePos.y + offsetY },
+              }),
+            );
+          });
+          offsetY += 180;
+        }
+        if (offsetY > 0) return;
+      }
+
+      // Handle asset drops
       const raw = event.dataTransfer.getData('application/x-lucid-asset');
       if (!raw) {
         return;
@@ -1164,7 +1257,7 @@ export function CanvasWorkspace() {
   );
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (event.dataTransfer.types.includes('application/x-lucid-asset')) {
+    if (event.dataTransfer.types.includes('application/x-lucid-asset') || event.dataTransfer.types.includes('Files')) {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
     }
@@ -1193,120 +1286,19 @@ export function CanvasWorkspace() {
 
   // ---- Keyboard shortcuts ---------------------------------------------------
 
-  useEffect(() => {
-    const isEditableTarget = (target: EventTarget | null) => {
-      const element = target as HTMLElement | null;
-      if (!element) return false;
-      return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
-    };
-
-    const handleCopy = async () => {
-      if (!canvas || selectedNodeIds.length === 0) return;
-      const payload = buildClipboardPayload(canvas, selectedNodeIds);
-      if (!payload) return;
-      dispatch(copyNodesAction(selectedNodeIds));
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(
-          JSON.stringify({ type: 'lucid-canvas-selection', payload }),
-        );
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const editable = isEditableTarget(event.target);
-      const mod = event.metaKey || event.ctrlKey;
-
-      if ((event.key === 'Delete' || event.key === 'Backspace') && !editable) {
-        event.preventDefault();
-        if (selectedNodeIds.length > 0) {
-          dispatch(removeNodes(selectedNodeIds));
-        } else if (selectedEdgeIds.length > 0) {
-          dispatch(removeEdges(selectedEdgeIds));
-        }
-        return;
-      }
-
-      if (!mod) {
-        if (event.key === 'Escape') {
-          setConnectingFromNodeId(null);
-          dispatch(clearSelection());
-          dispatch(setSearchPanelOpen(false));
-        }
-        if (!editable) {
-          switch (event.key.toLowerCase()) {
-            case 'd':
-              if (selectedNodeIds.length === 0) return;
-              event.preventDefault();
-              for (const id of selectedNodeIds) dispatch(toggleBypass({ id }));
-              return;
-            case 'g':
-              if (selectedNodeIds.length === 0) return;
-              event.preventDefault();
-              handleNodeGenerate(selectedNodeIds[0]);
-              return;
-            case 'h':
-              event.preventDefault();
-              setDepHighlightLocked((prev) => !prev);
-              return;
-          }
-        }
-        return;
-      }
-
-      switch (event.key.toLowerCase()) {
-        case 'a':
-          if (editable || !canvas) return;
-          event.preventDefault();
-          dispatch(
-            setSelection({
-              nodeIds: canvas.nodes.map((node) => node.id),
-              edgeIds: [],
-            }),
-          );
-          return;
-        case 'c':
-          if (editable || selectedNodeIds.length === 0) return;
-          event.preventDefault();
-          void handleCopy();
-          return;
-        case 'd':
-          if (editable || selectedNodeIds.length === 0) return;
-          event.preventDefault();
-          dispatch(duplicateNodes(selectedNodeIds));
-          return;
-        case 'f':
-          if (editable) return;
-          event.preventDefault();
-          dispatch(setSearchPanelOpen(true));
-          return;
-        case 'l':
-          if (editable || selectedNodeIds.length === 0) return;
-          event.preventDefault();
-          for (const id of selectedNodeIds) dispatch(toggleLock({ id }));
-          return;
-        case 'v':
-          if (editable) return;
-          event.preventDefault();
-          void handlePaste();
-          return;
-        case 'z':
-          if (editable) return;
-          event.preventDefault();
-          if (event.shiftKey) handleRedo(); else handleUndo();
-          return;
-        case 'y':
-          if (editable) return;
-          event.preventDefault();
-          handleRedo();
-          return;
-        default:
-          return;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canvas, dispatch, handleNodeGenerate, handlePaste, handleUndo, handleRedo, selectedEdgeIds, selectedNodeIds]);
+  useCanvasKeyboard({
+    canvas,
+    dispatch,
+    selectedNodeIds,
+    selectedEdgeIds,
+    setConnectingFromNodeId,
+    setDepHighlightLocked,
+    handleNodeGenerate,
+    handlePaste,
+    handleUndo,
+    handleRedo,
+    buildClipboardPayload,
+  });
 
   // ---- Context menu position tracking ---------------------------------------
 
@@ -1457,6 +1449,7 @@ export function CanvasWorkspace() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onReconnect={onReconnect}
           onSelectionChange={onSelectionChange}
           onNodeClick={onNodeClick}
           onEdgeClick={(_event, edge) => {
@@ -1488,12 +1481,14 @@ export function CanvasWorkspace() {
           selectionOnDrag
           panOnDrag={[1, 2]}
           elementsSelectable={true}
+          edgesReconnectable
           connectionMode={ConnectionMode.Loose}
+          connectionLineType={ConnectionLineType.SmoothStep}
           defaultEdgeOptions={{
             type: 'link',
             markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
           }}
-          className="bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.08),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.08),transparent_28%),hsl(var(--background))]"
+          className="bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.04),transparent_40%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.04),transparent_35%),hsl(var(--background))]"
         >
           <Background gap={16} size={1} color="hsl(var(--border))" />
           {minimapVisible ? (

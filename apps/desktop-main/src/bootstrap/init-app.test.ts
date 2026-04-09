@@ -1,6 +1,24 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LLMAdapter } from '@lucid-fin/contracts';
 import type { Keychain } from '@lucid-fin/storage';
+
+const logger = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+}));
+
+vi.mock('../logger.js', () => ({
+  default: logger,
+  debug: logger.debug,
+  info: logger.info,
+  warn: logger.warn,
+  error: logger.error,
+  fatal: logger.fatal,
+}));
+
 import {
   createAdapterRegistry,
   createLLMRegistry,
@@ -22,12 +40,23 @@ function makeAdapter(id: string, configured: boolean): LLMAdapter {
   } as unknown as LLMAdapter;
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe('selectConfiguredLLMAdapter', () => {
   it('returns the first configured adapter, not the first registered one', async () => {
     const openai = makeAdapter('openai', false);
     const claude = makeAdapter('claude', true);
 
     await expect(selectConfiguredLLMAdapter([openai, claude])).resolves.toBe(claude);
+    expect(logger.info).toHaveBeenCalledWith(
+      'Selected configured LLM adapter',
+      expect.objectContaining({
+        category: 'provider',
+        adapterId: 'claude',
+      }),
+    );
   });
 
   it('throws when no adapter is configured', async () => {
@@ -36,6 +65,30 @@ describe('selectConfiguredLLMAdapter', () => {
 
     await expect(selectConfiguredLLMAdapter([openai, claude])).rejects.toThrow(
       'No configured LLM adapter',
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      'No configured LLM adapters found',
+      expect.objectContaining({
+        category: 'provider',
+        adapterCount: 2,
+      }),
+    );
+  });
+
+  it('logs validate exceptions with provider category and keeps searching', async () => {
+    const openai = makeAdapter('openai', false);
+    openai.validate = vi.fn().mockRejectedValue(new Error('boom'));
+    const claude = makeAdapter('claude', true);
+
+    await expect(selectConfiguredLLMAdapter([openai, claude])).resolves.toBe(claude);
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'adapter.validate() threw',
+      expect.objectContaining({
+        category: 'provider',
+        adapterId: 'openai',
+        error: 'Error: boom',
+      }),
     );
   });
 });
@@ -49,7 +102,6 @@ describe('createAdapterRegistry', () => {
       'elevenlabs-sfx',
       'elevenlabs-v2',
       'fish-audio-v1',
-      'flux',
       'google-imagen3',
       'google-veo-2',
       'hunyuan-video',
@@ -62,6 +114,7 @@ describe('createAdapterRegistry', () => {
       'pika-v2',
       'playht-3',
       'recraft-v3',
+      'replicate',
       'runway-gen4',
       'seedance-2',
       'stability-audio-v2',
@@ -101,6 +154,18 @@ describe('resolveMediaProviderIds', () => {
     );
     expect(resolveMediaProviderIds('google-veo-2')).toEqual(
       expect.arrayContaining(['google-veo-2', 'google-video']),
+    );
+    expect(resolveMediaProviderIds('runway-gen4')).toEqual(
+      expect.arrayContaining(['runway-gen4', 'runway']),
+    );
+    expect(resolveMediaProviderIds('luma-ray2')).toEqual(
+      expect.arrayContaining(['luma-ray2', 'luma']),
+    );
+    expect(resolveMediaProviderIds('minimax-video01')).toEqual(
+      expect.arrayContaining(['minimax-video01', 'minimax']),
+    );
+    expect(resolveMediaProviderIds('pika-v2')).toEqual(
+      expect.arrayContaining(['pika-v2', 'pika']),
     );
     expect(resolveMediaProviderIds('recraft-v3')).toEqual(
       expect.arrayContaining(['recraft-v3', 'recraft-v4', 'recraft']),

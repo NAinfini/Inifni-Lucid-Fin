@@ -12,6 +12,7 @@
     "build": "npm run build --workspaces --if-present",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
+    "test:coverage:critical": "vitest run --root apps/desktop-main src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/canvas-generation.handlers.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/workflow.handlers.test.ts src/ipc/handlers/job.handlers.test.ts --coverage",
     "predev": "npx @electron/rebuild -f -w better-sqlite3",
     "postinstall": "npx @electron/rebuild -m .",
     "lint": "eslint .",

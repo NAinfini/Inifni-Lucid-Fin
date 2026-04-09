@@ -1,14 +1,16 @@
 import { memo } from 'react';
-import { Handle, Position, NodeResizer, type NodeProps } from '@xyflow/react';
-import { cn } from '../../../lib/utils.js';
+import type { NodeProps } from '@xyflow/react';
+import { getProviderDisplayName } from '../../../utils/provider-names.js';
 import { t } from '../../../i18n.js';
 import { Volume2, Sparkles, Lock, Unlock } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
-import { CanvasNodeTooltip } from '../CanvasNodeTooltip.js';
 import { WaveformPlayer } from '../../audio/WaveformPlayer.js';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
+import { cn } from '../../../lib/utils.js';
 import type { NodeStatus } from '@lucid-fin/contracts';
+import { NodeBorderHandles } from './node-border-handles.js';
+import { NodeResizeControls } from './node-resize-controls.js';
 
 export interface AudioNodeFlowData {
   nodeId: string;
@@ -77,32 +79,23 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
       onGenerate={d.onGenerate ?? (() => {})}
       onColorTag={d.onColorTag ?? (() => {})}
     >
-      <CanvasNodeTooltip
-        title={d.title || t('node.audioNode')}
-        subtitle={AUDIO_TYPE_LABELS[d.audioType] ?? d.audioType}
-        items={[
-          { label: t('node.status'), value: d.generationStatus },
-          { label: t('node.variants'), value: d.variants.length || d.variantCount || 0 },
-          { label: t('node.seed'), value: d.seed ?? '-' },
-          { label: t('node.cost'), value: typeof d.estimatedCost === 'number' ? `$${d.estimatedCost.toFixed(2)}` : '-' },
-        ]}
-      >
+      <div className="relative min-w-[200px]">
+        <NodeBorderHandles colorClassName="!bg-green-500" />
+        <NodeResizeControls
+          minWidth={200}
+          minHeight={120}
+          isVisible={selected}
+          className="!h-2.5 !w-2.5 !border-background !bg-green-400"
+        />
         <div
           className={cn(
-            'relative rounded-lg border-2 bg-card shadow-md min-w-[200px]',
+            'relative rounded-md border bg-card shadow-sm min-w-[200px]',
             'transition-shadow',
-            selected ? 'border-green-400 ring-[3px] ring-green-400/50' : 'border-green-500/40',
+            selected ? 'border-green-400 ring-2 ring-green-400/40' : 'border-green-500/30',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}
         >
-          <NodeResizer
-            minWidth={200}
-            minHeight={120}
-            isVisible={selected}
-            lineClassName="!border-green-400/60"
-            handleClassName="!h-2.5 !w-2.5 !border-background !bg-green-400"
-          />
           <NodeStatusBadge status={d.status} />
           {typeof d.estimatedCost === 'number' && (
             <div className="absolute right-1 top-1 z-20 rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-300">
@@ -119,6 +112,7 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
             <span className="flex-1 truncate text-xs font-medium">
               {d.title || t('node.audioNode')}
             </span>
+            {d.providerId && <span className="text-[9px] text-muted-foreground/70">{getProviderDisplayName(d.providerId)}</span>}
             <span className="rounded bg-green-500/10 px-1.5 text-[10px] text-green-400">
               {AUDIO_TYPE_LABELS[d.audioType] ?? d.audioType}
             </span>
@@ -186,7 +180,7 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
             </div>
           )}
 
-          <div className="flex items-center gap-1 border-t border-green-500/20 px-3 py-1.5">
+          <div className="flex items-center gap-1 border-t border-green-500/20 px-3 py-1.5 nopan nodrag">
             <button
               className="flex items-center gap-1 rounded bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400 transition-colors hover:bg-green-500/20"
               aria-label={t('node.generate')}
@@ -210,32 +204,8 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
             </span>
           </div>
 
-          <Handle
-            type="source"
-            position={Position.Top}
-            id="top"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-green-500"
-          />
-          <Handle
-            type="source"
-            position={Position.Right}
-            id="right"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-green-500"
-          />
-          <Handle
-            type="source"
-            position={Position.Bottom}
-            id="bottom"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-green-500"
-          />
-          <Handle
-            type="source"
-            position={Position.Left}
-            id="left"
-            className="!h-2.5 !w-2.5 !border-2 !border-background !bg-green-500"
-          />
         </div>
-      </CanvasNodeTooltip>
+      </div>
     </NodeContextMenu>
   );
 }

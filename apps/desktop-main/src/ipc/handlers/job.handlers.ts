@@ -2,6 +2,7 @@ import type { IpcMain, BrowserWindow } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { GenerationRequest } from '@lucid-fin/contracts';
 import type { JobQueue } from '@lucid-fin/application';
+import log from '../../logger.js';
 
 export function registerJobHandlers(
   ipcMain: IpcMain,
@@ -13,6 +14,14 @@ export function registerJobHandlers(
     'job:submit',
     async (_e, args: GenerationRequest & { projectId: string; segmentId?: string }) => {
       const jobId = queue.submit(args);
+      log.info('Job submitted', {
+        category: 'job',
+        jobId,
+        projectId: args.projectId,
+        providerId: args.providerId,
+        generationType: args.type,
+        segmentId: args.segmentId,
+      });
       return { jobId };
     },
   );
@@ -22,14 +31,26 @@ export function registerJobHandlers(
   });
 
   ipcMain.handle('job:cancel', async (_e, args: { jobId: string }) => {
+    log.info('Job cancel requested', {
+      category: 'job',
+      jobId: args.jobId,
+    });
     queue.cancel(args.jobId);
   });
 
   ipcMain.handle('job:pause', async (_e, args: { jobId: string }) => {
+    log.info('Job pause requested', {
+      category: 'job',
+      jobId: args.jobId,
+    });
     queue.pause(args.jobId);
   });
 
   ipcMain.handle('job:resume', async (_e, args: { jobId: string }) => {
+    log.info('Job resume requested', {
+      category: 'job',
+      jobId: args.jobId,
+    });
     queue.resume(args.jobId);
   });
 

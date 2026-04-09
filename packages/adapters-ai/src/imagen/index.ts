@@ -19,7 +19,7 @@ const ASPECT_RATIO_MAP: Record<string, string> = {
 
 export class GoogleImagen3Adapter implements AIProviderAdapter {
   readonly id = 'google-imagen3';
-  readonly name = 'Google Imagen 3';
+  readonly name = 'Google Imagen 4';
   readonly type: AdapterType = 'image';
   readonly capabilities: Capability[] = ['text-to-image'];
   readonly maxConcurrent = 5;

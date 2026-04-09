@@ -52,16 +52,16 @@ export function CanvasSearchPanel({
   );
 
   return (
-    <div className="absolute left-4 top-4 z-30 w-80 rounded-2xl border border-border/80 bg-card/95 p-4 shadow-2xl backdrop-blur">
-      <div className="flex items-center gap-2">
-        <div className="flex h-9 flex-1 items-center gap-2 rounded-xl border border-border bg-background px-3">
-          <Search className="h-4 w-4 text-muted-foreground" />
+    <div className="absolute left-3 top-3 z-30 w-72 rounded-md border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-sm">
+      <div className="flex items-center gap-1.5">
+        <div className="flex h-7 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
             autoFocus
             value={canvasSearchQuery}
             onChange={(event) => dispatch(setCanvasSearchQuery(event.target.value))}
             placeholder={t('canvas.searchPlaceholder')}
-            className="h-full w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="h-full w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
@@ -70,37 +70,37 @@ export function CanvasSearchPanel({
             }}
           />
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center">
           <button
             type="button"
             onClick={() => navigateTo(currentIndex - 1)}
             disabled={matchedNodeIds.length === 0}
             aria-label={t('search.previousMatch')}
-            className="inline-flex h-9 w-7 items-center justify-center rounded-l-xl border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            className="inline-flex h-7 w-6 items-center justify-center rounded-l-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
-            <ChevronUp className="h-4 w-4" />
+            <ChevronUp className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
             onClick={() => navigateTo(currentIndex + 1)}
             disabled={matchedNodeIds.length === 0}
             aria-label={t('search.nextMatch')}
-            className="inline-flex h-9 w-7 items-center justify-center rounded-r-xl border border-l-0 border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            className="inline-flex h-7 w-6 items-center justify-center rounded-r-md border border-l-0 border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
           >
-            <ChevronDown className="h-4 w-4" />
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
         <button
           type="button"
           onClick={() => dispatch(setSearchPanelOpen(false))}
           aria-label={t('canvas.closeSearch')}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          <X className="h-4 w-4" />
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
 
-      <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+      <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
         <span>{t('canvas.searchResults')}</span>
         <span>
           {matchedNodeIds.length > 0 && currentIndex >= 0
@@ -110,12 +110,12 @@ export function CanvasSearchPanel({
         </span>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-2.5 space-y-2">
         <div>
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground">
             {t('canvas.filterByType')}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1">
             {NODE_FILTERS.map((filter) => {
               const active = canvasTypeFilters.includes(filter);
               return (
@@ -124,7 +124,7 @@ export function CanvasSearchPanel({
                   type="button"
                   onClick={() => dispatch(toggleCanvasTypeFilter(filter))}
                   className={cn(
-                    'rounded-full border px-3 py-1.5 text-xs transition-colors',
+                    'rounded-md border px-2 py-1 text-[11px] transition-colors',
                     active
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
@@ -138,10 +138,10 @@ export function CanvasSearchPanel({
         </div>
 
         <div>
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.15em] text-muted-foreground">
             {t('canvas.filterByStatus')}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1">
             {STATUS_FILTERS.map((filter) => {
               const active = canvasStatusFilters.includes(filter);
               return (
@@ -150,7 +150,7 @@ export function CanvasSearchPanel({
                   type="button"
                   onClick={() => dispatch(toggleCanvasStatusFilter(filter))}
                   className={cn(
-                    'rounded-full border px-3 py-1.5 text-xs transition-colors',
+                    'rounded-md border px-2 py-1 text-[11px] transition-colors',
                     active
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
@@ -164,11 +164,11 @@ export function CanvasSearchPanel({
         </div>
       </div>
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-2.5 flex justify-end">
         <button
           type="button"
           onClick={() => dispatch(clearCanvasSearch())}
-          className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+          className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
         >
           {t('canvas.clearFilters')}
         </button>

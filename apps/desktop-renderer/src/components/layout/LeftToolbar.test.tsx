@@ -2,10 +2,10 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { t } from '../../i18n.js';
 import { canvasSlice } from '../../store/slices/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
@@ -54,6 +54,10 @@ function renderToolbar(pathname = '/') {
 }
 
 describe('LeftToolbar', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it('toggles sidebar panels and marks the active item as pressed', () => {
     renderToolbar('/');
 

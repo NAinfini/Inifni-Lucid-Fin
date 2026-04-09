@@ -14,6 +14,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        entryFileNames: 'assets/[name].js',
+        chunkFileNames: 'assets/[name].js',
+        assetFileNames: 'assets/[name][extname]',
         manualChunks(id) {
           if (id.includes('@xyflow/react') || id.includes('reactflow')) return 'vendor-reactflow';
           if (id.includes('node_modules')) return 'vendor';

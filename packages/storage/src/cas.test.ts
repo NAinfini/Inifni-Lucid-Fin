@@ -67,4 +67,18 @@ describe('CAS', () => {
     const { ref } = await cas.importAsset(srcFile, 'image');
     expect(ref.path).toContain('my-project');
   });
+
+  it('deletes imported asset files and metadata by hash', async () => {
+    const { ref } = await cas.importAsset(srcFile, 'image');
+    const assetDir = path.dirname(ref.path);
+    const metaPath = path.join(assetDir, `${ref.hash}.meta.json`);
+
+    expect(fs.existsSync(ref.path)).toBe(true);
+    expect(fs.existsSync(metaPath)).toBe(true);
+
+    cas.deleteAsset(ref.hash);
+
+    expect(fs.existsSync(ref.path)).toBe(false);
+    expect(fs.existsSync(metaPath)).toBe(false);
+  });
 });

@@ -4,7 +4,7 @@ import { parseAdapterError } from '../error-utils.js';
 export function toRunwayRequest(req: GenerationRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     promptText: req.prompt,
-    model: 'gen4_turbo',
+    model: 'gen4.5',
     ratio: `${req.width ?? 1280}:${req.height ?? 768}`,
     duration: req.duration ?? 5,
   };

@@ -13,6 +13,18 @@ export interface Asset {
   global: boolean;
   size: number;
   createdAt: number;
+  /** File format/extension (e.g. "png", "mp4") */
+  format?: string;
+  /** Pixel width (images/video) */
+  width?: number;
+  /** Pixel height (images/video) */
+  height?: number;
+  /** Duration in seconds (video/audio) */
+  duration?: number;
+  /** AI provider that generated this asset */
+  provider?: string;
+  /** Original generation prompt */
+  prompt?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -39,7 +51,13 @@ export const assetsSlice = createSlice({
   initialState,
   reducers: {
     setAssets(state, action: PayloadAction<Asset[]>) {
-      state.items = action.payload;
+      // Deduplicate by hash — keep first occurrence
+      const seen = new Set<string>();
+      state.items = action.payload.filter((a) => {
+        if (seen.has(a.hash)) return false;
+        seen.add(a.hash);
+        return true;
+      });
     },
 
     addAsset(state, action: PayloadAction<Asset>) {

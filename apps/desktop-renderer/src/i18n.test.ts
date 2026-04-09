@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { t, setLocale, getLocale, onLocaleChange, getAvailableLocales, messages } from './i18n.js';
+import { zhCNMessages } from './i18n.messages.zh-CN.js';
+import { enUSMessages } from './i18n.messages.en-US.js';
 
 describe('i18n', () => {
   beforeEach(() => {
@@ -107,6 +109,11 @@ describe('i18n', () => {
       const enEntries = flattenLeafEntries(messages['en-US']);
       const entriesWithCjk = enEntries.filter((entry) => /[\u4e00-\u9fff]/u.test(entry.value));
       expect(entriesWithCjk).toEqual([]);
+    });
+
+    it('assembles translations from locale-specific modules', () => {
+      expect(messages['zh-CN']).toBe(zhCNMessages);
+      expect(messages['en-US']).toBe(enUSMessages);
     });
   });
 });

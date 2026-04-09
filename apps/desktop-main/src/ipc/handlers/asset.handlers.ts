@@ -1,9 +1,50 @@
 import type { IpcMain } from 'electron';
 import { dialog } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { AssetType } from '@lucid-fin/contracts';
+import log from '../../logger.js';
 import { getCurrentProjectId } from '../project-context.js';
 import { assertValidAssetType } from '../validation.js';
+
+const FALLBACK_EXTS: Record<string, string[]> = {
+  image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
+  video: ['mp4', 'webm', 'mov', 'avi', 'mkv', 'bin'],
+  audio: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'],
+};
+
+function findAssetFile(cas: CAS, hash: string, type: AssetType, requestedFormat?: string): string | null {
+  // 1. Try meta.json for actual format
+  let ext = requestedFormat || (type === 'video' ? 'mp4' : type === 'audio' ? 'mp3' : 'png');
+  try {
+    const metaPath = cas.getAssetPath(hash, type, 'meta.json');
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { format?: string };
+    if (meta.format) ext = meta.format;
+  } catch { /* meta.json not found */ }
+
+  // 2. Try exact path
+  const exactPath = cas.getAssetPath(hash, type, ext);
+  if (fs.existsSync(exactPath)) return exactPath;
+
+  // 3. Try fallback extensions for same type
+  for (const tryExt of (FALLBACK_EXTS[type] ?? [])) {
+    if (tryExt === ext) continue;
+    const tryPath = cas.getAssetPath(hash, type, tryExt);
+    if (fs.existsSync(tryPath)) return tryPath;
+  }
+
+  // 4. Try other asset type directories
+  for (const tryType of ['image', 'video', 'audio'] as const) {
+    if (tryType === type) continue;
+    for (const tryExt of (FALLBACK_EXTS[tryType] ?? [])) {
+      const tryPath = cas.getAssetPath(hash, tryType, tryExt);
+      if (fs.existsSync(tryPath)) return tryPath;
+    }
+  }
+
+  return null;
+}
 
 const ASSET_FILTERS: Record<string, Electron.FileFilter[]> = {
   image: [
@@ -28,6 +69,13 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     const { ref, meta } = await cas.importAsset(args.filePath, args.type);
     const projectId = getCurrentProjectId();
     db.insertAsset({ ...meta, projectId: projectId ?? undefined });
+    log.info('Asset imported', {
+      category: 'asset',
+      type: args.type,
+      filePath: args.filePath,
+      projectId: projectId ?? undefined,
+      hash: ref.hash,
+    });
     return ref;
   });
 
@@ -38,11 +86,24 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       properties: ['openFile'],
       filters,
     });
-    if (result.canceled || result.filePaths.length === 0) return null;
+    if (result.canceled || result.filePaths.length === 0) {
+      log.info('Asset picker cancelled', {
+        category: 'asset',
+        type: args.type,
+      });
+      return null;
+    }
     const filePath = result.filePaths[0];
     const { ref, meta } = await cas.importAsset(filePath, args.type);
     const projectId = getCurrentProjectId();
     db.insertAsset({ ...meta, projectId: projectId ?? undefined });
+    log.info('Asset picked and imported', {
+      category: 'asset',
+      type: args.type,
+      filePath,
+      projectId: projectId ?? undefined,
+      hash: ref.hash,
+    });
     return ref;
   });
 
@@ -72,6 +133,106 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       assertValidAssetType(args.type);
       const filePath = cas.getAssetPath(args.hash, args.type, args.ext || 'png');
       return filePath;
+    },
+  );
+
+  ipcMain.handle(
+    'asset:delete',
+    async (_e, args: { hash: string }) => {
+      if (!args.hash || typeof args.hash !== 'string') throw new Error('hash is required');
+      cas.deleteAsset(args.hash);
+      db.deleteAsset(args.hash);
+      log.info('Asset deleted', {
+        category: 'asset',
+        hash: args.hash,
+        projectId: getCurrentProjectId() ?? undefined,
+      });
+      return { success: true };
+    },
+  );
+
+  ipcMain.handle(
+    'asset:export',
+    async (_e, args: { hash: string; type: AssetType; format: string; name?: string }) => {
+      if (!args.hash || typeof args.hash !== 'string') throw new Error('hash is required');
+      assertValidAssetType(args.type);
+
+      try {
+        const sourcePath = findAssetFile(cas, args.hash, args.type, args.format);
+        if (!sourcePath) {
+          throw new Error(`Asset file not found: ${args.hash}`);
+        }
+        const ext = path.extname(sourcePath).slice(1) || args.format;
+        const defaultName = args.name ? `${args.name.replace(/\.[^.]+$/, '')}.${ext}` : `${args.hash.slice(0, 12)}.${ext}`;
+        const filters = ASSET_FILTERS[args.type] ?? [{ name: 'All Files', extensions: ['*'] }];
+        const result = await dialog.showSaveDialog({ defaultPath: defaultName, filters });
+        if (result.canceled || !result.filePath) {
+          log.info('Asset export cancelled', {
+            category: 'asset',
+            hash: args.hash,
+            type: args.type,
+            format: args.format,
+          });
+          return null;
+        }
+        fs.copyFileSync(sourcePath, result.filePath);
+        log.info('Asset export completed', {
+          category: 'asset',
+          hash: args.hash,
+          type: args.type,
+          format: args.format,
+          sourcePath,
+          destinationPath: result.filePath,
+        });
+        return { success: true, path: result.filePath };
+      } catch (error) {
+        log.error('Asset export failed', {
+          category: 'asset',
+          hash: args.hash,
+          type: args.type,
+          format: args.format,
+          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+        });
+        throw error;
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'asset:exportBatch',
+    async (_e, args: { items: Array<{ hash: string; type: AssetType; name?: string }> }) => {
+      if (!Array.isArray(args?.items) || args.items.length === 0) throw new Error('items required');
+
+      const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+      if (result.canceled || result.filePaths.length === 0) {
+        log.info('Asset batch export cancelled', {
+          category: 'asset',
+          requestedCount: args.items.length,
+        });
+        return null;
+      }
+      const outputDir = result.filePaths[0];
+
+      const exported: string[] = [];
+      for (const item of args.items) {
+        assertValidAssetType(item.type);
+        const sourcePath = findAssetFile(cas, item.hash, item.type);
+        if (!sourcePath) continue;
+
+        const ext = path.extname(sourcePath).slice(1) || 'bin';
+        const fileName = item.name ? `${item.name.replace(/\.[^.]+$/, '')}.${ext}` : `${item.hash.slice(0, 12)}.${ext}`;
+        const destPath = path.join(outputDir, fileName);
+        fs.copyFileSync(sourcePath, destPath);
+        exported.push(destPath);
+      }
+      log.info('Asset batch export completed', {
+        category: 'asset',
+        requestedCount: args.items.length,
+        exportedCount: exported.length,
+        skippedCount: args.items.length - exported.length,
+        outputDir,
+      });
+      return { success: true, count: exported.length, directory: outputDir };
     },
   );
 }

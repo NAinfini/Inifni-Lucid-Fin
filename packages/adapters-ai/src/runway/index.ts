@@ -21,7 +21,7 @@ import {
 
 export class RunwayAdapter implements AIProviderAdapter {
   readonly id = 'runway-gen4';
-  readonly name = 'Runway Gen-4';
+  readonly name = 'Runway Gen-4.5';
   readonly type: AdapterType = 'video';
   readonly capabilities: Capability[] = ['text-to-video', 'image-to-video'];
   readonly maxConcurrent = 3;
@@ -34,7 +34,7 @@ export class RunwayAdapter implements AIProviderAdapter {
   } as const;
 
   private apiKey = '';
-  private baseUrl = 'https://api.runwayml.com/v1';
+  private baseUrl = 'https://api.dev.runwayml.com/v1';
   private pollIntervalMs = 2_000;
 
   configure(apiKey: string, options?: Record<string, unknown>): void {

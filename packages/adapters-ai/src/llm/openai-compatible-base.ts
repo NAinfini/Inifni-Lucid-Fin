@@ -129,6 +129,10 @@ function buildOpenAICompatibleBaseUrlCandidates(baseUrl: string): string[] {
   return Array.from(candidates);
 }
 
+function usesOpenAIReasoningChatCompatibility(model: string): boolean {
+  return /^(gpt-5|o1|o3|o4)/i.test(model.trim());
+}
+
 /**
  * Base class for all OpenAI-compatible LLM adapters.
  * DeepSeek, Qwen, Grok, and OpenAI itself all share this chat/completions format.
@@ -177,17 +181,25 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           return true;
         }
 
-        const fallback = await fetch(`${candidate}/chat/completions`, {
+      const fallback = await fetch(`${candidate}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...this.authHeaders(),
           },
-          body: JSON.stringify({
+          body: JSON.stringify(
+            usesOpenAIReasoningChatCompatibility(this.model)
+              ? {
+                  model: this.model,
+                  messages: [{ role: 'user', content: 'hi' }],
+                  max_completion_tokens: 1,
+                }
+              : {
                   model: this.model,
                   messages: [{ role: 'user', content: 'hi' }],
                   max_tokens: 1,
-                }),
+                },
+          ),
         });
         if (fallback.ok) {
           this.baseUrl = candidate;
@@ -290,9 +302,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     }
 
     if (!extractedContent && toolCalls.length === 0) {
-      if (finishReason !== 'stop' && finishReason !== 'end_turn') {
-        throw this.buildEmptyAssistantResponseError(result, raw, finishReason, toolCalls.length);
-      }
+      throw this.buildEmptyAssistantResponseError(result, raw, finishReason, toolCalls.length);
     }
 
     return {
@@ -332,9 +342,14 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       }),
       stream: streaming,
     };
-    body.max_tokens = opts?.maxTokens ?? 4096;
-    body.temperature = opts?.temperature ?? 0.7;
-    if (opts?.topP !== undefined) body.top_p = opts.topP;
+    const usesReasoningCompatibility = usesOpenAIReasoningChatCompatibility(this.model);
+    if (usesReasoningCompatibility) {
+      body.max_completion_tokens = opts?.maxTokens ?? 4096;
+    } else {
+      body.max_tokens = opts?.maxTokens ?? 4096;
+      body.temperature = opts?.temperature ?? 0.7;
+      if (opts?.topP !== undefined) body.top_p = opts.topP;
+    }
     if (opts?.stop !== undefined) body.stop = opts.stop;
 
     // OpenAI-compatible APIs require tool names matching ^[a-zA-Z0-9_-]+$

@@ -11,10 +11,11 @@ import {
   settingsSlice,
   type SettingsState,
 } from '../store/slices/settings.js';
-import { promptTemplatesSlice } from '../store/slices/promptTemplates.js';
+import { promptTemplatesSlice, setCustomContent } from '../store/slices/promptTemplates.js';
 import { uiSlice } from '../store/slices/ui.js';
+import { workflowDefinitionsSlice } from '../store/slices/workflowDefinitions.js';
 import { getAPI } from '../utils/api.js';
-import { setLocale } from '../i18n.js';
+import { setLocale, t } from '../i18n.js';
 
 vi.mock('../utils/api.js', () => ({ getAPI: vi.fn(() => null) }));
 
@@ -30,9 +31,30 @@ function createStore(preloadedSettings?: SettingsState) {
       settings: settingsSlice.reducer,
       promptTemplates: promptTemplatesSlice.reducer,
       ui: uiSlice.reducer,
+      workflowDefinitions: workflowDefinitionsSlice.reducer,
     },
     preloadedState: preloadedSettings ? { settings: preloadedSettings } : undefined,
   });
+}
+
+function renderSettings(store = createStore()) {
+  render(
+    <Provider store={store}>
+      <MemoryRouter>
+        <Settings />
+      </MemoryRouter>
+    </Provider>,
+  );
+
+  return store;
+}
+
+function findProviderCard(title: string): HTMLElement {
+  const card = screen.getAllByText(new RegExp(`^${title}$`))[0]?.closest('div.rounded-md.border');
+  if (!(card instanceof HTMLElement)) {
+    throw new Error(`Could not find provider card for ${title}`);
+  }
+  return card;
 }
 
 describe('Settings updater UI', () => {
@@ -56,13 +78,7 @@ describe('Settings updater UI', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    render(
-      <Provider store={createStore()}>
-        <MemoryRouter>
-          <Settings />
-        </MemoryRouter>
-      </Provider>,
-    );
+    renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: 'About' }));
 
@@ -73,7 +89,7 @@ describe('Settings updater UI', () => {
     });
   });
 
-  it('shows a workflows placeholder panel from the sidebar navigation', async () => {
+  it('shows the workflows management surface from the sidebar navigation', async () => {
     vi.mocked(getAPI).mockReturnValue({
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
@@ -87,21 +103,141 @@ describe('Settings updater UI', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    render(
-      <Provider store={createStore()}>
-        <MemoryRouter>
-          <Settings />
-        </MemoryRouter>
-      </Provider>,
-    );
+    renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
 
     await waitFor(() => {
       expect(screen.getAllByText('Workflows & Skills').length).toBeGreaterThan(0);
-      expect(
-        screen.getByText('Workflow and skill management will land here in the next step.'),
-      ).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Add Workflow' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Add Skill' })).toBeTruthy();
+    });
+  });
+
+  it('saves renamed skill templates from the workflows settings tab', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Workflows & Skills').length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByText('Style Transfer').closest('button')!);
+
+    const nameInput = await screen.findByDisplayValue('Style Transfer');
+    fireEvent.change(nameInput, { target: { value: 'Style Adaptation' } });
+
+    const skillContentEditor = screen
+      .getAllByRole('textbox')
+      .find((element) => element.tagName === 'TEXTAREA');
+    expect(skillContentEditor).toBeTruthy();
+
+    fireEvent.change(skillContentEditor as HTMLElement, {
+      target: { value: 'Custom skill content' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const updatedTemplate = store
+      .getState()
+      .promptTemplates.templates.find((template) => template.id === 'style-transfer');
+
+    expect(updatedTemplate).toEqual(
+      expect.objectContaining({
+        id: 'style-transfer',
+        name: 'Style Adaptation',
+        customContent: 'Custom skill content',
+      }),
+    );
+  });
+
+  it('saves renamed prompt templates from the prompt templates tab', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prompt Templates' }));
+    fireEvent.click(screen.getByText('Meta-Prompt (AI Instructor)').closest('button')!);
+
+    const nameInput = await screen.findByDisplayValue('Meta-Prompt (AI Instructor)');
+    fireEvent.change(nameInput, { target: { value: 'Director Notes' } });
+
+    const contentEditor = screen
+      .getAllByRole('textbox')
+      .find((element) => element.tagName === 'TEXTAREA');
+    expect(contentEditor).toBeTruthy();
+
+    fireEvent.change(contentEditor as HTMLElement, {
+      target: { value: 'Custom prompt template content' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    const updatedTemplate = store
+      .getState()
+      .promptTemplates.templates.find((template) => template.id === 'meta-prompt');
+
+    expect(updatedTemplate).toEqual(
+      expect.objectContaining({
+        id: 'meta-prompt',
+        name: 'Director Notes',
+        customContent: 'Custom prompt template content',
+      }),
+    );
+    expect(screen.getByText('Director Notes')).toBeTruthy();
+  });
+
+  it('shows customized badges for prompt templates and skill templates in zh-CN', async () => {
+    setLocale('zh-CN');
+
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = createStore();
+    store.dispatch(setCustomContent({ id: 'meta-prompt', content: 'customized system prompt' }));
+    store.dispatch(setCustomContent({ id: 'style-transfer', content: 'customized skill prompt' }));
+
+    renderSettings(store);
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.promptTemplates') }));
+    expect(screen.getAllByText(t('settings.customized')).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.workflows') }));
+    await waitFor(() => {
+      expect(screen.getAllByText(t('settings.customized')).length).toBeGreaterThan(0);
     });
   });
 
@@ -127,13 +263,7 @@ describe('Settings updater UI', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    render(
-      <Provider store={createStore()}>
-        <MemoryRouter>
-          <Settings />
-        </MemoryRouter>
-      </Provider>,
-    );
+    renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: 'About' }));
 
@@ -170,30 +300,20 @@ describe('Settings updater UI', () => {
       openExternal,
     } as unknown as ReturnType<typeof getAPI>);
 
-    render(
-      <Provider store={createStore()}>
-        <MemoryRouter>
-          <Settings />
-        </MemoryRouter>
-      </Provider>,
-    );
+    renderSettings();
 
     await waitFor(() => {
-      expect(screen.getAllByText('Official Providers')).toHaveLength(4);
-      expect(screen.getAllByText('API Hubs')).toHaveLength(4);
+      expect(screen.getAllByText('Official Providers')).toHaveLength(1);
+      expect(screen.getAllByText('API Hubs')).toHaveLength(1);
     });
 
     expect(screen.queryAllByLabelText('Active')).toHaveLength(0);
 
-    const openRouterCard = screen.getByText('OpenRouter').closest('div.rounded-xl');
-    expect(openRouterCard).toBeTruthy();
-
-    fireEvent.click(
-      openRouterCard!.querySelector('button[aria-label="Expand"]') as HTMLButtonElement,
-    );
+    const openRouterCard = findProviderCard('OpenRouter');
+    fireEvent.click(within(openRouterCard).getByLabelText('Expand'));
 
     await waitFor(() => {
-      expect(screen.getByText('Example: openai/gpt-4o')).toBeTruthy();
+      expect(screen.getByText('Example: openai/gpt-4.1')).toBeTruthy();
       expect(screen.getByRole('button', { name: 'View Models' })).toBeTruthy();
     });
 
@@ -235,19 +355,13 @@ describe('Settings updater UI', () => {
       openExternal: vi.fn(),
     } as unknown as ReturnType<typeof getAPI>);
 
-    render(
-      <Provider store={createStore()}>
-        <MemoryRouter>
-          <Settings />
-        </MemoryRouter>
-      </Provider>,
-    );
+    renderSettings();
 
     await waitFor(() => {
       expect(screen.getAllByText('Key set').length).toBeGreaterThan(0);
     });
 
-    const openAiCard = screen.getAllByText(/^OpenAI$/)[0]!.closest('div.rounded-xl')! as HTMLElement;
+    const openAiCard = findProviderCard('OpenAI');
     fireEvent.click(within(openAiCard).getByLabelText('Expand'));
 
     await waitFor(() => {
@@ -268,7 +382,7 @@ describe('Settings updater UI', () => {
     });
 
     fireEvent.change(input, { target: { value: '' } });
-    fireEvent.click(within(openAiCard).getByRole('button', { name: '✓ Saved' }));
+    fireEvent.click(within(openAiCard).getByRole('button', { name: /Save|Saved/ }));
 
     await waitFor(() => {
       expect(deleteKey).toHaveBeenCalledWith('openai');
@@ -313,37 +427,66 @@ describe('Settings updater UI', () => {
       addCustomProvider({
         group: 'llm',
         id: 'custom-llm-localized',
-        name: '本地代理',
+        name: 'Local Proxy',
       }),
     );
 
-    render(
-      <Provider store={store}>
-        <MemoryRouter>
-          <Settings />
-        </MemoryRouter>
-      </Provider>,
-    );
+    renderSettings(store);
 
     await waitFor(() => {
-      expect(screen.getByText('自定义提供方')).toBeTruthy();
+      expect(screen.getByText(t('settings.providerSections.custom'))).toBeTruthy();
     });
 
-    const customCard = screen.getByDisplayValue('本地代理').closest('div.rounded-xl')! as HTMLElement;
-    fireEvent.click(within(customCard).getByLabelText('展开'));
+    const customCard = screen
+      .getByDisplayValue('Local Proxy')
+      .closest('div.rounded-md.border') as HTMLElement | null;
+    expect(customCard).toBeTruthy();
+    const resolvedCustomCard = customCard as HTMLElement;
+    fireEvent.click(within(resolvedCustomCard).getByLabelText(t('settings.providerCard.expand')));
 
     await waitFor(() => {
-      expect(within(customCard).getByText('协议')).toBeTruthy();
-      expect(within(customCard).getByText('已在钥匙串中配置')).toBeTruthy();
+      expect(within(resolvedCustomCard).getByText(t('settings.providerCard.protocol'))).toBeTruthy();
+      expect(
+        within(resolvedCustomCard).getByText(t('settings.providerCard.configuredInKeychain')),
+      ).toBeTruthy();
     });
 
     const input = screen.getByDisplayValue('sk-localized');
     fireEvent.change(input, { target: { value: 'sk-localized-new' } });
-    fireEvent.click(within(customCard).getByRole('button', { name: '保存' }));
+    fireEvent.click(
+      within(resolvedCustomCard).getByRole('button', { name: t('settings.providerCard.save') }),
+    );
 
     await waitFor(() => {
       expect(setKey).toHaveBeenCalledWith('custom-llm-localized', 'sk-localized-new');
-      expect(within(customCard).getByRole('button', { name: '✓ 已保存' })).toBeTruthy();
+      expect(
+        within(resolvedCustomCard).getByRole('button', { name: t('settings.providerCard.saved') }),
+      ).toBeTruthy();
+    });
+  });
+
+  it('shows localized names for China providers when locale is zh-CN', async () => {
+    setLocale('zh-CN');
+
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    await waitFor(() => {
+      expect(screen.getByText(t('providerNames.qwen'))).toBeTruthy();
+      expect(screen.getByText(t('providerNames.doubao'))).toBeTruthy();
+      expect(screen.getByText(t('providerNames.volcengine-ark'))).toBeTruthy();
     });
   });
 
@@ -363,17 +506,19 @@ describe('Settings updater UI', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    render(
-      <Provider store={createStore()}>
-        <MemoryRouter>
-          <Settings />
-        </MemoryRouter>
-      </Provider>,
-    );
+    renderSettings();
 
     await waitFor(() => {
       expect(isConfigured).toHaveBeenCalledWith('openai');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.group.image') }));
+    await waitFor(() => {
       expect(isConfigured).toHaveBeenCalledWith('openai-image');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.group.audio') }));
+    await waitFor(() => {
       expect(isConfigured).toHaveBeenCalledWith('openai-tts');
     });
   });

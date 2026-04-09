@@ -258,7 +258,8 @@ async function findConfiguredAdapter(llmRegistry: LLMRegistry): Promise<LLMAdapt
       if (await adapter.validate()) {
         return adapter;
       }
-    } catch {
+    } catch (err) {
+      log.warn('LLM adapter validate() threw', { error: String(err) });
       // Skip invalid adapters and surface a single actionable error if none validate.
     }
   }
@@ -393,6 +394,7 @@ async function extractVideoFrameWithFfmpeg(videoPath: string): Promise<Extracted
       cleanup: () => cleanupTempFrame(tempDir),
     };
   } catch (error) {
+    log.error('FFmpeg frame extraction failed', { error: String(error) });
     cleanupTempFrame(tempDir);
     throw error;
   }

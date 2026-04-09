@@ -1,6 +1,7 @@
 export {};
 
 import type {
+  AssetType,
   Canvas,
   Character,
   CharacterGender,
@@ -241,6 +242,18 @@ interface MainLoggerEntry {
   detail?: string;
 }
 
+interface CommanderToolSummary {
+  name: string;
+  description: string;
+  tags?: string[];
+  tier: number;
+}
+
+interface CommanderToolSearchResult {
+  name: string;
+  description: string;
+}
+
 declare global {
   interface Window {
     lucidAPI: {
@@ -318,6 +331,16 @@ declare global {
         ) => Promise<ReferenceImage>;
         removeRefImage: (locationId: string, slot: string) => Promise<void>;
       };
+      entity: {
+        generateReferenceImage: (request: {
+          entityType: 'character' | 'equipment' | 'location';
+          entityId: string;
+          description: string;
+          provider: string;
+          variantCount?: number;
+          seed?: number;
+        }) => Promise<{ variants: string[] }>;
+      };
       style: {
         save: (data: Partial<StyleGuide>) => Promise<void>;
         load: () => Promise<StyleGuide | null>;
@@ -343,6 +366,16 @@ declare global {
         pickFile: (type: string) => Promise<AssetMeta | null>;
         query: (filter: Record<string, unknown>) => Promise<AssetMeta[]>;
         getPath: (hash: string, type: string, ext: string) => Promise<string>;
+        export: (args: {
+          hash: string;
+          type: AssetType;
+          format: string;
+          name?: string;
+        }) => Promise<{ success: true; path: string } | null>;
+        exportBatch: (args: {
+          items: Array<{ hash: string; type: string; name?: string }>;
+        }) => Promise<{ success: true; count: number; directory: string } | null>;
+        delete: (hash: string) => Promise<{ success: true }>;
       };
       job: {
         submit: (request: JobRequest) => Promise<JobSummary>;
@@ -403,6 +436,8 @@ declare global {
         injectMessage: (canvasId: string, message: string) => Promise<void>;
         confirmTool: (canvasId: string, toolCallId: string, approved: boolean) => Promise<void>;
         answerQuestion: (canvasId: string, toolCallId: string, answer: string) => Promise<void>;
+        toolList: () => Promise<CommanderToolSummary[]>;
+        toolSearch: (query?: string) => Promise<CommanderToolSearchResult[]>;
         onStream: (cb: (data: {
           type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question';
           content?: string;
@@ -420,6 +455,10 @@ declare global {
         onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;
         onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) => () => void;
+      };
+      clipboard: {
+        onAIDetected: (cb: (data: { text: string }) => void) => () => void;
+        setEnabled: (enabled: boolean) => Promise<void>;
       };
       onReady: (cb: () => void) => () => void;
       onInitError: (cb: (error: string) => void) => () => void;

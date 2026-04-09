@@ -24,10 +24,10 @@ function ToolbarButton({ active = false, ariaLabel, icon, onClick }: ToolbarButt
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'inline-flex h-10 w-10 items-center justify-center rounded-xl border transition-colors',
+        'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
         active
-          ? 'border-primary bg-primary/10 text-primary'
-          : 'border-border bg-card/95 text-muted-foreground hover:border-primary/40 hover:text-foreground',
+          ? 'bg-primary/12 text-primary'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
     >
       {icon}
@@ -61,40 +61,40 @@ export function CanvasToolbar({
       id: 'search',
       active: searchOpen,
       label: t('canvas.openSearch'),
-      icon: <Search className="h-4 w-4" />,
+      icon: <Search className="h-3.5 w-3.5" />,
       onClick: onToggleSearch,
     },
     {
       id: 'minimap',
       active: minimapVisible,
       label: t('canvas.toggleMinimap'),
-      icon: <Map className="h-4 w-4" />,
+      icon: <Map className="h-3.5 w-3.5" />,
       onClick: onToggleMinimap,
     },
     {
       id: 'grid',
       active: snapToGrid,
       label: t('canvas.toggleSnapToGrid'),
-      icon: <Grid2X2 className="h-4 w-4" />,
+      icon: <Grid2X2 className="h-3.5 w-3.5" />,
       onClick: onToggleSnapToGrid,
     },
     {
       id: 'export',
       label: t('canvas.exportWorkflow'),
-      icon: <Download className="h-4 w-4" />,
+      icon: <Download className="h-3.5 w-3.5" />,
       onClick: onExportWorkflow,
     },
     {
       id: 'import',
       label: t('canvas.importWorkflow'),
-      icon: <Upload className="h-4 w-4" />,
+      icon: <Upload className="h-3.5 w-3.5" />,
       onClick: onImportWorkflow,
     },
   ];
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="absolute right-4 top-4 z-30 flex items-center gap-2 rounded-2xl border border-border/70 bg-background/90 p-2 shadow-xl backdrop-blur">
+      <div className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
         {buttons.map((button) => (
           <Tooltip key={button.id}>
             <TooltipTrigger asChild>

@@ -38,17 +38,17 @@ export function AddNodePanel() {
 
   return (
     <div className="flex h-full flex-col bg-card">
-      <div className="border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">{t('panels.addNode')}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{t('panels.addNodeHint')}</p>
+      <div className="border-b border-border/60 px-3 py-2">
+        <h2 className="text-xs font-semibold">{t('panels.addNode')}</h2>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{t('panels.addNodeHint')}</p>
       </div>
 
       {!activeCanvasId ? (
-        <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-muted-foreground">
+        <div className="flex flex-1 items-center justify-center p-3 text-center text-[11px] text-muted-foreground">
           No canvas selected. Create or open a canvas first.
         </div>
       ) : (
-        <div className="grid gap-3 p-4">
+        <div className="grid gap-2 p-3">
           {NODE_OPTIONS.map((option) => {
             const Icon = option.icon;
             const label = t(option.label);
@@ -69,14 +69,14 @@ export function AddNodePanel() {
                   );
                   dispatch(setActivePanel(null));
                 }}
-                className="flex items-center gap-3 rounded-xl border border-border bg-background px-4 py-4 text-left transition-colors hover:border-primary/40 hover:bg-muted/60"
+                className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/80"
               >
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Icon className="h-5 w-5" />
+                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Icon className="h-4 w-4" />
                 </span>
                 <span>
-                  <span className="block text-sm font-medium">{label}</span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-xs font-medium">{label}</span>
+                  <span className="block text-[11px] text-muted-foreground">
                     {t('panels.addNodeAction')}
                   </span>
                 </span>

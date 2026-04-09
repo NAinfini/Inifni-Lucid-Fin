@@ -2,9 +2,9 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BUILT_IN_PRESET_LIBRARY, type ShotTemplate } from '@lucid-fin/contracts';
 import { setLocale, t } from '../../i18n.js';
 import { presetsSlice } from '../../store/slices/presets.js';
@@ -63,6 +63,10 @@ function renderPanel() {
 describe('ShotTemplateManagerPanel', () => {
   beforeEach(() => {
     setLocale('en-US');
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it('shows built-in and custom templates and reveals track configuration for the selected template', () => {

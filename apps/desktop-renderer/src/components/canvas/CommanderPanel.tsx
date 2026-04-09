@@ -29,6 +29,10 @@ import {
   setPermissionMode,
   clearPendingConfirmation,
   clearPendingQuestion,
+  enqueueMessage,
+  dequeueMessage,
+  removeQueuedMessage,
+  editQueuedMessage,
   type PermissionMode,
 } from '../../store/slices/commander.js';
 import { useCommander } from '../../hooks/useCommander.js';
@@ -339,12 +343,15 @@ export function CommanderPanel() {
   const dispatch = useDispatch();
   const { t } = useI18n();
   const { sendMessage, cancel, isStreaming } = useCommander();
-  const { open, minimized, providerId, messages, currentStreamContent, currentToolCalls, currentSegments, position, size, error, permissionMode, pendingConfirmation, pendingQuestion } =
+  const { open, minimized, providerId, messages, currentStreamContent, currentToolCalls, currentSegments, position, size, error, permissionMode, pendingConfirmation, pendingQuestion, messageQueue } =
     useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
+  const [editingQueueText, setEditingQueueText] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const wasDraggingRef = useRef(false);
 
   // LLM model selector state
   const llmSettings = useSelector((state: RootState) => state.settings.llm);
@@ -356,10 +363,12 @@ export function CommanderPanel() {
   const [permPickerOpen, setPermPickerOpen] = useState(false);
   const [nodePickerOpen, setNodePickerOpen] = useState(false);
 
-  // Auto-expanding input rows
-  const inputRows = useMemo(() => {
-    const lineCount = (input.match(/\n/g)?.length ?? 0) + 1;
-    return Math.min(Math.max(1, lineCount), MAX_INPUT_ROWS);
+  // Auto-expanding textarea height
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 400)}px`;
   }, [input]);
 
   const liveMessage = useMemo(() => {
@@ -388,6 +397,19 @@ export function CommanderPanel() {
     window.addEventListener('mousedown', handle);
     return () => window.removeEventListener('mousedown', handle);
   }, [modelPickerOpen, nodePickerOpen, permPickerOpen]);
+
+  // Auto-send next queued message when streaming finishes
+  const prevStreamingRef = useRef(false);
+  useEffect(() => {
+    const wasStreaming = prevStreamingRef.current;
+    prevStreamingRef.current = isStreaming;
+    // Trigger when streaming just finished and queue has messages
+    if (wasStreaming && !isStreaming && messageQueue.length > 0) {
+      const next = messageQueue[0];
+      dispatch(dequeueMessage());
+      void sendMessage(next);
+    }
+  }, [isStreaming, messageQueue, dispatch, sendMessage]);
 
   useEffect(() => {
     if (!open) {
@@ -486,9 +508,55 @@ export function CommanderPanel() {
     return (
       <button
         type="button"
-        className="fixed z-40 flex items-center gap-2 rounded-xl border border-border/80 bg-card/95 px-3 py-2 shadow-xl backdrop-blur hover:bg-muted/80 transition-colors"
+        className="fixed z-40 flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2.5 py-1.5 shadow-lg backdrop-blur-sm hover:bg-muted/80 transition-colors cursor-move"
         style={{ left: position.x, top: position.y }}
-        onClick={() => dispatch(setCommanderOpen(true))}
+        onClick={() => {
+          // Don't open if we just finished dragging
+          if (wasDraggingRef.current) {
+            wasDraggingRef.current = false;
+            return;
+          }
+          dispatch(setCommanderOpen(true));
+        }}
+        onMouseDown={(event) => {
+          // Only handle left click for dragging
+          if (event.button !== 0) return;
+
+          const target = event.currentTarget;
+          const startX = event.clientX;
+          const startY = event.clientY;
+          target.dataset.dragOrigin = 'true';
+          target.dataset.dragOffsetX = String(event.clientX - position.x);
+          target.dataset.dragOffsetY = String(event.clientY - position.y);
+
+          wasDraggingRef.current = false;
+
+          const handleMouseMove = (e: MouseEvent) => {
+            if (!target.dataset.dragOrigin) return;
+
+            // If moved more than 5px, consider it a drag
+            const dx = Math.abs(e.clientX - startX);
+            const dy = Math.abs(e.clientY - startY);
+            if (dx > 5 || dy > 5) {
+              wasDraggingRef.current = true;
+            }
+
+            const offsetX = Number(target.dataset.dragOffsetX);
+            const offsetY = Number(target.dataset.dragOffsetY);
+            dispatch(setPosition({ x: e.clientX - offsetX, y: Math.max(SAFE_Y, e.clientY - offsetY) }));
+          };
+
+          const handleMouseUp = () => {
+            delete target.dataset.dragOrigin;
+            delete target.dataset.dragOffsetX;
+            delete target.dataset.dragOffsetY;
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+          };
+
+          document.addEventListener('mousemove', handleMouseMove);
+          document.addEventListener('mouseup', handleMouseUp);
+        }}
       >
         <Zap className="h-4 w-4 text-amber-400" />
         <span className="text-xs font-medium">{t('commander.commanderAI')}</span>
@@ -532,7 +600,7 @@ export function CommanderPanel() {
 
   return (
     <section
-      className="fixed z-40 flex flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/95 shadow-2xl backdrop-blur"
+      className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl backdrop-blur-sm"
       style={{
         left: position.x,
         top: position.y,
@@ -541,7 +609,7 @@ export function CommanderPanel() {
       }}
     >
       <header
-        className="flex cursor-move items-center justify-between border-b border-border/70 bg-muted/50 px-3 py-2"
+        className="flex cursor-move items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-1.5"
         onMouseDown={(event) => {
           const target = event.currentTarget;
           target.dataset.dragOrigin = 'true';
@@ -549,8 +617,8 @@ export function CommanderPanel() {
           target.dataset.dragOffsetY = String(event.clientY - position.y);
         }}
       >
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Zap className="h-4 w-4 text-amber-400" />
+        <div className="flex items-center gap-1.5 text-xs font-medium">
+          <Zap className="h-3.5 w-3.5 text-amber-400" />
           <span>{t('commander.commanderAI')}</span>
         </div>
         <div className="flex items-center gap-1">
@@ -583,7 +651,7 @@ export function CommanderPanel() {
 
       <div
         ref={scrollRef}
-        className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-3 pb-4"
+        className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-2 pb-3"
       >
         {messages.length === 0 && !liveMessage ? (
           <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
@@ -637,7 +705,7 @@ export function CommanderPanel() {
         ))}
 
         {liveMessage ? (
-          <article className="mr-auto max-w-[88%] rounded-2xl bg-muted px-3 py-2 text-sm">
+          <article className="mr-auto max-w-[88%] rounded-md bg-muted/80 px-2.5 py-1.5 text-xs">
             {currentSegments.length > 0 ? (
               <>
                 {currentSegments.map((seg, i) =>
@@ -665,7 +733,7 @@ export function CommanderPanel() {
         ) : null}
 
         {error ? (
-          <div className="rounded-xl border border-destructive/60 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
             {error}
           </div>
         ) : null}
@@ -714,7 +782,7 @@ export function CommanderPanel() {
         />
       )}
 
-      <footer className="border-t border-border/70 bg-card">
+      <footer className="border-t border-border/60 bg-card">
         {/* Attachment preview chips */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1 px-3 pt-2">
@@ -726,6 +794,50 @@ export function CommanderPanel() {
                   <X className="h-2.5 w-2.5" />
                 </button>
               </span>
+            ))}
+          </div>
+        )}
+
+        {/* Message Queue */}
+        {messageQueue.length > 0 && (
+          <div className="mx-2 mb-1 rounded-lg border border-border/60 bg-muted/30 text-xs">
+            <div className="flex items-center justify-between px-2 py-1 text-[10px] text-muted-foreground border-b border-border/40">
+              <span>{t('commander.queue')} ({messageQueue.length})</span>
+            </div>
+            {messageQueue.map((msg, i) => (
+              <div key={i} className="flex items-center gap-1 px-2 py-1 border-b border-border/20 last:border-0">
+                {editingQueueIndex === i ? (
+                  <>
+                    <input
+                      className="flex-1 bg-background rounded px-1 py-0.5 text-xs outline-none border border-primary/40"
+                      value={editingQueueText}
+                      onChange={(e) => setEditingQueueText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          dispatch(editQueuedMessage({ index: i, content: editingQueueText }));
+                          setEditingQueueIndex(null);
+                        } else if (e.key === 'Escape') {
+                          setEditingQueueIndex(null);
+                        }
+                      }}
+                      autoFocus
+                    />
+                    <button type="button" onClick={() => { dispatch(editQueuedMessage({ index: i, content: editingQueueText })); setEditingQueueIndex(null); }} className="text-primary hover:opacity-70">
+                      <Check className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 truncate text-muted-foreground">{i + 1}. {msg}</span>
+                    <button type="button" onClick={() => { setEditingQueueIndex(i); setEditingQueueText(msg); }} className="text-muted-foreground hover:text-foreground">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                    <button type="button" onClick={() => dispatch(removeQueuedMessage(i))} className="text-muted-foreground hover:text-destructive">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -744,10 +856,10 @@ export function CommanderPanel() {
               }
               if (event.key === 'Escape' && isStreaming) void cancel();
             }}
-            rows={inputRows}
+            rows={1}
             placeholder={t('commander.sendMessage')}
-            className="w-full resize-none border-0 bg-transparent px-3 pt-2.5 pb-1 text-sm outline-none placeholder:text-muted-foreground/60"
-            style={{ minHeight: '32px' }}
+            className="w-full resize-none border-0 bg-transparent px-3 pt-2.5 pb-1 text-xs outline-none placeholder:text-muted-foreground/60 overflow-y-auto"
+            style={{ minHeight: '32px', maxHeight: '400px' }}
           />
 
           {/* Bottom toolbar — like Claude Code */}
@@ -908,13 +1020,29 @@ export function CommanderPanel() {
                 <X className="h-3.5 w-3.5" />
               </button>
             ) : (
-              <button
-                className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-30"
-                onClick={() => void handleSubmit()}
-                disabled={input.trim().length === 0}
-              >
-                <Send className="h-3 w-3" />
-              </button>
+              <>
+                {/* Queue button */}
+                <button
+                  className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-30"
+                  onClick={() => {
+                    const value = input.trim();
+                    if (!value) return;
+                    dispatch(enqueueMessage(value));
+                    setInput('');
+                  }}
+                  disabled={input.trim().length === 0}
+                  title={t('commander.queue')}
+                >
+                  <MessageCircleQuestion className="h-3 w-3" />
+                </button>
+                <button
+                  className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-30"
+                  onClick={() => void handleSubmit()}
+                  disabled={input.trim().length === 0}
+                >
+                  <Send className="h-3 w-3" />
+                </button>
+              </>
             )}
           </div>
         </div>

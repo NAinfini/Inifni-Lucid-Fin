@@ -1403,6 +1403,43 @@ describe('SqliteIndex', () => {
       expect(images[0].hash).toBe('h1');
     });
 
+    it('normalizes legacy asset metadata size during project sync', () => {
+      const projectDir = path.join(base, 'project-sync');
+      const assetDir = path.join(projectDir, 'assets', 'image', 'ab');
+      fs.mkdirSync(assetDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(projectDir, 'project.json'),
+        JSON.stringify({
+          id: 'project-1',
+          title: 'Sync Test',
+          updatedAt: 1,
+        }),
+      );
+      fs.writeFileSync(
+        path.join(assetDir, 'abcdef.meta.json'),
+        JSON.stringify({
+          hash: 'abcdef',
+          type: 'image',
+          format: 'png',
+          originalName: 'legacy.png',
+          size: 4096,
+          tags: ['legacy'],
+          createdAt: 123,
+        }),
+      );
+
+      db.syncFromJson(projectDir);
+
+      expect(db.queryAssets({ type: 'image' })).toEqual([
+        expect.objectContaining({
+          hash: 'abcdef',
+          format: 'png',
+          fileSize: 4096,
+          createdAt: 123,
+        }),
+      ]);
+    });
+
     it('searches assets via FTS5', () => {
       db.insertAsset({
         hash: 'h1',

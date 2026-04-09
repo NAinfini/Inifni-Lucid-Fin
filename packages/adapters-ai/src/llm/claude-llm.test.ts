@@ -198,4 +198,106 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
       ],
     });
   });
+
+  it('throws a structured error when Claude returns JSON without extractable assistant content or tool calls', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            id: 'msg_empty',
+            content: [
+              {
+                type: 'thinking',
+                thinking: 'internal only',
+              },
+            ],
+            stop_reason: 'end_turn',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      ),
+    );
+
+    const adapter = new ClaudeLLMAdapter({
+      id: 'claude',
+      name: 'Anthropic Claude',
+      defaultBaseUrl: 'https://api.anthropic.com',
+      defaultModel: 'claude-sonnet-4-20250514',
+    });
+    adapter.configure('test-key', {
+      baseUrl: 'https://proxy.example/v1',
+    });
+
+    await expect(
+      adapter.completeWithTools([{ role: 'user', content: 'hello' }], {
+        tools: [
+          {
+            name: 'tool.search',
+            description: 'Search tools',
+            parameters: {
+              type: 'object',
+              properties: {},
+            },
+          },
+        ],
+      }),
+    ).rejects.toMatchObject<Partial<LucidError>>({
+      code: ErrorCode.ServiceUnavailable,
+      message: 'Anthropic Claude returned JSON without extractable assistant content',
+      details: expect.objectContaining({
+        endpoint: 'https://proxy.example/v1/messages',
+        provider: 'Anthropic Claude',
+        providerId: 'claude',
+        baseUrl: 'https://proxy.example/v1',
+        model: 'claude-sonnet-4-20250514',
+        finishReason: 'end_turn',
+        toolCallCount: 0,
+        messageContentTypes: ['thinking'],
+        responseBody: expect.objectContaining({
+          id: 'msg_empty',
+        }),
+      }),
+    });
+  });
+
+  it('throws a structured error when Claude returns HTML instead of JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response('<!doctype html><html><body>gateway</body></html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }),
+      ),
+    );
+
+    const adapter = new ClaudeLLMAdapter({
+      id: 'claude',
+      name: 'Anthropic Claude',
+      defaultBaseUrl: 'https://api.anthropic.com',
+      defaultModel: 'claude-sonnet-4-20250514',
+    });
+    adapter.configure('test-key', {
+      baseUrl: 'https://proxy.example/v1',
+    });
+
+    await expect(
+      adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
+    ).rejects.toMatchObject<Partial<LucidError>>({
+      code: ErrorCode.ServiceUnavailable,
+      message: 'Anthropic Claude returned a non-JSON response',
+      details: expect.objectContaining({
+        status: 200,
+        endpoint: 'https://proxy.example/v1/messages',
+        provider: 'Anthropic Claude',
+        providerId: 'claude',
+        contentType: 'text/html; charset=utf-8',
+        responseTextSnippet: expect.stringContaining('<!doctype html>'),
+      }),
+    });
+  });
 });

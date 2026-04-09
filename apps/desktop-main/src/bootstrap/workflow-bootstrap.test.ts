@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { WorkflowEngine, AgentOrchestrator } from '@lucid-fin/application';
 import type { PromptStore } from '@lucid-fin/storage';
 import { initIpc } from './init-ipc.js';
-import { registerAllHandlers } from '../ipc/router.js';
+import { registerAllHandlers, type AppDeps } from '../ipc/router.js';
 
 vi.mock('../ipc/router.js', () => ({
   registerAllHandlers: vi.fn(),
@@ -14,33 +14,21 @@ describe('initIpc workflow bootstrap', () => {
     const workflowEngine = {} as WorkflowEngine;
     const agent = {} as AgentOrchestrator;
     const promptStore = {} as PromptStore;
-
-    initIpc(
-      getWindow,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
+    const deps = {
+      db: {} as never,
+      projectFS: {} as never,
+      cas: {} as never,
+      keychain: {} as never,
+      registry: {} as never,
+      jobQueue: {} as never,
+      llmRegistry: {} as never,
       workflowEngine,
       agent,
       promptStore,
-    );
+    } satisfies AppDeps;
 
-    expect(registerAllHandlers).toHaveBeenCalledWith(
-      getWindow,
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      workflowEngine,
-      agent,
-      promptStore,
-    );
+    initIpc(getWindow, deps);
+
+    expect(registerAllHandlers).toHaveBeenCalledWith(getWindow, deps);
   });
 });

@@ -14,12 +14,13 @@ import {
 } from '../../store/slices/locations.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import type { Location, LocationType, ReferenceImage } from '@lucid-fin/contracts';
+import type { Location, LocationType, ReferenceImage, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
 import { LOCATION_STANDARD_SLOTS } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { MapPin, Plus, Search, Trash2, Save, Upload } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizeSlot } from '../../i18n.js';
+import { EntityGenerationPanel } from './EntityGenerationPanel.js';
 
 const TYPE_OPTIONS: LocationType[] = ['interior', 'exterior', 'int-ext'];
 const TIME_OF_DAY_OPTIONS = ['day', 'night', 'dawn', 'dusk', 'continuous'];
@@ -96,6 +97,24 @@ export function LocationManagerPanel() {
       return blob.includes(keyword);
     });
   }, [items, search, filterType]);
+
+  const canvases = useSelector((s: RootState) => s.canvas.canvases);
+
+  const usageCountById = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const canvas of canvases) {
+      for (const node of canvas.nodes) {
+        if (node.type !== 'image' && node.type !== 'video') continue;
+        const data = node.data as ImageNodeData | VideoNodeData;
+        if (data.locationRefs) {
+          for (const ref of data.locationRefs) {
+            counts[ref.locationId] = (counts[ref.locationId] ?? 0) + 1;
+          }
+        }
+      }
+    }
+    return counts;
+  }, [canvases]);
 
   useEffect(() => {
     if (!selectedLoc) {
@@ -262,8 +281,8 @@ export function LocationManagerPanel() {
   }, [selectedLoc]);
 
   return (
-    <div className="h-full border-r bg-card flex flex-col">
-      <div className="px-3 py-2 border-b space-y-2">
+    <div className="h-full border-r border-border/60 bg-card flex flex-col">
+      <div className="px-3 py-2 border-b border-border/60 space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="text-xs font-semibold flex items-center gap-1">
             <MapPin className="w-3.5 h-3.5" />
@@ -297,10 +316,10 @@ export function LocationManagerPanel() {
 
       <div className="grid grid-cols-[40%_60%] h-full min-h-0">
         <div className="border-r min-h-0 overflow-auto">
-          <div className="p-1.5 border-b flex items-center gap-1">
+          <div className="p-1.5 border-b border-border/60 flex items-center gap-1">
             <button
               onClick={createNewLocation}
-              className="flex-1 text-[11px] rounded border border-border px-2 py-1 hover:bg-muted flex items-center justify-center gap-1"
+              className="flex-1 text-[11px] rounded-md border border-border/60 px-2 py-1 hover:bg-muted/80 flex items-center justify-center gap-1 transition-colors"
             >
               <Plus className="w-3 h-3" />
               {t('locationManager.newLocation')}
@@ -310,14 +329,14 @@ export function LocationManagerPanel() {
                 <button
                   onClick={saveDraft}
                   disabled={!isDirty}
-                  className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-1 text-[11px] hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={t('locationManager.save')}
                 >
                   <Save className="w-3 h-3" />
                 </button>
                 <button
                   onClick={deleteSelected}
-                  className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-1 text-[11px] hover:bg-destructive/20"
+                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-destructive/20 transition-colors"
                   title={t('locationManager.delete')}
                 >
                   <Trash2 className="w-3 h-3" />
@@ -334,21 +353,33 @@ export function LocationManagerPanel() {
                   key={loc.id}
                   onClick={() => handleSelectLocation(loc.id)}
                   className={cn(
-                    'w-full text-left rounded border px-2 py-1.5 text-[11px]',
+                    'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === loc.id
                       ? 'border-primary bg-primary/10'
-                      : 'border-border/70 hover:bg-muted',
+                      : 'border-border/60 hover:bg-muted/80',
                   )}
                 >
                   <div className="font-medium truncate">{loc.name || t('locationManager.untitled')}</div>
-                  <span
-                    className={cn(
-                      'inline-block text-[9px] px-1 py-0.5 rounded',
-                      typeBadgeClass(loc.type),
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span
+                      className={cn(
+                        'inline-block text-[9px] px-1 py-0.5 rounded',
+                        typeBadgeClass(loc.type),
+                      )}
+                    >
+                      {t('locationManager.types.' + loc.type)}
+                    </span>
+                    {loc.timeOfDay && (
+                      <span className="inline-block text-[9px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400">
+                        {t('locationManager.timeOfDayOptions.' + loc.timeOfDay)}
+                      </span>
                     )}
-                  >
-                    {t('locationManager.types.' + loc.type)}
-                  </span>
+                  </div>
+                  {(usageCountById[loc.id] ?? 0) > 0 && (
+                    <div className="text-[9px] text-muted-foreground mt-0.5">
+                      {t('locationManager.usedInNodes').replace('{count}', String(usageCountById[loc.id]))}
+                    </div>
+                  )}
                 </button>
               ))}
               {filtered.length === 0 && (
@@ -522,6 +553,15 @@ export function LocationManagerPanel() {
                   onRemove={() => handleRefImageRemove('main')}
                 />
               </div>
+
+              {selectedLoc ? (
+                <EntityGenerationPanel
+                  entityType="location"
+                  entityId={selectedLoc.id}
+                  description={`${selectedLoc.description} ${selectedLoc.mood ?? ''}`.trim()}
+                  onGenerated={() => void loadLocations()}
+                />
+              ) : null}
 
             </>
           )}

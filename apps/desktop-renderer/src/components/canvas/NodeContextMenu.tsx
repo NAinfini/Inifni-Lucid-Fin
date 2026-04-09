@@ -11,6 +11,7 @@ import {
   Lock,
   Pencil,
   Scissors,
+  Share,
   Sparkles,
   Tag,
   Trash2,
@@ -46,6 +47,7 @@ interface NodeContextMenuProps {
   onConnectTo?: (id: string) => void;
   onLock: (id: string) => void;
   onGenerate: (id: string) => void;
+  onCopyPromptForAI?: (id: string) => void;
   onColorTag: (id: string, color: string | undefined) => void;
 }
 
@@ -65,6 +67,7 @@ export function NodeContextMenu({
   onConnectTo,
   onLock,
   onGenerate,
+  onCopyPromptForAI,
   onColorTag,
 }: NodeContextMenuProps) {
   const canGenerate = nodeType !== 'text' && nodeType !== 'backdrop';
@@ -74,7 +77,7 @@ export function NodeContextMenu({
     <ContextMenu.Root>
       <ContextMenu.Trigger className="contents">{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="min-w-[160px] rounded-md border bg-popover p-1 text-popover-foreground shadow-md z-50">
+        <ContextMenu.Content className="min-w-[160px] rounded-md border border-border/60 bg-card p-0.5 text-popover-foreground shadow-lg z-50">
           <ContextMenu.Item className={ITEM} onSelect={() => onRename(nodeId)}>
             <Pencil className="w-3.5 h-3.5" />
             {t('contextMenu.rename')}
@@ -118,6 +121,12 @@ export function NodeContextMenu({
               {t('contextMenu.generate')}
             </ContextMenu.Item>
           )}
+          {onCopyPromptForAI && (
+            <ContextMenu.Item className={ITEM} onSelect={() => onCopyPromptForAI(nodeId)}>
+              <Share className="w-3.5 h-3.5" />
+              {t('contextMenu.copyPromptForAI') || 'Copy Prompt for AI'}
+            </ContextMenu.Item>
+          )}
           <ContextMenu.Sub>
             <ContextMenu.SubTrigger className={ITEM}>
               <Tag className="w-3.5 h-3.5" />
@@ -125,7 +134,7 @@ export function NodeContextMenu({
               <ChevronRight className="ml-auto w-3.5 h-3.5" />
             </ContextMenu.SubTrigger>
             <ContextMenu.Portal>
-              <ContextMenu.SubContent className="min-w-[140px] rounded-md border bg-popover p-1 text-popover-foreground shadow-md z-50">
+              <ContextMenu.SubContent className="min-w-[130px] rounded-md border border-border/60 bg-card p-0.5 text-popover-foreground shadow-lg z-50">
                 {COLOR_TAGS.map((tag) => (
                   <ContextMenu.Item
                     key={tag.color}

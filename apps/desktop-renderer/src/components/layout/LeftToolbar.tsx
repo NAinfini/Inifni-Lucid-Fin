@@ -62,8 +62,8 @@ export function LeftToolbar() {
 
   return (
     <TooltipProvider delayDuration={120}>
-      <aside className="flex h-full w-12 shrink-0 flex-col border-r border-border bg-card/95 px-1 py-2">
-        <div className="flex flex-col gap-1">
+      <aside className="flex h-full w-11 shrink-0 flex-col border-r border-border bg-card px-0.5 py-1.5">
+        <div className="flex flex-col gap-0.5">
           {TOOLBAR_BUTTONS.slice(0, -1).map((button) => {
             const label = t(button.label);
             const Icon = button.icon;
@@ -90,13 +90,13 @@ export function LeftToolbar() {
                       }
                     }}
                     className={cn(
-                      'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+                      'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
                       active
-                        ? 'bg-primary/10 text-primary'
+                        ? 'bg-primary/12 text-primary'
                         : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                     )}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-[15px] w-[15px]" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">{label}</TooltipContent>
@@ -115,13 +115,13 @@ export function LeftToolbar() {
               aria-pressed={commanderOpen}
               onClick={() => dispatch(toggleCommander())}
               className={cn(
-                'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+                'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
                 commanderOpen
-                  ? 'bg-amber-400/10 text-amber-400'
+                  ? 'bg-amber-400/12 text-amber-400'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )}
             >
-              <Zap className="h-4 w-4" />
+              <Zap className="h-[15px] w-[15px]" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">Commander AI (Ctrl+J)</TooltipContent>
@@ -147,13 +147,13 @@ export function LeftToolbar() {
                     }
                   }}
                   className={cn(
-                    'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+                    'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
                     active
-                      ? 'bg-primary/10 text-primary'
+                      ? 'bg-primary/12 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-[15px] w-[15px]" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">{label}</TooltipContent>

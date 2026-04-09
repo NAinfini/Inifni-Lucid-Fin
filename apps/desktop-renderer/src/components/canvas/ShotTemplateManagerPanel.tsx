@@ -100,7 +100,7 @@ function CategoryCell({ templateId, category, track, presetsById, allPresets, hi
         type="button"
         onClick={() => setModalOpen(true)}
         className={cn(
-          'relative flex flex-col gap-1 rounded-lg border text-left transition-colors hover:bg-muted/40 overflow-hidden p-2',
+          'relative flex flex-col gap-1 rounded-md border text-left transition-colors hover:bg-muted/40 overflow-hidden p-2',
           entries.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/50 bg-muted/10',
         )}
       >
@@ -188,8 +188,12 @@ export function ShotTemplateManagerPanel() {
   const customTemplates = useSelector((state: RootState) => state.shotTemplates.custom);
   const hiddenIds = useSelector((state: RootState) => state.shotTemplates.hiddenIds);
   const presetsById = useSelector((state: RootState) => state.presets.byId);
+  const presetIds = useSelector((state: RootState) => state.presets.allIds);
   const hiddenPresetIds = useSelector((state: RootState) => state.presets.hiddenIds);
-  const allPresets = useSelector((state: RootState) => state.presets.allIds.map((id) => state.presets.byId[id]));
+  const allPresets = useMemo(
+    () => presetIds.map((id) => presetsById[id]).filter(Boolean),
+    [presetIds, presetsById],
+  );
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const templates = useMemo(
@@ -226,8 +230,8 @@ export function ShotTemplateManagerPanel() {
   );
 
   return (
-    <div className="h-full border-r bg-card flex flex-col">
-      <div className="px-3 py-2 border-b">
+    <div className="h-full border-r border-border/60 bg-card flex flex-col">
+      <div className="px-3 py-2 border-b border-border/60">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs font-semibold flex items-center gap-1">
             <Clapperboard className="w-3.5 h-3.5" />
@@ -237,7 +241,7 @@ export function ShotTemplateManagerPanel() {
             type="button"
             aria-label={t('commander.close')}
             onClick={() => dispatch(setActivePanel(null))}
-            className="inline-flex h-7 w-7 items-center justify-center rounded border border-border/70 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -254,8 +258,8 @@ export function ShotTemplateManagerPanel() {
             <div
               key={template.id}
               className={cn(
-                'rounded-lg border transition-colors',
-                expanded ? 'border-primary/40 bg-primary/5' : 'border-border/70 bg-card',
+                'rounded-md border transition-colors',
+                expanded ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-card',
                 isHidden && 'opacity-40',
               )}
             >
@@ -268,7 +272,7 @@ export function ShotTemplateManagerPanel() {
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">
+                      <span className="text-xs font-medium truncate">
                         {template.builtIn ? localizeShotTemplateName(template.id, template.name) : template.name}
                       </span>
                       <span
@@ -303,7 +307,7 @@ export function ShotTemplateManagerPanel() {
               </div>
 
               {expanded ? (
-                <div className="border-t border-border/60 px-3 py-3 space-y-3">
+                <div className="border-t border-border/60 px-2.5 py-2.5 space-y-2">
                   {/* Tracks — read-only for built-in, editable for custom */}
                   {template.builtIn ? (
                     <div className="space-y-1">
@@ -311,7 +315,7 @@ export function ShotTemplateManagerPanel() {
                         {t('inspector.presetTracks')}
                       </div>
                       {trackEntries.length === 0 ? (
-                        <div className="rounded border border-dashed border-border/70 px-2 py-1.5 text-[11px] text-muted-foreground">
+                        <div className="rounded-md border border-dashed border-border/60 px-2 py-1.5 text-[11px] text-muted-foreground">
                           {t('inspector.empty')}
                         </div>
                       ) : (
@@ -370,7 +374,7 @@ export function ShotTemplateManagerPanel() {
                           type="button"
                           onClick={() => handleDeleteTemplate(template.id)}
                           aria-label={t('shotTemplates.deleteTemplate')}
-                          className="inline-flex items-center gap-1 rounded border border-destructive/50 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/10"
+                          className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/10 transition-colors"
                         >
                           <Trash2 className="h-3 w-3" />
                           {t('shotTemplates.deleteTemplate')}
@@ -385,11 +389,11 @@ export function ShotTemplateManagerPanel() {
         })}
       </div>
 
-      <div className="border-t p-2">
+      <div className="border-t border-border/60 p-2">
         <button
           type="button"
           onClick={handleAddTemplate}
-          className="flex w-full items-center justify-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] hover:bg-muted"
+          className="flex w-full items-center justify-center gap-1 rounded-md border border-border/60 px-2 py-1.5 text-[11px] hover:bg-muted/80 transition-colors"
         >
           <Plus className="h-3 w-3" />
           {t('shotTemplates.addTemplate')}
@@ -409,7 +413,7 @@ function TrackSummary({ category, track, presetsById }: TrackSummaryProps) {
   const { t } = useI18n();
 
   return (
-    <div className="rounded border border-border/70 bg-muted/20 px-2 py-2 space-y-1">
+    <div className="rounded-md border border-border/60 bg-muted/20 px-2 py-2 space-y-1">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-medium">{t('presetCategory.' + category)}</span>
         {track.aiDecide ? (

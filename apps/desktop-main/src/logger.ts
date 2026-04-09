@@ -27,6 +27,19 @@ const LEVEL_PRIORITY: Record<LogLevel, number> = {
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_ROTATED = 3;
 const MAX_BUFFERED_ENTRIES = 1000;
+const REDACTED_VALUE = '[REDACTED]';
+const SENSITIVE_KEYS = new Set([
+  'apikey',
+  'authorization',
+  'password',
+  'secret',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'x-api-key',
+  'api-key',
+  'ocp-apim-subscription-key',
+]);
 
 let logDir: string;
 let logFile: string;
@@ -48,15 +61,16 @@ export function setLogLevel(level: LogLevel): void {
 export function log(level: LogLevel, message: string, data?: Record<string, unknown>): void {
   if (LEVEL_PRIORITY[level] < LEVEL_PRIORITY[minLevel]) return;
 
+  const sanitizedData = sanitizeForLogging(data) as Record<string, unknown> | undefined;
   const entry = {
     timestamp: new Date().toISOString(),
     level,
     message,
-    ...data,
+    ...sanitizedData,
   };
 
   const line = JSON.stringify(entry) + '\n';
-  const bufferedEntry = createBufferedEntry(level, message, data);
+  const bufferedEntry = createBufferedEntry(level, message, sanitizedData);
 
   // Console output
   const consoleFn =
@@ -194,13 +208,93 @@ function toRecord(args: unknown[]): Record<string, unknown> | undefined {
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
+function mergeLogData(
+  message: unknown,
+  args: unknown[],
+  fixedCategory?: string,
+  baseData?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const record = toRecord(message instanceof Error ? [message, ...args] : args) ?? {};
+  const merged = {
+    ...(baseData ?? {}),
+    ...record,
+  };
+
+  if (fixedCategory) {
+    merged.category = fixedCategory;
+  }
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 function writeFlexible(level: LogLevel, message: unknown, ...args: unknown[]): void {
   if (message instanceof Error) {
-    log(level, message.message, toRecord([message, ...args]));
+    log(level, message.message, mergeLogData(message, args));
     return;
   }
 
-  log(level, typeof message === 'string' ? message : String(message), toRecord(args));
+  log(level, typeof message === 'string' ? message : String(message), mergeLogData(message, args));
+}
+
+export interface ScopedLogger {
+  debug: (message: unknown, ...args: unknown[]) => void;
+  info: (message: unknown, ...args: unknown[]) => void;
+  warn: (message: unknown, ...args: unknown[]) => void;
+  error: (message: unknown, ...args: unknown[]) => void;
+  fatal: (message: unknown, ...args: unknown[]) => void;
+}
+
+export function createScopedLogger(
+  category: string,
+  baseData?: Record<string, unknown>,
+): ScopedLogger {
+  const writeScoped = (level: LogLevel, message: unknown, ...args: unknown[]) => {
+    if (message instanceof Error) {
+      log(level, message.message, mergeLogData(message, args, category, baseData));
+      return;
+    }
+
+    log(
+      level,
+      typeof message === 'string' ? message : String(message),
+      mergeLogData(message, args, category, baseData),
+    );
+  };
+
+  return {
+    debug: (message: unknown, ...args: unknown[]) => writeScoped('debug', message, ...args),
+    info: (message: unknown, ...args: unknown[]) => writeScoped('info', message, ...args),
+    warn: (message: unknown, ...args: unknown[]) => writeScoped('warn', message, ...args),
+    error: (message: unknown, ...args: unknown[]) => writeScoped('error', message, ...args),
+    fatal: (message: unknown, ...args: unknown[]) => writeScoped('fatal', message, ...args),
+  };
+}
+
+function sanitizeForLogging(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value == null) return value;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeForLogging(entry, seen));
+  }
+  if (typeof value !== 'object') {
+    return String(value);
+  }
+  if (seen.has(value)) {
+    return '[Circular]';
+  }
+
+  seen.add(value);
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (SENSITIVE_KEYS.has(key.toLowerCase())) {
+      sanitized[key] = REDACTED_VALUE;
+      continue;
+    }
+    sanitized[key] = sanitizeForLogging(entry, seen);
+  }
+  return sanitized;
 }
 
 export function setLogForwarder(forwarder?: (entry: LoggerEntry) => void): void {
@@ -221,6 +315,7 @@ const defaultLogger = {
   warn: (message: unknown, ...args: unknown[]) => writeFlexible('warn', message, ...args),
   error: (message: unknown, ...args: unknown[]) => writeFlexible('error', message, ...args),
   fatal: (message: unknown, ...args: unknown[]) => writeFlexible('fatal', message, ...args),
+  scoped: createScopedLogger,
 };
 
 export default defaultLogger;

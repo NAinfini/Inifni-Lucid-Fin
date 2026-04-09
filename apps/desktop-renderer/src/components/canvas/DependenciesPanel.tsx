@@ -55,24 +55,24 @@ export function DependenciesPanel() {
   const hasSelection = selectedNodeIds.length > 0;
 
   return (
-    <div className="h-full bg-card border-l flex flex-col">
-      <div className="flex items-center gap-2 px-4 py-3 border-b">
-        <GitBranch className="w-4 h-4 text-muted-foreground" />
-        <span className="text-sm font-medium">{t('dependencies.title')}</span>
+    <div className="h-full bg-card border-l border-border/60 flex flex-col">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60">
+        <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
+        <span className="text-xs font-medium">{t('dependencies.title')}</span>
       </div>
 
       {!hasSelection ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground px-4 text-center">
+        <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground px-3 text-center">
           {t('dependencies.selectNode')}
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
           <div>
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
               {t('dependencies.upstream')} ({upstream.length})
             </div>
             {upstream.length === 0 ? (
-              <div className="text-xs text-muted-foreground">{t('dependencies.noUpstream')}</div>
+              <div className="text-[11px] text-muted-foreground">{t('dependencies.noUpstream')}</div>
             ) : (
               <div className="space-y-1">
                 {upstream.map((id) => (
@@ -82,7 +82,7 @@ export function DependenciesPanel() {
                     onClick={() => handleSelectNode(id)}
                     onMouseEnter={() => handleMouseEnter(id)}
                     onMouseLeave={handleMouseLeave}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 text-sm hover:bg-amber-500/10 hover:text-amber-300 transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/50 text-xs hover:bg-amber-500/10 hover:text-amber-300 transition-colors text-left"
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                     <span className="truncate">{nodeLabel(id)}</span>
@@ -94,11 +94,11 @@ export function DependenciesPanel() {
           </div>
 
           <div>
-            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
               {t('dependencies.downstream')} ({downstream.length})
             </div>
             {downstream.length === 0 ? (
-              <div className="text-xs text-muted-foreground">{t('dependencies.noDownstream')}</div>
+              <div className="text-[11px] text-muted-foreground">{t('dependencies.noDownstream')}</div>
             ) : (
               <div className="space-y-1">
                 {downstream.map((id) => (
@@ -108,7 +108,7 @@ export function DependenciesPanel() {
                     onClick={() => handleSelectNode(id)}
                     onMouseEnter={() => handleMouseEnter(id)}
                     onMouseLeave={handleMouseLeave}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 text-sm hover:bg-sky-500/10 hover:text-sky-300 transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/50 text-xs hover:bg-sky-500/10 hover:text-sky-300 transition-colors text-left"
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
                     <span className="truncate">{nodeLabel(id)}</span>

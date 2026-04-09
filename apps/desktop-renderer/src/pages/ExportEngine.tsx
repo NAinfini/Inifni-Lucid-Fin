@@ -117,45 +117,45 @@ export function ExportEngine() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-card">
-        <Download className="w-4 h-4 text-primary" />
-        <span className="text-sm font-medium">{t('export.title')}</span>
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/60 bg-card">
+        <Download className="w-3.5 h-3.5 text-primary" />
+        <span className="text-xs font-medium">{t('export.title')}</span>
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b bg-card">
+      <div className="flex border-b border-border/60 bg-card">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-4 py-2 text-sm border-b-2 transition-colors ${
+              className={`flex items-center gap-1 px-3 py-1.5 text-xs border-b-2 transition-colors ${
                 activeTab === tab.key
                   ? 'border-primary text-primary font-medium'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className="w-3 h-3" />
               {tab.label}
             </button>
           );
         })}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4">
         {activeTab === 'render' && (
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-lg space-y-4">
             <div>
-              <label className="block text-xs text-muted-foreground mb-1.5">
+              <label className="block text-[10px] text-muted-foreground mb-1">
                 {t('export.format')}
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-1.5">
                 {VIDEO_FORMATS.map((f) => (
                   <button
                     key={f.id}
                     onClick={() => setFormat(f.id)}
-                    className={`px-3 py-2 text-sm rounded border ${format === f.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                    className={`px-2.5 py-1.5 text-xs rounded-md border border-border/60 ${format === f.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
                   >
                     {f.label}
                   </button>
@@ -164,13 +164,13 @@ export function ExportEngine() {
             </div>
 
             <div>
-              <label className="block text-xs text-muted-foreground mb-1.5">
+              <label className="block text-[10px] text-muted-foreground mb-1">
                 {t('export.resolution')}
               </label>
               <select
                 value={resolution}
                 onChange={(e) => setResolution(e.target.value)}
-                className="w-full px-2 py-1.5 text-sm rounded border bg-background"
+                className="w-full px-2 py-1 text-xs rounded-md border border-border/60 bg-background"
               >
                 {RESOLUTIONS.map((r) => (
                   <option key={r.id} value={r.id}>
@@ -181,15 +181,15 @@ export function ExportEngine() {
             </div>
 
             <div>
-              <label className="block text-xs text-muted-foreground mb-1.5">
+              <label className="block text-[10px] text-muted-foreground mb-1">
                 {t('export.fps')}
               </label>
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 {FPS_OPTIONS.map((f) => (
                   <button
                     key={f}
                     onClick={() => setFps(f)}
-                    className={`px-3 py-1.5 text-sm rounded border ${fps === f ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                    className={`px-2.5 py-1 text-xs rounded-md border border-border/60 ${fps === f ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
                   >
                     {f}fps
                   </button>
@@ -198,7 +198,7 @@ export function ExportEngine() {
             </div>
 
             {progress > 0 && progress < 100 && (
-              <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+              <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
                   className="h-full bg-primary transition-all"
                   style={{ width: `${progress}%` }}
@@ -209,12 +209,12 @@ export function ExportEngine() {
             <button
               onClick={handleRender}
               disabled={exporting}
-              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-medium rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               {exporting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Play className="w-4 h-4" />
+                <Play className="w-3.5 h-3.5" />
               )}
               {t('export.startRender')}
             </button>
@@ -222,21 +222,21 @@ export function ExportEngine() {
         )}
 
         {activeTab === 'nle' && (
-          <div className="max-w-lg space-y-6">
+          <div className="max-w-lg space-y-4">
             <div>
-              <label className="block text-xs text-muted-foreground mb-1.5">
+              <label className="block text-[10px] text-muted-foreground mb-1">
                 {t('export.nleFormat')}
               </label>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {NLE_FORMATS.map((f) => (
                   <button
                     key={f.id}
                     onClick={() => setNleFormat(f.id)}
-                    className={`flex items-center gap-2 w-full px-3 py-2 text-sm rounded border text-left ${nleFormat === f.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
+                    className={`flex items-center gap-1.5 w-full px-2.5 py-1.5 text-xs rounded-md border border-border/60 text-left ${nleFormat === f.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
                   >
-                    <FileCode className="w-4 h-4" />
+                    <FileCode className="w-3.5 h-3.5" />
                     {t(f.labelKey)}
-                    <span className="text-xs text-muted-foreground ml-auto">{f.ext}</span>
+                    <span className="text-[10px] text-muted-foreground ml-auto">{f.ext}</span>
                   </button>
                 ))}
               </div>
@@ -245,12 +245,12 @@ export function ExportEngine() {
             <button
               onClick={handleNleExport}
               disabled={exporting}
-              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-medium rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               {exporting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Download className="w-4 h-4" />
+                <Download className="w-3.5 h-3.5" />
               )}
               {t('export.exportNle')}
             </button>
@@ -258,21 +258,21 @@ export function ExportEngine() {
         )}
 
         {activeTab === 'assets' && (
-          <div className="max-w-lg space-y-6">
-            <div className="p-6 rounded-lg border-2 border-dashed text-center">
-              <Package className="w-12 h-12 mx-auto mb-3 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">{t('export.assetPackDescription')}</p>
+          <div className="max-w-lg space-y-4">
+            <div className="p-4 rounded-md border-2 border-dashed border-border/60 text-center">
+              <Package className="w-10 h-10 mx-auto mb-2 text-muted-foreground/30" />
+              <p className="text-xs text-muted-foreground">{t('export.assetPackDescription')}</p>
             </div>
 
             <button
               onClick={handleAssetPack}
               disabled={exporting}
-              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-medium rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               {exporting ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Package className="w-4 h-4" />
+                <Package className="w-3.5 h-3.5" />
               )}
               {t('export.exportAssetPack')}
             </button>

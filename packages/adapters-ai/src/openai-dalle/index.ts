@@ -14,7 +14,7 @@ import { parseError, parseOpenAIResponse, toOpenAIRequest } from './mapper.js';
 
 export class OpenAIDalleAdapter implements AIProviderAdapter {
   readonly id = 'openai-dalle';
-  readonly name = 'OpenAI DALL-E 3';
+  readonly name = 'OpenAI GPT Image';
   readonly type: AdapterType = 'image';
   readonly capabilities: Capability[] = ['text-to-image'];
   readonly maxConcurrent = 5;

@@ -1,9 +1,10 @@
 import { memo, useCallback, useState } from 'react';
-import { NodeResizer, type NodeProps } from '@xyflow/react';
+import type { NodeProps } from '@xyflow/react';
 import { ChevronDown, ChevronRight, LayoutTemplate } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
+import { NodeResizeControls } from './node-resize-controls.js';
 
 const DEFAULT_COLOR = '#334155';
 const DEFAULT_OPACITY = 0.14;
@@ -99,9 +100,9 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
     >
       <div
         className={cn(
-          'rounded-[28px] border-2 shadow-inner transition-[height] duration-150',
+          'rounded-2xl border shadow-inner transition-[height] duration-150',
           borderClass,
-          selected ? 'border-blue-400 ring-[3px] ring-blue-400/40' : 'border-slate-500/35',
+          selected ? 'border-blue-400 ring-2 ring-blue-400/30' : 'border-slate-500/30',
         )}
         style={{
           width: d.width ?? 420,
@@ -111,12 +112,11 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
           ...(d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined),
         }}
       >
-        <NodeResizer
+        <NodeResizeControls
           minWidth={280}
           minHeight={180}
           isVisible={selected && !collapsed}
-          lineClassName="!border-primary/60"
-          handleClassName="!h-3 !w-3 !border-background !bg-primary"
+          className="!h-3 !w-3 !border-background !bg-primary"
         />
         <div className={cn('flex h-full flex-col', collapsed ? 'justify-center px-3 py-1' : 'justify-between p-4')}>
           <div className="flex items-center gap-2 text-slate-200/90">

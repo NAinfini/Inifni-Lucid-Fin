@@ -14,11 +14,12 @@ import {
 } from '../../store/slices/equipment.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import type { Equipment, EquipmentType, ReferenceImage } from '@lucid-fin/contracts';
+import type { Equipment, EquipmentType, ReferenceImage, ImageNodeData, VideoNodeData, EquipmentRef } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { Plus, Search, Trash2, Save, Upload, Package } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizeSlot } from '../../i18n.js';
+import { EntityGenerationPanel } from './EntityGenerationPanel.js';
 
 const EQUIPMENT_STANDARD_SLOTS: readonly string[] = [
   'front',
@@ -91,6 +92,25 @@ export function EquipmentManagerPanel() {
       return blob.includes(keyword);
     });
   }, [items, search, filterType]);
+
+  const canvases = useSelector((s: RootState) => s.canvas.canvases);
+
+  const usageCountById = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const canvas of canvases) {
+      for (const node of canvas.nodes) {
+        if (node.type !== 'image' && node.type !== 'video') continue;
+        const data = node.data as ImageNodeData | VideoNodeData;
+        if (data.equipmentRefs) {
+          for (const ref of data.equipmentRefs) {
+            const eqId = typeof ref === 'string' ? ref : (ref as EquipmentRef).equipmentId;
+            counts[eqId] = (counts[eqId] ?? 0) + 1;
+          }
+        }
+      }
+    }
+    return counts;
+  }, [canvases]);
 
   useEffect(() => {
     if (!selectedEquip) {
@@ -250,8 +270,8 @@ export function EquipmentManagerPanel() {
   }, [selectedEquip]);
 
   return (
-    <div className="h-full border-r bg-card flex flex-col">
-      <div className="px-3 py-2 border-b space-y-2">
+    <div className="h-full border-r border-border/60 bg-card flex flex-col">
+      <div className="px-3 py-2 border-b border-border/60 space-y-1.5">
         <div className="flex items-center justify-between">
           <div className="text-xs font-semibold flex items-center gap-1">
             <Package className="w-3.5 h-3.5" />
@@ -283,10 +303,10 @@ export function EquipmentManagerPanel() {
 
       <div className="grid grid-cols-[40%_60%] h-full min-h-0">
         <div className="border-r min-h-0 overflow-auto">
-          <div className="p-1.5 border-b flex items-center gap-1">
+          <div className="p-1.5 border-b border-border/60 flex items-center gap-1">
             <button
               onClick={createNewEquipment}
-              className="flex-1 text-[11px] rounded border border-border px-2 py-1 hover:bg-muted flex items-center justify-center gap-1"
+              className="flex-1 text-[11px] rounded-md border border-border/60 px-2 py-1 hover:bg-muted/80 flex items-center justify-center gap-1 transition-colors"
             >
               <Plus className="w-3 h-3" />
               {t('equipmentManager.newEquipment')}
@@ -296,14 +316,14 @@ export function EquipmentManagerPanel() {
                 <button
                   onClick={saveDraft}
                   disabled={!isDirty}
-                  className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-1 text-[11px] hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={t('action.save')}
                 >
                   <Save className="w-3 h-3" />
                 </button>
                 <button
                   onClick={deleteSelected}
-                  className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-1 text-[11px] hover:bg-destructive/20"
+                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-destructive/20 transition-colors"
                   title={t('action.delete')}
                 >
                   <Trash2 className="w-3 h-3" />
@@ -320,14 +340,26 @@ export function EquipmentManagerPanel() {
                   key={equip.id}
                   onClick={() => handleSelectEquipment(equip.id)}
                   className={cn(
-                    'w-full text-left rounded border px-2 py-1.5 text-[11px]',
+                    'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === equip.id
                       ? 'border-primary bg-primary/10'
-                      : 'border-border/70 hover:bg-muted',
+                      : 'border-border/60 hover:bg-muted/80',
                   )}
                 >
                   <div className="font-medium truncate">{equip.name || t('equipmentManager.untitled')}</div>
-                  <div className="text-[10px] text-muted-foreground">{t('equipmentManager.types.' + equip.type)}</div>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground">{t('equipmentManager.types.' + equip.type)}</span>
+                    {equip.subtype && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                        {equip.subtype}
+                      </span>
+                    )}
+                  </div>
+                  {(usageCountById[equip.id] ?? 0) > 0 && (
+                    <div className="text-[9px] text-muted-foreground mt-0.5">
+                      {t('equipmentManager.usedInNodes').replace('{count}', String(usageCountById[equip.id]))}
+                    </div>
+                  )}
                 </button>
               ))}
               {filtered.length === 0 && (
@@ -441,6 +473,15 @@ export function EquipmentManagerPanel() {
                   onRemove={() => handleRefImageRemove('main')}
                 />
               </div>
+
+              {selectedEquip ? (
+                <EntityGenerationPanel
+                  entityType="equipment"
+                  entityId={selectedEquip.id}
+                  description={`${selectedEquip.description} ${selectedEquip.function ?? ''}`.trim()}
+                  onGenerated={() => void loadEquipment()}
+                />
+              ) : null}
 
             </>
           )}

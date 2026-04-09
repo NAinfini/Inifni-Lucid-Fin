@@ -117,6 +117,16 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     removeRefImage: (locationId: string, slot: string) =>
       invoke('location:removeRefImage', { locationId, slot }),
   },
+  entity: {
+    generateReferenceImage: (request: {
+      entityType: 'character' | 'equipment' | 'location';
+      entityId: string;
+      description: string;
+      provider: string;
+      variantCount?: number;
+      seed?: number;
+    }) => invoke<{ variants: string[] }>('entity:generateReferenceImage', request),
+  },
 
   // Style Guide
   style: {
@@ -140,6 +150,11 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     query: (filter: Record<string, unknown>) => invoke('asset:query', filter),
     getPath: (hash: string, type: string, ext: string) =>
       invoke('asset:getPath', { hash, type, ext }),
+    export: (args: { hash: string; type: string; format: string; name?: string }) =>
+      invoke('asset:export', args),
+    exportBatch: (args: { items: Array<{ hash: string; type: string; name?: string }> }) =>
+      invoke('asset:exportBatch', args),
+    delete: (hash: string) => invoke('asset:delete', { hash }),
   },
 
   // Jobs
@@ -218,6 +233,16 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('commander:tool:decision', { canvasId, toolCallId, approved }),
     answerQuestion: (canvasId: string, toolCallId: string, answer: string) =>
       invoke('commander:tool:answer', { canvasId, toolCallId, answer }),
+    toolList: () => invoke<Array<{
+      name: string;
+      description: string;
+      tags?: string[];
+      tier: number;
+    }>>('commander:tool-list'),
+    toolSearch: (query?: string) => invoke<Array<{
+      name: string;
+      description: string;
+    }>>('commander:tool-search', { query }),
     onStream: (
       cb: (data: {
         type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question';
@@ -240,6 +265,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       subscribe('commander:entities:updated', cb as Callback),
     onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) =>
       subscribe('commander:settings:dispatch', cb as Callback),
+  },
+
+  // Clipboard watcher
+  clipboard: {
+    onAIDetected: (cb: (data: { text: string }) => void) =>
+      subscribe('clipboard:ai-detected', cb as Callback),
+    setEnabled: (enabled: boolean) => invoke('clipboard:setEnabled', { enabled }),
   },
 
   // App events

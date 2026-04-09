@@ -361,8 +361,8 @@ export function PresetManagerPanel() {
   );
 
   return (
-    <div className="h-full border-r bg-card flex flex-col">
-      <div className="px-3 py-2 border-b space-y-2">
+    <div className="h-full border-r border-border/60 bg-card flex flex-col">
+      <div className="px-3 py-2 border-b border-border/60 space-y-1.5">
         <div className="text-xs font-semibold">{t('presetManager.title')}</div>
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2 top-2 text-muted-foreground" />
@@ -391,10 +391,10 @@ export function PresetManagerPanel() {
 
       <div className="grid grid-cols-[44%_56%] h-full min-h-0">
         <div className="border-r min-h-0 overflow-auto">
-          <div className="p-1.5 border-b flex items-center gap-1">
+          <div className="p-1.5 border-b border-border/60 flex items-center gap-1">
             <button
               onClick={createCustomPreset}
-              className="flex-1 text-[11px] rounded border border-border px-2 py-1 hover:bg-muted"
+              className="flex-1 text-[11px] rounded-md border border-border/60 px-2 py-1 hover:bg-muted/80 transition-colors"
             >
               {t('presetManager.newPreset')}
             </button>
@@ -403,7 +403,7 @@ export function PresetManagerPanel() {
                 <button
                   onClick={saveDraft}
                   disabled={!isDirty}
-                  className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-1 text-[11px] hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title={t('action.save')}
                 >
                   <Save className="w-3 h-3" />
@@ -411,7 +411,7 @@ export function PresetManagerPanel() {
                 {!draft.builtIn && (
                   <button
                     onClick={deleteCurrentPreset}
-                    className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-1 text-[11px] hover:bg-destructive/20"
+                    className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-destructive/20 transition-colors"
                     title={t('action.delete')}
                   >
                     <Trash2 className="w-3 h-3" />
@@ -435,10 +435,10 @@ export function PresetManagerPanel() {
                         dispatch(selectManagerPreset(preset.id));
                       }}
                       className={cn(
-                        'w-full text-left rounded border px-2 py-1.5 text-[11px]',
+                        'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                         managerSelectedPresetId === preset.id
                           ? 'border-primary bg-primary/10'
-                          : 'border-border/70 hover:bg-muted',
+                          : 'border-border/60 hover:bg-muted/80',
                       )}
                     >
                       <div className="flex items-start justify-between gap-1">
@@ -584,7 +584,7 @@ export function PresetManagerPanel() {
                 <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
                   {t('presetManager.fields.paramSchema')}
                 </label>
-                <div className="rounded border border-border/70 bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground">
+                <div className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground">
                   {draft.params.length > 0
                     ? draft.params.map((param) => `${param.key} (${param.type})`).join(', ')
                     : t('presetManager.noParamSchema')}
@@ -605,7 +605,7 @@ export function PresetManagerPanel() {
                     </select>
                     <button
                       onClick={resetCurrentPreset}
-                      className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] hover:bg-muted"
+                      className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-muted/80 transition-colors"
                     >
                       <RotateCcw className="w-3 h-3" />
                       {t('presetManager.reset')}
@@ -616,16 +616,16 @@ export function PresetManagerPanel() {
             </>
           )}
 
-          <div className="pt-2 mt-2 border-t space-y-1.5">
+          <div className="pt-2 mt-2 border-t border-border/60 space-y-1.5">
             <div className="flex items-center gap-1.5">
               <button
                 onClick={exportPresets}
-                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] hover:bg-muted"
+                className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-muted/80 transition-colors"
               >
                 <Download className="w-3 h-3" />
                 {t('presetManager.exportJson')}
               </button>
-              <label className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] hover:bg-muted cursor-pointer">
+              <label className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-muted/80 cursor-pointer transition-colors">
                 <Upload className="w-3 h-3" />
                 {t('presetManager.importJson')}
                 <input

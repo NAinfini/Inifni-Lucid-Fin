@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
+import { runningSessions, setLastToolRegistry, type RunningCommanderSession } from './commander-registry.js';
+import { registerCommanderMetaHandlers } from './commander-meta.handlers.js';
 import {
   AgentOrchestrator,
   AgentToolRegistry,
@@ -69,13 +71,6 @@ type CommanderStreamPayload = {
   completedAt?: number;
 };
 
-type RunningCommanderSession = {
-  aborted: boolean;
-  canvasId: string;
-  orchestrator?: import('@lucid-fin/application').AgentOrchestrator;
-};
-
-const runningSessions = new Map<string, RunningCommanderSession>();
 const mutatingToolNames = new Set([
   'canvas.addNode',
   'canvas.moveNode',
@@ -1251,6 +1246,7 @@ export function registerCommanderHandlers(
       for (const tool of createUtilityWorkflowTools()) {
         registry.register(tool);
       }
+      setLastToolRegistry(registry);
 
         const orchestrator = new AgentOrchestrator(llmAdapter, registry, deps.resolvePrompt);
         session = { aborted: false, canvasId: args.canvasId, orchestrator };
@@ -1412,65 +1408,5 @@ export function registerCommanderHandlers(
     },
   );
 
-  ipcMain.handle('commander:cancel', async (_event, args: { canvasId: string }) => {
-    if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
-      throw new Error('canvasId is required');
-    }
-    const session = runningSessions.get(args.canvasId);
-    if (session) {
-      session.aborted = true;
-    }
-  });
-
-  ipcMain.handle(
-    'commander:inject-message',
-    async (_event, args: { canvasId: string; message: string }) => {
-      if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
-        throw new Error('canvasId is required');
-      }
-      if (typeof args.message !== 'string' || !args.message.trim()) {
-        throw new Error('message is required');
-      }
-      const session = runningSessions.get(args.canvasId);
-      if (!session?.orchestrator) {
-        throw new Error('Commander has no active session');
-      }
-      session.orchestrator.injectMessage(args.message);
-    },
-  );
-
-  ipcMain.handle(
-    'commander:tool:decision',
-    async (_event, args: { canvasId: string; toolCallId: string; approved: boolean }) => {
-      if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
-        throw new Error('canvasId is required');
-      }
-      if (typeof args.toolCallId !== 'string' || !args.toolCallId.trim()) {
-        throw new Error('toolCallId is required');
-      }
-      const session = runningSessions.get(args.canvasId);
-      if (session?.orchestrator) {
-        session.orchestrator.confirmTool(args.toolCallId, !!args.approved);
-      }
-    },
-  );
-
-  ipcMain.handle(
-    'commander:tool:answer',
-    async (_event, args: { canvasId: string; toolCallId: string; answer: string }) => {
-      if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
-        throw new Error('canvasId is required');
-      }
-      if (typeof args.toolCallId !== 'string' || !args.toolCallId.trim()) {
-        throw new Error('toolCallId is required');
-      }
-      if (typeof args.answer !== 'string') {
-        throw new Error('answer is required');
-      }
-      const session = runningSessions.get(args.canvasId);
-      if (session?.orchestrator) {
-        session.orchestrator.answerQuestion(args.toolCallId, args.answer);
-      }
-    },
-  );
+  registerCommanderMetaHandlers(ipcMain);
 }

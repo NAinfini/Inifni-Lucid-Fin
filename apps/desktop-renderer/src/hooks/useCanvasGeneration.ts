@@ -8,7 +8,19 @@ import {
   setNodeGenerating,
   setNodeProgress,
 } from '../store/slices/canvas.js';
+import { addLog } from '../store/slices/logger.js';
 import { getAPI } from '../utils/api.js';
+
+function serializeGenerationDetail(detail: Record<string, unknown>, error?: unknown): string {
+  const payload: Record<string, unknown> = { ...detail };
+  if (error instanceof Error) {
+    payload.error = error.message;
+    payload.stack = error.stack;
+  } else if (error !== undefined) {
+    payload.error = String(error);
+  }
+  return JSON.stringify(payload, null, 2);
+}
 
 export function useCanvasGeneration(): {
   generate: (
@@ -29,7 +41,7 @@ export function useCanvasGeneration(): {
 
     const unsubProgress = api.canvasGeneration.onProgress((data) => {
       if (data.canvasId !== activeCanvasId) return;
-      dispatch(setNodeProgress({ id: data.nodeId, progress: data.progress }));
+      dispatch(setNodeProgress({ id: data.nodeId, progress: data.progress, currentStep: data.currentStep }));
     });
     const unsubComplete = api.canvasGeneration.onComplete((data) => {
       if (data.canvasId !== activeCanvasId) return;
@@ -42,10 +54,36 @@ export function useCanvasGeneration(): {
           generationTimeMs: data.generationTimeMs,
         }),
       );
+      dispatch(
+        addLog({
+          level: 'info',
+          category: 'generation',
+          message: 'Canvas generation completed',
+          detail: serializeGenerationDetail({
+            canvasId: data.canvasId,
+            nodeId: data.nodeId,
+            variantCount: data.variants.length,
+            primaryAssetHash: data.primaryAssetHash,
+            cost: data.cost,
+            generationTimeMs: data.generationTimeMs,
+          }),
+        }),
+      );
     });
     const unsubFailed = api.canvasGeneration.onFailed((data) => {
       if (data.canvasId !== activeCanvasId) return;
       dispatch(setNodeGenerationFailed({ id: data.nodeId, error: data.error }));
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'generation',
+          message: 'Canvas generation failed',
+          detail: serializeGenerationDetail({
+            canvasId: data.canvasId,
+            nodeId: data.nodeId,
+          }, data.error),
+        }),
+      );
     });
 
     return () => {
@@ -65,6 +103,20 @@ export function useCanvasGeneration(): {
         throw new Error('No active canvas selected');
       }
 
+      dispatch(
+        addLog({
+          level: 'info',
+          category: 'generation',
+          message: 'Canvas generation requested',
+          detail: serializeGenerationDetail({
+            canvasId: activeCanvasId,
+            nodeId,
+            providerId,
+            variantCount,
+            seed,
+          }),
+        }),
+      );
       dispatch(setNodeGenerating({ id: nodeId, jobId: `pending-${Date.now()}` }));
       try {
         const result = await api.canvasGeneration.generate(
@@ -75,11 +127,38 @@ export function useCanvasGeneration(): {
           seed,
         );
         dispatch(setNodeGenerating({ id: nodeId, jobId: result.jobId }));
+        dispatch(
+          addLog({
+            level: 'info',
+            category: 'generation',
+            message: 'Canvas generation queued',
+            detail: serializeGenerationDetail({
+              canvasId: activeCanvasId,
+              nodeId,
+              jobId: result.jobId,
+              providerId,
+            }),
+          }),
+        );
       } catch (error) {
         dispatch(
           setNodeGenerationFailed({
             id: nodeId,
             error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'generation',
+            message: 'Canvas generation failed',
+            detail: serializeGenerationDetail({
+              canvasId: activeCanvasId,
+              nodeId,
+              providerId,
+              variantCount,
+              seed,
+            }, error),
           }),
         );
         throw error;
@@ -97,9 +176,46 @@ export function useCanvasGeneration(): {
       if (!activeCanvasId) {
         throw new Error('No active canvas selected');
       }
-      await api.canvasGeneration.cancel(activeCanvasId, nodeId);
+      dispatch(
+        addLog({
+          level: 'info',
+          category: 'generation',
+          message: 'Canvas generation cancel requested',
+          detail: serializeGenerationDetail({
+            canvasId: activeCanvasId,
+            nodeId,
+          }),
+        }),
+      );
+      try {
+        await api.canvasGeneration.cancel(activeCanvasId, nodeId);
+        dispatch(
+          addLog({
+            level: 'info',
+            category: 'generation',
+            message: 'Canvas generation cancel completed',
+            detail: serializeGenerationDetail({
+              canvasId: activeCanvasId,
+              nodeId,
+            }),
+          }),
+        );
+      } catch (error) {
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'generation',
+            message: 'Canvas generation cancel failed',
+            detail: serializeGenerationDetail({
+              canvasId: activeCanvasId,
+              nodeId,
+            }, error),
+          }),
+        );
+        throw error;
+      }
     },
-    [activeCanvasId],
+    [activeCanvasId, dispatch],
   );
 
   const estimateCost = useCallback(
@@ -111,9 +227,39 @@ export function useCanvasGeneration(): {
       if (!activeCanvasId) {
         throw new Error('No active canvas selected');
       }
-      const result = await api.canvasGeneration.estimateCost(activeCanvasId, nodeId, providerId);
-      dispatch(setNodeEstimatedCost({ id: nodeId, estimatedCost: result.estimatedCost }));
-      return result.estimatedCost;
+      try {
+        const result = await api.canvasGeneration.estimateCost(activeCanvasId, nodeId, providerId);
+        dispatch(setNodeEstimatedCost({ id: nodeId, estimatedCost: result.estimatedCost }));
+        dispatch(
+          addLog({
+            level: 'info',
+            category: 'generation',
+            message: 'Canvas generation cost estimated',
+            detail: serializeGenerationDetail({
+              canvasId: activeCanvasId,
+              nodeId,
+              providerId,
+              estimatedCost: result.estimatedCost,
+              currency: result.currency,
+            }),
+          }),
+        );
+        return result.estimatedCost;
+      } catch (error) {
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'generation',
+            message: 'Canvas generation cost estimate failed',
+            detail: serializeGenerationDetail({
+              canvasId: activeCanvasId,
+              nodeId,
+              providerId,
+            }, error),
+          }),
+        );
+        throw error;
+      }
     },
     [activeCanvasId, dispatch],
   );

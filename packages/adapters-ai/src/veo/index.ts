@@ -12,7 +12,7 @@ import { toVeoRequest, parseVeoResponse } from './mapper.js';
 
 export class VeoAdapter implements AIProviderAdapter {
   readonly id = 'google-veo-2';
-  readonly name = 'Google Veo 2';
+  readonly name = 'Google Veo 3';
   readonly type: AdapterType = 'video';
   readonly capabilities: Capability[] = ['text-to-video', 'image-to-video'];
   readonly maxConcurrent = 2;

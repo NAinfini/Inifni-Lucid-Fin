@@ -39,8 +39,8 @@ export function SettingsSidebarNav({ activeTab, onTabChange }: SettingsSidebarNa
       aria-label={translateOrFallback('settings.nav.title', 'Settings sections')}
       className="md:w-56 md:shrink-0"
     >
-      <div className="rounded-2xl border border-border bg-card p-2">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-1">
+      <div className="rounded-lg border border-border/60 bg-card p-1.5">
+        <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
           {(Object.entries(SETTINGS_TAB_META) as Array<
             [SettingsTab, (typeof SETTINGS_TAB_META)[SettingsTab]]
           >).map(([tab, meta]) => {
@@ -54,13 +54,13 @@ export function SettingsSidebarNav({ activeTab, onTabChange }: SettingsSidebarNa
                 onClick={() => onTabChange(tab)}
                 aria-current={isActive ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors',
+                  'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors',
                   isActive
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                 )}
               >
-                <Icon className="h-4 w-4 shrink-0" />
+                <Icon className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">
                   {translateOrFallback(meta.labelKey, meta.fallbackLabel)}
                 </span>

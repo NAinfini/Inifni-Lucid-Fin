@@ -1,5 +1,5 @@
 import type { ProjectManifest, StyleGuide, Snapshot } from './dto/project.js';
-import type { AssetRef, AssetMeta } from './dto/asset.js';
+import type { AssetRef, AssetMeta, AssetType } from './dto/asset.js';
 import type { Job, GenerationRequest } from './dto/job.js';
 import type { Scene } from './dto/scene.js';
 import type {
@@ -165,6 +165,19 @@ export interface IpcChannelMap {
     response: void;
   };
 
+  // --- Entity generation ---
+  'entity:generateReferenceImage': {
+    request: {
+      entityType: 'character' | 'equipment' | 'location';
+      entityId: string;
+      description: string;
+      provider: string;
+      variantCount?: number;
+      seed?: number;
+    };
+    response: { variants: string[] };
+  };
+
   // --- Style Guide ---
   'style:save': {
     request: StyleGuide;
@@ -183,6 +196,10 @@ export interface IpcChannelMap {
   'asset:query': {
     request: { type?: string; tags?: string[]; search?: string; limit?: number; offset?: number };
     response: AssetMeta[];
+  };
+  'asset:export': {
+    request: { hash: string; type: AssetType; format: string; name?: string };
+    response: { success: true; path: string } | null;
   };
 
   // --- Job ---
@@ -347,6 +364,22 @@ export interface IpcChannelMap {
   'commander:tool:answer': {
     request: { canvasId: string; toolCallId: string; answer: string };
     response: void;
+  };
+  'commander:tool-list': {
+    request: void;
+    response: Array<{
+      name: string;
+      description: string;
+      tags?: string[];
+      tier: number;
+    }>;
+  };
+  'commander:tool-search': {
+    request: { query?: string } | void;
+    response: Array<{
+      name: string;
+      description: string;
+    }>;
   };
   'commander:stream': {
     request: {

@@ -66,6 +66,23 @@ export class CAS {
     return path.join(this.assetsRoot, type, prefix, `${hash}.${ext}`);
   }
 
+  deleteAsset(hash: string): void {
+    const prefix = hash.slice(0, 2);
+
+    for (const type of ['image', 'video', 'audio'] as const) {
+      const dir = path.join(this.assetsRoot, type, prefix);
+      if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
+        continue;
+      }
+
+      for (const entry of fs.readdirSync(dir)) {
+        if (entry === `${hash}.meta.json` || entry.startsWith(`${hash}.`)) {
+          fs.rmSync(path.join(dir, entry), { force: true });
+        }
+      }
+    }
+  }
+
   assetExists(hash: string, type: AssetType, ext: string): boolean {
     return fs.existsSync(this.getAssetPath(hash, type, ext));
   }

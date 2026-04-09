@@ -22,6 +22,7 @@ import { commanderSlice } from './slices/commander.js';
 import { promptTemplatesSlice } from './slices/promptTemplates.js';
 import { locationsSlice } from './slices/locations.js';
 import { shotTemplatesSlice } from './slices/shotTemplates.js';
+import { workflowDefinitionsSlice } from './slices/workflowDefinitions.js';
 import { listenerMiddleware } from './middleware/listener.js';
 import { ipcMiddleware } from './middleware/ipc.js';
 import { persistMiddleware } from './middleware/persist.js';
@@ -52,6 +53,7 @@ export const store = configureStore({
     promptTemplates: promptTemplatesSlice.reducer,
     locations: locationsSlice.reducer,
     shotTemplates: shotTemplatesSlice.reducer,
+    workflowDefinitions: workflowDefinitionsSlice.reducer,
   },
   middleware: (getDefault) =>
     getDefault()

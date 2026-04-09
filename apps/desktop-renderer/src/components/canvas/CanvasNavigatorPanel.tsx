@@ -39,15 +39,15 @@ export function CanvasNavigatorPanel() {
 
   return (
     <div className="flex h-full flex-col bg-card">
-      <div className="border-b px-4 py-3">
+      <div className="border-b border-border/60 px-3 py-2">
         <div className="flex items-center gap-2">
-          <Layers className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold">{t('panels.canvasNavigator')}</h2>
+          <Layers className="h-3.5 w-3.5 text-primary" />
+          <h2 className="text-xs font-semibold">{t('panels.canvasNavigator')}</h2>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">{t('panels.canvasNavigatorHint')}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{t('panels.canvasNavigatorHint')}</p>
       </div>
 
-      <div className="border-b px-4 py-3">
+      <div className="border-b border-border/60 px-3 py-2">
         <button
           type="button"
           aria-label={t('panels.createCanvas')}
@@ -58,15 +58,15 @@ export function CanvasNavigatorPanel() {
             dispatch(addCanvas(created));
             dispatch(setActiveCanvas(created.id));
           }}
-          className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs text-primary-foreground transition-opacity hover:opacity-90"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-3.5 w-3.5" />
           {t('panels.createCanvas')}
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
-        <div className="space-y-2">
+      <div className="flex-1 overflow-y-auto p-2">
+        <div className="space-y-1.5">
           {sortedCanvases.map((canvas) => {
             const isActive = canvas.id === activeCanvasId;
             const isEditing = canvas.id === editingId;
@@ -75,7 +75,7 @@ export function CanvasNavigatorPanel() {
               <div
                 key={canvas.id}
                 className={cn(
-                  'rounded-xl border border-border bg-background px-3 py-2',
+                  'rounded-md border border-border/60 bg-background px-2.5 py-1.5',
                   isActive && 'border-primary/50 bg-primary/5',
                 )}
               >
@@ -108,12 +108,15 @@ export function CanvasNavigatorPanel() {
                               setEditingId(null);
                             }
                           }}
-                          className="w-full rounded border border-border bg-card px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-ring"
+                          className="w-full rounded-md border border-border/60 bg-card px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
                         />
                       ) : (
                         <>
-                          <span className="block truncate text-sm font-medium">{canvas.name}</span>
-                          <span className="block text-xs text-muted-foreground">
+                          <span className="block truncate text-xs font-medium">{canvas.name}</span>
+                          <span className="block text-[10px] text-muted-foreground">
+                            {canvas.nodes.length} {t('panels.nodes')} · {canvas.edges.length} {t('panels.edges')}
+                          </span>
+                          <span className="block text-[11px] text-muted-foreground">
                             {new Date(canvas.updatedAt).toLocaleString()}
                           </span>
                         </>

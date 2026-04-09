@@ -91,7 +91,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     this.id = cfg.id ?? 'claude';
     this.name = cfg.name ?? 'Anthropic Claude';
     this.baseUrl = normalizeClaudeBaseUrl(cfg.defaultBaseUrl ?? 'https://api.anthropic.com');
-    this.model = cfg.defaultModel ?? 'claude-sonnet-4-5';
+    this.model = cfg.defaultModel ?? 'claude-sonnet-4-20250514';
   }
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
@@ -318,7 +318,8 @@ export class ClaudeLLMAdapter implements LLMAdapter {
 
     let content = '';
     const toolCalls: LLMToolCall[] = [];
-    for (const block of data.content) {
+    const blocks = Array.isArray(data.content) ? data.content : [];
+    for (const block of blocks) {
       if (block.type === 'text') content += block.text ?? '';
       if (block.type === 'tool_use') {
         const rawName = block.name ?? '';
@@ -328,6 +329,10 @@ export class ClaudeLLMAdapter implements LLMAdapter {
           arguments: block.input ?? {},
         });
       }
+    }
+
+    if (!content.trim() && toolCalls.length === 0) {
+      throw this.buildEmptyAssistantResponseError(result, data);
     }
 
     return {
@@ -438,6 +443,47 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       responseText: responseText || undefined,
       responseTextSnippet: this.truncateForDiagnostics(responseText),
     });
+  }
+
+  private buildEmptyAssistantResponseError(
+    result: ClaudeRequestResult,
+    responseBody: Record<string, unknown>,
+  ): LucidError {
+    const content = Array.isArray(responseBody.content)
+      ? responseBody.content.filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+      : [];
+    const messageContentTypes = content
+      .map((entry) => (typeof entry.type === 'string' ? entry.type : typeof entry))
+      .filter((entry): entry is string => Boolean(entry));
+
+    return new LucidError(
+      ErrorCode.ServiceUnavailable,
+      `${this.name} returned JSON without extractable assistant content`,
+      {
+        status: result.response.status,
+        statusText: result.response.statusText,
+        endpoint: result.endpoint,
+        requestId: result.requestId,
+        upstreamRequestId:
+          result.response.headers.get('request-id')
+          ?? result.response.headers.get('x-request-id')
+          ?? undefined,
+        provider: this.name,
+        providerId: this.id,
+        baseUrl: this.baseUrl,
+        model: this.model,
+        streaming: result.streaming,
+        hasTools: result.hasTools,
+        finishReason: typeof responseBody.stop_reason === 'string' ? responseBody.stop_reason : undefined,
+        choiceCount: 1,
+        toolCallCount: 0,
+        responseKeys: Object.keys(responseBody),
+        messageContentTypes,
+        responseBody,
+        ...this.measureRequestDiagnostics(result.requestBody),
+        requestBody: result.requestBody,
+      },
+    );
   }
 
   private resolveErrorCode(status: number, fallback: ErrorCode): ErrorCode {

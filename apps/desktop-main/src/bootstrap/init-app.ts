@@ -2,6 +2,7 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import log from '../logger.js';
 import { ProjectFS, CAS, SqliteIndex, Keychain, PromptStore } from '@lucid-fin/storage';
 import {
   AdapterRegistry,
@@ -150,13 +151,30 @@ export async function selectConfiguredLLMAdapter(
       try {
         const valid = await adapter.validate();
         return { adapter, valid };
-      } catch {
+      } catch (err) {
+        log.warn('adapter.validate() threw', {
+          category: 'provider',
+          adapterId: adapter.id,
+          error: String(err),
+        });
         return { adapter, valid: false };
       }
     }),
   );
   const found = results.find((r) => r.valid);
-  if (found) return found.adapter;
+  if (found) {
+    log.info('Selected configured LLM adapter', {
+      category: 'provider',
+      adapterId: found.adapter.id,
+      adapterName: found.adapter.name,
+      adapterCount: adapters.length,
+    });
+    return found.adapter;
+  }
+  log.warn('No configured LLM adapters found', {
+    category: 'provider',
+    adapterCount: adapters.length,
+  });
   throw new Error('No configured LLM adapter');
 }
 

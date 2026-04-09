@@ -16,7 +16,7 @@ import { toOpenAITTSRequest } from './mapper.js';
 
 export class OpenAITTSAdapter implements AIProviderAdapter {
   readonly id = 'openai-tts-1-hd';
-  readonly name = 'OpenAI TTS HD';
+  readonly name = 'OpenAI TTS';
   readonly type: AdapterType = 'voice';
   readonly capabilities: Capability[] = ['text-to-voice'];
   readonly maxConcurrent = 5;

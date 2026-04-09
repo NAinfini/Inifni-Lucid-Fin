@@ -12,18 +12,20 @@ import { createPrediction, getPrediction, cancelPrediction, toJobStatus } from '
 export class ReplicateAdapter implements AIProviderAdapter {
   readonly id = 'replicate';
   readonly name = 'Replicate';
-  readonly type: AdapterType = 'image';
+  readonly type: AdapterType | AdapterType[] = ['image', 'video'];
   readonly capabilities: Capability[] = ['text-to-image', 'text-to-video'];
   readonly maxConcurrent = 5;
 
   private apiKey = '';
   private baseUrl = 'https://api.replicate.com/v1';
   private model = 'black-forest-labs/flux-1.1-pro';
+  private videoModel = 'minimax/video-01';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
     if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
     if (options?.model) this.model = options.model as string;
+    if (options?.videoModel) this.videoModel = options.videoModel as string;
   }
 
   async validate(): Promise<boolean> {
@@ -42,12 +44,15 @@ export class ReplicateAdapter implements AIProviderAdapter {
       prompt: req.prompt,
     };
 
+    // Select model based on generation type
+    const activeModel = req.type === 'video' ? this.videoModel : this.model;
+
     // Add dimensions for image/video
     if (req.width) input.width = req.width;
     if (req.height) input.height = req.height;
     if (req.seed != null) input.seed = req.seed;
 
-    const prediction = await createPrediction(this.apiKey, this.model, input, this.name);
+    const prediction = await createPrediction(this.apiKey, activeModel, input, this.name);
 
     // Poll for completion
     let status = prediction.status;

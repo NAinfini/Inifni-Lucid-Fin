@@ -4,6 +4,24 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Canvas, GenerationResult } from '@lucid-fin/contracts';
 import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet, type StyleGuide } from '@lucid-fin/contracts';
+
+const logger = vi.hoisted(() => ({
+  debug: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  fatal: vi.fn(),
+}));
+
+vi.mock('../../logger.js', () => ({
+  default: logger,
+  debug: logger.debug,
+  info: logger.info,
+  warn: logger.warn,
+  error: logger.error,
+  fatal: logger.fatal,
+}));
+
 import {
   applyStyleGuideDefaultsToEmptyTracks,
   canonicalizeCanvasProviderId,
@@ -248,6 +266,7 @@ function createSender() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 describe('startCanvasGeneration progress events', () => {
@@ -338,6 +357,28 @@ describe('startCanvasGeneration progress events', () => {
     }, deps as never);
 
     await done;
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Canvas generation requested',
+      expect.objectContaining({
+        category: 'canvas-generation',
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        generationType: 'image',
+        variantCount: 2,
+      }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      'Canvas generation completed',
+      expect.objectContaining({
+        category: 'canvas-generation',
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        generatedAssetCount: 2,
+      }),
+    );
 
     const progressEvents = events.filter((event) => event.channel === 'canvas:generation:progress');
     expect(progressEvents).toEqual(
@@ -559,5 +600,141 @@ describe('startCanvasGeneration progress events', () => {
     expect(generate).toHaveBeenCalled();
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('falls back to the ad-hoc adapter when a registered provider id does not support the requested media type', async () => {
+    const canvas = makeCanvas('audio');
+    const save = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        audio_url: 'data:audio/mpeg;base64,SUQz',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const incompatibleReplicateAdapter = {
+      id: 'replicate',
+      name: 'Replicate',
+      type: ['image', 'video'],
+      capabilities: ['text-to-image', 'text-to-video'],
+      maxConcurrent: 1,
+      configure: vi.fn(),
+      validate: vi.fn(async () => true),
+      generate: vi.fn(async () => {
+        throw new Error('registered replicate adapter should be bypassed for audio');
+      }),
+      estimateCost: vi.fn(() => ({
+        estimatedCost: 0.01,
+        currency: 'USD',
+        provider: 'replicate',
+        unit: 'per generation',
+      })),
+      checkStatus: vi.fn(async () => 'completed'),
+      cancel: vi.fn(async () => undefined),
+    };
+    const { sender, done } = createSender();
+
+    try {
+      await startCanvasGeneration(
+        sender,
+        {
+          canvasId: 'canvas-1',
+          nodeId: 'node-1',
+          providerId: 'replicate',
+          providerConfig: {
+            baseUrl: 'https://proxy.example/audio',
+            model: 'suno-ai/bark',
+          },
+          variantCount: 1,
+        },
+        {
+          adapterRegistry: {
+            get: vi.fn((id: string) => (id === 'replicate' ? incompatibleReplicateAdapter : undefined)),
+            list: vi.fn(() => [incompatibleReplicateAdapter]),
+          },
+          cas: {
+            importAsset: vi.fn(async () => ({
+              ref: { hash: 'hash-audio' },
+              meta: {
+                hash: 'hash-audio',
+                type: 'audio',
+                mimeType: 'audio/mpeg',
+                size: 3,
+                duration: 1,
+                createdAt: Date.now(),
+              },
+            })),
+          },
+          db: {
+            insertAsset: vi.fn(),
+            getCharacter: vi.fn(() => undefined),
+            getEquipment: vi.fn(() => undefined),
+            getLocation: vi.fn(() => undefined),
+          },
+          canvasStore: {
+            get: vi.fn(() => canvas),
+            save,
+          },
+          keychain: {
+            getKey: vi.fn(async (provider: string) => (provider === 'replicate' ? 'sk-replicate' : null)),
+          },
+        } as never,
+      );
+
+      await done;
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://proxy.example/audio',
+        expect.objectContaining({
+          method: 'POST',
+        }),
+      );
+      expect(incompatibleReplicateAdapter.generate).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        '[canvas:generation] registered adapter incompatible with requested media type, falling back to ad-hoc provider config',
+        expect.objectContaining({
+          category: 'canvas-generation',
+          requestedProviderId: 'replicate',
+          canonicalProviderId: 'replicate',
+          adapterId: 'replicate',
+          generationType: 'voice',
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('logs structured failure details when generation fails', async () => {
+    const canvas = makeCanvas('image');
+    const adapter = {
+      generate: vi.fn(async () => {
+        throw new Error('provider exploded');
+      }),
+    };
+    const { deps } = makeDeps(canvas, adapter);
+    const { sender, done } = createSender();
+
+    await startCanvasGeneration(sender, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      providerId: 'mock-provider',
+      variantCount: 1,
+    }, deps as never);
+
+    await done;
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'Canvas generation failed',
+      expect.objectContaining({
+        category: 'canvas-generation',
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        generationType: 'image',
+        error: 'provider exploded',
+      }),
+    );
   });
 });

@@ -36,33 +36,168 @@ const DEFAULTS: Omit<PromptTemplate, 'customContent'>[] = [
   { id: 'workflow-methods', name: 'Workflow Methods', category: 'process', defaultContent: workflowMethods },
   { id: 'model-adaptation', name: 'Model-Specific Adaptation', category: 'system', defaultContent: modelAdaptation },
   { id: 'audio-prompting', name: 'Audio Prompting', category: 'audio', defaultContent: audioPrompting },
-  { id: 'style-transfer', name: 'Style Transfer', category: 'workflow', defaultContent: styleTransfer },
-  { id: 'shot-list-from-script', name: 'Shot List from Script', category: 'workflow', defaultContent: shotListFromScript },
-  { id: 'batch-re-prompt', name: 'Batch Re-Prompt', category: 'workflow', defaultContent: batchRePrompt },
-  { id: 'continuity-check', name: 'Continuity Check', category: 'workflow', defaultContent: continuityCheck },
-  { id: 'storyboard-export', name: 'Storyboard Export', category: 'workflow', defaultContent: storyboardExport },
+  { id: 'style-transfer', name: 'Style Transfer', category: 'skill', defaultContent: styleTransfer },
+  { id: 'shot-list-from-script', name: 'Shot List from Script', category: 'skill', defaultContent: shotListFromScript },
+  { id: 'batch-re-prompt', name: 'Batch Re-Prompt', category: 'skill', defaultContent: batchRePrompt },
+  { id: 'continuity-check', name: 'Continuity Check', category: 'skill', defaultContent: continuityCheck },
+  { id: 'storyboard-export', name: 'Storyboard Export', category: 'skill', defaultContent: storyboardExport },
 ];
 
-function loadCustoms(): Record<string, string | null> {
+interface StoredCustomTemplate {
+  id: string;
+  name: string;
+  category: string;
+  customContent: string | null;
+}
+
+interface PromptTemplateStorage {
+  builtInCustoms: Record<string, string | null>;
+  builtInNames: Record<string, string>;
+  customTemplates: StoredCustomTemplate[];
+}
+
+const DEFAULT_TEMPLATE_IDS = new Set(DEFAULTS.map((template) => template.id));
+const DEFAULT_TEMPLATE_NAME_BY_ID = new Map(DEFAULTS.map((template) => [template.id, template.name]));
+
+function isStoredCustomTemplate(value: unknown): value is StoredCustomTemplate {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.name === 'string' &&
+    typeof candidate.category === 'string' &&
+    (typeof candidate.customContent === 'string' || candidate.customContent === null)
+  );
+}
+
+function filterStringOrNullRecord(value: Record<string, unknown>): Record<string, string | null> {
+  const result: Record<string, string | null> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === 'string' || entry === null) {
+      result[key] = entry;
+    }
+  }
+  return result;
+}
+
+function filterStringRecord(value: Record<string, unknown>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === 'string') {
+      result[key] = entry;
+    }
+  }
+  return result;
+}
+
+function loadStorage(): PromptTemplateStorage {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, string | null>) : {};
+    if (!raw) {
+      return { builtInCustoms: {}, builtInNames: {}, customTemplates: [] };
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const candidate = parsed as Record<string, unknown>;
+      const builtInCustomsValue = candidate.builtInCustoms;
+      const builtInNamesValue = candidate.builtInNames;
+      const customTemplatesValue = candidate.customTemplates;
+
+      if (
+        builtInCustomsValue &&
+        typeof builtInCustomsValue === 'object' &&
+        !Array.isArray(builtInCustomsValue) &&
+        Array.isArray(customTemplatesValue)
+      ) {
+        const builtInCustoms = filterStringOrNullRecord(
+          builtInCustomsValue as Record<string, unknown>,
+        );
+        const builtInNames =
+          builtInNamesValue && typeof builtInNamesValue === 'object' && !Array.isArray(builtInNamesValue)
+            ? filterStringRecord(builtInNamesValue as Record<string, unknown>)
+            : {};
+
+        return {
+          builtInCustoms,
+          builtInNames,
+          customTemplates: customTemplatesValue.filter(isStoredCustomTemplate),
+        };
+      }
+
+      return {
+        builtInCustoms: filterStringOrNullRecord(candidate),
+        builtInNames: {},
+        customTemplates: [],
+      };
+    }
+
+    return { builtInCustoms: {}, builtInNames: {}, customTemplates: [] };
   } catch {
-    return {};
+    return { builtInCustoms: {}, builtInNames: {}, customTemplates: [] };
   }
 }
 
-function saveCustoms(customs: Record<string, string | null>): void {
+function saveTemplates(templates: PromptTemplate[]): void {
+  const builtInCustoms: Record<string, string | null> = {};
+  const builtInNames: Record<string, string> = {};
+  const customTemplates: StoredCustomTemplate[] = [];
+
+  for (const template of templates) {
+    if (DEFAULT_TEMPLATE_IDS.has(template.id)) {
+      const defaultName = DEFAULT_TEMPLATE_NAME_BY_ID.get(template.id);
+      if (template.customContent !== null) {
+        builtInCustoms[template.id] = template.customContent;
+      }
+      if (defaultName && template.name !== defaultName) {
+        builtInNames[template.id] = template.name;
+      }
+      continue;
+    }
+
+    customTemplates.push({
+      id: template.id,
+      name: template.name,
+      category: template.category,
+      customContent: template.customContent,
+    });
+  }
+
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(customs));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        builtInCustoms,
+        builtInNames,
+        customTemplates,
+      } satisfies PromptTemplateStorage),
+    );
   } catch {
     // localStorage unavailable
   }
 }
 
 function buildInitialTemplates(): PromptTemplate[] {
-  const customs = loadCustoms();
-  return DEFAULTS.map((d) => ({ ...d, customContent: customs[d.id] ?? null }));
+  const storage = loadStorage();
+  const builtInTemplates = DEFAULTS.map((template) => ({
+    ...template,
+    name: storage.builtInNames[template.id] ?? template.name,
+    customContent: storage.builtInCustoms[template.id] ?? null,
+  }));
+  const customTemplates = storage.customTemplates
+    .map((template) => ({
+      id: template.id,
+      name: template.name,
+      category: template.category,
+      defaultContent: '',
+      customContent: template.customContent,
+    }))
+    .filter((template) => !DEFAULT_TEMPLATE_IDS.has(template.id));
+
+  return [...builtInTemplates, ...customTemplates];
 }
 
 export interface PromptTemplatesState {
@@ -81,32 +216,71 @@ export const promptTemplatesSlice = createSlice({
       const tpl = state.templates.find((t) => t.id === action.payload.id);
       if (!tpl) return;
       tpl.customContent = action.payload.content;
-      const customs: Record<string, string | null> = {};
-      for (const t of state.templates) {
-        if (t.customContent !== null) customs[t.id] = t.customContent;
-      }
-      saveCustoms(customs);
+      saveTemplates(state.templates);
     },
     resetContent(state, action: PayloadAction<string>) {
       const tpl = state.templates.find((t) => t.id === action.payload);
       if (!tpl) return;
       tpl.customContent = null;
-      const customs: Record<string, string | null> = {};
-      for (const t of state.templates) {
-        if (t.customContent !== null) customs[t.id] = t.customContent;
+      const defaultName = DEFAULT_TEMPLATE_NAME_BY_ID.get(tpl.id);
+      if (defaultName) {
+        tpl.name = defaultName;
       }
-      saveCustoms(customs);
+      saveTemplates(state.templates);
     },
     resetAllContent(state) {
       for (const t of state.templates) {
         t.customContent = null;
+        const defaultName = DEFAULT_TEMPLATE_NAME_BY_ID.get(t.id);
+        if (defaultName) {
+          t.name = defaultName;
+        }
       }
-      saveCustoms({});
+      saveTemplates(state.templates);
+    },
+    renameTemplate(state, action: PayloadAction<{ id: string; name: string }>) {
+      const tpl = state.templates.find((t) => t.id === action.payload.id);
+      if (!tpl) return;
+      tpl.name = action.payload.name;
+      saveTemplates(state.templates);
+    },
+    addCustomTemplate(state, action: PayloadAction<{ id: string; name: string; category: string; content: string }>) {
+      state.templates.push({
+        id: action.payload.id,
+        name: action.payload.name,
+        category: action.payload.category,
+        defaultContent: '',
+        customContent: action.payload.content,
+      });
+      saveTemplates(state.templates);
+    },
+    removeCustomTemplate(state, action: PayloadAction<string>) {
+      const idx = state.templates.findIndex((t) => t.id === action.payload);
+      if (idx === -1) return;
+      // Only allow removing templates with no defaultContent (user-created)
+      if (state.templates[idx].defaultContent) return;
+      state.templates.splice(idx, 1);
+      saveTemplates(state.templates);
     },
   },
 });
 
-export const { setCustomContent, resetContent, resetAllContent } = promptTemplatesSlice.actions;
+export const {
+  setCustomContent,
+  resetContent,
+  resetAllContent,
+  renameTemplate,
+  addCustomTemplate,
+  removeCustomTemplate,
+} = promptTemplatesSlice.actions;
+
+export function getDefaultPromptTemplateName(id: string): string | undefined {
+  return DEFAULT_TEMPLATE_NAME_BY_ID.get(id);
+}
+
+export function isDefaultPromptTemplateName(id: string, name: string): boolean {
+  return DEFAULT_TEMPLATE_NAME_BY_ID.get(id) === name;
+}
 
 /** Returns the active content (custom if set, else default) for each template */
 export function selectActiveTemplates(templates: PromptTemplate[]): Array<{ id: string; name: string; content: string }> {

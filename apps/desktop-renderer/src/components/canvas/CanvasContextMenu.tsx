@@ -48,7 +48,7 @@ export function CanvasContextMenu({
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className="min-w-[180px] rounded-md border bg-popover p-1 text-popover-foreground shadow-md z-50">
+        <ContextMenu.Content className="min-w-[170px] rounded-md border border-border/60 bg-card p-0.5 text-popover-foreground shadow-lg z-50">
           {MENU_ITEMS.map((item) => {
             const Icon = item.icon;
             return (

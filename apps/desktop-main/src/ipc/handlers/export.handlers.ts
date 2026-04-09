@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import type { IpcMain } from 'electron';
+import { dialog } from 'electron';
 import log from '../../logger.js';
 import {
   exportFCPXML,
@@ -18,27 +19,52 @@ export function registerExportHandlers(ipcMain: IpcMain): void {
       args: {
         format: 'fcpxml' | 'edl';
         project: NLEProject;
-        outputPath: string;
+        outputPath?: string;
       },
     ) => {
-      if (!args?.project || !args?.outputPath) {
-        throw new Error('export:nle: project and outputPath are required');
+      if (!args?.project) {
+        throw new Error('export:nle: project is required');
       }
       if (args.format !== 'fcpxml' && args.format !== 'edl') {
         throw new Error('export:nle: format must be "fcpxml" or "edl"');
       }
 
-      log.info('export:nle', { format: args.format, outputPath: args.outputPath });
+      let outputPath = args.outputPath;
+      if (!outputPath) {
+        const ext = args.format === 'fcpxml' ? 'fcpxml' : 'edl';
+        const result = await dialog.showSaveDialog({
+          defaultPath: `export.${ext}`,
+          filters: [
+            { name: args.format === 'fcpxml' ? 'Final Cut Pro XML' : 'Edit Decision List', extensions: [ext] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        });
+        if (result.canceled || !result.filePath) {
+          log.info('NLE export cancelled', {
+            category: 'export',
+            format: args.format,
+          });
+          return null;
+        }
+        outputPath = result.filePath;
+      }
 
       const content = args.format === 'fcpxml'
         ? exportFCPXML(args.project)
         : exportEDL(args.project);
 
-      fs.writeFileSync(args.outputPath, content, 'utf8');
-      const stat = fs.statSync(args.outputPath);
+      fs.writeFileSync(outputPath, content, 'utf8');
+      const stat = fs.statSync(outputPath);
+
+      log.info('NLE export completed', {
+        category: 'export',
+        format: args.format,
+        outputPath,
+        fileSize: stat.size,
+      });
 
       return {
-        outputPath: args.outputPath,
+        outputPath,
         format: args.format,
         fileSize: stat.size,
       };
@@ -47,7 +73,10 @@ export function registerExportHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('export:assetBundle', async (_e, args: { outputPath: string }) => {
     if (!args?.outputPath) throw new Error('export:assetBundle: outputPath required');
-    log.info('export:assetBundle', args.outputPath);
+    log.info('Asset bundle export requested', {
+      category: 'export',
+      outputPath: args.outputPath,
+    });
     // Asset bundling requires a zip library (archiver/yazl).
     // This remains a placeholder until a zip dependency is added.
     throw new Error('export:assetBundle: not yet implemented — requires zip dependency');
@@ -72,13 +101,17 @@ export function registerExportHandlers(ipcMain: IpcMain): void {
         throw new Error('export:subtitles: format must be "srt" or "ass"');
       }
 
-      log.info('export:subtitles', { format: args.format, outputPath: args.outputPath, cueCount: args.cues.length });
-
       const content = args.format === 'srt'
         ? exportSRT(args.cues)
         : exportASS(args.cues, args.videoWidth, args.videoHeight);
 
       fs.writeFileSync(args.outputPath, content, 'utf8');
+      log.info('Subtitle export completed', {
+        category: 'export',
+        format: args.format,
+        outputPath: args.outputPath,
+        cueCount: args.cues.length,
+      });
     },
   );
 }

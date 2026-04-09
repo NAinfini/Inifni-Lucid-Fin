@@ -155,19 +155,19 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[18vh]"
       onClick={() => setOpen(false)}
       role="dialog"
       aria-modal="true"
       aria-label={t('command.dialogLabel')}
     >
-      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-lg overflow-hidden rounded-lg border bg-card shadow-2xl"
+        className="relative w-full max-w-md overflow-hidden rounded-lg border border-border/60 bg-card shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Search className="h-4 w-4 text-muted-foreground" />
+        <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
             ref={inputRef}
             value={query}
@@ -177,7 +177,7 @@ export function CommandPalette() {
             }}
             onKeyDown={handleKeyDown}
             placeholder={t('command.placeholder')}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             aria-label={t('command.searchLabel')}
           />
           <kbd className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -185,9 +185,9 @@ export function CommandPalette() {
           </kbd>
         </div>
 
-        <ul className="max-h-64 overflow-y-auto py-1" role="listbox">
+        <ul className="max-h-60 overflow-y-auto py-0.5" role="listbox">
           {filtered.length === 0 ? (
-            <li className="px-3 py-2 text-sm text-muted-foreground">{t('command.noMatch')}</li>
+            <li className="px-3 py-2 text-xs text-muted-foreground">{t('command.noMatch')}</li>
           ) : null}
 
           {filtered.map((item, index) => (
@@ -195,16 +195,16 @@ export function CommandPalette() {
               key={item.id}
               role="option"
               aria-selected={index === selectedIndex}
-              className={`flex cursor-pointer items-center justify-between px-3 py-1.5 text-sm ${
+              className={`flex cursor-pointer items-center justify-between px-3 py-1.5 text-xs ${
                 index === selectedIndex
                   ? 'bg-primary/10 text-primary'
-                  : 'text-foreground hover:bg-muted'
+                  : 'text-foreground hover:bg-muted/80'
               }`}
               onClick={() => execute(item)}
               onMouseEnter={() => setSelectedIndex(index)}
             >
               <span>
-                <span className="mr-2 text-xs text-muted-foreground">{item.category}</span>
+                <span className="mr-2 text-[10px] text-muted-foreground">{item.category}</span>
                 {item.label}
               </span>
               {item.shortcut ? (

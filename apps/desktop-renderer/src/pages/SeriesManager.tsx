@@ -196,13 +196,13 @@ export function SeriesManager() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-card">
-        <Library className="w-4 h-4 text-primary" />
-        <span className="text-sm font-medium">{t('series.title')}</span>
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/60 bg-card">
+        <Library className="w-3.5 h-3.5 text-primary" />
+        <span className="text-xs font-medium">{t('series.title')}</span>
         <div className="flex-1" />
         <button
           onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded bg-primary text-primary-foreground hover:opacity-90"
+          className="flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-md bg-primary text-primary-foreground hover:opacity-90"
         >
           <Plus className="w-3 h-3" /> {t('series.newSeries')}
         </button>
@@ -210,25 +210,25 @@ export function SeriesManager() {
 
       <div className="flex flex-1 min-h-0">
         {/* Series list */}
-        <div className="w-72 border-r overflow-y-auto">
+        <div className="w-64 border-r border-border/60 overflow-y-auto">
           {seriesList.length === 0 && !showCreate ? (
-            <div className="flex flex-col items-center justify-center h-full p-6 text-center text-muted-foreground">
-              <Library className="w-12 h-12 mb-3 opacity-20" />
-              <p className="text-sm">{t('series.empty')}</p>
-              <p className="text-xs mt-1">{t('series.emptyHint')}</p>
+            <div className="flex flex-col items-center justify-center h-full p-4 text-center text-muted-foreground">
+              <Library className="w-10 h-10 mb-2 opacity-20" />
+              <p className="text-xs">{t('series.empty')}</p>
+              <p className="text-[10px] mt-0.5">{t('series.emptyHint')}</p>
             </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-border/40">
               {seriesList.map((s) => (
                 <div
                   key={s.id}
                   onClick={() => setSelectedSeriesId(s.id)}
-                  className={`flex items-center gap-2 px-3 py-3 cursor-pointer hover:bg-muted ${selectedSeriesId === s.id ? 'bg-muted' : ''}`}
+                  className={`flex items-center gap-1.5 px-2.5 py-2 cursor-pointer hover:bg-muted transition-colors ${selectedSeriesId === s.id ? 'bg-muted' : ''}`}
                 >
-                  <Film className="w-4 h-4 text-primary shrink-0" />
+                  <Film className="w-3.5 h-3.5 text-primary shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{s.title}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs font-medium truncate">{s.title}</p>
+                    <p className="text-[10px] text-muted-foreground">
                       {s.episodeCount} {t('series.episodesUnit')}
                     </p>
                   </div>
@@ -240,42 +240,42 @@ export function SeriesManager() {
         </div>
 
         {/* Detail panel */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4">
           {showCreate ? (
-            <div className="max-w-md space-y-4">
-              <h2 className="text-lg font-medium">{t('series.newSeries')}</h2>
+            <div className="max-w-md space-y-3">
+              <h2 className="text-sm font-medium">{t('series.newSeries')}</h2>
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">
+                <label className="block text-[10px] text-muted-foreground mb-0.5">
                   {t('series.fields.name')}
                 </label>
                 <input
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded border bg-background"
+                  className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border/60 bg-background"
                   placeholder={t('series.placeholders.seriesName')}
                 />
               </div>
               <div>
-                <label className="block text-xs text-muted-foreground mb-1">
+                <label className="block text-[10px] text-muted-foreground mb-0.5">
                   {t('series.fields.description')}
                 </label>
                 <textarea
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded border bg-background resize-none h-20"
+                  className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border/60 bg-background resize-none h-16"
                   placeholder={t('series.placeholders.seriesDescription')}
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 <button
                   onClick={handleCreate}
-                  className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:opacity-90"
+                  className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground hover:opacity-90"
                 >
                   {t('series.create')}
                 </button>
                 <button
                   onClick={() => setShowCreate(false)}
-                  className="px-4 py-2 text-sm rounded bg-secondary hover:bg-muted"
+                  className="px-3 py-1.5 text-xs rounded-md bg-secondary hover:bg-muted"
                 >
                   {t('action.cancel')}
                 </button>
@@ -286,34 +286,34 @@ export function SeriesManager() {
               const selected = seriesList.find((s) => s.id === selectedSeriesId);
               if (!selected) return null;
               return (
-                <div className="space-y-6">
+                <div className="space-y-4">
                   <div>
-                    <h2 className="text-lg font-medium">{selected.title}</h2>
-                    <p className="text-sm text-muted-foreground mt-1">
+                    <h2 className="text-sm font-medium">{selected.title}</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       {selected.description || t('series.noDescription')}
                     </p>
                   </div>
 
                   {/* Shared resources */}
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="p-4 rounded-lg border text-center">
-                      <Users className="w-6 h-6 mx-auto mb-2 text-primary" />
-                      <p className="text-sm font-medium">{t('series.sharedCharacters')}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 rounded-md border border-border/60 text-center">
+                      <Users className="w-5 h-5 mx-auto mb-1.5 text-primary" />
+                      <p className="text-xs font-medium">{t('series.sharedCharacters')}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
                         {t('series.sharedCharactersHint')}
                       </p>
                     </div>
-                    <div className="p-4 rounded-lg border text-center">
-                      <Palette className="w-6 h-6 mx-auto mb-2 text-primary" />
-                      <p className="text-sm font-medium">{t('series.sharedStyle')}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                    <div className="p-3 rounded-md border border-border/60 text-center">
+                      <Palette className="w-5 h-5 mx-auto mb-1.5 text-primary" />
+                      <p className="text-xs font-medium">{t('series.sharedStyle')}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
                         {t('series.sharedStyleHint')}
                       </p>
                     </div>
-                    <div className="p-4 rounded-lg border text-center">
-                      <FolderOpen className="w-6 h-6 mx-auto mb-2 text-primary" />
-                      <p className="text-sm font-medium">{t('series.sharedTemplates')}</p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                    <div className="p-3 rounded-md border border-border/60 text-center">
+                      <FolderOpen className="w-5 h-5 mx-auto mb-1.5 text-primary" />
+                      <p className="text-xs font-medium">{t('series.sharedTemplates')}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
                         {t('series.sharedTemplatesHint')}
                       </p>
                     </div>
@@ -321,38 +321,38 @@ export function SeriesManager() {
 
                   {/* Episodes table */}
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-medium">{t('series.episodeList')}</h3>
-                      <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <h3 className="text-xs font-medium">{t('series.episodeList')}</h3>
+                      <div className="flex items-center gap-1.5">
                         <input
                           value={newEpisodeTitle}
                           onChange={(e) => setNewEpisodeTitle(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleAddEpisode()}
                           placeholder={t('series.placeholders.newEpisode')}
-                          className="px-2 py-1 text-xs rounded border bg-background w-32"
+                          className="px-2 py-0.5 text-[10px] rounded-md border border-border/60 bg-background w-28"
                         />
                         <button
                           onClick={handleAddEpisode}
-                          className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-secondary hover:bg-muted"
+                          className="flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded-md bg-secondary hover:bg-muted"
                         >
                           <Plus className="w-3 h-3" /> {t('series.addEpisode')}
                         </button>
                       </div>
                     </div>
-                    <div className="rounded-lg border overflow-hidden">
-                      <table className="w-full text-sm">
+                    <div className="rounded-md border border-border/60 overflow-hidden">
+                      <table className="w-full text-xs">
                         <thead>
                           <tr className="bg-muted/50">
-                            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">
+                            <th className="text-left px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">
                               #
                             </th>
-                            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">
+                            <th className="text-left px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">
                               {t('series.fields.title')}
                             </th>
-                            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">
+                            <th className="text-left px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">
                               {t('series.fields.status')}
                             </th>
-                            <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">
+                            <th className="text-left px-2.5 py-1.5 text-[10px] font-medium text-muted-foreground">
                               {t('series.fields.actions')}
                             </th>
                           </tr>
@@ -362,21 +362,21 @@ export function SeriesManager() {
                             <tr>
                               <td
                                 colSpan={4}
-                                className="px-3 py-6 text-center text-xs text-muted-foreground"
+                                className="px-2.5 py-4 text-center text-[10px] text-muted-foreground"
                               >
                                 {t('series.noEpisodes')}
                               </td>
                             </tr>
                           ) : (
                             series.episodes.map((ep, i) => (
-                              <tr key={ep.id} className="border-t hover:bg-muted/30">
-                                <td className="px-3 py-2 text-xs text-muted-foreground">{i + 1}</td>
-                                <td className="px-3 py-2 text-xs">{ep.title}</td>
-                                <td className="px-3 py-2">
+                              <tr key={ep.id} className="border-t border-border/40 hover:bg-muted/30">
+                                <td className="px-2.5 py-1.5 text-[10px] text-muted-foreground">{i + 1}</td>
+                                <td className="px-2.5 py-1.5 text-[10px]">{ep.title}</td>
+                                <td className="px-2.5 py-1.5">
                                   <select
                                     value={ep.status}
                                     onChange={(e) => handleStatusChange(ep.id, e.target.value)}
-                                    className="text-xs px-1 py-0.5 rounded border bg-background"
+                                    className="text-[10px] px-1 py-0.5 rounded-md border border-border/60 bg-background"
                                   >
                                     {Object.entries(STATUS_LABELS).map(([val, label]) => (
                                       <option key={val} value={val}>
@@ -385,10 +385,10 @@ export function SeriesManager() {
                                     ))}
                                   </select>
                                 </td>
-                                <td className="px-3 py-2">
+                                <td className="px-2.5 py-1.5">
                                   <button
                                     onClick={() => handleRemoveEpisode(ep.id)}
-                                    className="p-1 rounded hover:bg-destructive/10 text-destructive"
+                                    className="p-0.5 rounded-md hover:bg-destructive/10 text-destructive"
                                   >
                                     <Trash2 className="w-3 h-3" />
                                   </button>
@@ -401,10 +401,10 @@ export function SeriesManager() {
                     </div>
                   </div>
 
-                  <div className="pt-4 border-t">
+                  <div className="pt-3 border-t border-border/40">
                     <button
                       onClick={handleDelete}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs rounded text-destructive hover:bg-destructive/10"
+                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] rounded-md text-destructive hover:bg-destructive/10"
                     >
                       <Trash2 className="w-3 h-3" /> {t('series.deleteSeries')}
                     </button>
@@ -414,8 +414,8 @@ export function SeriesManager() {
             })()
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <Library className="w-12 h-12 mb-3 opacity-20" />
-              <p className="text-sm">{t('series.selectSeries')}</p>
+              <Library className="w-10 h-10 mb-2 opacity-20" />
+              <p className="text-xs">{t('series.selectSeries')}</p>
             </div>
           )}
         </div>

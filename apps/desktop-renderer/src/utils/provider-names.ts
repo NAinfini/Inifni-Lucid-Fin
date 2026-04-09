@@ -1,0 +1,28 @@
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  'openai-dalle': 'OpenAI', 'openai-image': 'OpenAI', 'google-imagen3': 'Imagen', 'google-image': 'Imagen',
+  'google-veo-2': 'Veo', 'google-video': 'Veo', 'runway-gen4': 'Runway', 'runway': 'Runway',
+  'luma-ray2': 'Luma', 'luma': 'Luma', 'minimax-video01': 'MiniMax', 'minimax': 'MiniMax',
+  'pika-v2': 'Pika', 'pika': 'Pika', 'replicate': 'Replicate', 'fal': 'fal', 'together': 'Together',
+  'kling-v1': 'Kling', 'kling': 'Kling', 'wan-2.1': 'Wan', 'wan': 'Wan',
+  'seedance-2': 'Seedance', 'seedance': 'Seedance', 'hunyuan-video': 'Hunyuan', 'hunyuan': 'Hunyuan',
+  'recraft-v3': 'Recraft', 'recraft': 'Recraft', 'flux': 'FLUX', 'ideogram': 'Ideogram',
+  'openai-tts-1-hd': 'OpenAI', 'openai-tts': 'OpenAI', 'elevenlabs-v2': 'ElevenLabs', 'elevenlabs': 'ElevenLabs',
+  'fish-audio': 'Fish Audio', 'cartesia-sonic': 'Cartesia', 'cartesia': 'Cartesia',
+  'playht-3': 'PlayHT', 'playht': 'PlayHT', 'suno': 'Suno', 'udio': 'Udio',
+  'siliconflow': 'SiliconFlow', 'doubao': 'Doubao', 'zhipu': 'Zhipu GLM', 'qwen': 'Qwen',
+  'deepseek': 'DeepSeek', 'stability-audio': 'Stability',
+  // Chinese providers
+  'moonshot': 'Kimi', 'baichuan': 'Baichuan', 'stepfun': 'StepFun',
+  'volcengine-ark': '火山引擎',
+  'zhipu-image': 'CogView', 'tongyi-wanxiang': 'Wanxiang', 'kolors': 'Kolors',
+  'zhipu-video': 'CogVideoX', 'vidu': 'Vidu', 'siliconflow-video': 'SiliconFlow',
+  'cosyvoice': 'CosyVoice', 'doubao-tts': 'Doubao TTS', 'minimax-tts': 'MiniMax',
+  'siliconflow-tts': 'SiliconFlow', 'siliconflow-image': 'SiliconFlow',
+  'stepfun-image': 'StepFun', 'stepfun-video': 'StepFun',
+  'volcengine-image': 'Seedream', 'volcengine-video': 'Seedance',
+};
+
+export function getProviderDisplayName(id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  return PROVIDER_DISPLAY_NAMES[id] ?? id;
+}

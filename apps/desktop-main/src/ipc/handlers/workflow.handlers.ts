@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron';
 import type { WorkflowEngine } from '@lucid-fin/application';
+import log from '../../logger.js';
 
 export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: WorkflowEngine): void {
   ipcMain.handle(
@@ -12,6 +13,10 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
   ipcMain.handle('workflow:get', async (_event, args: { id: string }) => {
     const workflow = workflowEngine.get(args.id);
     if (!workflow) {
+      log.error('Workflow not found', {
+        category: 'workflow',
+        workflowRunId: args.id,
+      });
       throw new Error(`Workflow "${args.id}" not found`);
     }
     return workflow;
@@ -39,20 +44,46 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
         metadata?: Record<string, unknown>;
       },
     ) => {
+      log.info('Workflow start requested', {
+        category: 'workflow',
+        workflowType: args.workflowType,
+        projectId: args.projectId,
+        entityType: args.entityType,
+        entityId: args.entityId,
+        triggerSource: args.triggerSource,
+      });
       const workflowRunId = workflowEngine.start(args);
+      log.info('Workflow started', {
+        category: 'workflow',
+        workflowRunId,
+        workflowType: args.workflowType,
+        projectId: args.projectId,
+      });
       return { workflowRunId };
     },
   );
 
   ipcMain.handle('workflow:pause', async (_event, args: { id: string }) => {
+    log.info('Workflow pause requested', {
+      category: 'workflow',
+      workflowRunId: args.id,
+    });
     await workflowEngine.pause(args.id);
   });
 
   ipcMain.handle('workflow:resume', async (_event, args: { id: string }) => {
+    log.info('Workflow resume requested', {
+      category: 'workflow',
+      workflowRunId: args.id,
+    });
     await workflowEngine.resume(args.id);
   });
 
   ipcMain.handle('workflow:cancel', async (_event, args: { id: string }) => {
+    log.info('Workflow cancel requested', {
+      category: 'workflow',
+      workflowRunId: args.id,
+    });
     await workflowEngine.cancel(args.id);
   });
 

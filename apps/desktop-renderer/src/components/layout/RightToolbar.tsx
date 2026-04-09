@@ -35,8 +35,8 @@ export function RightToolbar() {
 
   return (
     <TooltipProvider delayDuration={120}>
-      <aside className="flex h-full w-12 shrink-0 flex-col border-l border-border bg-card/95 px-1 py-2">
-        <div className="flex flex-col gap-1">
+      <aside className="flex h-full w-11 shrink-0 flex-col border-l border-border bg-card px-0.5 py-1.5">
+        <div className="flex flex-col gap-0.5">
           {TOOLBAR_BUTTONS.map((button) => {
             const Icon = button.icon;
             const active = rightPanel === button.panel;
@@ -53,13 +53,13 @@ export function RightToolbar() {
                     aria-pressed={active}
                     onClick={() => dispatch(toggleRightPanel(button.panel))}
                     className={cn(
-                      'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+                      'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
                       active
-                        ? 'bg-primary/10 text-primary'
+                        ? 'bg-primary/12 text-primary'
                         : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                     )}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-[15px] w-[15px]" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left">{label}</TooltipContent>
