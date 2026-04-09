@@ -19,12 +19,16 @@ export function DependenciesPanel() {
     const selected = selectedNodeIds[0];
     if (!selected) return { upstream: [], downstream: [] };
 
-    const upstream = activeCanvas.edges
-      .filter((e) => e.target === selected)
-      .map((e) => e.source);
-    const downstream = activeCanvas.edges
-      .filter((e) => e.source === selected)
-      .map((e) => e.target);
+    const upstream = [...new Set(
+      activeCanvas.edges
+        .filter((e) => e.target === selected)
+        .map((e) => e.source)
+    )].filter((id) => id !== selected);
+    const downstream = [...new Set(
+      activeCanvas.edges
+        .filter((e) => e.source === selected)
+        .map((e) => e.target)
+    )].filter((id) => id !== selected);
 
     return { upstream, downstream };
   };

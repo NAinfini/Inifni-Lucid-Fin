@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import {
+  type Capability,
   normalizeLLMProviderRuntimeConfig,
   type LLMProviderAuthStyle,
   type LLMProviderProtocol,
@@ -24,6 +25,12 @@ export interface ProviderMetadata {
   docsUrl: string;
   keyUrl: string;
   modelExample?: string;
+  capabilities: Capability[];
+  supportsReferenceImage?: boolean;
+  defaultResolution?: string;
+  defaultDurationSeconds?: number;
+  outputFormats?: string[];
+  notes?: string;
 }
 
 export type BuiltinProviderConfig = ProviderConfig & ProviderMetadata;
@@ -48,8 +55,66 @@ interface PersistedSettingsState {
   renderPreset?: string;
 }
 
+type ProviderMetadataDefaults = Omit<ProviderMetadata, 'kind' | 'docsUrl' | 'keyUrl'>;
+type ProviderDraft = Omit<ProviderConfig, 'hasKey' | 'isCustom'> &
+  Pick<ProviderMetadata, 'kind' | 'docsUrl' | 'keyUrl'> &
+  Partial<ProviderMetadataDefaults>;
+
+const DEFAULT_LLM_CAPABILITIES: Capability[] = [
+  'text-generation',
+  'script-expand',
+  'scene-breakdown',
+  'character-extract',
+  'prompt-enhance',
+];
+
+const HUB_MODEL_DEPENDENT_NOTE = 'Capabilities depend on selected model';
+
+const DEFAULT_IMAGE_METADATA: ProviderMetadataDefaults = {
+  capabilities: ['text-to-image'],
+  defaultResolution: '1024x1024',
+  outputFormats: ['png'],
+};
+
+const DEFAULT_VIDEO_METADATA: ProviderMetadataDefaults = {
+  capabilities: ['text-to-video'],
+  defaultDurationSeconds: 5,
+  outputFormats: ['mp4'],
+};
+
+const DEFAULT_AUDIO_METADATA: ProviderMetadataDefaults = {
+  capabilities: ['text-to-voice'],
+  outputFormats: ['mp3'],
+};
+
+function normalizeMetadata(
+  provider: ProviderDraft,
+  defaults: ProviderMetadataDefaults,
+): ProviderMetadata {
+  const capabilities = provider.capabilities ?? defaults.capabilities;
+  const supportsReferenceImageByCapability =
+    capabilities.includes('image-to-image') || capabilities.includes('image-to-video');
+  const supportsReferenceImage =
+    provider.supportsReferenceImage
+    ?? defaults.supportsReferenceImage
+    ?? supportsReferenceImageByCapability;
+
+  return {
+    kind: provider.kind,
+    docsUrl: provider.docsUrl,
+    keyUrl: provider.keyUrl,
+    modelExample: provider.modelExample,
+    capabilities,
+    supportsReferenceImage,
+    defaultResolution: provider.defaultResolution ?? defaults.defaultResolution,
+    defaultDurationSeconds: provider.defaultDurationSeconds ?? defaults.defaultDurationSeconds,
+    outputFormats: provider.outputFormats ?? defaults.outputFormats,
+    notes: provider.notes ?? (provider.kind === 'hub' ? HUB_MODEL_DEPENDENT_NOTE : defaults.notes),
+  };
+}
+
 function createLLMProvider(
-  provider: Omit<ProviderConfig, 'hasKey' | 'isCustom'> & ProviderMetadata,
+  provider: ProviderDraft,
 ): BuiltinProviderConfig {
   const runtime = normalizeLLMProviderRuntimeConfig({
     id: provider.id,
@@ -61,6 +126,7 @@ function createLLMProvider(
   });
 
   return {
+    ...normalizeMetadata(provider, { capabilities: DEFAULT_LLM_CAPABILITIES }),
     ...provider,
     protocol: runtime.protocol,
     authStyle: runtime.authStyle,
@@ -70,13 +136,27 @@ function createLLMProvider(
 }
 
 function createProvider(
-  provider: Omit<ProviderConfig, 'hasKey' | 'isCustom'> & ProviderMetadata,
+  provider: ProviderDraft,
+  defaults: ProviderMetadataDefaults,
 ): BuiltinProviderConfig {
   return {
+    ...normalizeMetadata(provider, defaults),
     ...provider,
     hasKey: false,
     isCustom: false,
   };
+}
+
+function createImageProvider(provider: ProviderDraft): BuiltinProviderConfig {
+  return createProvider(provider, DEFAULT_IMAGE_METADATA);
+}
+
+function createVideoProvider(provider: ProviderDraft): BuiltinProviderConfig {
+  return createProvider(provider, DEFAULT_VIDEO_METADATA);
+}
+
+function createAudioProvider(provider: ProviderDraft): BuiltinProviderConfig {
+  return createProvider(provider, DEFAULT_AUDIO_METADATA);
 }
 
 export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
@@ -297,7 +377,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
     }),
   ],
   image: [
-    createProvider({
+    createImageProvider({
       id: 'openai-image',
       name: 'OpenAI GPT Image',
       baseUrl: 'https://api.openai.com/v1',
@@ -305,8 +385,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://platform.openai.com/docs/guides/image-generation',
       keyUrl: 'https://platform.openai.com/api-keys',
+      outputFormats: ['png', 'jpeg', 'webp'],
     }),
-    createProvider({
+    createImageProvider({
       id: 'google-image',
       name: 'Google Imagen 4',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -315,7 +396,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://ai.google.dev/gemini-api/docs/imagen',
       keyUrl: 'https://aistudio.google.com/apikey',
     }),
-    createProvider({
+    createImageProvider({
       id: 'recraft',
       name: 'Recraft',
       baseUrl: 'https://external.api.recraft.ai/v1',
@@ -324,7 +405,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://developer.recraft.ai/',
       keyUrl: 'https://www.recraft.ai/account',
     }),
-    createProvider({
+    createImageProvider({
       id: 'ideogram',
       name: 'Ideogram',
       baseUrl: 'https://api.ideogram.ai',
@@ -333,7 +414,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://developer.ideogram.ai/',
       keyUrl: 'https://developer.ideogram.ai/',
     }),
-    createProvider({
+    createImageProvider({
       id: 'replicate',
       name: 'Replicate',
       baseUrl: 'https://api.replicate.com/v1',
@@ -342,8 +423,10 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.replicate.com/get-started/http-api',
       keyUrl: 'https://replicate.com/account/api-tokens',
       modelExample: 'black-forest-labs/flux-1.1-pro',
+      capabilities: ['text-to-image', 'image-to-image'],
+      outputFormats: ['png', 'jpg', 'webp'],
     }),
-    createProvider({
+    createImageProvider({
       id: 'fal',
       name: 'fal',
       baseUrl: 'https://fal.run/fal-ai/flux-pro/v1.1',
@@ -352,8 +435,10 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.fal.ai/model-apis',
       keyUrl: 'https://fal.ai/dashboard/keys',
       modelExample: 'fal-ai/flux-pro/v1.1',
+      capabilities: ['text-to-image', 'image-to-image'],
+      outputFormats: ['png', 'jpg', 'webp'],
     }),
-    createProvider({
+    createImageProvider({
       id: 'together',
       name: 'Together AI',
       baseUrl: 'https://api.together.xyz/v1',
@@ -362,8 +447,10 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.together.ai/docs/image-generation-overview',
       keyUrl: 'https://api.together.ai/settings/api-keys',
       modelExample: 'black-forest-labs/FLUX.1-schnell',
+      capabilities: ['text-to-image', 'image-to-image'],
+      outputFormats: ['png', 'jpg', 'webp'],
     }),
-    createProvider({
+    createImageProvider({
       id: 'siliconflow-image',
       name: 'SiliconFlow',
       baseUrl: 'https://api.siliconflow.cn/v1',
@@ -372,8 +459,10 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.siliconflow.cn',
       keyUrl: 'https://cloud.siliconflow.cn/account/ak',
       modelExample: 'black-forest-labs/FLUX.1-schnell',
+      capabilities: ['text-to-image', 'image-to-image'],
+      outputFormats: ['png', 'jpg', 'webp'],
     }),
-    createProvider({
+    createImageProvider({
       id: 'zhipu-image',
       name: 'Zhipu CogView',
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
@@ -382,7 +471,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.bigmodel.cn',
       keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     }),
-    createProvider({
+    createImageProvider({
       id: 'tongyi-wanxiang',
       name: 'Tongyi Wanxiang (Alibaba)',
       baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -391,7 +480,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://help.aliyun.com/document_detail/2975674.html',
       keyUrl: 'https://bailian.console.aliyun.com/',
     }),
-    createProvider({
+    createImageProvider({
       id: 'kolors',
       name: 'Kolors (Kuaishou)',
       baseUrl: 'https://api.replicate.com/v1',
@@ -400,7 +489,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://replicate.com/kwai-kolors/kolors',
       keyUrl: 'https://replicate.com/account/api-tokens',
     }),
-    createProvider({
+    createImageProvider({
       id: 'stepfun-image',
       name: 'StepFun Image',
       baseUrl: 'https://api.stepfun.com/v1',
@@ -409,7 +498,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://platform.stepfun.com/docs/api-reference/images/image',
       keyUrl: 'https://platform.stepfun.com/interface-key',
     }),
-    createProvider({
+    createImageProvider({
       id: 'volcengine-image',
       name: 'Volcengine Seedream',
       baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
@@ -420,7 +509,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
     }),
   ],
   video: [
-    createProvider({
+    createVideoProvider({
       id: 'google-video',
       name: 'Google Veo',
       baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -428,8 +517,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://ai.google.dev/gemini-api/docs/video',
       keyUrl: 'https://aistudio.google.com/apikey',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'runway',
       name: 'Runway',
       baseUrl: 'https://api.dev.runwayml.com/v1',
@@ -437,8 +527,10 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://docs.dev.runwayml.com/api',
       keyUrl: 'https://docs.dev.runwayml.com/',
+      capabilities: ['text-to-video', 'image-to-video'],
+      defaultResolution: '1920x1080',
     }),
-    createProvider({
+    createVideoProvider({
       id: 'luma',
       name: 'Luma',
       baseUrl: 'https://api.lumalabs.ai/dream-machine/v1',
@@ -446,8 +538,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://docs.lumalabs.ai/docs/api',
       keyUrl: 'https://lumalabs.ai/dream-machine/api',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'minimax',
       name: 'MiniMax',
       baseUrl: 'https://api.minimax.chat/v1',
@@ -455,8 +548,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://platform.minimax.io/docs/guides/video-generation',
       keyUrl: 'https://platform.minimaxi.com/api-key',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'pika',
       name: 'Pika',
       baseUrl: 'https://api.pika.art/v1',
@@ -464,8 +558,10 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://pika.art/api',
       keyUrl: 'https://dev.pika.art/',
+      capabilities: ['text-to-video', 'image-to-video'],
+      defaultResolution: '1280x720',
     }),
-    createProvider({
+    createVideoProvider({
       id: 'replicate',
       name: 'Replicate',
       baseUrl: 'https://api.replicate.com/v1',
@@ -474,8 +570,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.replicate.com/get-started/http-api',
       keyUrl: 'https://replicate.com/account/api-tokens',
       modelExample: 'minimax/video-01',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'fal',
       name: 'fal',
       baseUrl: 'https://fal.run/fal-ai/minimax/video-01',
@@ -484,8 +581,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.fal.ai/model-apis',
       keyUrl: 'https://fal.ai/dashboard/keys',
       modelExample: 'fal-ai/minimax/video-01',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'together',
       name: 'Together AI',
       baseUrl: 'https://api.together.xyz/v1',
@@ -494,8 +592,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.together.ai/docs/video-generation-overview',
       keyUrl: 'https://api.together.ai/settings/api-keys',
       modelExample: 'Wan-AI/wan2.7-t2v',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'kling',
       name: 'Kling AI',
       baseUrl: 'https://api.klingai.com/v1',
@@ -503,8 +602,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://docs.klingai.com',
       keyUrl: 'https://platform.klingai.com',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'wan',
       name: 'Wan (Alibaba)',
       baseUrl: 'https://api.replicate.com/v1',
@@ -512,8 +612,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://replicate.com/wan-ai',
       keyUrl: 'https://replicate.com/account/api-tokens',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'seedance',
       name: 'Seedance (ByteDance)',
       baseUrl: 'https://api.replicate.com/v1',
@@ -521,8 +622,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://replicate.com/bytedance',
       keyUrl: 'https://replicate.com/account/api-tokens',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'hunyuan',
       name: 'HunyuanVideo (Tencent)',
       baseUrl: 'https://api.replicate.com/v1',
@@ -530,8 +632,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://replicate.com/tencent',
       keyUrl: 'https://replicate.com/account/api-tokens',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'zhipu-video',
       name: 'Zhipu CogVideoX',
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
@@ -540,7 +643,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.bigmodel.cn',
       keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
     }),
-    createProvider({
+    createVideoProvider({
       id: 'vidu',
       name: 'Vidu (Shengshu)',
       baseUrl: 'https://api.vidu.com/v1',
@@ -548,8 +651,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://platform.vidu.com',
       keyUrl: 'https://www.vidu.com/',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'siliconflow-video',
       name: 'SiliconFlow',
       baseUrl: 'https://api.siliconflow.cn/v1',
@@ -558,8 +662,9 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.siliconflow.cn/cn/userguide/capabilities/video',
       keyUrl: 'https://cloud.siliconflow.cn/account/ak',
       modelExample: 'Wan-AI/Wan2.1-T2V-14B',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
-    createProvider({
+    createVideoProvider({
       id: 'stepfun-video',
       name: 'StepFun Video',
       baseUrl: 'https://api.stepfun.com/v1',
@@ -568,7 +673,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://platform.stepfun.com/docs/guide/video_chat',
       keyUrl: 'https://platform.stepfun.com/interface-key',
     }),
-    createProvider({
+    createVideoProvider({
       id: 'volcengine-video',
       name: 'Volcengine Seedance',
       baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
@@ -576,10 +681,11 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       kind: 'official',
       docsUrl: 'https://www.volcengine.com/experience/ark',
       keyUrl: 'https://www.volcengine.com/experience/ark',
+      capabilities: ['text-to-video', 'image-to-video'],
     }),
   ],
   audio: [
-    createProvider({
+    createAudioProvider({
       id: 'openai-tts',
       name: 'OpenAI TTS',
       baseUrl: 'https://api.openai.com/v1',
@@ -588,7 +694,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://platform.openai.com/docs/guides/text-to-speech',
       keyUrl: 'https://platform.openai.com/api-keys',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'elevenlabs',
       name: 'ElevenLabs',
       baseUrl: 'https://api.elevenlabs.io/v1',
@@ -597,7 +703,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://elevenlabs.io/docs/api-reference/text-to-speech',
       keyUrl: 'https://elevenlabs.io/app/settings/api-keys',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'cartesia',
       name: 'Cartesia',
       baseUrl: 'https://api.cartesia.ai',
@@ -606,7 +712,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.cartesia.ai/api-reference/tts/sse',
       keyUrl: 'https://play.cartesia.ai/keys',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'playht',
       name: 'PlayHT',
       baseUrl: 'https://api.play.ht/api/v2',
@@ -615,7 +721,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.play.ht/',
       keyUrl: 'https://play.ht/studio/api-access',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'fish-audio',
       name: 'Fish Audio',
       baseUrl: 'https://api.fish.audio/v1',
@@ -624,7 +730,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://docs.fish.audio/',
       keyUrl: 'https://fish.audio/dashboard',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'together',
       name: 'Together AI',
       baseUrl: 'https://api.together.xyz/v1',
@@ -634,7 +740,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       keyUrl: 'https://api.together.ai/settings/api-keys',
       modelExample: 'canopylabs/orpheus-3b-0.1-ft',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'replicate',
       name: 'Replicate',
       baseUrl: 'https://api.replicate.com/v1',
@@ -644,7 +750,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       keyUrl: 'https://replicate.com/account/api-tokens',
       modelExample: 'suno-ai/bark',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'fal',
       name: 'fal',
       baseUrl: 'https://fal.run/fal-ai/stable-audio',
@@ -654,7 +760,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       keyUrl: 'https://fal.ai/dashboard/keys',
       modelExample: 'fal-ai/stable-audio',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'cosyvoice',
       name: 'CosyVoice (Alibaba)',
       baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -663,7 +769,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://www.alibabacloud.com/help/en/model-studio/text-to-speech',
       keyUrl: 'https://bailian.console.aliyun.com/',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'doubao-tts',
       name: 'Doubao TTS (ByteDance)',
       baseUrl: 'https://openspeech.bytedance.com/api/v1',
@@ -672,7 +778,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://www.volcengine.com/docs/6561/79823',
       keyUrl: 'https://console.volcengine.com/speech/app',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'minimax-tts',
       name: 'MiniMax Speech',
       baseUrl: 'https://api.minimax.chat/v1',
@@ -681,7 +787,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       docsUrl: 'https://platform.minimax.io/docs/api-reference/speech-generation',
       keyUrl: 'https://platform.minimaxi.com/api-key',
     }),
-    createProvider({
+    createAudioProvider({
       id: 'siliconflow-tts',
       name: 'SiliconFlow TTS',
       baseUrl: 'https://api.siliconflow.cn/v1',
@@ -707,6 +813,13 @@ function toProviderConfig(provider: BuiltinProviderConfig): ProviderConfig {
   };
 }
 
+function getBuiltinProvider(
+  group: APIGroup,
+  providerId: string,
+): BuiltinProviderConfig | undefined {
+  return PROVIDER_REGISTRY[group].find((entry) => entry.id === providerId);
+}
+
 function getDefaultProviders(group: APIGroup): ProviderConfig[] {
   return PROVIDER_REGISTRY[group].map((provider) => ({ ...toProviderConfig(provider) }));
 }
@@ -727,7 +840,7 @@ export function getProviderMetadata(
   group: APIGroup,
   providerId: string,
 ): ProviderMetadata | undefined {
-  const provider = PROVIDER_REGISTRY[group].find((entry) => entry.id === providerId);
+  const provider = getBuiltinProvider(group, providerId);
   if (!provider) {
     return undefined;
   }
@@ -737,7 +850,21 @@ export function getProviderMetadata(
     docsUrl: provider.docsUrl,
     keyUrl: provider.keyUrl,
     modelExample: provider.modelExample,
+    capabilities: provider.capabilities,
+    supportsReferenceImage: provider.supportsReferenceImage,
+    defaultResolution: provider.defaultResolution,
+    defaultDurationSeconds: provider.defaultDurationSeconds,
+    outputFormats: provider.outputFormats,
+    notes: provider.notes,
   };
+}
+
+export function getProviderDefaults(
+  group: APIGroup,
+  providerId: string,
+): ProviderConfig | undefined {
+  const provider = getBuiltinProvider(group, providerId);
+  return provider ? toProviderConfig(provider) : undefined;
 }
 
 function findProvider(
@@ -745,10 +872,6 @@ function findProvider(
   providerId: string,
 ): ProviderConfig | undefined {
   return groupState.providers.find((provider) => provider.id === providerId);
-}
-
-function cloneProviders(providers: ProviderConfig[]): ProviderConfig[] {
-  return providers.map((provider) => ({ ...provider }));
 }
 
 function normalizeSavedProvider(group: APIGroup, provider: ProviderConfig): ProviderConfig {
@@ -772,18 +895,45 @@ function normalizeSavedProvider(group: APIGroup, provider: ProviderConfig): Prov
   };
 }
 
+function mergeBuiltinProvider(
+  group: APIGroup,
+  defaults: ProviderConfig,
+  savedProvider: ProviderConfig | undefined,
+): ProviderConfig {
+  if (!savedProvider || savedProvider.isCustom) {
+    return { ...defaults };
+  }
+
+  const merged: ProviderConfig = {
+    ...defaults,
+    baseUrl: savedProvider.baseUrl,
+    model: savedProvider.model,
+    hasKey: savedProvider.hasKey,
+    isCustom: false,
+  };
+
+  return normalizeSavedProvider(group, merged);
+}
+
 function mergeProviderDefaults(
   group: APIGroup,
   savedGroup?: ProviderCollectionConfig & { activeProvider?: string },
 ): ProviderCollectionConfig {
   const defaults = getDefaultProviders(group);
   const savedProviders = savedGroup?.providers ?? [];
+  const mergedDefaults = defaults.map((provider) =>
+    mergeBuiltinProvider(
+      group,
+      provider,
+      savedProviders.find((savedProvider) => savedProvider.id === provider.id),
+    ),
+  );
   const customProviders = savedProviders
     .filter((provider) => provider.isCustom)
     .filter((provider, index, all) => all.findIndex((entry) => entry.id === provider.id) === index)
     .filter((provider) => !defaults.some((entry) => entry.id === provider.id))
     .map((provider) => normalizeSavedProvider(group, provider));
-  const providers = [...cloneProviders(defaults), ...customProviders];
+  const providers = [...mergedDefaults, ...customProviders];
 
   return { providers };
 }
@@ -866,6 +1016,22 @@ export const settingsSlice = createSlice({
         provider.name = action.payload.name;
       }
     },
+    resetProviderToDefaults(
+      state,
+      action: PayloadAction<{ group: APIGroup; provider: string }>,
+    ) {
+      const defaults = getProviderDefaults(action.payload.group, action.payload.provider);
+      const provider = findProvider(state[action.payload.group], action.payload.provider);
+      if (!provider || provider.isCustom || !defaults) {
+        return;
+      }
+
+      provider.name = defaults.name;
+      provider.baseUrl = defaults.baseUrl;
+      provider.model = defaults.model;
+      provider.protocol = defaults.protocol;
+      provider.authStyle = defaults.authStyle;
+    },
     addCustomProvider(
       state,
       action: PayloadAction<{
@@ -927,6 +1093,7 @@ export const {
   setProviderProtocol,
   setProviderHasKey,
   setProviderName,
+  resetProviderToDefaults,
   addCustomProvider,
   removeCustomProvider,
   setRenderPreset,

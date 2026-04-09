@@ -16,6 +16,9 @@ import {
   setNodeProvider,
   setNodeResolution,
   setNodeSeed,
+  setNodeUploadedAsset,
+  setVideoFrameAsset,
+  setVideoFrameNode,
   setNodeVariantCount,
   toggleSeedLock,
 } from './canvas.js';
@@ -57,6 +60,65 @@ function setup() {
 }
 
 describe('canvas generation reducers', () => {
+  it('normalizes missing image and video frame sizes when canvases load', () => {
+    const canvas = makeCanvas();
+    canvas.nodes = [
+      {
+        id: 'img-legacy',
+        type: 'image',
+        title: 'Legacy image',
+        position: { x: 0, y: 0 },
+        status: 'idle',
+        bypassed: false,
+        locked: false,
+        data: {
+          status: 'empty',
+          width: 1024,
+          height: 1024,
+          variants: [],
+          selectedVariantIndex: 0,
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'vid-legacy',
+        type: 'video',
+        title: 'Legacy video',
+        position: { x: 120, y: 0 },
+        status: 'idle',
+        bypassed: false,
+        locked: false,
+        data: {
+          status: 'empty',
+          width: 1280,
+          height: 720,
+          duration: 5,
+          fps: 24,
+          variants: [],
+          selectedVariantIndex: 0,
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ];
+
+    const state = canvasSlice.reducer(undefined, setCanvases([canvas]));
+
+    expect(state.canvases[0].nodes.find((node) => node.id === 'img-legacy')).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
+      }),
+    );
+    expect(state.canvases[0].nodes.find((node) => node.id === 'vid-legacy')).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
+      }),
+    );
+  });
+
   it('sets node generating state and progress', () => {
     let state = setup();
     state = canvasSlice.reducer(state, setNodeGenerating({ id: 'img-1', jobId: 'job-1' }));
@@ -182,6 +244,22 @@ describe('canvas generation reducers', () => {
 
   it('stores resolution, duration, and fps on generation nodes only', () => {
     let state = setup();
+    const initialImageNode = state.canvases[0].nodes.find((node) => node.id === 'img-1');
+    const initialVideoNode = state.canvases[0].nodes.find((node) => node.id === 'vid-1');
+
+    expect(initialImageNode).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
+      }),
+    );
+    expect(initialVideoNode).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
+      }),
+    );
+
     state = canvasSlice.reducer(
       state,
       setNodeResolution({ id: 'img-1', width: 2048, height: 2048 }),
@@ -211,6 +289,18 @@ describe('canvas generation reducers', () => {
         height: 1080,
         duration: 8,
         fps: 60,
+      }),
+    );
+    expect(imageNode).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
+      }),
+    );
+    expect(videoNode).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
       }),
     );
     expect(textNode?.data).not.toEqual(
@@ -257,5 +347,83 @@ describe('canvas generation reducers', () => {
     expect(data.height).toBeUndefined();
     expect(data.duration).toBeUndefined();
     expect(data.fps).toBeUndefined();
+  });
+
+  it('keeps the saved node frame size when uploads and generation complete', () => {
+    let state = setup();
+
+    state = canvasSlice.reducer(
+      state,
+      setNodeUploadedAsset({ id: 'img-1', assetHash: 'uploaded-image' }),
+    );
+    state = canvasSlice.reducer(
+      state,
+      setNodeGenerationComplete({
+        id: 'vid-1',
+        variants: ['video-v1'],
+        primaryAssetHash: 'video-v1',
+        generationTimeMs: 1500,
+      }),
+    );
+
+    expect(state.canvases[0].nodes.find((node) => node.id === 'img-1')).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
+      }),
+    );
+    expect(state.canvases[0].nodes.find((node) => node.id === 'vid-1')).toEqual(
+      expect.objectContaining({
+        width: 240,
+        height: 180,
+      }),
+    );
+  });
+
+  it('switches video frame slots between uploaded assets and connected nodes explicitly', () => {
+    let state = setup();
+    state = canvasSlice.reducer(
+      state,
+      setNodeUploadedAsset({ id: 'img-1', assetHash: 'connected-image-a' }),
+    );
+
+    state = canvasSlice.reducer(
+      state,
+      setVideoFrameAsset({ id: 'vid-1', role: 'first', assetHash: 'uploaded-first-frame' }),
+    );
+
+    let node = state.canvases[0].nodes.find((entry) => entry.id === 'vid-1');
+    let data = node?.data as {
+      firstFrameAssetHash?: string;
+      firstFrameNodeId?: string;
+    };
+    expect(data.firstFrameAssetHash).toBe('uploaded-first-frame');
+    expect(data.firstFrameNodeId).toBeUndefined();
+
+    state = canvasSlice.reducer(
+      state,
+      setVideoFrameNode({ id: 'vid-1', role: 'first', frameNodeId: 'img-1' }),
+    );
+
+    node = state.canvases[0].nodes.find((entry) => entry.id === 'vid-1');
+    data = node?.data as {
+      firstFrameAssetHash?: string;
+      firstFrameNodeId?: string;
+    };
+    expect(data.firstFrameNodeId).toBe('img-1');
+    expect(data.firstFrameAssetHash).toBeUndefined();
+
+    state = canvasSlice.reducer(
+      state,
+      setVideoFrameAsset({ id: 'vid-1', role: 'first', assetHash: undefined }),
+    );
+
+    node = state.canvases[0].nodes.find((entry) => entry.id === 'vid-1');
+    data = node?.data as {
+      firstFrameAssetHash?: string;
+      firstFrameNodeId?: string;
+    };
+    expect(data.firstFrameNodeId).toBeUndefined();
+    expect(data.firstFrameAssetHash).toBeUndefined();
   });
 });

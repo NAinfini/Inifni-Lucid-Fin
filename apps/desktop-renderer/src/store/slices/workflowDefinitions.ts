@@ -23,7 +23,9 @@ function loadCustomEntries(): WorkflowDefEntry[] {
 function saveCustomEntries(entries: WorkflowDefEntry[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch { /* localStorage unavailable */ }
+  } catch {
+    /* localStorage unavailable */
+  }
 }
 
 const BUILT_IN_ENTRIES: WorkflowDefEntry[] = [
@@ -61,6 +63,8 @@ Adapt a long novel or book into video:
   },
 ];
 
+const BUILT_IN_ENTRY_NAME_BY_ID = new Map(BUILT_IN_ENTRIES.map((entry) => [entry.id, entry.name]));
+
 export interface WorkflowDefinitionsState {
   entries: WorkflowDefEntry[];
 }
@@ -73,7 +77,10 @@ export const workflowDefinitionsSlice = createSlice({
   name: 'workflowDefinitions',
   initialState,
   reducers: {
-    addEntry(state, action: PayloadAction<{ name: string; category: 'workflow' | 'skill'; content: string }>) {
+    addEntry(
+      state,
+      action: PayloadAction<{ name: string; category: 'workflow' | 'skill'; content: string }>,
+    ) {
       const entry: WorkflowDefEntry = {
         id: `custom-wf-${Date.now()}`,
         name: action.payload.name,
@@ -102,3 +109,7 @@ export const workflowDefinitionsSlice = createSlice({
 });
 
 export const { addEntry, updateEntry, removeEntry } = workflowDefinitionsSlice.actions;
+
+export function getDefaultWorkflowDefinitionName(id: string): string | undefined {
+  return BUILT_IN_ENTRY_NAME_BY_ID.get(id);
+}

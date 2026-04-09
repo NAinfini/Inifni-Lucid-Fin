@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { ChevronDown, ChevronUp, Plus, Trash2, Workflow } from 'lucide-react';
-import { t, localizePromptTemplateName, localizeSettingsCategory } from '../i18n.js';
+import {
+  t,
+  localizePromptTemplateName,
+  localizeSettingsCategory,
+  localizeWorkflowDefinitionName,
+} from '../i18n.js';
 import type { RootState } from '../store/index.js';
 import { translateOrFallback } from '../components/settings/SettingsSidebarNav.js';
 import { cn } from '../lib/utils.js';
@@ -12,6 +17,7 @@ import {
 } from '../store/slices/promptTemplates.js';
 import {
   addEntry as addWorkflowEntry,
+  getDefaultWorkflowDefinitionName,
   removeEntry as removeWorkflowEntry,
   updateEntry as updateWorkflowEntry,
   type WorkflowDefEntry,
@@ -28,6 +34,14 @@ function getTemplateDisplayName(id: string, name: string): string {
     return localizePromptTemplateName(id, name);
   }
   return name;
+}
+
+function getWorkflowEntryDisplayName(entry: WorkflowDefEntry): string {
+  const defaultName = getDefaultWorkflowDefinitionName(entry.id);
+  if (defaultName && entry.name === defaultName) {
+    return localizeWorkflowDefinitionName(entry.id, entry.name);
+  }
+  return entry.name;
 }
 
 export function SettingsWorkflowsSection() {
@@ -84,6 +98,7 @@ export function SettingsWorkflowsSection() {
         {entries.map((entry) => {
           const isExpanded = expandedId === entry.id;
           const draft = getDraft(entry);
+          const displayName = getWorkflowEntryDisplayName(entry);
 
           return (
             <div
@@ -109,7 +124,7 @@ export function SettingsWorkflowsSection() {
                 className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
               >
                 <Workflow className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="flex-1 text-xs font-medium">{entry.name}</span>
+                <span className="flex-1 text-xs font-medium">{displayName}</span>
                 <span
                   className={cn(
                     'shrink-0 rounded px-1.5 py-0.5 text-[10px]',
@@ -118,7 +133,7 @@ export function SettingsWorkflowsSection() {
                       : 'bg-cyan-500/10 text-cyan-400',
                   )}
                 >
-                  {entry.category}
+                  {localizeSettingsCategory(entry.category)}
                 </span>
                 {entry.builtIn && (
                   <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
@@ -217,8 +232,7 @@ export function SettingsWorkflowsSection() {
             {skillTemplates.map((template) => {
               const isExpanded = skillExpandedId === template.id;
               const defaultName = getDefaultPromptTemplateName(template.id);
-              const isCustomized =
-                template.customContent !== null || template.name !== defaultName;
+              const isCustomized = template.customContent !== null || template.name !== defaultName;
               const draft = skillDrafts[template.id] ?? {
                 content: template.customContent ?? template.defaultContent,
                 name: template.name,

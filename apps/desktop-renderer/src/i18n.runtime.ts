@@ -81,6 +81,10 @@ export function localizePromptTemplateName(id: string, fallback: string): string
   return localizeWithFallback('promptTemplateNames.' + id, fallback);
 }
 
+export function localizeWorkflowDefinitionName(id: string, fallback: string): string {
+  return localizeWithFallback('workflowDefinitionNames.' + id, fallback);
+}
+
 export function localizeSettingsCategory(category: string): string {
   return localizeWithFallback('settings.category.' + category, category);
 }

@@ -10,7 +10,8 @@ import {
   MessageCircleQuestion,
   Minus,
   Paperclip,
-  Send,
+  Pencil,
+  Play,
   Shield,
   ShieldAlert,
   Trash2,
@@ -33,6 +34,7 @@ import {
   dequeueMessage,
   removeQueuedMessage,
   editQueuedMessage,
+  clearQueue,
   type PermissionMode,
 } from '../../store/slices/commander.js';
 import { useCommander } from '../../hooks/useCommander.js';
@@ -85,7 +87,10 @@ function formatToolName(name: string): string {
   const parts = name.split('.');
   const domain = parts[0] ?? '';
   const action = parts[parts.length - 1] ?? name;
-  const actionFormatted = action.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()).trim();
+  const actionFormatted = action
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (c) => c.toUpperCase())
+    .trim();
   return parts.length > 1 ? `${domain}.${actionFormatted}` : actionFormatted;
 }
 
@@ -93,8 +98,16 @@ function formatToolName(name: string): string {
 // Attachment types
 // ---------------------------------------------------------------------------
 
-interface FileAttachment { type: 'file'; name: string; hash: string; }
-interface NodeAttachment { type: 'node'; id: string; title: string; }
+interface FileAttachment {
+  type: 'file';
+  name: string;
+  hash: string;
+}
+interface NodeAttachment {
+  type: 'node';
+  id: string;
+  title: string;
+}
 type Attachment = FileAttachment | NodeAttachment;
 
 // ---------------------------------------------------------------------------
@@ -123,19 +136,26 @@ function ToolCallCard({
       : null;
 
   return (
-    <div className={cn(
-      'mt-2 overflow-hidden rounded-lg border bg-background/50',
-      toolCall.status === 'pending' && 'border-amber-500/40 animate-pulse',
-      toolCall.status === 'done' && 'border-emerald-500/30',
-      toolCall.status === 'error' && 'border-destructive/40',
-      toolCall.status !== 'pending' && toolCall.status !== 'done' && toolCall.status !== 'error' && 'border-border/60',
-    )}>
+    <div
+      className={cn(
+        'mt-2 overflow-hidden rounded-lg border bg-background/50',
+        toolCall.status === 'pending' && 'border-amber-500/40 animate-pulse',
+        toolCall.status === 'done' && 'border-emerald-500/30',
+        toolCall.status === 'error' && 'border-destructive/40',
+        toolCall.status !== 'pending' &&
+          toolCall.status !== 'done' &&
+          toolCall.status !== 'error' &&
+          'border-border/60',
+      )}
+    >
       <button
         type="button"
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted/50"
         onClick={() => setExpanded((prev) => !prev)}
       >
-        {toolCall.status === 'pending' && <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />}
+        {toolCall.status === 'pending' && (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
+        )}
         {toolCall.status === 'done' && <Check className="h-3.5 w-3.5 text-emerald-400" />}
         {toolCall.status === 'error' && <X className="h-3.5 w-3.5 text-destructive" />}
         <span className="flex-1 text-left">{formatToolName(toolCall.name)}</span>
@@ -144,7 +164,12 @@ function ToolCallCard({
             {t('commander.elapsed')} {elapsed}s
           </span>
         )}
-        <ChevronDown className={cn('h-3 w-3 text-muted-foreground transition-transform', expanded && 'rotate-180')} />
+        <ChevronDown
+          className={cn(
+            'h-3 w-3 text-muted-foreground transition-transform',
+            expanded && 'rotate-180',
+          )}
+        />
       </button>
       {expanded && (
         <div className="border-t border-border/40 px-2.5 py-2 text-[11px]">
@@ -155,7 +180,11 @@ function ToolCallCard({
             <>
               <div className="mt-2 font-medium">
                 {t('commander.toolResult')}:{' '}
-                <span className={cn(toolCall.status === 'error' ? 'text-destructive' : 'text-emerald-400')}>
+                <span
+                  className={cn(
+                    toolCall.status === 'error' ? 'text-destructive' : 'text-emerald-400',
+                  )}
+                >
                   {toolCall.status}
                 </span>
               </div>
@@ -185,9 +214,27 @@ function CopyButton({ text, label }: { text: string; label: string }) {
       className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       onClick={handleCopy}
       title={label}
+      aria-label={label}
     >
       {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
     </button>
+  );
+}
+
+function MessageActionStrip({
+  messageId,
+  children,
+}: {
+  messageId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-testid={`commander-message-actions-${messageId}`}
+      className="flex h-5 items-center justify-end border-b border-border/40 bg-background/10 px-2"
+    >
+      {children}
+    </div>
   );
 }
 
@@ -222,10 +269,12 @@ function ToolConfirmCard({
       <div className="flex items-center gap-2 text-xs font-medium">
         <Shield className="h-4 w-4 text-amber-400" />
         <span>{t('commander.toolConfirm.title')}</span>
-        <span className={cn(
-          'ml-auto rounded px-1.5 py-0.5 text-[10px]',
-          tier <= 2 ? 'bg-amber-500/15 text-amber-400' : 'bg-red-500/15 text-red-400',
-        )}>
+        <span
+          className={cn(
+            'ml-auto rounded px-1.5 py-0.5 text-[10px]',
+            tier <= 2 ? 'bg-amber-500/15 text-amber-400' : 'bg-red-500/15 text-red-400',
+          )}
+        >
           {tierLabels[tier] ?? `Tier ${tier}`}
         </span>
       </div>
@@ -343,8 +392,22 @@ export function CommanderPanel() {
   const dispatch = useDispatch();
   const { t } = useI18n();
   const { sendMessage, cancel, isStreaming } = useCommander();
-  const { open, minimized, providerId, messages, currentStreamContent, currentToolCalls, currentSegments, position, size, error, permissionMode, pendingConfirmation, pendingQuestion, messageQueue } =
-    useSelector((state: RootState) => state.commander);
+  const {
+    open,
+    minimized,
+    providerId,
+    messages,
+    currentStreamContent,
+    currentToolCalls,
+    currentSegments,
+    position,
+    size,
+    error,
+    permissionMode,
+    pendingConfirmation,
+    pendingQuestion,
+    messageQueue,
+  } = useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
@@ -543,7 +606,9 @@ export function CommanderPanel() {
 
             const offsetX = Number(target.dataset.dragOffsetX);
             const offsetY = Number(target.dataset.dragOffsetY);
-            dispatch(setPosition({ x: e.clientX - offsetX, y: Math.max(SAFE_Y, e.clientY - offsetY) }));
+            dispatch(
+              setPosition({ x: e.clientX - offsetX, y: Math.max(SAFE_Y, e.clientY - offsetY) }),
+            );
           };
 
           const handleMouseUp = () => {
@@ -562,28 +627,54 @@ export function CommanderPanel() {
         <span className="text-xs font-medium">{t('commander.commanderAI')}</span>
         {isStreaming && (
           <div className="flex gap-0.5">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }} />
+            <span
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+              style={{ animationDelay: '0ms' }}
+            />
+            <span
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+              style={{ animationDelay: '150ms' }}
+            />
+            <span
+              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+              style={{ animationDelay: '300ms' }}
+            />
           </div>
         )}
       </button>
     );
   }
 
-  const handleSubmit = async () => {
+  const handleAddToQueue = () => {
     const value = input.trim();
     if (!value) return;
+    dispatch(enqueueMessage(value));
     setInput('');
     setAttachments([]);
-    await sendMessage(value);
+  };
+
+  const handleSendNow = async () => {
+    const value = input.trim();
+    if (value) {
+      setInput('');
+      setAttachments([]);
+      await sendMessage(value);
+    } else if (messageQueue.length > 0) {
+      const next = messageQueue[0];
+      dispatch(dequeueMessage());
+      await sendMessage(next);
+    }
   };
 
   const handleAttachFile = async () => {
     const api = getAPI();
     if (!api) return;
-    const ref = await api.asset.pickFile('image') as { hash: string; name?: string } | null;
-    if (ref) setAttachments((prev) => [...prev, { type: 'file', name: ref.name ?? ref.hash.slice(0, 8), hash: ref.hash }]);
+    const ref = (await api.asset.pickFile('image')) as { hash: string; name?: string } | null;
+    if (ref)
+      setAttachments((prev) => [
+        ...prev,
+        { type: 'file', name: ref.name ?? ref.hash.slice(0, 8), hash: ref.hash },
+      ]);
   };
 
   const handleAttachNode = (node: { id: string; title: string }) => {
@@ -649,10 +740,7 @@ export function CommanderPanel() {
         </div>
       </header>
 
-      <div
-        ref={scrollRef}
-        className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-2 pb-3"
-      >
+      <div ref={scrollRef} className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-2 pb-3">
         {messages.length === 0 && !liveMessage ? (
           <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
             {t('commander.thinking')}
@@ -663,42 +751,57 @@ export function CommanderPanel() {
           <article
             key={message.id}
             className={cn(
-              'max-w-[88%] rounded-2xl px-3 py-2 text-sm',
+              'max-w-[88%] rounded-2xl text-sm',
               message.role === 'user'
-                ? 'ml-auto bg-primary/10 text-foreground'
-                : 'mr-auto bg-muted text-foreground',
+                ? 'ml-auto bg-primary/10 px-3 py-2 text-foreground'
+                : 'mr-auto overflow-hidden bg-muted text-foreground',
             )}
           >
             {message.role === 'user' ? (
               <div className="whitespace-pre-wrap">{message.content}</div>
             ) : message.segments && message.segments.length > 0 ? (
               <>
-                {message.segments.map((seg, i) =>
-                  seg.type === 'text' ? (
-                    <div key={i} className="commander-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }} />
-                  ) : (
-                    <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} t={t} />
-                  ),
-                )}
                 {message.content ? (
-                  <div className="flex justify-end">
+                  <MessageActionStrip messageId={message.id}>
                     <CopyButton text={message.content} label={t('commander.copy')} />
-                  </div>
+                  </MessageActionStrip>
                 ) : null}
+                <div className="px-3 py-2">
+                  {message.segments.map((seg, i) =>
+                    seg.type === 'text' ? (
+                      <div
+                        key={i}
+                        className="commander-markdown"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }}
+                      />
+                    ) : (
+                      <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} t={t} />
+                    ),
+                  )}
+                </div>
               </>
             ) : (
               <>
                 {message.content ? (
-                  <div className="flex flex-col gap-1">
-                    <div className="commander-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
-                    <div className="flex justify-end">
+                  <>
+                    <MessageActionStrip messageId={message.id}>
                       <CopyButton text={message.content} label={t('commander.copy')} />
+                    </MessageActionStrip>
+                    <div className="px-3 py-2">
+                      <div
+                        className="commander-markdown"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
+                      />
                     </div>
+                  </>
+                ) : null}
+                {message.toolCalls?.length ? (
+                  <div className={cn('px-3', message.content ? 'pb-2' : 'py-2')}>
+                    {message.toolCalls.map((toolCall) => (
+                      <ToolCallCard key={toolCall.id} toolCall={toolCall} t={t} />
+                    ))}
                   </div>
                 ) : null}
-                {message.toolCalls?.map((toolCall) => (
-                  <ToolCallCard key={toolCall.id} toolCall={toolCall} t={t} />
-                ))}
               </>
             )}
           </article>
@@ -711,8 +814,13 @@ export function CommanderPanel() {
                 {currentSegments.map((seg, i) =>
                   seg.type === 'text' ? (
                     <div key={i}>
-                      <div className="commander-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }} />
-                      {isStreaming && i === currentSegments.length - 1 ? <span className="inline-block animate-pulse text-primary">▌</span> : null}
+                      <div
+                        className="commander-markdown"
+                        dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }}
+                      />
+                      {isStreaming && i === currentSegments.length - 1 ? (
+                        <span className="inline-block animate-pulse text-primary">▌</span>
+                      ) : null}
                     </div>
                   ) : (
                     <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} t={t} />
@@ -722,9 +830,18 @@ export function CommanderPanel() {
             ) : isStreaming ? (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <div className="flex gap-1">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }} />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }} />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }} />
+                  <span
+                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                    style={{ animationDelay: '0ms' }}
+                  />
+                  <span
+                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                    style={{ animationDelay: '150ms' }}
+                  />
+                  <span
+                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                    style={{ animationDelay: '300ms' }}
+                  />
                 </div>
                 <span className="text-xs">{t('commander.streaming')}</span>
               </div>
@@ -787,10 +904,21 @@ export function CommanderPanel() {
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1 px-3 pt-2">
             {attachments.map((att, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[10px]">
-                {att.type === 'file' ? <Paperclip className="h-2.5 w-2.5" /> : <MapPin className="h-2.5 w-2.5" />}
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[10px]"
+              >
+                {att.type === 'file' ? (
+                  <Paperclip className="h-2.5 w-2.5" />
+                ) : (
+                  <MapPin className="h-2.5 w-2.5" />
+                )}
                 {att.type === 'file' ? att.name : att.title}
-                <button type="button" onClick={() => removeAttachment(i)} className="hover:text-destructive">
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(i)}
+                  className="hover:text-destructive"
+                >
                   <X className="h-2.5 w-2.5" />
                 </button>
               </span>
@@ -802,10 +930,23 @@ export function CommanderPanel() {
         {messageQueue.length > 0 && (
           <div className="mx-2 mb-1 rounded-lg border border-border/60 bg-muted/30 text-xs">
             <div className="flex items-center justify-between px-2 py-1 text-[10px] text-muted-foreground border-b border-border/40">
-              <span>{t('commander.queue')} ({messageQueue.length})</span>
+              <span>
+                {t('commander.queue')} ({messageQueue.length})
+              </span>
+              <button
+                type="button"
+                onClick={() => dispatch(clearQueue())}
+                className="text-muted-foreground hover:text-destructive"
+                title={t('commander.clearQueue')}
+              >
+                {t('commander.clearQueue')}
+              </button>
             </div>
             {messageQueue.map((msg, i) => (
-              <div key={i} className="flex items-center gap-1 px-2 py-1 border-b border-border/20 last:border-0">
+              <div
+                key={i}
+                className="flex items-center gap-1 px-2 py-1 border-b border-border/20 last:border-0"
+              >
                 {editingQueueIndex === i ? (
                   <>
                     <input
@@ -822,17 +963,37 @@ export function CommanderPanel() {
                       }}
                       autoFocus
                     />
-                    <button type="button" onClick={() => { dispatch(editQueuedMessage({ index: i, content: editingQueueText })); setEditingQueueIndex(null); }} className="text-primary hover:opacity-70">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dispatch(editQueuedMessage({ index: i, content: editingQueueText }));
+                        setEditingQueueIndex(null);
+                      }}
+                      className="text-primary hover:opacity-70"
+                    >
                       <Check className="h-3 w-3" />
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="flex-1 truncate text-muted-foreground">{i + 1}. {msg}</span>
-                    <button type="button" onClick={() => { setEditingQueueIndex(i); setEditingQueueText(msg); }} className="text-muted-foreground hover:text-foreground">
-                      <Copy className="h-3 w-3" />
+                    <span className="flex-1 truncate text-muted-foreground">
+                      {i + 1}. {msg}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingQueueIndex(i);
+                        setEditingQueueText(msg);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil className="h-3 w-3" />
                     </button>
-                    <button type="button" onClick={() => dispatch(removeQueuedMessage(i))} className="text-muted-foreground hover:text-destructive">
+                    <button
+                      type="button"
+                      onClick={() => dispatch(removeQueuedMessage(i))}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
                       <X className="h-3 w-3" />
                     </button>
                   </>
@@ -850,9 +1011,12 @@ export function CommanderPanel() {
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
-                void handleSubmit();
+                void handleSendNow();
+              } else if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                handleAddToQueue();
               }
               if (event.key === 'Escape' && isStreaming) void cancel();
             }}
@@ -888,7 +1052,9 @@ export function CommanderPanel() {
                           key={node.id}
                           type="button"
                           className="w-full rounded px-2 py-1 text-left text-[11px] hover:bg-muted"
-                          onClick={() => handleAttachNode({ id: node.id, title: node.title || node.type })}
+                          onClick={() =>
+                            handleAttachNode({ id: node.id, title: node.title || node.type })
+                          }
                         >
                           <span className="font-medium">{node.title || node.type}</span>
                           <span className="ml-1 text-muted-foreground">{node.type}</span>
@@ -900,7 +1066,10 @@ export function CommanderPanel() {
                     <button
                       type="button"
                       className="w-full rounded px-2 py-1 text-left text-[11px] hover:bg-muted"
-                      onClick={() => { void handleAttachFile(); setNodePickerOpen(false); }}
+                      onClick={() => {
+                        void handleAttachFile();
+                        setNodePickerOpen(false);
+                      }}
                     >
                       <Paperclip className="mr-1 inline h-3 w-3" />
                       {t('commander.attachFile')}
@@ -908,7 +1077,10 @@ export function CommanderPanel() {
                     <button
                       type="button"
                       className="w-full rounded px-2 py-1 text-left text-[11px] hover:bg-muted"
-                      onClick={() => { void handleAttachFile(); setNodePickerOpen(false); }}
+                      onClick={() => {
+                        void handleAttachFile();
+                        setNodePickerOpen(false);
+                      }}
                     >
                       <ImageIcon className="mr-1 inline h-3 w-3" />
                       {t('commander.attachImage')}
@@ -973,17 +1145,19 @@ export function CommanderPanel() {
               >
                 {permissionMode === 'auto' && <Zap className="h-2.5 w-2.5 text-emerald-400" />}
                 {permissionMode === 'normal' && <Shield className="h-2.5 w-2.5 text-amber-400" />}
-                {permissionMode === 'strict' && <ShieldAlert className="h-2.5 w-2.5 text-red-400" />}
+                {permissionMode === 'strict' && (
+                  <ShieldAlert className="h-2.5 w-2.5 text-red-400" />
+                )}
                 <span>{t(`commander.permissionMode.${permissionMode}`)}</span>
                 <ChevronDown className="h-2.5 w-2.5" />
               </button>
               {permPickerOpen && (
                 <div className="absolute bottom-7 right-0 z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
-                  {([
+                  {[
                     { value: 'auto' as const, icon: Zap, color: 'text-emerald-400' },
                     { value: 'normal' as const, icon: Shield, color: 'text-amber-400' },
                     { value: 'strict' as const, icon: ShieldAlert, color: 'text-red-400' },
-                  ]).map((m) => {
+                  ].map((m) => {
                     const Icon = m.icon;
                     return (
                       <button
@@ -1000,8 +1174,12 @@ export function CommanderPanel() {
                       >
                         <Icon className={cn('h-3.5 w-3.5', m.color)} />
                         <div>
-                          <div className="font-medium">{t(`commander.permissionMode.${m.value}`)}</div>
-                          <div className="text-[9px] text-muted-foreground">{t(`commander.permissionMode.${m.value}Desc`)}</div>
+                          <div className="font-medium">
+                            {t(`commander.permissionMode.${m.value}`)}
+                          </div>
+                          <div className="text-[9px] text-muted-foreground">
+                            {t(`commander.permissionMode.${m.value}Desc`)}
+                          </div>
                         </div>
                       </button>
                     );
@@ -1021,26 +1199,24 @@ export function CommanderPanel() {
               </button>
             ) : (
               <>
-                {/* Queue button */}
+                {/* Add to Queue button */}
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-30"
-                  onClick={() => {
-                    const value = input.trim();
-                    if (!value) return;
-                    dispatch(enqueueMessage(value));
-                    setInput('');
-                  }}
+                  className="flex h-6 items-center gap-1 rounded-md border border-border px-2 text-[10px] text-muted-foreground hover:bg-muted disabled:opacity-30"
+                  onClick={handleAddToQueue}
                   disabled={input.trim().length === 0}
-                  title={t('commander.queue')}
+                  title={t('commander.addToQueue')}
                 >
-                  <MessageCircleQuestion className="h-3 w-3" />
+                  {t('commander.addToQueue')}
                 </button>
+                {/* Send Now button */}
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:opacity-30"
-                  onClick={() => void handleSubmit()}
-                  disabled={input.trim().length === 0}
+                  className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
+                  onClick={() => void handleSendNow()}
+                  disabled={input.trim().length === 0 && messageQueue.length === 0}
+                  title={t('commander.sendNow')}
                 >
-                  <Send className="h-3 w-3" />
+                  <Play className="h-3 w-3" />
+                  {t('commander.sendNow')}
                 </button>
               </>
             )}

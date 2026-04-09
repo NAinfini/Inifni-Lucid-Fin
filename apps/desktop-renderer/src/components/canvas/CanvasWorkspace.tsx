@@ -96,6 +96,7 @@ import {
   duplicateNode,
   disconnectNode,
 } from '../../store/slices/canvas.js';
+import { getDefaultNodeFrame } from '../../store/slices/canvas-helpers.js';
 
 // ---- React Flow node/edge type registrations --------------------------------
 
@@ -334,12 +335,13 @@ function toFlowNode(
   visualState: FlowVisualState,
   allNodes: CanvasNodeDTO[] = [],
 ): Node {
+  const defaultFrame = getDefaultNodeFrame(n.type);
   const base = {
     id: n.id,
     type: n.type,
     position: n.position,
-    width: n.width && n.width > 0 ? n.width : undefined,
-    height: n.height && n.height > 0 ? n.height : undefined,
+    width: n.width && n.width > 0 ? n.width : defaultFrame?.width,
+    height: n.height && n.height > 0 ? n.height : defaultFrame?.height,
     dragHandle: undefined,
     style: {
       opacity: visualState.dimmed ? (n.type === 'backdrop' ? 0.28 : 0.22) : 1,
@@ -415,8 +417,12 @@ function toFlowNode(
       const summary = [cameraName, flowName, emotionName].filter(Boolean).join(', ');
       const firstFrameNode = vd.firstFrameNodeId ? allNodes.find((x) => x.id === vd.firstFrameNodeId) : undefined;
       const lastFrameNode = vd.lastFrameNodeId ? allNodes.find((x) => x.id === vd.lastFrameNodeId) : undefined;
-      const firstFrameHash = firstFrameNode ? (firstFrameNode.data as ImageNodeData).assetHash : undefined;
-      const lastFrameHash = lastFrameNode ? (lastFrameNode.data as ImageNodeData).assetHash : undefined;
+      const firstFrameHash =
+        vd.firstFrameAssetHash ??
+        (firstFrameNode ? (firstFrameNode.data as ImageNodeData).assetHash : undefined);
+      const lastFrameHash =
+        vd.lastFrameAssetHash ??
+        (lastFrameNode ? (lastFrameNode.data as ImageNodeData).assetHash : undefined);
       return {
         ...base,
         data: {
@@ -1204,41 +1210,113 @@ export function CanvasWorkspace() {
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
 
-      // Handle file drops (.txt, .md) → create text nodes
+      const rfInstance = rfInstanceRef.current;
+      if (!rfInstance) return;
+
+      // Handle file drops from OS
       const files = event.dataTransfer.files;
       if (files.length > 0) {
-        const rfInstance = rfInstanceRef.current;
-        if (!rfInstance) return;
         const basePos = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
         let offsetY = 0;
+        let handledAny = false;
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
+          if (!file) continue;
           const ext = file.name.split('.').pop()?.toLowerCase();
-          if (ext !== 'txt' && ext !== 'md') continue;
-          const title = file.name.replace(/\.[^.]+$/, '');
-          void file.text().then((content) => {
+          // Text files → Text Node
+          if (ext === 'txt' || ext === 'md') {
+            const title = file.name.replace(/\.[^.]+$/, '');
+            const pos = { x: basePos.x, y: basePos.y + offsetY };
+            void file.text().then((content) => {
+              dispatch(
+                addNode({
+                  id: crypto.randomUUID(),
+                  type: 'text' as CanvasNodeType,
+                  title,
+                  data: { content },
+                  position: pos,
+                }),
+              );
+            });
+            offsetY += 180;
+            handledAny = true;
+          } else if (file.type.startsWith('image/')) {
+            // Image file → import + Image Node
+            const title = file.name.replace(/\.[^.]+$/, '');
+            const pos = { x: basePos.x, y: basePos.y + offsetY };
+            const filePath = (file as { path?: string }).path ?? '';
+            if (filePath) {
+              const api = getAPI();
+              void api?.asset.import(filePath, 'image').then((ref) => {
+                const r = ref as { hash: string } | null;
+                if (!r?.hash) return;
+                const payload = createNodePayloadFromAsset({ hash: r.hash, name: title, type: 'image' });
+                dispatch(
+                  addNode({
+                    id: crypto.randomUUID(),
+                    type: payload.type,
+                    title: payload.title,
+                    data: payload.data,
+                    position: pos,
+                  }),
+                );
+              });
+            }
+            offsetY += 220;
+            handledAny = true;
+          } else if (file.type.startsWith('video/')) {
+            // Video file → import + Video Node
+            const title = file.name.replace(/\.[^.]+$/, '');
+            const pos = { x: basePos.x, y: basePos.y + offsetY };
+            const filePath = (file as { path?: string }).path ?? '';
+            if (filePath) {
+              const api = getAPI();
+              void api?.asset.import(filePath, 'video').then((ref) => {
+                const r = ref as { hash: string } | null;
+                if (!r?.hash) return;
+                const payload = createNodePayloadFromAsset({ hash: r.hash, name: title, type: 'video' });
+                dispatch(
+                  addNode({
+                    id: crypto.randomUUID(),
+                    type: payload.type,
+                    title: payload.title,
+                    data: payload.data,
+                    position: pos,
+                  }),
+                );
+              });
+            }
+            offsetY += 220;
+            handledAny = true;
+          }
+        }
+        if (handledAny) return;
+      }
+
+      // Handle ref-image drops from entity panels
+      const refImageRaw = event.dataTransfer.getData('application/x-lucid-ref-image');
+      if (refImageRaw) {
+        try {
+          const payload = JSON.parse(refImageRaw) as { assetHash: string; entityType: string; entityId: string; slot: string };
+          if (payload.assetHash) {
+            const nodePayload = createNodePayloadFromAsset({ hash: payload.assetHash, name: `${payload.entityType} ref`, type: 'image' });
             dispatch(
               addNode({
                 id: crypto.randomUUID(),
-                type: 'text' as CanvasNodeType,
-                title,
-                data: { content },
-                position: { x: basePos.x, y: basePos.y + offsetY },
+                type: nodePayload.type,
+                title: nodePayload.title,
+                data: nodePayload.data,
+                position: rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
               }),
             );
-          });
-          offsetY += 180;
-        }
-        if (offsetY > 0) return;
-      }
-
-      // Handle asset drops
-      const raw = event.dataTransfer.getData('application/x-lucid-asset');
-      if (!raw) {
+          }
+        } catch { /* malformed payload */ }
         return;
       }
-      const rfInstance = rfInstanceRef.current;
-      if (!rfInstance) {
+
+      // Handle asset drops from Asset Store or Canvas nodes
+      const raw = event.dataTransfer.getData('application/x-lucid-asset') || event.dataTransfer.getData('application/x-lucid-node-asset');
+      if (!raw) {
         return;
       }
       const asset = JSON.parse(raw) as DragAssetPayload;
@@ -1257,7 +1335,13 @@ export function CanvasWorkspace() {
   );
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (event.dataTransfer.types.includes('application/x-lucid-asset') || event.dataTransfer.types.includes('Files')) {
+    const types = event.dataTransfer.types;
+    if (
+      types.includes('application/x-lucid-asset') ||
+      types.includes('application/x-lucid-node-asset') ||
+      types.includes('application/x-lucid-ref-image') ||
+      types.includes('Files')
+    ) {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
     }

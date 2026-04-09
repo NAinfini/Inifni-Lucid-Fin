@@ -7,6 +7,7 @@ export {
   localizeShotTemplateDescription,
   localizeShotTemplateName,
   localizeSlot,
+  localizeWorkflowDefinitionName,
   onLocaleChange,
   setLocale,
   t,

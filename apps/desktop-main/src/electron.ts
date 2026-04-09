@@ -86,6 +86,7 @@ function createWindow(): BrowserWindow {
     width: 1400,
     height: 900,
     show: false,
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     backgroundColor: '#0a0a0a',
     titleBarStyle: 'hidden',
     titleBarOverlay: {

@@ -1,4 +1,5 @@
-import { MapPin, Package, Plus, Trash2, User } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { MapPin, Package, Plus, Trash2, Upload, User } from 'lucide-react';
 import type { CanvasNodeType } from '@lucid-fin/contracts';
 
 type Translate = (key: string) => string;
@@ -20,6 +21,26 @@ interface ReferenceItem {
   description?: string;
   selectedSlot?: string;
   slotOptions?: SlotOption[];
+}
+
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface VideoFrameSlot {
+  options: SelectOption[];
+  selectedNodeId?: string;
+  preview?: ReactNode;
+  hasValue: boolean;
+  onConnectedChange: (value: string | undefined) => void;
+  onUpload: () => void | Promise<void>;
+  onClear: () => void;
+}
+
+interface VideoFramesSection {
+  first: VideoFrameSlot;
+  last: VideoFrameSlot;
 }
 
 interface InspectorContextTabProps {
@@ -45,6 +66,7 @@ interface InspectorContextTabProps {
   onRemoveCharacter: (characterId: string) => void;
   onRemoveEquipment: (equipmentId: string) => void;
   onRemoveLocation: (locationId: string) => void;
+  videoFramesSection?: VideoFramesSection;
 }
 
 export function InspectorContextTab({
@@ -70,6 +92,7 @@ export function InspectorContextTab({
   onRemoveCharacter,
   onRemoveEquipment,
   onRemoveLocation,
+  videoFramesSection,
 }: InspectorContextTabProps) {
   const showsVisualContext = selectedNodeType === 'image' || selectedNodeType === 'video';
 
@@ -79,6 +102,26 @@ export function InspectorContextTab({
 
   return (
     <>
+      {/* Video first/last frame references */}
+      {selectedNodeType === 'video' && videoFramesSection ? (
+        <div className="px-3 py-3 border-b border-border/60 space-y-2.5">
+          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            {t('inspector.frames')}
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <VideoFrameSlotSection
+              label={t('inspector.firstFrame')}
+              slot={videoFramesSection.first}
+              t={t}
+            />
+            <VideoFrameSlotSection
+              label={t('inspector.lastFrame')}
+              slot={videoFramesSection.last}
+              t={t}
+            />
+          </div>
+        </div>
+      ) : null}
       <div className="px-3 py-3 border-b border-border/60 space-y-2.5">
         <div className="flex items-center justify-between">
           <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1">
@@ -268,5 +311,69 @@ export function InspectorContextTab({
         )}
       </div>
     </>
+  );
+}
+
+interface VideoFrameSlotSectionProps {
+  label: string;
+  slot: VideoFrameSlot;
+  t: Translate;
+}
+
+function VideoFrameSlotSection({ label, slot, t }: VideoFrameSlotSectionProps) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <div className="flex items-center gap-1">
+          {slot.hasValue && (
+            <button
+              type="button"
+              onClick={slot.onClear}
+              className="text-[10px] text-destructive hover:underline"
+            >
+              {t('inspector.clear')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void slot.onUpload()}
+            className="text-[10px] text-primary hover:underline"
+          >
+            {slot.hasValue ? t('inspector.replace') : t('inspector.upload')}
+          </button>
+        </div>
+      </div>
+      {/* Full-width preview */}
+      {slot.preview ? (
+        <div className="w-full">{slot.preview}</div>
+      ) : (
+        <div
+          className="relative w-full aspect-video rounded-md overflow-hidden border border-dashed border-border/60 bg-muted/20 cursor-pointer flex items-center justify-center"
+          onClick={() => void slot.onUpload()}
+        >
+          <Upload className="h-5 w-5 text-muted-foreground/30" />
+        </div>
+      )}
+      {/* Connected node selector */}
+      {slot.options.length > 0 ? (
+        <select
+          value={slot.selectedNodeId ?? ''}
+          onChange={(event) => slot.onConnectedChange(event.target.value || undefined)}
+          className="w-full text-[11px] rounded-md border border-border/60 bg-background px-1.5 py-1 outline-none"
+        >
+          <option value="">{t('inspector.select')}</option>
+          {slot.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div className="text-[10px] text-muted-foreground/60 italic">
+          {t('inspector.noConnectedImages')}
+        </div>
+      )}
+    </div>
   );
 }

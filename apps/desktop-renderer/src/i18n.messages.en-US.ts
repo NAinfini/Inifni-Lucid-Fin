@@ -211,6 +211,9 @@ export const enUSMessages = {
       expand: 'Expand',
       close: 'Close',
       queue: 'Message Queue',
+      addToQueue: 'Queue',
+      sendNow: 'Send',
+      clearQueue: 'Clear',
       aiDecide: 'AI',
       aiWillChoose: 'AI will choose this track preset',
       toolCall: 'Tool call',
@@ -310,6 +313,10 @@ export const enUSMessages = {
     toast: {
       close: 'Close notification',
       list: 'Notifications',
+      clipboard: {
+        detected: 'AI text detected in clipboard',
+        addToCanvas: 'Add to canvas',
+      },
       error: {
         operationFailed: 'Operation failed',
         unknownError: 'Unknown error occurred',
@@ -529,6 +536,11 @@ export const enUSMessages = {
       loading: 'Loading...',
       noResults: 'No locations found.',
       usedInNodes: 'Used in {count} node(s)',
+    },
+    entity: {
+      fromAssets: 'From Assets',
+      selectImage: 'Select Image Asset',
+      removeImage: 'Remove',
     },
     inspector: {
       title: 'Inspector',
@@ -889,12 +901,45 @@ export const enUSMessages = {
         saving: 'Saving…',
         save: 'Save',
         saved: '✓ Saved',
+        customized: 'Customized',
+        resetToDefaults: 'Reset to Defaults',
         getApiKey: 'Get API Key',
         testing: 'Testing…',
         testConnection: 'Test Connection',
         connected: 'Connected',
         connectionFailed: 'Connection failed — check your key',
         keyPlaceholder: 'sk-...',
+        capabilitiesTitle: 'Capabilities & Output',
+        capabilityLabels: {
+          textToImage: 'Text to Image',
+          imageToImage: 'Image to Image',
+          textToVideo: 'Text to Video',
+          imageToVideo: 'Image to Video',
+          textToVoice: 'Text to Voice',
+          textToMusic: 'Text to Music',
+          textToSfx: 'Text to SFX',
+          textGeneration: 'Text Generation',
+        },
+        capabilityBadges: {
+          t2i: 'T2I',
+          i2i: 'I2I',
+          t2v: 'T2V',
+          i2v: 'I2V',
+          tts: 'TTS',
+          t2m: 'T2M',
+          t2sfx: 'T2SFX',
+          llm: 'LLM',
+        },
+        outputLabels: {
+          resolution: 'Resolution',
+          duration: 'Duration',
+          formats: 'Format',
+          referenceImage: 'Ref Image',
+          notes: 'Note',
+        },
+        capabilityNotes: {
+          modelDependent: 'Capabilities depend on selected model',
+        },
       },
       providerSections: {
         official: 'Official Providers',
@@ -938,6 +983,7 @@ export const enUSMessages = {
       },
       workflows: {
         title: 'Workflows & Skills',
+        subtitle: 'Dedicated space for workflow and skill controls.',
         description: 'Manage workflows and skills. Add, edit, and delete custom entries.',
         placeholderTitle: 'Planned surface',
         placeholderDescription: 'Built-in workflows and skills will appear alongside editable custom entries here.',
@@ -1491,5 +1537,9 @@ export const enUSMessages = {
       'batch-re-prompt': 'Batch Re-Prompt',
       'continuity-check': 'Continuity Check',
       'storyboard-export': 'Storyboard Export',
+    },
+    workflowDefinitionNames: {
+      'wf-story-idea-to-video': 'Story Idea → Video',
+      'wf-novel-to-video': 'Novel/Book → Video',
     },
   };

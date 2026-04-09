@@ -6,11 +6,7 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
 import { Settings } from './Settings.js';
-import {
-  addCustomProvider,
-  settingsSlice,
-  type SettingsState,
-} from '../store/slices/settings.js';
+import { addCustomProvider, settingsSlice, type SettingsState } from '../store/slices/settings.js';
 import { promptTemplatesSlice, setCustomContent } from '../store/slices/promptTemplates.js';
 import { uiSlice } from '../store/slices/ui.js';
 import { workflowDefinitionsSlice } from '../store/slices/workflowDefinitions.js';
@@ -111,6 +107,36 @@ describe('Settings updater UI', () => {
       expect(screen.getAllByText('Workflows & Skills').length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Add Workflow' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Add Skill' })).toBeTruthy();
+    });
+  });
+
+  it('localizes workflow section title, subtitle, badges, and built-in workflow names in zh-CN', async () => {
+    setLocale('zh-CN');
+
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.workflows') }));
+
+    await waitFor(() => {
+      expect(screen.getByText('工作流与技能')).toBeTruthy();
+      expect(screen.getByText('专门管理工作流和技能的空间。')).toBeTruthy();
+      expect(screen.getByText('故事创意 → 视频')).toBeTruthy();
+      expect(screen.getByText('小说/书籍 → 视频')).toBeTruthy();
+      expect(screen.getAllByText('工作流').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('内置').length).toBeGreaterThan(0);
     });
   });
 
@@ -395,6 +421,52 @@ describe('Settings updater UI', () => {
     });
   });
 
+  it('allows resetting built-in provider endpoint and model back to defaults', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+      openExternal: vi.fn(),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = renderSettings();
+
+    const openAiCard = findProviderCard('OpenAI');
+    fireEvent.click(within(openAiCard).getByLabelText('Expand'));
+
+    const endpointInput = await screen.findByDisplayValue('https://api.openai.com/v1');
+    const modelInput = await screen.findByDisplayValue('gpt-4.1');
+
+    fireEvent.change(endpointInput, { target: { value: 'https://proxy.example.com/v1' } });
+    fireEvent.change(modelInput, { target: { value: 'gpt-4.1-mini' } });
+
+    await waitFor(() => {
+      expect(within(openAiCard).getByRole('button', { name: 'Reset to Defaults' })).toBeTruthy();
+    });
+
+    fireEvent.click(within(openAiCard).getByRole('button', { name: 'Reset to Defaults' }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('https://api.openai.com/v1')).toBeTruthy();
+      expect(screen.getByDisplayValue('gpt-4.1')).toBeTruthy();
+    });
+
+    expect(
+      store.getState().settings.llm.providers.find((provider) => provider.id === 'openai'),
+    ).toMatchObject({
+      name: 'OpenAI',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4.1',
+    });
+  });
+
   it('localizes custom provider labels and saved state in zh-CN', async () => {
     setLocale('zh-CN');
 
@@ -445,7 +517,9 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(resolvedCustomCard).getByLabelText(t('settings.providerCard.expand')));
 
     await waitFor(() => {
-      expect(within(resolvedCustomCard).getByText(t('settings.providerCard.protocol'))).toBeTruthy();
+      expect(
+        within(resolvedCustomCard).getByText(t('settings.providerCard.protocol')),
+      ).toBeTruthy();
       expect(
         within(resolvedCustomCard).getByText(t('settings.providerCard.configuredInKeychain')),
       ).toBeTruthy();

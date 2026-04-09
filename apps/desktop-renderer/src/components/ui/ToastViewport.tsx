@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { LucideIcon } from 'lucide-react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
-import { dismissToast, type ToastItem } from '../../store/slices/toast.js';
+import { dismissToast, toastActionRegistry, type ToastItem } from '../../store/slices/toast.js';
 import { t } from '../../i18n.js';
 
 const TOAST_VARIANT_STYLE: Record<
@@ -43,6 +43,19 @@ function ToastCard({ toast }: { toast: ToastItem }) {
           <p className="truncate text-sm font-medium text-foreground">{toast.title}</p>
           {toast.message ? (
             <p className="mt-0.5 text-xs text-muted-foreground">{toast.message}</p>
+          ) : null}
+          {toast.actionLabel ? (
+            <button
+              type="button"
+              onClick={() => {
+                const callback = toastActionRegistry.get(toast.id);
+                if (callback) callback();
+                dispatch(dismissToast(toast.id));
+              }}
+              className="mt-1.5 rounded px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              {toast.actionLabel}
+            </button>
           ) : null}
         </div>
         <button

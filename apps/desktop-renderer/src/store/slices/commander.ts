@@ -260,6 +260,9 @@ export const commanderSlice = createSlice({
     editQueuedMessage(state, action: PayloadAction<{ index: number; content: string }>) {
       state.messageQueue[action.payload.index] = action.payload.content;
     },
+    clearQueue(state) {
+      state.messageQueue = [];
+    },
     restore(_state, action: PayloadAction<CommanderState>) {
       return {
         ...initialState,
@@ -297,4 +300,5 @@ export const {
   dequeueMessage,
   removeQueuedMessage,
   editQueuedMessage,
+  clearQueue,
 } = commanderSlice.actions;

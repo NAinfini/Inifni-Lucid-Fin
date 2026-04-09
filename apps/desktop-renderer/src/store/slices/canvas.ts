@@ -11,7 +11,7 @@ import type {
   CanvasViewport,
   CanvasNote,
 } from '@lucid-fin/contracts';
-import { findActiveCanvas } from './canvas-helpers.js';
+import { findActiveCanvas, normalizeCanvasNodeFrames } from './canvas-helpers.js';
 import * as nodeReducers from './canvas-node-reducers.js';
 import * as refReducers from './canvas-ref-reducers.js';
 import * as edgeReducers from './canvas-edge-reducers.js';
@@ -73,7 +73,7 @@ const internalCanvasSlice = createSlice({
     // --- Canvas-level actions -----------------------------------------------
 
     setCanvases(state, action: PayloadAction<Canvas[]>) {
-      state.canvases = action.payload;
+      state.canvases = action.payload.map((canvas) => normalizeCanvasNodeFrames(canvas));
       const stillValid = action.payload.some((c) => c.id === state.activeCanvasId);
       if (!stillValid) {
         state.activeCanvasId = action.payload[0]?.id ?? null;
@@ -83,7 +83,7 @@ const internalCanvasSlice = createSlice({
     },
 
     addCanvas(state, action: PayloadAction<Canvas>) {
-      state.canvases.push(action.payload);
+      state.canvases.push(normalizeCanvasNodeFrames(action.payload));
     },
 
     removeCanvas(state, action: PayloadAction<string>) {
@@ -135,6 +135,7 @@ const internalCanvasSlice = createSlice({
     setNodeUploadedAsset: nodeReducers.setNodeUploadedAsset,
     clearNodeAsset: nodeReducers.clearNodeAsset,
     setVideoFrameNode: nodeReducers.setVideoFrameNode,
+    setVideoFrameAsset: nodeReducers.setVideoFrameAsset,
     applyCanvasFromCommander: nodeReducers.applyCanvasFromCommander,
     // --- Ref & clipboard actions (delegated) --------------------------------
 
@@ -320,6 +321,7 @@ export const {
   setAllTracksAiDecide,
   applyNodeShotTemplate,
   setVideoFrameNode,
+  setVideoFrameAsset,
   applyCanvasFromCommander,
   addNodePresetTrackEntry,
   updateNodePresetTrackEntry,

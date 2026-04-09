@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { listBuiltinLLMProviderPresets } from '@lucid-fin/contracts';
-import { PROVIDER_REGISTRY, settingsSlice } from './settings.js';
+import { enUSMessages } from '../../i18n.messages.en-US.js';
+import { zhCNMessages } from '../../i18n.messages.zh-CN.js';
+import { getProviderMetadata, PROVIDER_REGISTRY, settingsSlice } from './settings.js';
 
 function toDefaultStateSummary(group: keyof typeof PROVIDER_REGISTRY) {
   return PROVIDER_REGISTRY[group].map(({ id, model, protocol, authStyle, baseUrl }) => ({
@@ -44,6 +46,56 @@ describe('provider registry metadata', () => {
     }
   });
 
+  it('defines capability metadata for every built-in provider', () => {
+    for (const [group, providers] of Object.entries(PROVIDER_REGISTRY)) {
+      for (const provider of providers) {
+        const metadata = getProviderMetadata(group as keyof typeof PROVIDER_REGISTRY, provider.id);
+        expect(metadata, `missing metadata for ${group}:${provider.id}`).toBeDefined();
+        expect(metadata?.capabilities.length, `missing capabilities for ${group}:${provider.id}`).toBeGreaterThan(0);
+
+        if (metadata?.capabilities.includes('image-to-image') || metadata?.capabilities.includes('image-to-video')) {
+          expect(metadata.supportsReferenceImage).toBe(true);
+        }
+
+        if (provider.kind === 'hub') {
+          expect(metadata?.notes).toBeTruthy();
+        }
+      }
+    }
+  });
+
+  it('captures default output expectations for representative providers', () => {
+    expect(getProviderMetadata('llm', 'openrouter')).toMatchObject({
+      capabilities: [
+        'text-generation',
+        'script-expand',
+        'scene-breakdown',
+        'character-extract',
+        'prompt-enhance',
+      ],
+      notes: 'Capabilities depend on selected model',
+    });
+
+    expect(getProviderMetadata('image', 'openai-image')).toMatchObject({
+      capabilities: ['text-to-image'],
+      defaultResolution: '1024x1024',
+      outputFormats: ['png', 'jpeg', 'webp'],
+    });
+
+    expect(getProviderMetadata('video', 'runway')).toMatchObject({
+      capabilities: ['text-to-video', 'image-to-video'],
+      supportsReferenceImage: true,
+      defaultResolution: '1920x1080',
+      defaultDurationSeconds: 5,
+      outputFormats: ['mp4'],
+    });
+
+    expect(getProviderMetadata('audio', 'openai-tts')).toMatchObject({
+      capabilities: ['text-to-voice'],
+      outputFormats: ['mp3'],
+    });
+  });
+
   it('keeps llm settings presets aligned with runtime contracts', () => {
     const contractPresets = new Map(
       listBuiltinLLMProviderPresets().map((preset) => [preset.id, preset] as const),
@@ -66,6 +118,32 @@ describe('provider registry metadata', () => {
         authStyle: preset!.authStyle,
       });
     }
+  });
+});
+
+describe('provider capability i18n', () => {
+  it('defines capability and output labels in both supported locales', () => {
+    expect(enUSMessages.settings.providerCard.capabilitiesTitle).toBeTruthy();
+    expect(enUSMessages.settings.providerCard.capabilityLabels.textToVideo).toBe('Text to Video');
+    expect(enUSMessages.settings.providerCard.capabilityBadges.t2v).toBe('T2V');
+    expect(enUSMessages.settings.providerCard.outputLabels.resolution).toBe('Resolution');
+    expect(enUSMessages.settings.providerCard.outputLabels.duration).toBe('Duration');
+    expect(enUSMessages.settings.providerCard.outputLabels.formats).toBe('Format');
+    expect(enUSMessages.settings.providerCard.outputLabels.referenceImage).toBe('Ref Image');
+    expect(enUSMessages.settings.providerCard.outputLabels.notes).toBe('Note');
+    expect(enUSMessages.settings.providerCard.capabilityNotes.modelDependent).toBe(
+      'Capabilities depend on selected model',
+    );
+
+    expect(zhCNMessages.settings.providerCard.capabilitiesTitle).toBeTruthy();
+    expect(zhCNMessages.settings.providerCard.capabilityLabels.textToVideo).toBeTruthy();
+    expect(zhCNMessages.settings.providerCard.capabilityBadges.t2v).toBe('T2V');
+    expect(zhCNMessages.settings.providerCard.outputLabels.resolution).toBeTruthy();
+    expect(zhCNMessages.settings.providerCard.outputLabels.duration).toBeTruthy();
+    expect(zhCNMessages.settings.providerCard.outputLabels.formats).toBeTruthy();
+    expect(zhCNMessages.settings.providerCard.outputLabels.referenceImage).toBeTruthy();
+    expect(zhCNMessages.settings.providerCard.outputLabels.notes).toBeTruthy();
+    expect(zhCNMessages.settings.providerCard.capabilityNotes.modelDependent).toBeTruthy();
   });
 });
 
@@ -223,7 +301,7 @@ describe('settings defaults', () => {
       'custom-llm-1',
     ]);
     expect(restored.llm.providers.find((provider) => provider.id === 'openai')?.model).toBe(
-      'gpt-4.1',
+      'gpt-4o',
     );
     expect(restored.llm.providers.find((provider) => provider.id === 'custom-llm-1')).toMatchObject(
       {
@@ -245,6 +323,69 @@ describe('settings defaults', () => {
     expect('activeProvider' in restored.video).toBe(false);
     expect('activeProvider' in restored.audio).toBe(false);
     expect(restored.renderPreset).toBe('high');
+  });
+
+  it('preserves built-in provider endpoint and model overrides while keeping registry names', () => {
+    const restored = settingsSlice.reducer(undefined, {
+      type: settingsSlice.actions.restore.type,
+      payload: {
+        llm: {
+          providers: [
+            {
+              id: 'openai',
+              name: 'Renamed OpenAI',
+              baseUrl: 'https://proxy.example.com/v1',
+              model: 'gpt-4.1-mini',
+              hasKey: false,
+              isCustom: false,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(restored.llm.providers.find((provider) => provider.id === 'openai')).toMatchObject({
+      id: 'openai',
+      name: 'OpenAI',
+      baseUrl: 'https://proxy.example.com/v1',
+      model: 'gpt-4.1-mini',
+      isCustom: false,
+    });
+  });
+
+  it('resets built-in providers back to registry defaults', () => {
+    let state = settingsSlice.reducer(
+      undefined,
+      settingsSlice.actions.setProviderBaseUrl({
+        group: 'llm',
+        provider: 'openai',
+        url: 'https://proxy.example.com/v1',
+      }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.setProviderModel({
+        group: 'llm',
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+      }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.resetProviderToDefaults({
+        group: 'llm',
+        provider: 'openai',
+      }),
+    );
+
+    expect(state.llm.providers.find((provider) => provider.id === 'openai')).toMatchObject({
+      id: 'openai',
+      name: 'OpenAI',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4.1',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+    });
   });
 
   it('defaults newly added custom llm providers to openai-compatible runtime metadata', () => {

@@ -27,6 +27,50 @@ export type TrackMap = Record<PresetCategory, import('@lucid-fin/contracts').Pre
 
 export type GenerationNodeData = ImageNodeData | VideoNodeData | AudioNodeData;
 
+export const DEFAULT_MEDIA_NODE_FRAME = {
+  width: 240,
+  height: 180,
+} as const;
+
+export function getDefaultNodeFrame(
+  type: CanvasNodeType,
+): { width: number; height: number } | undefined {
+  switch (type) {
+    case 'image':
+    case 'video':
+      return DEFAULT_MEDIA_NODE_FRAME;
+    case 'backdrop':
+      return { width: 420, height: 240 };
+    default:
+      return undefined;
+  }
+}
+
+export function normalizeCanvasNodeFrame(node: CanvasNode): CanvasNode {
+  const defaultFrame = getDefaultNodeFrame(node.type);
+  if (!defaultFrame) return node;
+  if (node.width != null && node.height != null) return node;
+
+  return {
+    ...node,
+    width: node.width ?? defaultFrame.width,
+    height: node.height ?? defaultFrame.height,
+  };
+}
+
+export function normalizeCanvasNodeFrames(canvas: Canvas): Canvas {
+  let changed = false;
+  const nodes = canvas.nodes.map((node) => {
+    const normalized = normalizeCanvasNodeFrame(node);
+    if (normalized !== node) {
+      changed = true;
+    }
+    return normalized;
+  });
+
+  return changed ? { ...canvas, nodes } : canvas;
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers (no Redux dependency)
 // ---------------------------------------------------------------------------
@@ -127,6 +171,7 @@ export function createNodeRecord(payload: {
   height?: number;
 }): CanvasNode {
   const now = Date.now();
+  const defaultFrame = getDefaultNodeFrame(payload.type);
   const defaultData: Record<CanvasNodeType, CanvasNodeData> = {
     text: { content: '' },
     image: {
@@ -176,8 +221,8 @@ export function createNodeRecord(payload: {
     status: 'idle',
     bypassed: false,
     locked: false,
-    width: payload.width ?? (payload.type === 'backdrop' ? 420 : undefined),
-    height: payload.height ?? (payload.type === 'backdrop' ? 240 : undefined),
+    width: payload.width ?? defaultFrame?.width,
+    height: payload.height ?? defaultFrame?.height,
     createdAt: now,
     updatedAt: now,
   };

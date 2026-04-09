@@ -24,6 +24,7 @@ export function addEdge(state: CanvasSliceState, action: PayloadAction<CanvasEdg
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
   const edge = ensureEdgeLabel(canvas, action.payload);
+  if (edge.source === edge.target) return; // Block self-loops
   const exists = canvas.edges.some(
     (e) =>
       e.source === edge.source &&
@@ -84,6 +85,7 @@ export function reconnectCanvasEdge(
   const edge = canvas.edges.find((item) => item.id === action.payload.edgeId);
   const { source, target, sourceHandle, targetHandle } = action.payload.connection;
   if (!edge || !source || !target) return;
+  if (source === target) return; // Block self-loops
 
   edge.source = source;
   edge.target = target;

@@ -11,12 +11,21 @@ import { getAPI } from '../../utils/api.js';
 import { charactersSlice } from '../../store/slices/characters.js';
 import { equipmentSlice } from '../../store/slices/equipment.js';
 import { locationsSlice } from '../../store/slices/locations.js';
+import { canvasReducer } from '../../store/slices/canvas.js';
+import { assetsSlice } from '../../store/slices/assets.js';
 import { CharacterManagerPanel } from './CharacterManagerPanel.js';
 import { EquipmentManagerPanel } from './EquipmentManagerPanel.js';
 import { LocationManagerPanel } from './LocationManagerPanel.js';
 
 vi.mock('../../utils/api.js', () => ({
   getAPI: vi.fn(),
+}));
+
+vi.mock('../ui/Dialog.js', () => ({
+  Dialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
 function createCharacter(): Character {
@@ -71,6 +80,8 @@ function renderWithStore(panel: React.ReactElement) {
       characters: charactersSlice.reducer,
       equipment: equipmentSlice.reducer,
       locations: locationsSlice.reducer,
+      canvas: canvasReducer,
+      assets: assetsSlice.reducer,
     },
   });
 
@@ -144,22 +155,20 @@ describe('Entity manager panels', () => {
       referenceLabelKey: 'locationManager.referenceImages',
     },
   ])(
-    'renders the embedded generation controls below the reference image section in $name',
+    'renders the asset picker button below the reference image section in $name',
     async ({ panel, referenceLabelKey }) => {
       renderWithStore(panel);
 
       await waitFor(() => {
         expect(
-          screen.getByRole('button', { name: t('entityGeneration.generateReferenceImage') }),
+          screen.getByText(t('entity.fromAssets')),
         ).toBeTruthy();
       });
 
       const referenceHeading = screen.getByText(t(referenceLabelKey));
-      const generateButton = screen.getByRole('button', {
-        name: t('entityGeneration.generateReferenceImage'),
-      });
+      const fromAssetsButton = screen.getByText(t('entity.fromAssets'));
 
-      expect(referenceHeading.compareDocumentPosition(generateButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(referenceHeading.compareDocumentPosition(fromAssetsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     },
   );
 });

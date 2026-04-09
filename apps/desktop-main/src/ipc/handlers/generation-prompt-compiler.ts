@@ -163,8 +163,14 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
   const hashes = new Set<string>();
 
   if (node.type === 'video') {
-    const sourceHash = findConnectedImageHash(canvas, node.id);
-    if (sourceHash) hashes.add(sourceHash);
+    const frameHashes = resolveVideoFrameReferenceImages(canvas, node);
+    for (const hash of frameHashes) {
+      hashes.add(hash);
+    }
+    if (frameHashes.length === 0) {
+      const sourceHash = findConnectedImageHash(canvas, node.id);
+      if (sourceHash) hashes.add(sourceHash);
+    }
     const nodeHash = normalizeOptionalString((node.data as VideoNodeData).sourceImageHash);
     if (nodeHash) hashes.add(nodeHash);
   }
@@ -222,6 +228,43 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
   }
 
   return Array.from(hashes);
+}
+
+export function resolveVideoFrameReferenceImages(canvas: Canvas, node: CanvasNode): string[] {
+  if (node.type !== 'video') {
+    return [];
+  }
+
+  const data = node.data as VideoNodeData;
+  const resolveFrameHash = (role: 'first' | 'last'): string | undefined => {
+    const directHash = normalizeOptionalString(
+      role === 'first' ? data.firstFrameAssetHash : data.lastFrameAssetHash,
+    );
+    if (directHash) {
+      return directHash;
+    }
+
+    const frameNodeId =
+      role === 'first'
+        ? normalizeOptionalString(data.firstFrameNodeId)
+        : normalizeOptionalString(data.lastFrameNodeId);
+    if (!frameNodeId) {
+      return undefined;
+    }
+
+    const frameNode = canvas.nodes.find(
+      (entry) => entry.id === frameNodeId && entry.type === 'image',
+    );
+    if (!frameNode) {
+      return undefined;
+    }
+
+    return normalizeOptionalString((frameNode.data as ImageNodeData).assetHash);
+  };
+
+  return [resolveFrameHash('first'), resolveFrameHash('last')].filter(
+    (hash): hash is string => Boolean(hash),
+  );
 }
 
 // ---------------------------------------------------------------------------

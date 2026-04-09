@@ -140,14 +140,23 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     'asset:delete',
     async (_e, args: { hash: string }) => {
       if (!args.hash || typeof args.hash !== 'string') throw new Error('hash is required');
-      cas.deleteAsset(args.hash);
-      db.deleteAsset(args.hash);
-      log.info('Asset deleted', {
-        category: 'asset',
-        hash: args.hash,
-        projectId: getCurrentProjectId() ?? undefined,
-      });
-      return { success: true };
+      try {
+        cas.deleteAsset(args.hash);
+        db.deleteAsset(args.hash);
+        log.info('Asset deleted', {
+          category: 'asset',
+          hash: args.hash,
+          projectId: getCurrentProjectId() ?? undefined,
+        });
+        return { success: true };
+      } catch (err) {
+        log.error('Failed to delete asset', {
+          category: 'asset',
+          hash: args.hash,
+          error: String(err),
+        });
+        throw err;
+      }
     },
   );
 

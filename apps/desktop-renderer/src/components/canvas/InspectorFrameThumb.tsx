@@ -4,24 +4,28 @@ import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import type { CanvasNode, ImageNodeData } from '@lucid-fin/contracts';
 
 interface InspectorFrameThumbProps {
-  node: CanvasNode & { data: ImageNodeData };
+  node?: CanvasNode & { data: ImageNodeData };
+  assetHash?: string;
+  title?: string;
 }
 
-export function InspectorFrameThumb({ node }: InspectorFrameThumbProps) {
+export function InspectorFrameThumb({ node, assetHash, title }: InspectorFrameThumbProps) {
   const { t } = useI18n();
-  const { url } = useAssetUrl(node.data.assetHash, 'image', 'jpg');
+  const resolvedAssetHash = assetHash ?? node?.data.assetHash;
+  const resolvedTitle = title ?? node?.title ?? t('node.image');
+  const { url } = useAssetUrl(resolvedAssetHash, 'image', 'jpg');
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted">
+    <div className="flex flex-col gap-1 w-full">
+      <div className="flex w-full aspect-video items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted">
         {url ? (
-          <img src={url} alt={node.title} className="h-full w-full object-cover" />
+          <img src={url} alt={resolvedTitle} className="h-full w-full object-cover" />
         ) : (
-          <Image className="h-4 w-4 text-muted-foreground" />
+          <Image className="h-5 w-5 text-muted-foreground/40" />
         )}
       </div>
-      <span className="max-w-[80px] truncate text-[10px] text-muted-foreground">
-        {node.title || t('node.image')}
+      <span className="w-full truncate text-[10px] text-muted-foreground">
+        {resolvedTitle}
       </span>
     </div>
   );

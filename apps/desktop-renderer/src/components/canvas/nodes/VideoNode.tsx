@@ -1,8 +1,8 @@
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { getProviderDisplayName } from '../../../utils/provider-names.js';
 import { t } from '../../../i18n.js';
-import { Video, Loader2, Sparkles, RefreshCw, Play, Pause, Lock, Unlock } from 'lucide-react';
+import { Video, Loader2, Sparkles, RefreshCw, Play, Lock, Unlock } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
@@ -10,6 +10,12 @@ import { cn } from '../../../lib/utils.js';
 import type { NodeStatus } from '@lucid-fin/contracts';
 import { NodeBorderHandles } from './node-border-handles.js';
 import { NodeResizeControls } from './node-resize-controls.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from '../../ui/Dialog.js';
 
 export interface VideoNodeFlowData {
   nodeId: string;
@@ -49,29 +55,107 @@ export interface VideoNodeFlowData {
   lastFrameHash?: string;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Video Player Modal                                                 */
+/* ------------------------------------------------------------------ */
+
+function VideoPlayerModal({
+  open,
+  onOpenChange,
+  videoUrl,
+  title,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  videoUrl: string | null;
+  title: string;
+}) {
+  const modalVideoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (open && modalVideoRef.current && videoUrl) {
+      modalVideoRef.current.currentTime = 0;
+      void modalVideoRef.current.play();
+    }
+  }, [open, videoUrl]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl w-[90vw] p-0 gap-0 overflow-hidden bg-black border-purple-500/30">
+        <div className="flex items-center justify-between px-4 py-3 bg-card border-b border-purple-500/20">
+          <DialogTitle className="text-sm font-medium truncate">
+            {title || t('node.video')}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t('node.video')}
+          </DialogDescription>
+        </div>
+        <div className="relative w-full min-h-[300px] bg-black flex items-center justify-center">
+          {videoUrl ? (
+            <video
+              ref={modalVideoRef}
+              src={videoUrl}
+              className="w-full max-h-[75vh] object-contain"
+              controls
+              autoPlay
+              preload="auto"
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              {t('node.loading')}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Video Node                                                         */
+/* ------------------------------------------------------------------ */
+
 function VideoNodeComponent({ data, selected }: NodeProps) {
   const d = data as unknown as VideoNodeFlowData;
   const activeHash = d.assetHash ?? d.variants[d.selectedVariantIndex];
   const hasVideo = Boolean(activeHash);
   const isGenerating = d.generationStatus === 'generating';
-  const { url: activeUrl } = useAssetUrl(activeHash, 'video', 'mp4');
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
 
-  const togglePlay = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    const vid = videoRef.current;
-    if (!vid) return;
-    if (vid.paused) { void vid.play(); setPlaying(true); }
-    else { vid.pause(); setPlaying(false); }
+  const { url: videoUrl } = useAssetUrl(activeHash, 'video', 'mp4');
+  const { url: posterUrl } = useAssetUrl(d.firstFrameHash, 'image', 'jpg');
+
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const [hovering, setHovering] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const handleMouseEnter = useCallback(() => {
+    if (modalOpen) return;
+    setHovering(true);
+    const vid = previewRef.current;
+    if (vid && videoUrl) {
+      vid.currentTime = 0;
+      void vid.play();
+    }
+  }, [modalOpen, videoUrl]);
+
+  const handleMouseLeave = useCallback(() => {
+    setHovering(false);
+    const vid = previewRef.current;
+    if (vid) {
+      vid.pause();
+      vid.currentTime = 0;
+    }
   }, []);
 
-  const handleScrub = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const vid = videoRef.current;
-    if (!vid || !vid.duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    vid.currentTime = ratio * vid.duration;
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHovering(false);
+    const vid = previewRef.current;
+    if (vid) {
+      vid.pause();
+      vid.currentTime = 0;
+    }
+    setModalOpen(true);
   }, []);
 
   return (
@@ -92,7 +176,7 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
       onGenerate={d.onGenerate ?? (() => {})}
       onColorTag={d.onColorTag ?? (() => {})}
     >
-      <div className="relative min-w-[200px]">
+      <div className="relative h-full min-h-[140px] min-w-[200px] w-full">
         <NodeBorderHandles colorClassName="!bg-purple-500" />
         <NodeResizeControls
           minWidth={200}
@@ -102,7 +186,7 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
         />
         <div
           className={cn(
-            'relative flex h-full min-w-[200px] flex-col overflow-hidden rounded-md border bg-card shadow-sm',
+            'relative flex h-full min-h-[140px] min-w-[200px] w-full flex-col overflow-hidden rounded-md border bg-card shadow-sm',
             'transition-shadow',
             selected ? 'border-purple-400 ring-2 ring-purple-400/40' : 'border-purple-500/30',
             d.bypassed && 'opacity-40',
@@ -129,38 +213,63 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             )}
           </div>
 
+          {/* --- Media viewport --- */}
           <div
             data-testid="video-media-viewport"
             className="flex min-h-[80px] min-w-0 flex-1 items-center justify-center overflow-hidden px-3 py-3"
+            draggable={hasVideo && Boolean(activeHash)}
+            onDragStart={hasVideo && activeHash ? (e) => {
+              e.dataTransfer.setData(
+                'application/x-lucid-node-asset',
+                JSON.stringify({ hash: activeHash, name: d.title || 'video', type: 'video' }),
+              );
+              e.dataTransfer.effectAllowed = 'copy';
+            } : undefined}
           >
             {hasVideo ? (
               <div
-                className="relative flex h-full w-full items-center justify-center overflow-hidden rounded bg-muted"
-                onMouseMove={handleScrub}
+                className="relative flex h-full w-full items-center justify-center overflow-hidden rounded bg-muted cursor-pointer"
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                onClick={handleClick}
               >
-                {activeUrl ? (
+                {/* Static thumbnail (shown when not hovering) */}
+                {!hovering && posterUrl && (
+                  <img
+                    src={posterUrl}
+                    alt={d.title || t('node.video')}
+                    className="absolute inset-0 h-full w-full object-contain"
+                    draggable={false}
+                  />
+                )}
+
+                {/* Video element: hidden behind poster when not hovering, visible when hovering */}
+                {videoUrl ? (
                   <video
                     data-testid="video-media-element"
-                    ref={videoRef}
-                    src={activeUrl}
-                    className="h-full w-full object-contain"
+                    ref={previewRef}
+                    src={videoUrl}
+                    className={cn(
+                      'h-full w-full object-contain',
+                      !hovering && posterUrl && 'invisible',
+                    )}
                     muted
+                    loop
+                    playsInline
                     preload="metadata"
-                    onEnded={() => setPlaying(false)}
                   />
                 ) : (
                   <span className="text-xs text-muted-foreground">{t('node.loading')}</span>
                 )}
-                <button
-                  className="absolute inset-0 flex items-center justify-center rounded bg-black/30 opacity-0 transition-opacity hover:opacity-100"
-                  aria-label={playing ? t('node.pause') : t('node.play')}
-                  onClick={togglePlay}
-                  onContextMenu={(e) => e.preventDefault()}
-                >
-                  {playing
-                    ? <Pause className="h-8 w-8 text-white" fill="white" />
-                    : <Play className="h-8 w-8 text-white" fill="white" />}
-                </button>
+
+                {/* Play badge — visible when NOT hovering */}
+                {!hovering && (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+                      <Play className="h-5 w-5 text-white" fill="white" />
+                    </div>
+                  </div>
+                )}
               </div>
             ) : isGenerating ? (
               <div className="flex flex-col items-center gap-1.5 text-purple-400">
@@ -252,10 +361,24 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             </div>
           )}
         </div>
+
+        {/* Video player modal */}
+        {hasVideo && (
+          <VideoPlayerModal
+            open={modalOpen}
+            onOpenChange={setModalOpen}
+            videoUrl={videoUrl}
+            title={d.title || t('node.videoNode')}
+          />
+        )}
       </div>
     </NodeContextMenu>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Supporting components                                              */
+/* ------------------------------------------------------------------ */
 
 function FrameThumb({ hash, label }: { hash: string | undefined; label: string }) {
   const { url } = useAssetUrl(hash, 'image', 'jpg');

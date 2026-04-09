@@ -1,6 +1,6 @@
 import { cn } from '../../lib/utils.js';
 
-export type InspectorPanelTab = 'creative' | 'context' | 'technical';
+export type InspectorPanelTab = 'creative' | 'context';
 
 interface InspectorPanelTabBarProps {
   activeTab: InspectorPanelTab;
@@ -9,7 +9,7 @@ interface InspectorPanelTabBarProps {
   onChange: (tab: InspectorPanelTab) => void;
 }
 
-const INSPECTOR_PANEL_TABS: InspectorPanelTab[] = ['creative', 'technical', 'context'];
+const INSPECTOR_PANEL_TABS: InspectorPanelTab[] = ['creative', 'context'];
 
 export function InspectorPanelTabBar({
   activeTab,

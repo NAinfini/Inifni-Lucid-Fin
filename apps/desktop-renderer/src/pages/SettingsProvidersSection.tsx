@@ -23,8 +23,10 @@ import { t } from '../i18n.js';
 import type { RootState } from '../store/index.js';
 import {
   addCustomProvider,
+  getProviderDefaults,
   getProviderMetadata,
   removeCustomProvider,
+  resetProviderToDefaults,
   setProviderBaseUrl,
   setProviderHasKey,
   setProviderModel,
@@ -108,6 +110,17 @@ function ProviderCard({
   const keyUrl = metadata?.keyUrl;
   const docsUrl = metadata?.docsUrl;
   const showHubGuidance = metadata?.kind === 'hub';
+  const providerDefaults = getProviderDefaults(group, provider.id);
+  const isBuiltinProvider = !provider.isCustom && providerDefaults !== undefined;
+  const isCustomized = Boolean(
+    providerDefaults
+    && (
+      provider.baseUrl !== providerDefaults.baseUrl
+      || provider.model !== providerDefaults.model
+      || provider.protocol !== providerDefaults.protocol
+      || provider.authStyle !== providerDefaults.authStyle
+    ),
+  );
   const displayName = provider.isCustom
     ? provider.name
     : translateOrFallback(`providerNames.${provider.id}`, provider.name);
@@ -222,6 +235,11 @@ function ProviderCard({
         </div>
 
         <div className="flex items-center gap-2">
+          {isCustomized ? (
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+              {t('settings.providerCard.customized')}
+            </span>
+          ) : null}
           {provider.hasKey ? (
             <span className="flex items-center gap-1 text-xs text-green-400">
               <Check className="h-3 w-3" /> {t('settings.providerCard.keySet')}
@@ -403,6 +421,17 @@ function ProviderCard({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {isBuiltinProvider && isCustomized ? (
+              <button
+                type="button"
+                onClick={() =>
+                  dispatch(resetProviderToDefaults({ group, provider: provider.id }))
+                }
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+              >
+                {t('settings.providerCard.resetToDefaults')}
+              </button>
+            ) : null}
             {provider.isCustom && (
               <button
                 type="button"

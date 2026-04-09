@@ -14,6 +14,7 @@ import {
   setNodeSeed,
   setAllTracksAiDecide,
   setVideoFrameNode,
+  setVideoFrameAsset,
   setNodeVariantCount,
   setNodeDuration,
   setNodeFps,
@@ -50,7 +51,6 @@ import {
 } from '../../i18n.js';
 import { InspectorCreativeTab } from './InspectorCreativeTab.js';
 import { InspectorContextTab } from './InspectorContextTab.js';
-import { InspectorTechnicalTab } from './InspectorTechnicalTab.js';
 import { InspectorFrameThumb } from './InspectorFrameThumb.js';
 import { InspectorPanelEmptyState } from './InspectorPanelEmptyState.js';
 import { InspectorPanelHeader } from './InspectorPanelHeader.js';
@@ -335,41 +335,6 @@ export function InspectorPanel() {
 
   const contextBadgeCount =
     nodeCharacterRefs.length + nodeEquipmentRefs.length + nodeLocationRefs.length;
-
-  // Auto-select first/last frame for video nodes
-  useEffect(() => {
-    if (!selectedNode || selectedNode.type !== 'video' || !canvas) return;
-    const videoData = selectedNode.data as VideoNodeData;
-    const firstCandidates = canvas.edges
-      .filter((e) => e.target === selectedNode.id)
-      .map((e) => canvas.nodes.find((n) => n.id === e.source))
-      .filter((n): n is CanvasNode & { data: ImageNodeData } => n?.type === 'image');
-    const lastCandidates = canvas.edges
-      .filter((e) => e.source === selectedNode.id)
-      .map((e) => canvas.nodes.find((n) => n.id === e.target))
-      .filter((n): n is CanvasNode & { data: ImageNodeData } => n?.type === 'image');
-
-    if (firstCandidates.length === 1 && videoData.firstFrameNodeId !== firstCandidates[0].id) {
-      dispatch(
-        setVideoFrameNode({
-          id: selectedNode.id,
-          role: 'first',
-          frameNodeId: firstCandidates[0].id,
-        }),
-      );
-    }
-    if (firstCandidates.length === 0 && videoData.firstFrameNodeId) {
-      dispatch(setVideoFrameNode({ id: selectedNode.id, role: 'first', frameNodeId: undefined }));
-    }
-    if (lastCandidates.length === 1 && videoData.lastFrameNodeId !== lastCandidates[0].id) {
-      dispatch(
-        setVideoFrameNode({ id: selectedNode.id, role: 'last', frameNodeId: lastCandidates[0].id }),
-      );
-    }
-    if (lastCandidates.length === 0 && videoData.lastFrameNodeId) {
-      dispatch(setVideoFrameNode({ id: selectedNode.id, role: 'last', frameNodeId: undefined }));
-    }
-  }, [canvas, selectedNode, dispatch]);
 
   useEffect(() => {
     if (!visualGenerationNode) {
@@ -952,6 +917,26 @@ export function InspectorPanel() {
     [dispatch, selectedNode],
   );
 
+  const handleUploadVideoFrame = useCallback(
+    async (role: 'first' | 'last') => {
+      if (selectedNode?.type !== 'video') return;
+      const api = getAPI();
+      if (!api) return;
+      const ref = (await api.asset.pickFile('image')) as { hash: string } | null;
+      if (!ref) return;
+      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
+    },
+    [dispatch, selectedNode],
+  );
+
+  const handleClearVideoFrame = useCallback(
+    (role: 'first' | 'last') => {
+      if (selectedNode?.type !== 'video') return;
+      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: undefined }));
+    },
+    [dispatch, selectedNode],
+  );
+
   const handleUploadAsset = useCallback(async () => {
     if (selectedNode?.type !== 'image' && selectedNode?.type !== 'video') return;
     const api = getAPI();
@@ -1099,21 +1084,45 @@ export function InspectorPanel() {
             (node) => node.id === videoData.firstFrameNodeId,
           );
           const selectedLast = lastCandidates.find((node) => node.id === videoData.lastFrameNodeId);
+          const firstFrameHash =
+            videoData.firstFrameAssetHash ?? selectedFirst?.data.assetHash;
+          const lastFrameHash =
+            videoData.lastFrameAssetHash ?? selectedLast?.data.assetHash;
           return {
-            firstOptions: firstCandidates.map((node) => ({
-              value: node.id,
-              label: node.title || node.id.slice(0, 8),
-            })),
-            lastOptions: lastCandidates.map((node) => ({
-              value: node.id,
-              label: node.title || node.id.slice(0, 8),
-            })),
-            selectedFirstId: videoData.firstFrameNodeId,
-            selectedLastId: videoData.lastFrameNodeId,
-            firstPreview: selectedFirst ? <InspectorFrameThumb node={selectedFirst} /> : undefined,
-            lastPreview: selectedLast ? <InspectorFrameThumb node={selectedLast} /> : undefined,
-            onFirstChange: handleFirstFrameChange,
-            onLastChange: handleLastFrameChange,
+            first: {
+              options: firstCandidates.map((node) => ({
+                value: node.id,
+                label: node.title || node.id.slice(0, 8),
+              })),
+              selectedNodeId: videoData.firstFrameNodeId,
+              preview: firstFrameHash ? (
+                <InspectorFrameThumb
+                  assetHash={firstFrameHash}
+                  title={selectedFirst?.title ?? t('inspector.firstFrame')}
+                />
+              ) : undefined,
+              hasValue: Boolean(firstFrameHash),
+              onConnectedChange: handleFirstFrameChange,
+              onUpload: () => handleUploadVideoFrame('first'),
+              onClear: () => handleClearVideoFrame('first'),
+            },
+            last: {
+              options: lastCandidates.map((node) => ({
+                value: node.id,
+                label: node.title || node.id.slice(0, 8),
+              })),
+              selectedNodeId: videoData.lastFrameNodeId,
+              preview: lastFrameHash ? (
+                <InspectorFrameThumb
+                  assetHash={lastFrameHash}
+                  title={selectedLast?.title ?? t('inspector.lastFrame')}
+                />
+              ) : undefined,
+              hasValue: Boolean(lastFrameHash),
+              onConnectedChange: handleLastFrameChange,
+              onUpload: () => handleUploadVideoFrame('last'),
+              onClear: () => handleClearVideoFrame('last'),
+            },
           };
         })()
       : undefined;
@@ -1183,7 +1192,6 @@ export function InspectorPanel() {
           labels={{
             creative: t('inspector.tabs.creative'),
             context: t('inspector.tabs.context'),
-            technical: t('inspector.tabs.technical'),
           }}
           onChange={setInspectorTab}
         />
@@ -1278,85 +1286,7 @@ export function InspectorPanel() {
             onRemoveCharacter={handleRemoveCharacterRef}
             onRemoveEquipment={handleRemoveEquipmentRef}
             onRemoveLocation={handleRemoveLocationRef}
-          />
-        )}
-
-        {/* ===== Technical Tab ===== */}
-        {inspectorTab === 'technical' && (
-          <InspectorTechnicalTab
-            t={t}
-            selectedNode={selectedNode}
             videoFramesSection={videoFramesSection}
-            uploadSection={
-              selectedNode.type === 'image' || selectedNode.type === 'video'
-                ? {
-                    hasAsset: Boolean(generationData?.assetHash),
-                    onUpload: handleUploadAsset,
-                    onClear: handleClearUploadedAsset,
-                  }
-                : undefined
-            }
-            generationSection={
-              isGenerationNode(selectedNode)
-                ? {
-                    providerOptions: configuredProviders.map((provider) => ({
-                      id: provider.id,
-                      name: provider.name,
-                    })),
-                    activeProviderId,
-                    providerLoading,
-                    onProviderChange: handleProviderSelectChange,
-                    variantOptions: VARIANT_OPTIONS,
-                    activeVariantCount,
-                    onVariantCountChange: handleVariantCountChange,
-                    resolutionGroups: visualGenerationNode
-                      ? RESOLUTION_PRESET_GROUPS.map((group) => ({
-                          label: group.label,
-                          options: group.options.map((preset) => ({
-                            value: preset.value,
-                            label: preset.label,
-                          })),
-                        }))
-                      : undefined,
-                    resolutionValue: visualGenerationNode ? resolutionControlValue : undefined,
-                    customResolutionValue: CUSTOM_RESOLUTION_VALUE,
-                    widthValue: activeWidth,
-                    heightValue: activeHeight,
-                    onResolutionChange: visualGenerationNode
-                      ? handleResolutionSelectChange
-                      : undefined,
-                    onWidthChange: visualGenerationNode ? handleResolutionWidthChange : undefined,
-                    onHeightChange: visualGenerationNode ? handleResolutionHeightChange : undefined,
-                    durationOptions: selectedNode.type === 'video' ? DURATION_PRESETS : undefined,
-                    durationValue: selectedNode.type === 'video' ? durationControlValue : undefined,
-                    onDurationChange:
-                      selectedNode.type === 'video' ? handleDurationSelectChange : undefined,
-                    durationInputValue: activeDuration,
-                    onDurationInputChange:
-                      selectedNode.type === 'video' ? handleDurationInputChange : undefined,
-                    fpsOptions: selectedNode.type === 'video' ? FPS_PRESETS : undefined,
-                    fpsValue: activeFps,
-                    onFpsChange: selectedNode.type === 'video' ? handleFpsSelectChange : undefined,
-                    seedValue: activeSeed,
-                    seedLocked: activeSeedLocked,
-                    onSeedChange: handleSeedInputChange,
-                    onRandomizeSeed: handleRandomizeSeed,
-                    onToggleSeedLock: handleToggleSeedLock,
-                    estimatedCost:
-                      typeof generationData?.estimatedCost === 'number'
-                        ? `${t('inspector.estimated')}: $${generationData.estimatedCost.toFixed(2)}`
-                        : undefined,
-                    variantGrid,
-                    isGenerating: generationData?.status === 'generating',
-                    hasVariants: activeVariants.length > 0,
-                    onGenerate: handleGenerate,
-                    onCancel: handleCancelGeneration,
-                  }
-                : undefined
-            }
-            metadataCreatedAt={metadataCreatedAt}
-            metadataUpdatedAt={metadataUpdatedAt}
-            generationTimeMs={generationData?.generationTimeMs}
           />
         )}
       </div>
@@ -1386,6 +1316,35 @@ export function InspectorPanel() {
           onSeedChange={handleSeedInputChange}
           onRandomizeSeed={handleRandomizeSeed}
           onToggleSeedLock={handleToggleSeedLock}
+          nodeType={selectedNode.type}
+          resolutionGroups={visualGenerationNode
+            ? RESOLUTION_PRESET_GROUPS.map((group) => ({
+                label: group.label,
+                options: group.options.map((preset) => ({
+                  value: preset.value,
+                  label: preset.label,
+                })),
+              }))
+            : undefined}
+          resolutionValue={visualGenerationNode ? resolutionControlValue : undefined}
+          customResolutionValue={CUSTOM_RESOLUTION_VALUE}
+          widthValue={activeWidth}
+          heightValue={activeHeight}
+          onResolutionChange={visualGenerationNode ? handleResolutionSelectChange : undefined}
+          onWidthChange={visualGenerationNode ? handleResolutionWidthChange : undefined}
+          onHeightChange={visualGenerationNode ? handleResolutionHeightChange : undefined}
+          durationOptions={selectedNode.type === 'video' ? DURATION_PRESETS : undefined}
+          durationValue={selectedNode.type === 'video' ? durationControlValue : undefined}
+          onDurationChange={selectedNode.type === 'video' ? handleDurationSelectChange : undefined}
+          durationInputValue={activeDuration}
+          onDurationInputChange={selectedNode.type === 'video' ? handleDurationInputChange : undefined}
+          fpsOptions={selectedNode.type === 'video' ? FPS_PRESETS : undefined}
+          fpsValue={activeFps}
+          onFpsChange={selectedNode.type === 'video' ? handleFpsSelectChange : undefined}
+          variantGrid={variantGrid}
+          uploadHasAsset={(selectedNode.type === 'image' || selectedNode.type === 'video') ? Boolean(generationData?.assetHash) : undefined}
+          onUpload={(selectedNode.type === 'image' || selectedNode.type === 'video') ? handleUploadAsset : undefined}
+          onClear={(selectedNode.type === 'image' || selectedNode.type === 'video') ? handleClearUploadedAsset : undefined}
         />
       )}
     </div>

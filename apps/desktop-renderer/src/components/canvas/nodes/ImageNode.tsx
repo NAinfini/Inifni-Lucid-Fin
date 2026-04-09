@@ -73,7 +73,7 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
       onGenerate={d.onGenerate ?? (() => {})}
       onColorTag={d.onColorTag ?? (() => {})}
     >
-      <div className="relative min-w-[200px]">
+      <div className="relative h-full min-h-[140px] min-w-[200px] w-full">
         <NodeBorderHandles colorClassName="!bg-blue-500" />
         <NodeResizeControls
           minWidth={200}
@@ -83,7 +83,7 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
         />
         <div
           className={cn(
-            'relative flex h-full min-w-[200px] flex-col overflow-hidden rounded-md border bg-card shadow-sm',
+            'relative flex h-full min-h-[140px] min-w-[200px] w-full flex-col overflow-hidden rounded-md border bg-card shadow-sm',
             'transition-shadow',
             selected ? 'border-blue-400 ring-2 ring-blue-400/40' : 'border-blue-500/30',
             d.bypassed && 'opacity-40',
@@ -108,6 +108,14 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
           <div
             data-testid="image-media-viewport"
             className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-2"
+            draggable={hasThumbnail && Boolean(activeHash)}
+            onDragStart={hasThumbnail && activeHash ? (e) => {
+              e.dataTransfer.setData(
+                'application/x-lucid-node-asset',
+                JSON.stringify({ hash: activeHash, name: d.title || 'image', type: 'image' }),
+              );
+              e.dataTransfer.effectAllowed = 'copy';
+            } : undefined}
           >
             {hasThumbnail && !imgError ? (
               activeUrl ? (

@@ -207,6 +207,9 @@ export const zhCNMessages = {
       expand: '展开',
       close: '关闭',
       queue: '消息队列',
+      addToQueue: '排队',
+      sendNow: '发送',
+      clearQueue: '清空',
       aiDecide: 'AI 决定',
       aiWillChoose: 'AI 将自动选择此轨道预设',
       toolCall: '工具调用',
@@ -305,6 +308,10 @@ export const zhCNMessages = {
     toast: {
       close: '关闭通知',
       list: '通知列表',
+      clipboard: {
+        detected: '检测到剪贴板中的 AI 文本',
+        addToCanvas: '添加到画布',
+      },
       error: {
         operationFailed: '操作失败',
         unknownError: '发生未知错误',
@@ -519,6 +526,11 @@ export const zhCNMessages = {
       loading: '加载中...',
       noResults: '无匹配场景。',
       usedInNodes: '被 {count} 个节点引用',
+    },
+    entity: {
+      fromAssets: '从资源库',
+      selectImage: '选择图片资源',
+      removeImage: '移除',
     },
     inspector: {
       title: '检查器',
@@ -879,12 +891,45 @@ export const zhCNMessages = {
         saving: '保存中…',
         save: '保存',
         saved: '✓ 已保存',
+        customized: '已自定义',
+        resetToDefaults: '恢复默认值',
         getApiKey: '获取 API 密钥',
         testing: '测试中…',
         testConnection: '测试连接',
         connected: '已连接',
         connectionFailed: '连接失败，请检查你的密钥',
         keyPlaceholder: 'sk-...',
+        capabilitiesTitle: '能力与输出',
+        capabilityLabels: {
+          textToImage: '文生图',
+          imageToImage: '图生图',
+          textToVideo: '文生视频',
+          imageToVideo: '图生视频',
+          textToVoice: '文生语音',
+          textToMusic: '文生音乐',
+          textToSfx: '文生音效',
+          textGeneration: '文本生成',
+        },
+        capabilityBadges: {
+          t2i: 'T2I',
+          i2i: 'I2I',
+          t2v: 'T2V',
+          i2v: 'I2V',
+          tts: 'TTS',
+          t2m: 'T2M',
+          t2sfx: 'T2SFX',
+          llm: 'LLM',
+        },
+        outputLabels: {
+          resolution: '分辨率',
+          duration: '时长',
+          formats: '格式',
+          referenceImage: '参考图',
+          notes: '备注',
+        },
+        capabilityNotes: {
+          modelDependent: '能力取决于选择的模型',
+        },
       },
       providerSections: {
         official: '官方提供方',
@@ -928,6 +973,7 @@ export const zhCNMessages = {
       },
       workflows: {
         title: '工作流与技能',
+        subtitle: '专门管理工作流和技能的空间。',
         description: '管理工作流和技能，支持添加、编辑和删除自定义条目。',
         placeholderTitle: '计划功能',
         placeholderDescription: '内置工作流和技能将与可编辑的自定义条目一起显示在此处。',
@@ -1479,5 +1525,9 @@ export const zhCNMessages = {
       'batch-re-prompt': '批量重写提示词',
       'continuity-check': '连续性检查',
       'storyboard-export': '分镜板导出',
+    },
+    workflowDefinitionNames: {
+      'wf-story-idea-to-video': '故事创意 → 视频',
+      'wf-novel-to-video': '小说/书籍 → 视频',
     },
   };

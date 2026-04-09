@@ -81,6 +81,8 @@ export interface VideoNodeData {
   locationRefs?: LocationRef[];
   firstFrameNodeId?: string;
   lastFrameNodeId?: string;
+  firstFrameAssetHash?: string;
+  lastFrameAssetHash?: string;
 }
 
 export interface AudioNodeData {

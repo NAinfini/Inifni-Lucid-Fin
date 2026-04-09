@@ -1,5 +1,5 @@
 import React, { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileType, FolderSearch, Image, Music, Search, Upload, Video, Download, CheckSquare, Trash2, ArrowUpDown, X, Save, Pencil } from 'lucide-react';
+import { FileType, FolderSearch, Image, Music, Search, Upload, Video, Download, CheckSquare, Trash2, ArrowUpDown, X, Save, Pencil, LayoutGrid, List, Copy } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import {
@@ -14,6 +14,14 @@ import {
 import { getAPI } from '../../utils/api.js';
 import { t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/Dialog.js';
 
 const FILTERS: Array<{ value: Asset['type'] | 'all'; label: string }> = [
   { value: 'all', label: 'asset.all' },
@@ -28,6 +36,13 @@ const TYPE_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   audio: Music,
 };
 
+/** Accent color classes per asset type for the badge */
+const TYPE_BADGE_COLORS: Record<string, string> = {
+  image: 'bg-blue-500/80 text-white',
+  video: 'bg-purple-500/80 text-white',
+  audio: 'bg-green-500/80 text-white',
+};
+
 function formatSize(size: number): string {
   if (size < 1024) return `${size}B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}KB`;
@@ -37,6 +52,13 @@ function formatSize(size: number): string {
 function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function formatDurationShort(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  if (mins === 0) return `${secs}s`;
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
@@ -65,6 +87,39 @@ function getExportConfig(type: Asset['type']): { type: 'image' | 'video' | 'audi
   }
 }
 
+/** Video card that auto-plays on hover */
+function VideoGridCard({ src, className }: { src: string; className?: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const handleMouseEnter = useCallback(() => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      void videoRef.current.play().catch(() => {/* ignore */});
+    }
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
+  }, []);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      className={className}
+      muted
+      preload="metadata"
+      loop
+      playsInline
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    />
+  );
+}
+
 export function AssetBrowserPanel() {
   const dispatch = useDispatch();
   const { filterType, searchQuery } = useSelector((state: RootState) => state.assets);
@@ -82,6 +137,10 @@ export function AssetBrowserPanel() {
   const [batchRenaming, setBatchRenaming] = useState(false);
   const [batchPrefix, setBatchPrefix] = useState('');
   const [dragSelect, setDragSelect] = useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteHashes, setPendingDeleteHashes] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [isDragOver, setIsDragOver] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +201,58 @@ export function AssetBrowserPanel() {
     await loadAssets();
   }, [loadAssets]);
 
+  // --- File/Asset drop into panel ---
+  const handlePanelDragOver = useCallback((e: React.DragEvent) => {
+    const types = e.dataTransfer.types;
+    if (types.includes('Files') || types.includes('application/x-lucid-node-asset')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handlePanelDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear when leaving the panel itself (not a child)
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handlePanelDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const api = getAPI();
+    if (!api) return;
+
+    // Handle node-asset drops (asset already in CAS, just refresh)
+    const nodeAssetRaw = e.dataTransfer.getData('application/x-lucid-node-asset');
+    if (nodeAssetRaw) {
+      await loadAssets();
+      return;
+    }
+
+    // Handle OS file drops
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+    const importPromises: Promise<void>[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file) continue;
+      const filePath = (file as { path?: string }).path ?? '';
+      if (!filePath) continue;
+      let type: string | null = null;
+      if (file.type.startsWith('image/')) type = 'image';
+      else if (file.type.startsWith('video/')) type = 'video';
+      else if (file.type.startsWith('audio/')) type = 'audio';
+      if (!type) continue;
+      importPromises.push(
+        api.asset.import(filePath, type).then(() => { /* import done */ }).catch(() => { /* ignore per-file errors */ }),
+      );
+    }
+    await Promise.all(importPromises);
+    await loadAssets();
+  }, [loadAssets]);
+
   // --- Multi-select click handler ---
   const handleAssetClick = useCallback((asset: Asset, e: React.MouseEvent) => {
     if (e.shiftKey && lastClickedHash) {
@@ -184,18 +295,34 @@ export function AssetBrowserPanel() {
   }, [gridAssets, lastClickedHash, selectMode]);
 
   // --- Delete selected assets ---
-  const handleDeleteSelected = useCallback(async () => {
+  const handleDeleteSelected = useCallback(() => {
     if (selectedHashes.size === 0) return;
+    setPendingDeleteHashes(new Set(selectedHashes));
+    setDeleteConfirmOpen(true);
+  }, [selectedHashes]);
+
+  const executeDelete = useCallback(async () => {
     const api = getAPI();
-    for (const hash of selectedHashes) {
-      await api?.asset.delete(hash);
-      const asset = gridAssets.find((a) => a.hash === hash);
-      if (asset) dispatch(removeAsset(asset.id));
+    if (!api) { setDeleteConfirmOpen(false); return; }
+    const hashesToDelete = new Set(pendingDeleteHashes);
+    setDeleteConfirmOpen(false);
+    for (const hash of hashesToDelete) {
+      try {
+        await api.asset.delete(hash);
+        const asset = gridAssets.find((a) => a.hash === hash);
+        if (asset) dispatch(removeAsset(asset.id));
+      } catch {
+        // IPC failed — asset stays in Redux and on disk; skip silently
+      }
     }
-    setSelectedHashes(new Set());
-    setDetailAsset(null);
+    setSelectedHashes((prev) => {
+      const next = new Set(prev);
+      for (const h of hashesToDelete) next.delete(h);
+      return next;
+    });
+    setDetailAsset((prev) => (prev && hashesToDelete.has(prev.hash) ? null : prev));
     setContextMenu(null);
-  }, [selectedHashes, gridAssets, dispatch]);
+  }, [pendingDeleteHashes, gridAssets, dispatch]);
 
   // --- Export selected ---
   const handleExportSelected = useCallback(() => {
@@ -206,6 +333,15 @@ export function AssetBrowserPanel() {
     void api?.asset.exportBatch({ items });
     setContextMenu(null);
   }, [gridAssets, selectedHashes]);
+
+  // --- Copy hash ---
+  const handleCopyHash = useCallback(() => {
+    if (selectedHashes.size === 1) {
+      const hash = [...selectedHashes][0];
+      void navigator.clipboard.writeText(hash ?? '');
+    }
+    setContextMenu(null);
+  }, [selectedHashes]);
 
   // --- Batch rename ---
   const handleBatchRename = useCallback(() => {
@@ -244,7 +380,7 @@ export function AssetBrowserPanel() {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Delete' && selectedHashes.size > 0 && !isEditingName && !batchRenaming) {
         e.preventDefault();
-        void handleDeleteSelected();
+        handleDeleteSelected();
       }
       // Ctrl+A to select all (when panel focused)
       if ((e.ctrlKey || e.metaKey) && e.key === 'a' && panelRef.current?.contains(document.activeElement)) {
@@ -310,6 +446,7 @@ export function AssetBrowserPanel() {
 
   return (
     <div ref={panelRef} className="flex h-full flex-col bg-card" tabIndex={-1}>
+      {/* Panel title */}
       <div className="border-b border-border/60 px-3 py-2">
         <div className="flex items-center gap-2">
           <FolderSearch className="h-3.5 w-3.5 text-primary" />
@@ -318,18 +455,52 @@ export function AssetBrowserPanel() {
         <p className="mt-0.5 text-[11px] text-muted-foreground">{t('assetBrowser.emptyHint')}</p>
       </div>
 
-      <div className="border-b border-border/60 px-3 py-2">
-        <div className="relative">
-          <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            value={searchQuery}
-            onChange={(event) => dispatch(setSearchQuery(event.target.value))}
-            placeholder={t('assetBrowser.searchPlaceholder')}
-            className="w-full rounded-md border border-border/60 bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-          />
+      {/* Fixed header: search + type filter + view toggle */}
+      <div className="border-b border-border/60 px-3 py-2 space-y-2">
+        {/* Row 1: search + view toggle */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(event) => dispatch(setSearchQuery(event.target.value))}
+              placeholder={t('assetBrowser.searchPlaceholder')}
+              className="w-full rounded-md border border-border/60 bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          {/* View toggle */}
+          <div className="flex items-center rounded-md border border-border/60 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              title={t('assetBrowser.viewGrid') || 'Grid'}
+              className={cn(
+                'flex items-center justify-center px-2 py-1.5 text-[11px] transition-colors',
+                viewMode === 'grid'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              title={t('assetBrowser.viewList') || 'List'}
+              className={cn(
+                'flex items-center justify-center px-2 py-1.5 text-[11px] transition-colors border-l border-border/60',
+                viewMode === 'list'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+              )}
+            >
+              <List className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
 
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        {/* Row 2: type filter pills */}
+        <div className="flex flex-wrap gap-1.5">
           {FILTERS.map((filter) => (
             <button
               key={filter.value}
@@ -346,7 +517,9 @@ export function AssetBrowserPanel() {
             </button>
           ))}
         </div>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
+
+        {/* Row 3: import + select mode + sort */}
+        <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
             onClick={() => void handleImport()}
@@ -386,129 +559,257 @@ export function AssetBrowserPanel() {
             {sortOrder === 'asc' ? '↑' : '↓'}
           </button>
         </div>
-        {selectedHashes.size > 0 && (
-          <div className="mt-1.5 flex items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground">{selectedHashes.size} selected</span>
-            <button
-              type="button"
-              onClick={handleExportSelected}
-              className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-0.5 text-[11px] text-primary-foreground"
-            >
-              <Download className="h-3 w-3" />
-              {t('assetBrowser.exportSelected') || 'Export'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDeleteSelected()}
-              className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-0.5 text-[11px] text-destructive hover:bg-destructive/20"
-            >
-              <Trash2 className="h-3 w-3" />
-              {t('action.delete') || 'Delete'}
-            </button>
-          </div>
-        )}
       </div>
 
-      <div className="relative flex-1 overflow-y-auto p-3" onMouseDown={handleGridMouseDown} onContextMenu={handleContextMenu}>
-        {loading ? (
-          <div className="text-xs text-muted-foreground">{t('assetBrowser.loading')}</div>
-        ) : gridAssets.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center text-center text-xs text-muted-foreground">
-            <FolderSearch className="mb-2 h-8 w-8 opacity-20" />
-            <div>{t('assetBrowser.empty')}</div>
-            <div className="mt-0.5 text-[11px]">{t('assetBrowser.emptyHint')}</div>
-          </div>
-        ) : (
-          <div ref={gridRef} className="grid grid-cols-3 gap-2">
-            {gridAssets.map((asset) => {
-              const Icon = TYPE_ICONS[asset.type] ?? FileType;
-              const thumbnail = asset.type === 'image' && asset.hash
-                ? `lucid-asset://${asset.hash}/image/png`
-                : undefined;
-              const videoUrl = asset.type === 'video' && asset.hash
-                ? `lucid-asset://${asset.hash}/video/mp4`
-                : undefined;
-              const isSelected = selectedHashes.has(asset.hash);
-              const exportConfig = getExportConfig(asset.type);
-
-              return (
-                <button
-                  key={asset.id}
-                  type="button"
-                  data-asset-card
-                  data-asset-hash={asset.hash}
-                  draggable={!selectMode}
-                  onDragStart={(event) => {
-                    if (selectMode) return;
-                    event.dataTransfer.setData(
-                      'application/x-lucid-asset',
-                      JSON.stringify({
-                        hash: asset.hash,
-                        name: asset.name,
-                        type: asset.type,
-                      }),
-                    );
-                    event.dataTransfer.effectAllowed = 'copy';
-                  }}
-                  onClick={(e) => handleAssetClick(asset, e)}
-                  onContextMenu={(e) => {
-                    // Right-click: select if not already selected, then show context menu
-                    if (!selectedHashes.has(asset.hash)) {
-                      if (!e.ctrlKey && !e.metaKey) setSelectedHashes(new Set([asset.hash]));
-                      else setSelectedHashes((prev) => new Set([...prev, asset.hash]));
-                    }
-                  }}
-                  className={cn(
-                    'group rounded-md border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/80',
-                    isSelected ? 'border-primary ring-1 ring-primary/40' : 'border-border/60',
-                  )}
-                >
-                  <div className="mb-1.5 flex aspect-square items-center justify-center overflow-hidden rounded-md bg-muted relative">
-                    {thumbnail ? (
-                      <img src={thumbnail} alt={asset.name} className="h-full w-full object-cover" />
-                    ) : videoUrl ? (
-                      <video src={videoUrl} className="h-full w-full object-cover" muted preload="metadata" />
-                    ) : (
-                      <Icon className="h-6 w-6 text-muted-foreground" />
-                    )}
-                    {exportConfig && (
-                      <button
-                        type="button"
-                        className="absolute top-1 right-1 rounded bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const api = getAPI();
-                          void api?.asset.export({
-                            hash: asset.hash,
-                            type: exportConfig.type,
-                            format: exportConfig.format,
-                            name: asset.name,
-                          });
-                        }}
-                        title={t('assetBrowser.export')}
-                      >
-                        <Download className="h-3 w-3" />
-                      </button>
-                    )}
-                    {/* Format badge */}
-                    {(() => {
-                      const fmt = getFormatLabel(asset);
-                      return fmt ? (
-                        <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold leading-tight text-white">
-                          {fmt}
-                        </span>
-                      ) : null;
-                    })()}
-                  </div>
-                  <div className="truncate text-[11px] font-medium">{asset.name}</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    {formatSize(asset.size)}
-                  </div>
-                </button>
-              );
-            })}
+      {/* Main content area — relative so the sticky bar anchors to it */}
+      <div
+        className={cn(
+          'relative flex-1 overflow-y-auto',
+          isDragOver && 'ring-2 ring-inset ring-blue-400/50 bg-blue-500/5',
+        )}
+        onMouseDown={handleGridMouseDown}
+        onContextMenu={handleContextMenu}
+        onDragOver={handlePanelDragOver}
+        onDragLeave={handlePanelDragLeave}
+        onDrop={(e) => { void handlePanelDrop(e); }}
+      >
+        {isDragOver && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+            <div className="rounded-lg border-2 border-dashed border-blue-400/70 bg-blue-500/10 px-6 py-3 text-xs font-medium text-blue-400">
+              Drop files to import
+            </div>
           </div>
         )}
+        <div className="p-3">
+          {loading ? (
+            <div className="text-xs text-muted-foreground">{t('assetBrowser.loading')}</div>
+          ) : gridAssets.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center text-center text-xs text-muted-foreground">
+              <FolderSearch className="mb-2 h-8 w-8 opacity-20" />
+              <div>{t('assetBrowser.empty')}</div>
+              <div className="mt-0.5 text-[11px]">{t('assetBrowser.emptyHint')}</div>
+            </div>
+          ) : viewMode === 'grid' ? (
+            /* --- Grid View --- */
+            <div ref={gridRef} className="grid grid-cols-3 gap-2">
+              {gridAssets.map((asset) => {
+                const Icon = TYPE_ICONS[asset.type] ?? FileType;
+                const thumbnail = asset.type === 'image' && asset.hash
+                  ? `lucid-asset://${asset.hash}/image/png`
+                  : undefined;
+                const videoUrl = asset.type === 'video' && asset.hash
+                  ? `lucid-asset://${asset.hash}/video/mp4`
+                  : undefined;
+                const isSelected = selectedHashes.has(asset.hash);
+                const exportConfig = getExportConfig(asset.type);
+                const typeBadgeColor = TYPE_BADGE_COLORS[asset.type] ?? 'bg-muted text-muted-foreground';
+
+                return (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    data-asset-card
+                    data-asset-hash={asset.hash}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData(
+                        'application/x-lucid-asset',
+                        JSON.stringify({
+                          hash: asset.hash,
+                          name: asset.name,
+                          type: asset.type,
+                        }),
+                      );
+                      event.dataTransfer.effectAllowed = 'copy';
+                    }}
+                    onClick={(e) => handleAssetClick(asset, e)}
+                    onContextMenu={(e) => {
+                      // Right-click: select if not already selected, then show context menu
+                      if (!selectedHashes.has(asset.hash)) {
+                        if (!e.ctrlKey && !e.metaKey) setSelectedHashes(new Set([asset.hash]));
+                        else setSelectedHashes((prev) => new Set([...prev, asset.hash]));
+                      }
+                    }}
+                    className={cn(
+                      'group rounded-md border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/80',
+                      isSelected ? 'border-primary ring-1 ring-primary/40' : 'border-border/60',
+                    )}
+                  >
+                    <div className="mb-1.5 flex aspect-square items-center justify-center overflow-hidden rounded-md bg-muted relative">
+                      {/* Thumbnail or video */}
+                      {thumbnail ? (
+                        <img
+                          src={thumbnail}
+                          alt={asset.name}
+                          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        />
+                      ) : videoUrl ? (
+                        <VideoGridCard
+                          src={videoUrl}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <Icon className="h-6 w-6 text-muted-foreground" />
+                      )}
+
+                      {/* Type badge: top-left */}
+                      <span className={cn(
+                        'absolute top-1 left-1 flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight',
+                        typeBadgeColor,
+                      )}>
+                        <Icon className="h-2.5 w-2.5" />
+                      </span>
+
+                      {/* Duration badge: bottom-right (video/audio) */}
+                      {asset.duration != null && (asset.type === 'video' || asset.type === 'audio') && (
+                        <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold leading-tight text-white">
+                          {formatDurationShort(asset.duration)}
+                        </span>
+                      )}
+
+                      {/* Format badge: bottom-left */}
+                      {(() => {
+                        const fmt = getFormatLabel(asset);
+                        return fmt ? (
+                          <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold leading-tight text-white">
+                            {fmt}
+                          </span>
+                        ) : null;
+                      })()}
+
+                      {/* Export quick action: top-right (on hover) */}
+                      {exportConfig && (
+                        <button
+                          type="button"
+                          className="absolute top-1 right-1 rounded bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const api = getAPI();
+                            void api?.asset.export({
+                              hash: asset.hash,
+                              type: exportConfig.type,
+                              format: exportConfig.format,
+                              name: asset.name,
+                            });
+                          }}
+                          title={t('assetBrowser.export')}
+                        >
+                          <Download className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="truncate text-[11px] font-medium">{asset.name}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {formatSize(asset.size)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            /* --- List View --- */
+            <div ref={gridRef} className="flex flex-col">
+              {/* List header */}
+              <div className="mb-1 grid grid-cols-[32px_1fr_56px_80px_56px] gap-2 px-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                <span />
+                <span>{t('assetBrowser.fields.name')}</span>
+                <span>{t('assetBrowser.fields.type')}</span>
+                <span>Date</span>
+                <span>{t('assetBrowser.fields.size')}</span>
+              </div>
+              {gridAssets.map((asset) => {
+                const Icon = TYPE_ICONS[asset.type] ?? FileType;
+                const thumbnail = asset.type === 'image' && asset.hash
+                  ? `lucid-asset://${asset.hash}/image/png`
+                  : undefined;
+                const isSelected = selectedHashes.has(asset.hash);
+                const typeBadgeColor = TYPE_BADGE_COLORS[asset.type] ?? 'bg-muted text-muted-foreground';
+
+                return (
+                  <button
+                    key={asset.id}
+                    type="button"
+                    data-asset-card
+                    data-asset-hash={asset.hash}
+                    draggable
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData(
+                        'application/x-lucid-asset',
+                        JSON.stringify({
+                          hash: asset.hash,
+                          name: asset.name,
+                          type: asset.type,
+                        }),
+                      );
+                      event.dataTransfer.effectAllowed = 'copy';
+                    }}
+                    onClick={(e) => handleAssetClick(asset, e)}
+                    onContextMenu={(e) => {
+                      if (!selectedHashes.has(asset.hash)) {
+                        if (!e.ctrlKey && !e.metaKey) setSelectedHashes(new Set([asset.hash]));
+                        else setSelectedHashes((prev) => new Set([...prev, asset.hash]));
+                      }
+                    }}
+                    className={cn(
+                      'grid grid-cols-[32px_1fr_56px_80px_56px] items-center gap-2 rounded-md border px-1 py-1 text-left transition-colors hover:border-primary/40 hover:bg-muted/80 mb-0.5',
+                      isSelected ? 'border-primary bg-primary/5 ring-1 ring-primary/40' : 'border-transparent',
+                    )}
+                  >
+                    {/* Thumb 32x32 */}
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+                      {thumbnail ? (
+                        <img src={thumbnail} alt={asset.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                    {/* Name */}
+                    <span className="truncate text-[11px] font-medium">{asset.name}</span>
+                    {/* Type badge */}
+                    <span className={cn('inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight w-fit', typeBadgeColor)}>
+                      <Icon className="h-2.5 w-2.5" />
+                      <span className="capitalize">{asset.type}</span>
+                    </span>
+                    {/* Date */}
+                    <span className="text-[10px] text-muted-foreground truncate">
+                      {new Date(asset.createdAt).toLocaleDateString()}
+                    </span>
+                    {/* Size */}
+                    <span className="text-[10px] text-muted-foreground">{formatSize(asset.size)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Sticky bottom floating selection bar */}
+        {selectedHashes.size > 0 && (
+          <div className="sticky bottom-0 left-0 right-0 z-10 border-t border-border/60 bg-card/90 backdrop-blur-sm px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="flex-1 text-[11px] text-muted-foreground">
+                {selectedHashes.size} {selectedHashes.size === 1 ? 'selected' : 'selected'}
+              </span>
+              <button
+                type="button"
+                onClick={handleExportSelected}
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] text-primary-foreground"
+              >
+                <Download className="h-3 w-3" />
+                {t('assetBrowser.exportSelected') || 'Export'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteSelected()}
+                className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/20"
+              >
+                <Trash2 className="h-3 w-3" />
+                {t('action.delete') || 'Delete'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Rubber band overlay */}
         {dragRect && dragRect.width > 3 && dragRect.height > 3 && (
           <div
@@ -525,13 +826,23 @@ export function AssetBrowserPanel() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
+          {selectedHashes.size === 1 && (
+            <button
+              type="button"
+              onClick={handleCopyHash}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              {t('assetBrowser.copyHash') || 'Copy Hash'}
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => void handleDeleteSelected()}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-muted"
+            onClick={handleExportSelected}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
           >
-            <Trash2 className="h-3.5 w-3.5" />
-            {t('action.delete') || 'Delete'} ({selectedHashes.size})
+            <Download className="h-3.5 w-3.5" />
+            {t('assetBrowser.export') || 'Export'} ({selectedHashes.size})
           </button>
           <button
             type="button"
@@ -543,11 +854,11 @@ export function AssetBrowserPanel() {
           </button>
           <button
             type="button"
-            onClick={handleExportSelected}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
+            onClick={() => handleDeleteSelected()}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-muted"
           >
-            <Download className="h-3.5 w-3.5" />
-            {t('assetBrowser.export') || 'Export'} ({selectedHashes.size})
+            <Trash2 className="h-3.5 w-3.5" />
+            {t('action.delete') || 'Delete'} ({selectedHashes.size})
           </button>
         </div>
       )}
@@ -672,6 +983,32 @@ export function AssetBrowserPanel() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Delete {pendingDeleteHashes.size} asset{pendingDeleteHashes.size !== 1 ? 's' : ''}?</DialogTitle>
+            <DialogDescription>This cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(false)}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void executeDelete()}
+              className="rounded-md bg-destructive px-3 py-1.5 text-xs text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

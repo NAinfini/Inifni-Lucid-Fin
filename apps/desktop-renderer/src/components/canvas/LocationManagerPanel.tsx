@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import {
@@ -17,10 +17,16 @@ import { cn } from '../../lib/utils.js';
 import type { Location, LocationType, ReferenceImage, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
 import { LOCATION_STANDARD_SLOTS } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
-import { MapPin, Plus, Search, Trash2, Save, Upload } from 'lucide-react';
+import { MapPin, Plus, Search, Trash2, Save, Upload, Image, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizeSlot } from '../../i18n.js';
-import { EntityGenerationPanel } from './EntityGenerationPanel.js';
+import type { Asset } from '../../store/slices/assets.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/Dialog.js';
 
 const TYPE_OPTIONS: LocationType[] = ['interior', 'exterior', 'int-ext'];
 const TIME_OF_DAY_OPTIONS = ['day', 'night', 'dawn', 'dusk', 'continuous'];
@@ -77,6 +83,7 @@ export function LocationManagerPanel() {
   const [originalDraft, setOriginalDraft] = useState<LocationDraft | null>(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
 
   const isDirty = useMemo(() => {
     if (!draft || !originalDraft) return false;
@@ -264,6 +271,28 @@ export function LocationManagerPanel() {
           await api.location.removeRefImage(selectedLoc.id, slot);
         }
         dispatch(removeLocationRefImage({ locationId: selectedLoc.id, slot }));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    },
+    [dispatch, selectedLoc],
+  );
+
+  const handleRefImageFromAsset = useCallback(
+    async (hash: string) => {
+      if (!selectedLoc) return;
+      setAssetPickerOpen(false);
+      setError(null);
+      try {
+        const api = getAPI();
+        if (!api?.location) return;
+        const refImage = (await api.location.setRefImage(
+          selectedLoc.id,
+          'main',
+          hash,
+          true,
+        )) as ReferenceImage;
+        dispatch(setLocationRefImage({ locationId: selectedLoc.id, refImage }));
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : String(reason));
       }
@@ -551,17 +580,19 @@ export function LocationManagerPanel() {
                   referenceImages={selectedLoc?.referenceImages ?? []}
                   onUpload={() => handleRefImageUpload('main', true)}
                   onRemove={() => handleRefImageRemove('main')}
+                  onFromAssets={() => setAssetPickerOpen(true)}
+                  onDropHash={(hash) => void handleRefImageFromAsset(hash)}
+                  entityType="location"
+                  entityId={selectedLoc?.id}
+                  slot="main"
                 />
               </div>
 
-              {selectedLoc ? (
-                <EntityGenerationPanel
-                  entityType="location"
-                  entityId={selectedLoc.id}
-                  description={`${selectedLoc.description} ${selectedLoc.mood ?? ''}`.trim()}
-                  onGenerated={() => void loadLocations()}
-                />
-              ) : null}
+              <AssetPickerDialog
+                open={assetPickerOpen}
+                onClose={() => setAssetPickerOpen(false)}
+                onSelect={(hash) => void handleRefImageFromAsset(hash)}
+              />
 
             </>
           )}
@@ -577,48 +608,209 @@ function SingleReferenceImage({
   referenceImages,
   onUpload,
   onRemove,
+  onFromAssets,
+  onDropHash,
+  entityType,
+  entityId,
+  slot,
 }: {
   referenceImages: ReferenceImage[];
   onUpload: () => void;
   onRemove: () => void;
+  onFromAssets: () => void;
+  onDropHash?: (hash: string) => void;
+  entityType?: string;
+  entityId?: string;
+  slot?: string;
 }) {
+  const { t } = useI18n();
+  const [isDragOver, setIsDragOver] = useState(false);
   const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
   const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'jpg');
 
+  const handleDragOver = (e: React.DragEvent) => {
+    const types = e.dataTransfer.types;
+    if (types.includes('Files') || types.includes('application/x-lucid-asset') || types.includes('application/x-lucid-ref-image')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    if (!onDropHash) return;
+
+    const assetRaw = e.dataTransfer.getData('application/x-lucid-asset');
+    if (assetRaw) {
+      try {
+        const payload = JSON.parse(assetRaw) as { hash: string; type: string };
+        if (payload.hash && payload.type === 'image') onDropHash(payload.hash);
+      } catch { /* ignore */ }
+      return;
+    }
+
+    const refRaw = e.dataTransfer.getData('application/x-lucid-ref-image');
+    if (refRaw) {
+      try {
+        const payload = JSON.parse(refRaw) as { assetHash: string };
+        if (payload.assetHash) onDropHash(payload.assetHash);
+      } catch { /* ignore */ }
+      return;
+    }
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      if (file && file.type.startsWith('image/')) {
+        const filePath = (file as { path?: string }).path ?? '';
+        if (filePath) {
+          const api = getAPI();
+          void api?.asset.import(filePath, 'image').then((ref) => {
+            const r = ref as { hash: string } | null;
+            if (r?.hash) onDropHash(r.hash);
+          });
+        }
+      }
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onUpload}
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className={cn(
-        'rounded border w-full cursor-pointer relative',
+        'rounded border w-full',
         mainRef?.assetHash
           ? 'border-primary/50 bg-primary/5'
-          : 'border-dashed border-border/70 hover:bg-muted/50',
+          : 'border-dashed border-border/70',
+        isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
       )}
     >
       {url ? (
-        <div className="relative w-full h-[240px] bg-muted rounded overflow-hidden">
-          <img src={url} alt="Reference" className="h-full w-full object-contain" />
-          <div
-            role="toolbar"
-            className="absolute top-2 right-2 opacity-0 hover:opacity-100 transition-opacity"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={onRemove}
-              className="rounded bg-black/60 px-2 py-1 text-xs text-destructive hover:bg-black/80"
-            >
-              ×
-            </button>
-          </div>
+        <div className="relative w-full h-[200px] bg-muted rounded overflow-hidden">
+          <img
+            src={url}
+            alt="Reference"
+            className="h-full w-full object-contain"
+            draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
+            onDragStart={mainRef?.assetHash && entityType && entityId && slot ? (e) => {
+              e.stopPropagation();
+              e.dataTransfer.setData(
+                'application/x-lucid-ref-image',
+                JSON.stringify({ assetHash: mainRef.assetHash, entityType, entityId, slot }),
+              );
+              e.dataTransfer.effectAllowed = 'copy';
+            } : undefined}
+          />
+          {isDragOver && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
+              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">Drop here</span>
+            </div>
+          )}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center h-[240px] gap-2">
-          <Upload className="w-8 h-8 text-muted-foreground/40" />
-          <span className="text-xs text-muted-foreground">点击上传参考图</span>
+        <div className="flex flex-col items-center justify-center h-[200px] gap-2">
+          {isDragOver ? (
+            <span className="text-xs text-blue-400">Drop image here</span>
+          ) : (
+            <Image className="w-8 h-8 text-muted-foreground/40" />
+          )}
+          {!isDragOver && <span className="text-xs text-muted-foreground">点击上传参考图</span>}
         </div>
       )}
+      <div className="flex items-center gap-1 p-1.5">
+        <button
+          type="button"
+          onClick={onUpload}
+          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+        >
+          <Upload className="w-3 h-3" />
+          Upload
+        </button>
+        <button
+          type="button"
+          onClick={onFromAssets}
+          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+        >
+          <Image className="w-3 h-3" />
+          {t('entity.fromAssets')}
+        </button>
+        {mainRef?.assetHash && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
+          >
+            <X className="w-3 h-3" />
+            {t('entity.removeImage')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssetPickerDialog({
+  open,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (hash: string) => void;
+}) {
+  const { t } = useI18n();
+  const imageAssets = useSelector((s: RootState) =>
+    s.assets.items.filter((a) => a.type === 'image'),
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('entity.selectImage')}</DialogTitle>
+        </DialogHeader>
+        {imageAssets.length === 0 ? (
+          <div className="text-sm text-muted-foreground py-4 text-center">No image assets found.</div>
+        ) : (
+          <div className="grid grid-cols-4 gap-2 max-h-96 overflow-y-auto p-1">
+            {imageAssets.map((asset) => (
+              <AssetThumb key={asset.id} asset={asset} onSelect={onSelect} />
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string) => void }) {
+  const { url } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(asset.hash)}
+      className="rounded border border-border/60 overflow-hidden hover:border-primary transition-colors"
+      title={asset.name}
+    >
+      {url ? (
+        <img src={url} alt={asset.name} className="w-full aspect-square object-cover" />
+      ) : (
+        <div className="w-full aspect-square bg-muted flex items-center justify-center">
+          <Image className="w-6 h-6 text-muted-foreground/40" />
+        </div>
+      )}
+      <div className="text-[9px] text-muted-foreground truncate px-1 py-0.5">{asset.name}</div>
     </button>
   );
 }

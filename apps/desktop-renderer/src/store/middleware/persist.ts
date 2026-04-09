@@ -49,6 +49,7 @@ const CANVAS_MUTATE_PREFIXES = [
   'canvas/updateNodePresetTrackEntry',
   'canvas/removeNodePresetTrackEntry',
   'canvas/setVideoFrameNode',
+  'canvas/setVideoFrameAsset',
   'canvas/updateViewport',
   'canvas/setNodeUploadedAsset',
   'canvas/clearNodeAsset',

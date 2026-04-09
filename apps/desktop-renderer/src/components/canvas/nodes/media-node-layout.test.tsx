@@ -75,6 +75,13 @@ vi.mock('../../../hooks/useAssetUrl.js', () => ({
   }),
 }));
 
+vi.mock('../../ui/Dialog.js', () => ({
+  Dialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DialogContent: ({ children }: { children: React.ReactNode }) => <div data-testid="dialog-content">{children}</div>,
+  DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}));
+
 function makeBaseProps<TData extends object>(
   type: string,
   data: TData,
@@ -200,6 +207,28 @@ describe('media node layout', () => {
     const viewport = screen.getByTestId('video-media-viewport');
     expect(viewport.className).not.toContain('aspect-video');
     expect(screen.getByTestId('video-media-element').className).toContain('object-contain');
+  });
+
+  it('renders uploaded first and last frame previews on video nodes', () => {
+    const data: VideoNodeFlowData = {
+      nodeId: 'video-1',
+      title: 'Video',
+      status: 'idle',
+      bypassed: false,
+      locked: false,
+      generationStatus: 'done',
+      assetHash: 'video-hash',
+      variants: ['video-hash'],
+      selectedVariantIndex: 0,
+      seedLocked: false,
+      firstFrameHash: 'first-frame-hash',
+      lastFrameHash: 'last-frame-hash',
+    };
+
+    render(<VideoNode {...makeBaseProps('video', data)} />);
+
+    expect(screen.getByAltText('First')).toBeTruthy();
+    expect(screen.getByAltText('Last')).toBeTruthy();
   });
 
   it('renders selected nodes with corner resize controls that allow freeform resizing', () => {

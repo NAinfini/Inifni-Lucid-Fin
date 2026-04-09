@@ -44,6 +44,7 @@ import {
   resolveCharacterEntities,
   resolveLocationEntities,
   resolveReferenceImages,
+  resolveVideoFrameReferenceImages,
   resolveStandaloneEquipment,
 } from './generation-prompt-compiler.js';
 
@@ -157,6 +158,9 @@ export function determinePromptMode(canvas: Canvas, node: CanvasNode): PromptMod
   }
   if (node.type === 'video') {
     const data = node.data as VideoNodeData;
+    if (resolveVideoFrameReferenceImages(canvas, node).length > 0) {
+      return 'image-to-video';
+    }
     if (normalizeOptionalString(data.sourceImageHash)) {
       return 'image-to-video';
     }
@@ -394,4 +398,3 @@ export function mergeGenerationParams(
     fps,
   };
 }
-

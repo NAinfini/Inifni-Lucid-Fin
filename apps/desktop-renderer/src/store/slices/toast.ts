@@ -9,6 +9,7 @@ export interface ToastItem {
   variant: ToastVariant;
   durationMs: number;
   createdAt: number;
+  actionLabel?: string;
 }
 
 export interface ToastInput {
@@ -16,7 +17,15 @@ export interface ToastInput {
   message?: string;
   variant?: ToastVariant;
   durationMs?: number;
+  actionLabel?: string;
+  onAction?: () => void;
 }
+
+/**
+ * Registry for toast action callbacks. Keyed by toast id.
+ * Stored outside Redux to avoid non-serializable value warnings.
+ */
+export const toastActionRegistry = new Map<string, () => void>();
 
 export interface ToastState {
   items: ToastItem[];
@@ -45,22 +54,29 @@ export const toastSlice = createSlice({
       },
       prepare(input: ToastInput) {
         const variant = input.variant ?? 'info';
+        const id = createToastId();
+        if (input.onAction) {
+          toastActionRegistry.set(id, input.onAction);
+        }
         return {
           payload: {
-            id: createToastId(),
+            id,
             title: input.title,
             message: input.message,
             variant,
             durationMs: input.durationMs ?? DEFAULT_DURATION_BY_VARIANT[variant],
             createdAt: Date.now(),
+            actionLabel: input.actionLabel,
           } satisfies ToastItem,
         };
       },
     },
     dismissToast(state, action: PayloadAction<string>) {
+      toastActionRegistry.delete(action.payload);
       state.items = state.items.filter((toast) => toast.id !== action.payload);
     },
     clearToasts(state) {
+      toastActionRegistry.clear();
       state.items = [];
     },
   },

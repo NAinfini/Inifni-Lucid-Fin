@@ -455,6 +455,153 @@ describe('startCanvasGeneration progress events', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('passes ordered first and last frame slot images to video generation requests', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-video-frames-'));
+    const assetPath = path.join(tmpDir, 'video.mp4');
+    fs.writeFileSync(assetPath, Buffer.from([1, 2, 3, 4]));
+
+    const now = Date.now();
+    const canvas: Canvas = {
+      id: 'canvas-1',
+      projectId: 'project-1',
+      name: 'Test Canvas',
+      nodes: [
+        {
+          id: 'node-1',
+          type: 'video',
+          position: { x: 140, y: 0 },
+          data: {
+            status: 'empty',
+            duration: 5,
+            fps: 24,
+            variants: [],
+            selectedVariantIndex: 0,
+            variantCount: 1,
+            seedLocked: false,
+            presetTracks: createEmptyPresetTrackSet(),
+            firstFrameNodeId: 'first-image',
+            lastFrameAssetHash: 'uploaded-last-frame',
+          },
+          title: 'Hero Shot',
+          status: 'idle',
+          bypassed: false,
+          locked: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: 'first-image',
+          type: 'image',
+          position: { x: 0, y: 0 },
+          data: {
+            status: 'done',
+            assetHash: 'connected-first-frame',
+            variants: ['connected-first-frame'],
+            selectedVariantIndex: 0,
+            variantCount: 1,
+            seedLocked: false,
+            presetTracks: createEmptyPresetTrackSet(),
+          },
+          title: 'First Image',
+          status: 'done',
+          bypassed: false,
+          locked: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      edges: [
+        {
+          id: 'edge-1',
+          source: 'first-image',
+          target: 'node-1',
+          data: { status: 'idle' },
+        },
+      ],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      notes: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const generate = vi.fn(async () => ({
+      assetHash: '',
+      assetPath,
+      provider: 'mock-provider',
+    }));
+    const save = vi.fn();
+    const { sender, done } = createSender();
+
+    await startCanvasGeneration(
+      sender,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        variantCount: 1,
+      },
+      {
+        adapterRegistry: {
+          get: vi.fn(() => ({
+            id: 'mock-provider',
+            name: 'Mock Provider',
+            type: 'video',
+            capabilities: ['text-to-video', 'image-to-video'],
+            maxConcurrent: 1,
+            configure: vi.fn(),
+            validate: vi.fn(async () => true),
+            generate,
+            estimateCost: vi.fn(() => ({
+              estimatedCost: 0,
+              currency: 'USD',
+              provider: 'mock-provider',
+              unit: 'video',
+            })),
+            checkStatus: vi.fn(async () => 'completed'),
+            cancel: vi.fn(async () => undefined),
+          })),
+          list: vi.fn(() => []),
+        },
+        cas: {
+          importAsset: vi.fn(async () => ({
+            ref: { hash: 'hash-video-frames' },
+            meta: {
+              hash: 'hash-video-frames',
+              type: 'video',
+              mimeType: 'video/mp4',
+              size: 4,
+              duration: 1,
+              createdAt: Date.now(),
+            },
+          })),
+        },
+        db: {
+          insertAsset: vi.fn(),
+          getCharacter: vi.fn(() => undefined),
+          getEquipment: vi.fn(() => undefined),
+          getLocation: vi.fn(() => undefined),
+        },
+        canvasStore: {
+          get: vi.fn(() => canvas),
+          save,
+        },
+        keychain: {
+          getKey: vi.fn(async () => 'secret-key'),
+        },
+      } as never,
+    );
+
+    await done;
+
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImages: ['connected-first-frame', 'uploaded-last-frame'],
+      }),
+    );
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it('emits polling progress updates for ad-hoc async providers', async () => {
     vi.useFakeTimers();
 

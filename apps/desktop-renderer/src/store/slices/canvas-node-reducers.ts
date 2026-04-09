@@ -13,6 +13,7 @@ import {
   findActiveCanvas,
   createNodeRecord,
   getGenerationNodeData,
+  normalizeCanvasNodeFrames,
 } from './canvas-helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -347,8 +348,37 @@ export function setVideoFrameNode(
   const data = node.data as import('@lucid-fin/contracts').VideoNodeData;
   if (action.payload.role === 'first') {
     data.firstFrameNodeId = action.payload.frameNodeId;
+    data.firstFrameAssetHash = undefined;
   } else {
     data.lastFrameNodeId = action.payload.frameNodeId;
+    data.lastFrameAssetHash = undefined;
+  }
+  if (!action.payload.frameNodeId) {
+    if (action.payload.role === 'first') {
+      data.firstFrameAssetHash = undefined;
+    } else {
+      data.lastFrameAssetHash = undefined;
+    }
+  }
+  node.updatedAt = Date.now();
+  canvas.updatedAt = node.updatedAt;
+}
+
+export function setVideoFrameAsset(
+  state: CanvasSliceState,
+  action: PayloadAction<{ id: string; role: 'first' | 'last'; assetHash: string | undefined }>,
+): void {
+  const canvas = findActiveCanvas(state);
+  if (!canvas) return;
+  const node = canvas.nodes.find((n) => n.id === action.payload.id);
+  if (!node || node.type !== 'video') return;
+  const data = node.data as import('@lucid-fin/contracts').VideoNodeData;
+  if (action.payload.role === 'first') {
+    data.firstFrameAssetHash = action.payload.assetHash;
+    data.firstFrameNodeId = undefined;
+  } else {
+    data.lastFrameAssetHash = action.payload.assetHash;
+    data.lastFrameNodeId = undefined;
   }
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
@@ -362,7 +392,7 @@ export function applyCanvasFromCommander(
   state: CanvasSliceState,
   action: PayloadAction<Canvas>,
 ): void {
-  const incoming = action.payload;
+  const incoming = normalizeCanvasNodeFrames(action.payload);
   const index = state.canvases.findIndex((canvas) => canvas.id === incoming.id);
   if (index >= 0) {
     state.canvases[index] = incoming;
