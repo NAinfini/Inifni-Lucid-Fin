@@ -10,7 +10,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build --workspaces --if-present && npm run dev --workspace=apps/desktop-main",
+    "dev": "npm run build --workspaces --if-present && npm run build:dev --workspace=apps/desktop-renderer && npm run dev --workspace=apps/desktop-main",
     "build": "npm run build --workspaces --if-present",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
@@ -25,15 +25,15 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.58.2",
-    "@vitest/coverage-v8": "^4.1.0",
-    "eslint": "^10.1.0",
+    "@playwright/test": "^1.59.1",
+    "@vitest/coverage-v8": "^4.1.4",
+    "eslint": "^10.2.0",
     "eslint-plugin-react-hooks": "^7.1.0-canary-404b38c7-20260408",
     "globals": "^17.4.0",
-    "jsdom": "^29.0.1",
-    "prettier": "^3.8.1",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.1",
-    "vitest": "^4.1.0"
+    "jsdom": "^29.0.2",
+    "prettier": "^3.8.2",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.1",
+    "vitest": "^4.1.4"
   }
 }
