@@ -27,7 +27,7 @@ describe('buildRuntimeLLMAdapter openai-responses branch', () => {
       protocol: 'unknown-protocol' as never,
       authStyle: 'bearer',
       baseUrl: 'https://gateway.example/v1',
-      model: 'gpt-4.1',
+      model: 'gpt-5.4',
       capabilities: ['text-generation'],
     });
 

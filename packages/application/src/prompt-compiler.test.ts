@@ -33,7 +33,6 @@ function makePreset(
 function makeTracks(): PresetTrackSet {
   const tracks = createEmptyPresetTrackSet();
   for (const key of Object.keys(tracks) as PresetCategory[]) {
-    tracks[key].aiDecide = false;
   }
   return tracks;
 }

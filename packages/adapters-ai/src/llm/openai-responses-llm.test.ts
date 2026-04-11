@@ -28,7 +28,7 @@ describe('OpenAIResponsesLLM', () => {
         id: 'openai-responses',
         name: 'OpenAI Responses',
         defaultBaseUrl: 'https://responses.example/v1/responses',
-        defaultModel: 'gpt-4.1',
+        defaultModel: 'gpt-5.4',
         authStyle: 'x-api-key',
       });
       adapter.configure('sk-responses', {

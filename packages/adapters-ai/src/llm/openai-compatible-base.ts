@@ -10,6 +10,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { ErrorCategory, ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
+import { fetchWithTimeout } from '../fetch-utils.js';
 
 export interface OpenAICompatibleConfig {
   id: string;
@@ -173,15 +174,16 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
     for (const candidate of candidates) {
       try {
-        const res = await fetch(`${candidate}/models`, {
+        const res = await fetchWithTimeout(`${candidate}/models`, {
           headers: this.authHeaders(),
+          timeoutMs: 10_000,
         });
         if (res.ok) {
           this.baseUrl = candidate;
           return true;
         }
 
-      const fallback = await fetch(`${candidate}/chat/completions`, {
+      const fallback = await fetchWithTimeout(`${candidate}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -200,6 +202,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
                   max_tokens: 1,
                 },
           ),
+          timeoutMs: 10_000,
         });
         if (fallback.ok) {
           this.baseUrl = candidate;
@@ -385,7 +388,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
       let res: Response;
       try {
-        res = await fetch(endpoint, {
+        res = await fetchWithTimeout(endpoint, {
           method: 'POST',
           headers,
           body: JSON.stringify(body),

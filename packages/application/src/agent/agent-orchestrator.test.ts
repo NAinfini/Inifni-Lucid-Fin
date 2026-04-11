@@ -286,6 +286,7 @@ describe('AgentOrchestrator', () => {
 
     expect(messages.map((entry) => `${entry.role}:${entry.content.slice(0, 1)}`)).toEqual([
       'system:Y',
+      'user:A',
       'assistant:B',
       'user:C',
       'assistant:D',

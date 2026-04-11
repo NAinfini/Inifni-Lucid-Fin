@@ -31,7 +31,7 @@ function makeVideoRequest(): GenerationRequest {
 
 describe('adapter defaults', () => {
   it('uses the approved hosted llm defaults', () => {
-    expect(Reflect.get(new OpenAILLMAdapter(), 'model')).toBe('gpt-4.1');
+    expect(Reflect.get(new OpenAILLMAdapter(), 'model')).toBe('gpt-5.4');
     expect(Reflect.get(new ClaudeLLMAdapter(), 'model')).toBe('claude-sonnet-4-20250514');
     expect(Reflect.get(new GeminiLLMAdapter(), 'model')).toBe('gemini-2.5-flash');
     expect(Reflect.get(new GrokLLMAdapter(), 'model')).toBe('grok-3');

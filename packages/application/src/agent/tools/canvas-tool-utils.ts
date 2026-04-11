@@ -442,7 +442,6 @@ export function createTrackSetWithPreset(
   const track = next[category];
   next[category] = {
     category,
-    aiDecide: track?.aiDecide ?? false,
     entries: [
       {
         id: crypto.randomUUID(),

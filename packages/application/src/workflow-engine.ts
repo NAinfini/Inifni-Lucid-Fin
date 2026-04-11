@@ -52,6 +52,7 @@ export class WorkflowEngine {
   private readonly handlers = new Map<string, WorkflowTaskHandler>();
   private readonly now: () => number;
   private readonly idFactory?: () => string;
+  private autoPump: Promise<number> | undefined;
   private tick = 0;
 
   constructor(private readonly options: WorkflowEngineOptions) {
@@ -92,7 +93,7 @@ export class WorkflowEngine {
 
     // Auto-pump: begin executing the workflow immediately so callers don't need
     // to manually call pump() after start().
-    void this.pump(planned.workflowRun.id);
+    this.autoPump = this.pump(planned.workflowRun.id);
 
     return planned.workflowRun.id;
   }
@@ -216,6 +217,15 @@ export class WorkflowEngine {
 
       await this.executeTask(task.id);
       executed += 1;
+    }
+  }
+
+  /** Await the auto-pump started by the most recent `start()` call. */
+  async waitForAutoPump(): Promise<void> {
+    if (this.autoPump) {
+      const pending = this.autoPump;
+      this.autoPump = undefined;
+      await pending;
     }
   }
 

@@ -622,10 +622,9 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
 
       const track = input.presetTracks?.[category];
       if (!track || !track.entries || track.entries.length === 0) continue;
-      if (track.aiDecide) continue;
 
       const withIntensity = track.entries
-        .filter((entry) => !entry.aiDecide && entry.enabled !== false)
+        .filter((entry) => entry.enabled !== false)
         .map((entry) => ({
           entry,
           effective: computeEffectiveIntensity(track.intensity, entry.intensity),

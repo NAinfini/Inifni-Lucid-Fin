@@ -87,7 +87,6 @@ export interface PresetTrackEntry<C extends PresetCategory = PresetCategory> {
   durationMs?: number;
   order: number;
   enabled?: boolean;
-  aiDecide?: boolean;
   intensity?: number;
   direction?: CameraDirection;
   blend?: PresetBlendEntry<C>;
@@ -95,7 +94,6 @@ export interface PresetTrackEntry<C extends PresetCategory = PresetCategory> {
 
 export interface PresetTrack<C extends PresetCategory = PresetCategory> {
   category: C;
-  aiDecide: boolean;
   intensity?: number;
   entries: Array<PresetTrackEntry<C>>;
 }
@@ -104,14 +102,14 @@ export type PresetTrackSet = { [K in PresetCategory]: PresetTrack<K> };
 
 export function createEmptyPresetTrackSet(): PresetTrackSet {
   return {
-    camera: { category: 'camera', aiDecide: true, entries: [] },
-    lens: { category: 'lens', aiDecide: true, entries: [] },
-    look: { category: 'look', aiDecide: true, entries: [] },
-    scene: { category: 'scene', aiDecide: true, entries: [] },
-    composition: { category: 'composition', aiDecide: true, entries: [] },
-    emotion: { category: 'emotion', aiDecide: true, entries: [] },
-    flow: { category: 'flow', aiDecide: true, entries: [] },
-    technical: { category: 'technical', aiDecide: true, entries: [] },
+    camera: { category: 'camera', entries: [] },
+    lens: { category: 'lens', entries: [] },
+    look: { category: 'look', entries: [] },
+    scene: { category: 'scene', entries: [] },
+    composition: { category: 'composition', entries: [] },
+    emotion: { category: 'emotion', entries: [] },
+    flow: { category: 'flow', entries: [] },
+    technical: { category: 'technical', entries: [] },
   };
 }
 
@@ -728,7 +726,6 @@ function shotTrack<C extends PresetCategory>(
 ): PresetTrack<C> {
   return {
     category,
-    aiDecide: false,
     intensity,
     entries: [
       {

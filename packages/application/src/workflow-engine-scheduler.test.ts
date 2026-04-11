@@ -137,9 +137,8 @@ describe('WorkflowEngine scheduling', () => {
       entityType: 'scene',
     });
 
-    const executed = await engine.pump(workflowRunId);
+    await engine.waitForAutoPump();
 
-    expect(executed).toBe(3);
     expect(executionOrder).toEqual(['task-a', 'task-b', 'task-c']);
     expect(engine.getStages(workflowRunId)).toEqual([
       expect.objectContaining({

@@ -87,7 +87,6 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
         tracks: {
           camera: {
             category: 'camera',
-            aiDecide: false,
             intensity: 55,
             entries: [
               {

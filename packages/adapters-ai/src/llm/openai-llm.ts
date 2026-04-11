@@ -6,7 +6,7 @@ export class OpenAILLMAdapter extends OpenAICompatibleLLM {
       id: 'openai',
       name: 'OpenAI GPT',
       defaultBaseUrl: 'https://api.openai.com/v1',
-      defaultModel: 'gpt-4.1',
+      defaultModel: 'gpt-5.4',
     });
   }
 }

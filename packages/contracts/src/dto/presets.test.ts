@@ -29,7 +29,6 @@ describe("presets DTO", () => {
     for (const category of PRESET_CATEGORIES) {
       expect(trackSet[category]).toEqual({
         category,
-        aiDecide: true,
         entries: [],
       });
     }
@@ -150,7 +149,6 @@ describe("presets DTO", () => {
       for (const [category, track] of Object.entries(template.tracks)) {
         expect(track).toBeDefined();
         expect(track?.category).toBe(category);
-        expect(track?.aiDecide).toBe(false);
         expect(track?.entries).toHaveLength(1);
         expect(track?.entries[0]).toMatchObject({
           id: `tmpl-${category}-${track?.entries[0].presetId.replace(`builtin-${category}-`, "")}`,

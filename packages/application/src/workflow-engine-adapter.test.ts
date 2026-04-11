@@ -96,9 +96,8 @@ describe('WorkflowEngine async execution', () => {
       entityId: 'asset-1',
     });
 
-    const executed = await engine.pump(workflowRunId);
+    await engine.waitForAutoPump();
 
-    expect(executed).toBe(1);
     expect(engine.getTasks(workflowRunId)).toEqual([
       expect.objectContaining({
         id: 'task-1',

@@ -116,7 +116,6 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         const trackSet = structuredClone(existing) as TrackMap;
         const track = trackSet[category] ?? {
           category,
-          aiDecide: false,
           entries: [],
         };
 
@@ -141,7 +140,6 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
             };
           });
           track.entries = entries;
-          track.aiDecide = false;
         }
 
         trackSet[category] = track;
@@ -191,7 +189,6 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           intensity: clampIntensity(args.intensity),
         };
         track.entries.push(entry);
-        track.aiDecide = false;
         normalizeTrackOrders(track);
         await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
         return ok({ nodeId, category, entry });
@@ -231,7 +228,6 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         const track = trackSet[category];
         requirePresetTrackEntry(track, entryId);
         track.entries = track.entries.filter((entry) => entry.id !== entryId);
-        track.aiDecide = false;
         normalizeTrackOrders(track);
         await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
         return ok({ nodeId, category, entryId });
@@ -291,7 +287,6 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           entry.direction = changes.direction;
         }
 
-        track.aiDecide = false;
         normalizeTrackOrders(track);
         await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
         return ok({ nodeId, category, entryId });
@@ -344,7 +339,6 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           track.entries.splice(targetIndex, 0, entry);
         }
 
-        track.aiDecide = false;
         normalizeTrackOrders(track);
         await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
         return ok({ nodeId, category, entryId, direction });

@@ -195,7 +195,7 @@ describe('canvas-tool-utils', () => {
 
   it('validates direction, position, node type, and preset categories', () => {
     expect(requireDirection({ direction: 'horizontal' })).toBe('horizontal');
-    expect(() => requireDirection({ direction: 'diagonal' })).toThrow('direction must be "horizontal" or "vertical"');
+    expect(() => requireDirection({ direction: 'diagonal' })).toThrow('direction must be "horizontal", "vertical", or "auto"');
 
     expect(requirePosition({ position: { x: 1, y: 2 } })).toEqual({ x: 1, y: 2 });
     expect(() => requirePosition({ position: { x: 1 } })).toThrow('position with numeric x and y is required');
