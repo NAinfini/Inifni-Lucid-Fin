@@ -9,14 +9,22 @@ import type { SettingsState } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 
+// Module-level singleton: survives React StrictMode double-mount.
+// useRef(false) resets on each mount, causing duplicate bootstrap.
+let bootstrapRan = false;
+
+/** @internal Reset for test isolation — do not use in production code. */
+export function _resetBootstrapForTest() {
+  bootstrapRan = false;
+}
+
 export function useAutoProject() {
   const dispatch = useDispatch();
   const loaded = useSelector((s: RootState) => s.project.loaded);
-  const ran = useRef(false);
   const toastedVersion = useRef<string | null>(null);
 
   useEffect(() => {
-    if (loaded || ran.current) return;
+    if (loaded || bootstrapRan) return;
     const api = getAPI();
     if (!api) return;
 
@@ -33,8 +41,8 @@ export function useAutoProject() {
     });
 
     const unsub = api.onReady(async () => {
-      if (ran.current) return;
-      ran.current = true;
+      if (bootstrapRan) return;
+      bootstrapRan = true;
       try {
         // Restore app-level settings
         const savedSettings = await api.settings.load() as SettingsState | null;
@@ -62,7 +70,7 @@ export function useAutoProject() {
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );
-        ran.current = false;
+        bootstrapRan = false;
       }
     });
 

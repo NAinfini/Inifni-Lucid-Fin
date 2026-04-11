@@ -11,7 +11,7 @@ import { loggerSlice } from '../store/slices/logger.js';
 import { projectSlice } from '../store/slices/project.js';
 import { settingsSlice } from '../store/slices/settings.js';
 import { toastSlice } from '../store/slices/toast.js';
-import { useAutoProject } from './use-auto-project.js';
+import { useAutoProject, _resetBootstrapForTest } from './use-auto-project.js';
 
 vi.mock('../utils/api.js', () => ({
   getAPI: vi.fn(),
@@ -63,6 +63,7 @@ function createManifest(id: string, title: string, updatedAt = 1) {
 
 describe('useAutoProject', () => {
   beforeEach(() => {
+    _resetBootstrapForTest();
     vi.mocked(getAPI).mockReset();
   });
 
@@ -248,5 +249,56 @@ describe('useAutoProject', () => {
         loaded: true,
       }),
     );
+  });
+
+  it('boots only once across remounts when app is already ready', async () => {
+    let resolveLoad: ((value: { renderPreset: string }) => void) | undefined;
+    const load = vi.fn(
+      () =>
+        new Promise<{ renderPreset: string }>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    const list = vi.fn(async () => [{ id: 'project-ready', path: 'ready-path', updatedAt: 200 }]);
+    const open = vi.fn(async () => createManifest('project-ready', 'Ready Project', 200));
+
+    vi.mocked(getAPI).mockReturnValue({
+      updater: {
+        onProgress: vi.fn(() => () => undefined),
+      },
+      onReady: vi.fn((cb) => {
+        void cb();
+        return () => undefined;
+      }),
+      settings: { load },
+      project: {
+        list,
+        open,
+        create: vi.fn(),
+      },
+    } as never);
+
+    const { store, Wrapper } = createWrapper();
+    const first = renderHook(() => useAutoProject(), { wrapper: Wrapper });
+    first.unmount();
+    renderHook(() => useAutoProject(), { wrapper: Wrapper });
+
+    await act(async () => {
+      resolveLoad?.({ renderPreset: 'cinematic' });
+    });
+
+    await waitFor(() => {
+      expect(store.getState().project).toEqual(
+        expect.objectContaining({
+          id: 'project-ready',
+          path: 'ready-path',
+          loaded: true,
+        }),
+      );
+    });
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
   });
 });
