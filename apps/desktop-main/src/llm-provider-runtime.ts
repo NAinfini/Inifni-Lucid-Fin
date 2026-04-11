@@ -57,6 +57,7 @@ export function createConfiguredLLMAdapter(
   adapter.configure(apiKey ?? '', {
     baseUrl: config.baseUrl,
     model: config.model,
+    ...(config.contextWindow && { contextWindow: config.contextWindow }),
   });
 
   return adapter;

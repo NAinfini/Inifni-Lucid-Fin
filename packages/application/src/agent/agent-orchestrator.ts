@@ -69,11 +69,17 @@ export interface AgentLLMRequestDiagnostics {
 const HISTORY_TOKEN_BUDGET = 200000;
 const ESTIMATED_CHARS_PER_TOKEN = 4;
 const HISTORY_CHAR_BUDGET = HISTORY_TOKEN_BUDGET * ESTIMATED_CHARS_PER_TOKEN;
+/** Max chars for in-loop messages (system + history + tool rounds). Triggers mid-loop pruning. */
+const DEFAULT_IN_LOOP_CHAR_BUDGET = 120000;
 const SMALL_RESULT_LIMIT = 500;
 const COLLECTION_SUMMARY_CHAR_BUDGET = 4000;
 const COLLECTION_MAX_ITEMS = 50;
 const CONTEXT_EXTRA_VALUE_CHAR_LIMIT = 600;
 const TOOL_DESCRIPTION_CHAR_LIMIT = 160;
+/** Tools not used within this many steps get their descriptions stripped. */
+const TOOL_STRIP_AFTER_STEPS = 3;
+/** Tools not used within this many steps get evicted entirely (re-loadable via tool.get). */
+const TOOL_EVICT_AFTER_STEPS = 6;
 const LIST_ACTION_PREFIXES = ['list', 'search'];
 const MUTATION_ACTION_PREFIXES = [
   'add',
@@ -312,6 +318,107 @@ function pruneHistory(
   return pruned;
 }
 
+/**
+ * Mid-loop context compaction: when in-flight messages exceed the char budget,
+ * compress the oldest tool-call/result exchanges into concise summaries.
+ * Keeps system prompt, user messages, and the most recent tool rounds intact.
+ * Similar to how Codex and Claude Code compact conversation context.
+ */
+function pruneInLoopMessages(messages: LLMMessage[], charBudget: number): void {
+  const totalChars = measureMessageChars(messages);
+  if (totalChars <= charBudget) return;
+
+  // Identify tool exchange groups: assistant (with toolCalls) + following tool results
+  const groups: Array<{
+    startIndex: number;
+    endIndex: number;
+    chars: number;
+    toolNames: string[];
+    assistantText: string;
+    outcomes: string[];
+  }> = [];
+
+  let index = 1; // skip system prompt
+  while (index < messages.length) {
+    const msg = messages[index];
+    if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+      const groupStart = index;
+      let groupChars = msg.content.length;
+      const toolNames = msg.toolCalls.map((tc) => tc.name);
+      const outcomes: string[] = [];
+      index++;
+      while (index < messages.length && messages[index].role === 'tool') {
+        groupChars += messages[index].content.length;
+        // Extract success/error from tool result for summary
+        try {
+          const parsed = JSON.parse(messages[index].content) as Record<string, unknown>;
+          if (parsed.success === false) {
+            outcomes.push(`${toolNames[outcomes.length] ?? 'tool'}: failed`);
+          } else {
+            outcomes.push(`${toolNames[outcomes.length] ?? 'tool'}: ok`);
+          }
+        } catch {
+          outcomes.push(`${toolNames[outcomes.length] ?? 'tool'}: ok`);
+        }
+        index++;
+      }
+      groups.push({
+        startIndex: groupStart,
+        endIndex: index - 1,
+        chars: groupChars,
+        toolNames,
+        assistantText: msg.content,
+        outcomes,
+      });
+    } else {
+      index++;
+    }
+  }
+
+  // Compress oldest groups into summaries until under budget (keep last 3 groups intact)
+  let currentChars = totalChars;
+  const minKeepGroups = 3;
+  const summaryParts: string[] = [];
+  const indicesToRemove: number[] = [];
+
+  for (let g = 0; g < groups.length - minKeepGroups && currentChars > charBudget; g++) {
+    const group = groups[g];
+
+    // Build a one-line summary for this exchange
+    const toolList = group.toolNames.join(', ');
+    const outcomeList = group.outcomes.join('; ');
+    const thought = group.assistantText ? truncateString(group.assistantText, 80) : '';
+    const parts = [`[${toolList}] → ${outcomeList}`];
+    if (thought) parts.push(`(${thought})`);
+    summaryParts.push(parts.join(' '));
+
+    for (let i = group.startIndex; i <= group.endIndex; i++) {
+      indicesToRemove.push(i);
+    }
+    currentChars -= group.chars;
+  }
+
+  if (summaryParts.length > 0) {
+    const removeSet = new Set(indicesToRemove);
+    const firstDropIdx = indicesToRemove[0];
+
+    // Remove from end to preserve indices
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (removeSet.has(i)) {
+        messages.splice(i, 1);
+      }
+    }
+
+    // Insert a compressed summary of all dropped exchanges
+    const summaryContent = `[Context compacted — ${summaryParts.length} earlier step(s) summarized]\n${summaryParts.join('\n')}`;
+    const summaryChars = summaryContent.length;
+    currentChars += summaryChars;
+
+    const summaryMsg: LLMMessage = { role: 'user', content: summaryContent };
+    messages.splice(Math.min(firstDropIdx, messages.length), 0, summaryMsg);
+  }
+}
+
 function stringifyContextExtraValue(value: unknown): string {
   const serialized = typeof value === 'string' ? value : safeStringify(value);
   return truncateString(serialized, CONTEXT_EXTRA_VALUE_CHAR_LIMIT);
@@ -357,6 +464,65 @@ function compactNamedToolDefinitions(
         ),
       },
     }));
+}
+
+/**
+ * Progressively compact tools when total request size exceeds budget.
+ *
+ * Tier 1: Strip descriptions + param details from tools not used recently → name-only stubs.
+ * Tier 2: Evict tools not used for longer (they can be re-loaded via tool.get).
+ * Always-loaded tools are never evicted.
+ */
+function adaptiveToolCompaction(
+  tools: LLMToolDefinition[],
+  toolLastUsedStep: Map<string, number>,
+  currentStep: number,
+  messageChars: number,
+  charBudget: number,
+): { tools: LLMToolDefinition[]; evictedNames: string[] } {
+  const toolChars = safeStringify(tools).length;
+  const totalChars = messageChars + toolChars;
+
+  if (totalChars <= charBudget) {
+    return { tools, evictedNames: [] };
+  }
+
+  const alwaysLoaded = new Set<string>(ALWAYS_LOADED_TOOLS);
+  const evictedNames: string[] = [];
+
+  // Tier 1: Strip stale tools to name-only stubs (keep name, minimal params)
+  let result = tools.map((tool) => {
+    if (alwaysLoaded.has(tool.name)) return tool;
+    const lastUsed = toolLastUsedStep.get(tool.name) ?? 0;
+    const stepsAgo = currentStep - lastUsed;
+    if (stepsAgo >= TOOL_STRIP_AFTER_STEPS) {
+      return {
+        name: tool.name,
+        description: '',
+        parameters: { type: 'object' as const, required: tool.parameters.required, properties: {} },
+      };
+    }
+    return tool;
+  });
+
+  // Check if tier 1 was enough
+  if (messageChars + safeStringify(result).length <= charBudget) {
+    return { tools: result, evictedNames };
+  }
+
+  // Tier 2: Evict tools not used for a while (not always-loaded)
+  result = result.filter((tool) => {
+    if (alwaysLoaded.has(tool.name)) return true;
+    const lastUsed = toolLastUsedStep.get(tool.name) ?? 0;
+    const stepsAgo = currentStep - lastUsed;
+    if (stepsAgo >= TOOL_EVICT_AFTER_STEPS) {
+      evictedNames.push(tool.name);
+      return false;
+    }
+    return true;
+  });
+
+  return { tools: result, evictedNames };
 }
 
 function measureMessageChars(messages: LLMMessage[]): number {
@@ -478,6 +644,24 @@ export class AgentOrchestrator {
     const systemPrompt = this.buildSystemPrompt(context);
     const history = pruneHistory(options?.history);
 
+    // Compute context char budget from adapter's context window.
+    // User-configured contextWindow takes priority over auto-detected.
+    // If user set a smaller value than detected, log a warning but respect user choice.
+    const detectedCtx = this.adapter.contextWindow;
+    const userCtx = this.adapter.userContextWindow;
+    const effectiveCtx = this.adapter.effectiveContextWindow;
+
+    if (userCtx && detectedCtx && userCtx < detectedCtx) {
+      emit({
+        type: 'stream_chunk',
+        content: `[Note: Your configured context window (${userCtx.toLocaleString()} tokens) is smaller than the model's actual context (${detectedCtx.toLocaleString()} tokens). Using your configured value.]\n`,
+      });
+    }
+
+    const inLoopCharBudget = effectiveCtx
+      ? Math.floor(effectiveCtx * ESTIMATED_CHARS_PER_TOKEN * 0.7)
+      : DEFAULT_IN_LOOP_CHAR_BUDGET;
+
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
       ...history.map((entry): LLMMessage => {
@@ -495,6 +679,11 @@ export class AgentOrchestrator {
 
     let steps = 0;
     let lastResult: LLMCompletionResult = { content: '', toolCalls: [], finishReason: 'stop' };
+    const toolLastUsedStep = new Map<string, number>();
+    // Seed always-loaded tools as "recently used" so they're never evicted
+    for (const name of ALWAYS_LOADED_TOOLS) {
+      toolLastUsedStep.set(name, 0);
+    }
 
     this.activeMessages = messages;
     this.injectedMessageCount = 0;
@@ -508,12 +697,24 @@ export class AgentOrchestrator {
 
         steps++;
 
+        // Mid-loop pruning: trim old tool exchanges if context is too large
+        pruneInLoopMessages(messages, inLoopCharBudget);
         // Merge always-loaded + discovered tool names
         const activeToolNames = new Set(loadedToolNames);
         for (const name of discoveredToolNames) {
           activeToolNames.add(name);
         }
-        const availableTools = compactNamedToolDefinitions(this.tools, Array.from(activeToolNames), context.page);
+        let availableTools = compactNamedToolDefinitions(this.tools, Array.from(activeToolNames), context.page);
+
+        // Adaptive tool compaction: strip or evict tools when context is tight
+        const messageChars = measureMessageChars(messages);
+        const { tools: compactedTools, evictedNames } = adaptiveToolCompaction(
+          availableTools, toolLastUsedStep, steps, messageChars, inLoopCharBudget,
+        );
+        availableTools = compactedTools;
+        for (const evicted of evictedNames) {
+          discoveredToolNames.delete(evicted);
+        }
 
         options?.onLLMRequest?.({
           step: steps,
@@ -550,6 +751,8 @@ export class AgentOrchestrator {
         });
 
         for (const tc of lastResult.toolCalls) {
+          toolLastUsedStep.set(tc.name, steps);
+
           if (this._cancelled || options?.isAborted?.()) {
             emit({ type: 'done', content: 'Cancelled.' });
             return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };

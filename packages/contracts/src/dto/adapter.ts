@@ -171,6 +171,12 @@ export interface LLMAdapter {
   readonly id: string;
   readonly name: string;
   readonly capabilities: Capability[];
+  /** Model context window in tokens, discovered from /models endpoint. */
+  readonly contextWindow?: number;
+  /** User-configured context window override. */
+  readonly userContextWindow?: number;
+  /** Effective context window: user override if set, else auto-detected. */
+  readonly effectiveContextWindow?: number;
 
   configure(apiKey: string, options?: Record<string, unknown>): void;
   validate(): Promise<boolean>;

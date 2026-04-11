@@ -14,6 +14,8 @@ export interface LLMProviderRuntimeConfig {
   model: string;
   protocol: LLMProviderProtocol;
   authStyle: LLMProviderAuthStyle;
+  /** User-configured context window in tokens. Overrides auto-detected value. */
+  contextWindow?: number;
 }
 
 export type LLMProviderRuntimeInput = Pick<LLMProviderRuntimeConfig, 'id'> &

@@ -142,6 +142,14 @@ export class OpenAICompatibleLLM implements LLMAdapter {
   readonly id: string;
   readonly name: string;
   readonly capabilities: Capability[];
+  /** Auto-detected from /models endpoint. */
+  contextWindow?: number;
+  /** User-configured override, always takes priority. */
+  userContextWindow?: number;
+  /** Effective context window: user override if set, else auto-detected. */
+  get effectiveContextWindow(): number | undefined {
+    return this.userContextWindow ?? this.contextWindow;
+  }
 
   protected apiKey = '';
   protected baseUrl: string;
@@ -167,6 +175,9 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     this.apiKey = apiKey;
     if (options?.baseUrl) this.baseUrl = normalizeOpenAICompatibleBaseUrl(options.baseUrl as string);
     if (options?.model) this.model = options.model as string;
+    if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
+      this.userContextWindow = options.contextWindow as number;
+    }
   }
 
   async validate(): Promise<boolean> {
@@ -180,6 +191,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         });
         if (res.ok) {
           this.baseUrl = candidate;
+          this.tryExtractContextWindow(res).catch(() => {});
           return true;
         }
 
@@ -214,6 +226,33 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     }
 
     return false;
+  }
+
+  /**
+   * Parse the /models response to find the current model's context window.
+   * Supports OpenAI (`context_window`), LiteLLM/OneAPI (`context_length`),
+   * and `max_model_len` (vLLM).
+   */
+  private async tryExtractContextWindow(modelsResponse: Response): Promise<void> {
+    try {
+      const body = await modelsResponse.json() as Record<string, unknown>;
+      const models = Array.isArray(body.data) ? body.data : Array.isArray(body) ? body : [];
+      const modelId = this.model.toLowerCase();
+
+      for (const entry of models) {
+        if (!isRecord(entry)) continue;
+        const id = typeof entry.id === 'string' ? entry.id.toLowerCase() : '';
+        if (id !== modelId) continue;
+
+        const ctxWindow = entry.context_window ?? entry.context_length ?? entry.max_model_len;
+        if (typeof ctxWindow === 'number' && ctxWindow > 0) {
+          this.contextWindow = ctxWindow;
+        }
+        break;
+      }
+    } catch {
+      // Non-critical — context window discovery is best-effort
+    }
   }
 
   async complete(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<string> {

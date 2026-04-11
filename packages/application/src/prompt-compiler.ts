@@ -1,5 +1,6 @@
 import type {
   PresetTrackSet,
+  PresetTrack,
   PresetCategory,
   PresetDefinition,
   PresetTrackEntry,
@@ -891,12 +892,12 @@ function applyStyleGuideDefaults(
     for (const [category, def] of Object.entries(styleGuide.defaultPresets) as Array<[PresetCategory, { presetId: string; intensity?: number; params?: Record<string, unknown> }]>) {
       const track = result[category];
       if (!track.entries.length && presetMap[def.presetId]) {
-        result[category] = {
+        (result as Record<PresetCategory, PresetTrack>)[category] = {
           ...track,
           intensity: def.intensity ?? 100,
           entries: [{
             id: `sg-${category}-0`,
-            category: category as PresetCategory,
+            category,
             presetId: def.presetId,
             params: (def.params ?? {}) as PresetParamMap,
             order: 0,

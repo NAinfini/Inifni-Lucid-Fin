@@ -82,6 +82,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           description: 'Atmosphere keywords (e.g. echoing, musty, vast).',
           items: { type: 'string', description: 'An atmosphere keyword.' },
         },
+        tags: { type: 'array', description: 'Tags for organizing locations.', items: { type: 'string', description: 'A tag.' } },
       },
       required: ['name', 'type', 'description'],
     },
@@ -103,7 +104,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           dominantColors: Array.isArray(args.dominantColors) ? args.dominantColors.filter((c): c is string => typeof c === 'string') : undefined,
           keyFeatures: Array.isArray(args.keyFeatures) ? args.keyFeatures.filter((f): f is string => typeof f === 'string') : undefined,
           atmosphereKeywords: Array.isArray(args.atmosphereKeywords) ? args.atmosphereKeywords.filter((k): k is string => typeof k === 'string') : undefined,
-          tags: [],
+          tags: Array.isArray(args.tags) ? args.tags.filter((t): t is string => typeof t === 'string') : [],
           referenceImages: [],
           createdAt: now,
           updatedAt: now,
@@ -153,6 +154,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           description: 'Atmosphere keywords (e.g. echoing, musty, vast).',
           items: { type: 'string', description: 'An atmosphere keyword.' },
         },
+        tags: { type: 'array', description: 'Tags for organizing locations.', items: { type: 'string', description: 'A tag.' } },
       },
       required: ['id'],
     },
@@ -177,6 +179,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           ...(Array.isArray(args.dominantColors) && { dominantColors: args.dominantColors.filter((c): c is string => typeof c === 'string') }),
           ...(Array.isArray(args.keyFeatures) && { keyFeatures: args.keyFeatures.filter((f): f is string => typeof f === 'string') }),
           ...(Array.isArray(args.atmosphereKeywords) && { atmosphereKeywords: args.atmosphereKeywords.filter((k): k is string => typeof k === 'string') }),
+          ...(Array.isArray(args.tags) && { tags: args.tags.filter((t): t is string => typeof t === 'string') }),
           updatedAt: Date.now(),
         };
         await deps.saveLocation(updated);
