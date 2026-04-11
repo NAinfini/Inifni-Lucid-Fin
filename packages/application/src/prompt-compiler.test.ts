@@ -49,6 +49,11 @@ describe('compilePrompt', () => {
 
     expect(result.prompt).toBe('A cinematic portrait of a detective');
     expect(result.negativePrompt).toBeUndefined();
+    expect(result.diagnostics).toBeDefined();
+    expect(Array.isArray(result.diagnostics)).toBe(true);
+    expect(result.segments).toBeDefined();
+    expect(typeof result.wordCount).toBe('number');
+    expect(typeof result.budget).toBe('number');
   });
 
   it('stacks preset fragments in the required order', () => {
@@ -422,6 +427,223 @@ describe('compilePrompt', () => {
     expect(result.prompt).toContain('Characters: alex');
     expect(result.prompt).toContain('Equipment: gun-01');
     expect(result.prompt).toContain('Location: bar-01');
+  });
+
+  it('detects conflicting presets and reports diagnostic', () => {
+    const presets = [
+      { id: 'scene:high-key', category: 'scene' as const, name: 'High Key', description: '', prompt: 'high key lighting', builtIn: true, modified: false, params: [], defaults: {} },
+      { id: 'scene:low-key', category: 'scene' as const, name: 'Low Key', description: '', prompt: 'low key lighting', builtIn: true, modified: false, params: [], defaults: {} },
+    ];
+    const result = compilePrompt({
+      nodeType: 'image',
+      mode: 'text-to-image',
+      prompt: 'test scene',
+      providerId: 'test',
+      presetLibrary: presets,
+      presetTracks: {
+        camera: { category: 'camera', entries: [] },
+        lens: { category: 'lens', entries: [] },
+        look: { category: 'look', entries: [] },
+        scene: {
+          category: 'scene',
+          entries: [
+            { id: 'e1', category: 'scene' as const, presetId: 'scene:high-key', params: {}, order: 0, intensity: 80 },
+            { id: 'e2', category: 'scene' as const, presetId: 'scene:low-key', params: {}, order: 1, intensity: 50 },
+          ],
+        },
+        composition: { category: 'composition', entries: [] },
+        emotion: { category: 'emotion', entries: [] },
+        flow: { category: 'flow', entries: [] },
+        technical: { category: 'technical', entries: [] },
+      },
+    });
+
+    const conflicts = result.diagnostics.filter(d => d.type === 'conflict');
+    expect(conflicts.length).toBeGreaterThanOrEqual(1);
+    expect(conflicts[0].message).toContain('high-key');
+    expect(conflicts[0].message).toContain('low-key');
+  });
+
+  it('compiles character-sheet mode with structured fields', () => {
+    const result = compilePrompt({
+      nodeType: 'image',
+      mode: 'character-sheet',
+      providerId: 'test',
+      presetLibrary: [],
+      characters: [{
+        character: {
+          id: 'char-1',
+          name: 'Maya Chen',
+          role: 'protagonist',
+          description: '',
+          appearance: '',
+          personality: '',
+          costumes: [],
+          tags: [],
+          referenceImages: [],
+          loadouts: [],
+          defaultLoadoutId: '',
+          createdAt: 0,
+          updatedAt: 0,
+          age: 28,
+          gender: 'female',
+          face: {
+            eyeShape: 'almond-shaped',
+            eyeColor: 'dark brown',
+            noseType: 'straight',
+            lipShape: 'full',
+            jawline: 'oval',
+            definingFeatures: 'small scar above left eyebrow',
+          },
+          hair: { color: 'jet black', style: 'bob', length: 'shoulder-length', texture: 'straight' },
+          skinTone: 'warm olive',
+          body: { height: "5'6\"", build: 'athletic' },
+          distinctTraits: ['silver nose stud'],
+        },
+      }],
+    });
+
+    expect(result.prompt).toContain('Maya Chen');
+    expect(result.prompt).toContain('SUBJECT');
+    expect(result.prompt).toContain('almond-shaped dark brown eyes');
+    expect(result.prompt).toContain('jet black, bob, shoulder-length, straight');
+    expect(result.prompt).toContain('warm olive');
+    expect(result.prompt).toContain('athletic');
+    expect(result.prompt).toContain('silver nose stud');
+    expect(result.prompt).toContain('TURNAROUND');
+    expect(result.prompt).toContain('EXPRESSION SHEET');
+    expect(result.negativePrompt).toContain('no distorted anatomy');
+  });
+
+  it('applies style guide defaults to empty preset tracks', () => {
+    const presets = [
+      makePreset('look:cinematic-realism', 'look', 'cinematic realism'),
+      makePreset('scene:low-key', 'scene', 'low key dramatic lighting'),
+    ];
+    const result = compilePrompt({
+      nodeType: 'image',
+      mode: 'text-to-image',
+      prompt: 'a warrior',
+      providerId: 'test',
+      presetLibrary: presets,
+      styleGuide: {
+        artStyle: 'cinematic-realism',
+        lighting: 'dramatic',
+      },
+    });
+
+    expect(result.prompt).toContain('cinematic realism');
+    expect(result.prompt).toContain('low key dramatic lighting');
+    expect(result.prompt).toContain('Maintain consistent');
+  });
+
+  it('does not override existing node presets with style guide', () => {
+    const presets = [
+      makePreset('look:anime-cel', 'look', 'anime cel shading'),
+      makePreset('look:cinematic-realism', 'look', 'cinematic realism'),
+    ];
+    const result = compilePrompt({
+      nodeType: 'image',
+      mode: 'text-to-image',
+      prompt: 'a warrior',
+      providerId: 'test',
+      presetLibrary: presets,
+      presetTracks: {
+        camera: { category: 'camera', entries: [] },
+        lens: { category: 'lens', entries: [] },
+        look: {
+          category: 'look',
+          entries: [{ id: 'e1', category: 'look' as const, presetId: 'look:anime-cel', params: {}, order: 0 }],
+        },
+        scene: { category: 'scene', entries: [] },
+        composition: { category: 'composition', entries: [] },
+        emotion: { category: 'emotion', entries: [] },
+        flow: { category: 'flow', entries: [] },
+        technical: { category: 'technical', entries: [] },
+      },
+      styleGuide: {
+        artStyle: 'cinematic-realism',
+      },
+    });
+
+    expect(result.prompt).toContain('anime cel shading');
+    expect(result.prompt).not.toContain('cinematic realism');
+  });
+
+  it('compiles voice mode with vocal traits and emotion', () => {
+    const result = compilePrompt({
+      nodeType: 'audio',
+      mode: 'voice',
+      providerId: 'test',
+      presetLibrary: [],
+      dialogueText: 'I will find you.',
+      emotion: 'determined',
+      characters: [{
+        character: {
+          id: 'c1', name: 'Maya', role: 'protagonist', description: '', appearance: '',
+          personality: '', costumes: [], tags: [], referenceImages: [], loadouts: [],
+          defaultLoadoutId: '', createdAt: 0, updatedAt: 0,
+          vocalTraits: { pitch: 'alto', accent: 'British RP', cadence: 'measured' },
+        },
+      }],
+    });
+
+    expect(result.prompt).toContain('alto voice');
+    expect(result.prompt).toContain('British RP accent');
+    expect(result.prompt).toContain('determined tone');
+    expect(result.prompt).toContain('I will find you');
+  });
+
+  it('compiles music mode with genre, tempo, and instruments', () => {
+    const result = compilePrompt({
+      nodeType: 'audio',
+      mode: 'music',
+      prompt: 'epic battle theme',
+      providerId: 'test',
+      presetLibrary: [],
+      musicConfig: {
+        genre: 'orchestral',
+        tempo: '140bpm',
+        key: 'D minor',
+        instrumentation: ['brass', 'timpani', 'strings'],
+      },
+      durationSeconds: 30,
+    });
+
+    expect(result.prompt).toContain('epic battle theme');
+    expect(result.prompt).toContain('orchestral');
+    expect(result.prompt).toContain('140bpm tempo');
+    expect(result.prompt).toContain('D minor');
+    expect(result.prompt).toContain('brass, timpani, strings');
+    expect(result.prompt).toContain('30 seconds');
+  });
+
+  it('compiles sfx mode with environment and material', () => {
+    const result = compilePrompt({
+      nodeType: 'audio',
+      mode: 'sfx',
+      prompt: 'sword clash',
+      providerId: 'test',
+      presetLibrary: [],
+      sfxPlacement: 'close',
+      locations: [{
+        id: 'loc1', projectId: 'p1', name: 'Dungeon', type: 'interior',
+        description: '', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0,
+        atmosphereKeywords: ['echoing', 'damp'],
+      }],
+      equipmentItems: [{
+        id: 'eq1', projectId: 'p1', name: 'Broadsword', type: 'weapon',
+        description: '', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0,
+        material: 'forged steel',
+      }],
+    });
+
+    expect(result.prompt).toContain('sword clash');
+    expect(result.prompt).toContain('interior');
+    expect(result.prompt).toContain('Dungeon');
+    expect(result.prompt).toContain('echoing');
+    expect(result.prompt).toContain('forged steel Broadsword');
+    expect(result.prompt).toContain('close-up');
   });
 });
 

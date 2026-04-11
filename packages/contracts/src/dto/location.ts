@@ -30,6 +30,10 @@ export interface Location {
   mood?: string;
   weather?: string;
   lighting?: string;
+  architectureStyle?: string;
+  dominantColors?: string[];
+  keyFeatures?: string[];
+  atmosphereKeywords?: string[];
   tags: string[];
   referenceImages: ReferenceImage[];
   createdAt: number;

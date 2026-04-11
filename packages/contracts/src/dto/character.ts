@@ -39,6 +39,34 @@ export interface CharacterRef {
 
 export type CharacterGender = 'male' | 'female' | 'non-binary' | 'other';
 
+export interface CharacterFace {
+  eyeShape?: string;
+  eyeColor?: string;
+  noseType?: string;
+  lipShape?: string;
+  jawline?: string;
+  definingFeatures?: string;
+}
+
+export interface CharacterHair {
+  color?: string;
+  style?: string;
+  length?: string;
+  texture?: string;
+}
+
+export interface CharacterBody {
+  height?: string;
+  build?: string;
+  proportions?: string;
+}
+
+export interface VocalTraits {
+  pitch?: string;
+  accent?: string;
+  cadence?: string;
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -53,6 +81,12 @@ export interface Character {
   age?: number;
   gender?: CharacterGender;
   voice?: string;
+  face?: CharacterFace;
+  hair?: CharacterHair;
+  skinTone?: string;
+  body?: CharacterBody;
+  distinctTraits?: string[];
+  vocalTraits?: VocalTraits;
   referenceImages: ReferenceImage[];
   loadouts: EquipmentLoadout[];
   defaultLoadoutId: string;

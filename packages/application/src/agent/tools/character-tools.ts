@@ -72,12 +72,64 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         description: { type: 'string', description: 'A brief description of the character.' },
         appearance: { type: 'string', description: 'Physical appearance description.' },
         personality: { type: 'string', description: 'Personality traits description.' },
+        face: {
+          type: 'object',
+          description: 'Structured face description for prompt compilation.',
+          properties: {
+            eyeShape: { type: 'string', description: 'Eye shape (e.g. almond, round, hooded).' },
+            eyeColor: { type: 'string', description: 'Eye color.' },
+            noseType: { type: 'string', description: 'Nose type (e.g. straight, aquiline, button).' },
+            lipShape: { type: 'string', description: 'Lip shape (e.g. full, thin, cupid bow).' },
+            jawline: { type: 'string', description: 'Jawline shape (e.g. oval, square, pointed).' },
+            definingFeatures: { type: 'string', description: 'Additional defining facial features.' },
+          },
+        },
+        hair: {
+          type: 'object',
+          description: 'Structured hair description.',
+          properties: {
+            color: { type: 'string', description: 'Hair color.' },
+            style: { type: 'string', description: 'Hair style (e.g. bob, braids, undercut).' },
+            length: { type: 'string', description: 'Hair length (e.g. shoulder-length, waist-length).' },
+            texture: { type: 'string', description: 'Hair texture (e.g. straight, curly, coily).' },
+          },
+        },
+        skinTone: { type: 'string', description: 'Skin tone description (e.g. warm olive, deep brown).' },
+        body: {
+          type: 'object',
+          description: 'Body type description.',
+          properties: {
+            height: { type: 'string', description: 'Height.' },
+            build: { type: 'string', description: 'Body build (e.g. athletic, slender, stocky).' },
+            proportions: { type: 'string', description: 'Body proportions (e.g. 8-head body).' },
+          },
+        },
+        distinctTraits: {
+          type: 'array',
+          description: 'Distinctive physical traits (scars, tattoos, piercings, etc.).',
+          items: { type: 'string', description: 'A distinctive trait.' },
+        },
+        vocalTraits: {
+          type: 'object',
+          description: 'Voice characteristics for audio generation.',
+          properties: {
+            pitch: { type: 'string', description: 'Voice pitch (e.g. alto, tenor, baritone).' },
+            accent: { type: 'string', description: 'Accent (e.g. British RP, Southern US).' },
+            cadence: { type: 'string', description: 'Speaking cadence (e.g. measured, rapid-fire).' },
+          },
+        },
       },
       required: ['name', 'role', 'description', 'appearance', 'personality'],
     },
     async execute(args) {
       try {
         const now = Date.now();
+        const face = typeof args.face === 'object' && args.face !== null ? args.face as Record<string, unknown> : undefined;
+        const hair = typeof args.hair === 'object' && args.hair !== null ? args.hair as Record<string, unknown> : undefined;
+        const skinTone = typeof args.skinTone === 'string' ? args.skinTone : undefined;
+        const body = typeof args.body === 'object' && args.body !== null ? args.body as Record<string, unknown> : undefined;
+        const distinctTraits = Array.isArray(args.distinctTraits) ? args.distinctTraits.filter((t): t is string => typeof t === 'string') : undefined;
+        const vocalTraits = typeof args.vocalTraits === 'object' && args.vocalTraits !== null ? args.vocalTraits as Record<string, unknown> : undefined;
         const character: Character = {
           id: crypto.randomUUID(),
           name: args.name as string,
@@ -90,6 +142,12 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           loadouts: [],
           defaultLoadoutId: '',
           tags: [],
+          ...(face !== undefined && { face }),
+          ...(hair !== undefined && { hair }),
+          ...(skinTone !== undefined && { skinTone }),
+          ...(body !== undefined && { body }),
+          ...(distinctTraits !== undefined && { distinctTraits }),
+          ...(vocalTraits !== undefined && { vocalTraits }),
           createdAt: now,
           updatedAt: now,
         };
@@ -119,6 +177,52 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         description: { type: 'string', description: 'Updated description.' },
         appearance: { type: 'string', description: 'Updated appearance description.' },
         personality: { type: 'string', description: 'Updated personality description.' },
+        face: {
+          type: 'object',
+          description: 'Structured face description for prompt compilation.',
+          properties: {
+            eyeShape: { type: 'string', description: 'Eye shape (e.g. almond, round, hooded).' },
+            eyeColor: { type: 'string', description: 'Eye color.' },
+            noseType: { type: 'string', description: 'Nose type (e.g. straight, aquiline, button).' },
+            lipShape: { type: 'string', description: 'Lip shape (e.g. full, thin, cupid bow).' },
+            jawline: { type: 'string', description: 'Jawline shape (e.g. oval, square, pointed).' },
+            definingFeatures: { type: 'string', description: 'Additional defining facial features.' },
+          },
+        },
+        hair: {
+          type: 'object',
+          description: 'Structured hair description.',
+          properties: {
+            color: { type: 'string', description: 'Hair color.' },
+            style: { type: 'string', description: 'Hair style (e.g. bob, braids, undercut).' },
+            length: { type: 'string', description: 'Hair length (e.g. shoulder-length, waist-length).' },
+            texture: { type: 'string', description: 'Hair texture (e.g. straight, curly, coily).' },
+          },
+        },
+        skinTone: { type: 'string', description: 'Skin tone description (e.g. warm olive, deep brown).' },
+        body: {
+          type: 'object',
+          description: 'Body type description.',
+          properties: {
+            height: { type: 'string', description: 'Height.' },
+            build: { type: 'string', description: 'Body build (e.g. athletic, slender, stocky).' },
+            proportions: { type: 'string', description: 'Body proportions (e.g. 8-head body).' },
+          },
+        },
+        distinctTraits: {
+          type: 'array',
+          description: 'Distinctive physical traits (scars, tattoos, piercings, etc.).',
+          items: { type: 'string', description: 'A distinctive trait.' },
+        },
+        vocalTraits: {
+          type: 'object',
+          description: 'Voice characteristics for audio generation.',
+          properties: {
+            pitch: { type: 'string', description: 'Voice pitch (e.g. alto, tenor, baritone).' },
+            accent: { type: 'string', description: 'Accent (e.g. British RP, Southern US).' },
+            cadence: { type: 'string', description: 'Speaking cadence (e.g. measured, rapid-fire).' },
+          },
+        },
       },
       required: ['id'],
     },
@@ -129,6 +233,12 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         if (!existing) {
           return { success: false, error: `Character not found: ${args.id}` };
         }
+        const face = typeof args.face === 'object' && args.face !== null ? args.face as Record<string, unknown> : undefined;
+        const hair = typeof args.hair === 'object' && args.hair !== null ? args.hair as Record<string, unknown> : undefined;
+        const skinTone = typeof args.skinTone === 'string' ? args.skinTone : undefined;
+        const body = typeof args.body === 'object' && args.body !== null ? args.body as Record<string, unknown> : undefined;
+        const distinctTraits = Array.isArray(args.distinctTraits) ? args.distinctTraits.filter((t): t is string => typeof t === 'string') : undefined;
+        const vocalTraits = typeof args.vocalTraits === 'object' && args.vocalTraits !== null ? args.vocalTraits as Record<string, unknown> : undefined;
         const updated: Character = {
           ...existing,
           ...(args.name !== undefined && { name: args.name as string }),
@@ -136,6 +246,12 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           ...(args.description !== undefined && { description: args.description as string }),
           ...(args.appearance !== undefined && { appearance: args.appearance as string }),
           ...(args.personality !== undefined && { personality: args.personality as string }),
+          ...(face !== undefined && { face }),
+          ...(hair !== undefined && { hair }),
+          ...(skinTone !== undefined && { skinTone }),
+          ...(body !== undefined && { body }),
+          ...(distinctTraits !== undefined && { distinctTraits }),
+          ...(vocalTraits !== undefined && { vocalTraits }),
           updatedAt: Date.now(),
         };
         await deps.saveCharacter(updated);

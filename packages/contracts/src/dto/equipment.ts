@@ -35,6 +35,10 @@ export interface Equipment {
   subtype?: string;
   description: string;
   function?: string;
+  material?: string;
+  color?: string;
+  condition?: string;
+  visualDetails?: string;
   tags: string[];
   referenceImages: ReferenceImage[];
   createdAt: number;

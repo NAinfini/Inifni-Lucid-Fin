@@ -84,13 +84,14 @@ export async function buildGenerationContext(
   const variantCount = resolveVariantCount(nodeData, input.requestedVariantCount);
   const baseSeed = resolveBaseSeed(nodeData, input.requestedSeed);
   const referenceImages = resolveReferenceImages(deps.db, canvas, node);
+  const projectStyleGuide = loadCurrentProjectStyleGuide();
 
   const presetTracks =
     generableNodeType === 'audio'
       ? undefined
       : applyStyleGuideDefaultsToEmptyTracks(
           hasPresetTracks(nodeData) ? nodeData.presetTracks : undefined,
-          loadCurrentProjectStyleGuide(),
+          projectStyleGuide,
           BUILT_IN_PRESET_LIBRARY,
         );
   const characterRefs = hasCharacterRefs(nodeData) ? nodeData.characterRefs : undefined;
@@ -136,7 +137,32 @@ export async function buildGenerationContext(
     mode,
     presetLibrary: BUILT_IN_PRESET_LIBRARY,
     referenceImages,
+    styleGuide: {
+      artStyle: projectStyleGuide.global.artStyle,
+      lighting: projectStyleGuide.global.lighting,
+      colorPalette: projectStyleGuide.global.colorPalette.primary,
+    },
   });
+
+  if (compiled.diagnostics.length > 0) {
+    for (const diag of compiled.diagnostics) {
+      const level = diag.severity === 'warning' ? 'warn' : 'info';
+      log[level](`[prompt] ${diag.message}`, {
+        category: 'prompt-compiler',
+        canvasId: input.canvasId,
+        nodeId: input.nodeId,
+        type: diag.type,
+        source: diag.source,
+      });
+    }
+    log.debug('[prompt] compilation summary', {
+      category: 'prompt-compiler',
+      wordCount: compiled.wordCount,
+      budget: compiled.budget,
+      segmentCount: compiled.segments.length,
+      diagnosticCount: compiled.diagnostics.length,
+    });
+  }
   const mediaConfig = resolveMediaDimensions(node, generationType);
   const { fps, ...mediaRequest } = mediaConfig;
 

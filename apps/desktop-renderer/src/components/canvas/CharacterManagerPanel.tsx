@@ -22,10 +22,14 @@ import type {
   ReferenceImage,
   EquipmentLoadout,
   CharacterGender,
+  CharacterFace,
+  CharacterHair,
+  CharacterBody,
+  VocalTraits,
   ImageNodeData,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { Plus, Search, Trash2, Save, Upload, User, Image, X } from 'lucide-react';
+import { ChevronDown, Plus, Search, Trash2, Save, Upload, User, Image, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { t as translate } from '../../i18n.js';
 import type { Asset } from '../../store/slices/assets.js';
@@ -52,6 +56,12 @@ interface CharacterDraft {
   age: string;
   gender: CharacterGender | '';
   voice: string;
+  face: CharacterFace;
+  hair: CharacterHair;
+  skinTone: string;
+  body: CharacterBody;
+  distinctTraits: string;
+  vocalTraits: VocalTraits;
 }
 
 function createDraft(char: Character): CharacterDraft {
@@ -66,6 +76,12 @@ function createDraft(char: Character): CharacterDraft {
     age: char.age != null ? String(char.age) : '',
     gender: char.gender ?? '',
     voice: char.voice ?? '',
+    face: char.face ?? {},
+    hair: char.hair ?? {},
+    skinTone: char.skinTone ?? '',
+    body: char.body ?? {},
+    distinctTraits: (char.distinctTraits ?? []).join(', '),
+    vocalTraits: char.vocalTraits ?? {},
   };
 }
 
@@ -80,6 +96,7 @@ export function CharacterManagerPanel() {
   const [error, setError] = useState<string | null>(null);
   const [loadoutName, setLoadoutName] = useState('');
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+  const [structuredOpen, setStructuredOpen] = useState(false);
 
   const reportError = useCallback((reason: unknown, detail: string) => {
     const message = reason instanceof Error ? reason.message : String(reason);
@@ -224,6 +241,14 @@ export function CharacterManagerPanel() {
         age: draft.age ? Number(draft.age) : undefined,
         gender: draft.gender || undefined,
         voice: draft.voice || undefined,
+        face: Object.values(draft.face).some(Boolean) ? draft.face : undefined,
+        hair: Object.values(draft.hair).some(Boolean) ? draft.hair : undefined,
+        skinTone: draft.skinTone || undefined,
+        body: Object.values(draft.body).some(Boolean) ? draft.body : undefined,
+        distinctTraits: draft.distinctTraits
+          ? draft.distinctTraits.split(',').map((s) => s.trim()).filter(Boolean)
+          : undefined,
+        vocalTraits: Object.values(draft.vocalTraits).some(Boolean) ? draft.vocalTraits : undefined,
       };
       const api = getAPI();
       if (api?.character) {
@@ -564,6 +589,73 @@ export function CharacterManagerPanel() {
                 />
               </div>
 
+              {/* Structured Appearance Fields */}
+              <div className="rounded-md border border-border/60">
+                <button
+                  type="button"
+                  onClick={() => setStructuredOpen((v) => !v)}
+                  className="flex w-full items-center justify-between px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted/40 transition-colors"
+                >
+                  {t('characterManager.structuredAppearance')}
+                  <ChevronDown className={cn('h-3 w-3 transition-transform', structuredOpen && 'rotate-180')} />
+                </button>
+                {structuredOpen && (
+                  <div className="space-y-2 border-t border-border/40 p-2.5">
+                    {/* Face */}
+                    <fieldset className="space-y-1">
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.face')}</legend>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <StructField label={t('characterManager.structured.eyeShape')} value={draft.face.eyeShape ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, eyeShape: v } } : p)} />
+                        <StructField label={t('characterManager.structured.eyeColor')} value={draft.face.eyeColor ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, eyeColor: v } } : p)} />
+                        <StructField label={t('characterManager.structured.noseType')} value={draft.face.noseType ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, noseType: v } } : p)} />
+                        <StructField label={t('characterManager.structured.lipShape')} value={draft.face.lipShape ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, lipShape: v } } : p)} />
+                        <StructField label={t('characterManager.structured.jawline')} value={draft.face.jawline ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, jawline: v } } : p)} />
+                      </div>
+                      <StructField label={t('characterManager.structured.definingFeatures')} value={draft.face.definingFeatures ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, definingFeatures: v } } : p)} />
+                    </fieldset>
+                    {/* Hair */}
+                    <fieldset className="space-y-1">
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.hair')}</legend>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <StructField label={t('characterManager.structured.hairColor')} value={draft.hair.color ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, color: v } } : p)} />
+                        <StructField label={t('characterManager.structured.hairStyle')} value={draft.hair.style ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, style: v } } : p)} />
+                        <StructField label={t('characterManager.structured.hairLength')} value={draft.hair.length ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, length: v } } : p)} />
+                        <StructField label={t('characterManager.structured.hairTexture')} value={draft.hair.texture ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, texture: v } } : p)} />
+                      </div>
+                    </fieldset>
+                    {/* Body + Skin */}
+                    <fieldset className="space-y-1">
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.body')}</legend>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <StructField label={t('characterManager.structured.skinTone')} value={draft.skinTone} onChange={(v) => setDraft((p) => p ? { ...p, skinTone: v } : p)} />
+                        <StructField label={t('characterManager.structured.height')} value={draft.body.height ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, body: { ...p.body, height: v } } : p)} />
+                        <StructField label={t('characterManager.structured.build')} value={draft.body.build ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, body: { ...p.body, build: v } } : p)} />
+                        <StructField label={t('characterManager.structured.proportions')} value={draft.body.proportions ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, body: { ...p.body, proportions: v } } : p)} />
+                      </div>
+                    </fieldset>
+                    {/* Distinct Traits */}
+                    <div className="space-y-1">
+                      <label className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.distinctTraits')}</label>
+                      <input
+                        value={draft.distinctTraits}
+                        onChange={(e) => setDraft((p) => (p ? { ...p, distinctTraits: e.target.value } : p))}
+                        className="w-full rounded bg-muted px-2 py-1 text-[10px]"
+                        placeholder={t('characterManager.structured.distinctTraitsHint')}
+                      />
+                    </div>
+                    {/* Vocal Traits */}
+                    <fieldset className="space-y-1">
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.vocalTraits')}</legend>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <StructField label={t('characterManager.structured.pitch')} value={draft.vocalTraits.pitch ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, vocalTraits: { ...p.vocalTraits, pitch: v } } : p)} />
+                        <StructField label={t('characterManager.structured.accent')} value={draft.vocalTraits.accent ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, vocalTraits: { ...p.vocalTraits, accent: v } } : p)} />
+                        <StructField label={t('characterManager.structured.cadence')} value={draft.vocalTraits.cadence ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, vocalTraits: { ...p.vocalTraits, cadence: v } } : p)} />
+                      </div>
+                    </fieldset>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
                   {t('characterManager.fields.personality')}
@@ -826,6 +918,28 @@ function SingleReferenceImage({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function StructField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <span className="text-[9px] text-muted-foreground">{label}</span>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded bg-muted px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-primary"
+        placeholder={label}
+      />
     </div>
   );
 }

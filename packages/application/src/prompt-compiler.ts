@@ -11,13 +11,32 @@ import type {
   Equipment,
   EquipmentLoadout,
   Location,
+  CharacterFace,
+  CharacterHair,
+  CharacterBody,
+  VocalTraits,
+  PresetPromptParamDef,
+  PromptParamIntensityLevels,
+  PresetParamMap,
 } from '@lucid-fin/contracts';
+import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
-export type PromptMode = 'text-to-image' | 'image-to-image' | 'image-to-video' | 'text-to-video';
+export type PromptMode = 'text-to-image' | 'image-to-image' | 'image-to-video' | 'text-to-video' | 'character-sheet' | 'voice' | 'music' | 'sfx';
+
+export interface StyleGuideDefaults {
+  artStyle?: string;          // e.g. 'cinematic-realism', maps to look preset
+  lighting?: string;          // e.g. 'dramatic', maps to scene preset
+  colorPalette?: string;      // e.g. 'teal-orange', maps to look preset
+  defaultPresets?: Partial<Record<PresetCategory, {
+    presetId: string;
+    intensity?: number;
+    params?: Record<string, unknown>;
+  }>>;
+}
 
 export type CameraShot = 'close-up' | 'medium' | 'wide' | 'default';
 
@@ -52,6 +71,37 @@ export interface PromptCompilerInput {
   mode: PromptMode;
   /** Full preset library so we can resolve preset IDs to prompt text */
   presetLibrary: PresetDefinition[];
+  /** Style guide defaults: act as cascading defaults, node presets override */
+  styleGuide?: StyleGuideDefaults;
+  /** For voice mode: dialogue text to synthesize */
+  dialogueText?: string;
+  /** For voice mode: emotion label */
+  emotion?: string;
+  /** For music mode: genre, tempo, key, instrumentation */
+  musicConfig?: {
+    genre?: string;
+    tempo?: string;       // 'slow', 'moderate', 'fast', '120bpm'
+    key?: string;         // 'C minor', 'A major'
+    instrumentation?: string[];  // ['piano', 'strings', 'drums']
+    timeSignature?: string;       // '4/4', '3/4'
+  };
+  /** For sfx mode: spatial placement */
+  sfxPlacement?: 'close' | 'mid' | 'far';
+  /** Duration hint for audio generation */
+  durationSeconds?: number;
+}
+
+export interface PromptDiagnostic {
+  type: 'conflict' | 'duplicate' | 'budget_warning' | 'trimmed' | 'info';
+  severity: 'warning' | 'info';
+  message: string;
+  source?: string;
+}
+
+export interface PromptSegment {
+  source: string;  // 'user-text', 'character:id', 'location:id', 'preset:id', 'connected-text', 'equipment', 'ref-anchor'
+  text: string;
+  trimmed: boolean;
 }
 
 export interface CompiledPrompt {
@@ -59,6 +109,10 @@ export interface CompiledPrompt {
   negativePrompt?: string;
   referenceImages?: string[];
   params?: Record<string, unknown>;
+  diagnostics: PromptDiagnostic[];
+  segments: PromptSegment[];
+  wordCount: number;
+  budget: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +163,13 @@ const PRESET_STACK_ORDER: PresetCategory[] = [
   'flow',
   'technical',
 ];
+
+const CONFLICT_GROUPS: Record<string, string[]> = {
+  'scene:key-lighting': ['scene:high-key', 'scene:low-key', 'scene:chiaroscuro'],
+  'lens:focal-length': ['lens:ultra-wide-14mm', 'lens:wide-24mm', 'lens:telephoto-135mm', 'lens:long-telephoto-200mm', 'lens:macro'],
+  'camera:primary': ['camera:static-hold', 'camera:dolly-in', 'camera:dolly-out', 'camera:orbit-cw', 'camera:orbit-ccw', 'camera:pan-left', 'camera:pan-right'],
+  'look:base-style': ['look:cinematic-realism', 'look:anime-cel', 'look:comic-book', 'look:watercolor-ink', 'look:oil-paint', 'look:pixel-art'],
+};
 
 const I2V_ALLOWED_CATEGORIES: ReadonlySet<PresetCategory> = new Set<PresetCategory>([
   'camera',
@@ -298,19 +359,63 @@ function readPromptFragment(preset: PresetDefinition | undefined): string {
   return preset.prompt?.trim() ?? '';
 }
 
+export function resolveIntensityLevel(levels: PromptParamIntensityLevels, value: number): string {
+  const thresholds = [100, 75, 50, 25, 0] as const;
+  for (const t of thresholds) {
+    if (value >= t && levels[t]) return levels[t]!;
+  }
+  return '';
+}
+
+export function resolvePromptTemplate(
+  template: string,
+  paramDefs: PresetPromptParamDef[],
+  paramValues: Record<string, unknown>,
+): string {
+  let result = template;
+  for (const def of paramDefs) {
+    const value = paramValues[def.key] ?? def.default;
+    let phrase: string;
+    if (def.type === 'intensity' && def.levels) {
+      const numVal = typeof value === 'number' ? value : Number(value) || 0;
+      phrase = resolveIntensityLevel(def.levels, numVal);
+    } else {
+      phrase = String(value);
+    }
+    result = result.replace(new RegExp(`\\{${def.key}\\}`, 'g'), phrase);
+  }
+  return result;
+}
+
 function resolveEntryPrompt(
   entry: PresetTrackEntry,
   presetMap: Record<string, PresetDefinition>,
 ): string {
   const presetA = presetMap[entry.presetId];
-  const promptA = readPromptFragment(presetA);
 
+  // v2: try promptTemplate + promptParamDefs first
+  if (presetA?.promptTemplate && presetA.promptParamDefs?.length) {
+    const paramValues = { ...presetA.defaults, ...entry.params } as Record<string, unknown>;
+    const promptA = resolvePromptTemplate(presetA.promptTemplate, presetA.promptParamDefs, paramValues);
+
+    if (entry.blend) {
+      const presetB = presetMap[entry.blend.presetIdB];
+      const promptB = presetB?.promptTemplate && presetB.promptParamDefs?.length
+        ? resolvePromptTemplate(presetB.promptTemplate, presetB.promptParamDefs, { ...presetB.defaults, ...entry.blend.paramsB } as Record<string, unknown>)
+        : readPromptFragment(presetB);
+      return blendPromptFragments(promptA, promptB, entry.blend.factor);
+    }
+
+    return promptA;
+  }
+
+  // v1 fallback: use prompt/promptFragment
+  const promptA = readPromptFragment(presetA);
   if (entry.blend) {
     const presetB = presetMap[entry.blend.presetIdB];
     const promptB = readPromptFragment(presetB);
     return blendPromptFragments(promptA, promptB, entry.blend.factor);
   }
-
   return promptA;
 }
 
@@ -447,6 +552,99 @@ function applyIntensityAndDirection(
 }
 
 // ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+function detectConflicts(
+  presetTracks: PresetTrackSet | undefined,
+  presetMap: Record<string, PresetDefinition>,
+): PromptDiagnostic[] {
+  if (!presetTracks) return [];
+  const diagnostics: PromptDiagnostic[] = [];
+
+  // Check built-in conflict groups
+  for (const [groupName, memberIds] of Object.entries(CONFLICT_GROUPS)) {
+    const activeMembers: Array<{ presetId: string; intensity: number; category: PresetCategory }> = [];
+    for (const category of PRESET_STACK_ORDER) {
+      const track = presetTracks[category];
+      if (!track?.entries) continue;
+      for (const entry of track.entries) {
+        if (entry.enabled === false) continue;
+        if (memberIds.includes(entry.presetId)) {
+          const effective = computeEffectiveIntensity(track.intensity, entry.intensity);
+          activeMembers.push({ presetId: entry.presetId, intensity: effective, category });
+        }
+      }
+    }
+    if (activeMembers.length > 1) {
+      activeMembers.sort((a, b) => b.intensity - a.intensity);
+      const winner = activeMembers[0];
+      const losers = activeMembers.slice(1);
+      diagnostics.push({
+        type: 'conflict',
+        severity: 'warning',
+        message: `Conflicting presets in group "${groupName}": using ${winner.presetId} (${winner.intensity}%), skipping ${losers.map(l => l.presetId).join(', ')}`,
+        source: groupName,
+      });
+    }
+  }
+
+  // Also check preset-level conflictGroup field
+  const byGroup = new Map<string, Array<{ presetId: string; intensity: number }>>();
+  for (const category of PRESET_STACK_ORDER) {
+    const track = presetTracks[category];
+    if (!track?.entries) continue;
+    for (const entry of track.entries) {
+      if (entry.enabled === false) continue;
+      const preset = presetMap[entry.presetId];
+      if (preset?.conflictGroup) {
+        const effective = computeEffectiveIntensity(track.intensity, entry.intensity);
+        if (!byGroup.has(preset.conflictGroup)) byGroup.set(preset.conflictGroup, []);
+        byGroup.get(preset.conflictGroup)!.push({ presetId: entry.presetId, intensity: effective });
+      }
+    }
+  }
+  for (const [group, members] of byGroup) {
+    if (members.length > 1) {
+      members.sort((a, b) => b.intensity - a.intensity);
+      diagnostics.push({
+        type: 'conflict',
+        severity: 'warning',
+        message: `Conflicting presets in group "${group}": using ${members[0].presetId} (${members[0].intensity}%), skipping ${members.slice(1).map(m => m.presetId).join(', ')}`,
+        source: group,
+      });
+    }
+  }
+
+  return diagnostics;
+}
+
+function detectDuplicatePhrases(segments: PromptSegment[]): PromptDiagnostic[] {
+  const diagnostics: PromptDiagnostic[] = [];
+  const seen = new Map<string, string>(); // normalized phrase -> source
+
+  for (const seg of segments) {
+    // Split into phrases (3+ word groups)
+    const words = seg.text.toLowerCase().split(/\s+/).filter(Boolean);
+    for (let i = 0; i <= words.length - 3; i++) {
+      const phrase = words.slice(i, i + 3).join(' ');
+      if (seen.has(phrase) && seen.get(phrase) !== seg.source) {
+        diagnostics.push({
+          type: 'duplicate',
+          severity: 'info',
+          message: `Duplicate phrase "${phrase}" found in ${seg.source} and ${seen.get(phrase)}`,
+          source: seg.source,
+        });
+        break; // One duplicate per segment is enough
+      }
+      seen.set(phrase, seg.source);
+    }
+  }
+
+  return diagnostics;
+}
+
+// ---------------------------------------------------------------------------
 // Camera-aware character description
 // ---------------------------------------------------------------------------
 
@@ -466,8 +664,126 @@ function firstSentence(text: string): string {
   return match ? match[0].trim() : text.trim();
 }
 
-function buildCharacterDescription(resolved: ResolvedCharacter, shot: CameraShot): string {
+export function buildCharacterDescription(resolved: ResolvedCharacter, shot: CameraShot): string {
   const { character, equipment, emotion, costume } = resolved;
+
+  const hasStructured = !!(character.face || character.hair || character.body || character.skinTone);
+
+  if (hasStructured) {
+    const parts: string[] = [];
+
+    switch (shot) {
+      case 'close-up': {
+        parts.push(character.name);
+        // face details
+        if (character.face) {
+          const face = character.face;
+          const eyeParts: string[] = [];
+          if (face.eyeShape) eyeParts.push(face.eyeShape);
+          if (face.eyeColor) eyeParts.push(face.eyeColor);
+          if (eyeParts.length) parts.push(`${eyeParts.join(' ')} eyes`);
+          if (face.noseType) parts.push(`${face.noseType} nose`);
+          if (face.lipShape) parts.push(`${face.lipShape} lips`);
+          if (face.jawline) parts.push(`${face.jawline} jawline`);
+          if (face.definingFeatures) parts.push(face.definingFeatures);
+        }
+        // hair
+        if (character.hair) {
+          const hair = character.hair;
+          const hairParts: string[] = [];
+          if (hair.color) hairParts.push(hair.color);
+          if (hair.length) hairParts.push(hair.length);
+          if (hair.style) hairParts.push(hair.style);
+          if (hair.texture) hairParts.push(hair.texture);
+          if (hairParts.length) parts.push(hairParts.join(' '));
+        }
+        if (character.skinTone) parts.push(`${character.skinTone} skin`);
+        if (emotion) parts.push(`looking ${emotion}`);
+        if (character.distinctTraits?.length) {
+          parts.push(...character.distinctTraits);
+        }
+        break;
+      }
+      case 'medium': {
+        parts.push(character.name);
+        if (character.age) parts.push(`age ${character.age}`);
+        // face summary line
+        if (character.face) {
+          const face = character.face;
+          const eyeDesc = [face.eyeColor, face.eyeShape].filter(Boolean).join(' ');
+          if (eyeDesc) parts.push(`${eyeDesc} eyes`);
+          if (face.jawline) parts.push(`${face.jawline} face`);
+        }
+        // hair
+        if (character.hair) {
+          const hair = character.hair;
+          const hairParts: string[] = [];
+          if (hair.color) hairParts.push(hair.color);
+          if (hair.style) hairParts.push(hair.style);
+          if (hairParts.length) parts.push(hairParts.join(' '));
+        }
+        if (character.skinTone) parts.push(`${character.skinTone} skin`);
+        if (character.body?.build) parts.push(`${character.body.build} build`);
+        // costume with material/color/condition
+        const costumeObj = costume
+          ? character.costumes.find((c) => c.id === costume || c.name === costume)
+          : undefined;
+        if (costumeObj) {
+          parts.push(`wearing ${costumeObj.description || costumeObj.name}`);
+        }
+        // equipment names from loadout
+        if (equipment?.length) {
+          const eqNames = equipment.map((e) => e.name);
+          parts.push(`carrying ${eqNames.join(', ')}`);
+        }
+        break;
+      }
+      case 'wide': {
+        parts.push(character.name);
+        if (character.body?.build) parts.push(`${character.body.build} build`);
+        // one distinctive silhouette feature
+        if (character.hair) {
+          const hair = character.hair;
+          const hairParts: string[] = [];
+          if (hair.color) hairParts.push(hair.color);
+          if (hair.style) hairParts.push(hair.style);
+          if (hairParts.length) parts.push(`${hairParts.join(' ')} hair`);
+        }
+        if (character.distinctTraits?.length) {
+          parts.push(character.distinctTraits[0]);
+        }
+        break;
+      }
+      default: {
+        parts.push(character.name);
+        // face summary
+        if (character.face) {
+          const face = character.face;
+          const eyeDesc = [face.eyeColor, face.eyeShape].filter(Boolean).join(' ');
+          if (eyeDesc) parts.push(`${eyeDesc} eyes`);
+        }
+        if (character.hair) {
+          const hair = character.hair;
+          const hairParts: string[] = [];
+          if (hair.color) hairParts.push(hair.color);
+          if (hair.style) hairParts.push(hair.style);
+          if (hairParts.length) parts.push(hairParts.join(' '));
+        }
+        if (character.body?.build) parts.push(`${character.body.build} build`);
+        break;
+      }
+    }
+
+    // Add equipment for non-medium shots (medium already adds it above)
+    if (shot !== 'medium' && shot !== 'close-up' && equipment?.length) {
+      const eqNames = equipment.map((e) => e.name);
+      parts.push(`carrying ${eqNames.join(', ')}`);
+    }
+
+    return parts.filter(Boolean).join(', ');
+  }
+
+  // Fallback: v1 behavior using free-text appearance
   const parts: string[] = [];
 
   switch (shot) {
@@ -522,11 +838,16 @@ function buildLocationDescription(location: Location): string {
       : '';
   const nameSegment = typeLabel ? `${typeLabel} ${location.name}` : location.name;
   const timeSegment = location.timeOfDay ? ` at ${location.timeOfDay}` : '';
-  parts.push(`${nameSegment}${timeSegment}`);
+  let firstPart = `${nameSegment}${timeSegment}`;
+  if (location.architectureStyle) firstPart += `, ${location.architectureStyle}`;
+  parts.push(firstPart);
 
+  if (location.keyFeatures?.length) parts.push(location.keyFeatures.join(', '));
+  if (location.dominantColors?.length) parts.push(`dominated by ${location.dominantColors.join(' and ')} tones`);
   if (location.description) parts.push(location.description);
   if (location.lighting) parts.push(`${location.lighting} lighting`);
   if (location.mood) parts.push(`${location.mood} atmosphere`);
+  if (location.atmosphereKeywords?.length) parts.push(`${location.atmosphereKeywords.join(', ')} atmosphere`);
   if (location.weather) parts.push(location.weather);
 
   return parts.filter(Boolean).join('. ');
@@ -534,10 +855,439 @@ function buildLocationDescription(location: Location): string {
 
 function buildStandaloneEquipmentDescription(items: Equipment[]): string {
   const descriptions = items.map((item) => {
+    const detailParts: string[] = [];
+    if (item.material || item.color) {
+      const matColor = [item.material, item.color].filter(Boolean).join(' ');
+      if (matColor) detailParts.push(matColor);
+    }
+    if (item.condition) detailParts.push(`${item.condition} condition`);
+    if (item.visualDetails) detailParts.push(item.visualDetails);
+
+    if (detailParts.length) {
+      return `${item.name}: ${detailParts.join(', ')}`;
+    }
     if (item.description) return `${item.name}: ${firstSentence(item.description)}`;
     return item.name;
   });
   return `Props: ${descriptions.join(', ')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Style guide cascade
+// ---------------------------------------------------------------------------
+
+function applyStyleGuideDefaults(
+  tracks: PresetTrackSet | undefined,
+  styleGuide: StyleGuideDefaults | undefined,
+  presetMap: Record<string, PresetDefinition>,
+): PresetTrackSet | undefined {
+  if (!styleGuide) return tracks;
+
+  // Start with existing tracks or empty
+  const result = tracks ? { ...tracks } : createEmptyPresetTrackSet();
+
+  // Apply explicit defaultPresets for categories with no entries
+  if (styleGuide.defaultPresets) {
+    for (const [category, def] of Object.entries(styleGuide.defaultPresets) as Array<[PresetCategory, { presetId: string; intensity?: number; params?: Record<string, unknown> }]>) {
+      const track = result[category];
+      if (!track.entries.length && presetMap[def.presetId]) {
+        result[category] = {
+          ...track,
+          intensity: def.intensity ?? 100,
+          entries: [{
+            id: `sg-${category}-0`,
+            category: category as PresetCategory,
+            presetId: def.presetId,
+            params: (def.params ?? {}) as PresetParamMap,
+            order: 0,
+          }],
+        };
+      }
+    }
+  }
+
+  // Map artStyle → look preset (if look track is empty)
+  if (styleGuide.artStyle && !result.look.entries.length) {
+    const lookId = `look:${styleGuide.artStyle}`;
+    if (presetMap[lookId]) {
+      result.look = {
+        ...result.look,
+        entries: [{
+          id: 'sg-look-art',
+          category: 'look' as const,
+          presetId: lookId,
+          params: {} as PresetParamMap,
+          order: 0,
+        }],
+      };
+    }
+  }
+
+  // Map lighting → scene preset (if scene track is empty)
+  if (styleGuide.lighting && !result.scene.entries.length) {
+    const lightingMap: Record<string, string> = {
+      'natural': '',
+      'studio': 'scene:high-key',
+      'dramatic': 'scene:low-key',
+      'neon': 'scene:neon-noir',
+      'rim': 'scene:rim-light',
+      'golden-hour': 'scene:golden-hour',
+      'moonlit': 'scene:moonlit-night',
+    };
+    const sceneId = lightingMap[styleGuide.lighting];
+    if (sceneId && presetMap[sceneId]) {
+      result.scene = {
+        ...result.scene,
+        entries: [{
+          id: 'sg-scene-light',
+          category: 'scene' as const,
+          presetId: sceneId,
+          params: {} as PresetParamMap,
+          order: 0,
+        }],
+      };
+    }
+  }
+
+  // Map colorPalette → look preset (append if look track exists, else set)
+  if (styleGuide.colorPalette) {
+    const colorId = `look:${styleGuide.colorPalette}`;
+    if (presetMap[colorId] && !result.look.entries.some(e => e.presetId === colorId)) {
+      result.look = {
+        ...result.look,
+        entries: [
+          ...result.look.entries,
+          {
+            id: 'sg-look-color',
+            category: 'look' as const,
+            presetId: colorId,
+            params: {} as PresetParamMap,
+            order: result.look.entries.length,
+          },
+        ],
+      };
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Audio compilers (voice / music / sfx)
+// ---------------------------------------------------------------------------
+
+function compileVoice(input: PromptCompilerInput): CompiledPrompt {
+  const segments: PromptSegment[] = [];
+
+  // Character vocal traits
+  const character = input.characters?.[0]?.character;
+  if (character?.vocalTraits) {
+    const vt = character.vocalTraits;
+    const traitParts: string[] = [];
+    if (vt.pitch) traitParts.push(`${vt.pitch} voice`);
+    if (vt.accent) traitParts.push(`${vt.accent} accent`);
+    if (vt.cadence) traitParts.push(`${vt.cadence} cadence`);
+    if (traitParts.length) {
+      segments.push({ source: 'character:vocal', text: traitParts.join(', '), trimmed: false });
+    }
+  }
+
+  // Emotion
+  const emotion = input.emotion ?? input.characters?.[0]?.emotion;
+  if (emotion) {
+    segments.push({ source: 'emotion', text: `${emotion} tone`, trimmed: false });
+  }
+
+  // Dialogue text
+  if (input.dialogueText?.trim()) {
+    segments.push({ source: 'dialogue', text: input.dialogueText.trim(), trimmed: false });
+  } else if (input.prompt?.trim()) {
+    segments.push({ source: 'user-text', text: input.prompt.trim(), trimmed: false });
+  }
+
+  const prompt = segments.map(s => s.text).filter(Boolean).join('. ');
+
+  return {
+    prompt,
+    diagnostics: [],
+    segments,
+    wordCount: prompt.split(/\s+/).filter(Boolean).length,
+    budget: 0,
+  };
+}
+
+function compileMusic(input: PromptCompilerInput): CompiledPrompt {
+  const segments: PromptSegment[] = [];
+
+  // User prompt
+  if (input.prompt?.trim()) {
+    segments.push({ source: 'user-text', text: input.prompt.trim(), trimmed: false });
+  }
+
+  // Genre
+  if (input.musicConfig?.genre) {
+    segments.push({ source: 'music:genre', text: input.musicConfig.genre, trimmed: false });
+  }
+
+  // Tempo
+  if (input.musicConfig?.tempo) {
+    segments.push({ source: 'music:tempo', text: `${input.musicConfig.tempo} tempo`, trimmed: false });
+  }
+
+  // Key
+  if (input.musicConfig?.key) {
+    segments.push({ source: 'music:key', text: `key of ${input.musicConfig.key}`, trimmed: false });
+  }
+
+  // Time signature
+  if (input.musicConfig?.timeSignature) {
+    segments.push({ source: 'music:time', text: `${input.musicConfig.timeSignature} time`, trimmed: false });
+  }
+
+  // Instrumentation
+  if (input.musicConfig?.instrumentation?.length) {
+    segments.push({ source: 'music:instruments', text: `featuring ${input.musicConfig.instrumentation.join(', ')}`, trimmed: false });
+  }
+
+  // Scene mood from location or emotion presets
+  if (input.locations?.[0]?.mood) {
+    segments.push({ source: 'location:mood', text: `${input.locations[0].mood} mood`, trimmed: false });
+  }
+
+  // Duration
+  if (input.durationSeconds) {
+    segments.push({ source: 'duration', text: `${input.durationSeconds} seconds`, trimmed: false });
+  }
+
+  const prompt = segments.map(s => s.text).filter(Boolean).join(', ');
+
+  return {
+    prompt,
+    diagnostics: [],
+    segments,
+    wordCount: prompt.split(/\s+/).filter(Boolean).length,
+    budget: 0,
+  };
+}
+
+function compileSfx(input: PromptCompilerInput): CompiledPrompt {
+  const segments: PromptSegment[] = [];
+
+  // User prompt (action/sound description)
+  if (input.prompt?.trim()) {
+    segments.push({ source: 'user-text', text: input.prompt.trim(), trimmed: false });
+  }
+
+  // Environment from location
+  if (input.locations?.[0]) {
+    const loc = input.locations[0];
+    const envParts: string[] = [];
+    if (loc.type) envParts.push(loc.type);
+    if (loc.name) envParts.push(loc.name);
+    if (loc.atmosphereKeywords?.length) envParts.push(loc.atmosphereKeywords.join(', '));
+    if (envParts.length) {
+      segments.push({ source: 'location:env', text: `in ${envParts.join(', ')}`, trimmed: false });
+    }
+  }
+
+  // Material from equipment
+  if (input.equipmentItems?.length) {
+    const materials = input.equipmentItems
+      .filter(eq => eq.material)
+      .map(eq => `${eq.material} ${eq.name}`);
+    if (materials.length) {
+      segments.push({ source: 'equipment:material', text: materials.join(', '), trimmed: false });
+    }
+  }
+
+  // Spatial placement
+  if (input.sfxPlacement) {
+    const placementMap: Record<string, string> = {
+      close: 'close-up, intimate proximity',
+      mid: 'medium distance',
+      far: 'distant, ambient',
+    };
+    segments.push({ source: 'sfx:placement', text: placementMap[input.sfxPlacement] ?? input.sfxPlacement, trimmed: false });
+  }
+
+  // Duration
+  if (input.durationSeconds) {
+    segments.push({ source: 'duration', text: `${input.durationSeconds} seconds`, trimmed: false });
+  }
+
+  const prompt = segments.map(s => s.text).filter(Boolean).join(', ');
+
+  return {
+    prompt,
+    diagnostics: [],
+    segments,
+    wordCount: prompt.split(/\s+/).filter(Boolean).length,
+    budget: 0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Character-sheet compiler
+// ---------------------------------------------------------------------------
+
+function compileCharacterSheet(
+  input: PromptCompilerInput,
+  presetMap: Record<string, PresetDefinition>,
+): CompiledPrompt {
+  const character = input.characters?.[0]?.character;
+  if (!character) {
+    return { prompt: '', diagnostics: [], segments: [], wordCount: 0, budget: 0 };
+  }
+
+  const resolved = input.characters![0];
+  const sections: string[] = [];
+
+  // 1. Header
+  sections.push('Create a professional character turnaround and expression sheet.');
+
+  // 2. SUBJECT
+  const subjectParts: string[] = [];
+  const genderLabel = character.gender ?? 'person';
+  const ageLabel = character.age ? `${character.age}` : '';
+  subjectParts.push(`A consistent original character named ${character.name}, a ${ageLabel} ${genderLabel}, with:`);
+
+  if (character.face) {
+    const faceParts: string[] = [];
+    if (character.face.eyeShape && character.face.eyeColor) faceParts.push(`${character.face.eyeShape} ${character.face.eyeColor} eyes`);
+    else if (character.face.eyeColor) faceParts.push(`${character.face.eyeColor} eyes`);
+    if (character.face.noseType) faceParts.push(`${character.face.noseType} nose`);
+    if (character.face.lipShape) faceParts.push(`${character.face.lipShape} lips`);
+    if (character.face.jawline) faceParts.push(`${character.face.jawline} jawline`);
+    if (character.face.definingFeatures) faceParts.push(character.face.definingFeatures);
+    if (faceParts.length) subjectParts.push(`- Face: ${faceParts.join(', ')}`);
+  }
+
+  if (character.hair) {
+    const hairParts: string[] = [];
+    if (character.hair.color) hairParts.push(character.hair.color);
+    if (character.hair.style) hairParts.push(character.hair.style);
+    if (character.hair.length) hairParts.push(character.hair.length);
+    if (character.hair.texture) hairParts.push(character.hair.texture);
+    if (hairParts.length) subjectParts.push(`- Hair: ${hairParts.join(', ')}`);
+  }
+
+  if (character.skinTone) subjectParts.push(`- Skin tone: ${character.skinTone}`);
+
+  if (character.body) {
+    const bodyParts: string[] = [];
+    if (character.body.height) bodyParts.push(character.body.height);
+    if (character.body.build) bodyParts.push(character.body.build);
+    if (character.body.proportions) bodyParts.push(character.body.proportions);
+    if (bodyParts.length) subjectParts.push(`- Body type: ${bodyParts.join(', ')}`);
+  }
+
+  if (character.distinctTraits?.length) {
+    subjectParts.push(`- Distinct traits: ${character.distinctTraits.join(', ')}`);
+  }
+
+  // Fallback if no structured fields
+  if (subjectParts.length <= 1 && character.appearance) {
+    subjectParts.push(character.appearance);
+  }
+
+  sections.push(`\nSUBJECT (Character Identity):\n${subjectParts.join('\n')}`);
+
+  // 3. OUTFIT from loadout
+  const outfitParts: string[] = [];
+  if (resolved.equipment?.length) {
+    for (const eq of resolved.equipment) {
+      const details: string[] = [eq.name];
+      if (eq.material) details.push(eq.material);
+      if (eq.color) details.push(eq.color);
+      if (eq.condition) details.push(eq.condition);
+      if (eq.visualDetails) details.push(eq.visualDetails);
+      if (!eq.material && !eq.color && eq.description) details.push(eq.description);
+      outfitParts.push(details.join(', '));
+    }
+  }
+  // Also check costumes
+  if (resolved.costume) {
+    const costumeObj = character.costumes.find(c => c.id === resolved.costume || c.name === resolved.costume);
+    if (costumeObj?.description) {
+      outfitParts.unshift(costumeObj.description);
+    }
+  }
+  if (outfitParts.length) {
+    sections.push(`\nOUTFIT (locked for consistency):\nCharacter wears:\n${outfitParts.join('\n')}\nRepeat exact outfit details to maintain consistency across all views.`);
+  }
+
+  // 4. POSE & TURNAROUND
+  sections.push(`\nPOSE & TURNAROUND (main sheet):
+Display the SAME character (identical design, no variation) in:
+- Front view (neutral pose, arms slightly away from body)
+- Side view (facing right)
+- Back view
+- 3/4 view (slightly rotated)
+
+All views must:
+- Match perfectly in proportions, clothing, hairstyle, and colors
+- Be aligned evenly in a clean horizontal layout
+- Look like the same model rotated in space`);
+
+  // 5. EXPRESSION SHEET
+  sections.push(`\nEXPRESSION SHEET (face close-ups):
+Include detailed headshots showing:
+- Neutral
+- Happy
+- Sad
+- Angry
+- Surprised
+- Confident
+
+Faces must remain structurally identical across emotions.`);
+
+  // 6. STYLE (from look preset or input)
+  let styleText = 'Highly detailed, professional character design sheet, studio quality';
+  const lookTrack = input.presetTracks?.look;
+  if (lookTrack?.entries?.length) {
+    const firstLook = presetMap[lookTrack.entries[0].presetId];
+    if (firstLook) {
+      styleText = `${firstLook.name} style. ${styleText}`;
+    }
+  }
+  sections.push(`\nSTYLE:\n${styleText}`);
+
+  // 7. LIGHTING
+  sections.push(`\nLIGHTING:
+Neutral, even studio lighting
+No dramatic shadows (to preserve true colors and details)`);
+
+  // 8. COMPOSITION
+  sections.push(`\nCOMPOSITION:
+- Orthographic-style reference sheet
+- Clean white or neutral background
+- Symmetrical layout, evenly spaced
+- Full body visible in all views + separate face panel`);
+
+  // 9. COLOR & RENDER
+  sections.push(`\nCOLOR & RENDER QUALITY:
+Sharp focus, ultra-detailed textures, consistent color grading
+Production-ready, animation/model sheet quality`);
+
+  // 10. NEGATIVE
+  const negativePrompt = 'No style variation, no redesign, no extra limbs, no distorted anatomy, no inconsistent face, no changing outfit, no blur, no noise, no text, no watermark';
+
+  // 11. TECHNICAL
+  sections.push(`\nTECHNICAL:
+Aspect ratio 16:9
+High resolution, 4K or higher`);
+
+  const referenceImages = collectReferenceImages(input);
+
+  return {
+    prompt: sections.join('\n'),
+    negativePrompt,
+    referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+    diagnostics: [],
+    segments: [{ source: 'character-sheet', text: sections.join('\n'), trimmed: false }],
+    wordCount: sections.join('\n').split(/\s+/).filter(Boolean).length,
+    budget: 0, // no budget for character sheets
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +1297,25 @@ function buildStandaloneEquipmentDescription(items: Equipment[]): string {
 export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const presetMap = buildPresetMap(input.presetLibrary);
   const budget = getBudget(input.providerId);
-  const segments: string[] = [];
+
+  if (input.mode === 'character-sheet') {
+    return compileCharacterSheet(input, presetMap);
+  }
+
+  if (input.mode === 'voice') {
+    return compileVoice(input);
+  }
+  if (input.mode === 'music') {
+    return compileMusic(input);
+  }
+  if (input.mode === 'sfx') {
+    return compileSfx(input);
+  }
+
+  // Apply style guide defaults to empty preset tracks
+  const effectivePresetTracks = applyStyleGuideDefaults(input.presetTracks, input.styleGuide, presetMap);
+
+  const trackedSegments: PromptSegment[] = [];
   const negativeSegments: string[] = [];
   const adapterParams: Record<string, unknown> = {};
   const referenceImages = collectReferenceImages(input);
@@ -557,7 +1325,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     const normalized =
       input.mode === 'image-to-video' ? stripForImageToVideo(input.prompt) : normalizeTextSegment(input.prompt);
     if (normalized) {
-      segments.push(normalized);
+      trackedSegments.push({ source: 'user-text', text: normalized, trimmed: false });
     }
   }
 
@@ -566,7 +1334,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     for (const text of input.connectedTextContent) {
       const trimmed =
         input.mode === 'image-to-video' ? stripForImageToVideo(text) : normalizeTextSegment(text);
-      if (trimmed) segments.push(trimmed);
+      if (trimmed) trackedSegments.push({ source: 'connected-text', text: trimmed, trimmed: false });
     }
   }
 
@@ -574,42 +1342,55 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   if (input.locations?.length) {
     for (const location of input.locations) {
       const desc = buildLocationDescription(location);
-      if (desc) segments.push(desc);
+      if (desc) trackedSegments.push({ source: 'location:' + location.id, text: desc, trimmed: false });
     }
   } else if (input.locationRefs?.length) {
     const locations = input.locationRefs
       .map((ref) => ref.locationId?.trim())
       .filter((value): value is string => Boolean(value));
     if (locations.length) {
-      segments.push(`Location: ${locations.join(', ')}`);
+      trackedSegments.push({ source: 'location', text: `Location: ${locations.join(', ')}`, trimmed: false });
     }
   }
 
   // 4. Character descriptions (camera-aware or fallback to ID)
   if (input.characters?.length) {
-    const shot = getCameraShot(input.presetTracks);
+    const shot = getCameraShot(effectivePresetTracks);
     for (const resolved of input.characters) {
       const desc = buildCharacterDescription(resolved, shot);
-      if (desc) segments.push(desc);
+      if (desc) trackedSegments.push({ source: 'character:' + resolved.character.id, text: desc, trimmed: false });
     }
   } else if (input.characterRefs?.length) {
     const characters = input.characterRefs
       .map((ref) => ref.characterId?.trim())
       .filter((value): value is string => Boolean(value));
     if (characters.length) {
-      segments.push(`Characters: ${characters.join(', ')}`);
+      trackedSegments.push({ source: 'character', text: `Characters: ${characters.join(', ')}`, trimmed: false });
+    }
+  }
+
+  // 4b. Reference image text anchors
+  if (input.characters?.length) {
+    for (const resolved of input.characters) {
+      const hasRefImages = resolved.character.referenceImages?.some(img => img.assetHash);
+      if (hasRefImages) {
+        const costumeName = resolved.costume
+          ? resolved.character.costumes.find(c => c.id === resolved.costume || c.name === resolved.costume)?.name ?? 'default outfit'
+          : 'default outfit';
+        trackedSegments.push({ source: 'ref-anchor', text: `(reference image: ${resolved.character.name}, ${costumeName})`, trimmed: false });
+      }
     }
   }
 
   // 5. Standalone equipment (rich or fallback to ID)
   if (input.equipmentItems?.length) {
-    segments.push(buildStandaloneEquipmentDescription(input.equipmentItems));
+    trackedSegments.push({ source: 'equipment', text: buildStandaloneEquipmentDescription(input.equipmentItems), trimmed: false });
   } else if (input.equipmentRefs?.length) {
     const equipment = input.equipmentRefs
       .map((value) => typeof value === 'string' ? value.trim() : value.equipmentId.trim())
       .filter(Boolean);
     if (equipment.length) {
-      segments.push(`Equipment: ${equipment.join(', ')}`);
+      trackedSegments.push({ source: 'equipment', text: `Equipment: ${equipment.join(', ')}`, trimmed: false });
     }
   }
 
@@ -620,7 +1401,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
         continue;
       }
 
-      const track = input.presetTracks?.[category];
+      const track = effectivePresetTracks?.[category];
       if (!track || !track.entries || track.entries.length === 0) continue;
 
       const withIntensity = track.entries
@@ -635,7 +1416,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
       for (const { entry, effective } of withIntensity) {
         const fragment = resolveEntryPrompt(entry, presetMap);
         if (fragment) {
-          segments.push(applyIntensityAndDirection(fragment, effective, entry.direction));
+          trackedSegments.push({ source: 'preset:' + entry.presetId, text: applyIntensityAndDirection(fragment, effective, entry.direction), trimmed: false });
         }
 
         const preset = presetMap[entry.presetId];
@@ -648,7 +1429,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   // 4. Collect negative prompts from presets
   {
     for (const category of PRESET_STACK_ORDER) {
-      const track = input.presetTracks?.[category];
+      const track = effectivePresetTracks?.[category];
       if (!track || !track.entries) continue;
       for (const entry of track.entries) {
         const preset = presetMap[entry.presetId];
@@ -660,13 +1441,55 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
+  // Style coherence footer — only reference style fields that were actually applied
+  if (input.styleGuide?.artStyle || input.styleGuide?.colorPalette) {
+    const styleParts: string[] = [];
+    const artStyleApplied =
+      input.styleGuide.artStyle &&
+      effectivePresetTracks?.look.entries.some(e => e.id === 'sg-look-art');
+    const colorPaletteApplied =
+      input.styleGuide.colorPalette &&
+      effectivePresetTracks?.look.entries.some(e => e.id === 'sg-look-color');
+    if (artStyleApplied) styleParts.push(input.styleGuide.artStyle!.replace(/-/g, ' '));
+    if (colorPaletteApplied) styleParts.push(`${input.styleGuide.colorPalette!.replace(/-/g, ' ')} color palette`);
+    if (styleParts.length) {
+      trackedSegments.push({
+        source: 'style-guide',
+        text: `Maintain consistent ${styleParts.join(' with ')} visual language throughout`,
+        trimmed: false,
+      });
+    }
+  }
+
   // 5. Assemble final prompt with word budget trimming
-  const rawPrompt = segments
-    .map((segment) => normalizeTextSegment(segment))
-    .filter(Boolean)
-    .join('. ')
-    .replace(/\.\s*\./g, '. ');
+  const diagnostics: PromptDiagnostic[] = [];
+
+  // Conflict detection
+  diagnostics.push(...detectConflicts(effectivePresetTracks, presetMap));
+
+  // Duplicate detection
+  diagnostics.push(...detectDuplicatePhrases(trackedSegments));
+
+  // Budget pre-check
+  const rawPrompt = trackedSegments.map(s => normalizeTextSegment(s.text)).filter(Boolean).join('. ').replace(/\.\s*\./g, '. ');
+  const wordCount = rawPrompt.split(/\s+/).filter(Boolean).length;
+  if (wordCount > budget.positive) {
+    diagnostics.push({
+      type: 'budget_warning',
+      severity: 'warning',
+      message: `Prompt has ${wordCount} words, budget is ${budget.positive}. ${wordCount - budget.positive} words will be trimmed.`,
+    });
+  }
   const prompt = trimToWordBudget(rawPrompt, budget.positive);
+
+  // Mark trimmed segments
+  const promptWords = prompt.split(/\s+/).filter(Boolean).length;
+  let runningWords = 0;
+  for (const seg of trackedSegments) {
+    const segWords = seg.text.split(/\s+/).filter(Boolean).length;
+    runningWords += segWords;
+    seg.trimmed = runningWords > promptWords;
+  }
 
   const rawNegative = Array.from(new Set(negativeSegments)).join(', ');
   const negativePrompt = rawNegative
@@ -680,5 +1503,9 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     negativePrompt,
     referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
     params,
+    diagnostics,
+    segments: trackedSegments,
+    wordCount,
+    budget: budget.positive,
   };
 }

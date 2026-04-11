@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
-import { ChevronDown, ChevronUp, Plus, Search, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Search, Settings2, Trash2 } from 'lucide-react';
 import {
   addNodePresetTrackEntry,
   moveNodePresetTrackEntry,
@@ -10,7 +10,13 @@ import {
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizePresetName } from '../../i18n.js';
-import type { PresetCategory, PresetDefinition, PresetTrack } from '@lucid-fin/contracts';
+import type {
+  PresetCategory,
+  PresetDefinition,
+  PresetPromptParamDef,
+  PresetTrack,
+  PresetTrackEntry,
+} from '@lucid-fin/contracts';
 
 interface InspectorTrackEditorProps {
   nodeId: string;
@@ -24,6 +30,93 @@ function createEntryId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Resolves the nearest intensity level label for a given slider value. */
+function resolveIntensityLabel(
+  levels: Partial<Record<0 | 25 | 50 | 75 | 100, string>>,
+  value: number,
+): string {
+  const thresholds = [0, 25, 50, 75, 100] as const;
+  let best = '';
+  for (const t of thresholds) {
+    if (levels[t] && t <= value) best = levels[t]!;
+  }
+  return best || '';
+}
+
+function PresetParamControl({
+  paramDef,
+  value,
+  onChange,
+}: {
+  paramDef: PresetPromptParamDef;
+  value: number | string | undefined;
+  onChange: (key: string, val: number | string) => void;
+}) {
+  if (paramDef.type === 'intensity') {
+    const numValue = typeof value === 'number' ? value : paramDef.default as number;
+    const label = paramDef.levels ? resolveIntensityLabel(paramDef.levels, numValue) : '';
+    return (
+      <div className="space-y-0.5">
+        <div className="flex items-center justify-between gap-1">
+          <span className="text-[10px] text-muted-foreground">{paramDef.label}</span>
+          <span className="text-[10px] tabular-nums text-foreground">{numValue}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={numValue}
+          onChange={(e) => onChange(paramDef.key, Number(e.target.value))}
+          className="h-1 w-full cursor-pointer accent-primary"
+        />
+        {label ? (
+          <div className="truncate text-[9px] text-muted-foreground/70">{label}</div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (paramDef.type === 'select' && paramDef.options) {
+    const strValue = typeof value === 'string' ? value : paramDef.default as string;
+    return (
+      <div className="space-y-0.5">
+        <span className="text-[10px] text-muted-foreground">{paramDef.label}</span>
+        <select
+          value={strValue}
+          onChange={(e) => onChange(paramDef.key, e.target.value)}
+          className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-primary"
+        >
+          {paramDef.options.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  if (paramDef.type === 'number') {
+    const numValue = typeof value === 'number' ? value : paramDef.default as number;
+    return (
+      <div className="space-y-0.5">
+        <span className="text-[10px] text-muted-foreground">{paramDef.label}</span>
+        <input
+          type="number"
+          min={paramDef.min}
+          max={paramDef.max}
+          value={numValue}
+          onChange={(e) => onChange(paramDef.key, Number(e.target.value))}
+          className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export function InspectorTrackEditor({
   nodeId,
   category,
@@ -35,6 +128,7 @@ export function InspectorTrackEditor({
   const { t } = useI18n();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set());
 
   const filteredPresets = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -68,6 +162,29 @@ export function InspectorTrackEditor({
     [category, dispatch, nodeId, track.entries.length],
   );
 
+  const toggleExpanded = useCallback((entryId: string) => {
+    setExpandedEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  }, []);
+
+  const handleParamChange = useCallback(
+    (entry: PresetTrackEntry, key: string, value: number | string) => {
+      dispatch(
+        updateNodePresetTrackEntry({
+          id: nodeId,
+          category,
+          entryId: entry.id,
+          changes: { params: { ...entry.params, [key]: value } },
+        }),
+      );
+    },
+    [category, dispatch, nodeId],
+  );
+
   return (
     <div className="rounded-md border border-border/60 bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-2.5 py-1.5">
@@ -79,6 +196,9 @@ export function InspectorTrackEditor({
       <div className="space-y-1.5 p-2.5">
         {track.entries.map((entry, index) => {
           const preset = presetById[entry.presetId];
+          const paramDefs = preset?.promptParamDefs;
+          const hasParams = paramDefs && paramDefs.length > 0;
+          const isExpanded = expandedEntries.has(entry.id);
 
           return (
             <div
@@ -90,6 +210,19 @@ export function InspectorTrackEditor({
                   {preset ? localizePresetName(preset.name) : entry.presetId}
                 </span>
                 <div className="flex items-center gap-1">
+                  {hasParams ? (
+                    <button
+                      type="button"
+                      className={cn(
+                        'rounded-md border border-border/60 px-1.5 py-0.5 text-[11px] transition-colors hover:bg-muted',
+                        isExpanded && 'bg-primary/10 border-primary/30',
+                      )}
+                      onClick={() => toggleExpanded(entry.id)}
+                      aria-label="Toggle parameters"
+                    >
+                      <Settings2 className="h-3 w-3" />
+                    </button>
+                  ) : null}
                   <input
                     type="number"
                     min={0}
@@ -167,6 +300,23 @@ export function InspectorTrackEditor({
                   </button>
                 </div>
               </div>
+
+              {hasParams && isExpanded ? (
+                <div className="mt-2 space-y-2 border-t border-border/40 pt-2">
+                  {paramDefs.map((pd) => {
+                    const raw = entry.params[pd.key];
+                    const val = typeof raw === 'boolean' ? undefined : raw;
+                    return (
+                      <PresetParamControl
+                        key={pd.key}
+                        paramDef={pd}
+                        value={val}
+                        onChange={(key, v) => handleParamChange(entry, key, v)}
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           );
         })}
