@@ -572,7 +572,7 @@ export class AgentOrchestrator {
   ): Promise<LLMCompletionResult> {
     const domains = detectDomains(userMessage, context.page);
     const allTools = context.page ? this.tools.forContext(context.page) : this.tools.list();
-    const loadedToolNames = getToolNamesForDomains(domains, allTools);
+    const loadedToolNames = new Set(allTools.map((t) => t.name));
     const discoveredToolNames = new Set<string>();
     const systemPrompt = this.buildSystemPrompt(context, domains);
     const history = pruneHistory(options?.history);
