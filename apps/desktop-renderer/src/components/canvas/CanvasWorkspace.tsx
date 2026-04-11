@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { FileText, Image, Music, Plus, SquareDashedBottom, Video } from 'lucide-react';
 import {
   ReactFlow,
   Background,
@@ -8,6 +7,7 @@ import {
   ConnectionMode,
   ConnectionLineType,
   useReactFlow,
+  applyNodeChanges,
   type NodeTypes,
   type EdgeTypes,
   type OnNodesChange,
@@ -497,56 +497,6 @@ function toFlowEdge(
   };
 }
 
-// ---- Node creation palette ---------------------------------------------------
-
-const NODE_PALETTE_ITEMS: Array<{ type: CanvasNodeType; icon: typeof Plus; label: string }> = [
-  { type: 'image', icon: Image, label: 'canvas.nodeType.image' },
-  { type: 'video', icon: Video, label: 'canvas.nodeType.video' },
-  { type: 'audio', icon: Music, label: 'canvas.nodeType.audio' },
-  { type: 'text', icon: FileText, label: 'canvas.nodeType.text' },
-  { type: 'backdrop', icon: SquareDashedBottom, label: 'canvas.nodeType.backdrop' },
-];
-
-function NodeCreationPalette({ onAdd }: { onAdd: (type: CanvasNodeType) => void }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="absolute bottom-4 left-4 z-30">
-      {open && (
-        <div className="mb-1.5 flex flex-col gap-1 rounded-lg border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
-          {NODE_PALETTE_ITEMS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.type}
-                type="button"
-                onClick={() => { onAdd(item.type); setOpen(false); }}
-                className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {t(item.label)}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'inline-flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition-colors',
-          open
-            ? 'bg-primary text-primary-foreground rotate-45'
-            : 'bg-card/95 border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground backdrop-blur-sm',
-        )}
-        aria-label={t('toolbar.add')}
-      >
-        <Plus className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
-
 // ---- Main component --------------------------------------------------------
 
 export function CanvasWorkspace() {
@@ -967,6 +917,15 @@ export function CanvasWorkspace() {
     ],
   );
 
+  // ReactFlow needs dimension changes applied to nodes for drag/selection to work.
+  // We track applied nodes in local state, resetting from Redux when flowNodes change.
+  const [appliedNodes, setAppliedNodes] = useState<Node[]>(flowNodes);
+  const prevFlowNodesRef = useRef(flowNodes);
+  if (prevFlowNodesRef.current !== flowNodes) {
+    prevFlowNodesRef.current = flowNodes;
+    setAppliedNodes(flowNodes);
+  }
+
   const targetSummaryByNodeId = useMemo(() => {
     const summary: Record<string, string> = {};
     for (const node of flowNodes) {
@@ -978,9 +937,13 @@ export function CanvasWorkspace() {
     return summary;
   }, [flowNodes]);
 
-  const flowEdges = useMemo<Edge[]>(
-    () =>
-      (canvas?.edges ?? []).map((edge) => {
+  const flowEdges = useMemo<Edge[]>(() => {
+      const seen = new Set<string>();
+      return (canvas?.edges ?? []).filter((edge) => {
+        if (seen.has(edge.id)) return false;
+        seen.add(edge.id);
+        return true;
+      }).map((edge) => {
         const dependencyRole =
           edge.source === dependencyFocusNodeId || edge.target === dependencyFocusNodeId
             ? 'focus'
@@ -1007,7 +970,8 @@ export function CanvasWorkspace() {
         );
         rfEdge.selected = selectedEdgeIds.includes(edge.id);
         return rfEdge;
-      }),
+      });
+    },
     [
       canvas?.edges,
       dependencyFocusNodeId,
@@ -1027,7 +991,11 @@ export function CanvasWorkspace() {
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => {
-      // Apply position changes to Redux
+      // Apply ALL changes to local flow state so ReactFlow can track
+      // measured dimensions, which is required for drag/selection to work.
+      setAppliedNodes((prev) => applyNodeChanges(changes, prev));
+
+      // Sync relevant changes back to Redux (source of truth for persistence)
       for (const change of changes) {
         if (change.type === 'position' && change.position) {
           // Backdrop group drag: move contained nodes with it
@@ -1081,9 +1049,6 @@ export function CanvasWorkspace() {
         }
         if (change.type === 'remove') {
           dispatch(removeNodes([change.id]));
-        }
-        if (change.type === 'select') {
-          // handled in onSelectionChange
         }
       }
     },
@@ -1406,10 +1371,8 @@ export function CanvasWorkspace() {
         {canvasViewMode === 'materials' && <MaterialsView />}
         {canvasViewMode === 'main' && (
         <>
-        {/* Node creation palette */}
-        <NodeCreationPalette onAdd={(type) => handleAddNode(type, { x: window.innerWidth / 2, y: window.innerHeight / 2 })} />
         <ReactFlow
-          nodes={flowNodes}
+          nodes={appliedNodes}
           edges={flowEdges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}

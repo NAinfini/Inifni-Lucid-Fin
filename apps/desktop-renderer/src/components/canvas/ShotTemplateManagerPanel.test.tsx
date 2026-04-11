@@ -21,7 +21,6 @@ function createCustomTemplate(): ShotTemplate {
     tracks: {
       camera: {
         category: 'camera',
-        aiDecide: false,
         intensity: 70,
         entries: [
           {

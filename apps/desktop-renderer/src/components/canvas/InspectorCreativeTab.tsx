@@ -43,8 +43,6 @@ interface InspectorCreativeTabProps {
   onApplyTemplate: (template: ShotTemplate) => void;
   localizeShotTemplateName: LocalizeTemplateName;
   localizeShotTemplateDescription: LocalizeTemplateDescription;
-  allTracksAiDecide: boolean;
-  onToggleAllTracksAiDecide: (checked: boolean) => void;
   trackGrid: ReactNode;
   backdropControls?: BackdropControls;
   textCharCount?: number;
@@ -109,8 +107,6 @@ export function InspectorCreativeTab({
   onApplyTemplate,
   localizeShotTemplateName,
   localizeShotTemplateDescription,
-  allTracksAiDecide,
-  onToggleAllTracksAiDecide,
   trackGrid,
   backdropControls,
   textCharCount,
@@ -274,18 +270,10 @@ export function InspectorCreativeTab({
             )}
           </div>
 
-          <div className="flex items-center justify-between pt-0.5">
+          <div className="pt-0.5">
             <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
               {t('inspector.presetTracks')}
             </div>
-            <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={allTracksAiDecide}
-                onChange={(event) => onToggleAllTracksAiDecide(event.target.checked)}
-              />
-              {allTracksAiDecide ? t('inspector.deselectAll') : t('inspector.selectAll')}
-            </label>
           </div>
           <div className="grid grid-cols-2 gap-1.5">{trackGrid}</div>
         </div>

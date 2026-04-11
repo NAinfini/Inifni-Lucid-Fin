@@ -21,56 +21,6 @@ function clearAppliedShotTemplate(
 }
 
 // ---------------------------------------------------------------------------
-// Track AI decide
-// ---------------------------------------------------------------------------
-
-export function setNodeTrackAiDecide(
-  state: CanvasSliceState,
-  action: PayloadAction<{ id: string; category: PresetCategory; aiDecide: boolean }>,
-): void {
-  const canvas = findActiveCanvas(state);
-  if (!canvas) return;
-  const node = canvas.nodes.find((n) => n.id === action.payload.id);
-  if (!node || (node.type !== 'image' && node.type !== 'video')) return;
-  const data = ensureNodePresetTracks(node);
-  if (!data.presetTracks[action.payload.category]) {
-    data.presetTracks[action.payload.category] = {
-      category: action.payload.category,
-      aiDecide: false,
-      entries: [],
-    };
-  }
-  const track = data.presetTracks[action.payload.category];
-  track.aiDecide = action.payload.aiDecide;
-  track.entries.forEach((entry) => {
-    entry.aiDecide = action.payload.aiDecide;
-  });
-  clearAppliedShotTemplate(data);
-  node.updatedAt = Date.now();
-  canvas.updatedAt = node.updatedAt;
-}
-
-export function setAllTracksAiDecide(
-  state: CanvasSliceState,
-  action: PayloadAction<{ id: string; aiDecide: boolean }>,
-): void {
-  const canvas = findActiveCanvas(state);
-  if (!canvas) return;
-  const node = canvas.nodes.find((n) => n.id === action.payload.id);
-  if (!node || (node.type !== 'image' && node.type !== 'video')) return;
-  const data = ensureNodePresetTracks(node);
-  Object.values(data.presetTracks).forEach((track) => {
-    track.aiDecide = action.payload.aiDecide;
-    track.entries.forEach((entry) => {
-      entry.aiDecide = action.payload.aiDecide;
-    });
-  });
-  clearAppliedShotTemplate(data);
-  node.updatedAt = Date.now();
-  canvas.updatedAt = node.updatedAt;
-}
-
-// ---------------------------------------------------------------------------
 // Shot template
 // ---------------------------------------------------------------------------
 
@@ -90,7 +40,6 @@ export function applyNodeShotTemplate(
     if (tmplTrack) {
       (data.presetTracks as TrackMap)[cat] = {
         category: cat,
-        aiDecide: false,
         intensity: tmplTrack.intensity,
         entries: tmplTrack.entries.map((e, i) => ({
           ...e,
@@ -122,7 +71,6 @@ export function addNodePresetTrackEntry(
   if (!data.presetTracks[action.payload.category]) {
     data.presetTracks[action.payload.category] = {
       category: action.payload.category,
-      aiDecide: false,
       entries: [],
     };
   }
@@ -155,7 +103,6 @@ export function updateNodePresetTrackEntry(
   if (!data.presetTracks[action.payload.category]) {
     data.presetTracks[action.payload.category] = {
       category: action.payload.category,
-      aiDecide: false,
       entries: [],
     };
   }
@@ -181,7 +128,6 @@ export function removeNodePresetTrackEntry(
   if (!data.presetTracks[action.payload.category]) {
     data.presetTracks[action.payload.category] = {
       category: action.payload.category,
-      aiDecide: false,
       entries: [],
     };
   }
@@ -210,7 +156,6 @@ export function moveNodePresetTrackEntry(
   if (!data.presetTracks[action.payload.category]) {
     data.presetTracks[action.payload.category] = {
       category: action.payload.category,
-      aiDecide: false,
       entries: [],
     };
   }

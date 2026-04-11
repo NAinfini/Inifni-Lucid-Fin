@@ -1,7 +1,5 @@
 import { useState } from 'react';
-import { useDispatch } from 'react-redux';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
-import { setNodeTrackAiDecide } from '../../store/slices/canvas.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizePresetName } from '../../i18n.js';
@@ -34,7 +32,6 @@ export function InspectorTrackGridCell({
   presetById,
   track,
 }: InspectorTrackGridCellProps) {
-  const dispatch = useDispatch();
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const hasEntries = track.entries.length > 0;
@@ -60,41 +57,6 @@ export function InspectorTrackGridCell({
           <div className="mb-1 flex items-center justify-between gap-1">
             <span className="truncate text-[11px] font-semibold leading-none text-foreground">
               {t('presetCategory.' + category)}
-            </span>
-            <span
-              role="checkbox"
-              aria-checked={track.aiDecide}
-              tabIndex={0}
-              onClick={(event) => {
-                event.stopPropagation();
-                dispatch(
-                  setNodeTrackAiDecide({
-                    id: nodeId,
-                    category,
-                    aiDecide: !track.aiDecide,
-                  }),
-                );
-              }}
-              onKeyDown={(event) => {
-                if (event.key === ' ' || event.key === 'Enter') {
-                  event.stopPropagation();
-                  dispatch(
-                    setNodeTrackAiDecide({
-                      id: nodeId,
-                      category,
-                      aiDecide: !track.aiDecide,
-                    }),
-                  );
-                }
-              }}
-              className={cn(
-                'shrink-0 select-none rounded-md px-1.5 py-0.5 text-[9px] font-bold leading-none transition-colors',
-                track.aiDecide
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80',
-              )}
-            >
-              AI
             </span>
           </div>
 

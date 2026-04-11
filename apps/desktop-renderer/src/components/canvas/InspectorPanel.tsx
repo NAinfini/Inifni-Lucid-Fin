@@ -16,7 +16,6 @@ import {
   setNodeProvider,
   setNodeResolution,
   setNodeSeed,
-  setAllTracksAiDecide,
   setVideoFrameNode,
   setVideoFrameAsset,
   setNodeVariantCount,
@@ -390,19 +389,6 @@ export function InspectorPanel() {
           data: { prompt: event.target.value } as Partial<
             ImageNodeData | VideoNodeData | AudioNodeData
           >,
-        }),
-      );
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleAllTracksAiDecideChange = useCallback(
-    (aiDecide: boolean) => {
-      if (!hasTracks(selectedNode)) return;
-      dispatch(
-        setAllTracksAiDecide({
-          id: selectedNode.id,
-          aiDecide,
         }),
       );
     },
@@ -922,16 +908,12 @@ export function InspectorPanel() {
           track={
             selectedNode.data.presetTracks[category] ?? {
               category,
-              aiDecide: false,
               entries: [],
             }
           }
         />
       ))
     : null;
-  const allTracksAiDecide = hasTracks(selectedNode)
-    ? Object.values(selectedNode.data.presetTracks).every((track) => track.aiDecide)
-    : false;
   const backdropControls =
     selectedNode.type === 'backdrop'
       ? {
@@ -1192,8 +1174,6 @@ export function InspectorPanel() {
             onApplyTemplate={handleApplyTemplate}
             localizeShotTemplateName={localizeShotTemplateName}
             localizeShotTemplateDescription={localizeShotTemplateDescription}
-            allTracksAiDecide={allTracksAiDecide}
-            onToggleAllTracksAiDecide={handleAllTracksAiDecideChange}
             trackGrid={presetTrackGrid}
             backdropControls={backdropControls}
             textCharCount={

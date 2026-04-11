@@ -9,7 +9,6 @@ import {
   removeNodePresetTrackEntry,
   setActiveCanvas,
   setCanvases,
-  setNodeTrackAiDecide,
   updateNodePresetTrackEntry,
 } from './canvas.js';
 
@@ -37,15 +36,6 @@ describe('canvas preset tracks', () => {
         id: 'node-1',
         type: 'image',
         position: { x: 10, y: 10 },
-      }),
-    );
-
-    state = canvasSlice.reducer(
-      state,
-      setNodeTrackAiDecide({
-        id: 'node-1',
-        category: 'camera',
-        aiDecide: true,
       }),
     );
 
@@ -119,7 +109,6 @@ describe('canvas preset tracks', () => {
           string,
           {
             category: string;
-            aiDecide: boolean;
             entries: Array<{
               id: string;
               durationMs?: number;
@@ -130,7 +119,6 @@ describe('canvas preset tracks', () => {
     };
     const cameraTrack = imageNode.data.presetTracks.camera;
 
-    expect(cameraTrack.aiDecide).toBe(true);
     expect(cameraTrack.entries).toHaveLength(1);
     expect(cameraTrack.entries[0].id).toBe('entry-b');
     expect(cameraTrack.entries[0].durationMs).toBe(3000);

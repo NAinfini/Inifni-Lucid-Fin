@@ -216,8 +216,6 @@ const internalCanvasSlice = createSlice({
 
     // --- Preset / track actions (delegated) --------------------------------
 
-    setNodeTrackAiDecide: presetReducers.setNodeTrackAiDecide,
-    setAllTracksAiDecide: presetReducers.setAllTracksAiDecide,
     applyNodeShotTemplate: presetReducers.applyNodeShotTemplate,
     addNodePresetTrackEntry: presetReducers.addNodePresetTrackEntry,
     updateNodePresetTrackEntry: presetReducers.updateNodePresetTrackEntry,
@@ -351,8 +349,6 @@ export const {
   setNodeEstimatedCost,
   setNodeUploadedAsset,
   clearNodeAsset,
-  setNodeTrackAiDecide,
-  setAllTracksAiDecide,
   applyNodeShotTemplate,
   setVideoFrameNode,
   setVideoFrameAsset,

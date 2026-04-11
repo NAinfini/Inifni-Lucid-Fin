@@ -295,7 +295,7 @@ export function pasteClipboardPayload(
 
 export function ensureNodePresetTracks(node: CanvasNode): { presetTracks: TrackMap } {
   const data = node.data as {
-    presetTracks?: Record<string, { category?: PresetCategory; aiDecide: boolean; entries: PresetTrackEntry[] }>;
+    presetTracks?: Record<string, { category?: PresetCategory; entries: PresetTrackEntry[] }>;
   };
   if (!data.presetTracks) {
     data.presetTracks = createDefaultPresetTracks();
@@ -318,7 +318,7 @@ export function ensureNodePresetTracks(node: CanvasNode): { presetTracks: TrackM
     const old = data.presetTracks[oldCat];
     if (old && old.entries.length > 0) {
       if (!data.presetTracks[newCat]) {
-        data.presetTracks[newCat] = { category: newCat, aiDecide: old.aiDecide, entries: [] };
+        data.presetTracks[newCat] = { category: newCat, entries: [] };
       }
       for (const entry of old.entries) {
         entry.category = newCat;
@@ -330,7 +330,7 @@ export function ensureNodePresetTracks(node: CanvasNode): { presetTracks: TrackM
 
   for (const category of PRESET_CATEGORIES) {
     if (!data.presetTracks[category]) {
-      data.presetTracks[category] = { category, aiDecide: false, entries: [] };
+      data.presetTracks[category] = { category, entries: [] };
       continue;
     }
     data.presetTracks[category].category = category;

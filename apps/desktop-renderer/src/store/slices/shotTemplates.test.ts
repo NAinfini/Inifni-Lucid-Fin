@@ -19,7 +19,6 @@ function makeTemplate(overrides: Partial<ShotTemplate> = {}): ShotTemplate {
     tracks: {
       composition: {
         category: 'composition',
-        aiDecide: false,
         entries: [
           {
             id: 'entry-1',
@@ -135,7 +134,6 @@ describe('shotTemplates slice', () => {
         tracks: {
           camera: {
             category: 'camera',
-            aiDecide: false,
             entries: [
               {
                 id: 'entry-camera',

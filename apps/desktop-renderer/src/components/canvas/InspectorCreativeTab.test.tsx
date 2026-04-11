@@ -53,8 +53,6 @@ describe('InspectorCreativeTab', () => {
         onApplyTemplate={vi.fn()}
         localizeShotTemplateName={(_id, fallback) => fallback}
         localizeShotTemplateDescription={(_id, fallback) => fallback}
-        allTracksAiDecide={false}
-        onToggleAllTracksAiDecide={vi.fn()}
         trackGrid={<div>track grid</div>}
       />,
     );
@@ -96,8 +94,6 @@ describe('InspectorCreativeTab', () => {
         onApplyTemplate={vi.fn()}
         localizeShotTemplateName={(_id, fallback) => fallback}
         localizeShotTemplateDescription={(_id, fallback) => fallback}
-        allTracksAiDecide={false}
-        onToggleAllTracksAiDecide={vi.fn()}
         trackGrid={<div>track grid</div>}
       />,
     );

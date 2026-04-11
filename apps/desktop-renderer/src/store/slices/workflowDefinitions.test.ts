@@ -40,6 +40,14 @@ describe('workflowDefinitions slice', () => {
     expect(state.entries.map((entry) => entry.id)).toEqual([
       'wf-story-idea-to-video',
       'wf-novel-to-video',
+      'wf-video-clone',
+      'wf-style-transfer',
+      'sk-reverse-prompt',
+      'sk-lip-sync',
+      'sk-srt-import',
+      'sk-capcut-export',
+      'sk-semantic-search',
+      'sk-multi-view',
       'custom-wf-1',
     ]);
   });
@@ -53,6 +61,14 @@ describe('workflowDefinitions slice', () => {
     expect(state.entries.map((entry) => entry.id)).toEqual([
       'wf-story-idea-to-video',
       'wf-novel-to-video',
+      'wf-video-clone',
+      'wf-style-transfer',
+      'sk-reverse-prompt',
+      'sk-lip-sync',
+      'sk-srt-import',
+      'sk-capcut-export',
+      'sk-semantic-search',
+      'sk-multi-view',
     ]);
   });
 
@@ -165,6 +181,14 @@ describe('workflowDefinitions slice', () => {
     expect(state.entries.map((entry) => entry.id)).toEqual([
       'wf-story-idea-to-video',
       'wf-novel-to-video',
+      'wf-video-clone',
+      'wf-style-transfer',
+      'sk-reverse-prompt',
+      'sk-lip-sync',
+      'sk-srt-import',
+      'sk-capcut-export',
+      'sk-semantic-search',
+      'sk-multi-view',
     ]);
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '[]')).toEqual([]);
   });

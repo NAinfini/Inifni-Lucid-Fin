@@ -5,7 +5,6 @@ import {
   addNodePresetTrackEntry,
   moveNodePresetTrackEntry,
   removeNodePresetTrackEntry,
-  setNodeTrackAiDecide,
   updateNodePresetTrackEntry,
 } from '../../store/slices/canvas.js';
 import { cn } from '../../lib/utils.js';
@@ -75,33 +74,9 @@ export function InspectorTrackEditor({
         <span className="text-[11px] font-semibold text-foreground">
           {t('presetCategory.' + category)}
         </span>
-        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-          <span>{t('commander.aiDecide')}</span>
-          <input
-            type="checkbox"
-            checked={track.aiDecide}
-            onChange={(event) =>
-              dispatch(
-                setNodeTrackAiDecide({
-                  id: nodeId,
-                  category,
-                  aiDecide: event.target.checked,
-                }),
-              )
-            }
-            className="h-3.5 w-3.5 cursor-pointer rounded border-border accent-primary"
-          />
-        </label>
       </div>
 
-      <div className={cn('space-y-1.5 p-2.5', track.aiDecide && 'opacity-50')}>
-        {track.aiDecide ? (
-          <div className="flex items-center gap-1.5 rounded-md border border-dashed border-border bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-            <span className="text-primary">AI</span>
-            {t('commander.aiWillChoose')}
-          </div>
-        ) : null}
-
+      <div className="space-y-1.5 p-2.5">
         {track.entries.map((entry, index) => {
           const preset = presetById[entry.presetId];
 
@@ -137,7 +112,6 @@ export function InspectorTrackEditor({
                     }
                     className="w-14 rounded-md bg-muted px-1.5 py-0.5 text-[11px]"
                     placeholder={t('inspector.seconds')}
-                    disabled={track.aiDecide}
                   />
                   <button
                     type="button"
@@ -152,7 +126,7 @@ export function InspectorTrackEditor({
                         }),
                       )
                     }
-                    disabled={track.aiDecide || index === 0}
+                    disabled={index === 0}
                     aria-label={t('common.moveUp')}
                   >
                     <ChevronUp className="h-3 w-3" />
@@ -170,7 +144,7 @@ export function InspectorTrackEditor({
                         }),
                       )
                     }
-                    disabled={track.aiDecide || index === track.entries.length - 1}
+                    disabled={index === track.entries.length - 1}
                     aria-label={t('common.moveDown')}
                   >
                     <ChevronDown className="h-3 w-3" />
@@ -187,7 +161,6 @@ export function InspectorTrackEditor({
                         }),
                       )
                     }
-                    disabled={track.aiDecide}
                     aria-label={t('common.delete')}
                   >
                     <Trash2 className="h-3 w-3" />
@@ -204,7 +177,6 @@ export function InspectorTrackEditor({
               type="button"
               className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2.5 py-1.5 text-[11px] transition-colors hover:bg-muted disabled:opacity-50"
               onClick={() => setPickerOpen((value) => !value)}
-              disabled={track.aiDecide}
             >
               <Plus className="h-3 w-3" />
               {t('inspector.addPreset')}
@@ -221,7 +193,6 @@ export function InspectorTrackEditor({
                   onChange={(event) => setSearch(event.target.value)}
                   className="w-full rounded-md bg-muted py-1.5 pl-8 pr-2.5 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder={t('inspector.searchPresets')}
-                  disabled={track.aiDecide}
                 />
               </div>
               <div className="max-h-56 space-y-1 overflow-auto">
@@ -231,7 +202,6 @@ export function InspectorTrackEditor({
                     type="button"
                     onClick={() => addPreset(preset.id)}
                     className="w-full rounded-md border border-border/60 px-2.5 py-1.5 text-left text-[11px] transition-colors hover:border-primary hover:bg-primary/5"
-                    disabled={track.aiDecide}
                   >
                     <div className="font-medium text-foreground">
                       {localizePresetName(preset.name)}

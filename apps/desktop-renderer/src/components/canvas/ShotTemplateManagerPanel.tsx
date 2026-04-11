@@ -74,7 +74,6 @@ function CategoryCell({ templateId: _templateId, category, track, presetsById, a
     };
     const newTrack: PresetTrack = {
       category,
-      aiDecide: track?.aiDecide ?? false,
       entries: [...entries, entry],
     };
     onTracksChange({ ...currentTracks, [category]: newTrack });
@@ -405,9 +404,6 @@ function TrackSummary({ category, track, presetsById }: TrackSummaryProps) {
     <div className="rounded-md border border-border/60 bg-muted/20 px-2 py-2 space-y-1">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-medium">{t('presetCategory.' + category)}</span>
-        {track.aiDecide ? (
-          <span className="text-[10px] text-muted-foreground">{t('commander.aiDecide')}</span>
-        ) : null}
       </div>
       <div className="space-y-1">
         {track.entries.map((entry) => {
