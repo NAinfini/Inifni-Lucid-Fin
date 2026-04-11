@@ -73,13 +73,18 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
           description: 'Optional preset category filter.',
           enum: [...PRESET_CATEGORIES],
         },
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
       required: [],
     },
     async execute(args) {
       try {
         const category = parseOptionalCategory(args);
-        return ok(await deps.listPresets(category));
+        const presets = await deps.listPresets(category);
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: presets.length, offset, limit, presets: presets.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }

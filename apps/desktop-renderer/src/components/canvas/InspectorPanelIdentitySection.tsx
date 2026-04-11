@@ -75,32 +75,34 @@ export function InspectorPanelIdentitySection({
         </div>
       </div>
 
-      <div className="space-y-1">
-        <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          {positionLabel}
-        </div>
-        <div className="flex gap-3 text-xs text-muted-foreground">
-          <span>X: {Math.round(node.position.x)}</span>
-          <span>Y: {Math.round(node.position.y)}</span>
-        </div>
-      </div>
-
-      {node.width != null && node.height != null && (
+      <div className="flex items-start gap-4">
         <div className="space-y-1">
           <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {sizeLabel}
+            {positionLabel}
           </div>
-          <div className="text-xs text-muted-foreground">
-            {Math.round(node.width)} &times; {Math.round(node.height)}
+          <div className="flex gap-2 text-xs text-muted-foreground">
+            <span>X: {Math.round(node.position.x)}</span>
+            <span>Y: {Math.round(node.position.y)}</span>
           </div>
         </div>
-      )}
 
-      <div className="space-y-1">
-        <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          {connectionsLabel}
+        {node.width != null && node.height != null && (
+          <div className="space-y-1">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {sizeLabel}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {Math.round(node.width)} &times; {Math.round(node.height)}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-1">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            {connectionsLabel}
+          </div>
+          <div className="text-xs text-muted-foreground">{connectionCount}</div>
         </div>
-        <div className="text-xs text-muted-foreground">{connectionCount}</div>
       </div>
 
       {generationTimeLabel && (

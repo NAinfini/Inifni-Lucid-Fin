@@ -7,6 +7,7 @@ import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import type { SettingsState } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
+import { t } from '../i18n.js';
 
 export function useAutoProject() {
   const dispatch = useDispatch();
@@ -25,8 +26,8 @@ export function useAutoProject() {
       toastedVersion.current = version;
       dispatch(enqueueToast({
         variant: 'info',
-        title: 'New version available',
-        message: `Version ${version} is available. Go to Settings to update.`,
+        title: t('settings.update.toastTitle'),
+        message: t('settings.update.toastMessage').replace('{version}', version),
         durationMs: 8000,
       }));
     });
@@ -57,7 +58,7 @@ export function useAutoProject() {
           addLog({
             level: 'error',
             category: 'startup',
-            message: 'Auto project bootstrap failed',
+            message: t('startup.autoProjectBootstrapFailed'),
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );

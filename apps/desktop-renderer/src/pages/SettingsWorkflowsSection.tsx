@@ -3,7 +3,6 @@ import { useDispatch, useSelector } from 'react-redux';
 import { ChevronDown, ChevronUp, Plus, Trash2, Workflow } from 'lucide-react';
 import {
   t,
-  localizePromptTemplateName,
   localizeSettingsCategory,
   localizeWorkflowDefinitionName,
 } from '../i18n.js';
@@ -11,30 +10,12 @@ import type { RootState } from '../store/index.js';
 import { translateOrFallback } from '../components/settings/SettingsSidebarNav.js';
 import { cn } from '../lib/utils.js';
 import {
-  getDefaultPromptTemplateName,
-  renameTemplate,
-  setCustomContent,
-} from '../store/slices/promptTemplates.js';
-import {
   addEntry as addWorkflowEntry,
   getDefaultWorkflowDefinitionName,
   removeEntry as removeWorkflowEntry,
   updateEntry as updateWorkflowEntry,
   type WorkflowDefEntry,
 } from '../store/slices/workflowDefinitions.js';
-
-type TemplateDraft = {
-  content: string;
-  name: string;
-};
-
-function getTemplateDisplayName(id: string, name: string): string {
-  const defaultName = getDefaultPromptTemplateName(id);
-  if (defaultName && name === defaultName) {
-    return localizePromptTemplateName(id, name);
-  }
-  return name;
-}
 
 function getWorkflowEntryDisplayName(entry: WorkflowDefEntry): string {
   const defaultName = getDefaultWorkflowDefinitionName(entry.id);
@@ -47,12 +28,8 @@ function getWorkflowEntryDisplayName(entry: WorkflowDefEntry): string {
 export function SettingsWorkflowsSection() {
   const dispatch = useDispatch();
   const entries = useSelector((state: RootState) => state.workflowDefinitions.entries);
-  const templates = useSelector((state: RootState) => state.promptTemplates.templates);
-  const skillTemplates = templates.filter((template) => template.category === 'skill');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, { content: string; name: string }>>({});
-  const [skillExpandedId, setSkillExpandedId] = useState<string | null>(null);
-  const [skillDrafts, setSkillDrafts] = useState<Record<string, TemplateDraft>>({});
 
   const getDraft = (entry: WorkflowDefEntry) =>
     drafts[entry.id] ?? { content: entry.content, name: entry.name };
@@ -66,8 +43,8 @@ export function SettingsWorkflowsSection() {
             dispatch(
               addWorkflowEntry({
                 category: 'workflow',
-                content: '# New Workflow\n\nDescribe your workflow steps here...',
-                name: 'New Workflow',
+                content: t('settings.workflows.newWorkflowTemplate'),
+                name: t('settings.workflows.newWorkflowName'),
               }),
             );
           }}
@@ -82,8 +59,8 @@ export function SettingsWorkflowsSection() {
             dispatch(
               addWorkflowEntry({
                 category: 'skill',
-                content: '# New Skill\n\nDescribe your skill here...',
-                name: 'New Skill',
+                content: t('settings.workflows.newSkillTemplate'),
+                name: t('settings.workflows.newSkillName'),
               }),
             );
           }}
@@ -159,7 +136,7 @@ export function SettingsWorkflowsSection() {
                         }))
                       }
                       className="w-full rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                      placeholder={t('settings.templateName') || 'Template name'}
+                      placeholder={t('settings.templateName')}
                     />
                   )}
                   <textarea
@@ -222,124 +199,6 @@ export function SettingsWorkflowsSection() {
           );
         })}
       </div>
-
-      {skillTemplates.length > 0 && (
-        <>
-          <div className="mb-1.5 mt-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {translateOrFallback('settings.category.skill', 'Skills')}
-          </div>
-          <div className="space-y-1">
-            {skillTemplates.map((template) => {
-              const isExpanded = skillExpandedId === template.id;
-              const defaultName = getDefaultPromptTemplateName(template.id);
-              const isCustomized = template.customContent !== null || template.name !== defaultName;
-              const draft = skillDrafts[template.id] ?? {
-                content: template.customContent ?? template.defaultContent,
-                name: template.name,
-              };
-
-              return (
-                <div
-                  key={template.id}
-                  className={cn(
-                    'rounded-md border transition-colors',
-                    isExpanded ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-card',
-                  )}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isExpanded) {
-                        setSkillExpandedId(null);
-                        return;
-                      }
-                      setSkillDrafts((previous) => ({
-                        ...previous,
-                        [template.id]: {
-                          content: template.customContent ?? template.defaultContent,
-                          name: template.name,
-                        },
-                      }));
-                      setSkillExpandedId(template.id);
-                    }}
-                    className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
-                  >
-                    <span className="flex-1 text-xs font-medium">
-                      {getTemplateDisplayName(template.id, template.name)}
-                    </span>
-                    {isCustomized && (
-                      <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-500">
-                        {t('settings.customized')}
-                      </span>
-                    )}
-                    <span className="shrink-0 rounded bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-400">
-                      {localizeSettingsCategory('skill')}
-                    </span>
-                    {isExpanded ? (
-                      <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                  </button>
-                  {isExpanded && (
-                    <div className="space-y-1.5 border-t border-border/40 px-2.5 pb-2.5 pt-2">
-                      <input
-                        value={draft.name}
-                        onChange={(e) =>
-                          setSkillDrafts((previous) => ({
-                            ...previous,
-                            [template.id]: {
-                              ...draft,
-                              name: e.target.value,
-                            },
-                          }))
-                        }
-                        className="w-full rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                        placeholder={t('settings.templateName') || 'Template name'}
-                      />
-                      <textarea
-                        value={draft.content}
-                        onChange={(e) =>
-                          setSkillDrafts((previous) => ({
-                            ...previous,
-                            [template.id]: {
-                              ...draft,
-                              content: e.target.value,
-                            },
-                          }))
-                        }
-                        rows={10}
-                        className="w-full resize-y rounded-md border border-border/60 bg-background px-2.5 py-1.5 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setSkillExpandedId(null)}
-                          className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-                        >
-                          {t('action.cancel') || 'Cancel'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            dispatch(renameTemplate({ id: template.id, name: draft.name }));
-                            dispatch(setCustomContent({ id: template.id, content: draft.content }));
-                            setSkillExpandedId(null);
-                          }}
-                          disabled={!draft.name.trim()}
-                          className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground"
-                        >
-                          {t('action.save') || 'Save'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
     </section>
   );
 }

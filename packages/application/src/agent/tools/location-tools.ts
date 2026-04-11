@@ -1,15 +1,11 @@
 import { LOCATION_STANDARD_SLOTS, type Location } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
 
 export interface LocationToolDeps {
   listLocations: () => Promise<Location[]>;
   saveLocation: (location: Location) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
   generateImage?: (prompt: string, providerId?: string) => Promise<{ assetHash: string }>;
-}
-
-function ok(data?: unknown): ToolResult {
-  return { success: true, data };
 }
 
 export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
@@ -20,13 +16,18 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     tier: 1,
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
       required: [],
     },
-    async execute(_args) {
+    async execute(args) {
       try {
         const locations = await deps.listLocations();
-        return { success: true, data: locations };
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return { success: true, data: { total: locations.length, offset, limit, locations: locations.slice(offset, offset + limit) } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -49,7 +50,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
         },
         description: { type: 'string', description: 'A brief description of the location.' },
         subLocation: { type: 'string', description: 'Sub-location within the main location.' },
-        timeOfDay: { type: 'string', description: 'Typical time of day.' },
+        timeOfDay: { type: 'string', description: 'Typical time of day.', enum: ['day', 'night', 'dawn', 'dusk', 'continuous'] },
         mood: { type: 'string', description: 'The mood/atmosphere of the location.' },
         weather: { type: 'string', description: 'Typical weather conditions.' },
         lighting: { type: 'string', description: 'Lighting description.' },
@@ -158,14 +159,18 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
 
   const locationGenerateReferenceImage: AgentTool = {
     name: 'location.generateReferenceImage',
-    description: 'Generate a reference image for a location slot.',
+    description: 'Generate a reference image for a location slot. Each slot produces a specific view — environment only, no characters.',
     tags: ['location', 'generation'],
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The location ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
+        slot: {
+          type: 'string',
+          description: 'Reference image slot. wide-establishing = full overview; interior-detail = close-up of interior elements; atmosphere = mood/lighting study; key-angle-1/2 = important camera positions; overhead = bird\'s eye layout.',
+          enum: ['wide-establishing', 'interior-detail', 'atmosphere', 'key-angle-1', 'key-angle-2', 'overhead'],
+        },
         prompt: { type: 'string', description: 'Optional custom image generation prompt.' },
       },
       required: ['id', 'slot'],
@@ -182,9 +187,25 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
         }
 
         const slot = args.slot as string;
+        const typeLabel = entity.type === 'interior' ? 'Interior space' : entity.type === 'exterior' ? 'Exterior view' : 'Interior-exterior transition';
+        const slotDescriptions: Record<string, string> = {
+          'wide-establishing': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
+          'interior-detail': 'close-up interior detail shot, architectural features, furniture, textures, material quality visible',
+          'atmosphere': 'atmospheric mood study, emphasizing lighting, weather, time of day, volumetric light and shadow',
+          'key-angle-1': 'key camera angle, eye-level cinematic shot, showing primary viewpoint for scene staging',
+          'key-angle-2': 'alternate camera angle, different perspective of the same location, revealing secondary details',
+          'overhead': 'overhead bird\'s eye view, looking straight down, showing spatial layout, floor plan perspective',
+        };
+        const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
+        const description = entity.description ? `${entity.description}. ` : '';
+        const mood = entity.mood ? `Mood: ${entity.mood}. ` : '';
+        const lighting = entity.lighting ? `Lighting: ${entity.lighting}. ` : '';
         const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
           ? args.prompt
-          : `Location reference image: ${entity.name} (${entity.type}). ${entity.description}. Mood: ${entity.mood ?? ''}. Lighting: ${entity.lighting ?? ''}. Angle: ${slot}`;
+          : `Environment concept art reference. Location: ${entity.name}. ${description}${typeLabel}. `
+            + `${slotDesc}. ${mood}${lighting}`
+            + `No characters, no people, no figures, empty scene, environment only. `
+            + `Consistent architectural style, detailed textures, professional environment concept art, cinematic quality.`;
         const result = await deps.generateImage(finalPrompt);
         const referenceImages = [...(entity.referenceImages ?? [])];
         const referenceImage = {
@@ -291,46 +312,8 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
-  const locationSearch: AgentTool = {
-    name: 'location.search',
-    description: 'Search locations by name or type. Returns lightweight summaries.',
-    tags: ['location', 'read', 'search'],
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Optional name query. Matches location names case-insensitively.',
-        },
-        type: {
-          type: 'string',
-          description: 'Optional exact type match.',
-        },
-      },
-      required: [],
-    },
-    async execute(args) {
-      try {
-        const locations = await deps.listLocations();
-        const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
-        const type = typeof args.type === 'string' ? args.type : undefined;
-        const matches = locations
-          .filter((location) => (
-            (query.length === 0 || location.name.toLowerCase().includes(query))
-            && (type === undefined || location.type === type)
-          ))
-          .map(({ id, name, type: locationType }) => ({ id, name, type: locationType }));
-        return ok(matches);
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
   return [
     locationList,
-    locationSearch,
     locationCreate,
     locationUpdate,
     locationDelete,

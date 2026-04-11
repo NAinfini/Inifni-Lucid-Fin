@@ -70,7 +70,12 @@ export function SettingsPromptTemplatesSection({
             type="button"
             onClick={() => {
               const id = `custom-${Date.now()}`;
-              onAddTemplate({ id, name: 'New Template', category: 'process', content: '# New Template\n\nWrite your prompt template here...' });
+              onAddTemplate({
+                id,
+                name: t('settings.newTemplateName'),
+                category: 'process',
+                content: t('settings.newTemplateContent'),
+              });
               onExpandedTemplateIdChange(id);
             }}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10"
@@ -161,7 +166,7 @@ export function SettingsPromptTemplatesSection({
                       })
                     }
                     className="w-full rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                    placeholder={t('settings.templateName') || 'Template name'}
+                    placeholder={t('settings.templateName')}
                   />
                   <textarea
                     value={draft.content}

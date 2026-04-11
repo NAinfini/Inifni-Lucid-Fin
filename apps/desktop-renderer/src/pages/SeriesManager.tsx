@@ -75,7 +75,7 @@ export function SeriesManager() {
           addLog({
             level: 'error',
             category: 'series',
-            message: 'Failed to load series',
+            message: t('series.log.loadFailed'),
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );
@@ -96,7 +96,7 @@ export function SeriesManager() {
           addLog({
             level: 'error',
             category: 'series',
-            message: 'Failed to save series',
+            message: t('series.log.saveFailed'),
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );
@@ -120,7 +120,7 @@ export function SeriesManager() {
           addLog({
             level: 'error',
             category: 'series',
-            message: 'Failed to delete series',
+            message: t('series.log.deleteFailed'),
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );
@@ -150,7 +150,7 @@ export function SeriesManager() {
           addLog({
             level: 'error',
             category: 'series',
-            message: 'Failed to add episode',
+            message: t('series.log.addEpisodeFailed'),
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );
@@ -171,7 +171,7 @@ export function SeriesManager() {
             addLog({
               level: 'error',
               category: 'series',
-              message: 'Failed to remove episode',
+              message: t('series.log.removeEpisodeFailed'),
               detail: err instanceof Error ? err.stack ?? err.message : String(err),
             }),
           );

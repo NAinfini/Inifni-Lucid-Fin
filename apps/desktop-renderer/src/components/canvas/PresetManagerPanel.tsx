@@ -25,6 +25,7 @@ import type {
 import { Download, Eye, EyeOff, Search, Upload, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizePresetName } from '../../i18n.js';
+import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 function parseIntensityFromDefaults(defaultsText: string): number {
   try {
@@ -151,6 +152,7 @@ function toImportPayload(input: unknown): PresetLibraryImportPayload {
 
 export function PresetManagerPanel() {
   const { t } = useI18n();
+  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { byId, allIds, loading, search, selectedCategory, managerSelectedPresetId, hiddenIds } = useSelector(
     (s: RootState) => s.presets,
@@ -195,10 +197,15 @@ export function PresetManagerPanel() {
     setOriginalDraft(d);
   }, [selectedPreset]);
 
-  const confirmDiscardIfDirty = useCallback((): boolean => {
+  const confirmDiscardIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
-    return window.confirm(t('presetManager.unsavedChanges'));
-  }, [isDirty, t]);
+    return confirm({
+      title: t('presetManager.unsavedChanges'),
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
+  }, [confirm, isDirty, t]);
 
   const loadPresets = useCallback(async () => {
     dispatch(setPresetsLoading(true));
@@ -263,8 +270,8 @@ export function PresetManagerPanel() {
     }
   }, [dispatch, draft, selectedPreset]);
 
-  const createCustomPreset = useCallback(() => {
-    if (!confirmDiscardIfDirty()) return;
+  const createCustomPreset = useCallback(async () => {
+    if (!(await confirmDiscardIfDirty())) return;
     const defaultCategory = categories[0] ?? 'camera';
     const template = templateForCategory(defaultCategory, presets);
     const next: PresetDefinition = {
@@ -284,7 +291,12 @@ export function PresetManagerPanel() {
 
   const deleteCurrentPreset = useCallback(async () => {
     if (!selectedPreset) return;
-    const ok = window.confirm(t('presetManager.deleteConfirm').replace('{name}', selectedPreset.name));
+    const ok = await confirm({
+      title: t('presetManager.deleteConfirm').replace('{name}', selectedPreset.name),
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
     if (!ok) return;
     setError(null);
     try {
@@ -297,7 +309,7 @@ export function PresetManagerPanel() {
       const message = reason instanceof Error ? reason.message : String(reason);
       setError(message);
     }
-  }, [dispatch, selectedPreset]);
+  }, [confirm, dispatch, selectedPreset, t]);
 
   const resetCurrentPreset = useCallback(async () => {
     if (!selectedPreset) return;
@@ -317,24 +329,26 @@ export function PresetManagerPanel() {
   }, [dispatch, loadPresets, resetScope, selectedPreset]);
 
   const exportPresets = useCallback(async () => {
+    if (!selectedPreset) return;
     setError(null);
     try {
-      const api = getAPI();
-      const payload: PresetLibraryExportPayload = api?.preset
-        ? await api.preset.export()
-        : { version: 1, exportedAt: Date.now(), presets };
+      const payload: PresetLibraryExportPayload = {
+        version: 1,
+        exportedAt: Date.now(),
+        presets: [selectedPreset],
+      };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `lucid-presets-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.download = `preset-${selectedPreset.name}-${new Date().toISOString().slice(0, 10)}.json`;
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
       setError(message);
     }
-  }, [presets]);
+  }, [selectedPreset]);
 
   const importPresets = useCallback(
     async (file: File) => {
@@ -343,15 +357,18 @@ export function PresetManagerPanel() {
         const text = await file.text();
         const parsed = JSON.parse(text) as unknown;
         const payload = toImportPayload(parsed);
+        if (payload.presets.length === 0) return;
 
+        // Import only the first preset from the file
+        const singlePayload = { ...payload, presets: [payload.presets[0]] };
         const api = getAPI();
         if (api?.preset) {
-          const result = await api.preset.import(payload);
+          const result = await api.preset.import(singlePayload);
           dispatch(setPresets(result.presets));
           return;
         }
 
-        dispatch(setPresets(payload.presets));
+        dispatch(setPresets(singlePayload.presets));
       } catch (reason) {
         const message = reason instanceof Error ? reason.message : String(reason);
         setError(message);
@@ -429,9 +446,9 @@ export function PresetManagerPanel() {
                 return (
                   <div key={preset.id} className={cn(isHidden && 'opacity-40')}>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (preset.id === managerSelectedPresetId) return;
-                        if (!confirmDiscardIfDirty()) return;
+                        if (!(await confirmDiscardIfDirty())) return;
                         dispatch(selectManagerPreset(preset.id));
                       }}
                       className={cn(
@@ -646,6 +663,7 @@ export function PresetManagerPanel() {
           </div>
         </div>
       </div>
+      {ConfirmDialog}
     </div>
   );
 }

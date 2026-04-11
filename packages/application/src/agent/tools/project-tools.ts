@@ -38,10 +38,20 @@ export function createProjectTools(deps: ProjectToolDeps): AgentTool[] {
     name: 'project.list',
     description: 'List recent projects available to open.',
     tier: 4,
-    parameters: { type: 'object', properties: {}, required: [] },
-    async execute() {
+    parameters: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
+      required: [],
+    },
+    async execute(args) {
       try {
-        return ok(await deps.listProjects());
+        const projects = await deps.listProjects();
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: projects.length, offset, limit, projects: projects.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }
@@ -72,10 +82,20 @@ export function createProjectTools(deps: ProjectToolDeps): AgentTool[] {
     name: 'project.snapshotList',
     description: 'List snapshots for the current project.',
     tier: 4,
-    parameters: { type: 'object', properties: {}, required: [] },
-    async execute() {
+    parameters: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
+      required: [],
+    },
+    async execute(args) {
       try {
-        return ok(await deps.listSnapshots());
+        const snapshots = await deps.listSnapshots();
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: snapshots.length, offset, limit, snapshots: snapshots.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }

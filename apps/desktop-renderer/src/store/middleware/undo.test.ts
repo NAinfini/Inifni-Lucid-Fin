@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // We need to test the middleware in isolation
 // Import directly to test the module's exported functions
@@ -7,9 +7,9 @@ import {
   canUndo,
   canRedo,
   getUndoLabel,
-  getRedoLabel,
   getUndoStackSize,
 } from './undo.js';
+import type { CanvasSliceState } from '../slices/canvas.js';
 
 function createMockStore(initialState: Record<string, unknown> = {}) {
   let state = initialState;
@@ -25,6 +25,45 @@ function createMockStore(initialState: Record<string, unknown> = {}) {
         }
       }
     },
+  };
+}
+
+function createCanvasState(): CanvasSliceState {
+  return {
+    canvases: [
+      {
+        id: 'canvas-1',
+        projectId: 'project-1',
+        name: 'Canvas 1',
+        nodes: [
+          {
+            id: 'node-1',
+            type: 'text',
+            position: { x: 10, y: 20 },
+            data: { content: 'hello' },
+            title: 'Node 1',
+            status: 'idle',
+            bypassed: false,
+            locked: false,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        notes: [],
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    activeCanvasId: 'canvas-1',
+    selectedNodeIds: [],
+    selectedEdgeIds: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    containerWidth: 800,
+    containerHeight: 600,
+    clipboard: null,
+    loading: false,
   };
 }
 
@@ -75,5 +114,18 @@ describe('undoMiddleware', () => {
 
     middleware({ type: 'script/updateContent', payload: 'c' });
     expect(canRedo()).toBe(false);
+  });
+
+  it('does not crash when tracking canvas actions', () => {
+    const store = createMockStore({ canvas: createCanvasState() });
+    const next = (action: unknown) => action;
+    const middleware = undoMiddleware(store as never)(next);
+
+    expect(() =>
+      middleware({
+        type: 'canvas/moveNode',
+        payload: { id: 'node-1', position: { x: 100, y: 200 } },
+      })
+    ).not.toThrow();
   });
 });

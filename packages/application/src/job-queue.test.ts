@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { JobQueue } from '../src/job-queue.js';
 import { JobStatus } from '@lucid-fin/contracts';
-import type { Job, GenerationResult, AIProviderAdapter } from '@lucid-fin/contracts';
+import type { GenerationResult, AIProviderAdapter } from '@lucid-fin/contracts';
 import { SqliteIndex } from '@lucid-fin/storage';
 import { AdapterRegistry } from '@lucid-fin/adapters-ai';
 

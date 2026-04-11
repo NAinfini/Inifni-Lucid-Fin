@@ -3,7 +3,6 @@ import type {
   Character,
   ReferenceImage,
   EquipmentLoadout,
-  CharacterGender,
 } from '@lucid-fin/contracts';
 
 export type CharacterState = Character;

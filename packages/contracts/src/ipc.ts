@@ -27,6 +27,16 @@ import type {
 import type { LLMProviderRuntimeConfig, LLMProviderRuntimeInput } from './llm-provider.js';
 
 export interface IpcChannelMap {
+  // --- Settings ---
+  'settings:load': {
+    request: void;
+    response: Record<string, unknown>;
+  };
+  'settings:save': {
+    request: Record<string, unknown>;
+    response: void;
+  };
+
   // --- Project ---
   'project:create': {
     request: {
@@ -520,6 +530,22 @@ export interface IpcChannelMap {
   };
   'canvas:rename': {
     request: { id: string; name: string };
+    response: void;
+  };
+  'canvas:patch': {
+    request: {
+      canvasId: string;
+      patch: {
+        canvasId: string;
+        timestamp: number;
+        nameChange?: string;
+        addedNodes?: import('./dto/canvas.js').CanvasNode[];
+        removedNodeIds?: string[];
+        updatedNodes?: Array<{ id: string; changes: Record<string, unknown> }>;
+        addedEdges?: import('./dto/canvas.js').CanvasEdge[];
+        removedEdgeIds?: string[];
+      };
+    };
     response: void;
   };
 }

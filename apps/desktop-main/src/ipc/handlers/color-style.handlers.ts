@@ -3,7 +3,6 @@ import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
 import type { WorkflowEngine } from '@lucid-fin/application';
 import type { ColorStyle, ExposureProfile, ColorSwatch, GradientDef } from '@lucid-fin/contracts';
-import log from '../../logger.js';
 import { getCurrentProjectId } from '../project-context.js';
 
 const DEFAULT_EXPOSURE: ExposureProfile = {
@@ -129,10 +128,6 @@ export function registerColorStyleHandlers(
         metadata: {
           relatedEntityLabel: `${args.assetType} asset`,
         },
-      });
-
-      void workflowEngine.pump(workflowRunId).catch((error) => {
-        log.error(`Color style workflow ${workflowRunId} failed to start`, error);
       });
 
       return { workflowRunId };

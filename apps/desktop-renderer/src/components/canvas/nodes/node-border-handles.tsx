@@ -63,21 +63,34 @@ export function createBorderHandleDescriptors(
 
 interface NodeBorderHandlesProps {
   colorClassName: string;
-  handleType?: 'source' | 'target';
 }
 
 export function NodeBorderHandles({
   colorClassName,
-  handleType = 'source',
 }: NodeBorderHandlesProps) {
-  return createBorderHandleDescriptors().map((descriptor) => (
-    <Handle
-      key={descriptor.id}
-      id={descriptor.id}
-      type={handleType}
-      position={descriptor.position}
-      className={cn(HANDLE_CLASS, colorClassName)}
-      style={descriptor.style}
-    />
-  ));
+  const descriptors = createBorderHandleDescriptors();
+  return (
+    <>
+      {descriptors.map((descriptor) => (
+        <Handle
+          key={`src-${descriptor.id}`}
+          id={descriptor.id}
+          type="source"
+          position={descriptor.position}
+          className={cn(HANDLE_CLASS, colorClassName)}
+          style={descriptor.style}
+        />
+      ))}
+      {descriptors.map((descriptor) => (
+        <Handle
+          key={`tgt-${descriptor.id}`}
+          id={`tgt-${descriptor.id}`}
+          type="target"
+          position={descriptor.position}
+          className={cn(HANDLE_CLASS, colorClassName)}
+          style={descriptor.style}
+        />
+      ))}
+    </>
+  );
 }

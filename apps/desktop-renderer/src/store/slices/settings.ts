@@ -1,12 +1,13 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import {
   type Capability,
+  getBuiltinVideoProviderRuntimeMetadata,
   normalizeLLMProviderRuntimeConfig,
   type LLMProviderAuthStyle,
   type LLMProviderProtocol,
 } from '@lucid-fin/contracts';
 
-export type APIGroup = 'llm' | 'image' | 'video' | 'audio';
+export type APIGroup = 'llm' | 'image' | 'video' | 'audio' | 'vision';
 export type ProviderKind = 'official' | 'hub';
 
 export interface ProviderConfig {
@@ -27,6 +28,8 @@ export interface ProviderMetadata {
   modelExample?: string;
   capabilities: Capability[];
   supportsReferenceImage?: boolean;
+  supportsAudio?: boolean;
+  qualityTiers?: string[];
   defaultResolution?: string;
   defaultDurationSeconds?: number;
   outputFormats?: string[];
@@ -44,6 +47,7 @@ export interface SettingsState {
   image: ProviderCollectionConfig;
   video: ProviderCollectionConfig;
   audio: ProviderCollectionConfig;
+  vision: ProviderCollectionConfig;
   renderPreset: string;
 }
 
@@ -52,6 +56,7 @@ interface PersistedSettingsState {
   image?: ProviderCollectionConfig & { activeProvider?: string };
   video?: ProviderCollectionConfig & { activeProvider?: string };
   audio?: ProviderCollectionConfig & { activeProvider?: string };
+  vision?: ProviderCollectionConfig & { activeProvider?: string };
   renderPreset?: string;
 }
 
@@ -87,6 +92,10 @@ const DEFAULT_AUDIO_METADATA: ProviderMetadataDefaults = {
   outputFormats: ['mp3'],
 };
 
+const DEFAULT_VISION_METADATA: ProviderMetadataDefaults = {
+  capabilities: ['text-generation'],
+};
+
 function normalizeMetadata(
   provider: ProviderDraft,
   defaults: ProviderMetadataDefaults,
@@ -106,6 +115,8 @@ function normalizeMetadata(
     modelExample: provider.modelExample,
     capabilities,
     supportsReferenceImage,
+    supportsAudio: provider.supportsAudio,
+    qualityTiers: provider.qualityTiers,
     defaultResolution: provider.defaultResolution ?? defaults.defaultResolution,
     defaultDurationSeconds: provider.defaultDurationSeconds ?? defaults.defaultDurationSeconds,
     outputFormats: provider.outputFormats ?? defaults.outputFormats,
@@ -152,11 +163,23 @@ function createImageProvider(provider: ProviderDraft): BuiltinProviderConfig {
 }
 
 function createVideoProvider(provider: ProviderDraft): BuiltinProviderConfig {
-  return createProvider(provider, DEFAULT_VIDEO_METADATA);
+  const runtimeMetadata = getBuiltinVideoProviderRuntimeMetadata(provider.id);
+  return createProvider(
+    {
+      ...provider,
+      supportsAudio: provider.supportsAudio ?? runtimeMetadata?.supportsAudio,
+      qualityTiers: provider.qualityTiers ?? runtimeMetadata?.qualityTiers,
+    },
+    DEFAULT_VIDEO_METADATA,
+  );
 }
 
 function createAudioProvider(provider: ProviderDraft): BuiltinProviderConfig {
   return createProvider(provider, DEFAULT_AUDIO_METADATA);
+}
+
+function createVisionProvider(provider: ProviderDraft): BuiltinProviderConfig {
+  return createProvider(provider, DEFAULT_VISION_METADATA);
 }
 
 export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
@@ -798,6 +821,173 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       modelExample: 'fishaudio/fish-speech-1.5',
     }),
   ],
+  vision: [
+    createVisionProvider({
+      id: 'openai-vision',
+      name: 'OpenAI',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4.1',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://platform.openai.com/docs/guides/vision',
+      keyUrl: 'https://platform.openai.com/api-keys',
+    }),
+    createVisionProvider({
+      id: 'gemini-vision',
+      name: 'Google Gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.5-flash',
+      protocol: 'gemini',
+      authStyle: 'x-goog-api-key',
+      kind: 'official',
+      docsUrl: 'https://ai.google.dev/gemini-api/docs/vision',
+      keyUrl: 'https://aistudio.google.com/apikey',
+    }),
+    createVisionProvider({
+      id: 'claude-vision',
+      name: 'Anthropic Claude',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-20250514',
+      protocol: 'anthropic',
+      authStyle: 'x-api-key',
+      kind: 'official',
+      docsUrl: 'https://docs.anthropic.com/en/docs/build-with-claude/vision',
+      keyUrl: 'https://console.anthropic.com/settings/keys',
+    }),
+    createVisionProvider({
+      id: 'qwen-vision',
+      name: 'Qwen',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-vl-max',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://help.aliyun.com/zh/model-studio/developer-reference/qwen-vl-api',
+      keyUrl: 'https://dashscope.aliyun.com/api-key',
+    }),
+    createVisionProvider({
+      id: 'openrouter-vision',
+      name: 'OpenRouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'openai/gpt-4.1',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'hub',
+      docsUrl: 'https://openrouter.ai/docs/requests',
+      keyUrl: 'https://openrouter.ai/settings/keys',
+    }),
+    createVisionProvider({
+      id: 'siliconflow-vision',
+      name: 'SiliconFlow',
+      baseUrl: 'https://api.siliconflow.cn/v1',
+      model: 'Pro/Qwen/Qwen2.5-VL-7B-Instruct',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'hub',
+      docsUrl: 'https://docs.siliconflow.cn/quickstart',
+      keyUrl: 'https://cloud.siliconflow.cn/account/ak',
+    }),
+    createVisionProvider({
+      id: 'together-vision',
+      name: 'Together AI',
+      baseUrl: 'https://api.together.xyz/v1',
+      model: 'meta-llama/Llama-Vision-Free',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'hub',
+      docsUrl: 'https://docs.together.ai/docs/vision',
+      keyUrl: 'https://api.together.ai/settings/api-keys',
+    }),
+    createVisionProvider({
+      id: 'deepseek-vision',
+      name: 'DeepSeek',
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://api-docs.deepseek.com/guides/vision',
+      keyUrl: 'https://platform.deepseek.com/api_keys',
+    }),
+    createVisionProvider({
+      id: 'grok-vision',
+      name: 'Grok (xAI)',
+      baseUrl: 'https://api.x.ai/v1',
+      model: 'grok-2-vision-1212',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://docs.x.ai/docs/guides/vision',
+      keyUrl: 'https://console.x.ai/team/api-keys',
+    }),
+    createVisionProvider({
+      id: 'mistral-vision',
+      name: 'Mistral',
+      baseUrl: 'https://api.mistral.ai/v1',
+      model: 'pixtral-large-latest',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://docs.mistral.ai/capabilities/vision/',
+      keyUrl: 'https://console.mistral.ai/api-keys/',
+    }),
+    createVisionProvider({
+      id: 'doubao-vision',
+      name: 'Doubao (ByteDance)',
+      baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+      model: 'doubao-vision-pro-32k',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://www.volcengine.com/docs/82379/1298454',
+      keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+    }),
+    createVisionProvider({
+      id: 'zhipu-vision',
+      name: 'Zhipu GLM',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      model: 'glm-4v-plus',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://open.bigmodel.cn/dev/howuse/glm-4v',
+      keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
+    }),
+    createVisionProvider({
+      id: 'moonshot-vision',
+      name: 'Moonshot / Kimi',
+      baseUrl: 'https://api.moonshot.cn/v1',
+      model: 'kimi-k2.5',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://platform.moonshot.ai/docs',
+      keyUrl: 'https://platform.moonshot.ai/console',
+    }),
+    createVisionProvider({
+      id: 'stepfun-vision',
+      name: 'StepFun',
+      baseUrl: 'https://api.stepfun.com/v1',
+      model: 'step-1v-8k',
+      protocol: 'openai-compatible',
+      authStyle: 'bearer',
+      kind: 'official',
+      docsUrl: 'https://platform.stepfun.com/docs/overview',
+      keyUrl: 'https://platform.stepfun.com/interface-key',
+    }),
+    createVisionProvider({
+      id: 'ollama-vision',
+      name: 'Ollama (Local)',
+      baseUrl: 'http://localhost:11434/v1',
+      model: 'llama3.2-vision',
+      protocol: 'openai-compatible',
+      authStyle: 'none',
+      kind: 'official',
+      docsUrl: 'https://ollama.com/blog/vision-models',
+      keyUrl: '',
+    }),
+  ],
 };
 
 function toProviderConfig(provider: BuiltinProviderConfig): ProviderConfig {
@@ -830,6 +1020,7 @@ function createInitialState(): SettingsState {
     image: { providers: getDefaultProviders('image') },
     video: { providers: getDefaultProviders('video') },
     audio: { providers: getDefaultProviders('audio') },
+    vision: { providers: getDefaultProviders('vision') },
     renderPreset: 'standard',
   };
 }
@@ -852,6 +1043,8 @@ export function getProviderMetadata(
     modelExample: provider.modelExample,
     capabilities: provider.capabilities,
     supportsReferenceImage: provider.supportsReferenceImage,
+    supportsAudio: provider.supportsAudio,
+    qualityTiers: provider.qualityTiers,
     defaultResolution: provider.defaultResolution,
     defaultDurationSeconds: provider.defaultDurationSeconds,
     outputFormats: provider.outputFormats,
@@ -904,10 +1097,31 @@ function mergeBuiltinProvider(
     return { ...defaults };
   }
 
+  // Only preserve saved baseUrl/model if they differ from BOTH the current
+  // defaults AND the saved values are non-empty — indicating intentional
+  // customization. If saved values match defaults, always use the latest defaults
+  // (handles default updates like model version bumps).
+  const savedBaseUrl =
+    savedProvider.baseUrl && savedProvider.baseUrl !== defaults.baseUrl
+      ? savedProvider.baseUrl
+      : defaults.baseUrl;
+  const savedModel =
+    savedProvider.model && savedProvider.model !== defaults.model
+      ? savedProvider.model
+      : defaults.model;
+
+  // Check if the user actually customized — if savedProvider values were just
+  // old defaults that we've since updated, detect by checking if the saved
+  // baseUrl matches defaults (provider hasn't changed endpoints, just models).
+  // Use default model when baseUrl matches (user didn't change the endpoint,
+  // so they likely want the latest model too).
+  const userCustomizedEndpoint = savedBaseUrl !== defaults.baseUrl;
+  const effectiveModel = userCustomizedEndpoint ? savedModel : defaults.model;
+
   const merged: ProviderConfig = {
     ...defaults,
-    baseUrl: savedProvider.baseUrl,
-    model: savedProvider.model,
+    baseUrl: savedBaseUrl,
+    model: effectiveModel,
     hasKey: savedProvider.hasKey,
     isCustom: false,
   };
@@ -944,6 +1158,7 @@ function mergeSavedSettings(saved: PersistedSettingsState): SettingsState {
     image: mergeProviderDefaults('image', saved.image),
     video: mergeProviderDefaults('video', saved.video),
     audio: mergeProviderDefaults('audio', saved.audio),
+    vision: mergeProviderDefaults('vision', saved.vision),
     renderPreset: saved.renderPreset ?? initialState.renderPreset,
   };
 }

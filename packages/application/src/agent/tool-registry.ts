@@ -74,7 +74,9 @@ export class AgentToolRegistry {
         return true;
       }
 
-      return `${tool.name}\n${tool.description}`.toLowerCase().includes(query);
+      const text = `${tool.name}\n${tool.description}`.toLowerCase();
+      const words = query.split(/\s+/).filter(Boolean);
+      return words.every((word) => text.includes(word));
     });
   }
 

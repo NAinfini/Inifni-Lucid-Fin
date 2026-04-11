@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Character, Equipment, Location } from '@lucid-fin/contracts';
@@ -22,10 +22,11 @@ vi.mock('../../utils/api.js', () => ({
 }));
 
 vi.mock('../ui/Dialog.js', () => ({
-  Dialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Dialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) => (open ? <>{children}</> : null),
   DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
 function createCharacter(): Character {
@@ -46,6 +47,19 @@ function createCharacter(): Character {
   };
 }
 
+function createCharacterVariant(
+  id: string,
+  name: string,
+  overrides: Partial<Character> = {},
+): Character {
+  return {
+    ...createCharacter(),
+    id,
+    name,
+    ...overrides,
+  };
+}
+
 function createEquipment(): Equipment {
   return {
     id: 'equipment-1',
@@ -57,6 +71,19 @@ function createEquipment(): Equipment {
     referenceImages: [],
     createdAt: 1,
     updatedAt: 1,
+  };
+}
+
+function createEquipmentVariant(
+  id: string,
+  name: string,
+  overrides: Partial<Equipment> = {},
+): Equipment {
+  return {
+    ...createEquipment(),
+    id,
+    name,
+    ...overrides,
   };
 }
 
@@ -74,7 +101,30 @@ function createLocation(): Location {
   };
 }
 
-function renderWithStore(panel: React.ReactElement) {
+function createLocationVariant(
+  id: string,
+  name: string,
+  overrides: Partial<Location> = {},
+): Location {
+  return {
+    ...createLocation(),
+    id,
+    name,
+    ...overrides,
+  };
+}
+
+function renderWithStore(
+  panel: React.ReactElement,
+  options?: {
+    characters?: Character[];
+    selectedCharacterId?: string;
+    equipment?: Equipment[];
+    selectedEquipmentId?: string;
+    locations?: Location[];
+    selectedLocationId?: string;
+  },
+) {
   const store = configureStore({
     reducer: {
       characters: charactersSlice.reducer,
@@ -88,26 +138,32 @@ function renderWithStore(panel: React.ReactElement) {
   const character = createCharacter();
   const equipment = createEquipment();
   const location = createLocation();
+  const characters = options?.characters ?? [character];
+  const selectedCharacterId = options?.selectedCharacterId ?? characters[0]?.id ?? null;
+  const equipmentItems = options?.equipment ?? [equipment];
+  const selectedEquipmentId = options?.selectedEquipmentId ?? equipmentItems[0]?.id ?? null;
+  const locations = options?.locations ?? [location];
+  const selectedLocationId = options?.selectedLocationId ?? locations[0]?.id ?? null;
 
   store.dispatch(
     charactersSlice.actions.restore({
-      items: [character],
-      selectedId: character.id,
+      items: characters,
+      selectedId: selectedCharacterId,
       loading: false,
     }),
   );
   store.dispatch(
     equipmentSlice.actions.restore({
-      items: [equipment],
-      selectedId: equipment.id,
+      items: equipmentItems,
+      selectedId: selectedEquipmentId,
       filterType: 'all',
       loading: false,
     }),
   );
   store.dispatch(
     locationsSlice.actions.restore({
-      items: [location],
-      selectedId: location.id,
+      items: locations,
+      selectedId: selectedLocationId,
       filterType: 'all',
       loading: false,
       search: '',
@@ -115,9 +171,12 @@ function renderWithStore(panel: React.ReactElement) {
   );
 
   render(<Provider store={store}>{panel}</Provider>);
+  return store;
 }
 
 describe('Entity manager panels', () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     setLocale('en-US');
     vi.mocked(getAPI).mockReset();
@@ -132,10 +191,12 @@ describe('Entity manager panels', () => {
         list: vi.fn().mockResolvedValue([createLocation()]),
       },
     } as unknown as ReturnType<typeof getAPI>);
+    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
   });
 
   afterEach(() => {
     cleanup();
+    confirmSpy.mockRestore();
   });
 
   it.each([
@@ -171,4 +232,194 @@ describe('Entity manager panels', () => {
       expect(referenceHeading.compareDocumentPosition(fromAssetsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     },
   );
+
+  it('uses dialog confirmation instead of window.confirm for unsaved character changes', async () => {
+    const characters = [
+      createCharacterVariant('character-1', 'Astra'),
+      createCharacterVariant('character-2', 'Nova'),
+    ];
+    vi.mocked(getAPI).mockReturnValue({
+      character: {
+        list: vi.fn().mockResolvedValue(characters),
+      },
+      equipment: {
+        list: vi.fn().mockResolvedValue([createEquipment()]),
+      },
+      location: {
+        list: vi.fn().mockResolvedValue([createLocation()]),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderWithStore(<CharacterManagerPanel />, {
+      characters,
+      selectedCharacterId: 'character-1',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Astra')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByDisplayValue('Astra'), {
+      target: { value: 'Astra Prime' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Nova')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Nova'));
+
+    await waitFor(() => {
+      expect(screen.getByText(t('characterManager.unsavedChanges'))).toBeTruthy();
+    });
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses dialog confirmation instead of window.confirm for character deletion', async () => {
+    setLocale('zh-CN');
+    renderWithStore(<CharacterManagerPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Astra')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTitle(t('action.delete')));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(t('characterManager.deleteConfirm').replace('{name}', 'Astra')),
+      ).toBeTruthy();
+    });
+    expect(screen.getByRole('button', { name: t('action.cancel') })).toBeTruthy();
+    expect(screen.getByRole('button', { name: t('action.confirm') })).toBeTruthy();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses dialog confirmation instead of window.confirm for unsaved equipment changes', async () => {
+    const equipment = [
+      createEquipmentVariant('equipment-1', 'Pulse Rifle'),
+      createEquipmentVariant('equipment-2', 'Field Pack', { type: 'tool' }),
+    ];
+    vi.mocked(getAPI).mockReturnValue({
+      character: {
+        list: vi.fn().mockResolvedValue([createCharacter()]),
+      },
+      equipment: {
+        list: vi.fn().mockResolvedValue(equipment),
+      },
+      location: {
+        list: vi.fn().mockResolvedValue([createLocation()]),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderWithStore(<EquipmentManagerPanel />, {
+      equipment,
+      selectedEquipmentId: 'equipment-1',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Pulse Rifle')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByDisplayValue('Pulse Rifle'), {
+      target: { value: 'Pulse Rifle Mk II' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Field Pack')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Field Pack'));
+
+    await waitFor(() => {
+      expect(screen.getByText(t('equipmentManager.unsavedChanges'))).toBeTruthy();
+    });
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses dialog confirmation instead of window.confirm for equipment deletion', async () => {
+    setLocale('zh-CN');
+    renderWithStore(<EquipmentManagerPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Pulse Rifle')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTitle(t('action.delete')));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(t('equipmentManager.deleteConfirm').replace('{name}', 'Pulse Rifle')),
+      ).toBeTruthy();
+    });
+    expect(screen.getByRole('button', { name: t('action.cancel') })).toBeTruthy();
+    expect(screen.getByRole('button', { name: t('action.confirm') })).toBeTruthy();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses dialog confirmation instead of window.confirm for unsaved location changes', async () => {
+    const locations = [
+      createLocationVariant('location-1', 'Hangar Bay'),
+      createLocationVariant('location-2', 'Observation Deck'),
+    ];
+    vi.mocked(getAPI).mockReturnValue({
+      character: {
+        list: vi.fn().mockResolvedValue([createCharacter()]),
+      },
+      equipment: {
+        list: vi.fn().mockResolvedValue([createEquipment()]),
+      },
+      location: {
+        list: vi.fn().mockResolvedValue(locations),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderWithStore(<LocationManagerPanel />, {
+      locations,
+      selectedLocationId: 'location-1',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Hangar Bay')).toBeTruthy();
+    });
+
+    fireEvent.change(screen.getByDisplayValue('Hangar Bay'), {
+      target: { value: 'Hangar Bay Prime' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Observation Deck')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('Observation Deck'));
+
+    await waitFor(() => {
+      expect(screen.getByText(t('locationManager.unsavedChanges'))).toBeTruthy();
+    });
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('uses dialog confirmation instead of window.confirm for location deletion', async () => {
+    renderWithStore(<LocationManagerPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Hangar Bay')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTitle(t('locationManager.delete')));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(t('locationManager.deleteConfirm').replace('{name}', 'Hangar Bay')),
+      ).toBeTruthy();
+    });
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
 });

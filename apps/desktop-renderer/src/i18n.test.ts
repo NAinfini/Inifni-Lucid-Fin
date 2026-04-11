@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { t, setLocale, getLocale, onLocaleChange, getAvailableLocales, messages } from './i18n.js';
 import { zhCNMessages } from './i18n.messages.zh-CN.js';
 import { enUSMessages } from './i18n.messages.en-US.js';

@@ -25,15 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog.js';
-
-const EQUIPMENT_STANDARD_SLOTS: readonly string[] = [
-  'front',
-  'back',
-  'left-side',
-  'right-side',
-  'detail-closeup',
-  'in-use',
-];
+import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 const TYPE_OPTIONS: EquipmentType[] = [
   'weapon',
@@ -70,6 +62,7 @@ function createDraft(equip: Equipment): EquipmentDraft {
 
 export function EquipmentManagerPanel() {
   const { t } = useI18n();
+  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { items, selectedId, filterType, loading } = useSelector((s: RootState) => s.equipment);
 
@@ -129,15 +122,20 @@ export function EquipmentManagerPanel() {
     setOriginalDraft(d);
   }, [selectedEquip]);
 
-  const confirmDiscardIfDirty = useCallback((): boolean => {
+  const confirmDiscardIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
-    return window.confirm(t('equipmentManager.unsavedChanges'));
-  }, [isDirty, t]);
+    return confirm({
+      title: t('equipmentManager.unsavedChanges'),
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
+  }, [confirm, isDirty, t]);
 
   const handleSelectEquipment = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (id === selectedId) return;
-      if (!confirmDiscardIfDirty()) return;
+      if (!(await confirmDiscardIfDirty())) return;
       dispatch(selectEquipment(id));
     },
     [dispatch, selectedId, confirmDiscardIfDirty],
@@ -163,7 +161,7 @@ export function EquipmentManagerPanel() {
   }, [loadEquipment]);
 
   const createNewEquipment = useCallback(async () => {
-    if (!confirmDiscardIfDirty()) return;
+    if (!(await confirmDiscardIfDirty())) return;
     setError(null);
     try {
       const api = getAPI();
@@ -212,7 +210,13 @@ export function EquipmentManagerPanel() {
 
   const deleteSelected = useCallback(async () => {
     if (!selectedEquip) return;
-    const ok = window.confirm(t('equipmentManager.deleteConfirm').replace('{name}', selectedEquip.name));
+    const message = t('equipmentManager.deleteConfirm').replace('{name}', selectedEquip.name);
+    const ok = await confirm({
+      title: message,
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
     if (!ok) return;
     setError(null);
     try {
@@ -224,7 +228,7 @@ export function EquipmentManagerPanel() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
-  }, [dispatch, selectedEquip]);
+  }, [confirm, dispatch, selectedEquip, t]);
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -288,15 +292,6 @@ export function EquipmentManagerPanel() {
     [dispatch, selectedEquip],
   );
 
-  const refImageBySlot = useMemo(() => {
-    if (!selectedEquip) return {};
-    const map: Record<string, ReferenceImage> = {};
-    for (const ref of selectedEquip.referenceImages) {
-      map[ref.slot] = ref;
-    }
-    return map;
-  }, [selectedEquip]);
-
   return (
     <div className="h-full border-r border-border/60 bg-card flex flex-col">
       <div className="px-3 py-2 border-b border-border/60 space-y-1.5">
@@ -333,10 +328,11 @@ export function EquipmentManagerPanel() {
         <div className="border-r min-h-0 overflow-auto">
           <div className="p-1.5 border-b border-border/60 flex items-center gap-1">
             <button
-              onClick={createNewEquipment}
+              onClick={() => void createNewEquipment()}
               className="flex-1 text-[11px] rounded-md border border-border/60 px-2 py-1 hover:bg-muted/80 flex items-center justify-center gap-1 transition-colors"
+              aria-label={t('equipmentManager.newEquipment')}
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3 h-3" aria-hidden="true" />
               {t('equipmentManager.newEquipment')}
             </button>
             {draft && (
@@ -345,16 +341,18 @@ export function EquipmentManagerPanel() {
                   onClick={saveDraft}
                   disabled={!isDirty}
                   className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  aria-label={t('action.save')}
                   title={t('action.save')}
                 >
-                  <Save className="w-3 h-3" />
+                  <Save className="w-3 h-3" aria-hidden="true" />
                 </button>
                 <button
-                  onClick={deleteSelected}
+                  onClick={() => void deleteSelected()}
                   className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-destructive/20 transition-colors"
+                  aria-label={t('action.delete')}
                   title={t('action.delete')}
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3 h-3" aria-hidden="true" />
                 </button>
               </>
             )}
@@ -366,7 +364,7 @@ export function EquipmentManagerPanel() {
               {filtered.map((equip) => (
                 <button
                   key={equip.id}
-                  onClick={() => handleSelectEquipment(equip.id)}
+                  onClick={() => void handleSelectEquipment(equip.id)}
                   className={cn(
                     'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === equip.id
@@ -505,6 +503,9 @@ export function EquipmentManagerPanel() {
                   entityId={selectedEquip?.id}
                   slot="main"
                 />
+                <p className="text-[9px] text-muted-foreground/70 italic mt-1">
+                  {t('equipmentManager.generateAllHint')}
+                </p>
               </div>
 
               <AssetPickerDialog
@@ -519,6 +520,7 @@ export function EquipmentManagerPanel() {
           {error && <div className="text-[11px] text-destructive">{error}</div>}
         </div>
       </div>
+      {ConfirmDialog}
     </div>
   );
 }
@@ -545,7 +547,7 @@ function SingleReferenceImage({
   const { t } = useI18n();
   const [isDragOver, setIsDragOver] = useState(false);
   const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
-  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'jpg');
+  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
 
   const handleDragOver = (e: React.DragEvent) => {
     const types = e.dataTransfer.types;
@@ -633,18 +635,24 @@ function SingleReferenceImage({
           />
           {isDragOver && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
-              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">Drop here</span>
+              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
+                {t('entity.dropHere')}
+              </span>
             </div>
           )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center h-[200px] gap-2">
           {isDragOver ? (
-            <span className="text-xs text-blue-400">Drop image here</span>
+            <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
           ) : (
             <Image className="w-8 h-8 text-muted-foreground/40" />
           )}
-          {!isDragOver && <span className="text-xs text-muted-foreground">点击上传参考图</span>}
+          {!isDragOver && (
+            <span className="text-xs text-muted-foreground">
+              {t('entity.clickToUploadReferenceImage')}
+            </span>
+          )}
         </div>
       )}
       <div className="flex items-center gap-1 p-1.5">
@@ -652,16 +660,18 @@ function SingleReferenceImage({
           type="button"
           onClick={onUpload}
           className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+          aria-label={t('entity.upload')}
         >
-          <Upload className="w-3 h-3" />
-          Upload
+          <Upload className="w-3 h-3" aria-hidden="true" />
+          {t('entity.upload')}
         </button>
         <button
           type="button"
           onClick={onFromAssets}
           className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+          aria-label={t('entity.fromAssets')}
         >
-          <Image className="w-3 h-3" />
+          <Image className="w-3 h-3" aria-hidden="true" />
           {t('entity.fromAssets')}
         </button>
         {mainRef?.assetHash && (
@@ -669,8 +679,9 @@ function SingleReferenceImage({
             type="button"
             onClick={onRemove}
             className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
+            aria-label={t('entity.removeImage')}
           >
-            <X className="w-3 h-3" />
+            <X className="w-3 h-3" aria-hidden="true" />
             {t('entity.removeImage')}
           </button>
         )}
@@ -700,7 +711,9 @@ function AssetPickerDialog({
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
         </DialogHeader>
         {imageAssets.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-4 text-center">No image assets found.</div>
+          <div className="text-sm text-muted-foreground py-4 text-center">
+            {t('entity.noImageAssetsFound')}
+          </div>
         ) : (
           <div className="grid grid-cols-4 gap-2 max-h-96 overflow-y-auto p-1">
             {imageAssets.map((asset) => (

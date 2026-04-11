@@ -1,6 +1,5 @@
 import type { PayloadAction } from '@reduxjs/toolkit';
 import type {
-  Canvas,
   CanvasNodeType,
   CanvasNodeData,
   NodeStatus,
@@ -13,7 +12,6 @@ import {
   findActiveCanvas,
   createNodeRecord,
   getGenerationNodeData,
-  normalizeCanvasNodeFrames,
 } from './canvas-helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -334,6 +332,38 @@ export function clearNodeAsset(
 }
 
 // ---------------------------------------------------------------------------
+// Video audio / quality
+// ---------------------------------------------------------------------------
+
+export function setNodeAudio(
+  state: CanvasSliceState,
+  action: PayloadAction<{ id: string; audio: boolean }>,
+): void {
+  const canvas = findActiveCanvas(state);
+  if (!canvas) return;
+  const node = canvas.nodes.find((n) => n.id === action.payload.id);
+  if (!node || node.type !== 'video') return;
+  const data = node.data as import('@lucid-fin/contracts').VideoNodeData;
+  data.audio = action.payload.audio;
+  node.updatedAt = Date.now();
+  canvas.updatedAt = node.updatedAt;
+}
+
+export function setNodeQuality(
+  state: CanvasSliceState,
+  action: PayloadAction<{ id: string; quality: 'standard' | 'pro' | undefined }>,
+): void {
+  const canvas = findActiveCanvas(state);
+  if (!canvas) return;
+  const node = canvas.nodes.find((n) => n.id === action.payload.id);
+  if (!node || node.type !== 'video') return;
+  const data = node.data as import('@lucid-fin/contracts').VideoNodeData;
+  data.quality = action.payload.quality;
+  node.updatedAt = Date.now();
+  canvas.updatedAt = node.updatedAt;
+}
+
+// ---------------------------------------------------------------------------
 // Video frame node
 // ---------------------------------------------------------------------------
 
@@ -385,21 +415,34 @@ export function setVideoFrameAsset(
 }
 
 // ---------------------------------------------------------------------------
-// Commander canvas apply
+// Undo-restore support
 // ---------------------------------------------------------------------------
 
-export function applyCanvasFromCommander(
+/**
+ * Restores nodes (and their associated edges) that were removed.
+ * Used as the inverse action for `removeNodes`.
+ */
+export function restoreNodes(
   state: CanvasSliceState,
-  action: PayloadAction<Canvas>,
+  action: PayloadAction<{ nodes: import('@lucid-fin/contracts').CanvasNode[]; edges: import('@lucid-fin/contracts').CanvasEdge[] }>,
 ): void {
-  const incoming = normalizeCanvasNodeFrames(action.payload);
-  const index = state.canvases.findIndex((canvas) => canvas.id === incoming.id);
-  if (index >= 0) {
-    state.canvases[index] = incoming;
-  } else {
-    state.canvases.push(incoming);
+  const canvas = findActiveCanvas(state);
+  if (!canvas) return;
+  const existingNodeIds = new Set(canvas.nodes.map((n) => n.id));
+  for (const node of action.payload.nodes) {
+    if (!existingNodeIds.has(node.id)) {
+      canvas.nodes.push(node);
+    }
   }
-  if (state.activeCanvasId === incoming.id) {
-    state.viewport = incoming.viewport;
+  const existingEdgeIds = new Set(canvas.edges.map((e) => e.id));
+  for (const edge of action.payload.edges) {
+    if (!existingEdgeIds.has(edge.id)) {
+      canvas.edges.push(edge);
+    }
   }
+  canvas.updatedAt = Date.now();
 }
+
+// ---------------------------------------------------------------------------
+// Commander canvas apply
+// ---------------------------------------------------------------------------

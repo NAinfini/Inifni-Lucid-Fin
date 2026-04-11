@@ -157,24 +157,37 @@ Deliberate absence of sound is a powerful tool:
 
 ### Veo 3+
 
-- Native audio generation alongside video
+- Native audio generation alongside video via `generateAudio: true` API parameter
 - Supports ambient, dialogue, and music layers in the same prompt
-- Separate audio descriptions from visual with clear section markers
+- Separate audio descriptions from visual with clear section markers like "Audio:" or "SFX:"
 - Audio quality correlates with visual quality preset
+- Best results with 100-200 word prompts that integrate audio and visual descriptions
 
-### Kling 2.0+
+### Kling 2.6+ / 3.0
 
-- Audio-aware video generation
-- Lip sync capabilities for dialogue
+- Audio-aware video generation via `enable_audio: true` API parameter
+- Lip sync capabilities for dialogue — specify who is speaking and when
 - Best results when audio prompt describes a single dominant sound layer
 - Supports voice description for character speech
+- Pro mode recommended for audio generation (2x cost of standard)
+- Anchor hands to objects when characters interact with items that produce sound
 
 ### MiniMax / Hailuo
 
-- Strong speech/dialogue generation
+- Strong speech/dialogue generation via separate T2A (Text-to-Audio) API
 - Voice cloning capabilities affect prompt strategy
 - Music generation with style reference
 - SFX generation from onomatopoeia
+- Note: audio is NOT generated inline with T2V API — it's a separate audio service
+
+### Providers WITHOUT Audio Support
+
+- **Runway Gen-4.5**: No audio generation. Focus on visual quality and Director Mode camera control.
+- **Luma Ray 2**: No audio. Strengths are physics-based rendering and keyframe interpolation.
+- **Pika**: Sound effects available on web platform only, NOT via API.
+- **Seedance 2**: No audio API parameter. Dance/motion generation only.
+- **Wan 2.1**: No audio. Open-source model focused on visual generation.
+- **HunyuanVideo**: No audio. Tencent offers separate audio models.
 
 ---
 

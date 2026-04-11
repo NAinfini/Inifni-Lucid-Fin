@@ -405,6 +405,10 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         }
 
         await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
+        await deps.updateNodeData(canvasId, nodeId, {
+          appliedShotTemplateId: match.id,
+          appliedShotTemplateName: match.name,
+        });
         return ok({
           nodeId,
           templateId: match.id,

@@ -49,23 +49,27 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
           type: 'string',
           description: 'Optional search text matched against tool names and descriptions.',
         },
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
       required: [],
     },
     async execute(args) {
       try {
         const query = typeof args.query === 'string' ? args.query : undefined;
-        return ok(
-          registry.search({
-            context: deps.context,
-            tags: parseTags(args),
-            query,
-          }).map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            tags: tool.tags ?? [],
-          })),
-        );
+        const tools = registry.search({
+          context: deps.context,
+          tags: parseTags(args),
+          query,
+        }).map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          tags: tool.tags ?? [],
+        }));
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: tools.length, offset, limit, tools: tools.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }
@@ -79,11 +83,17 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     tier: 1,
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
       required: [],
     },
-    async execute() {
-      return ok(promptGuides.map(({ id, name }) => ({ id, name })));
+    async execute(args) {
+      const guides = promptGuides.map(({ id, name }) => ({ id, name }));
+      const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+      return ok({ total: guides.length, offset, limit, guides: guides.slice(offset, offset + limit) });
     },
   };
 
@@ -116,5 +126,31 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     },
   };
 
-  return [toolSearch, guideList, guideGet];
+  const toolList: AgentTool = {
+    name: 'tool.list',
+    description: 'List ALL available tools with their names and descriptions. Use this to see the full tool catalog before searching for specific tools.',
+    tags: ['meta', 'read'],
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
+    },
+    async execute(args) {
+      const allTools = deps.context
+        ? registry.forContext(deps.context)
+        : registry.list();
+      const mapped = allTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+      }));
+      const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+      return ok({ total: mapped.length, offset, limit, tools: mapped.slice(offset, offset + limit) });
+    },
+  };
+
+  return [toolSearch, toolList, guideList, guideGet];
 }

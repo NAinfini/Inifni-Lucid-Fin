@@ -56,7 +56,7 @@ describe('canvas edge reconnect reducers', () => {
         source: 'text-1',
         target: 'video-1',
         sourceHandle: 'top-20',
-        targetHandle: 'left-50',
+        targetHandle: 'tgt-left-50',
         data: { status: 'idle' },
       }),
     );
@@ -69,7 +69,7 @@ describe('canvas edge reconnect reducers', () => {
           source: 'image-1',
           target: 'video-1',
           sourceHandle: 'right-62',
-          targetHandle: 'left-50',
+          targetHandle: 'tgt-left-50',
         },
       }),
     );
@@ -80,7 +80,7 @@ describe('canvas edge reconnect reducers', () => {
         source: 'image-1',
         target: 'video-1',
         sourceHandle: 'right-62',
-        targetHandle: 'left-50',
+        targetHandle: 'tgt-left-50',
       }),
     );
     expect(edge?.data.label).toBe(t('edge.animate'));
@@ -95,7 +95,7 @@ describe('canvas edge reconnect reducers', () => {
         source: 'text-1',
         target: 'image-1',
         sourceHandle: 'top-20',
-        targetHandle: 'left-50',
+        targetHandle: 'tgt-left-50',
         data: { status: 'idle' },
       }),
     );
@@ -108,7 +108,7 @@ describe('canvas edge reconnect reducers', () => {
           source: 'text-1',
           target: 'audio-1',
           sourceHandle: 'top-20',
-          targetHandle: 'bottom-74',
+          targetHandle: 'tgt-bottom-74',
         },
       }),
     );
@@ -119,7 +119,7 @@ describe('canvas edge reconnect reducers', () => {
         source: 'text-1',
         target: 'audio-1',
         sourceHandle: 'top-20',
-        targetHandle: 'bottom-74',
+        targetHandle: 'tgt-bottom-74',
       }),
     );
     expect(edge?.data.label).toBe(t('edge.narrate'));

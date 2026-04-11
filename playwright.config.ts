@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 export default defineConfig({
   testMatch: '**/*.e2e.ts',
   testDir: './e2e',

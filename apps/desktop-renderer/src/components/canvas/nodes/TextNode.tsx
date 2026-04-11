@@ -2,7 +2,7 @@ import { memo } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
-import { FileText, Sparkles } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import type { NodeStatus } from '@lucid-fin/contracts';
@@ -50,7 +50,7 @@ function TextNodeComponent({ data, selected }: NodeProps) {
       onGenerate={() => {}}
       onColorTag={d.onColorTag ?? (() => {})}
     >
-      <div className="relative min-w-[200px]">
+      <div className="relative h-full min-h-[120px] min-w-[200px] w-full">
         <NodeBorderHandles colorClassName="!bg-primary" />
         <NodeResizeControls
           minWidth={200}
@@ -60,7 +60,7 @@ function TextNodeComponent({ data, selected }: NodeProps) {
         />
         <div
           className={cn(
-            'relative rounded-md border bg-card shadow-sm min-w-[200px]',
+            'relative flex flex-col rounded-md border bg-card shadow-sm h-full w-full min-w-[200px] min-h-[120px]',
             'transition-shadow',
             selected ? 'border-blue-400 ring-2 ring-blue-400/40' : 'border-border',
             d.bypassed && 'opacity-40',
@@ -76,19 +76,8 @@ function TextNodeComponent({ data, selected }: NodeProps) {
             </span>
           </div>
 
-          <div className="min-h-[40px] px-3 py-2 text-xs text-muted-foreground line-clamp-4">
+          <div className="flex-1 overflow-auto px-3 py-2 text-xs text-muted-foreground">
             {d.content || t('node.emptyText')}
-          </div>
-
-          <div className="flex items-center gap-1 border-t px-3 py-1.5">
-            <button
-              className="flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-[10px] text-primary transition-colors hover:bg-primary/20"
-              aria-label={t('node.generate')}
-              onContextMenu={(e) => e.preventDefault()}
-            >
-              <Sparkles className="h-3 w-3" />
-              {t('node.generate')}
-            </button>
           </div>
         </div>
       </div>

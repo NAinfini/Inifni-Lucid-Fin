@@ -10,6 +10,7 @@ export function toVeoRequest(req: GenerationRequest): Record<string, unknown> {
       sampleCount: 1,
       durationSeconds: req.duration ?? 5,
       ...(req.seed != null ? { seed: req.seed } : {}),
+      ...(req.audio === true ? { generateAudio: true } : {}),
     },
   };
 }

@@ -44,6 +44,15 @@ describe('promptTemplatesSlice persistence', () => {
       }),
     );
 
+    expect(state.templates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'custom-story-beats',
+          name: 'Story Beats v2',
+        }),
+      ]),
+    );
+
     vi.resetModules();
 
     const secondModule = await import('./promptTemplates.js');
@@ -96,6 +105,15 @@ describe('promptTemplatesSlice persistence', () => {
         id: 'custom-story-beats',
         name: 'Story Spine',
       }),
+    );
+
+    expect(state.templates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'custom-story-beats',
+          name: 'Story Spine',
+        }),
+      ]),
     );
 
     vi.resetModules();

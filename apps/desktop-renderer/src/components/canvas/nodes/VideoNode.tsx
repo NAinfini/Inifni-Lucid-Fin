@@ -122,7 +122,6 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
   const isGenerating = d.generationStatus === 'generating';
 
   const { url: videoUrl } = useAssetUrl(activeHash, 'video', 'mp4');
-  const { url: posterUrl } = useAssetUrl(d.firstFrameHash, 'image', 'jpg');
 
   const previewRef = useRef<HTMLVideoElement>(null);
   const [hovering, setHovering] = useState(false);
@@ -233,26 +232,13 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
                 onMouseLeave={handleMouseLeave}
                 onClick={handleClick}
               >
-                {/* Static thumbnail (shown when not hovering) */}
-                {!hovering && posterUrl && (
-                  <img
-                    src={posterUrl}
-                    alt={d.title || t('node.video')}
-                    className="absolute inset-0 h-full w-full object-contain"
-                    draggable={false}
-                  />
-                )}
-
-                {/* Video element: hidden behind poster when not hovering, visible when hovering */}
+                {/* Video element: paused at frame 0 when idle, plays on hover */}
                 {videoUrl ? (
                   <video
                     data-testid="video-media-element"
                     ref={previewRef}
                     src={videoUrl}
-                    className={cn(
-                      'h-full w-full object-contain',
-                      !hovering && posterUrl && 'invisible',
-                    )}
+                    className="h-full w-full object-contain"
                     muted
                     loop
                     playsInline
@@ -299,24 +285,29 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             </div>
           )}
 
-          {d.variants.length > 1 && (
-            <div className="overflow-x-auto px-3 pb-2">
-              <div className="flex min-w-max items-center gap-1">
-                {d.variants.slice(0, 9).map((hash, index) => (
-                  <VariantThumb
-                    key={hash}
-                    hash={hash}
-                    index={index}
-                    selected={d.selectedVariantIndex === index}
-                    onClick={() => d.onSelectVariant?.(d.nodeId, index)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
           {(d.firstFrameHash || d.lastFrameHash) && (
             <FrameRow firstHash={d.firstFrameHash} lastHash={d.lastFrameHash} />
+          )}
+
+          {d.variants.length > 1 && (
+            <div className="border-t border-purple-500/10 px-3 py-1.5">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <div className="flex min-w-max items-center gap-1">
+                  {d.variants.map((hash, index) => (
+                    <VariantThumb
+                      key={hash}
+                      hash={hash}
+                      index={index}
+                      selected={d.selectedVariantIndex === index}
+                      onClick={() => d.onSelectVariant?.(d.nodeId, index)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
           )}
 
           <div className="flex items-center gap-1 border-t border-purple-500/20 px-3 py-1.5 nopan nodrag">

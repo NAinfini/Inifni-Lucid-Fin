@@ -1,0 +1,208 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { Canvas } from '@lucid-fin/contracts';
+import { createCanvasReferenceTools } from './canvas-reference-tools.js';
+import type { CanvasToolDeps } from './canvas-tool-utils.js';
+
+function createCanvas(): Canvas {
+  return {
+    id: 'canvas-1',
+    projectId: 'project-1',
+    name: 'Canvas',
+    nodes: [
+      {
+        id: 'image-1',
+        type: 'image',
+        title: 'Image',
+        position: { x: 0, y: 0 },
+        data: {},
+        status: 'idle',
+        bypassed: false,
+        locked: false,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'audio-1',
+        type: 'audio',
+        title: 'Audio',
+        position: { x: 10, y: 0 },
+        data: {},
+        status: 'idle',
+        bypassed: false,
+        locked: false,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'text-1',
+        type: 'text',
+        title: 'Text',
+        position: { x: 20, y: 0 },
+        data: { content: 'hello' },
+        status: 'idle',
+        bypassed: false,
+        locked: false,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    edges: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    notes: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function createDeps(canvas = createCanvas()): CanvasToolDeps {
+  return {
+    getCanvas: vi.fn(async () => canvas),
+    deleteCanvas: vi.fn(async () => undefined),
+    addNode: vi.fn(async () => undefined),
+    moveNode: vi.fn(async () => undefined),
+    renameNode: vi.fn(async () => undefined),
+    renameCanvas: vi.fn(async () => undefined),
+    loadCanvas: vi.fn(async () => undefined),
+    saveCanvas: vi.fn(async () => undefined),
+    connectNodes: vi.fn(async () => undefined),
+    setNodePresets: vi.fn(async () => undefined),
+    getCanvasState: vi.fn(async () => canvas),
+    layoutNodes: vi.fn(async () => undefined),
+    triggerGeneration: vi.fn(async () => undefined),
+    cancelGeneration: vi.fn(async () => undefined),
+    deleteNode: vi.fn(async () => undefined),
+    deleteEdge: vi.fn(async () => undefined),
+    updateNodeData: vi.fn(async (_canvasId, nodeId, data) => {
+      const node = canvas.nodes.find((entry) => entry.id === nodeId);
+      if (!node) throw new Error(`Node not found: ${nodeId}`);
+      Object.assign(node.data as Record<string, unknown>, data);
+    }),
+    listPresets: vi.fn(async () => []),
+    savePreset: vi.fn(async (preset) => preset),
+    listShotTemplates: vi.fn(async () => []),
+    removeCharacterRef: vi.fn(async () => undefined),
+    removeEquipmentRef: vi.fn(async () => undefined),
+    removeLocationRef: vi.fn(async () => undefined),
+    clearSelection: vi.fn(async () => undefined),
+    importWorkflow: vi.fn(async () => canvas),
+    exportWorkflow: vi.fn(async () => '{}'),
+    setNodeColorTag: vi.fn(async () => undefined),
+    toggleSeedLock: vi.fn(async () => undefined),
+    selectVariant: vi.fn(async () => undefined),
+    estimateCost: vi.fn(async () => ({ totalEstimatedCost: 0, currency: 'USD', nodeCosts: [] })),
+    addNote: vi.fn(async () => ({ id: 'note-1', content: 'note', createdAt: 1, updatedAt: 1 })),
+    getRecentLogs: vi.fn(async () => []),
+    updateNote: vi.fn(async () => undefined),
+    deleteNote: vi.fn(async () => undefined),
+    undo: vi.fn(async () => undefined),
+    redo: vi.fn(async () => undefined),
+  };
+}
+
+function getTool(name: string, deps: CanvasToolDeps) {
+  const tool = createCanvasReferenceTools(deps).find((entry) => entry.name === name);
+  if (!tool) throw new Error(`Missing tool: ${name}`);
+  return tool;
+}
+
+describe('createCanvasReferenceTools', () => {
+  it('defines the expected reference tools', () => {
+    const deps = createDeps();
+    expect(createCanvasReferenceTools(deps).map((tool) => tool.name)).toEqual([
+      'canvas.setCharacterRefs',
+      'canvas.setEquipmentRefs',
+      'canvas.setLocationRefs',
+      'canvas.removeCharacterRef',
+      'canvas.removeEquipmentRef',
+      'canvas.removeLocationRef',
+    ]);
+  });
+
+  it('sets character, equipment, and location refs on image/video nodes', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    await expect(getTool('canvas.setCharacterRefs', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      characterRefs: [{ characterId: 'char-1', loadoutId: 'look-1' }],
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'image-1', characterRefs: [{ characterId: 'char-1', loadoutId: 'look-1' }] },
+    });
+    await expect(getTool('canvas.setEquipmentRefs', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      equipmentRefs: [{ equipmentId: 'eq-1' }],
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'image-1', equipmentRefs: [{ equipmentId: 'eq-1' }] },
+    });
+    await expect(getTool('canvas.setLocationRefs', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      locationRefs: [{ locationId: 'loc-1' }],
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'image-1', locationRefs: [{ locationId: 'loc-1' }] },
+    });
+  });
+
+  it('removes refs through dependency methods for visual nodes', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.removeCharacterRef', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      characterId: 'char-1',
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'image-1', characterId: 'char-1' },
+    });
+    await expect(getTool('canvas.removeEquipmentRef', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      equipmentId: 'eq-1',
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'image-1', equipmentId: 'eq-1' },
+    });
+    await expect(getTool('canvas.removeLocationRef', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      locationId: 'loc-1',
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'image-1', locationId: 'loc-1' },
+    });
+  });
+
+  it('validates arrays and rejects unsupported node types', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.setCharacterRefs', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      characterRefs: 'bad',
+    })).resolves.toEqual({
+      success: false,
+      error: 'characterRefs must be an array',
+    });
+    await expect(getTool('canvas.removeCharacterRef', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'audio-1',
+      characterId: 'char-1',
+    })).resolves.toEqual({
+      success: false,
+      error: 'Node type "audio" does not support character refs',
+    });
+    await expect(getTool('canvas.setLocationRefs', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'text-1',
+      locationRefs: [],
+    })).resolves.toEqual({
+      success: false,
+      error: 'Node type "text" does not support location refs',
+    });
+  });
+});

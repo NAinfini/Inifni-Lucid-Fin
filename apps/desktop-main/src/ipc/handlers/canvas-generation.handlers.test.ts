@@ -27,6 +27,8 @@ import {
   canonicalizeCanvasProviderId,
   startCanvasGeneration,
 } from './canvas-generation.handlers.js';
+import { mergeGenerationParams } from './generation-context.js';
+import { buildAdhocAdapter } from './generation-helpers.js';
 
 function makeStyleGuide(overrides?: Partial<StyleGuide['global']>): StyleGuide {
   return {
@@ -119,6 +121,35 @@ describe('canonicalizeCanvasProviderId', () => {
     expect(canonicalizeCanvasProviderId('google-veo-2')).toBe('google-veo-2');
     expect(canonicalizeCanvasProviderId('openai-dalle')).toBe('openai-dalle');
     expect(canonicalizeCanvasProviderId(undefined)).toBeUndefined();
+  });
+});
+
+describe('mergeGenerationParams', () => {
+  it('merges explicit fps into base params', () => {
+    expect(
+      mergeGenerationParams(
+        { seedBehavior: 'locked' },
+        60,
+      ),
+    ).toEqual({
+      seedBehavior: 'locked',
+      fps: 60,
+    });
+  });
+
+  it('returns base params unchanged when fps is undefined', () => {
+    expect(
+      mergeGenerationParams(
+        {
+          audio: { voice: 'nova' },
+          quality: 'medium',
+        },
+        undefined,
+      ),
+    ).toEqual({
+      audio: { voice: 'nova' },
+      quality: 'medium',
+    });
   });
 });
 
@@ -652,6 +683,50 @@ describe('startCanvasGeneration progress events', () => {
     );
 
     vi.useRealTimers();
+  });
+
+  it('maps sora-style image-to-video requests for ad-hoc video providers', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        url: 'https://example.com/video.mp4',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const adapter = await buildAdhocAdapter(
+        'adhoc-video',
+        {
+          baseUrl: 'https://provider.example/generate',
+          model: 'openai/sora-2',
+          apiKey: 'sk-demo',
+        },
+        {
+          getKey: vi.fn(async () => null),
+        } as never,
+        'video',
+      );
+
+      await adapter.generate({
+        type: 'video',
+        providerId: 'adhoc-video',
+        prompt: 'A dramatic close-up',
+        referenceImages: ['https://example.com/reference.png'],
+        duration: 5,
+      });
+
+      expect(adapter.capabilities).toContain('image-to-video');
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://provider.example/generate',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"input_reference":"https://example.com/reference.png"'),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('configures registered adapters with aliased keys and runtime provider overrides', async () => {

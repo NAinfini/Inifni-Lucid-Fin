@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import type { AppDispatch, RootState } from '../store/index.js';
+import { store, type AppDispatch, type RootState } from '../store/index.js';
 import {
   setNodeEstimatedCost,
   setNodeGenerationComplete,
@@ -9,6 +9,7 @@ import {
   setNodeProgress,
 } from '../store/slices/canvas.js';
 import { addLog } from '../store/slices/logger.js';
+import { setAssets, type Asset } from '../store/slices/assets.js';
 import { getAPI } from '../utils/api.js';
 
 function serializeGenerationDetail(detail: Record<string, unknown>, error?: unknown): string {
@@ -69,6 +70,31 @@ export function useCanvasGeneration(): {
           }),
         }),
       );
+      // Refresh asset store so newly generated assets appear in the browser
+      void api.asset.query({}).then((result) => {
+        if (!Array.isArray(result)) return;
+        dispatch(
+          setAssets(
+            result.map((a: Record<string, unknown>) => ({
+              id: a.hash as string,
+              hash: a.hash as string,
+              name: (typeof a.name === 'string' ? a.name : typeof a.originalName === 'string' ? a.originalName : (a.hash as string).slice(0, 12)),
+              type: (a.type as Asset['type']) ?? 'other',
+              path: typeof a.path === 'string' ? a.path : '',
+              tags: Array.isArray(a.tags) ? a.tags as string[] : [],
+              global: false,
+              size: typeof a.fileSize === 'number' ? a.fileSize : 0,
+              createdAt: typeof a.createdAt === 'number' ? a.createdAt : Date.now(),
+              format: typeof a.format === 'string' ? a.format : undefined,
+              width: typeof a.width === 'number' ? a.width : undefined,
+              height: typeof a.height === 'number' ? a.height : undefined,
+              duration: typeof a.duration === 'number' ? a.duration : undefined,
+              provider: typeof a.provider === 'string' ? a.provider : undefined,
+              prompt: typeof a.prompt === 'string' ? a.prompt : undefined,
+            })),
+          ),
+        );
+      });
     });
     const unsubFailed = api.canvasGeneration.onFailed((data) => {
       if (data.canvasId !== activeCanvasId) return;
@@ -101,6 +127,14 @@ export function useCanvasGeneration(): {
       }
       if (!activeCanvasId) {
         throw new Error('No active canvas selected');
+      }
+
+      // Flush in-memory canvas to DB before main process reads it,
+      // avoiding stale state caused by the persistence debounce.
+      const { canvases } = (store.getState() as RootState).canvas;
+      const activeCanvas = canvases.find((c) => c.id === activeCanvasId);
+      if (activeCanvas && api.canvas?.save) {
+        await api.canvas.save(activeCanvas).catch(() => {});
       }
 
       dispatch(

@@ -38,10 +38,20 @@ export interface PendingQuestion {
   options: Array<{ label: string; description?: string }>;
 }
 
+export interface CommanderSession {
+  id: string;
+  title: string;
+  messages: CommanderMessage[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface CommanderState {
   open: boolean;
   minimized: boolean;
   providerId: string | null;
+  activeSessionId: string | null;
+  sessions: CommanderSession[];
   messages: CommanderMessage[];
   streaming: boolean;
   currentStreamContent: string;
@@ -51,12 +61,51 @@ export interface CommanderState {
   position: { x: number; y: number };
   size: { width: number; height: number };
   permissionMode: PermissionMode;
+  maxSteps: number;
+  temperature: number;
+  maxTokens: number;
+  // AI / network
+  llmRetries: number;
+  historyTokenBudget: number;
+  // Storage / data
+  maxSessions: number;
+  maxMessagesPerSession: number;
+  undoStackDepth: number;
+  maxLogEntries: number;
+  // Behavior
+  autoSaveDelayMs: number;
+  undoGroupWindowMs: number;
+  clipboardWatchIntervalMs: number;
+  clipboardMinLength: number;
+  generationConcurrency: number;
   pendingConfirmation: PendingConfirmation | null;
   pendingQuestion: PendingQuestion | null;
   messageQueue: string[];
 }
 
 const COMMANDER_PROVIDER_KEY = 'lucid-commander-provider-v1';
+const COMMANDER_SESSIONS_KEY = 'lucid-commander-sessions-v1';
+const COMMANDER_SETTINGS_KEY = 'lucid-commander-settings-v1';
+const MAX_SESSIONS = 50;
+/** Max messages kept per session in localStorage to avoid hitting the 5 MB quota. */
+const MAX_MESSAGES_PER_SESSION = 200;
+/** Approx byte budget for the serialised session blob (4 MB leaves headroom). */
+const MAX_STORAGE_BYTES = 4 * 1024 * 1024;
+
+const DEFAULT_MAX_STEPS = 50;
+const DEFAULT_TEMPERATURE = 0.7;
+const DEFAULT_MAX_TOKENS = 200000;
+const DEFAULT_LLM_RETRIES = 2;
+const DEFAULT_HISTORY_TOKEN_BUDGET = 200000;
+const DEFAULT_MAX_SESSIONS = 50;
+const DEFAULT_MAX_MESSAGES_PER_SESSION = 200;
+const DEFAULT_UNDO_STACK_DEPTH = 100;
+const DEFAULT_MAX_LOG_ENTRIES = 500;
+const DEFAULT_AUTO_SAVE_DELAY_MS = 500;
+const DEFAULT_UNDO_GROUP_WINDOW_MS = 300;
+const DEFAULT_CLIPBOARD_WATCH_INTERVAL_MS = 1500;
+const DEFAULT_CLIPBOARD_MIN_LENGTH = 100;
+const DEFAULT_GENERATION_CONCURRENCY = 1;
 
 function loadPersistedProviderId(): string | null {
   try {
@@ -66,10 +115,121 @@ function loadPersistedProviderId(): string | null {
   }
 }
 
+interface PersistedSettings {
+  permissionMode?: PermissionMode;
+  maxSteps?: number;
+  temperature?: number;
+  maxTokens?: number;
+  llmRetries?: number;
+  historyTokenBudget?: number;
+  maxSessions?: number;
+  maxMessagesPerSession?: number;
+  undoStackDepth?: number;
+  maxLogEntries?: number;
+  autoSaveDelayMs?: number;
+  undoGroupWindowMs?: number;
+  clipboardWatchIntervalMs?: number;
+  clipboardMinLength?: number;
+  generationConcurrency?: number;
+}
+
+function loadPersistedSettings(): PersistedSettings {
+  try {
+    const raw = localStorage.getItem(COMMANDER_SETTINGS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as PersistedSettings;
+  } catch {
+    return {};
+  }
+}
+
+function persistSettings(settings: PersistedSettings): void {
+  try {
+    localStorage.setItem(COMMANDER_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // localStorage unavailable
+  }
+}
+
+function persistSettingsFromState(state: CommanderState): void {
+  persistSettings({
+    permissionMode: state.permissionMode,
+    maxSteps: state.maxSteps,
+    temperature: state.temperature,
+    maxTokens: state.maxTokens,
+    llmRetries: state.llmRetries,
+    historyTokenBudget: state.historyTokenBudget,
+    maxSessions: state.maxSessions,
+    maxMessagesPerSession: state.maxMessagesPerSession,
+    undoStackDepth: state.undoStackDepth,
+    maxLogEntries: state.maxLogEntries,
+    autoSaveDelayMs: state.autoSaveDelayMs,
+    undoGroupWindowMs: state.undoGroupWindowMs,
+    clipboardWatchIntervalMs: state.clipboardWatchIntervalMs,
+    clipboardMinLength: state.clipboardMinLength,
+    generationConcurrency: state.generationConcurrency,
+  });
+}
+
+function loadPersistedSessions(): CommanderSession[] {
+  try {
+    const raw = localStorage.getItem(COMMANDER_SESSIONS_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as CommanderSession[];
+  } catch {
+    return [];
+  }
+}
+
+function trimSessionForStorage(session: CommanderSession): CommanderSession {
+  if (session.messages.length <= MAX_MESSAGES_PER_SESSION) return session;
+  return {
+    ...session,
+    messages: session.messages.slice(-MAX_MESSAGES_PER_SESSION),
+  };
+}
+
+function persistSessions(sessions: CommanderSession[]): void {
+  const trimmed = sessions.slice(0, MAX_SESSIONS).map(trimSessionForStorage);
+  try {
+    const json = JSON.stringify(trimmed);
+    if (json.length > MAX_STORAGE_BYTES) {
+      // Drop oldest sessions until we fit
+      let shrunk = trimmed;
+      while (shrunk.length > 1 && JSON.stringify(shrunk).length > MAX_STORAGE_BYTES) {
+        shrunk = shrunk.slice(0, -1);
+      }
+      localStorage.setItem(COMMANDER_SESSIONS_KEY, JSON.stringify(shrunk));
+      return;
+    }
+    localStorage.setItem(COMMANDER_SESSIONS_KEY, json);
+  } catch {
+    // QuotaExceededError — evict oldest half and retry once
+    try {
+      const halved = trimmed.slice(0, Math.max(1, Math.floor(trimmed.length / 2)));
+      localStorage.setItem(COMMANDER_SESSIONS_KEY, JSON.stringify(halved));
+    } catch {
+      // Completely full — clear sessions to prevent data loss elsewhere
+      try { localStorage.removeItem(COMMANDER_SESSIONS_KEY); } catch { /* noop */ }
+    }
+  }
+}
+
+function deriveSessionTitle(messages: CommanderMessage[]): string {
+  const firstUserMsg = messages.find((m) => m.role === 'user');
+  if (!firstUserMsg) return 'New session';
+  const text = firstUserMsg.content.trim();
+  return text.length > 60 ? text.slice(0, 57) + '...' : text;
+}
+
+const persistedSettings = loadPersistedSettings();
+
 const initialState: CommanderState = {
   open: false,
   minimized: false,
   providerId: loadPersistedProviderId(),
+  activeSessionId: null,
+  sessions: loadPersistedSessions(),
   messages: [],
   streaming: false,
   currentStreamContent: '',
@@ -78,7 +238,21 @@ const initialState: CommanderState = {
   error: null,
   position: { x: 24, y: 96 },
   size: { width: 400, height: 500 },
-  permissionMode: 'normal',
+  permissionMode: persistedSettings.permissionMode ?? 'normal',
+  maxSteps: persistedSettings.maxSteps ?? DEFAULT_MAX_STEPS,
+  temperature: persistedSettings.temperature ?? DEFAULT_TEMPERATURE,
+  maxTokens: persistedSettings.maxTokens ?? DEFAULT_MAX_TOKENS,
+  llmRetries: persistedSettings.llmRetries ?? DEFAULT_LLM_RETRIES,
+  historyTokenBudget: persistedSettings.historyTokenBudget ?? DEFAULT_HISTORY_TOKEN_BUDGET,
+  maxSessions: persistedSettings.maxSessions ?? DEFAULT_MAX_SESSIONS,
+  maxMessagesPerSession: persistedSettings.maxMessagesPerSession ?? DEFAULT_MAX_MESSAGES_PER_SESSION,
+  undoStackDepth: persistedSettings.undoStackDepth ?? DEFAULT_UNDO_STACK_DEPTH,
+  maxLogEntries: persistedSettings.maxLogEntries ?? DEFAULT_MAX_LOG_ENTRIES,
+  autoSaveDelayMs: persistedSettings.autoSaveDelayMs ?? DEFAULT_AUTO_SAVE_DELAY_MS,
+  undoGroupWindowMs: persistedSettings.undoGroupWindowMs ?? DEFAULT_UNDO_GROUP_WINDOW_MS,
+  clipboardWatchIntervalMs: persistedSettings.clipboardWatchIntervalMs ?? DEFAULT_CLIPBOARD_WATCH_INTERVAL_MS,
+  clipboardMinLength: persistedSettings.clipboardMinLength ?? DEFAULT_CLIPBOARD_MIN_LENGTH,
+  generationConcurrency: persistedSettings.generationConcurrency ?? DEFAULT_GENERATION_CONCURRENCY,
   pendingConfirmation: null,
   pendingQuestion: null,
   messageQueue: [],
@@ -211,6 +385,30 @@ export const commanderSlice = createSlice({
       state.currentStreamContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
+      // Auto-save session
+      if (state.messages.length > 0) {
+        if (!state.activeSessionId) {
+          state.activeSessionId = crypto.randomUUID();
+        }
+        const now = Date.now();
+        const existing = state.sessions.findIndex((s) => s.id === state.activeSessionId);
+        const session: CommanderSession = {
+          id: state.activeSessionId!,
+          title: deriveSessionTitle(state.messages),
+          messages: state.messages,
+          createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
+          updatedAt: now,
+        };
+        if (existing >= 0) {
+          state.sessions[existing] = session;
+        } else {
+          state.sessions.unshift(session);
+        }
+        if (state.sessions.length > MAX_SESSIONS) {
+          state.sessions = state.sessions.slice(0, MAX_SESSIONS);
+        }
+        persistSessions(state.sessions);
+      }
     },
     streamError(state, action: PayloadAction<string>) {
       state.error = action.payload;
@@ -220,12 +418,96 @@ export const commanderSlice = createSlice({
       state.currentSegments = [];
     },
     clearHistory(state) {
+      // Save current session before clearing
+      if (state.messages.length > 0) {
+        const now = Date.now();
+        const sessionId = state.activeSessionId ?? crypto.randomUUID();
+        const existing = state.sessions.findIndex((s) => s.id === sessionId);
+        const session: CommanderSession = {
+          id: sessionId,
+          title: deriveSessionTitle(state.messages),
+          messages: state.messages,
+          createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
+          updatedAt: now,
+        };
+        if (existing >= 0) {
+          state.sessions[existing] = session;
+        } else {
+          state.sessions.unshift(session);
+        }
+        if (state.sessions.length > MAX_SESSIONS) {
+          state.sessions = state.sessions.slice(0, MAX_SESSIONS);
+        }
+        persistSessions(state.sessions);
+      }
+      state.activeSessionId = null;
       state.messages = [];
       state.currentStreamContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
       state.streaming = false;
+    },
+    /** Start a new session (save current first) */
+    newSession(state) {
+      if (state.messages.length > 0) {
+        const now = Date.now();
+        const sessionId = state.activeSessionId ?? crypto.randomUUID();
+        const existing = state.sessions.findIndex((s) => s.id === sessionId);
+        const session: CommanderSession = {
+          id: sessionId,
+          title: deriveSessionTitle(state.messages),
+          messages: state.messages,
+          createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
+          updatedAt: now,
+        };
+        if (existing >= 0) {
+          state.sessions[existing] = session;
+        } else {
+          state.sessions.unshift(session);
+        }
+        if (state.sessions.length > MAX_SESSIONS) {
+          state.sessions = state.sessions.slice(0, MAX_SESSIONS);
+        }
+        persistSessions(state.sessions);
+      }
+      state.activeSessionId = null;
+      state.messages = [];
+      state.currentStreamContent = '';
+      state.currentToolCalls = [];
+      state.currentSegments = [];
+      state.error = null;
+      state.streaming = false;
+    },
+    /** Load a previous session */
+    loadSession(state, action: PayloadAction<string>) {
+      // Save current session first
+      if (state.messages.length > 0 && state.activeSessionId) {
+        const existing = state.sessions.findIndex((s) => s.id === state.activeSessionId);
+        if (existing >= 0) {
+          state.sessions[existing].messages = state.messages;
+          state.sessions[existing].updatedAt = Date.now();
+          persistSessions(state.sessions);
+        }
+      }
+      const session = state.sessions.find((s) => s.id === action.payload);
+      if (!session) return;
+      state.activeSessionId = session.id;
+      state.messages = session.messages;
+      state.currentStreamContent = '';
+      state.currentToolCalls = [];
+      state.currentSegments = [];
+      state.error = null;
+      state.streaming = false;
+    },
+    /** Delete a saved session */
+    deleteSession(state, action: PayloadAction<string>) {
+      state.sessions = state.sessions.filter((s) => s.id !== action.payload);
+      persistSessions(state.sessions);
+      if (state.activeSessionId === action.payload) {
+        state.activeSessionId = null;
+        state.messages = [];
+      }
     },
     setPosition(state, action: PayloadAction<{ x: number; y: number }>) {
       state.position = action.payload;
@@ -235,6 +517,63 @@ export const commanderSlice = createSlice({
     },
     setPermissionMode(state, action: PayloadAction<PermissionMode>) {
       state.permissionMode = action.payload;
+      persistSettingsFromState(state);
+    },
+    setMaxSteps(state, action: PayloadAction<number>) {
+      state.maxSteps = Math.max(1, Math.min(200, Math.round(action.payload)));
+      persistSettingsFromState(state);
+    },
+    setTemperature(state, action: PayloadAction<number>) {
+      state.temperature = Math.max(0, Math.min(1, Math.round(action.payload * 10) / 10));
+      persistSettingsFromState(state);
+    },
+    setMaxTokens(state, action: PayloadAction<number>) {
+      state.maxTokens = Math.max(1024, Math.min(1_000_000, Math.round(action.payload / 1024) * 1024));
+      persistSettingsFromState(state);
+    },
+    setAutoSaveDelayMs(state, action: PayloadAction<number>) {
+      state.autoSaveDelayMs = Math.max(100, Math.min(5000, Math.round(action.payload / 100) * 100));
+      persistSettingsFromState(state);
+    },
+    setUndoGroupWindowMs(state, action: PayloadAction<number>) {
+      state.undoGroupWindowMs = Math.max(50, Math.min(1000, Math.round(action.payload / 50) * 50));
+      persistSettingsFromState(state);
+    },
+    setClipboardWatchIntervalMs(state, action: PayloadAction<number>) {
+      state.clipboardWatchIntervalMs = Math.max(500, Math.min(10000, Math.round(action.payload / 500) * 500));
+      persistSettingsFromState(state);
+    },
+    setClipboardMinLength(state, action: PayloadAction<number>) {
+      state.clipboardMinLength = Math.max(10, Math.min(1000, Math.round(action.payload)));
+      persistSettingsFromState(state);
+    },
+    setGenerationConcurrency(state, action: PayloadAction<number>) {
+      state.generationConcurrency = Math.max(1, Math.min(10, Math.round(action.payload)));
+      persistSettingsFromState(state);
+    },
+    setLlmRetries(state, action: PayloadAction<number>) {
+      state.llmRetries = Math.max(0, Math.min(10, Math.round(action.payload)));
+      persistSettingsFromState(state);
+    },
+    setHistoryTokenBudget(state, action: PayloadAction<number>) {
+      state.historyTokenBudget = Math.max(1000, Math.min(1_000_000, Math.round(action.payload / 1000) * 1000));
+      persistSettingsFromState(state);
+    },
+    setMaxSessions(state, action: PayloadAction<number>) {
+      state.maxSessions = Math.max(5, Math.min(200, Math.round(action.payload)));
+      persistSettingsFromState(state);
+    },
+    setMaxMessagesPerSession(state, action: PayloadAction<number>) {
+      state.maxMessagesPerSession = Math.max(20, Math.min(1000, Math.round(action.payload)));
+      persistSettingsFromState(state);
+    },
+    setUndoStackDepth(state, action: PayloadAction<number>) {
+      state.undoStackDepth = Math.max(10, Math.min(500, Math.round(action.payload)));
+      persistSettingsFromState(state);
+    },
+    setMaxLogEntries(state, action: PayloadAction<number>) {
+      state.maxLogEntries = Math.max(100, Math.min(5000, Math.round(action.payload)));
+      persistSettingsFromState(state);
     },
     setPendingConfirmation(state, action: PayloadAction<PendingConfirmation>) {
       state.pendingConfirmation = action.payload;
@@ -268,6 +607,9 @@ export const commanderSlice = createSlice({
         ...initialState,
         ...action.payload,
         permissionMode: action.payload.permissionMode ?? 'normal',
+        maxSteps: action.payload.maxSteps ?? DEFAULT_MAX_STEPS,
+        temperature: action.payload.temperature ?? DEFAULT_TEMPERATURE,
+        maxTokens: action.payload.maxTokens ?? DEFAULT_MAX_TOKENS,
         pendingConfirmation: null,
         pendingQuestion: null,
         messageQueue: [],
@@ -289,9 +631,26 @@ export const {
   finishStreaming,
   streamError,
   clearHistory,
+  newSession,
+  loadSession,
+  deleteSession,
   setPosition,
   setSize,
   setPermissionMode,
+  setMaxSteps,
+  setTemperature,
+  setMaxTokens,
+  setLlmRetries,
+  setHistoryTokenBudget,
+  setMaxSessions,
+  setMaxMessagesPerSession,
+  setUndoStackDepth,
+  setMaxLogEntries,
+  setAutoSaveDelayMs,
+  setUndoGroupWindowMs,
+  setClipboardWatchIntervalMs,
+  setClipboardMinLength,
+  setGenerationConcurrency,
   setPendingConfirmation,
   clearPendingConfirmation,
   setPendingQuestion,

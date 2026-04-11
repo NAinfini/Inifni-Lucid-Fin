@@ -7,7 +7,7 @@ import {
   type ReferenceImage,
   type VideoNodeData,
 } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
 
 export interface CharacterToolDeps {
   listCharacters: () => Promise<Character[]>;
@@ -15,10 +15,6 @@ export interface CharacterToolDeps {
   deleteCharacter: (id: string) => Promise<void>;
   generateImage?: (prompt: string, providerId?: string) => Promise<{ assetHash: string }>;
   getCanvas?: (canvasId: string) => Promise<Canvas>;
-}
-
-function ok(data?: unknown): ToolResult {
-  return { success: true, data };
 }
 
 export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
@@ -29,13 +25,18 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     tier: 1,
     parameters: {
       type: 'object',
-      properties: {},
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
       required: [],
     },
-    async execute(_args) {
+    async execute(args) {
       try {
         const characters = await deps.listCharacters();
-        return { success: true, data: characters };
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return { success: true, data: { total: characters.length, offset, limit, characters: characters.slice(offset, offset + limit) } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -157,15 +158,19 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
   const characterGenerateReferenceImage: AgentTool = {
     name: 'character.generateReferenceImage',
-    description: 'Generate a reference image for a character slot.',
+    description: 'Generate a reference image for a character slot. Each slot produces a specific view with plain background and no scene elements.',
     tags: ['character', 'generation'],
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The character ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
-        prompt: { type: 'string', description: 'Optional custom image generation prompt.' },
+        slot: {
+          type: 'string',
+          description: 'Reference image slot. front/back/left-side/right-side = full body views; face-closeup = detailed portrait; top-down = overhead view.',
+          enum: ['front', 'back', 'left-side', 'right-side', 'face-closeup', 'top-down'],
+        },
+        prompt: { type: 'string', description: 'Optional custom prompt. Default auto-generates a character-only reference prompt with neutral background.' },
       },
       required: ['id', 'slot'],
     },
@@ -181,9 +186,21 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         }
 
         const slot = args.slot as string;
+        const slotDescriptions: Record<string, string> = {
+          'front': 'full body front view, neutral standing pose, facing camera directly, head to toe visible, arms slightly away from body',
+          'back': 'full body back view, neutral standing pose, facing away from camera, head to toe visible, showing hair and costume details from behind',
+          'left-side': 'full body left side profile view, neutral standing pose, clean silhouette, head to toe visible',
+          'right-side': 'full body right side profile view, neutral standing pose, clean silhouette, head to toe visible',
+          'face-closeup': 'close-up portrait of face, head and shoulders framing, highly detailed facial features, detailed eyes and skin texture, multiple subtle expressions showing emotional range, neutral and slight smile',
+          'top-down': 'top-down overhead view looking straight down, full body visible, arms slightly spread for shape clarity',
+        };
+        const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
+        const appearance = entity.appearance ? `Appearance: ${entity.appearance}. ` : '';
         const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
           ? args.prompt
-          : `Character reference image: ${entity.name}. Appearance: ${entity.appearance}. ${entity.description}. Angle: ${slot}`;
+          : `Character design reference, solid white background, even studio lighting, no environment, no scene, no props, no other characters. `
+            + `Subject: ${entity.name}. ${slotDesc}. ${appearance}`
+            + `Single character only, clean edges, high detail, consistent proportions, professional character concept art.`;
         const result = await deps.generateImage(finalPrompt);
         const referenceImages = [...(entity.referenceImages ?? [])];
         const referenceImage = {
@@ -290,43 +307,6 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
   };
 
-  const characterSearch: AgentTool = {
-    name: 'character.search',
-    description: 'Search characters by name or role. Returns lightweight summaries.',
-    tags: ['character', 'read', 'search'],
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Optional name query. Matches character names case-insensitively.',
-        },
-        role: {
-          type: 'string',
-          description: 'Optional exact role match.',
-        },
-      },
-      required: [],
-    },
-    async execute(args) {
-      try {
-        const characters = await deps.listCharacters();
-        const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
-        const role = typeof args.role === 'string' ? args.role : undefined;
-        const matches = characters
-          .filter((character) => (
-            (query.length === 0 || character.name.toLowerCase().includes(query))
-            && (role === undefined || character.role === role)
-          ))
-          .map(({ id, name, role: characterRole }) => ({ id, name, role: characterRole }));
-        return ok(matches);
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
   const characterSetReferenceImageFromNode: AgentTool = {
     name: 'character.setReferenceImageFromNode',
     description: 'Set a character reference image directly from a generated canvas image node.',
@@ -379,7 +359,6 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
   return [
     characterList,
-    characterSearch,
     characterCreate,
     characterUpdate,
     characterDelete,

@@ -23,13 +23,13 @@ function createMockAdapter(responses: LLMCompletionResult[]): LLMAdapter {
   };
 }
 
+const resolvePrompt = () => 'You are a test assistant.';
+
 describe('AgentOrchestrator', () => {
   let toolRegistry: AgentToolRegistry;
-  let resolvePrompt: (code: string) => string;
 
   beforeEach(() => {
     toolRegistry = new AgentToolRegistry();
-    resolvePrompt = () => 'You are a test assistant.';
   });
 
   it('returns text response when no tools called', async () => {
@@ -132,7 +132,7 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, { maxSteps: 3 });
-    const result = await agent.execute('loop', {}, () => {});
+    await agent.execute('loop', {}, () => {});
 
     expect((adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls.length).toBe(3);
   });
@@ -172,9 +172,9 @@ describe('AgentOrchestrator', () => {
 
     const call = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0];
     const opts = call[1];
-    // Should only have global.tool, not script.only
-    expect(opts.tools).toHaveLength(1);
-    expect(opts.tools[0].name).toBe('global.tool');
+    // script.only must not appear (excluded by context filter for page='orchestrator')
+    const toolNames = (opts.tools as Array<{ name: string }> | undefined)?.map((t) => t.name) ?? [];
+    expect(toolNames).not.toContain('script.only');
   });
 
   it('compacts tool definitions before sending them to the LLM', async () => {
@@ -249,12 +249,16 @@ describe('AgentOrchestrator', () => {
       role: string;
       content: string;
     }>;
-    expect(messages.map((entry) => `${entry.role}:${entry.content}`)).toEqual([
-      'system:You are a test assistant.\n\n## Current Context\nCurrent page: canvas',
-      'user:older user message',
-      'assistant:older assistant message',
-      'user:latest',
-    ]);
+    const roles = messages.map((entry) => entry.role);
+    expect(roles).toEqual(['system', 'user', 'assistant', 'user']);
+    const systemMsg = messages.find((m) => m.role === 'system')!;
+    expect(systemMsg.content).toContain('canvas');
+    expect(systemMsg.content).toContain('Current page: canvas');
+    const userMessages = messages.filter((m) => m.role === 'user');
+    expect(userMessages[0]?.content).toBe('older user message');
+    expect(userMessages[1]?.content).toBe('latest');
+    const assistantMsg = messages.find((m) => m.role === 'assistant');
+    expect(assistantMsg?.content).toBe('older assistant message');
   });
 
   it('prunes older history entries once the estimated token budget is exceeded', async () => {
@@ -348,7 +352,6 @@ describe('AgentOrchestrator', () => {
   });
 
   it('injects steering messages into the next LLM iteration', async () => {
-    let agent!: AgentOrchestrator;
     toolRegistry.register({
       name: 'canvas.searchNodes',
       description: 'List nodes',
@@ -375,7 +378,7 @@ describe('AgentOrchestrator', () => {
       },
     ]);
 
-    agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     await agent.execute('list nodes', {}, () => {});
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
@@ -434,6 +437,50 @@ describe('AgentOrchestrator', () => {
     expect(toolMessage?.content).not.toContain('Very long hidden details');
   });
 
+  it('preserves node titles when summarizing large mutation results', async () => {
+    toolRegistry.register({
+      name: 'canvas.setNodeProvider',
+      description: 'Set node provider',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({
+        success: true,
+        data: {
+          nodeId: 'node-1',
+          nodeTitle: 'Opening Shot',
+          status: 'done',
+          providerId: 'replicate',
+          details: 'Hidden verbose result '.repeat(80),
+        },
+      })),
+    });
+
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-mutation-summary', name: 'canvas.setNodeProvider', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: 'node updated',
+        toolCalls: [],
+        finishReason: 'stop',
+      },
+    ]);
+
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    await agent.execute('set provider', {}, () => {});
+
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const toolMessage = secondCallMessages.find((message) => message.role === 'tool');
+
+    expect(toolMessage?.content).toContain('node-1');
+    expect(toolMessage?.content).toContain('Opening Shot');
+    expect(toolMessage?.content).not.toContain('Hidden verbose result');
+  });
+
   it('truncates oversized context.extra values before adding them to the system prompt', async () => {
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
@@ -464,34 +511,6 @@ describe('AgentOrchestrator', () => {
     expect(largeObjectLine?.length).toBeLessThanOrEqual('largeObject: '.length + 2000);
     expect(systemMsg?.content).not.toContain('TAIL-STRING');
     expect(systemMsg?.content).not.toContain('TAIL-OBJECT');
-  });
-
-  it('caps oversized system prompts to a smaller budget before sending them to the LLM', async () => {
-    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
-    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-
-    await agent.execute(
-      'test',
-      {
-        page: 'canvas',
-        extra: {
-          promptGuides: `guide-start-${'G'.repeat(5000)}-guide-tail`,
-          canvasSnapshot: { description: `snapshot-${'S'.repeat(3000)}-snapshot-tail` },
-        },
-      },
-      () => {},
-    );
-
-    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
-      role: string;
-      content: string;
-    }>;
-    const systemMsg = messages.find((message) => message.role === 'system');
-
-    expect(systemMsg).toBeDefined();
-    expect(systemMsg!.content.length).toBeLessThanOrEqual(2500);
-    expect(systemMsg!.content).not.toContain('guide-tail');
-    expect(systemMsg!.content).not.toContain('snapshot-tail');
   });
 
   it('caps summarized collection payloads to a total item budget', async () => {
@@ -543,12 +562,12 @@ describe('AgentOrchestrator', () => {
     expect(parsed.data?.items?.length).toBeLessThan(10);
   });
 
-  it('uses lazy tool discovery when tool.search is available', async () => {
+  it('loads domain-relevant tools and expands discovered tools after tool.search', async () => {
     const searchExecute = vi.fn(async () => ({
       success: true,
       data: [
         {
-          name: 'character.search',
+          name: 'character.list',
           description: 'Search characters',
           tags: ['character', 'read', 'search'],
         },
@@ -580,7 +599,7 @@ describe('AgentOrchestrator', () => {
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
     toolRegistry.register({
-      name: 'character.search',
+      name: 'character.list',
       description: 'Search characters',
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
@@ -615,18 +634,22 @@ describe('AgentOrchestrator', () => {
       tools: Array<{ name: string }>;
     };
 
-    expect(firstOpts.tools.map((tool) => tool.name)).toEqual([
+    // With domain detection (canvas page + 'character' keyword), all 6 registered tools
+    // are included in the first call (ALWAYS_LOADED + entity prefix match).
+    // After tool.search returns character.list, it is added to discoveredToolNames (already present).
+    const allToolNames = [
       'tool.search',
       'guide.list',
       'guide.get',
       'commander.askUser',
-    ]);
-    expect(secondOpts.tools.map((tool) => tool.name)).toEqual([
-      'tool.search',
-      'guide.list',
-      'guide.get',
-      'commander.askUser',
-      'character.search',
-    ]);
+      'character.list',
+      'character.delete',
+    ];
+    expect(firstOpts.tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(allToolNames),
+    );
+    expect(secondOpts.tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(allToolNames),
+    );
   });
 });

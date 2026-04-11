@@ -4,6 +4,8 @@ import { t } from '../../i18n.js';
 import { enqueueToast } from '../slices/toast.js';
 import { addLog } from '../slices/logger.js';
 import type { RootState } from '../index.js';
+import type { Canvas } from '@lucid-fin/contracts';
+import { diffCanvas, shouldUsePatch } from './canvas-differ.js';
 
 const PROJECT_PERSIST_SLICES = [
   'project',
@@ -35,7 +37,6 @@ const CANVAS_MUTATE_PREFIXES = [
   'canvas/duplicateNodes',
   'canvas/insertNodeIntoEdge',
   'canvas/disconnectNode',
-  'canvas/applyCanvasFromCommander',
   'canvas/toggleBypass',
   'canvas/toggleLock',
   'canvas/toggleBackdropCollapse',
@@ -83,6 +84,9 @@ let projectTimer: ReturnType<typeof setTimeout> | null = null;
 let canvasTimer: ReturnType<typeof setTimeout> | null = null;
 let settingsTimer: ReturnType<typeof setTimeout> | null = null;
 let consecutiveFailures = 0;
+
+// Tracks the last successfully saved canvas state per canvas id for patch diffing
+const savedCanvasSnapshots = new Map<string, Canvas>();
 
 export const persistMiddleware: Middleware = (store) => (next) => (action) => {
   const result = next(action);
@@ -137,18 +141,52 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
         const { activeCanvasId, canvases } = currentState.canvas;
         const canvas = canvases.find((c) => c.id === activeCanvasId);
         if (!canvas) return;
-        getAPI()
-          ?.canvas.save(canvas)
-          .catch((error: unknown) => {
-            store.dispatch(
-              addLog({
-                level: 'error',
-                category: 'persistence',
-                message: 'Canvas save failed',
-                detail: error instanceof Error ? error.stack ?? error.message : String(error),
-              }),
-            );
-          });
+
+        const api = getAPI();
+        if (!api) return;
+
+        const prevSnapshot = savedCanvasSnapshots.get(canvas.id);
+        const patch = diffCanvas(prevSnapshot, canvas);
+
+        const doFullSave = (): void => {
+          api.canvas
+            .save(canvas)
+            .then(() => {
+              savedCanvasSnapshots.set(canvas.id, canvas);
+            })
+            .catch((error: unknown) => {
+              store.dispatch(
+                addLog({
+                  level: 'error',
+                  category: 'persistence',
+                  message: 'Canvas save failed',
+                  detail: error instanceof Error ? error.stack ?? error.message : String(error),
+                }),
+              );
+            });
+        };
+
+        if (patch && shouldUsePatch(patch, canvas)) {
+          api.canvas
+            .patch({ canvasId: canvas.id, patch })
+            .then(() => {
+              savedCanvasSnapshots.set(canvas.id, canvas);
+            })
+            .catch((error: unknown) => {
+              // Patch failed — fall back to full save
+              store.dispatch(
+                addLog({
+                  level: 'warn',
+                  category: 'persistence',
+                  message: 'Canvas patch failed, falling back to full save',
+                  detail: error instanceof Error ? error.stack ?? error.message : String(error),
+                }),
+              );
+              doFullSave();
+            });
+        } else {
+          doFullSave();
+        }
       }, DEBOUNCE_MS);
     }
 

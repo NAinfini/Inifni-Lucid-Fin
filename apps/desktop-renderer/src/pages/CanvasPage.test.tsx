@@ -14,6 +14,8 @@ import { presetsSlice } from '../store/slices/presets.js';
 import { loggerSlice } from '../store/slices/logger.js';
 import { commanderSlice } from '../store/slices/commander.js';
 
+let commanderPanelModuleLoads = 0;
+
 vi.mock('../utils/api.js', () => ({
   getAPI: vi.fn(),
 }));
@@ -40,9 +42,12 @@ vi.mock('../components/canvas/CanvasWorkspace.js', () => ({
 vi.mock('../components/canvas/CharacterManagerPanel.js', () => ({
   CharacterManagerPanel: () => <div>CharacterManagerPanel</div>,
 }));
-vi.mock('../components/canvas/CommanderPanel.js', () => ({
-  CommanderPanel: () => <div>CommanderPanel</div>,
-}));
+vi.mock('../components/canvas/CommanderPanel.js', () => {
+  commanderPanelModuleLoads += 1;
+  return {
+    CommanderPanel: () => <div>CommanderPanel</div>,
+  };
+});
 vi.mock('../components/canvas/DependenciesPanel.js', () => ({
   DependenciesPanel: () => <div>DependenciesPanel</div>,
 }));
@@ -124,6 +129,41 @@ function createStore() {
 }
 
 describe('CanvasPage logger startup', () => {
+  it('does not load the commander panel module until it is opened', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      canvas: {
+        list: vi.fn().mockResolvedValue([]),
+      },
+      preset: {
+        list: vi.fn().mockResolvedValue([]),
+      },
+      logger: {
+        getRecent: vi.fn().mockResolvedValue([]),
+        onEntry: vi.fn(() => () => {}),
+      },
+      onReady: vi.fn(() => () => {}),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    commanderPanelModuleLoads = 0;
+
+    const store = createStore();
+    render(
+      <Provider store={store}>
+        <CanvasPage />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(commanderPanelModuleLoads).toBe(0);
+    });
+
+    store.dispatch(commanderSlice.actions.setCommanderOpen(true));
+
+    await waitFor(() => {
+      expect(commanderPanelModuleLoads).toBe(1);
+    });
+  });
+
   it('waits for app readiness before requesting recent logs', async () => {
     const getRecent = vi.fn().mockResolvedValue([]);
     const onEntry = vi.fn(() => () => {});

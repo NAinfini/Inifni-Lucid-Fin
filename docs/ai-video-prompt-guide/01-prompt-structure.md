@@ -368,3 +368,142 @@ The prompt describes the JOURNEY between two known visual states:
 - ✅ `subject gradually stands from seated position, turning to face the window, natural movement`
 - ✅ `camera slowly orbiting clockwise, lighting shifting from warm interior to cool window light`
 - ❌ `a woman in a red dress sits in a chair by a window` (this is Image A — already known)
+
+---
+
+## Anti-AI Realism: Breaking the "Perfect Photo" Look
+
+> Source: super-i.cn Lesson 4 + Lesson 21
+
+AI defaults to perfect studio photography: centered subjects, ideal lighting, flawless skin. Real footage has imperfections. These techniques break the "AI look."
+
+### Device Simulation Keywords
+
+| Keyword | Effect |
+| --- | --- |
+| `iPhone-style` | Mobile phone naturalism instead of DSLR bokeh |
+| `candid shot` / `secretly photographed` | Reduces subject "posing" behavior |
+| `slightly shaky` / `softly blurred due to motion` | Adds handheld imperfection |
+| `shot through wire fence` / `partially obscured` | Foreground obstruction = observation authenticity |
+
+### Film Stock Simulation
+
+| Film Stock | Character | Use Case |
+| --- | --- | --- |
+| `Kodak Portra 400` | Warm, natural skin tones | Portraits, life |
+| `Fujifilm Pro 400H` | Cool-toned, blue-green emphasis | Japanese aesthetic, landscapes |
+| `Kodak Gold 200` | Warm, saturated, retro | Nostalgia, summer, street |
+| `Cinestill 800T` | Night halation, dreamy highlights | Cinema, night scenes |
+
+### Rendering vs. Film
+
+- Film stock keywords (`Kodak Portra 400 grain`) and 3D rendering keywords (`Octane Render`, `Unreal Engine 5`) are **mutually exclusive** — never combine them.
+- Place style/texture keywords in the **second half** of the prompt as "润色" (polish) after subject and scene are established.
+
+### Art Direction Anchors
+
+- `Wes Anderson style` — symmetry, pastel palette, deadpan
+- `Blade Runner 2049 aesthetic` — cyberpunk, high contrast, neon
+- `Hiroshi Sugimoto` — minimalism, long exposure, vast negative space
+- **Rule**: one style anchor per prompt. Don't stack.
+
+### Aesthetic Modifier Keywords
+
+| Keyword | Effect |
+| --- | --- |
+| `minimalist` | Clean, high-end, whitespace |
+| `brutalist` | Concrete, geometric, cold |
+| `ethereal` | Soft light, dreamlike |
+| `gritty` | High contrast, raw, dark realism |
+
+---
+
+## De-Smoothing Camera Movement for Video
+
+> Source: super-i.cn Lesson 21
+
+AI video cameras are "too perfect" — mathematically smooth, omniscient, instant-tracking. Real cinematography has human artifacts. Three techniques to fix this:
+
+### 1. Incomplete Starting Points
+
+Don't let the first frame be a "finished photo." Break perfect composition:
+
+- **Foreground obstruction**: `camera peeks through iron fence slats`, `partially blocked by doorframe`
+- **Off-center composition**: `subject at edge of frame, drifting into center`
+- **Discovery framing**: `camera finds the subject, adjusting focus mid-shot`
+
+### 2. Operational Artifacts
+
+Real operators have weight, breathing, hesitation:
+
+- `decelerating push` — movement isn't constant velocity
+- `micro-pause` / `brief hesitation` — operator processes what they see
+- `handheld breathing tremor` — subtle shake from human body
+- `footstep vibration` — camera bounces with walking
+
+### 3. Delayed Tracking (延迟跟随)
+
+Real cameras respond ~0.5 seconds late to subject movement:
+
+- `camera reacts with a delay` — passive response
+- `whip pan to catch up` — rushed tracking
+- `subject briefly exits frame` — camera loses then finds subject
+
+**Core principle**: make the AI camera "笨一点" (dumber) — it doesn't know where subjects are, can't perfectly stabilize, and responds half a beat late.
+
+---
+
+## Force-Reaction Physics Prompting
+
+> Source: Runway Gen-4.5 + Kling 3.0 best practices
+
+Modern video models function as physics simulators. Describe physical **forces and consequences**, not appearances:
+
+### Force Language
+
+- ❌ `car crash` → ✅ `heavy sedan at high velocity impacts concrete, hood crumples with resistance, glass shatters forward, chassis recoils`
+- ❌ `wind blowing` → ✅ `gusts pulling fabric taut, hair whipping across face, leaves torn from branches`
+
+### Motion Endpoints
+
+Always specify where motion **ends**. Open-ended motion causes generation hangs:
+
+- ✅ `hair gently moves in breeze, then settles back into place`
+- ✅ `glass tips, liquid breaches rim, impacts table, milk expands outward`
+- ❌ `hair blows in wind` (no endpoint — model doesn't know when to stop)
+
+### Weight & Resistance
+
+Add physical weight to make motion believable:
+
+- **Heavy**: `dense, solid, weighted, momentum, resistance, inertia`
+- **Light**: `delicate, floating, drifting, featherweight`
+- **Interaction verbs**: `impacts, crumples, recoils, shatters, ripples, settles`
+
+---
+
+## Video Reverse Engineering (运动学解构)
+
+> Source: super-i.cn Lesson 22
+
+When recreating a reference video, extract motion parameters — don't describe what you see:
+
+### Three-Frame Method
+
+Extract three keyframes from the reference:
+
+1. **Setup frame** — initial state before movement
+2. **Climax frame** — maximum motion intensity
+3. **Resolution frame** — post-action state
+
+### Parameter Extraction
+
+Convert visual observations into actionable specifications:
+
+| Observation | Vague prompt | Parametric prompt |
+| --- | --- | --- |
+| Fast-moving shot | `dramatic, fast-paced` | `Dolly Forward: Fast, Motion Blur: High, Speed: 2.0x` |
+| Soft camera drift | `gentle movement` | `Slow truck right, 0.5x speed, minimal parallax shift` |
+| Subject pivoting | `person turns around` | `180-degree rotation over 3s, weight shifts to rear foot, hair follows with 0.3s delay` |
+
+**Core shift**: from "wish-making" (hoping AI understands sentiment) to "programming" (providing actionable parameters).

@@ -6,13 +6,15 @@ import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
 import { AudioStudio } from './AudioStudio.js';
+import { loggerSlice } from '../store/slices/logger.js';
 
 vi.mock('../utils/api.js', () => ({ getAPI: () => null }));
 
 function createStore() {
   return configureStore({
     reducer: {
-      audio: (s = { tracks: [] }) => s,
+      audio: (s = { tracks: [], selectedId: null, playingId: null }) => s,
+      logger: loggerSlice.reducer,
       settings: (s = {}) => s,
     },
   });

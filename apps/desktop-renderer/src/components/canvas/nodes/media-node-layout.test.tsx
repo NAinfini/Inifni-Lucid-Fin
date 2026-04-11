@@ -168,6 +168,21 @@ describe('media node layout', () => {
     expect(screen.queryAllByTestId('canvas-node-tooltip')).toHaveLength(0);
   });
 
+  it('does not render a generate button on text nodes', () => {
+    const textData: TextNodeFlowData = {
+      nodeId: 'text-1',
+      title: 'Text',
+      content: 'Test content',
+      status: 'idle',
+      bypassed: false,
+      locked: false,
+    };
+
+    render(<TextNode {...makeBaseProps('text', textData)} />);
+
+    expect(screen.queryByRole('button', { name: /generate/i })).toBeNull();
+  });
+
   it('renders image content inside a dedicated viewport with contain styling', () => {
     const data: ImageNodeFlowData = {
       nodeId: 'image-1',
@@ -229,6 +244,57 @@ describe('media node layout', () => {
 
     expect(screen.getByAltText('First')).toBeTruthy();
     expect(screen.getByAltText('Last')).toBeTruthy();
+  });
+
+  it('renders video variants after frame previews to match image node footer layout', () => {
+    const data: VideoNodeFlowData = {
+      nodeId: 'video-1',
+      title: 'Video',
+      status: 'idle',
+      bypassed: false,
+      locked: false,
+      generationStatus: 'done',
+      assetHash: 'video-hash-1',
+      variants: ['video-hash-1', 'video-hash-2'],
+      selectedVariantIndex: 0,
+      seedLocked: false,
+      firstFrameHash: 'first-frame-hash',
+      lastFrameHash: 'last-frame-hash',
+    };
+
+    render(<VideoNode {...makeBaseProps('video', data)} />);
+
+    const lastFrame = screen.getByAltText('Last');
+    const secondVariantButton = screen.getByRole('button', { name: 'Select variant 2' });
+
+    expect(lastFrame.compareDocumentPosition(secondVariantButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders audio variants with the same square thumbnail pattern as image and video nodes', () => {
+    const data: AudioNodeFlowData = {
+      nodeId: 'audio-1',
+      title: 'Audio',
+      status: 'idle',
+      bypassed: false,
+      locked: false,
+      audioType: 'voice',
+      generationStatus: 'done',
+      assetHash: 'audio-hash-1',
+      variants: ['audio-hash-1', 'audio-hash-2'],
+      selectedVariantIndex: 0,
+      seedLocked: false,
+    };
+
+    render(<AudioNode {...makeBaseProps('audio', data)} />);
+
+    const firstVariantButton = screen.getByRole('button', { name: 'Select variant 1' });
+    const secondVariantButton = screen.getByRole('button', { name: 'Select variant 2' });
+
+    expect(firstVariantButton.className).toContain('h-10');
+    expect(firstVariantButton.className).toContain('w-10');
+    expect(firstVariantButton.className).not.toContain('h-7');
+    expect(firstVariantButton.textContent?.toLowerCase()).toContain('v1');
+    expect(secondVariantButton.textContent?.toLowerCase()).toContain('v2');
   });
 
   it('renders selected nodes with corner resize controls that allow freeform resizing', () => {

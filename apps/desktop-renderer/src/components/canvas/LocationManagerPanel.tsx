@@ -15,11 +15,9 @@ import {
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
 import type { Location, LocationType, ReferenceImage, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
-import { LOCATION_STANDARD_SLOTS } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { MapPin, Plus, Search, Trash2, Save, Upload, Image, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizeSlot } from '../../i18n.js';
 import type { Asset } from '../../store/slices/assets.js';
 import {
   Dialog,
@@ -27,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog.js';
+import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 const TYPE_OPTIONS: LocationType[] = ['interior', 'exterior', 'int-ext'];
 const TIME_OF_DAY_OPTIONS = ['day', 'night', 'dawn', 'dusk', 'continuous'];
@@ -74,6 +73,7 @@ function createDraft(loc: Location): LocationDraft {
 
 export function LocationManagerPanel() {
   const { t } = useI18n();
+  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { items, selectedId, filterType, loading } = useSelector(
     (s: RootState) => s.locations,
@@ -134,15 +134,20 @@ export function LocationManagerPanel() {
     setOriginalDraft(d);
   }, [selectedLoc]);
 
-  const confirmDiscardIfDirty = useCallback((): boolean => {
+  const confirmDiscardIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
-    return window.confirm(t('locationManager.unsavedChanges'));
-  }, [isDirty, t]);
+    return confirm({
+      title: t('locationManager.unsavedChanges'),
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
+  }, [confirm, isDirty, t]);
 
   const handleSelectLocation = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (id === selectedId) return;
-      if (!confirmDiscardIfDirty()) return;
+      if (!(await confirmDiscardIfDirty())) return;
       dispatch(selectLocation(id));
     },
     [dispatch, selectedId, confirmDiscardIfDirty],
@@ -168,7 +173,7 @@ export function LocationManagerPanel() {
   }, [loadLocations]);
 
   const createNewLocation = useCallback(async () => {
-    if (!confirmDiscardIfDirty()) return;
+    if (!(await confirmDiscardIfDirty())) return;
     setError(null);
     try {
       const api = getAPI();
@@ -224,7 +229,12 @@ export function LocationManagerPanel() {
 
   const deleteSelected = useCallback(async () => {
     if (!selectedLoc) return;
-    const ok = window.confirm(t('locationManager.deleteConfirm').replace('{name}', selectedLoc.name));
+    const ok = await confirm({
+      title: t('locationManager.deleteConfirm').replace('{name}', selectedLoc.name),
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
     if (!ok) return;
     setError(null);
     try {
@@ -236,7 +246,7 @@ export function LocationManagerPanel() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
-  }, [dispatch, selectedLoc]);
+  }, [confirm, dispatch, selectedLoc, t]);
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -300,15 +310,6 @@ export function LocationManagerPanel() {
     [dispatch, selectedLoc],
   );
 
-  const refImageBySlot = useMemo(() => {
-    if (!selectedLoc) return {};
-    const map: Record<string, ReferenceImage> = {};
-    for (const ref of selectedLoc.referenceImages) {
-      map[ref.slot] = ref;
-    }
-    return map;
-  }, [selectedLoc]);
-
   return (
     <div className="h-full border-r border-border/60 bg-card flex flex-col">
       <div className="px-3 py-2 border-b border-border/60 space-y-1.5">
@@ -347,10 +348,11 @@ export function LocationManagerPanel() {
         <div className="border-r min-h-0 overflow-auto">
           <div className="p-1.5 border-b border-border/60 flex items-center gap-1">
             <button
-              onClick={createNewLocation}
+              onClick={() => void createNewLocation()}
               className="flex-1 text-[11px] rounded-md border border-border/60 px-2 py-1 hover:bg-muted/80 flex items-center justify-center gap-1 transition-colors"
+              aria-label={t('locationManager.newLocation')}
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3 h-3" aria-hidden="true" />
               {t('locationManager.newLocation')}
             </button>
             {draft && (
@@ -359,16 +361,18 @@ export function LocationManagerPanel() {
                   onClick={saveDraft}
                   disabled={!isDirty}
                   className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  aria-label={t('locationManager.save')}
                   title={t('locationManager.save')}
                 >
-                  <Save className="w-3 h-3" />
+                  <Save className="w-3 h-3" aria-hidden="true" />
                 </button>
                 <button
-                  onClick={deleteSelected}
+                  onClick={() => void deleteSelected()}
                   className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-destructive/20 transition-colors"
+                  aria-label={t('locationManager.delete')}
                   title={t('locationManager.delete')}
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3 h-3" aria-hidden="true" />
                 </button>
               </>
             )}
@@ -380,7 +384,7 @@ export function LocationManagerPanel() {
               {filtered.map((loc) => (
                 <button
                   key={loc.id}
-                  onClick={() => handleSelectLocation(loc.id)}
+                  onClick={() => void handleSelectLocation(loc.id)}
                   className={cn(
                     'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === loc.id
@@ -396,13 +400,21 @@ export function LocationManagerPanel() {
                         typeBadgeClass(loc.type),
                       )}
                     >
-                      {t('locationManager.types.' + loc.type)}
+                      {(() => {
+                        const key = `locationManager.types.${loc.type}`;
+                        const translated = t(key as 'locationManager.fields.name');
+                        return translated === key ? loc.type : translated;
+                      })()}
                     </span>
-                    {loc.timeOfDay && (
-                      <span className="inline-block text-[9px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400">
-                        {t('locationManager.timeOfDayOptions.' + loc.timeOfDay)}
-                      </span>
-                    )}
+                    {loc.timeOfDay && (() => {
+                      const key = `locationManager.timeOfDayOptions.${loc.timeOfDay}`;
+                      const translated = t(key as 'locationManager.fields.name');
+                      return (
+                        <span className="inline-block text-[9px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400">
+                          {translated === key ? loc.timeOfDay : translated}
+                        </span>
+                      );
+                    })()}
                   </div>
                   {(usageCountById[loc.id] ?? 0) > 0 && (
                     <div className="text-[9px] text-muted-foreground mt-0.5">
@@ -586,6 +598,9 @@ export function LocationManagerPanel() {
                   entityId={selectedLoc?.id}
                   slot="main"
                 />
+                <p className="text-[9px] text-muted-foreground/70 italic mt-1">
+                  {t('locationManager.generateAllHint')}
+                </p>
               </div>
 
               <AssetPickerDialog
@@ -600,6 +615,7 @@ export function LocationManagerPanel() {
           {error && <div className="text-[11px] text-destructive">{error}</div>}
         </div>
       </div>
+      {ConfirmDialog}
     </div>
   );
 }
@@ -626,7 +642,7 @@ function SingleReferenceImage({
   const { t } = useI18n();
   const [isDragOver, setIsDragOver] = useState(false);
   const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
-  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'jpg');
+  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
 
   const handleDragOver = (e: React.DragEvent) => {
     const types = e.dataTransfer.types;
@@ -702,6 +718,7 @@ function SingleReferenceImage({
             src={url}
             alt="Reference"
             className="h-full w-full object-contain"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
             onDragStart={mainRef?.assetHash && entityType && entityId && slot ? (e) => {
               e.stopPropagation();
@@ -714,18 +731,24 @@ function SingleReferenceImage({
           />
           {isDragOver && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
-              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">Drop here</span>
+              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
+                {t('entity.dropHere')}
+              </span>
             </div>
           )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center h-[200px] gap-2">
           {isDragOver ? (
-            <span className="text-xs text-blue-400">Drop image here</span>
+            <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
           ) : (
             <Image className="w-8 h-8 text-muted-foreground/40" />
           )}
-          {!isDragOver && <span className="text-xs text-muted-foreground">点击上传参考图</span>}
+          {!isDragOver && (
+            <span className="text-xs text-muted-foreground">
+              {t('entity.clickToUploadReferenceImage')}
+            </span>
+          )}
         </div>
       )}
       <div className="flex items-center gap-1 p-1.5">
@@ -733,16 +756,18 @@ function SingleReferenceImage({
           type="button"
           onClick={onUpload}
           className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+          aria-label={t('entity.upload')}
         >
-          <Upload className="w-3 h-3" />
-          Upload
+          <Upload className="w-3 h-3" aria-hidden="true" />
+          {t('entity.upload')}
         </button>
         <button
           type="button"
           onClick={onFromAssets}
           className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+          aria-label={t('entity.fromAssets')}
         >
-          <Image className="w-3 h-3" />
+          <Image className="w-3 h-3" aria-hidden="true" />
           {t('entity.fromAssets')}
         </button>
         {mainRef?.assetHash && (
@@ -750,8 +775,9 @@ function SingleReferenceImage({
             type="button"
             onClick={onRemove}
             className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
+            aria-label={t('entity.removeImage')}
           >
-            <X className="w-3 h-3" />
+            <X className="w-3 h-3" aria-hidden="true" />
             {t('entity.removeImage')}
           </button>
         )}
@@ -781,7 +807,9 @@ function AssetPickerDialog({
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
         </DialogHeader>
         {imageAssets.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-4 text-center">No image assets found.</div>
+          <div className="text-sm text-muted-foreground py-4 text-center">
+            {t('entity.noImageAssetsFound')}
+          </div>
         ) : (
           <div className="grid grid-cols-4 gap-2 max-h-96 overflow-y-auto p-1">
             {imageAssets.map((asset) => (
@@ -815,52 +843,3 @@ function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string
   );
 }
 
-function LocationSlotCard({
-  slot,
-  refImage,
-  onUpload,
-  onRemove,
-}: {
-  slot: string;
-  refImage: ReferenceImage | undefined;
-  onUpload: () => void;
-  onRemove: () => void;
-}) {
-  const { url } = useAssetUrl(refImage?.assetHash, 'image', 'jpg');
-  return (
-    <button
-      type="button"
-      onClick={onUpload}
-      className={cn(
-        'rounded border p-1.5 text-center w-full cursor-pointer',
-        refImage?.assetHash
-          ? 'border-primary/50 bg-primary/5'
-          : 'border-dashed border-border/70 hover:bg-muted/50',
-      )}
-    >
-      {url ? (
-        <div className="relative aspect-square mb-1 bg-muted rounded overflow-hidden">
-          <img src={url} alt={slot} className="h-full w-full object-cover" />
-          <div
-            role="toolbar"
-            className="absolute top-0 right-0 opacity-0 hover:opacity-100 transition-opacity"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={onRemove}
-              className="rounded-bl bg-black/60 px-1 py-0.5 text-[9px] text-destructive hover:bg-black/80"
-            >
-              x
-            </button>
-          </div>
-        </div>
-      ) : (
-        <Upload className="w-3 h-3 mx-auto mb-1 text-muted-foreground/40" />
-      )}
-      <div className="text-[9px] text-muted-foreground truncate">
-        {localizeSlot(slot)}
-      </div>
-    </button>
-  );
-}

@@ -5,6 +5,7 @@ import type {
   CanvasNodeType,
   CanvasNodeData,
   EdgeStatus,
+  VideoNodeData,
 } from '@lucid-fin/contracts';
 import type { CanvasSliceState } from './canvas.js';
 import {
@@ -15,6 +16,27 @@ import {
   createEntityId,
   createNodeRecord,
 } from './canvas-helpers.js';
+
+/**
+ * Clear stale firstFrameNodeId / lastFrameNodeId when an edge's endpoints change.
+ * Call with the OLD source/target BEFORE mutating the edge.
+ */
+function clearStaleFrameRefs(
+  canvas: { nodes: Array<{ id: string; type?: string; data: CanvasNodeData }> },
+  oldSource: string,
+  oldTarget: string,
+): void {
+  const targetNode = canvas.nodes.find((n) => n.id === oldTarget);
+  if (targetNode?.type === 'video') {
+    const data = targetNode.data as VideoNodeData;
+    if (data.firstFrameNodeId === oldSource) data.firstFrameNodeId = undefined;
+  }
+  const sourceNode = canvas.nodes.find((n) => n.id === oldSource);
+  if (sourceNode?.type === 'video') {
+    const data = sourceNode.data as VideoNodeData;
+    if (data.lastFrameNodeId === oldTarget) data.lastFrameNodeId = undefined;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Edge CRUD
@@ -46,16 +68,7 @@ export function removeEdges(state: CanvasSliceState, action: PayloadAction<strin
   canvas.edges = canvas.edges.filter((e) => !ids.has(e.id));
   state.selectedEdgeIds = state.selectedEdgeIds.filter((id) => !ids.has(id));
   for (const edge of removedEdges) {
-    const targetNode = canvas.nodes.find((n) => n.id === edge.target);
-    if (targetNode?.type === 'video') {
-      const data = targetNode.data as import('@lucid-fin/contracts').VideoNodeData;
-      if (data.firstFrameNodeId === edge.source) data.firstFrameNodeId = undefined;
-    }
-    const sourceNode = canvas.nodes.find((n) => n.id === edge.source);
-    if (sourceNode?.type === 'video') {
-      const data = sourceNode.data as import('@lucid-fin/contracts').VideoNodeData;
-      if (data.lastFrameNodeId === edge.target) data.lastFrameNodeId = undefined;
-    }
+    clearStaleFrameRefs(canvas, edge.source, edge.target);
   }
   canvas.updatedAt = Date.now();
 }
@@ -86,6 +99,9 @@ export function reconnectCanvasEdge(
   const { source, target, sourceHandle, targetHandle } = action.payload.connection;
   if (!edge || !source || !target) return;
   if (source === target) return; // Block self-loops
+
+  // Clear stale frame refs from old endpoints before changing them
+  clearStaleFrameRefs(canvas, edge.source, edge.target);
 
   edge.source = source;
   edge.target = target;
@@ -120,12 +136,17 @@ export function swapEdgeDirection(state: CanvasSliceState, action: PayloadAction
   if (!canvas) return;
   const edge = canvas.edges.find((e) => e.id === action.payload);
   if (edge) {
+    // Clear stale frame refs before swapping direction
+    clearStaleFrameRefs(canvas, edge.source, edge.target);
+
     const tmp = edge.source;
     edge.source = edge.target;
     edge.target = tmp;
-    const tmpH = edge.sourceHandle;
-    edge.sourceHandle = edge.targetHandle;
-    edge.targetHandle = tmpH;
+    // Convert handle IDs: source handles are "{side}-{offset}", target handles are "tgt-{side}-{offset}"
+    const oldSource = edge.sourceHandle;
+    const oldTarget = edge.targetHandle;
+    edge.sourceHandle = oldTarget?.startsWith('tgt-') ? oldTarget.slice(4) : oldTarget;
+    edge.targetHandle = oldSource && !oldSource.startsWith('tgt-') ? `tgt-${oldSource}` : oldSource;
     if (edge.data.autoLabel) {
       edge.data.label = getAutoEdgeLabel(
         getCanvasNodeType(canvas, edge.source),
@@ -207,4 +228,27 @@ export function insertNodeIntoEdge(
   canvas.updatedAt = Date.now();
   state.selectedNodeIds = [insertedNode.id];
   state.selectedEdgeIds = [];
+}
+
+// ---------------------------------------------------------------------------
+// Undo-restore support
+// ---------------------------------------------------------------------------
+
+/**
+ * Restores edges that were removed.
+ * Used as the inverse action for `removeEdges`.
+ */
+export function restoreEdges(
+  state: CanvasSliceState,
+  action: PayloadAction<CanvasEdge[]>,
+): void {
+  const canvas = findActiveCanvas(state);
+  if (!canvas) return;
+  const existingIds = new Set(canvas.edges.map((e) => e.id));
+  for (const edge of action.payload) {
+    if (!existingIds.has(edge.id)) {
+      canvas.edges.push(edge);
+    }
+  }
+  canvas.updatedAt = Date.now();
 }

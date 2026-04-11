@@ -363,6 +363,7 @@ declare global {
       };
       asset: {
         import: (filePath: string, type: string) => Promise<AssetMeta>;
+        importBuffer: (buffer: ArrayBuffer, fileName: string, type: string) => Promise<AssetMeta>;
         pickFile: (type: string) => Promise<AssetMeta | null>;
         query: (filter: Record<string, unknown>) => Promise<AssetMeta[]>;
         getPath: (hash: string, type: string, ext: string) => Promise<string>;
@@ -410,7 +411,7 @@ declare global {
         test: (
           provider: string,
           providerConfig?: LLMProviderRuntimeInput,
-          group?: 'llm' | 'image' | 'video' | 'audio',
+          group?: 'llm' | 'image' | 'video' | 'audio' | 'vision',
         ) => Promise<{ ok: boolean; error?: string }>;
       };
       ai: {
@@ -426,11 +427,15 @@ declare global {
         chat: (
           canvasId: string,
           message: string,
-          history: Array<{ role: 'user' | 'assistant'; content: string }>,
+          history: Array<Record<string, unknown>>,
           selectedNodeIds: string[],
           promptGuides?: Array<{ id: string; name: string; content: string }>,
           customLLMProvider?: LLMProviderRuntimeConfig,
           permissionMode?: 'auto' | 'normal' | 'strict',
+          locale?: string,
+          maxSteps?: number,
+          temperature?: number,
+          maxTokens?: number,
         ) => Promise<void>;
         cancel: (canvasId: string) => Promise<void>;
         injectMessage: (canvasId: string, message: string) => Promise<void>;
@@ -483,8 +488,12 @@ declare global {
       };
       export: {
         nle: (preset: ExportPreset) => Promise<ExportResult>;
-        assetBundle: (outputPath: string) => Promise<ExportResult>;
+        assetBundle: (assetHashes: string[], outputPath?: string) => Promise<ExportResult | null>;
         subtitles: (format: 'srt' | 'vtt', outputPath: string) => Promise<void>;
+        storyboard: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) => Promise<ExportResult | null>;
+        metadata: (format: 'csv' | 'json', nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) => Promise<ExportResult | null>;
+        importSrt: (canvasId: string, filePath: string, alignToNodes?: boolean) => Promise<{ importedCount: number; alignedCount: number; noVideoNodes?: boolean }>;
+        capcut: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputDir?: string) => Promise<{ draftDir: string } | null>;
       };
       ffmpeg: {
         probe: (filePath: string) => Promise<ProbeResult>;
@@ -513,6 +522,7 @@ declare global {
         create: (name: string) => Promise<Canvas>;
         delete: (id: string) => Promise<void>;
         rename: (id: string, name: string) => Promise<void>;
+        patch: (args: { canvasId: string; patch: unknown }) => Promise<void>;
       };
       canvasGeneration: {
         generate: (
@@ -530,6 +540,7 @@ declare global {
           providerId: string,
           providerConfig?: { baseUrl: string; model: string; apiKey?: string },
         ) => Promise<{ estimatedCost: number; currency: string }>;
+        extractLastFrame: (canvasId: string, nodeId: string) => Promise<void>;
         onProgress: (cb: (data: {
           canvasId: string;
           nodeId: string;
@@ -561,6 +572,55 @@ declare global {
         reset: (request: PresetResetRequest) => Promise<PresetDefinition>;
         import: (payload: PresetLibraryImportPayload) => Promise<PresetLibraryExportPayload>;
         export: (options?: PresetLibraryExportRequest) => Promise<PresetLibraryExportPayload>;
+      };
+      vision: {
+        describeImage: (
+          assetHash: string,
+          assetType: 'image' | 'video',
+          style?: 'prompt' | 'description' | 'style-analysis',
+        ) => Promise<{ prompt: string }>;
+      };
+      embedding: {
+        generate: (assetHash: string) => Promise<{ ok: boolean }>;
+        search: (
+          query: string,
+          limit?: number,
+        ) => Promise<{ hash: string; score: number; description: string }[]>;
+        reindex: () => Promise<{ indexed: number; failed: number }>;
+      };
+      lipsync: {
+        process: (canvasId: string, nodeId: string) => Promise<void>;
+        checkAvailability: () => Promise<{ available: boolean; backend: string }>;
+      };
+      video: {
+        pickFile: () => Promise<string | null>;
+        clone: (filePath: string, projectId: string, threshold?: number) => Promise<{ canvasId: string; nodeCount: number }>;
+        onCloneProgress: (cb: (data: { step: string; current: number; total: number; message: string }) => void) => () => void;
+      };
+      storage: {
+        getOverview: () => Promise<{
+          appRoot: string;
+          dbSize: number;
+          globalAssetsSize: number;
+          globalAssetCount: number;
+          projectsSize: number;
+          logsSize: number;
+          totalSize: number;
+          projects: Array<{ name: string; path: string; size: number }>;
+          paths: { appRoot: string; database: string; globalAssets: string; projects: string; logs: string };
+        }>;
+        openFolder: (folderPath: string) => Promise<void>;
+        showInFolder: (filePath: string) => Promise<void>;
+        clearLogs: () => Promise<{ cleared: number }>;
+        clearEmbeddings: () => Promise<{ success: boolean; error?: string }>;
+        vacuumDatabase: () => Promise<{ success: boolean; error?: string }>;
+        backupDatabase: (destPath: string) => Promise<{ success: boolean; error?: string }>;
+        restoreDatabase: (sourcePath: string) => Promise<{ success: boolean; error?: string; backupCreated?: string }>;
+        getProjectsPath: () => Promise<string>;
+        setProjectsPath: (newPath: string) => Promise<{ success: boolean; error?: string }>;
+        pickFolder: () => Promise<string | null>;
+        pickSaveFile: (defaultName: string) => Promise<string | null>;
+        pickOpenFile: (extensions: string[]) => Promise<string | null>;
       };
     };
   }

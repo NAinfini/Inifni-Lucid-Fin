@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LLMAdapter } from '@lucid-fin/contracts';
 import type { Keychain } from '@lucid-fin/storage';
+import { listBuiltinLLMProviderPresets } from '@lucid-fin/adapters-ai';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -127,20 +128,11 @@ describe('createLLMRegistry', () => {
   it('registers every supported hosted and local llm adapter', () => {
     const llmRegistry = createLLMRegistry();
 
-    expect(llmRegistry.list().map((adapter) => adapter.id).sort()).toEqual([
-      'claude',
-      'cohere',
-      'deepseek',
-      'gemini',
-      'grok',
-      'groq',
-      'mistral',
-      'ollama-local',
-      'openai',
-      'openrouter',
-      'qwen',
-      'together',
-    ]);
+    expect(llmRegistry.list().map((adapter) => adapter.id).sort()).toEqual(
+      listBuiltinLLMProviderPresets()
+        .map((preset) => preset.id)
+        .sort(),
+    );
   });
 });
 

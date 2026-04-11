@@ -66,7 +66,7 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
 
   const listTool: AgentTool = {
     name: 'asset.list',
-    description: 'List assets in the current project, optionally filtered by type and limit.',
+    description: 'List assets in the current project, optionally filtered by type.',
     tier: 1,
     parameters: {
       type: 'object',
@@ -76,18 +76,18 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
           description: 'Optional asset type filter.',
           enum: ['image', 'video', 'audio'],
         },
-        limit: { type: 'number', description: 'Optional maximum number of assets to return.' },
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
       required: [],
     },
     async execute(args) {
       try {
         const type = parseAssetType(args.type);
-        const limit =
-          typeof args.limit === 'number' && Number.isFinite(args.limit)
-            ? Math.max(1, Math.round(args.limit))
-            : undefined;
-        return ok(await deps.listAssets(type, limit));
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        const assets = await deps.listAssets(type);
+        return ok({ total: assets.length, offset, limit, assets: assets.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }

@@ -129,10 +129,20 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
     name: 'series.listEpisodes',
     description: 'List episodes in the current series.',
     tier: 1,
-    parameters: { type: 'object', properties: {}, required: [] },
-    async execute() {
+    parameters: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
+      required: [],
+    },
+    async execute(args) {
       try {
-        return ok(await deps.listEpisodes());
+        const episodes = await deps.listEpisodes();
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: episodes.length, offset, limit, episodes: episodes.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }

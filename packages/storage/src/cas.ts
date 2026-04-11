@@ -61,6 +61,43 @@ export class CAS {
     return { ref, meta };
   }
 
+  /** Import from an in-memory buffer (for sandboxed renderers where File.path is unavailable). */
+  async importBuffer(
+    buffer: Buffer,
+    fileName: string,
+    type: AssetType,
+  ): Promise<{ ref: AssetRef; meta: AssetMeta }> {
+    const ext = path.extname(fileName).slice(1).toLowerCase() || 'bin';
+    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+    const prefix = hash.slice(0, 2);
+    const destDir = path.join(this.assetsRoot, type, prefix);
+    const destPath = path.join(destDir, `${hash}.${ext}`);
+    const metaPath = path.join(destDir, `${hash}.meta.json`);
+
+    const ref: AssetRef = { hash, type, format: ext, path: destPath };
+
+    if (fs.existsSync(destPath)) {
+      const existingMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as AssetMeta;
+      return { ref, meta: existingMeta };
+    }
+
+    ensureDir(destDir);
+    fs.writeFileSync(destPath, buffer);
+
+    const meta: AssetMeta = {
+      hash,
+      type,
+      format: ext,
+      originalName: fileName,
+      fileSize: buffer.length,
+      tags: [],
+      createdAt: Date.now(),
+    };
+    atomicWrite(metaPath, meta);
+
+    return { ref, meta };
+  }
+
   getAssetPath(hash: string, type: AssetType, ext: string): string {
     const prefix = hash.slice(0, 2);
     return path.join(this.assetsRoot, type, prefix, `${hash}.${ext}`);

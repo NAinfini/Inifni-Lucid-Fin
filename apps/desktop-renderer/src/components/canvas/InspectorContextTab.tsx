@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { MapPin, Package, Plus, Trash2, Upload, User } from 'lucide-react';
+import { type DragEvent, type ReactNode, useCallback, useState } from 'react';
+import { MapPin, Package, Plus, Search, Trash2, Upload, User } from 'lucide-react';
 import type { CanvasNodeType } from '@lucid-fin/contracts';
 
 type Translate = (key: string) => string;
@@ -29,12 +29,22 @@ interface SelectOption {
 }
 
 interface VideoFrameSlot {
-  options: SelectOption[];
-  selectedNodeId?: string;
+  /** Connected image node options */
+  connectedOptions: SelectOption[];
+  /** The uploaded / asset-store image entry shown in the dropdown (at most one) */
+  assetOption?: SelectOption;
+  /** Currently active value: a node id OR special 'asset:<hash>' */
+  selectedValue?: string;
   preview?: ReactNode;
   hasValue: boolean;
-  onConnectedChange: (value: string | undefined) => void;
+  /** Select from unified dropdown (node id or 'asset:<hash>') */
+  onSelect: (value: string | undefined) => void;
+  /** Click preview / upload icon → open file dialog */
   onUpload: () => void | Promise<void>;
+  /** Drag-drop an image (from file explorer or asset store) */
+  onDropAsset: (assetHash: string) => void;
+  /** Drag-drop a File from OS explorer — import via buffer */
+  onDropFile: (file: File) => void | Promise<void>;
   onClear: () => void;
 }
 
@@ -95,6 +105,19 @@ export function InspectorContextTab({
   videoFramesSection,
 }: InspectorContextTabProps) {
   const showsVisualContext = selectedNodeType === 'image' || selectedNodeType === 'video';
+  const [charSearch, setCharSearch] = useState('');
+  const [equipSearch, setEquipSearch] = useState('');
+  const [locSearch, setLocSearch] = useState('');
+
+  const filteredCharacters = charSearch
+    ? availableCharacters.filter((c) => c.label.toLowerCase().includes(charSearch.toLowerCase()))
+    : availableCharacters;
+  const filteredEquipment = equipSearch
+    ? availableEquipment.filter((e) => e.label.toLowerCase().includes(equipSearch.toLowerCase()))
+    : availableEquipment;
+  const filteredLocations = locSearch
+    ? availableLocations.filter((l) => l.label.toLowerCase().includes(locSearch.toLowerCase()))
+    : availableLocations;
 
   if (!showsVisualContext) {
     return null;
@@ -138,8 +161,21 @@ export function InspectorContextTab({
           </button>
         </div>
         {charPickerOpen && availableCharacters.length > 0 ? (
-          <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-28 overflow-auto space-y-0.5">
-            {availableCharacters.map((character) => (
+          <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-36 overflow-auto space-y-0.5">
+            {availableCharacters.length > 4 && (
+              <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
+                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+                <input
+                  type="text"
+                  value={charSearch}
+                  onChange={(e) => setCharSearch(e.target.value)}
+                  placeholder={t('inspector.searchEntity')}
+                  className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+                  autoFocus
+                />
+              </div>
+            )}
+            {filteredCharacters.map((character) => (
               <button
                 key={character.id}
                 onClick={() => onAddCharacter(character.id)}
@@ -204,8 +240,21 @@ export function InspectorContextTab({
           </button>
         </div>
         {equipPickerOpen && availableEquipment.length > 0 ? (
-          <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-28 overflow-auto space-y-0.5">
-            {availableEquipment.map((equipment) => (
+          <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-36 overflow-auto space-y-0.5">
+            {availableEquipment.length > 4 && (
+              <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
+                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+                <input
+                  type="text"
+                  value={equipSearch}
+                  onChange={(e) => setEquipSearch(e.target.value)}
+                  placeholder={t('inspector.searchEntity')}
+                  className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+                  autoFocus
+                />
+              </div>
+            )}
+            {filteredEquipment.map((equipment) => (
               <button
                 key={equipment.id}
                 onClick={() => onAddEquipment(equipment.id)}
@@ -271,8 +320,21 @@ export function InspectorContextTab({
           </button>
         </div>
         {locPickerOpen && availableLocations.length > 0 ? (
-          <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-28 overflow-auto space-y-0.5">
-            {availableLocations.map((location) => (
+          <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-36 overflow-auto space-y-0.5">
+            {availableLocations.length > 4 && (
+              <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
+                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+                <input
+                  type="text"
+                  value={locSearch}
+                  onChange={(e) => setLocSearch(e.target.value)}
+                  placeholder={t('inspector.searchEntity')}
+                  className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+                  autoFocus
+                />
+              </div>
+            )}
+            {filteredLocations.map((location) => (
               <button
                 key={location.id}
                 onClick={() => onAddLocation(location.id)}
@@ -321,49 +383,93 @@ interface VideoFrameSlotSectionProps {
 }
 
 function VideoFrameSlotSection({ label, slot, t }: VideoFrameSlotSectionProps) {
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    const types = e.dataTransfer.types;
+    if (types.includes('application/x-lucid-asset') || types.includes('Files')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback(() => setDragOver(false), []);
+
+  const handleDrop = useCallback(
+    (e: DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      // Asset from asset store
+      const assetJson = e.dataTransfer.getData('application/x-lucid-asset');
+      if (assetJson) {
+        try {
+          const parsed = JSON.parse(assetJson) as { hash: string; type?: string };
+          if (parsed.type === 'image') {
+            slot.onDropAsset(parsed.hash);
+          }
+        } catch { /* ignore bad json */ }
+        return;
+      }
+      // File from OS file explorer — import via buffer
+      if (e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        if (file && file.type.startsWith('image/')) {
+          void slot.onDropFile(file);
+        }
+      }
+    },
+    [slot],
+  );
+
+  // Build unified options list
+  const allOptions: SelectOption[] = [];
+  if (slot.assetOption) {
+    allOptions.push(slot.assetOption);
+  }
+  for (const opt of slot.connectedOptions) {
+    allOptions.push(opt);
+  }
+
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <span className="text-[11px] text-muted-foreground">{label}</span>
-        <div className="flex items-center gap-1">
-          {slot.hasValue && (
-            <button
-              type="button"
-              onClick={slot.onClear}
-              className="text-[10px] text-destructive hover:underline"
-            >
-              {t('inspector.clear')}
-            </button>
-          )}
+        {slot.hasValue && (
           <button
             type="button"
-            onClick={() => void slot.onUpload()}
-            className="text-[10px] text-primary hover:underline"
+            onClick={slot.onClear}
+            className="text-[10px] text-destructive hover:underline"
           >
-            {slot.hasValue ? t('inspector.replace') : t('inspector.upload')}
+            {t('inspector.clear')}
           </button>
-        </div>
+        )}
       </div>
-      {/* Full-width preview */}
-      {slot.preview ? (
-        <div className="w-full">{slot.preview}</div>
-      ) : (
-        <div
-          className="relative w-full aspect-video rounded-md overflow-hidden border border-dashed border-border/60 bg-muted/20 cursor-pointer flex items-center justify-center"
-          onClick={() => void slot.onUpload()}
-        >
+      {/* Preview area: clickable + drag-drop target */}
+      <div
+        className={`relative w-full aspect-video rounded-md overflow-hidden border bg-muted/20 cursor-pointer flex items-center justify-center transition-colors ${
+          dragOver ? 'border-primary bg-primary/10' : slot.preview ? 'border-border/60' : 'border-dashed border-border/60'
+        }`}
+        onClick={() => void slot.onUpload()}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {slot.preview ? (
+          <div className="w-full h-full">{slot.preview}</div>
+        ) : (
           <Upload className="h-5 w-5 text-muted-foreground/30" />
-        </div>
-      )}
-      {/* Connected node selector */}
-      {slot.options.length > 0 ? (
+        )}
+      </div>
+      {/* Unified dropdown: uploaded/asset-store image + connected nodes */}
+      {allOptions.length > 0 ? (
         <select
-          value={slot.selectedNodeId ?? ''}
-          onChange={(event) => slot.onConnectedChange(event.target.value || undefined)}
+          value={slot.selectedValue ?? ''}
+          onChange={(event) => slot.onSelect(event.target.value || undefined)}
           className="w-full text-[11px] rounded-md border border-border/60 bg-background px-1.5 py-1 outline-none"
         >
           <option value="">{t('inspector.select')}</option>
-          {slot.options.map((option) => (
+          {allOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>

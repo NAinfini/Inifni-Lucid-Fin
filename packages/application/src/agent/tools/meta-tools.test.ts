@@ -36,13 +36,19 @@ describe('createMetaTools', () => {
 
     expect(result).toEqual({
       success: true,
-      data: [
-        {
-          name: 'canvas.searchNodes',
-          description: 'Search nodes on the current canvas',
-          tags: ['canvas', 'read', 'search'],
-        },
-      ],
+      data: {
+        total: 1,
+        offset: 0,
+        limit: 50,
+        tools: [
+          {
+            name: 'canvas.searchNodes',
+            description: 'Search nodes on the current canvas',
+            parameters: { type: 'object', properties: {}, required: [] },
+            tags: ['canvas', 'read', 'search'],
+          },
+        ],
+      },
     });
   });
 
@@ -64,10 +70,15 @@ describe('createMetaTools', () => {
 
     await expect(listTool.execute({})).resolves.toEqual({
       success: true,
-      data: [
-        { id: 'guide-1', name: 'Guide One' },
-        { id: 'guide-2', name: 'Guide Two' },
-      ],
+      data: {
+        total: 2,
+        offset: 0,
+        limit: 50,
+        guides: [
+          { id: 'guide-1', name: 'Guide One' },
+          { id: 'guide-2', name: 'Guide Two' },
+        ],
+      },
     });
     await expect(getTool.execute({ id: 'guide-2' })).resolves.toEqual({
       success: true,

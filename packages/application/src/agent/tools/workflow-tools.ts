@@ -201,7 +201,7 @@ export function createUtilityWorkflowTools(): AgentTool[] {
       },
       required: ['canvasId'],
     },
-    async execute(args) {
+    async execute(_args) {
       try {
         return ok({
           instructions: `1. If sceneNodeIds provided, read each via canvas.getNode. Otherwise call canvas.searchNodes(type="text") to find all text nodes. 2. For each scene node: decompose into 1-3 shots. Each shot needs: shotType (ECU/CU/MS/LS/ELS), subject, action (state-flow verb), setting, duration (seconds), cameraMove, mood. 3. Create one text node per shot via canvas.addNode(type="text", title="Shot: <shotType> - <subject>", data.content=<shot details>). 4. Present the shot list to the user.`,
@@ -339,5 +339,112 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     },
   };
 
-  return [styleTransfer, shotList, batchRePrompt, continuityCheck, storyboardExport, fileClassify, imageAnalyze];
+  const videoCloneWorkflow: AgentTool = {
+    name: 'workflow.videoClone',
+    description: 'Guide the user through cloning and remaking a video with AI.',
+    tags: ['workflow', 'video'],
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'string', description: 'Project ID.' },
+      },
+      required: ['projectId'],
+    },
+    async execute(args) {
+      try {
+        return ok({
+          instructions: `Video Clone Workflow: 1. Ask the user to select a video file. 2. Call video.clone(filePath, projectId="${args.projectId}", threshold=0.4) to analyze and split the video. 3. The result is a new canvas with auto-described video nodes. 4. Review the generated prompts — use vision.describeImage with style="style-analysis" on key nodes to extract a unified style. 5. Apply the extracted style to all nodes via workflow.batchRePrompt. 6. Set up the Style Guide with the extracted art style, lighting, and color palette. 7. Regenerate individual shots or batch generate all. 8. Cross-frame continuity is automatic — each completed video chains its last frame to the next node.`,
+        });
+      } catch (error) { return fail(error); }
+    },
+  };
+
+  const lipSyncWorkflow: AgentTool = {
+    name: 'workflow.lipSync',
+    description: 'Set up lip sync for a video node with dialogue audio.',
+    tags: ['workflow', 'audio', 'video'],
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'Canvas ID.' },
+        videoNodeId: { type: 'string', description: 'Video node ID.' },
+        dialogue: { type: 'string', description: 'Dialogue text for TTS.' },
+        emotion: { type: 'string', description: 'Dominant emotion for TTS (e.g. happy, sad, angry).' },
+      },
+      required: ['canvasId', 'videoNodeId'],
+    },
+    async execute(args) {
+      try {
+        const emotion = typeof args.emotion === 'string' ? args.emotion : 'neutral';
+        return ok({
+          instructions: `Lip Sync Setup for node ${args.videoNodeId} on canvas ${args.canvasId}: 1. Create an audio node: canvas.addNode(canvasId="${args.canvasId}", type="audio", data={ audioType: "voice", prompt: "${args.dialogue || '[dialogue text]'}", emotionVector: { ${emotion}: 0.8, neutral: 0.2 } }). 2. Connect the audio node to the video node: canvas.connectNodes(canvasId="${args.canvasId}", sourceId=audioNodeId, targetId="${args.videoNodeId}"). 3. Enable lip sync on the video node: canvas.updateNodeData(canvasId="${args.canvasId}", nodeId="${args.videoNodeId}", data={ lipSyncEnabled: true }). 4. Generate the audio node first, then generate/regenerate the video — lip sync processing runs automatically after video generation completes.`,
+        });
+      } catch (error) { return fail(error); }
+    },
+  };
+
+  const emotionVoiceWorkflow: AgentTool = {
+    name: 'workflow.emotionVoice',
+    description: 'Create emotionally expressive voice-over audio nodes for a scene.',
+    tags: ['workflow', 'audio'],
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'Canvas ID.' },
+        lines: { type: 'array', description: 'Dialogue lines with emotion.', items: {
+          type: 'object',
+          description: 'A dialogue line with emotion.',
+          properties: {
+            text: { type: 'string', description: 'Dialogue text.' },
+            emotion: { type: 'string', description: 'Primary emotion.' },
+            intensity: { type: 'number', description: 'Emotion intensity 0-1.' },
+          },
+        }},
+      },
+      required: ['canvasId', 'lines'],
+    },
+    async execute(args) {
+      try {
+        return ok({
+          instructions: `Emotion Voice Workflow on canvas "${args.canvasId}": For each line in the provided list: 1. Map the emotion name to the 8-dimensional vector: { happy, sad, angry, fearful, surprised, disgusted, contemptuous, neutral }. Set the named emotion to the given intensity (default 0.8), set neutral to fill remaining weight. 2. Call canvas.addNode(canvasId="${args.canvasId}", type="audio", title="VO: [first 30 chars of text]", data={ audioType: "voice", prompt: "[text]", emotionVector: [computed vector] }). 3. After all nodes are created, present the list with emotion assignments for user review.`,
+          emotionMap: {
+            happy: { happy: 0.8, neutral: 0.2 },
+            sad: { sad: 0.8, neutral: 0.2 },
+            angry: { angry: 0.7, contemptuous: 0.2, neutral: 0.1 },
+            fearful: { fearful: 0.8, neutral: 0.2 },
+            surprised: { surprised: 0.8, neutral: 0.2 },
+            calm: { neutral: 0.9, happy: 0.1 },
+            sarcastic: { contemptuous: 0.5, happy: 0.3, neutral: 0.2 },
+          },
+        });
+      } catch (error) { return fail(error); }
+    },
+  };
+
+  const dualPromptWorkflow: AgentTool = {
+    name: 'workflow.dualPrompt',
+    description: 'Set up dual prompts (image vs video) for nodes that need different descriptions for stills and motion.',
+    tags: ['workflow', 'canvas'],
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'Canvas ID.' },
+        nodeIds: { type: 'array', description: 'Node IDs to configure.', items: { type: 'string', description: 'Node ID.' } },
+      },
+      required: ['canvasId', 'nodeIds'],
+    },
+    async execute(args) {
+      try {
+        return ok({
+          instructions: `Dual Prompt Setup on canvas "${args.canvasId}" for nodes ${JSON.stringify(args.nodeIds)}: For each node: 1. Read the current prompt via canvas.getNode. 2. Generate an imagePrompt variant: emphasize environment detail, texture, lighting, static composition — remove motion verbs. 3. Generate a videoPrompt variant: add motion verbs (pan, track, dolly), camera movement, temporal transitions — keep subject consistent. 4. Call canvas.updateNodeData to set imagePrompt and videoPrompt. 5. The original prompt field is kept as fallback. Show the user: ORIGINAL → IMAGE → VIDEO for each node.`,
+        });
+      } catch (error) { return fail(error); }
+    },
+  };
+
+  return [styleTransfer, shotList, batchRePrompt, continuityCheck, storyboardExport, fileClassify, imageAnalyze, videoCloneWorkflow, lipSyncWorkflow, emotionVoiceWorkflow, dualPromptWorkflow];
 }

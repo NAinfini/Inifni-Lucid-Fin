@@ -42,7 +42,6 @@ describe('registerColorStyleHandlers', () => {
   it('routes colorStyle:extract through the style.extract workflow and returns a workflow id', async () => {
     const workflowEngine = {
       start: vi.fn(() => 'wf-1'),
-      pump: vi.fn(async () => 3),
     };
 
     registerColorStyleHandlers(
@@ -82,7 +81,6 @@ describe('registerColorStyleHandlers', () => {
         },
       }),
     );
-    expect(workflowEngine.pump).toHaveBeenCalledWith('wf-1');
     expect(db.listColorStyles()).toHaveLength(0);
   });
 });

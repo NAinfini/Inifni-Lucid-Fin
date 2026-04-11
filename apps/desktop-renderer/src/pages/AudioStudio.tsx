@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Mic, Music, Zap, Play, Pause, Volume2, Loader2 } from 'lucide-react';
+import { listBuiltinAudioGenerationProviders } from '@lucid-fin/contracts';
 import type { RootState } from '../store/index.js';
 import {
   addAudioTrack,
@@ -9,26 +10,26 @@ import {
   setPlayingTrack,
   type AudioTrackType,
 } from '../store/slices/audio.js';
+import { addLog } from '../store/slices/logger.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 
-const VOICE_PROVIDERS = [
-  { id: 'elevenlabs-v2', name: 'ElevenLabs' },
-  { id: 'openai-tts-1-hd', name: 'OpenAI TTS' },
-  { id: 'fish-audio-v1', name: 'Fish Audio' },
-];
-const MUSIC_PROVIDERS = [
-  { id: 'suno-v4', name: 'Suno AI' },
-  { id: 'udio-v1', name: 'Udio' },
-];
-const SFX_PROVIDERS = [{ id: 'stability-audio-v2', name: 'Stability Audio' }];
+const VOICE_PROVIDERS = listBuiltinAudioGenerationProviders('voice');
+const MUSIC_PROVIDERS = listBuiltinAudioGenerationProviders('music');
+const SFX_PROVIDERS = listBuiltinAudioGenerationProviders('sfx');
+
+function getDefaultProvider(type: AudioTrackType): string {
+  const providers =
+    type === 'voice' ? VOICE_PROVIDERS : type === 'music' ? MUSIC_PROVIDERS : SFX_PROVIDERS;
+  return providers[0]?.id ?? '';
+}
 
 export function AudioStudio() {
   const dispatch = useDispatch();
   const { tracks, playingId } = useSelector((s: RootState) => s.audio);
   const [activeTab, setActiveTab] = useState<AudioTrackType>('voice');
   const [text, setText] = useState('');
-  const [provider, setProvider] = useState('elevenlabs-v2');
+  const [provider, setProvider] = useState(() => getDefaultProvider('voice'));
   const [loading, setLoading] = useState(false);
 
   const providers =
@@ -42,9 +43,7 @@ export function AudioStudio() {
 
   const handleTabChange = useCallback((tab: AudioTrackType) => {
     setActiveTab(tab);
-    setProvider(
-      tab === 'voice' ? 'elevenlabs-v2' : tab === 'music' ? 'suno-v4' : 'stability-audio-v2',
-    );
+    setProvider(getDefaultProvider(tab));
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -84,7 +83,15 @@ export function AudioStudio() {
           }),
         );
       }
-    } catch {
+    } catch (error) {
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'audio',
+          message: t('audio.generationFailed'),
+          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+        }),
+      );
       dispatch(updateAudioTrack({ id, data: { status: 'failed' } }));
     } finally {
       setLoading(false);

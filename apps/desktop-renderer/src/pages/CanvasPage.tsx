@@ -83,6 +83,7 @@ export function CanvasPage() {
   const { activePanel, rightPanel } = useSelector(
     (state: RootState) => state.ui,
   );
+  const commanderOpen = useSelector((state: RootState) => state.commander.open);
   const projectLoaded = useSelector((state: RootState) => state.project.loaded);
 
   const activeCanvas = useMemo(
@@ -344,7 +345,11 @@ export function CanvasPage() {
         )}
       </div>
 
-      <Suspense fallback={null}><CommanderPanel /></Suspense>
+      {commanderOpen ? (
+        <Suspense fallback={null}>
+          <CommanderPanel />
+        </Suspense>
+      ) : null}
       <RightToolbar />
     </div>
   );

@@ -173,6 +173,90 @@ export function queryAssets(
   }));
 }
 
+export interface EmbeddingRecord {
+  hash: string;
+  description: string;
+  tokens: string[];
+  model: string;
+  createdAt: number;
+}
+
+export interface SemanticSearchResult {
+  hash: string;
+  score: number;
+  description: string;
+}
+
+export function insertEmbedding(
+  db: BetterSqlite3.Database,
+  hash: string,
+  description: string,
+  tokens: string[],
+  model: string,
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO asset_embeddings (hash, description, tokens, model, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(hash, description, JSON.stringify(tokens), model, Date.now());
+}
+
+export function queryEmbeddingByHash(
+  db: BetterSqlite3.Database,
+  hash: string,
+): EmbeddingRecord | undefined {
+  const row = db
+    .prepare('SELECT * FROM asset_embeddings WHERE hash = ?')
+    .get(hash) as Record<string, unknown> | undefined;
+  if (!row) return undefined;
+  return {
+    hash: row.hash as string,
+    description: row.description as string,
+    tokens: JSON.parse(row.tokens as string) as string[],
+    model: row.model as string,
+    createdAt: row.created_at as number,
+  };
+}
+
+export function searchByTokens(
+  db: BetterSqlite3.Database,
+  queryTokens: string[],
+  limit: number,
+): SemanticSearchResult[] {
+  if (queryTokens.length === 0) return [];
+
+  const rows = db
+    .prepare('SELECT hash, description, tokens FROM asset_embeddings')
+    .all() as Array<{ hash: string; description: string; tokens: string }>;
+
+  const querySet = new Set(queryTokens);
+
+  const scored = rows
+    .map((row) => {
+      const storedTokens: string[] = JSON.parse(row.tokens);
+      const storedSet = new Set(storedTokens);
+      // Jaccard similarity: |intersection| / |union|
+      let intersection = 0;
+      for (const t of querySet) {
+        if (storedSet.has(t)) intersection++;
+      }
+      const union = querySet.size + storedSet.size - intersection;
+      const score = union > 0 ? intersection / union : 0;
+      return { hash: row.hash, score, description: row.description };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+
+  return scored;
+}
+
+export function getAllEmbeddedHashes(db: BetterSqlite3.Database): string[] {
+  const rows = db
+    .prepare('SELECT hash FROM asset_embeddings')
+    .all() as Array<{ hash: string }>;
+  return rows.map((r) => r.hash);
+}
+
 export function searchAssets(
   db: BetterSqlite3.Database,
   query: string,

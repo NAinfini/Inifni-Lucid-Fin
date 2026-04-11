@@ -39,10 +39,20 @@ export function createOrchestrationTools(deps: OrchestrationToolDeps): AgentTool
     name: 'orchestration.list',
     description: 'List orchestration segments across the current project.',
     tier: 1,
-    parameters: { type: 'object', properties: {}, required: [] },
-    async execute() {
+    parameters: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
+      required: [],
+    },
+    async execute(args) {
       try {
-        return ok(await deps.listOrchestrations());
+        const orchestrations = await deps.listOrchestrations();
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: orchestrations.length, offset, limit, orchestrations: orchestrations.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }

@@ -15,6 +15,10 @@ import shotListFromScript from '../../../../../docs/ai-video-prompt-guide/10-sho
 import batchRePrompt from '../../../../../docs/ai-video-prompt-guide/11-batch-re-prompt.md?raw';
 import continuityCheck from '../../../../../docs/ai-video-prompt-guide/12-continuity-check.md?raw';
 import storyboardExport from '../../../../../docs/ai-video-prompt-guide/13-storyboard-export.md?raw';
+import videoCloneGuide from '../../../../../docs/ai-video-prompt-guide/15-video-clone.md?raw';
+import dualPromptGuide from '../../../../../docs/ai-video-prompt-guide/16-dual-prompt-strategy.md?raw';
+import emotionVoiceGuide from '../../../../../docs/ai-video-prompt-guide/17-emotion-voice-prompting.md?raw';
+import lipSyncGuide from '../../../../../docs/ai-video-prompt-guide/18-lip-sync-workflow.md?raw';
 
 const STORAGE_KEY = 'lucid-prompt-templates-v1';
 
@@ -41,6 +45,10 @@ const DEFAULTS: Omit<PromptTemplate, 'customContent'>[] = [
   { id: 'batch-re-prompt', name: 'Batch Re-Prompt', category: 'skill', defaultContent: batchRePrompt },
   { id: 'continuity-check', name: 'Continuity Check', category: 'skill', defaultContent: continuityCheck },
   { id: 'storyboard-export', name: 'Storyboard Export', category: 'skill', defaultContent: storyboardExport },
+  { id: 'video-clone', name: 'Video Clone & Scene Analysis', category: 'skill', defaultContent: videoCloneGuide },
+  { id: 'dual-prompt-strategy', name: 'Dual Prompt Strategy', category: 'skill', defaultContent: dualPromptGuide },
+  { id: 'emotion-voice-prompting', name: 'Emotion & Voice Prompting', category: 'audio', defaultContent: emotionVoiceGuide },
+  { id: 'lip-sync-workflow', name: 'Lip Sync Workflow', category: 'skill', defaultContent: lipSyncGuide },
 ];
 
 interface StoredCustomTemplate {

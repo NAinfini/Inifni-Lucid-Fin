@@ -5,32 +5,34 @@ import type {
   AssetMeta,
   Canvas,
   Job,
-  JobStatus,
   ProjectManifest,
   Character,
   Equipment,
   Location,
   Scene,
   ScriptDocument,
-  ParsedScene,
   ColorStyle,
   Series,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
   WorkflowArtifact,
-  WorkflowArtifactSummary,
   WorkflowTaskSummary,
 } from '@lucid-fin/contracts';
 import type BetterSqlite3 from 'better-sqlite3';
 
 import {
   type AssetMetaInput,
-  normalizeAssetMeta,
   insertAsset as _insertAsset,
   deleteAsset as _deleteAsset,
   queryAssets as _queryAssets,
   searchAssets as _searchAssets,
+  insertEmbedding as _insertEmbedding,
+  queryEmbeddingByHash as _queryEmbeddingByHash,
+  searchByTokens as _searchByTokens,
+  getAllEmbeddedHashes as _getAllEmbeddedHashes,
+  type EmbeddingRecord,
+  type SemanticSearchResult,
 } from './sqlite-assets.js';
 import {
   upsertProject as _upsertProject,
@@ -447,6 +449,14 @@ CREATE TABLE IF NOT EXISTS preset_overrides (
 CREATE INDEX IF NOT EXISTS idx_preset_overrides_project
   ON preset_overrides(project_id, category);
 
+CREATE TABLE IF NOT EXISTS asset_embeddings (
+  hash        TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  tokens      TEXT NOT NULL,
+  model       TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS assets_fts USING fts5(
   tags, prompt, content=assets, content_rowid=rowid
 );
@@ -612,6 +622,12 @@ export class SqliteIndex {
   queryAssets(filter: { type?: string; projectId?: string; limit?: number; offset?: number }): AssetMeta[] { return _queryAssets(this.db, filter); }
   searchAssets(query: string, limit = 50, projectId?: string): AssetMeta[] { return _searchAssets(this.db, query, limit, projectId); }
 
+  // --- Asset Embeddings ---
+  insertEmbedding(hash: string, description: string, tokens: string[], model: string): void { _insertEmbedding(this.db, hash, description, tokens, model); }
+  queryEmbeddingByHash(hash: string): EmbeddingRecord | undefined { return _queryEmbeddingByHash(this.db, hash); }
+  searchByTokens(queryTokens: string[], limit: number): SemanticSearchResult[] { return _searchByTokens(this.db, queryTokens, limit); }
+  getAllEmbeddedHashes(): string[] { return _getAllEmbeddedHashes(this.db); }
+
   // --- Projects ---
   upsertProject(project: { id: string; title: string; path: string; seriesId?: string; updatedAt: number; thumbnail?: string }): void { _upsertProject(this.db, project); }
   listProjects(): Array<{ id: string; title: string; path: string; updatedAt: number; thumbnail?: string }> { return _listProjects(this.db); }
@@ -772,6 +788,49 @@ export class SqliteIndex {
       }
     }
 
+    const equipFile = path.join(projectPath, 'equipment.json');
+    if (fs.existsSync(equipFile)) {
+      const data = JSON.parse(fs.readFileSync(equipFile, 'utf-8')) as { equipment: Equipment[] };
+      for (const equip of data.equipment ?? []) {
+        this.upsertEquipment({
+          id: equip.id,
+          projectId: equip.projectId ?? projectId ?? '',
+          name: equip.name,
+          type: equip.type,
+          subtype: equip.subtype,
+          description: equip.description,
+          functionDesc: equip.function,
+          tags: equip.tags,
+          referenceImages: equip.referenceImages,
+          createdAt: equip.createdAt,
+          updatedAt: equip.updatedAt,
+        });
+      }
+    }
+
+    const locationsFile = path.join(projectPath, 'locations.json');
+    if (fs.existsSync(locationsFile)) {
+      const data = JSON.parse(fs.readFileSync(locationsFile, 'utf-8')) as { locations: Location[] };
+      for (const loc of data.locations ?? []) {
+        this.upsertLocation({
+          id: loc.id,
+          projectId: loc.projectId ?? projectId ?? '',
+          name: loc.name,
+          type: loc.type,
+          subLocation: loc.subLocation,
+          description: loc.description,
+          timeOfDay: loc.timeOfDay,
+          mood: loc.mood,
+          weather: loc.weather,
+          lighting: loc.lighting,
+          tags: loc.tags,
+          referenceImages: loc.referenceImages,
+          createdAt: loc.createdAt,
+          updatedAt: loc.updatedAt,
+        });
+      }
+    }
+
     const assetsDir = path.join(projectPath, 'assets');
     if (fs.existsSync(assetsDir)) {
       for (const typeDir of fs.readdirSync(assetsDir)) {
@@ -790,5 +849,17 @@ export class SqliteIndex {
         }
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Storage management
+  // ---------------------------------------------------------------------------
+
+  vacuum(): void {
+    this.db.exec('VACUUM');
+  }
+
+  clearEmbeddings(): void {
+    this.db.exec('DELETE FROM asset_embeddings');
   }
 }

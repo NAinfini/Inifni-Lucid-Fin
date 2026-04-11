@@ -7,7 +7,7 @@ import type {
   Scene,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
 
 export interface SceneToolDeps {
   listScenes: () => Promise<Scene[]>;
@@ -18,10 +18,6 @@ export interface SceneToolDeps {
 }
 
 type SceneWithReferenceImages = Scene & { referenceImages?: ReferenceImage[] };
-
-function ok(data?: unknown): ToolResult {
-  return { success: true, data };
-}
 
 function deriveSceneStatus(scene: Scene): KeyframeStatus {
   if (scene.keyframes.some((keyframe) => keyframe.status === 'generating')) {
@@ -47,54 +43,18 @@ export function createSceneTools(deps: SceneToolDeps): AgentTool[] {
     tier: 1,
     parameters: {
       type: 'object',
-      properties: {},
-      required: [],
-    },
-    async execute(_args) {
-      try {
-        const scenes = await deps.listScenes();
-        return { success: true, data: scenes };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  const sceneSearch: AgentTool = {
-    name: 'scene.search',
-    description: 'Search scenes by title or status. Returns lightweight summaries.',
-    tags: ['scene', 'read', 'search'],
-    tier: 1,
-    parameters: {
-      type: 'object',
       properties: {
-        query: {
-          type: 'string',
-          description: 'Optional title query. Matches scene titles case-insensitively.',
-        },
-        status: {
-          type: 'string',
-          description: 'Optional exact status match.',
-        },
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
       required: [],
     },
     async execute(args) {
       try {
         const scenes = await deps.listScenes();
-        const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
-        const status = typeof args.status === 'string' ? args.status : undefined;
-        const matches = scenes
-          .map((scene) => ({
-            id: scene.id,
-            title: scene.title,
-            status: deriveSceneStatus(scene),
-          }))
-          .filter((scene) => (
-            (query.length === 0 || scene.title.toLowerCase().includes(query))
-            && (status === undefined || scene.status === status)
-          ));
-        return ok(matches);
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return { success: true, data: { total: scenes.length, offset, limit, scenes: scenes.slice(offset, offset + limit) } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -215,7 +175,7 @@ export function createSceneTools(deps: SceneToolDeps): AgentTool[] {
     },
   };
 
-  return [sceneList, sceneSearch, sceneCreate, sceneUpdate, sceneDelete, {
+  return [sceneList, sceneCreate, sceneUpdate, sceneDelete, {
     name: 'scene.setReferenceImageFromNode',
     description: 'Set a scene reference image directly from a generated canvas image node.',
     tags: ['scene', 'mutate'],

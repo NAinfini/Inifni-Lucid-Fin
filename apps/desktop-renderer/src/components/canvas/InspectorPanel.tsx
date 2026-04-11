@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { enqueueToast } from '../../store/slices/toast.js';
+import { useInspectorEntityRefs } from './useInspectorEntityRefs.js';
 import {
   renameNode,
   updateNodeData,
   selectVariant,
+  deleteVariant,
+  setNodeAudio,
+  setNodeQuality,
   setNodeEstimatedCost,
   setNodeGenerating,
   setNodeGenerationFailed,
@@ -21,14 +25,14 @@ import {
   setNodeUploadedAsset,
   clearNodeAsset,
   toggleSeedLock,
-  addNodeCharacterRef,
-  removeNodeCharacterRef,
-  updateNodeCharacterRef,
-  addNodeEquipmentRef,
-  removeNodeEquipmentRef,
-  updateNodeEquipmentRef,
-  addNodeLocationRef,
-  removeNodeLocationRef,
+  // M7: Annotation
+  setNodeAnnotation,
+  // M9: Tags & grouping
+  addNodeTag,
+  removeNodeTag,
+  // L17: Advanced params
+  setNodeAdvancedParams,
+  // Entity ref actions are handled by useInspectorEntityRefs hook
   applyNodeShotTemplate,
   setBackdropOpacity,
   setBackdropColor,
@@ -49,6 +53,7 @@ import {
   localizeShotTemplateName,
   localizeShotTemplateDescription,
 } from '../../i18n.js';
+import { getProviderMetadata } from '../../store/slices/settings.js';
 import { InspectorCreativeTab } from './InspectorCreativeTab.js';
 import { InspectorContextTab } from './InspectorContextTab.js';
 import { InspectorFrameThumb } from './InspectorFrameThumb.js';
@@ -84,9 +89,6 @@ import type {
   VideoNodeData,
   AudioNodeData,
   BackdropNodeData,
-  CharacterRef,
-  EquipmentRef,
-  LocationRef,
   ReferenceImage,
   ShotTemplate,
 } from '@lucid-fin/contracts';
@@ -202,34 +204,7 @@ export function InspectorPanel() {
     return (fromLibrary.length > 0 ? fromLibrary : CATEGORY_FALLBACK) as PresetCategory[];
   }, [presets]);
 
-  const characterById = useMemo(() => {
-    const map: Record<string, (typeof characters)[number]> = {};
-    for (const ch of characters) {
-      map[ch.id] = ch;
-    }
-    return map;
-  }, [characters]);
-
-  const equipmentById = useMemo(() => {
-    const map: Record<string, (typeof equipmentItems)[number]> = {};
-    for (const eq of equipmentItems) {
-      map[eq.id] = eq;
-    }
-    return map;
-  }, [equipmentItems]);
-
-  const locationById = useMemo(() => {
-    const map: Record<string, (typeof locationItems)[number]> = {};
-    for (const loc of locationItems) {
-      map[loc.id] = loc;
-    }
-    return map;
-  }, [locationItems]);
-
   const [inspectorTab, setInspectorTab] = useState<InspectorPanelTab>('creative');
-  const [charPickerOpen, setCharPickerOpen] = useState(false);
-  const [equipPickerOpen, setEquipPickerOpen] = useState(false);
-  const [locPickerOpen, setLocPickerOpen] = useState(false);
   const [configuredProviders, setConfiguredProviders] = useState<
     import('../../store/slices/settings.js').ProviderConfig[]
   >([]);
@@ -256,6 +231,12 @@ export function InspectorPanel() {
     if (!p) return undefined;
     return { baseUrl: p.baseUrl, model: p.model };
   }, [activeProviderId, imageProviders, videoProviders, audioProviders]);
+  const activeVideoProviderMetadata = useMemo(() => {
+    if (selectedNode?.type !== 'video' || !activeProviderId) {
+      return undefined;
+    }
+    return getProviderMetadata('video', activeProviderId);
+  }, [activeProviderId, selectedNode?.type]);
   const activeVariantCount = generationData?.variantCount ?? 1;
   const activeSeed = generationData?.seed;
   const activeSeedLocked = generationData?.seedLocked ?? false;
@@ -299,42 +280,39 @@ export function InspectorPanel() {
     return imageProviders;
   }, [audioProviders, imageProviders, selectedNode, videoProviders]);
 
-  const nodeCharacterRefs: CharacterRef[] = useMemo(() => {
-    if (!selectedNode || (selectedNode.type !== 'image' && selectedNode.type !== 'video'))
-      return [];
-    return (selectedNode.data as ImageNodeData | VideoNodeData).characterRefs ?? [];
-  }, [selectedNode]);
-
-  const nodeEquipmentRefs: EquipmentRef[] = useMemo(() => {
-    if (!selectedNode || (selectedNode.type !== 'image' && selectedNode.type !== 'video'))
-      return [];
-    const raw = (selectedNode.data as ImageNodeData | VideoNodeData).equipmentRefs ?? [];
-    return raw.map((r) => (typeof r === 'string' ? { equipmentId: r } : r));
-  }, [selectedNode]);
-
-  const availableCharacters = useMemo(() => {
-    const usedIds = new Set(nodeCharacterRefs.map((r) => r.characterId));
-    return characters.filter((ch) => !usedIds.has(ch.id));
-  }, [characters, nodeCharacterRefs]);
-
-  const availableEquipment = useMemo(() => {
-    const usedIds = new Set(nodeEquipmentRefs.map((r) => r.equipmentId));
-    return equipmentItems.filter((eq) => !usedIds.has(eq.id));
-  }, [equipmentItems, nodeEquipmentRefs]);
-
-  const nodeLocationRefs: LocationRef[] = useMemo(() => {
-    if (!selectedNode || (selectedNode.type !== 'image' && selectedNode.type !== 'video'))
-      return [];
-    return (selectedNode.data as ImageNodeData | VideoNodeData).locationRefs ?? [];
-  }, [selectedNode]);
-
-  const availableLocations = useMemo(() => {
-    const usedIds = new Set(nodeLocationRefs.map((r) => r.locationId));
-    return locationItems.filter((loc) => !usedIds.has(loc.id));
-  }, [locationItems, nodeLocationRefs]);
-
-  const contextBadgeCount =
-    nodeCharacterRefs.length + nodeEquipmentRefs.length + nodeLocationRefs.length;
+  // Entity refs — delegated to extracted hook
+  const entityRefs = useInspectorEntityRefs({
+    selectedNode,
+    characters,
+    equipmentItems,
+    locationItems,
+  });
+  const {
+    nodeCharacterRefs,
+    nodeEquipmentRefs,
+    nodeLocationRefs,
+    availableCharacters,
+    availableEquipment,
+    availableLocations,
+    characterById,
+    equipmentById,
+    locationById,
+    contextBadgeCount,
+    charPickerOpen,
+    setCharPickerOpen,
+    equipPickerOpen,
+    setEquipPickerOpen,
+    locPickerOpen,
+    setLocPickerOpen,
+    handleAddCharacterRef,
+    handleRemoveCharacterRef,
+    handleCharacterAngleChange,
+    handleAddEquipmentRef,
+    handleRemoveEquipmentRef,
+    handleEquipmentAngleChange,
+    handleAddLocationRef,
+    handleRemoveLocationRef,
+  } = entityRefs;
 
   useEffect(() => {
     if (!visualGenerationNode) {
@@ -344,7 +322,7 @@ export function InspectorPanel() {
     setResolutionSelectValue(
       getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight),
     );
-  }, [activeHeight, activeWidth, visualGenerationNode?.id, visualGenerationNode?.type]);
+  }, [activeHeight, activeWidth, visualGenerationNode]);
 
   useEffect(() => {
     if (selectedNode?.type !== 'video') {
@@ -372,102 +350,6 @@ export function InspectorPanel() {
       dispatch(setNodeSeed({ id: node.id, seed: pendingSeed }));
     }
   }, [canvas, dispatch]);
-
-  const handleAddCharacterRef = useCallback(
-    (characterId: string) => {
-      if (!selectedNode) return;
-      const character = characterById[characterId];
-      dispatch(
-        addNodeCharacterRef({
-          id: selectedNode.id,
-          characterRef: {
-            characterId,
-            loadoutId: character?.defaultLoadoutId ?? '',
-          },
-        }),
-      );
-      setCharPickerOpen(false);
-    },
-    [dispatch, selectedNode, characterById],
-  );
-
-  const handleRemoveCharacterRef = useCallback(
-    (characterId: string) => {
-      if (!selectedNode) return;
-      dispatch(removeNodeCharacterRef({ id: selectedNode.id, characterId }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleCharacterAngleChange = useCallback(
-    (characterId: string, angleSlot: string | undefined) => {
-      if (!selectedNode) return;
-      const character = characters.find((c) => c.id === characterId);
-      const referenceImageHash = angleSlot
-        ? character?.referenceImages?.find((r: ReferenceImage) => r.slot === angleSlot)?.assetHash
-        : undefined;
-      dispatch(
-        updateNodeCharacterRef({
-          id: selectedNode.id,
-          characterId,
-          changes: { angleSlot, referenceImageHash },
-        }),
-      );
-    },
-    [dispatch, selectedNode, characters],
-  );
-
-  const handleAddEquipmentRef = useCallback(
-    (equipmentId: string) => {
-      if (!selectedNode) return;
-      dispatch(addNodeEquipmentRef({ id: selectedNode.id, equipmentId }));
-      setEquipPickerOpen(false);
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleRemoveEquipmentRef = useCallback(
-    (equipmentId: string) => {
-      if (!selectedNode) return;
-      dispatch(removeNodeEquipmentRef({ id: selectedNode.id, equipmentId }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleEquipmentAngleChange = useCallback(
-    (equipmentId: string, angleSlot: string | undefined) => {
-      if (!selectedNode) return;
-      const equipment = equipmentItems.find((e) => e.id === equipmentId);
-      const referenceImageHash = angleSlot
-        ? equipment?.referenceImages?.find((r: ReferenceImage) => r.slot === angleSlot)?.assetHash
-        : undefined;
-      dispatch(
-        updateNodeEquipmentRef({
-          id: selectedNode.id,
-          equipmentId,
-          changes: { angleSlot, referenceImageHash },
-        }),
-      );
-    },
-    [dispatch, selectedNode, equipmentItems],
-  );
-
-  const handleAddLocationRef = useCallback(
-    (locationId: string) => {
-      if (!selectedNode) return;
-      dispatch(addNodeLocationRef({ id: selectedNode.id, locationId }));
-      setLocPickerOpen(false);
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleRemoveLocationRef = useCallback(
-    (locationId: string) => {
-      if (!selectedNode) return;
-      dispatch(removeNodeLocationRef({ id: selectedNode.id, locationId }));
-    },
-    [dispatch, selectedNode],
-  );
 
   const handleTitleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -879,7 +761,16 @@ export function InspectorPanel() {
       delete pendingRandomSeedByNodeId.current[selectedNode.id];
       const msg = error instanceof Error ? error.message : String(error);
       dispatch(setNodeGenerationFailed({ id: selectedNode.id, error: msg }));
-      dispatch(enqueueToast({ title: t('generation.failed'), message: msg, variant: 'error' }));
+      const isProviderError = /no configured adapter|api.?key|provider.*not.*found/i.test(msg);
+      dispatch(enqueueToast({
+        title: t('generation.failed'),
+        message: isProviderError ? t('generation.noProviderHint') : msg,
+        variant: 'error',
+        ...(isProviderError && {
+          actionLabel: t('generation.openProviders'),
+          onAction: () => { window.location.hash = '#/settings'; },
+        }),
+      }));
     }
   }, [
     activeCanvasId,
@@ -901,18 +792,30 @@ export function InspectorPanel() {
     await api.canvasGeneration.cancel(activeCanvasId, selectedNode.id);
   }, [activeCanvasId, selectedNode]);
 
-  const handleFirstFrameChange = useCallback(
-    (frameNodeId: string | undefined) => {
+  const handleFrameSelect = useCallback(
+    (role: 'first' | 'last', value: string | undefined) => {
       if (selectedNode?.type !== 'video') return;
-      dispatch(setVideoFrameNode({ id: selectedNode.id, role: 'first', frameNodeId }));
+      if (!value) {
+        // Deselect: clear both node and asset
+        dispatch(setVideoFrameNode({ id: selectedNode.id, role, frameNodeId: undefined }));
+        return;
+      }
+      if (value.startsWith('asset:')) {
+        // Asset store or uploaded image
+        const hash = value.slice(6);
+        dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: hash }));
+      } else {
+        // Connected node id
+        dispatch(setVideoFrameNode({ id: selectedNode.id, role, frameNodeId: value }));
+      }
     },
     [dispatch, selectedNode],
   );
 
-  const handleLastFrameChange = useCallback(
-    (frameNodeId: string | undefined) => {
+  const handleFrameDropAsset = useCallback(
+    (role: 'first' | 'last', assetHash: string) => {
       if (selectedNode?.type !== 'video') return;
-      dispatch(setVideoFrameNode({ id: selectedNode.id, role: 'last', frameNodeId }));
+      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash }));
     },
     [dispatch, selectedNode],
   );
@@ -929,10 +832,26 @@ export function InspectorPanel() {
     [dispatch, selectedNode],
   );
 
+  const handleDropFileVideoFrame = useCallback(
+    async (role: 'first' | 'last', file: File) => {
+      if (selectedNode?.type !== 'video') return;
+      const api = getAPI();
+      if (!api) return;
+      const filePath = (file as { path?: string }).path ?? '';
+      const ref = filePath
+        ? ((await api.asset.import(filePath, 'image')) as { hash: string } | null)
+        : ((await api.asset.importBuffer(await file.arrayBuffer(), file.name, 'image')) as { hash: string } | null);
+      if (!ref?.hash) return;
+      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
+    },
+    [dispatch, selectedNode],
+  );
+
   const handleClearVideoFrame = useCallback(
     (role: 'first' | 'last') => {
       if (selectedNode?.type !== 'video') return;
-      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: undefined }));
+      // setVideoFrameNode with undefined clears both nodeId and assetHash
+      dispatch(setVideoFrameNode({ id: selectedNode.id, role, frameNodeId: undefined }));
     },
     [dispatch, selectedNode],
   );
@@ -955,6 +874,31 @@ export function InspectorPanel() {
     (index: number) => {
       if (!isGenerationNode(selectedNode)) return;
       dispatch(selectVariant({ id: selectedNode.id, index }));
+    },
+    [dispatch, selectedNode],
+  );
+
+  const handleDeleteVariant = useCallback(
+    (index: number) => {
+      if (!isGenerationNode(selectedNode)) return;
+      dispatch(deleteVariant({ id: selectedNode.id, index }));
+    },
+    [dispatch, selectedNode],
+  );
+
+  const handleAudioChange = useCallback(
+    (enabled: boolean) => {
+      if (selectedNode?.type !== 'video') return;
+      dispatch(setNodeAudio({ id: selectedNode.id, audio: enabled }));
+    },
+    [dispatch, selectedNode],
+  );
+
+  const handleQualityChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      if (selectedNode?.type !== 'video') return;
+      const val = e.target.value as 'standard' | 'pro' | '';
+      dispatch(setNodeQuality({ id: selectedNode.id, quality: val || undefined }));
     },
     [dispatch, selectedNode],
   );
@@ -1072,14 +1016,24 @@ export function InspectorPanel() {
     selectedNode.type === 'video'
       ? (() => {
           const videoData = selectedNode.data as VideoNodeData;
+          const seenFirst = new Set<string>();
           const firstCandidates = (canvas?.edges ?? [])
             .filter((edge) => edge.target === selectedNode.id)
             .map((edge) => canvas?.nodes.find((node) => node.id === edge.source))
-            .filter((node): node is CanvasNode & { data: ImageNodeData } => node?.type === 'image');
+            .filter((node): node is CanvasNode & { data: ImageNodeData } => {
+              if (!node || node.type !== 'image' || seenFirst.has(node.id)) return false;
+              seenFirst.add(node.id);
+              return true;
+            });
+          const seenLast = new Set<string>();
           const lastCandidates = (canvas?.edges ?? [])
             .filter((edge) => edge.source === selectedNode.id)
             .map((edge) => canvas?.nodes.find((node) => node.id === edge.target))
-            .filter((node): node is CanvasNode & { data: ImageNodeData } => node?.type === 'image');
+            .filter((node): node is CanvasNode & { data: ImageNodeData } => {
+              if (!node || node.type !== 'image' || seenLast.has(node.id)) return false;
+              seenLast.add(node.id);
+              return true;
+            });
           const selectedFirst = firstCandidates.find(
             (node) => node.id === videoData.firstFrameNodeId,
           );
@@ -1088,13 +1042,25 @@ export function InspectorPanel() {
             videoData.firstFrameAssetHash ?? selectedFirst?.data.assetHash;
           const lastFrameHash =
             videoData.lastFrameAssetHash ?? selectedLast?.data.assetHash;
+
+          // Determine selected value for the unified dropdown
+          const firstSelectedValue = videoData.firstFrameAssetHash
+            ? `asset:${videoData.firstFrameAssetHash}`
+            : videoData.firstFrameNodeId ?? undefined;
+          const lastSelectedValue = videoData.lastFrameAssetHash
+            ? `asset:${videoData.lastFrameAssetHash}`
+            : videoData.lastFrameNodeId ?? undefined;
+
           return {
             first: {
-              options: firstCandidates.map((node) => ({
+              connectedOptions: firstCandidates.map((node) => ({
                 value: node.id,
                 label: node.title || node.id.slice(0, 8),
               })),
-              selectedNodeId: videoData.firstFrameNodeId,
+              assetOption: videoData.firstFrameAssetHash
+                ? { value: `asset:${videoData.firstFrameAssetHash}`, label: t('inspector.uploadedImage') }
+                : undefined,
+              selectedValue: firstSelectedValue,
               preview: firstFrameHash ? (
                 <InspectorFrameThumb
                   assetHash={firstFrameHash}
@@ -1102,16 +1068,21 @@ export function InspectorPanel() {
                 />
               ) : undefined,
               hasValue: Boolean(firstFrameHash),
-              onConnectedChange: handleFirstFrameChange,
+              onSelect: (value: string | undefined) => handleFrameSelect('first', value),
               onUpload: () => handleUploadVideoFrame('first'),
+              onDropAsset: (hash: string) => handleFrameDropAsset('first', hash),
+              onDropFile: (file: File) => handleDropFileVideoFrame('first', file),
               onClear: () => handleClearVideoFrame('first'),
             },
             last: {
-              options: lastCandidates.map((node) => ({
+              connectedOptions: lastCandidates.map((node) => ({
                 value: node.id,
                 label: node.title || node.id.slice(0, 8),
               })),
-              selectedNodeId: videoData.lastFrameNodeId,
+              assetOption: videoData.lastFrameAssetHash
+                ? { value: `asset:${videoData.lastFrameAssetHash}`, label: t('inspector.uploadedImage') }
+                : undefined,
+              selectedValue: lastSelectedValue,
               preview: lastFrameHash ? (
                 <InspectorFrameThumb
                   assetHash={lastFrameHash}
@@ -1119,15 +1090,17 @@ export function InspectorPanel() {
                 />
               ) : undefined,
               hasValue: Boolean(lastFrameHash),
-              onConnectedChange: handleLastFrameChange,
+              onSelect: (value: string | undefined) => handleFrameSelect('last', value),
               onUpload: () => handleUploadVideoFrame('last'),
+              onDropAsset: (hash: string) => handleFrameDropAsset('last', hash),
+              onDropFile: (file: File) => handleDropFileVideoFrame('last', file),
               onClear: () => handleClearVideoFrame('last'),
             },
           };
         })()
       : undefined;
   const variantGrid = shouldShowVariantGrid
-    ? Array.from({ length: Math.min(visibleVariantCount, 9) }, (_, index) => {
+    ? Array.from({ length: visibleVariantCount }, (_, index) => {
         const hash = activeVariants[index];
         return (
           <InspectorVariantThumb
@@ -1137,13 +1110,12 @@ export function InspectorPanel() {
             selected={selectedVariantIndex === index}
             mediaType={selectedVariantMediaType}
             onClick={() => handleSelectVariant(index)}
+            onDelete={() => handleDeleteVariant(index)}
+            canDelete={visibleVariantCount > 1}
           />
         );
       })
     : null;
-  const metadataCreatedAt = new Date(selectedNode.createdAt).toLocaleString();
-  const metadataUpdatedAt = new Date(selectedNode.updatedAt).toLocaleString();
-
   return (
     <div className="h-full flex flex-col bg-card border-l border-border/60 overflow-auto">
       <InspectorPanelHeader
@@ -1258,6 +1230,13 @@ export function InspectorPanel() {
                   )
                 : undefined
             }
+            suggestedTemplates={
+              isGenerationNode(selectedNode) && !generationData?.prompt
+                ? [...builtInTemplates, ...customTemplates]
+                    .filter((tpl) => !hiddenTemplateIds.includes(tpl.id))
+                    .slice(0, 6)
+                : undefined
+            }
           />
         )}
 
@@ -1289,6 +1268,182 @@ export function InspectorPanel() {
             videoFramesSection={videoFramesSection}
           />
         )}
+
+        {/* ===== Annotation Section (M7) ===== */}
+        {isGenerationNode(selectedNode) && (
+          <div className="px-3 py-2 border-b border-border/60">
+            <details className="group">
+              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+                <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                {t('inspector.annotation')}
+              </summary>
+              <div className="mt-1.5 space-y-1">
+                <input
+                  type="text"
+                  className="w-full rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring"
+                  placeholder={t('inspector.annotationPlaceholder')}
+                  value={(generationData as { annotation?: { text?: string } })?.annotation?.text ?? ''}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    dispatch(setNodeAnnotation({
+                      id: selectedNode.id,
+                      annotation: text ? { text, position: 'bottom' } : undefined,
+                    }));
+                  }}
+                />
+              </div>
+            </details>
+          </div>
+        )}
+
+        {/* ===== Tags & Group Section (M9) ===== */}
+        <div className="px-3 py-2 border-b border-border/60">
+          <details className="group">
+            <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+              <span className="transition-transform group-open:rotate-90">&#9654;</span>
+              {t('inspector.tagsAndGroups')}
+            </summary>
+            <div className="mt-1.5 space-y-1.5">
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  className="flex-1 rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring"
+                  placeholder={t('inspector.addTagPlaceholder')}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const val = (e.target as HTMLInputElement).value.trim();
+                      if (val) {
+                        dispatch(addNodeTag({ id: selectedNode.id, tag: val }));
+                        (e.target as HTMLInputElement).value = '';
+                      }
+                    }
+                  }}
+                />
+              </div>
+              {(selectedNode.tags ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {(selectedNode.tags ?? []).map((tag) => (
+                    <span key={tag} className="inline-flex items-center gap-0.5 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {tag}
+                      <button
+                        type="button"
+                        className="ml-0.5 text-muted-foreground/50 hover:text-destructive"
+                        onClick={() => dispatch(removeNodeTag({ id: selectedNode.id, tag }))}
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+
+        {/* ===== Advanced Generation Params (L17) ===== */}
+        {isGenerationNode(selectedNode) && selectedNode.type !== 'audio' && (
+          <div className="px-3 py-2 border-b border-border/60">
+            <details className="group">
+              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+                <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                {t('inspector.advancedParams')}
+              </summary>
+              <div className="mt-1.5 space-y-1.5">
+                <div>
+                  <label className="text-[10px] text-muted-foreground">{t('inspector.negativePrompt')}</label>
+                  <textarea
+                    className="w-full rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring min-h-[40px] resize-y"
+                    placeholder={t('inspector.negativePromptPlaceholder')}
+                    value={(generationData as { negativePrompt?: string })?.negativePrompt ?? ''}
+                    onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, negativePrompt: e.target.value }))}
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('inspector.steps')}</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={150}
+                      className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
+                      value={(generationData as { steps?: number })?.steps ?? ''}
+                      onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, steps: e.target.value ? Number(e.target.value) : undefined }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('inspector.cfgScale')}</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      step={0.5}
+                      className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
+                      value={(generationData as { cfgScale?: number })?.cfgScale ?? ''}
+                      onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, cfgScale: e.target.value ? Number(e.target.value) : undefined }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('inspector.scheduler')}</label>
+                    <input
+                      type="text"
+                      className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
+                      placeholder="euler_a"
+                      value={(generationData as { scheduler?: string })?.scheduler ?? ''}
+                      onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, scheduler: e.target.value || undefined }))}
+                    />
+                  </div>
+                </div>
+                {/* Image-to-image strength */}
+                {(generationData as { sourceImageHash?: string })?.sourceImageHash && (
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">{t('inspector.img2imgStrength')}</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={Math.round(((generationData as { img2imgStrength?: number })?.img2imgStrength ?? 0.75) * 100)}
+                        onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, img2imgStrength: Number(e.target.value) / 100 }))}
+                        className="flex-1 h-1.5 accent-primary"
+                      />
+                      <span className="text-[10px] text-muted-foreground w-8 text-right">
+                        {Math.round(((generationData as { img2imgStrength?: number })?.img2imgStrength ?? 0.75) * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
+          </div>
+        )}
+
+        {/* ===== Generation History (M10) ===== */}
+        {isGenerationNode(selectedNode) && (generationData as { generationHistory?: unknown[] })?.generationHistory?.length ? (
+          <div className="px-3 py-2 border-b border-border/60">
+            <details className="group">
+              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+                <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                {t('inspector.generationHistory')} ({((generationData as { generationHistory?: unknown[] })?.generationHistory ?? []).length})
+              </summary>
+              <div className="mt-1.5 max-h-[160px] overflow-auto space-y-1">
+                {((generationData as { generationHistory?: Array<{ assetHash: string; prompt: string; providerId: string; seed?: number; cost?: number; createdAt: number }> })?.generationHistory ?? [])
+                  .slice()
+                  .reverse()
+                  .slice(0, 20)
+                  .map((entry, i) => (
+                    <div key={`${entry.assetHash}-${i}`} className="rounded-md border border-border/40 bg-muted/20 px-2 py-1 text-[10px]">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-foreground truncate">{entry.providerId}</span>
+                        <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleTimeString()}</span>
+                      </div>
+                      <div className="text-muted-foreground truncate">{entry.prompt.slice(0, 80)}{entry.prompt.length > 80 ? '...' : ''}</div>
+                      {entry.cost != null && <span className="text-muted-foreground">${entry.cost.toFixed(3)}</span>}
+                    </div>
+                  ))}
+              </div>
+            </details>
+          </div>
+        ) : null}
       </div>
 
       {/* Generation bar — always visible at bottom for generation nodes */}
@@ -1319,7 +1474,7 @@ export function InspectorPanel() {
           nodeType={selectedNode.type}
           resolutionGroups={visualGenerationNode
             ? RESOLUTION_PRESET_GROUPS.map((group) => ({
-                label: group.label,
+                label: t(`resolutionPresetGroups.${group.label.toLowerCase()}`),
                 options: group.options.map((preset) => ({
                   value: preset.value,
                   label: preset.label,
@@ -1341,10 +1496,28 @@ export function InspectorPanel() {
           fpsOptions={selectedNode.type === 'video' ? FPS_PRESETS : undefined}
           fpsValue={activeFps}
           onFpsChange={selectedNode.type === 'video' ? handleFpsSelectChange : undefined}
+          showAudioToggle={selectedNode.type === 'video'}
+          audioEnabled={selectedNode.type === 'video' ? (selectedNode.data as VideoNodeData).audio ?? false : false}
+          onAudioChange={handleAudioChange}
+          audioLabel={t('generation.generateAudio')}
+          audioWarning={selectedNode.type === 'video' && (selectedNode.data as VideoNodeData).audio && !activeVideoProviderMetadata?.supportsAudio ? t('generation.audioUnsupported') : undefined}
+          qualityOptions={((activeVideoProviderMetadata?.qualityTiers?.length ?? 0) > 0 ? activeVideoProviderMetadata?.qualityTiers : ['standard'])?.map((v) => ({ value: v, label: t(`generation.quality_${v}` as 'generation.quality') || v }))}
+          qualityValue={selectedNode.type === 'video' ? (selectedNode.data as VideoNodeData).quality ?? (activeVideoProviderMetadata?.qualityTiers?.[0] ?? 'standard') : undefined}
+          onQualityChange={handleQualityChange}
+          qualityLabel={t('generation.quality')}
+          showQualitySelector={selectedNode.type === 'video'}
           variantGrid={variantGrid}
+          variantLabel={visibleVariantCount > 0 ? `${selectedVariantIndex + 1} / ${visibleVariantCount}` : undefined}
           uploadHasAsset={(selectedNode.type === 'image' || selectedNode.type === 'video') ? Boolean(generationData?.assetHash) : undefined}
           onUpload={(selectedNode.type === 'image' || selectedNode.type === 'video') ? handleUploadAsset : undefined}
           onClear={(selectedNode.type === 'image' || selectedNode.type === 'video') ? handleClearUploadedAsset : undefined}
+          noKeyWarning={
+            !providerLoading && configuredProviders.length > 0 && !configuredProviders.some((p) => p.hasKey)
+              ? t('generation.noKeyWarning')
+              : undefined
+          }
+          noKeyActionLabel={t('generation.openProviders')}
+          onNoKeyAction={() => { window.location.hash = '#/settings'; }}
         />
       )}
     </div>

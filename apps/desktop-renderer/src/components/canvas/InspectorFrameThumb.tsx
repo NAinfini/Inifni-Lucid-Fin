@@ -13,7 +13,7 @@ export function InspectorFrameThumb({ node, assetHash, title }: InspectorFrameTh
   const { t } = useI18n();
   const resolvedAssetHash = assetHash ?? node?.data.assetHash;
   const resolvedTitle = title ?? node?.title ?? t('node.image');
-  const { url } = useAssetUrl(resolvedAssetHash, 'image', 'jpg');
+  const { url } = useAssetUrl(resolvedAssetHash, 'image', 'png');
 
   return (
     <div className="flex flex-col gap-1 w-full">

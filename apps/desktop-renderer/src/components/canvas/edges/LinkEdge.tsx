@@ -23,6 +23,8 @@ const EDGE_COLORS: Record<EdgeStatus, string> = {
   failed: '#dc2626',   // red-600
 };
 
+const DEFAULT_EDGE_DATA: LinkEdgeData = { status: 'idle' };
+
 export function LinkEdge({
   id,
   sourceX,
@@ -36,7 +38,7 @@ export function LinkEdge({
   data,
   selected,
 }: EdgeProps) {
-  const d = (data ?? { status: 'idle' }) as unknown as LinkEdgeData;
+  const edgeData = (data as LinkEdgeData | undefined) ?? DEFAULT_EDGE_DATA;
   const [hovered, setHovered] = useState(false);
 
   const [edgePath, labelX, labelY] = getSmoothStepPath({
@@ -51,27 +53,30 @@ export function LinkEdge({
   });
 
   const strokeColor =
-    d.dependencyRole === 'upstream'
+    edgeData.dependencyRole === 'upstream'
       ? '#f59e0b'
-      : d.dependencyRole === 'downstream'
+      : edgeData.dependencyRole === 'downstream'
         ? '#38bdf8'
-        : d.dependencyRole === 'focus'
+        : edgeData.dependencyRole === 'focus'
           ? '#a855f7'
-          : EDGE_COLORS[d.status] ?? EDGE_COLORS.idle;
+          : EDGE_COLORS[edgeData.status] ?? EDGE_COLORS.idle;
 
   const handleDelete = useCallback(() => {
-    d.onDelete?.(id);
-  }, [d, id]);
+    edgeData.onDelete?.(id);
+  }, [edgeData, id]);
 
   const handleSwap = useCallback(() => {
-    d.onSwapDirection?.(id);
-  }, [d, id]);
+    edgeData.onSwapDirection?.(id);
+  }, [edgeData, id]);
 
   const handleInsertNode = useCallback(
     (type: CanvasNodeType) => {
-      d.onInsertNode?.(id, type, { x: (sourceX + targetX) / 2, y: (sourceY + targetY) / 2 });
+      edgeData.onInsertNode?.(id, type, {
+        x: (sourceX + targetX) / 2,
+        y: (sourceY + targetY) / 2,
+      });
     },
-    [d, id, sourceX, sourceY, targetX, targetY],
+    [edgeData, id, sourceX, sourceY, targetX, targetY],
   );
 
   const insertActions: Array<{ type: CanvasNodeType; labelKey: string; icon: typeof FileText }> = [
@@ -147,7 +152,7 @@ export function LinkEdge({
           ...style,
           stroke: strokeColor,
           strokeWidth: selected ? 2.5 : 1.5,
-          opacity: d.dimmed ? 0.18 : selected ? 1 : 0.72,
+          opacity: edgeData.dimmed ? 0.18 : selected ? 1 : 0.72,
         }}
       />
 
@@ -187,7 +192,7 @@ export function LinkEdge({
         )}
 
         {/* Label */}
-        {d.label && (
+        {edgeData.label && (
           <div
             className="absolute pointer-events-none z-30"
             style={{
@@ -195,7 +200,7 @@ export function LinkEdge({
             }}
           >
             <span className="text-[9px] text-muted-foreground bg-card/90 px-1 py-0.5 rounded border border-border/50">
-              {d.label}
+              {edgeData.label}
             </span>
           </div>
         )}
@@ -207,8 +212,12 @@ export function LinkEdge({
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY + 34}px)`,
             }}
           >
-            <div className="font-medium text-foreground">{d.label ?? t('edge.connection')}</div>
-            <div className="text-muted-foreground">{t('edge.statusLabel')}: {t('status.' + d.status)}</div>
+            <div className="font-medium text-foreground">
+              {edgeData.label ?? t('edge.connection')}
+            </div>
+            <div className="text-muted-foreground">
+              {t('edge.statusLabel')}: {t('status.' + edgeData.status)}
+            </div>
           </div>
         )}
       </EdgeLabelRenderer>

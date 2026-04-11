@@ -10,7 +10,6 @@ import {
   updateCustomTemplate,
   updateCustomTemplateTracks,
 } from '../../store/slices/shotTemplates.js';
-import { setActivePanel } from '../../store/slices/ui.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizePresetName, localizeShotTemplateName, localizeShotTemplateDescription } from '../../i18n.js';
@@ -50,7 +49,7 @@ interface CategoryCellProps {
   currentTracks: ShotTemplate['tracks'];
 }
 
-function CategoryCell({ templateId, category, track, presetsById, allPresets, hiddenPresetIds, onTracksChange, currentTracks }: CategoryCellProps) {
+function CategoryCell({ templateId: _templateId, category, track, presetsById, allPresets, hiddenPresetIds, onTracksChange, currentTracks }: CategoryCellProps) {
   const { t } = useI18n();
   const [modalOpen, setModalOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -232,19 +231,9 @@ export function ShotTemplateManagerPanel() {
   return (
     <div className="h-full border-r border-border/60 bg-card flex flex-col">
       <div className="px-3 py-2 border-b border-border/60">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-xs font-semibold flex items-center gap-1">
-            <Clapperboard className="w-3.5 h-3.5" />
-            {t('shotTemplates.title')}
-          </div>
-          <button
-            type="button"
-            aria-label={t('commander.close')}
-            onClick={() => dispatch(setActivePanel(null))}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+        <div className="text-xs font-semibold flex items-center gap-1">
+          <Clapperboard className="w-3.5 h-3.5" />
+          {t('shotTemplates.title')}
         </div>
       </div>
 

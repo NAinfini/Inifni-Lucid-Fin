@@ -1,11 +1,4 @@
-import React, {
-  useRef,
-  useEffect,
-  useState,
-  useCallback,
-  useImperativeHandle,
-  forwardRef,
-} from 'react';
+import { useRef, useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 
@@ -80,7 +73,7 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
         ws.destroy();
         wsRef.current = null;
       };
-    }, [audioUrl, height, waveColor, progressColor]);
+    }, [audioUrl, height, onFinish, onReady, onSeek, progressColor, waveColor]);
 
     const togglePlay = useCallback(() => {
       wsRef.current?.playPause();

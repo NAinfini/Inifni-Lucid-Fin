@@ -8,7 +8,7 @@ import {
   type ReferenceImage,
   type VideoNodeData,
 } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
 
 export interface EquipmentToolDeps {
   listEquipment: () => Promise<Equipment[]>;
@@ -20,20 +20,26 @@ export interface EquipmentToolDeps {
 
 const EQUIPMENT_TYPES: EquipmentType[] = ['weapon', 'armor', 'clothing', 'accessory', 'vehicle', 'tool', 'furniture', 'other'];
 
-function ok(data?: unknown): ToolResult {
-  return { success: true, data };
-}
-
 export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
   const equipmentList: AgentTool = {
     name: 'equipment.list',
     description: 'List all equipment items in the current project.',
     tags: ['equipment', 'read', 'search'],
     tier: 1,
-    parameters: { type: 'object', properties: {}, required: [] },
-    async execute() {
+    parameters: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
+      required: [],
+    },
+    async execute(args) {
       const items = await deps.listEquipment();
-      return { success: true, data: items.map((e) => ({ id: e.id, name: e.name, type: e.type })) };
+      const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+      const mapped = items.map((e) => ({ id: e.id, name: e.name, type: e.type }));
+      return { success: true, data: { total: mapped.length, offset, limit, equipment: mapped.slice(offset, offset + limit) } };
     },
   };
 
@@ -138,14 +144,18 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
 
   const equipmentGenerateReferenceImage: AgentTool = {
     name: 'equipment.generateReferenceImage',
-    description: 'Generate a reference image for an equipment slot.',
+    description: 'Generate a reference image for an equipment slot. Each slot produces a specific view with plain background, item isolated.',
     tags: ['equipment', 'generation'],
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The equipment ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
+        slot: {
+          type: 'string',
+          description: 'Reference image slot. front/back/left-side/right-side = orthographic views; detail-closeup = macro detail; in-use = contextual action shot.',
+          enum: ['front', 'back', 'left-side', 'right-side', 'detail-closeup', 'in-use'],
+        },
         prompt: { type: 'string', description: 'Optional custom image generation prompt.' },
       },
       required: ['id', 'slot'],
@@ -162,9 +172,21 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
         }
 
         const slot = args.slot as string;
+        const slotDescriptions: Record<string, string> = {
+          'front': 'front orthographic view, straight-on angle, full item visible',
+          'back': 'back orthographic view, rear details visible, full item visible',
+          'left-side': 'left side orthographic view, pure profile, full item visible',
+          'right-side': 'right side orthographic view, pure profile, full item visible',
+          'detail-closeup': 'extreme close-up macro view, fine surface textures, material details, engravings and mechanical parts visible',
+          'in-use': 'contextual action shot showing the item being held or used, clear view of the item with minimal background',
+        };
+        const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
+        const description = entity.description ? `${entity.description}. ` : '';
         const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
           ? args.prompt
-          : `Equipment reference image: ${entity.name} (${entity.type}). ${entity.description}. Angle: ${slot}`;
+          : `Product design reference, solid white background, even studio lighting, no characters, no environment, no scene. `
+            + `Item: ${entity.name} (${entity.type}). ${description}${slotDesc}. `
+            + `Object only, clean edges, high detail, consistent scale, professional product photography style, technical illustration quality.`;
         const result = await deps.generateImage(finalPrompt);
         const referenceImages = [...(entity.referenceImages ?? [])];
         const referenceImage = {
@@ -271,47 +293,8 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
   };
 
-  const equipmentSearch: AgentTool = {
-    name: 'equipment.search',
-    description: 'Search equipment by name or type. Returns lightweight summaries.',
-    tags: ['equipment', 'read', 'search'],
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Optional name query. Matches equipment names case-insensitively.',
-        },
-        type: {
-          type: 'string',
-          description: 'Optional exact type match.',
-          enum: EQUIPMENT_TYPES,
-        },
-      },
-      required: [],
-    },
-    async execute(args) {
-      try {
-        const items = await deps.listEquipment();
-        const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
-        const type = typeof args.type === 'string' ? args.type : undefined;
-        const matches = items
-          .filter((equipment) => (
-            (query.length === 0 || equipment.name.toLowerCase().includes(query))
-            && (type === undefined || equipment.type === type)
-          ))
-          .map(({ id, name, type: equipmentType }) => ({ id, name, type: equipmentType }));
-        return ok(matches);
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
   return [
     equipmentList,
-    equipmentSearch,
     equipmentCreate,
     equipmentUpdate,
     equipmentDelete,

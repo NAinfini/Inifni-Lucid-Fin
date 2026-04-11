@@ -7,8 +7,6 @@ import { setRightPanel } from '../../store/slices/ui.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 
-type FilterLevel = 'all' | LogLevel;
-
 const LEVEL_STYLES: Record<LogLevel, string> = {
   debug: 'text-gray-400 bg-gray-500/10',
   info: 'text-blue-400 bg-blue-500/10',

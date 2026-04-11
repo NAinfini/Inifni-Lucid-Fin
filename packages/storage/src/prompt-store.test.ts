@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  getBuiltinProviderCapabilityProfile,
+  listBuiltinVideoProvidersWithAudio,
+} from '@lucid-fin/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PromptStore } from './prompt-store.js';
 
@@ -112,5 +116,21 @@ describe('PromptStore', () => {
     store2.close();
 
     expect(count2).toBe(count1);
+  });
+
+  it('derives provider guidance from shared metadata', () => {
+    const store = new PromptStore(createTempDbPath());
+    const prompt = store.resolve('domain-generation-providers');
+    const audioCapableProviders = listBuiltinVideoProvidersWithAudio();
+    const klingQualityTiers = getBuiltinProviderCapabilityProfile('kling-v1')?.qualityTiers ?? [];
+
+    for (const providerId of audioCapableProviders) {
+      expect(prompt).toContain(providerId);
+    }
+    for (const tier of klingQualityTiers) {
+      expect(prompt).toContain(`"${tier}"`);
+    }
+
+    store.close();
   });
 });

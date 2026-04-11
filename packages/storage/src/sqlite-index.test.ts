@@ -5,7 +5,6 @@ import os from 'node:os';
 import { SqliteIndex } from '../src/sqlite-index.ts';
 import type {
   Job,
-  AssetMeta,
   WorkflowStageRun,
   WorkflowTaskRun,
   WorkflowArtifact,

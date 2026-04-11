@@ -39,6 +39,48 @@ function toSRTTime(seconds: number): string {
   return `${p2(h)}:${p2(m)}:${p2(s)},${String(ms).padStart(3, '0')}`;
 }
 
+export function parseSRT(content: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  // Normalise line endings and split into blocks separated by blank lines
+  const blocks = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split(/\n{2,}/);
+
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    if (lines.length < 3) continue;
+
+    // First line: sequence number (ignored, we use array index)
+    // Second line: timecode
+    const timeLine = lines[1].trim();
+    const timeMatch = timeLine.match(
+      /^(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})$/,
+    );
+    if (!timeMatch) continue;
+
+    const startTime =
+      parseInt(timeMatch[1], 10) * 3600 +
+      parseInt(timeMatch[2], 10) * 60 +
+      parseInt(timeMatch[3], 10) +
+      parseInt(timeMatch[4], 10) / 1000;
+    const endTime =
+      parseInt(timeMatch[5], 10) * 3600 +
+      parseInt(timeMatch[6], 10) * 60 +
+      parseInt(timeMatch[7], 10) +
+      parseInt(timeMatch[8], 10) / 1000;
+
+    const text = lines.slice(2).join('\n').trim();
+    if (!text) continue;
+
+    cues.push({
+      id: String(cues.length + 1),
+      startTime,
+      endTime,
+      text,
+    });
+  }
+
+  return cues;
+}
+
 // --- ASS (Advanced SubStation Alpha) ---
 
 export function exportASS(cues: SubtitleCue[], videoWidth = 1920, videoHeight = 1080): string {

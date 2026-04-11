@@ -7,18 +7,15 @@ import type {
 import type { PromptMode } from '@lucid-fin/application';
 import type {
   AIProviderAdapter,
-  AudioNodeData,
   Canvas,
   CanvasNode,
   Capability,
   GenerationRequest,
   GenerationType,
-  ImageNodeData,
   StyleGuide,
   SubscribeCallbacks,
-  VideoNodeData,
 } from '@lucid-fin/contracts';
-import { JobStatus } from '@lucid-fin/contracts';
+import { JobStatus, resolveVideoReferenceImageField } from '@lucid-fin/contracts';
 import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import type { CanvasStore } from './canvas.handlers.js';
@@ -344,8 +341,70 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
 }
 
 // ---------------------------------------------------------------------------
-// Ad-hoc adapter builder
+// Request materialization — resolves asset hashes to file paths for adapters
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve an image asset hash from CAS to a local file path.
+ * Tries common image extensions in order.
+ * Returns undefined if the asset cannot be found.
+ */
+export function resolveImg2ImgSourcePath(hash: string, cas: CAS): string | undefined {
+  for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
+    const filePath = cas.getAssetPath(hash, 'image', ext);
+    if (fs.existsSync(filePath)) return filePath;
+  }
+  return undefined;
+}
+
+/**
+ * Materialize a GenerationRequest for adapter consumption:
+ * - Resolves sourceImageHash → sourceImagePath via CAS
+ * - Resolves faceReferenceHashes → referenceImages file paths via CAS
+ * - Merges steps / cfgScale / scheduler into params
+ */
+export function materializeGenerationRequest(
+  request: GenerationRequest,
+  cas: CAS,
+): GenerationRequest {
+  const extraParams: Record<string, unknown> = {};
+
+  if (typeof request.steps === 'number') extraParams.steps = request.steps;
+  if (typeof request.cfgScale === 'number') extraParams.cfgScale = request.cfgScale;
+  if (request.scheduler) extraParams.scheduler = request.scheduler;
+
+  let sourceImagePath: string | undefined;
+  if (request.sourceImageHash) {
+    sourceImagePath = resolveImg2ImgSourcePath(request.sourceImageHash, cas);
+    if (sourceImagePath) {
+      extraParams.sourceImagePath = sourceImagePath;
+    } else {
+      log.warn('[canvas:generation] sourceImageHash could not be resolved to a file', {
+        sourceImageHash: request.sourceImageHash,
+      });
+    }
+  }
+
+  let referenceImages = request.referenceImages;
+  if (request.faceReferenceHashes && request.faceReferenceHashes.length > 0) {
+    const resolvedFaceImages = request.faceReferenceHashes
+      .map((hash) => resolveImg2ImgSourcePath(hash, cas))
+      .filter((p): p is string => p !== undefined);
+    if (resolvedFaceImages.length > 0) {
+      referenceImages = [...(referenceImages ?? []), ...resolvedFaceImages];
+    }
+  }
+
+  const hasExtra = Object.keys(extraParams).length > 0;
+  return {
+    ...request,
+    referenceImages,
+    params: hasExtra
+      ? { ...(request.params ?? {}), ...extraParams }
+      : request.params,
+  };
+}
+
 
 export async function buildAdhocAdapter(id: string, config: ProviderConfigOverride, keychain: Keychain, genType: GenerationType = 'image', cas?: CAS): Promise<AIProviderAdapter> {
   const { baseUrl, model } = config;
@@ -362,7 +421,16 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
   // Detect endpoint type from URL
   const isChatEndpoint = baseUrl.includes('/chat/completions');
   const adapterType = genType === 'video' ? 'video' as const : genType === 'voice' || genType === 'music' || genType === 'sfx' ? 'voice' as const : 'image' as const;
-  const capability = genType === 'video' ? 'text-to-video' as Capability : genType === 'voice' ? 'text-to-voice' as Capability : genType === 'music' ? 'text-to-music' as Capability : genType === 'sfx' ? 'text-to-sfx' as Capability : 'text-to-image' as Capability;
+  const capabilities: Capability[] =
+    genType === 'video'
+      ? ['text-to-video', 'image-to-video']
+      : genType === 'image'
+        ? ['text-to-image', 'image-to-image']
+        : genType === 'voice'
+          ? ['text-to-voice']
+          : genType === 'music'
+            ? ['text-to-music']
+            : ['text-to-sfx'];
 
   function buildBody(req: GenerationRequest): Record<string, unknown> {
     let body: Record<string, unknown>;
@@ -374,15 +442,16 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       body = { prompt: req.prompt, duration: req.duration ?? 5 };
       const firstRef = req.referenceImages?.[0];
       if (firstRef) {
+        const referenceField = resolveVideoReferenceImageField(id, model) ?? 'image';
         if (firstRef.startsWith('http') || firstRef.startsWith('data:')) {
-          body.image = firstRef;
+          body[referenceField] = firstRef;
         } else if (cas) {
           for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
             const filePath = cas.getAssetPath(firstRef, 'image', ext);
             if (!fs.existsSync(filePath)) continue;
             const buf = fs.readFileSync(filePath);
             const mime = ext === 'jpg' ? 'jpeg' : ext;
-            body.image = `data:image/${mime};base64,${buf.toString('base64')}`;
+            body[referenceField] = `data:image/${mime};base64,${buf.toString('base64')}`;
             break;
           }
         }
@@ -506,7 +575,7 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
     id,
     name: id,
     type: adapterType,
-    capabilities: [capability],
+    capabilities,
     maxConcurrent: 1,
     executionCapabilities: {
       subscribe: true,
@@ -551,6 +620,7 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       }
       // Only include model if non-empty
       if (model) body.model = model;
+      body = buildBody(req);
 
       log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, { model, bodyKeys: Object.keys(body) });
       const res = await fetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) });

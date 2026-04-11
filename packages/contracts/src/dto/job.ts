@@ -20,7 +20,32 @@ export interface GenerationRequest {
   height?: number;
   duration?: number;
   seed?: number;
+  audio?: boolean;
+  quality?: string;
   params?: Record<string, unknown>;
+  /** Image-to-image: source image asset hash */
+  sourceImageHash?: string;
+  /** Image-to-image: denoising strength (0-1) */
+  img2imgStrength?: number;
+  /** Advanced: inference steps */
+  steps?: number;
+  /** Advanced: classifier-free guidance scale */
+  cfgScale?: number;
+  /** Advanced: scheduler/sampler name */
+  scheduler?: string;
+  /** Character consistency: face reference asset hashes */
+  faceReferenceHashes?: string[];
+  /** Fine-grained TTS emotion control (0-1 per dimension) */
+  emotionVector?: {
+    happy: number;
+    sad: number;
+    angry: number;
+    fearful: number;
+    surprised: number;
+    disgusted: number;
+    contemptuous: number;
+    neutral: number;
+  };
 }
 
 export interface GenerationResult {
@@ -29,6 +54,18 @@ export interface GenerationResult {
   provider: string;
   cost?: number;
   metadata?: Record<string, unknown>;
+  /** C2PA provenance data */
+  provenance?: ContentProvenance;
+}
+
+/** C2PA Content Credentials */
+export interface ContentProvenance {
+  provider: string;
+  model?: string;
+  promptHash: string;
+  generatedAt: number;
+  softwareAgent: string;
+  sourceImageHash?: string;
 }
 
 export interface CostEstimate {

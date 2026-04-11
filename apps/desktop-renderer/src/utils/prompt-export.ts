@@ -1,4 +1,4 @@
-import type { Canvas, CanvasNode, ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
+import type { Canvas, ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
 
 function readLegacyNegativePrompt(data: ImageNodeData | VideoNodeData): string | undefined {
   if (

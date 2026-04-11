@@ -1,5 +1,5 @@
 import React from 'react';
-import { Virtuoso, type VirtuosoProps } from 'react-virtuoso';
+import { Virtuoso } from 'react-virtuoso';
 
 export interface VirtualListProps<T> {
   data: T[];

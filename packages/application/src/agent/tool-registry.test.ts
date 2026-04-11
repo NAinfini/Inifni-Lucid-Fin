@@ -130,7 +130,7 @@ describe('AgentToolRegistry', () => {
       execute: vi.fn(),
     });
     registry.register({
-      name: 'character.search',
+      name: 'character.list',
       description: 'Search characters',
       tags: ['character', 'read', 'search'],
       parameters: { type: 'object', properties: {}, required: [] },

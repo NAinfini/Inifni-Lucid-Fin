@@ -15,10 +15,12 @@ import { createStoryboardWorkflowHandlers } from './workflow/storyboard-workflow
 import { initDb } from './bootstrap/init-db.js';
 import { initIpc } from './bootstrap/init-ipc.js';
 import { initApp, restoreAdapterKeys, selectConfiguredLLMAdapter } from './bootstrap/init-app.js';
+import { startApiServer, stopApiServer } from './api-server.js';
 import log, { getBufferedLogs, initLogger, setLogForwarder } from './logger.js';
 import { initCrashReporter } from './crash-reporter.js';
 import { mark, logStartupMetrics } from './startup-metrics.js';
 import { configureUserDataPath } from './user-data-path.js';
+import { updateSettingsCache } from './ipc/settings-cache.js';
 import {
   initAutoUpdater,
   checkForUpdates,
@@ -278,6 +280,8 @@ app.whenReady().then(async () => {
       promptStore,
     });
 
+    startApiServer({ db });
+
     // Auto-updater init + IPC handlers
     await initAutoUpdater(mainWindow);
     ipcMain.handle('updater:check', () => checkForUpdates());
@@ -297,13 +301,25 @@ app.whenReady().then(async () => {
     ipcMain.handle('settings:load', async () => {
       try {
         if (fs.existsSync(settingsPath)) {
-          return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+          const loaded = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+          if (loaded && typeof loaded === 'object') {
+            updateSettingsCache(loaded as Record<string, unknown>);
+          }
+          return loaded;
         }
       } catch (err) { log.warn('Settings file corrupt, using defaults', { error: String(err) }); }
       return null;
     });
     ipcMain.handle('settings:save', async (_e, data: unknown) => {
-      fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+      try {
+        fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+        if (data && typeof data === 'object') {
+          updateSettingsCache(data as Record<string, unknown>);
+        }
+      } catch (err) {
+        log.error('Failed to save settings', { error: String(err) });
+        throw err;
+      }
     });
 
     // Notify renderer that backend is ready
@@ -321,6 +337,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   stopClipboardWatcher();
+  stopApiServer();
   if (process.platform !== 'darwin') app.quit();
 });
 

@@ -12,6 +12,7 @@ import {
   Paperclip,
   Pencil,
   Play,
+  SendHorizonal,
   Shield,
   ShieldAlert,
   Trash2,
@@ -21,7 +22,7 @@ import {
 import type { RootState } from '../../store/index.js';
 import { store } from '../../store/index.js';
 import {
-  clearHistory,
+  newSession,
   minimizeCommander,
   setCommanderOpen,
   setProviderId,
@@ -35,7 +36,6 @@ import {
   removeQueuedMessage,
   editQueuedMessage,
   clearQueue,
-  type PermissionMode,
 } from '../../store/slices/commander.js';
 import { useCommander } from '../../hooks/useCommander.js';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -45,8 +45,6 @@ import { getAPI } from '../../utils/api.js';
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 400;
 const SAFE_Y = 56;
-const MAX_INPUT_ROWS = 4;
-
 // ---------------------------------------------------------------------------
 // Inline markdown renderer
 // ---------------------------------------------------------------------------
@@ -94,6 +92,56 @@ function formatToolName(name: string): string {
   return parts.length > 1 ? `${domain}.${actionFormatted}` : actionFormatted;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNodeReferenceKey(key: string): boolean {
+  return key === 'nodeId' || key.endsWith('NodeId') || key === 'source' || key === 'target';
+}
+
+function isNodeReferenceListKey(key: string): boolean {
+  return key === 'nodeIds' || key.endsWith('NodeIds');
+}
+
+function formatNodeReference(nodeId: string, nodeTitlesById: Record<string, string>): string {
+  const title = nodeTitlesById[nodeId]?.trim();
+  if (!title || title === nodeId) {
+    return nodeId;
+  }
+  return `${title} (${nodeId})`;
+}
+
+function annotateToolPayload(
+  value: unknown,
+  nodeTitlesById: Record<string, string>,
+  parentKey?: string,
+): unknown {
+  if (typeof value === 'string' && parentKey && isNodeReferenceKey(parentKey)) {
+    return formatNodeReference(value, nodeTitlesById);
+  }
+
+  if (Array.isArray(value)) {
+    if (parentKey && isNodeReferenceListKey(parentKey)) {
+      return value.map((entry) =>
+        typeof entry === 'string' ? formatNodeReference(entry, nodeTitlesById) : entry,
+      );
+    }
+    return value.map((entry) => annotateToolPayload(entry, nodeTitlesById));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      annotateToolPayload(entry, nodeTitlesById, key),
+    ]),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Attachment types
 // ---------------------------------------------------------------------------
@@ -116,6 +164,7 @@ type Attachment = FileAttachment | NodeAttachment;
 
 function ToolCallCard({
   toolCall,
+  nodeTitlesById,
   t,
 }: {
   toolCall: {
@@ -127,18 +176,35 @@ function ToolCallCard({
     result?: unknown;
     status: string;
   };
+  nodeTitlesById: Record<string, string>;
   t: (key: string) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const formattedArguments = useMemo(
+    () => JSON.stringify(annotateToolPayload(toolCall.arguments, nodeTitlesById), null, 2),
+    [nodeTitlesById, toolCall.arguments],
+  );
+  const formattedResult = useMemo(
+    () =>
+      toolCall.result === undefined
+        ? undefined
+        : JSON.stringify(annotateToolPayload(toolCall.result, nodeTitlesById), null, 2),
+    [nodeTitlesById, toolCall.result],
+  );
   const elapsed =
     toolCall.completedAt && toolCall.startedAt
-      ? ((toolCall.completedAt - toolCall.startedAt) / 1000).toFixed(1)
+      ? (() => {
+          const ms = toolCall.completedAt! - toolCall.startedAt;
+          if (ms < 1) return '<1ms';
+          if (ms < 1000) return `${Math.round(ms)}ms`;
+          return `${(ms / 1000).toFixed(1)}s`;
+        })()
       : null;
 
   return (
     <div
       className={cn(
-        'mt-2 overflow-hidden rounded-lg border bg-background/50',
+        'mt-2 mb-2 overflow-hidden rounded-lg border bg-background/50',
         toolCall.status === 'pending' && 'border-amber-500/40 animate-pulse',
         toolCall.status === 'done' && 'border-emerald-500/30',
         toolCall.status === 'error' && 'border-destructive/40',
@@ -161,7 +227,7 @@ function ToolCallCard({
         <span className="flex-1 text-left">{formatToolName(toolCall.name)}</span>
         {elapsed && (
           <span className="text-[10px] text-muted-foreground">
-            {t('commander.elapsed')} {elapsed}s
+            {t('commander.elapsed')} {elapsed}
           </span>
         )}
         <ChevronDown
@@ -174,7 +240,7 @@ function ToolCallCard({
       {expanded && (
         <div className="border-t border-border/40 px-2.5 py-2 text-[11px]">
           <pre className="overflow-x-auto whitespace-pre-wrap text-muted-foreground">
-            {JSON.stringify(toolCall.arguments, null, 2)}
+            {formattedArguments}
           </pre>
           {toolCall.result !== undefined && (
             <>
@@ -189,7 +255,7 @@ function ToolCallCard({
                 </span>
               </div>
               <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-muted-foreground">
-                {JSON.stringify(toolCall.result, null, 2)}
+                {formattedResult}
               </pre>
             </>
           )}
@@ -413,6 +479,7 @@ export function CommanderPanel() {
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const userScrolledUpRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const wasDraggingRef = useRef(false);
 
@@ -420,8 +487,15 @@ export function CommanderPanel() {
   const llmSettings = useSelector((state: RootState) => state.settings.llm);
   const canvasNodes = useSelector((state: RootState) => {
     const activeId = state.canvas.activeCanvasId;
-    return state.canvas.canvases.find((c) => c.id === activeId)?.nodes ?? [];
+    return state.canvas.canvases.find((c) => c.id === activeId)?.nodes;
   });
+  const nodeTitlesById = useMemo(
+    () =>
+      Object.fromEntries(
+        (canvasNodes ?? []).map((node) => [node.id, node.title?.trim() || node.type]),
+      ) as Record<string, string>,
+    [canvasNodes],
+  );
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [permPickerOpen, setPermPickerOpen] = useState(false);
   const [nodePickerOpen, setNodePickerOpen] = useState(false);
@@ -463,7 +537,14 @@ export function CommanderPanel() {
 
   // Auto-send next queued message when streaming finishes
   const prevStreamingRef = useRef(false);
+  const hasMountedRef = useRef(false);
   useEffect(() => {
+    if (!hasMountedRef.current) {
+      // Skip first run on mount — sync ref without triggering dispatch
+      hasMountedRef.current = true;
+      prevStreamingRef.current = isStreaming;
+      return;
+    }
     const wasStreaming = prevStreamingRef.current;
     prevStreamingRef.current = isStreaming;
     // Trigger when streaming just finished and queue has messages
@@ -474,15 +555,26 @@ export function CommanderPanel() {
     }
   }, [isStreaming, messageQueue, dispatch, sendMessage]);
 
+  // Track whether user has manually scrolled up
   useEffect(() => {
-    if (!open) {
-      return;
-    }
     const target = scrollRef.current;
-    if (!target) {
-      return;
+    if (!target) return;
+    const handleScroll = () => {
+      const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+      userScrolledUpRef.current = distanceFromBottom > 80;
+    };
+    target.addEventListener('scroll', handleScroll, { passive: true });
+    return () => target.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Only auto-scroll if user is near the bottom
+  useEffect(() => {
+    if (!open) return;
+    const target = scrollRef.current;
+    if (!target) return;
+    if (!userScrolledUpRef.current) {
+      target.scrollTop = target.scrollHeight;
     }
-    target.scrollTop = target.scrollHeight;
   }, [currentStreamContent, currentToolCalls, messages, open]);
 
   useEffect(() => {
@@ -645,6 +737,13 @@ export function CommanderPanel() {
     );
   }
 
+  const handlePushQueueItem = async (index: number) => {
+    const msg = messageQueue[index];
+    if (!msg || !isStreaming) return;
+    dispatch(removeQueuedMessage(index));
+    await sendMessage(msg);
+  };
+
   const handleAddToQueue = () => {
     const value = input.trim();
     if (!value) return;
@@ -655,6 +754,7 @@ export function CommanderPanel() {
 
   const handleSendNow = async () => {
     const value = input.trim();
+    userScrolledUpRef.current = false;
     if (value) {
       setInput('');
       setAttachments([]);
@@ -686,8 +786,8 @@ export function CommanderPanel() {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const activeProvider =
-    llmSettings.providers.find((p) => p.id === providerId) ?? llmSettings.providers[0];
+  const providers = llmSettings?.providers ?? [];
+  const activeProvider = providers.find((p) => p.id === providerId) ?? providers[0];
 
   return (
     <section
@@ -700,7 +800,7 @@ export function CommanderPanel() {
       }}
     >
       <header
-        className="flex cursor-move items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-1.5"
+        className="flex shrink-0 cursor-move items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-1.5"
         onMouseDown={(event) => {
           const target = event.currentTarget;
           target.dataset.dragOrigin = 'true';
@@ -715,7 +815,7 @@ export function CommanderPanel() {
         <div className="flex items-center gap-1">
           <button
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => dispatch(clearHistory())}
+            onClick={() => dispatch(newSession())}
             title={t('commander.clearHistory')}
             aria-label={t('commander.clearHistory')}
           >
@@ -731,7 +831,10 @@ export function CommanderPanel() {
           </button>
           <button
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => dispatch(setCommanderOpen(false))}
+            onClick={() => {
+              if (isStreaming) void cancel();
+              dispatch(setCommanderOpen(false));
+            }}
             title={t('commander.close')}
             aria-label={t('commander.close')}
           >
@@ -751,10 +854,10 @@ export function CommanderPanel() {
           <article
             key={message.id}
             className={cn(
-              'max-w-[88%] rounded-2xl text-sm',
+              'w-full text-sm',
               message.role === 'user'
-                ? 'ml-auto bg-primary/10 px-3 py-2 text-foreground'
-                : 'mr-auto overflow-hidden bg-muted text-foreground',
+                ? 'border-l-2 border-primary/40 pl-3 py-1.5'
+                : 'py-1.5',
             )}
           >
             {message.role === 'user' ? (
@@ -775,7 +878,12 @@ export function CommanderPanel() {
                         dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }}
                       />
                     ) : (
-                      <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} t={t} />
+                      <ToolCallCard
+                        key={seg.toolCall.id}
+                        toolCall={seg.toolCall}
+                        nodeTitlesById={nodeTitlesById}
+                        t={t}
+                      />
                     ),
                   )}
                 </div>
@@ -798,7 +906,12 @@ export function CommanderPanel() {
                 {message.toolCalls?.length ? (
                   <div className={cn('px-3', message.content ? 'pb-2' : 'py-2')}>
                     {message.toolCalls.map((toolCall) => (
-                      <ToolCallCard key={toolCall.id} toolCall={toolCall} t={t} />
+                      <ToolCallCard
+                        key={toolCall.id}
+                        toolCall={toolCall}
+                        nodeTitlesById={nodeTitlesById}
+                        t={t}
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -808,7 +921,7 @@ export function CommanderPanel() {
         ))}
 
         {liveMessage ? (
-          <article className="mr-auto max-w-[88%] rounded-md bg-muted/80 px-2.5 py-1.5 text-xs">
+          <article className="w-full py-1.5 text-xs">
             {currentSegments.length > 0 ? (
               <>
                 {currentSegments.map((seg, i) =>
@@ -823,31 +936,30 @@ export function CommanderPanel() {
                       ) : null}
                     </div>
                   ) : (
-                    <ToolCallCard key={seg.toolCall.id} toolCall={seg.toolCall} t={t} />
+                    <ToolCallCard
+                      key={seg.toolCall.id}
+                      toolCall={seg.toolCall}
+                      nodeTitlesById={nodeTitlesById}
+                      t={t}
+                    />
                   ),
                 )}
               </>
-            ) : isStreaming ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <div className="flex gap-1">
-                  <span
-                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-                    style={{ animationDelay: '0ms' }}
-                  />
-                  <span
-                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-                    style={{ animationDelay: '150ms' }}
-                  />
-                  <span
-                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-                    style={{ animationDelay: '300ms' }}
-                  />
-                </div>
-                <span className="text-xs">{t('commander.streaming')}</span>
-              </div>
             ) : null}
           </article>
         ) : null}
+
+        {/* Persistent streaming indicator — always visible when AI is working */}
+        {isStreaming && (
+          <div className="flex items-center gap-2 py-2 text-muted-foreground">
+            <div className="flex gap-1">
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }} />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }} />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }} />
+            </div>
+            <span className="text-[10px]">{t('commander.streaming')}</span>
+          </div>
+        )}
 
         {error ? (
           <div className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
@@ -899,7 +1011,7 @@ export function CommanderPanel() {
         />
       )}
 
-      <footer className="border-t border-border/60 bg-card">
+      <footer className="shrink-0 border-t border-border/60 bg-card">
         {/* Attachment preview chips */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1 px-3 pt-2">
@@ -979,6 +1091,16 @@ export function CommanderPanel() {
                     <span className="flex-1 truncate text-muted-foreground">
                       {i + 1}. {msg}
                     </span>
+                    {isStreaming && (
+                      <button
+                        type="button"
+                        onClick={() => void handlePushQueueItem(i)}
+                        className="text-primary hover:opacity-70"
+                        title={t('commander.pushToSession')}
+                      >
+                        <SendHorizonal className="h-3 w-3" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -1016,14 +1138,18 @@ export function CommanderPanel() {
                 void handleSendNow();
               } else if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                handleAddToQueue();
+                if (isStreaming) {
+                  handleAddToQueue();
+                } else {
+                  void handleSendNow();
+                }
               }
               if (event.key === 'Escape' && isStreaming) void cancel();
             }}
             rows={1}
             placeholder={t('commander.sendMessage')}
             className="w-full resize-none border-0 bg-transparent px-3 pt-2.5 pb-1 text-xs outline-none placeholder:text-muted-foreground/60 overflow-y-auto"
-            style={{ minHeight: '32px', maxHeight: '400px' }}
+            style={{ minHeight: '32px', maxHeight: '120px' }}
           />
 
           {/* Bottom toolbar — like Claude Code */}
@@ -1044,7 +1170,7 @@ export function CommanderPanel() {
                     {t('commander.attachNode')}
                   </div>
                   <div className="max-h-40 overflow-auto p-1">
-                    {canvasNodes.length === 0 ? (
+                    {!canvasNodes || canvasNodes.length === 0 ? (
                       <div className="px-2 py-1 text-[10px] text-muted-foreground">No nodes</div>
                     ) : (
                       canvasNodes.map((node) => (
@@ -1115,7 +1241,7 @@ export function CommanderPanel() {
               </button>
               {modelPickerOpen && (
                 <div className="absolute bottom-7 right-0 z-50 w-48 rounded-lg border border-border bg-card p-1 shadow-xl max-h-48 overflow-y-auto">
-                  {llmSettings.providers.map((p) => (
+                  {providers.map((p) => (
                     <button
                       key={p.id}
                       type="button"
@@ -1188,8 +1314,19 @@ export function CommanderPanel() {
               )}
             </div>
 
-            {/* Send / Cancel button */}
-            {isStreaming ? (
+            {/* Single smart button: Send / Queue / Cancel */}
+            {isStreaming && input.trim().length > 0 ? (
+              /* AI running + text in box → Queue message */
+              <button
+                className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90"
+                onClick={handleAddToQueue}
+                title={t('commander.addToQueue')}
+              >
+                <Play className="h-3 w-3" />
+                {t('commander.addToQueue')}
+              </button>
+            ) : isStreaming ? (
+              /* AI running + empty box → Cancel */
               <button
                 className="flex h-6 w-6 items-center justify-center rounded-md bg-destructive/20 text-destructive hover:bg-destructive/30"
                 onClick={() => void cancel()}
@@ -1198,27 +1335,16 @@ export function CommanderPanel() {
                 <X className="h-3.5 w-3.5" />
               </button>
             ) : (
-              <>
-                {/* Add to Queue button */}
-                <button
-                  className="flex h-6 items-center gap-1 rounded-md border border-border px-2 text-[10px] text-muted-foreground hover:bg-muted disabled:opacity-30"
-                  onClick={handleAddToQueue}
-                  disabled={input.trim().length === 0}
-                  title={t('commander.addToQueue')}
-                >
-                  {t('commander.addToQueue')}
-                </button>
-                {/* Send Now button */}
-                <button
-                  className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
-                  onClick={() => void handleSendNow()}
-                  disabled={input.trim().length === 0 && messageQueue.length === 0}
-                  title={t('commander.sendNow')}
-                >
-                  <Play className="h-3 w-3" />
-                  {t('commander.sendNow')}
-                </button>
-              </>
+              /* AI idle → Send */
+              <button
+                className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
+                onClick={() => void handleSendNow()}
+                disabled={input.trim().length === 0 && messageQueue.length === 0}
+                title={t('commander.sendNow')}
+              >
+                <Play className="h-3 w-3" />
+                {t('commander.sendNow')}
+              </button>
             )}
           </div>
         </div>

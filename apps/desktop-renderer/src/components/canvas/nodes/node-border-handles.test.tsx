@@ -53,9 +53,14 @@ describe('node border handles', () => {
   it('renders dense invisible handles around the node border', () => {
     render(<NodeBorderHandles colorClassName="!bg-blue-500" />);
 
+    // Source handles use bare IDs, target handles use tgt- prefixed IDs
     expect(screen.getByTestId(`handle-top-${BORDER_HANDLE_OFFSETS[0]}`)).toBeTruthy();
+    expect(screen.getByTestId(`handle-tgt-top-${BORDER_HANDLE_OFFSETS[0]}`)).toBeTruthy();
     expect(screen.getByTestId(`handle-right-${BORDER_HANDLE_OFFSETS[1]}`)).toBeTruthy();
+    expect(screen.getByTestId(`handle-tgt-right-${BORDER_HANDLE_OFFSETS[1]}`)).toBeTruthy();
     expect(screen.getByTestId(`handle-bottom-${BORDER_HANDLE_OFFSETS[2]}`)).toBeTruthy();
+    expect(screen.getByTestId(`handle-tgt-bottom-${BORDER_HANDLE_OFFSETS[2]}`)).toBeTruthy();
     expect(screen.getByTestId(`handle-left-${BORDER_HANDLE_OFFSETS[0]}`)).toBeTruthy();
+    expect(screen.getByTestId(`handle-tgt-left-${BORDER_HANDLE_OFFSETS[0]}`)).toBeTruthy();
   });
 });

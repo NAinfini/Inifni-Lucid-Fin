@@ -1,11 +1,14 @@
 import type { Middleware, UnknownAction } from '@reduxjs/toolkit';
 import { t } from '../../i18n.js';
+import { computeInverseAction, estimateActionBytes } from './undo-inverse.js';
 
 export interface UndoCommand {
   label: string;
   timestamp: number;
   execute: UnknownAction;
   undo: UnknownAction;
+  /** Approximate byte size of the undo payload — used for memory eviction */
+  byteSize: number;
 }
 
 const TRACKED_PREFIXES = [
@@ -19,10 +22,15 @@ const TRACKED_PREFIXES = [
   'presets/',
 ];
 const MAX_STACK = 100;
+/** Maximum total undo stack memory before oldest entries are evicted (10 MB) */
+const MAX_UNDO_MEMORY = 10 * 1024 * 1024;
 const GROUP_WINDOW_MS = 300;
 
 const undoStack: UndoCommand[] = [];
 const redoStack: UndoCommand[] = [];
+
+/** Running total of approximate byte sizes across the undo stack */
+let undoStackBytes = 0;
 
 function shouldTrack(type: string): boolean {
   return TRACKED_PREFIXES.some((p) => type.startsWith(p));
@@ -48,6 +56,15 @@ function actionLabel(type: string): string {
   return labels[parts[1]] ? t(labels[parts[1]]) : `${parts[0]}.${parts[1]}`;
 }
 
+/** Evict the oldest undo entry and subtract its byte size */
+function evictOldest(): void {
+  const removed = undoStack.shift();
+  if (removed) {
+    undoStackBytes -= removed.byteSize;
+    if (undoStackBytes < 0) undoStackBytes = 0;
+  }
+}
+
 export const undoMiddleware: Middleware = (store) => (next) => (action) => {
   if (typeof action !== 'object' || action === null || !('type' in action)) {
     return next(action);
@@ -58,6 +75,8 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
   if (typed.type === 'undo/undo') {
     const entry = undoStack.pop();
     if (entry) {
+      undoStackBytes -= entry.byteSize;
+      if (undoStackBytes < 0) undoStackBytes = 0;
       redoStack.push(entry);
       store.dispatch(entry.undo);
     }
@@ -68,6 +87,7 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
     const entry = redoStack.pop();
     if (entry) {
       undoStack.push(entry);
+      undoStackBytes += entry.byteSize;
       return next(entry.execute);
     }
     return;
@@ -77,8 +97,20 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
     const sliceName = typed.type.split('/')[0];
     const prevSliceState = (store.getState() as Record<string, unknown>)[sliceName];
     const now = Date.now();
-
     const label = actionLabel(typed.type);
+
+    // Try to compute a minimal inverse action first
+    const inverseAction = computeInverseAction(
+      typed.type,
+      typed,
+      prevSliceState as Record<string, unknown>,
+    );
+
+    const undoAction: UnknownAction = inverseAction !== null
+      ? inverseAction
+      : ({ type: `${sliceName}/restore`, payload: prevSliceState } as UnknownAction);
+
+    const byteSize = estimateActionBytes(undoAction);
 
     // Group rapid edits of the same action type
     const lastEntry = undoStack[undoStack.length - 1];
@@ -88,17 +120,32 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
       now - lastEntry.timestamp < GROUP_WINDOW_MS
     ) {
       // Update the grouped command's execute to latest, keep original undo
+      // Adjust byte accounting: remove old size, add new size
+      undoStackBytes -= lastEntry.byteSize;
       lastEntry.execute = typed;
       lastEntry.timestamp = now;
+      // Keep the original undo action (earliest state in the group)
+      undoStackBytes += lastEntry.byteSize;
     } else {
       const command: UndoCommand = {
         label,
         timestamp: now,
         execute: typed,
-        undo: { type: `${sliceName}/restore`, payload: prevSliceState } as UnknownAction,
+        undo: undoAction,
+        byteSize,
       };
       undoStack.push(command);
-      if (undoStack.length > MAX_STACK) undoStack.shift();
+      undoStackBytes += byteSize;
+
+      // Evict oldest entries when over MAX_STACK count
+      if (undoStack.length > MAX_STACK) {
+        evictOldest();
+      }
+
+      // Evict oldest entries when over memory threshold
+      while (undoStackBytes > MAX_UNDO_MEMORY && undoStack.length > 1) {
+        evictOldest();
+      }
     }
 
     redoStack.length = 0;
@@ -124,4 +171,8 @@ export function getUndoStackSize(): number {
 }
 export function getRedoStackSize(): number {
   return redoStack.length;
+}
+/** Returns approximate total byte size of the current undo stack */
+export function getUndoStackBytes(): number {
+  return undoStackBytes;
 }

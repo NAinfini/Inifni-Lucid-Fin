@@ -3,7 +3,6 @@ import type { Canvas } from '@lucid-fin/contracts';
 import {
   addEdge,
   addNode,
-  applyCanvasFromCommander,
   canvasSlice,
   copyNodes,
   insertNodeIntoEdge,
@@ -141,7 +140,7 @@ describe('canvas polish reducers', () => {
     expect(insertedNode?.position).toEqual({ x: 200, y: 120 });
   });
 
-  it('replaces canvas contents during import while keeping the requested canvas id', () => {
+  it('replaces canvas contents during import via setCanvases', () => {
     let state = setup();
     const imported = {
       ...makeCanvas('canvas-1', 'Imported Flow'),
@@ -161,7 +160,7 @@ describe('canvas polish reducers', () => {
       ],
     };
 
-    state = canvasSlice.reducer(state, applyCanvasFromCommander(imported));
+    state = canvasSlice.reducer(state, setCanvases([imported]));
 
     expect(state.canvases.find((canvas) => canvas.id === 'canvas-1')?.name).toBe('Imported Flow');
     expect(state.canvases.find((canvas) => canvas.id === 'canvas-1')?.nodes).toHaveLength(1);

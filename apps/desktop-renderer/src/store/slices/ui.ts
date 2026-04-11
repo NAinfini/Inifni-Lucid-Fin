@@ -20,7 +20,9 @@ export type RightPanelId =
   | 'notes'
   | 'export';
 
-export type Theme = 'light' | 'dark';
+export type Theme = 'light' | 'dark' | 'high-contrast';
+
+export type CanvasViewMode = 'main' | 'edit' | 'audio' | 'materials';
 
 export interface UIState {
   activePanel: LeftPanelId | null;
@@ -35,19 +37,30 @@ export interface UIState {
   snapToGrid: boolean;
   theme: Theme;
   hoveredDependencyNodeId: string | null;
+  onboardingComplete: boolean;
+  canvasViewMode: CanvasViewMode;
+  editViewFocusedNodeId: string | null;
 }
 
 function loadTheme(): Theme {
   try {
     const stored = localStorage.getItem('lucid-fin:theme');
-    if (stored === 'light' || stored === 'dark') {
+    if (stored === 'light' || stored === 'dark' || stored === 'high-contrast') {
       document.documentElement.classList.toggle('dark', stored === 'dark');
+      document.documentElement.classList.toggle('high-contrast', stored === 'high-contrast');
       return stored;
     }
   } catch { /* localStorage unavailable */ }
   // Default: dark
   document.documentElement.classList.add('dark');
   return 'dark';
+}
+
+function loadOnboardingComplete(): boolean {
+  try {
+    return localStorage.getItem('lucid-fin:onboarding-complete') === 'true';
+  } catch { /* localStorage unavailable */ }
+  return false;
 }
 
 const initialState: UIState = {
@@ -63,6 +76,9 @@ const initialState: UIState = {
   snapToGrid: true,
   theme: loadTheme(),
   hoveredDependencyNodeId: null,
+  onboardingComplete: loadOnboardingComplete(),
+  canvasViewMode: 'main',
+  editViewFocusedNodeId: null,
 };
 
 export const uiSlice = createSlice({
@@ -136,8 +152,20 @@ export const uiSlice = createSlice({
     setHoveredDependencyNodeId(state, action: PayloadAction<string | null>) {
       state.hoveredDependencyNodeId = action.payload;
     },
+    setOnboardingComplete(state, action: PayloadAction<boolean>) {
+      state.onboardingComplete = action.payload;
+      try {
+        localStorage.setItem('lucid-fin:onboarding-complete', action.payload ? 'true' : 'false');
+      } catch { /* localStorage unavailable */ }
+    },
     restore(_state, action: PayloadAction<UIState>) {
       return action.payload;
+    },
+    setCanvasViewMode(state, action: PayloadAction<CanvasViewMode>) {
+      state.canvasViewMode = action.payload;
+    },
+    setEditViewFocusedNodeId(state, action: PayloadAction<string | null>) {
+      state.editViewFocusedNodeId = action.payload;
     },
   },
 });
@@ -161,5 +189,8 @@ export const {
   toggleSnapToGrid,
   setTheme,
   setHoveredDependencyNodeId,
+  setOnboardingComplete,
   restore,
+  setCanvasViewMode,
+  setEditViewFocusedNodeId,
 } = uiSlice.actions;

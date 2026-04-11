@@ -38,4 +38,17 @@ describe('AppShell drag regions', () => {
     expect(titleBarRegion).toBe('drag');
     expect(mainRegion).toBe('no-drag');
   });
+
+  it('renders the app logo in the title bar', () => {
+    render(
+      <Provider store={createStore()}>
+        <AppShell>
+          <button type="button">Interactive content</button>
+        </AppShell>
+      </Provider>,
+    );
+
+    const logo = screen.getAllByRole('img', { name: 'Lucid Fin logo' })[0] as HTMLImageElement;
+    expect(logo.getAttribute('src')).toContain('favicon.png');
+  });
 });

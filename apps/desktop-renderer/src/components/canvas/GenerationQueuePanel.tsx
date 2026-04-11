@@ -115,18 +115,23 @@ export function GenerationQueuePanel() {
     <div className="h-full flex flex-col bg-card border-l border-border/60 overflow-auto">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/60 shrink-0">
         <div className="flex items-center gap-2">
-          <ListTodo className="w-3.5 h-3.5 text-muted-foreground" />
+          <ListTodo className="w-3.5 h-3.5 text-muted-foreground" aria-hidden="true" />
           <span className="text-xs font-semibold">{t('toolbar.queue')}</span>
         </div>
         <button
           onClick={() => dispatch(setRightPanel(null))}
           className="p-0.5 rounded-md hover:bg-muted transition-colors"
+          aria-label={t('generation.closeQueue')}
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
       </div>
 
-      <div className="flex-1 overflow-auto p-2.5 space-y-2">
+      <div
+        className="flex-1 overflow-auto p-2.5 space-y-2"
+        aria-live="polite"
+        aria-label={t('generation.queueStatus')}
+      >
         {generating.length === 0 && completed.length === 0 && failed.length === 0 ? (
           <div className="text-[11px] text-muted-foreground text-center py-8">
             {t('generation.noJobs')}
@@ -264,7 +269,7 @@ function TaskItem({
   return (
     <div className={cn('rounded-md border p-2', borderColor)}>
       <div className="flex items-center gap-1.5">
-        <Icon className={cn('h-3 w-3 shrink-0', node.status === 'generating' && 'animate-spin', colorClass)} />
+        <Icon className={cn('h-3 w-3 shrink-0', node.status === 'generating' && 'animate-spin', colorClass)} aria-hidden="true" />
         <span className="flex-1 truncate text-[11px] font-medium">{node.title}</span>
         {node.status === 'generating' && (
           <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -294,7 +299,14 @@ function TaskItem({
       </div>
 
       {node.status === 'generating' && node.progress > 0 && (
-        <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          role="progressbar"
+          aria-valuenow={node.progress}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={t('generation.progressLabel')}
+          className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted"
+        >
           <div className="h-full bg-blue-500 transition-all" style={{ width: `${node.progress}%` }} />
         </div>
       )}

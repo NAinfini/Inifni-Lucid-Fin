@@ -158,24 +158,22 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
           )}
 
           {d.variants.length > 1 && (
-            <div className="overflow-x-auto px-3 pb-2">
-              <div className="flex min-w-max items-center gap-1">
-                {d.variants.slice(0, 9).map((hash, index) => (
-                  <button
-                    key={hash}
-                    className={cn(
-                      'h-7 shrink-0 rounded border-2 px-2 text-[9px]',
-                      d.selectedVariantIndex === index
-                        ? 'border-green-500 bg-green-500/20 text-green-300 ring-1 ring-green-500/40'
-                        : 'border-transparent bg-muted text-muted-foreground hover:border-green-400/50',
-                    )}
-                    onClick={() => d.onSelectVariant?.(d.nodeId, index)}
-                    onContextMenu={(e) => e.preventDefault()}
-                    aria-label={`Select variant ${index + 1}`}
-                  >
-                    V{index + 1}
-                  </button>
-                ))}
+            <div className="border-t border-green-500/10 px-3 py-1.5">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <div className="flex min-w-max items-center gap-1">
+                  {d.variants.map((hash, index) => (
+                    <VariantThumb
+                      key={hash}
+                      hash={hash}
+                      index={index}
+                      selected={d.selectedVariantIndex === index}
+                      onClick={() => d.onSelectVariant?.(d.nodeId, index)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -207,6 +205,45 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
         </div>
       </div>
     </NodeContextMenu>
+  );
+}
+
+function VariantThumb({
+  hash,
+  index,
+  selected,
+  onClick,
+}: {
+  hash: string;
+  index: number;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const { url } = useAssetUrl(hash, 'audio', 'mp3');
+
+  return (
+    <button
+      className={cn(
+        'relative h-10 w-10 shrink-0 overflow-hidden rounded border-2 bg-muted/70',
+        selected ? 'border-green-500 ring-1 ring-green-500/40' : 'border-transparent hover:border-green-400/50',
+      )}
+      onClick={onClick}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-label={`Select variant ${index + 1}`}
+    >
+      {url ? (
+        <div className="flex h-full w-full items-center justify-center bg-green-500/10">
+          <Volume2 className="h-4 w-4 text-green-300" />
+        </div>
+      ) : (
+        <span className="flex h-full w-full items-center justify-center bg-muted text-[9px] text-muted-foreground">
+          V{index + 1}
+        </span>
+      )}
+      <span className="pointer-events-none absolute bottom-0.5 right-0.5 rounded bg-background/85 px-1 py-0.5 text-[8px] font-semibold uppercase leading-none text-foreground shadow-sm">
+        v{index + 1}
+      </span>
+    </button>
   );
 }
 

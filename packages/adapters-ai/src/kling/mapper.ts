@@ -7,11 +7,12 @@ export function toKlingRequest(req: GenerationRequest): Record<string, unknown> 
     prompt: req.prompt,
     negative_prompt: req.negativePrompt ?? '',
     cfg_scale: 0.5,
-    mode: 'std',
+    mode: req.quality ?? 'std',
     aspect_ratio: '16:9',
     duration: String(req.duration ?? 5),
     ...(isImg2Vid ? { image: req.referenceImages![0] } : {}),
     ...(req.seed != null ? { seed: req.seed } : {}),
+    ...(req.audio === true ? { enable_audio: true } : {}),
   };
 }
 

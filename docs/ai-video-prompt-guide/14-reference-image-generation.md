@@ -52,7 +52,7 @@ low quality, perspective distortion, single view only, dynamic pose, action pose
 
 ### Recommended Settings
 - **Aspect Ratio**: 16:9 (1920x1080)
-- **Providers**: Google Imagen 3, OpenAI DALL-E, Midjourney
+- **Providers**: Google Imagen 4, OpenAI gpt-image-1
 - **Variant Count**: 3-5 (to get best result)
 
 ### Examples
@@ -113,7 +113,7 @@ low quality, single view only, photorealistic, dynamic angle
 
 ### Recommended Settings
 - **Aspect Ratio**: 16:9 (1920x1080)
-- **Providers**: Google Imagen 3, OpenAI DALL-E
+- **Providers**: Google Imagen 4, OpenAI gpt-image-1
 - **Variant Count**: 2-3
 
 ### Examples
@@ -173,7 +173,7 @@ low quality, single view only, cropped, people as main focus
 
 ### Recommended Settings
 - **Aspect Ratio**: 16:9 (1920x1080)
-- **Providers**: Google Imagen 3, Midjourney
+- **Providers**: Google Imagen 4, OpenAI gpt-image-1
 - **Variant Count**: 2-4
 
 ### Examples

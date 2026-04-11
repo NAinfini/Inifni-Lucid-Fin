@@ -1,6 +1,5 @@
 import type { IpcMain } from 'electron';
 import fs from 'node:fs';
-import path from 'node:path';
 import type { StyleGuide, ProjectManifest } from '@lucid-fin/contracts';
 import { getCurrentProjectPath } from '../project-context.js';
 import { assertWithinRoot } from '../validation.js';

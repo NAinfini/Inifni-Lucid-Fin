@@ -32,9 +32,6 @@ import {
   StabilityAudioAdapter,
   // LLM adapters
   LLMRegistry,
-  OpenAILLMAdapter,
-  ClaudeLLMAdapter,
-  GeminiLLMAdapter,
   buildRuntimeLLMAdapter,
   listBuiltinLLMProviderPresets,
 } from '@lucid-fin/adapters-ai';

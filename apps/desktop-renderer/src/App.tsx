@@ -1,12 +1,15 @@
 import React, { Suspense } from 'react';
 import { HashRouter, Route, Routes } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { AppShell } from './components/layout/AppShell.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { ToastViewport } from './components/ui/ToastViewport.js';
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard.js';
 import { useUndoRedo } from './hooks/use-undo-redo.js';
 import { useAutoProject } from './hooks/use-auto-project.js';
 import { lazyPage } from './utils/performance.js';
+import type { RootState } from './store/index.js';
 
 const CanvasPage = lazyPage(async () => {
   const module = await import('./pages/CanvasPage.js');
@@ -36,6 +39,7 @@ const SeriesManager = lazyPage(async () => {
 export function App() {
   useUndoRedo();
   useAutoProject();
+  const onboardingComplete = useSelector((s: RootState) => s.ui.onboardingComplete);
 
   return (
     <ErrorBoundary>
@@ -60,6 +64,7 @@ export function App() {
             </Routes>
           </Suspense>
         </AppShell>
+        {!onboardingComplete && <OnboardingWizard />}
       </HashRouter>
     </ErrorBoundary>
   );

@@ -1,4 +1,8 @@
-import type { CanvasEdge } from '@lucid-fin/contracts';
+import {
+  getBuiltinProviderCapabilityProfile,
+  listBuiltinVideoProvidersWithAudio,
+  type CanvasEdge,
+} from '@lucid-fin/contracts';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
 import {
   CANVAS_CONTEXT,
@@ -15,10 +19,18 @@ import {
   requireVisualGenerationNode,
 } from './canvas-tool-utils.js';
 
+const AUDIO_CAPABLE_VIDEO_PROVIDER_IDS = listBuiltinVideoProvidersWithAudio().join(', ');
+const KLING_QUALITY_TIERS =
+  getBuiltinProviderCapabilityProfile('kling-v1')?.qualityTiers ?? [];
+const KLING_QUALITY_DESCRIPTION =
+  KLING_QUALITY_TIERS.length > 0
+    ? `kling-v1: ${KLING_QUALITY_TIERS.map((tier) => `"${tier}"`).join(' or ')}`
+    : 'provider-specific';
+
 export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
   const generate: AgentTool = {
     name: 'canvas.generate',
-    description: 'Trigger media generation for an image, video, or audio node.',
+    description: 'Trigger media generation for an image, video, or audio node and wait for completion. Returns the result including success/failure status, variant hashes, and any error message.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -43,7 +55,34 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
         const variantCount =
           typeof args.variantCount === 'number' ? Math.round(args.variantCount) : undefined;
         await deps.triggerGeneration(canvasId, nodeId, providerId, variantCount);
-        return ok({ nodeId, providerId, variantCount });
+
+        // Poll node status until generation completes or fails (max 5 minutes)
+        const maxWaitMs = 5 * 60 * 1000;
+        const pollIntervalMs = 3000;
+        const start = Date.now();
+        while (Date.now() - start < maxWaitMs) {
+          await new Promise((r) => setTimeout(r, pollIntervalMs));
+          const { node } = await requireNode(deps, canvasId, nodeId);
+          const data = node.data as Record<string, unknown>;
+          const status = data.status as string | undefined;
+          if (status === 'done') {
+            return ok({
+              nodeId,
+              status: 'done',
+              variants: Array.isArray(data.variants) ? data.variants : [],
+              assetHash: data.assetHash,
+            });
+          }
+          if (status === 'failed') {
+            return ok({
+              nodeId,
+              status: 'failed',
+              error: typeof data.error === 'string' ? data.error : 'Generation failed',
+            });
+          }
+          // still generating — continue polling
+        }
+        return ok({ nodeId, status: 'timeout', error: 'Generation did not complete within 5 minutes' });
       } catch (error) {
         return fail(error);
       }
@@ -524,8 +563,8 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           ...(structuredClone(edge) as CanvasEdge),
           source: edge.target,
           target: edge.source,
-          sourceHandle: edge.targetHandle,
-          targetHandle: edge.sourceHandle,
+          sourceHandle: edge.targetHandle?.startsWith('tgt-') ? edge.targetHandle.slice(4) : edge.targetHandle,
+          targetHandle: edge.sourceHandle && !edge.sourceHandle.startsWith('tgt-') ? `tgt-${edge.sourceHandle}` : edge.sourceHandle,
         };
 
         await deps.deleteEdge(canvasId, edgeId);
@@ -638,9 +677,100 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
     },
   };
 
+  const setNodeMediaConfig: AgentTool = {
+    name: 'canvas.setNodeMediaConfig',
+    description:
+      'Set media generation configuration on an image or video node: resolution (width/height), duration, audio, quality. Only applicable fields are written; others are ignored based on node type.',
+    context: CANVAS_CONTEXT,
+    tier: 2,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'The target canvas ID.' },
+        nodeId: { type: 'string', description: 'The node ID to update.' },
+        width: { type: 'number', description: 'Image/video width in pixels.' },
+        height: { type: 'number', description: 'Image/video height in pixels.' },
+        duration: { type: 'number', description: 'Video duration in seconds.' },
+        audio: { type: 'boolean', description: `Enable audio generation (video only). Only supported by: ${AUDIO_CAPABLE_VIDEO_PROVIDER_IDS}.` },
+        quality: { type: 'string', description: `Quality/mode tier (video only). ${KLING_QUALITY_DESCRIPTION}. Other providers: "standard".` },
+      },
+      required: ['canvasId', 'nodeId'],
+    },
+    async execute(args) {
+      try {
+        const canvasId = requireString(args, 'canvasId');
+        const nodeId = requireString(args, 'nodeId');
+        const { node } = await requireNode(deps, canvasId, nodeId);
+        if (node.type !== 'image' && node.type !== 'video') {
+          throw new Error(`Node type "${node.type}" does not support media config`);
+        }
+        const data: Record<string, unknown> = {};
+        if (typeof args.width === 'number') data.width = args.width;
+        if (typeof args.height === 'number') data.height = args.height;
+        if (node.type === 'video') {
+          if (typeof args.duration === 'number') data.duration = args.duration;
+          if (typeof args.audio === 'boolean') data.audio = args.audio;
+          if (typeof args.quality === 'string') data.quality = args.quality;
+        }
+        await deps.updateNodeData(canvasId, nodeId, data);
+        return ok({ nodeId, ...data });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const setVideoFrames: AgentTool = {
+    name: 'canvas.setVideoFrames',
+    description: 'Set first and/or last frame reference for a video node. IMPORTANT: First frame requires an INCOMING edge (image→video), last frame requires an OUTGOING edge (video→image). Connect edges with correct direction BEFORE calling this tool.',
+    context: CANVAS_CONTEXT,
+    tier: 2,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'The target canvas ID.' },
+        nodeId: { type: 'string', description: 'The video node ID.' },
+        firstFrameNodeId: { type: 'string', description: 'ID of a connected image node to use as first frame.' },
+        lastFrameNodeId: { type: 'string', description: 'ID of a connected image node to use as last frame.' },
+        firstFrameAssetHash: { type: 'string', description: 'Direct asset hash for first frame image.' },
+        lastFrameAssetHash: { type: 'string', description: 'Direct asset hash for last frame image.' },
+      },
+      required: ['canvasId', 'nodeId'],
+    },
+    async execute(args) {
+      try {
+        const canvasId = requireString(args, 'canvasId');
+        const nodeId = requireString(args, 'nodeId');
+        const { node } = await requireNode(deps, canvasId, nodeId);
+        if (node.type !== 'video') {
+          throw new Error(`Node type "${node.type}" is not a video node`);
+        }
+        const data: Record<string, unknown> = {};
+        if (typeof args.firstFrameNodeId === 'string') {
+          data.firstFrameNodeId = args.firstFrameNodeId;
+          data.firstFrameAssetHash = undefined;
+        } else if (typeof args.firstFrameAssetHash === 'string') {
+          data.firstFrameAssetHash = args.firstFrameAssetHash;
+          data.firstFrameNodeId = undefined;
+        }
+        if (typeof args.lastFrameNodeId === 'string') {
+          data.lastFrameNodeId = args.lastFrameNodeId;
+          data.lastFrameAssetHash = undefined;
+        } else if (typeof args.lastFrameAssetHash === 'string') {
+          data.lastFrameAssetHash = args.lastFrameAssetHash;
+          data.lastFrameNodeId = undefined;
+        }
+        await deps.updateNodeData(canvasId, nodeId, data);
+        return ok({ nodeId, ...data });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
   return [
     generate, cancelGeneration, setSeed, setVariantCount, setNodeColorTag, toggleSeedLock, selectVariant, estimateCost,
     addNote, updateNote, deleteNote, undo, redo, generateAll,
-    deleteNode, deleteEdge, swapEdgeDirection, disconnectNode, editNodeContent, setNodeProvider,
+    deleteNode, deleteEdge, swapEdgeDirection, disconnectNode, editNodeContent, setNodeProvider, setNodeMediaConfig, setVideoFrames,
   ];
 }

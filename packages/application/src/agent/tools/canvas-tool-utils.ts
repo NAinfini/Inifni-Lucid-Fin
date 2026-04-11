@@ -24,7 +24,7 @@ export interface CanvasToolDeps {
   connectNodes: (canvasId: string, edge: CanvasEdge) => Promise<void>;
   setNodePresets: (canvasId: string, nodeId: string, presetTracks: PresetTrackSet) => Promise<void>;
   getCanvasState: (canvasId: string) => Promise<Canvas>;
-  layoutNodes: (canvasId: string, direction: 'horizontal' | 'vertical') => Promise<void>;
+  layoutNodes: (canvasId: string, direction: 'horizontal' | 'vertical' | 'auto') => Promise<void>;
   triggerGeneration: (
     canvasId: string,
     nodeId: string,
@@ -138,12 +138,12 @@ export function requireNumber(args: Record<string, unknown>, key: string): numbe
   return value;
 }
 
-export function requireDirection(args: Record<string, unknown>): 'horizontal' | 'vertical' {
+export function requireDirection(args: Record<string, unknown>): 'horizontal' | 'vertical' | 'auto' {
   const value = args.direction;
-  if (value === 'horizontal' || value === 'vertical') {
+  if (value === 'horizontal' || value === 'vertical' || value === 'auto') {
     return value;
   }
-  throw new Error('direction must be "horizontal" or "vertical"');
+  throw new Error('direction must be "horizontal", "vertical", or "auto"');
 }
 
 export function requirePosition(args: Record<string, unknown>): { x: number; y: number } {
@@ -273,15 +273,16 @@ export function selectEdgeHandles(sourceNode: CanvasNode, targetNode: CanvasNode
   const deltaX = targetCenter.x - sourceCenter.x;
   const deltaY = targetCenter.y - sourceCenter.y;
 
+  // Handle IDs: source = "{side}-{offset}", target = "tgt-{side}-{offset}"
   if (Math.abs(deltaY) >= Math.abs(deltaX)) {
     return deltaY >= 0
-      ? { sourceHandle: 'bottom', targetHandle: 'top' }
-      : { sourceHandle: 'top', targetHandle: 'bottom' };
+      ? { sourceHandle: 'bottom-50', targetHandle: 'tgt-bottom-50' }
+      : { sourceHandle: 'top-50', targetHandle: 'tgt-top-50' };
   }
 
   return deltaX >= 0
-    ? { sourceHandle: 'right', targetHandle: 'left' }
-    : { sourceHandle: 'left', targetHandle: 'right' };
+    ? { sourceHandle: 'right-50', targetHandle: 'tgt-left-50' }
+    : { sourceHandle: 'left-50', targetHandle: 'tgt-right-50' };
 }
 
 export function requireMediaNode(
@@ -475,12 +476,101 @@ export function buildDuplicatedNodes(canvas: Canvas, nodeIds: string[]): CanvasN
   });
 }
 
+/**
+ * Compute a sensible position for a new node based on its type and existing canvas layout.
+ * Places nodes in type-based columns: image (col 0) | video (col 1) | text/audio (col 2).
+ * Within each column, stacks below the lowest existing node of that column.
+ */
+export function autoPositionNode(
+  canvas: Canvas,
+  type: string,
+): { x: number; y: number } {
+  const colGap = 360;
+  const rowGap = 280;
+
+  // Determine which column this type belongs to
+  const colForType = (t: string): number => {
+    if (t === 'image') return 0;
+    if (t === 'video') return 1;
+    return 2; // text, audio, backdrop
+  };
+
+  const targetCol = colForType(type);
+
+  // Find existing nodes in the same column
+  const sameColNodes = canvas.nodes.filter((n) => colForType(n.type) === targetCol);
+
+  if (sameColNodes.length === 0) {
+    // No existing nodes in this column — find the column x from existing nodes or use default
+    const colX = targetCol * colGap;
+    return { x: colX, y: 0 };
+  }
+
+  // Stack below the lowest node in this column
+  const maxY = sameColNodes.reduce(
+    (max, n) => Math.max(max, n.position.y + (n.height ?? 200)),
+    0,
+  );
+  const colX = sameColNodes[0].position.x;
+  return { x: colX, y: maxY + (rowGap - (sameColNodes[0].height ?? 200)) };
+}
+
 export async function layoutCanvasNodes(
   deps: CanvasToolDeps,
   canvasId: string,
-  direction: 'horizontal' | 'vertical',
+  direction: 'horizontal' | 'vertical' | 'auto',
 ): Promise<Array<{ id: string; position: { x: number; y: number } }>> {
   const canvas = await requireCanvas(deps, canvasId);
+
+  if (direction === 'auto') {
+    const colGap = 360;
+    const rowGap = 280;
+
+    // Classify nodes by edge role
+    const firstFrameIds = new Set<string>();
+    const lastFrameIds = new Set<string>();
+    const nodeTypeMap = new Map<string, string>();
+    for (const n of canvas.nodes) nodeTypeMap.set(n.id, n.type);
+
+    for (const edge of canvas.edges) {
+      const srcType = nodeTypeMap.get(edge.source);
+      const tgtType = nodeTypeMap.get(edge.target);
+      if (srcType === 'image' && tgtType === 'video') firstFrameIds.add(edge.source);
+      if (srcType === 'video' && tgtType === 'image') lastFrameIds.add(edge.target);
+    }
+
+    // Build columns: firstFrame | video | lastFrame | text/audio
+    const columns: string[][] = [[], [], [], []];
+    for (const node of canvas.nodes) {
+      if (node.type === 'image' && firstFrameIds.has(node.id)) {
+        columns[0].push(node.id);
+      } else if (node.type === 'video') {
+        columns[1].push(node.id);
+      } else if (node.type === 'image' && lastFrameIds.has(node.id)) {
+        columns[2].push(node.id);
+      } else if (node.type === 'image') {
+        columns[0].push(node.id);
+      } else {
+        columns[3].push(node.id);
+      }
+    }
+
+    const positions: Array<{ id: string; position: { x: number; y: number } }> = [];
+    let colIdx = 0;
+    for (const col of columns) {
+      if (col.length === 0) continue;
+      for (let row = 0; row < col.length; row++) {
+        positions.push({ id: col[row], position: { x: colIdx * colGap, y: row * rowGap } });
+      }
+      colIdx++;
+    }
+
+    for (const item of positions) {
+      await deps.moveNode(canvasId, item.id, item.position);
+    }
+    return positions;
+  }
+
   const spacingX = 300;
   const spacingY = 250;
   const positions = canvas.nodes.map((node, index) => {

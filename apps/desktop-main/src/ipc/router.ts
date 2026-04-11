@@ -27,6 +27,12 @@ import { registerCanvasGenerationHandlers } from './handlers/canvas-generation.h
 import { registerPresetHandlers } from './handlers/preset.handlers.js';
 import { registerCommanderHandlers } from './handlers/commander.handlers.js';
 import { registerEntityHandlers } from './handlers/entity.handlers.js';
+import { registerVisionHandlers } from './handlers/vision.handlers.js';
+import { registerVideoChainHandlers } from './handlers/video-chain.js';
+import { registerLipSyncHandlers } from './handlers/lipsync.handlers.js';
+import { registerEmbeddingHandlers } from './handlers/embedding.handlers.js';
+import { registerVideoCloneHandlers } from './handlers/video-clone.handlers.js';
+import { registerStorageHandlers } from './handlers/storage.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 
 export interface AppDeps {
@@ -53,7 +59,7 @@ export function registerAllHandlers(
     hasAgent: Boolean(agent),
   });
   registerProjectHandlers(ipcMain, projectFS, db, cas);
-  registerAssetHandlers(ipcMain, cas, db);
+  registerAssetHandlers(ipcMain, cas, db, keychain);
   registerJobHandlers(ipcMain, getWindow, db, jobQueue);
   registerKeychainHandlers(ipcMain, keychain, registry, llmRegistry);
   registerScriptHandlers(ipcMain, db);
@@ -67,11 +73,11 @@ export function registerAllHandlers(
   registerColorStyleHandlers(ipcMain, db, cas, workflowEngine);
   registerWorkflowHandlers(ipcMain, workflowEngine);
   registerRenderHandlers(ipcMain);
-  registerExportHandlers(ipcMain);
   registerFfmpegHandlers(ipcMain);
   registerSeriesHandlers(ipcMain, db);
   const canvasStore = createCanvasStore(db);
   registerCanvasHandlers(ipcMain, canvasStore);
+  registerExportHandlers(ipcMain, cas, canvasStore);
   registerCanvasGenerationHandlers(ipcMain, {
     adapterRegistry: registry,
     cas,
@@ -94,6 +100,12 @@ export function registerAllHandlers(
     resolvePrompt: (code: string) => promptStore.resolve(code),
   });
   registerEntityHandlers(ipcMain, { adapterRegistry: registry, cas, db });
+  registerVisionHandlers(ipcMain, { cas, keychain });
+  registerVideoChainHandlers(ipcMain, canvasStore, cas);
+  registerLipSyncHandlers(ipcMain, { cas, canvasStore, db });
+  registerEmbeddingHandlers(ipcMain, { cas, keychain, db });
+  registerVideoCloneHandlers(ipcMain, { cas, canvasStore });
+  registerStorageHandlers(ipcMain, { db, cas });
   log.info('IPC handlers registered', {
     category: 'ipc',
     canvasStoreReady: true,

@@ -24,6 +24,8 @@ import {
 import { SettingsProvidersSection } from './SettingsProvidersSection.js';
 import { SettingsUpdateSection } from './SettingsUpdateSection.js';
 import { SettingsWorkflowsSection } from './SettingsWorkflowsSection.js';
+import { SettingsStorageSection } from './SettingsStorageSection.js';
+import { SettingsCommanderSection } from './SettingsCommanderSection.js';
 
 type TemplateDraft = {
   content: string;
@@ -97,9 +99,13 @@ export function Settings() {
         ? t('settings.promptTemplates')
         : activeTab === 'workflows'
           ? translateOrFallback('settings.workflows.title', 'Workflows & Skills')
-          : activeTab === 'about'
-            ? t('settings.update.title')
-            : translateOrFallback('settings.nav.providers', 'Providers');
+          : activeTab === 'storage'
+            ? translateOrFallback('settings.storage.title', 'Storage & Data')
+            : activeTab === 'commander'
+              ? translateOrFallback('settings.commander.title', 'Commander AI')
+              : activeTab === 'about'
+                ? t('settings.update.title')
+                : translateOrFallback('settings.nav.providers', 'Providers');
 
   const activeTabDescription =
     activeTab === 'workflows'
@@ -177,6 +183,10 @@ export function Settings() {
                   )}
 
                   {activeTab === 'workflows' && <SettingsWorkflowsSection />}
+
+                  {activeTab === 'commander' && <SettingsCommanderSection />}
+
+                  {activeTab === 'storage' && <SettingsStorageSection />}
 
                   {activeTab === 'about' && <SettingsUpdateSection />}
                 </div>

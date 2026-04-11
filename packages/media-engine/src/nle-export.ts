@@ -13,6 +13,14 @@ export interface NLEClip {
   inPoint: number;
   outPoint: number;
   speed: number;
+  /** Custom shot duration in seconds; overrides `duration` when present */
+  durationOverride?: number;
+  /** Scene identifier from VideoNodeData */
+  sceneNumber?: string;
+  /** Order of this shot within its scene */
+  shotOrder?: number;
+  /** Human-readable clip name; used as the clip element name in FCPXML */
+  title?: string;
 }
 
 export interface NLEProject {
@@ -60,18 +68,25 @@ export function exportFCPXML(project: NLEProject): string {
 }
 
 function clipToFCPXml(clip: NLEClip, fps: number): string {
+  const effectiveDuration = clip.durationOverride ?? clip.duration;
   const startFrame = Math.round(clip.startTime * fps);
-  const endFrame = Math.round((clip.startTime + clip.duration) * fps);
+  const endFrame = Math.round((clip.startTime + effectiveDuration) * fps);
   const inFrame = Math.round(clip.inPoint * fps);
   const outFrame = Math.round(clip.outPoint * fps);
   const filePath = clip.assetPath.replace(/\\/g, '/');
   const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+  const clipName = clip.title ?? clip.id;
+
+  let markerXml = '';
+  if (clip.sceneNumber != null) {
+    markerXml = `\n        <marker><name>${escapeXml(clip.sceneNumber)}</name><in>0</in></marker>`;
+  }
 
   return `      <track><clipitem id="${escapeXml(clip.id)}">
-        <name>${escapeXml(clip.id)}</name>
+        <name>${escapeXml(clipName)}</name>
         <start>${startFrame}</start><end>${endFrame}</end>
         <in>${inFrame}</in><out>${outFrame}</out>
-        <file><pathurl>file://localhost/${encodedPath}</pathurl></file>
+        <file><pathurl>file://localhost/${encodedPath}</pathurl></file>${markerXml}
       </clipitem></track>\n`;
 }
 
@@ -86,14 +101,19 @@ export function exportEDL(project: NLEProject): string {
   let edl = `TITLE: ${sanitizeEDL(name)}\nFCM: NON-DROP FRAME\n\n`;
 
   videoClips.forEach((clip, i) => {
+    const effectiveDuration = clip.durationOverride ?? clip.duration;
     const num = String(i + 1).padStart(3, '0');
     const srcIn = framesToTC(Math.round(clip.inPoint * fps), fps);
     const srcOut = framesToTC(Math.round(clip.outPoint * fps), fps);
     const recIn = framesToTC(Math.round(clip.startTime * fps), fps);
-    const recOut = framesToTC(Math.round((clip.startTime + clip.duration) * fps), fps);
+    const recOut = framesToTC(Math.round((clip.startTime + effectiveDuration) * fps), fps);
 
     edl += `${num}  AX       V     C        ${srcIn} ${srcOut} ${recIn} ${recOut}\n`;
-    edl += `* FROM CLIP NAME: ${sanitizeEDL(clip.assetPath)}\n\n`;
+    edl += `* FROM CLIP NAME: ${sanitizeEDL(clip.assetPath)}\n`;
+    if (clip.sceneNumber != null) {
+      edl += `* SCENE: ${sanitizeEDL(clip.sceneNumber)}\n`;
+    }
+    edl += `\n`;
   });
 
   return edl;

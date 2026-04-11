@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import type { ProjectManifest, Snapshot, StyleGuide } from '@lucid-fin/contracts';
+import type { SqliteIndex } from './sqlite-index.js';
 import { ensureDir, atomicWrite, readJson } from './utils.js';
 
 const APP_DIR = path.join(os.homedir(), '.lucid-fin');
@@ -115,7 +116,7 @@ export class ProjectFS {
     return all.filter((p) => fs.existsSync(path.join(p.path, 'project.json')));
   }
 
-  createSnapshot(projectPath: string, name: string): Snapshot {
+  createSnapshot(projectPath: string, name: string, db?: SqliteIndex): Snapshot {
     const id = randomUUID();
     const now = Date.now();
     const snapshotDir = path.join(projectPath, 'snapshots');
@@ -147,6 +148,23 @@ export class ProjectFS {
       );
     }
 
+    // Include SQLite-managed entities if db is available
+    if (db) {
+      const manifestPath = path.join(projectPath, 'project.json');
+      if (fs.existsSync(manifestPath)) {
+        const manifest = readJson<ProjectManifest>(manifestPath);
+        const projectId = manifest.id;
+        state['__sqlite_entities'] = {
+          characters: db.listCharacters(projectId),
+          equipment: db.listEquipment(projectId),
+          locations: db.listLocations(projectId),
+          scenes: db.listScenes(projectId),
+          canvases: db.listCanvasesFull(projectId),
+          presetOverrides: db.listPresetOverrides(projectId),
+        };
+      }
+    }
+
     const snapshot: Snapshot = { id, name, createdAt: now };
     atomicWrite(path.join(snapshotDir, `snap-${id}.json`), { ...snapshot, state });
 
@@ -163,7 +181,7 @@ export class ProjectFS {
     return manifest.snapshots;
   }
 
-  restoreSnapshot(projectPath: string, snapshotId: string): void {
+  restoreSnapshot(projectPath: string, snapshotId: string, db?: SqliteIndex): void {
     // Validate snapshotId is a safe UUID-like string (no path separators)
     if (!/^[\w-]+$/.test(snapshotId)) {
       throw new Error(`Invalid snapshot ID: ${snapshotId}`);
@@ -213,6 +231,41 @@ export class ProjectFS {
         const target = path.resolve(scenesDir, file);
         if (!target.startsWith(path.resolve(scenesDir) + path.sep)) continue;
         atomicWrite(target, content);
+      }
+    }
+
+    // Restore SQLite-managed entities if db is available and snapshot contains them
+    if (db && data.state['__sqlite_entities']) {
+      const entities = data.state['__sqlite_entities'] as Record<string, unknown[]>;
+      if (Array.isArray(entities.characters)) {
+        for (const char of entities.characters as Parameters<typeof db.upsertCharacter>[0][]) {
+          db.upsertCharacter(char);
+        }
+      }
+      if (Array.isArray(entities.equipment)) {
+        for (const equip of entities.equipment as Parameters<typeof db.upsertEquipment>[0][]) {
+          db.upsertEquipment(equip);
+        }
+      }
+      if (Array.isArray(entities.locations)) {
+        for (const loc of entities.locations as Parameters<typeof db.upsertLocation>[0][]) {
+          db.upsertLocation(loc);
+        }
+      }
+      if (Array.isArray(entities.scenes)) {
+        for (const scene of entities.scenes as Parameters<typeof db.upsertScene>[0][]) {
+          db.upsertScene(scene);
+        }
+      }
+      if (Array.isArray(entities.canvases)) {
+        for (const canvas of entities.canvases as Parameters<typeof db.upsertCanvas>[0][]) {
+          db.upsertCanvas(canvas);
+        }
+      }
+      if (Array.isArray(entities.presetOverrides)) {
+        for (const override of entities.presetOverrides as Parameters<typeof db.upsertPresetOverride>[0][]) {
+          db.upsertPresetOverride(override);
+        }
       }
     }
   }

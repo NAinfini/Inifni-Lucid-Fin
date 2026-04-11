@@ -10,12 +10,22 @@ import type {
   PresetLibraryImportPayload,
   PresetResetRequest,
   EquipmentLoadout,
+  IpcChannel,
+  IpcRequest,
+  IpcResponse,
 } from '@lucid-fin/contracts';
 
 type Callback = (...args: unknown[]) => void;
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke(channel, ...args);
+}
+
+function typedInvoke<C extends IpcChannel>(
+  channel: C,
+  request: IpcRequest<C>,
+): Promise<IpcResponse<C>> {
+  return ipcRenderer.invoke(channel, request) as Promise<IpcResponse<C>>;
 }
 
 function subscribe(channel: string, cb: Callback): () => void {
@@ -31,8 +41,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Shell
   openExternal: (url: string) => invoke('shell:openExternal', { url }),
   settings: {
-    load: () => invoke('settings:load'),
-    save: (data: unknown) => invoke('settings:save', data),
+    load: () => typedInvoke('settings:load', undefined as IpcRequest<'settings:load'>),
+    save: (data: Record<string, unknown>) => typedInvoke('settings:save', data),
   },
   app: {
     version: () => invoke<string>('app:version'),
@@ -51,8 +61,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
 
   // Project
   project: {
-    create: (config: Record<string, unknown>) => invoke('project:create', config),
-    open: (path: string) => invoke('project:open', { path }),
+    create: (config: IpcRequest<'project:create'>) => typedInvoke('project:create', config),
+    open: (path: string) => typedInvoke('project:open', { path }),
     save: () => invoke('project:save'),
     list: () => invoke('project:list'),
     snapshot: (name: string) => invoke('project:snapshot', { name }),
@@ -146,6 +156,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Assets
   asset: {
     import: (filePath: string, type: string) => invoke('asset:import', { filePath, type }),
+    importBuffer: (buffer: ArrayBuffer, fileName: string, type: string) =>
+      invoke('asset:importBuffer', { buffer, fileName, type }),
     pickFile: (type: string) => invoke('asset:pickFile', { type }),
     query: (filter: Record<string, unknown>) => invoke('asset:query', filter),
     getPath: (hash: string, type: string, ext: string) =>
@@ -195,7 +207,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     test: (
       provider: string,
       providerConfig?: LLMProviderRuntimeInput,
-      group?: 'llm' | 'image' | 'video' | 'audio',
+      group?: 'llm' | 'image' | 'video' | 'audio' | 'vision',
     ) =>
       invoke<{ ok: boolean; error?: string }>('keychain:test', {
         provider,
@@ -220,12 +232,16 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     chat: (
       canvasId: string,
       message: string,
-      history: Array<{ role: 'user' | 'assistant'; content: string }>,
+      history: Array<Record<string, unknown>>,
       selectedNodeIds: string[],
       promptGuides?: Array<{ id: string; name: string; content: string }>,
       customLLMProvider?: LLMProviderRuntimeConfig,
       permissionMode?: 'auto' | 'normal' | 'strict',
-    ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode }),
+      locale?: string,
+      maxSteps?: number,
+      temperature?: number,
+      maxTokens?: number,
+    ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode, locale, maxSteps, temperature, maxTokens }),
     cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),
     injectMessage: (canvasId: string, message: string) =>
       invoke('commander:inject-message', { canvasId, message }),
@@ -260,7 +276,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       }) => void,
     ) => subscribe('commander:stream', cb as Callback),
     onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) =>
-      subscribe('commander:canvas:updated', cb as Callback),
+      subscribe('commander:canvas:dispatch', cb as Callback),
     onEntitiesUpdated: (cb: (data: { toolName: string }) => void) =>
       subscribe('commander:entities:updated', cb as Callback),
     onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) =>
@@ -310,9 +326,18 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Export
   export: {
     nle: (preset: Record<string, unknown>) => invoke('export:nle', preset),
-    assetBundle: (outputPath: string) => invoke('export:assetBundle', { outputPath }),
+    assetBundle: (assetHashes: string[], outputPath?: string) =>
+      invoke('export:assetBundle', { assetHashes, outputPath }),
     subtitles: (format: string, outputPath: string) =>
       invoke('export:subtitles', { format, outputPath }),
+    storyboard: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) =>
+      invoke('export:storyboard', { nodes, projectTitle, outputPath }),
+    metadata: (format: 'csv' | 'json', nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) =>
+      invoke('export:metadata', { format, nodes, projectTitle, outputPath }),
+    importSrt: (canvasId: string, filePath: string, alignToNodes?: boolean) =>
+      invoke('import:srt', { canvasId, filePath, alignToNodes }),
+    capcut: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputDir?: string) =>
+      invoke<{ draftDir: string }>('export:capcut', { nodes, projectTitle, outputDir }),
   },
 
   // FFmpeg
@@ -340,9 +365,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Canvas
   canvas: {
     list: () => invoke('canvas:list'),
-    load: (id: string) => invoke('canvas:load', { id }),
-    save: (data: Record<string, unknown>) => invoke('canvas:save', data),
-    create: (name: string) => invoke('canvas:create', { name }),
+    load: (id: string) => typedInvoke('canvas:load', { id }),
+    save: (data: Canvas) => typedInvoke('canvas:save', data),
+    patch: (args: IpcRequest<'canvas:patch'>) => typedInvoke('canvas:patch', args),
+    create: (name: string) => typedInvoke('canvas:create', { name }),
     delete: (id: string) => invoke('canvas:delete', { id }),
     rename: (id: string, name: string) => invoke('canvas:rename', { id, name }),
   },
@@ -367,6 +393,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('canvas:cancelGeneration', { canvasId, nodeId }),
     estimateCost: (canvasId: string, nodeId: string, providerId: string, providerConfig?: { baseUrl: string; model: string; apiKey?: string }) =>
       invoke('canvas:estimateCost', { canvasId, nodeId, providerId, providerConfig }),
+    extractLastFrame: (canvasId: string, nodeId: string) =>
+      invoke('video:extractLastFrame', { canvasId, nodeId }),
     onProgress: (
       cb: (data: {
         canvasId: string;
@@ -427,5 +455,78 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke<PresetLibraryExportPayload>('preset:import', payload),
     export: (options?: PresetLibraryExportRequest) =>
       invoke<PresetLibraryExportPayload>('preset:export', options ?? {}),
+  },
+
+  // Vision
+  vision: {
+    describeImage: (assetHash: string, assetType: 'image' | 'video', style?: string) =>
+      invoke<{ prompt: string }>('vision:describeImage', { assetHash, assetType, style }),
+  },
+
+  // Embedding (Semantic Search)
+  embedding: {
+    generate: (assetHash: string) => invoke('asset:generateEmbedding', { assetHash }),
+    search: (query: string, limit?: number) =>
+      invoke<{ hash: string; score: number; description: string }[]>('asset:searchSemantic', { query, limit }),
+    reindex: () => invoke('asset:reindexEmbeddings'),
+  },
+
+  // Video Clone (F1)
+  video: {
+    pickFile: () => invoke<string | null>('video:pickFile'),
+    clone: (filePath: string, projectId: string, threshold?: number) =>
+      invoke<{ canvasId: string; nodeCount: number }>('video:clone', { filePath, projectId, threshold }),
+    onCloneProgress: (cb: (data: { step: string; current: number; total: number; message: string }) => void) => {
+      const handler = (_event: IpcRendererEvent, data: { step: string; current: number; total: number; message: string }) => cb(data);
+      ipcRenderer.on('video:clone:progress', handler);
+      return () => ipcRenderer.removeListener('video:clone:progress', handler);
+    },
+  },
+
+  // Lip Sync (F2)
+  lipsync: {
+    process: (canvasId: string, nodeId: string) =>
+      invoke('lipsync:process', { canvasId, nodeId }),
+    checkAvailability: () =>
+      invoke<{ available: boolean; backend: string }>('lipsync:checkAvailability'),
+  },
+
+  // Storage Management
+  storage: {
+    getOverview: () => invoke<{
+      appRoot: string;
+      dbSize: number;
+      globalAssetsSize: number;
+      globalAssetCount: number;
+      projectsSize: number;
+      logsSize: number;
+      totalSize: number;
+      projects: Array<{ name: string; path: string; size: number }>;
+      paths: { appRoot: string; database: string; globalAssets: string; projects: string; logs: string };
+    }>('storage:getOverview'),
+    openFolder: (folderPath: string) => invoke('storage:openFolder', { path: folderPath }),
+    showInFolder: (filePath: string) => invoke('storage:showInFolder', { path: filePath }),
+    clearLogs: () => invoke<{ cleared: number }>('storage:clearLogs'),
+    clearEmbeddings: () => invoke<{ success: boolean; error?: string }>('storage:clearEmbeddings'),
+    vacuumDatabase: () => invoke<{ success: boolean; error?: string }>('storage:vacuumDatabase'),
+    backupDatabase: (destPath: string) => invoke<{ success: boolean; error?: string }>('storage:backupDatabase', { destPath }),
+    restoreDatabase: (sourcePath: string) => invoke<{ success: boolean; error?: string; backupCreated?: string }>('storage:restoreDatabase', { sourcePath }),
+    getProjectsPath: () => invoke<string>('storage:getProjectsPath'),
+    setProjectsPath: (newPath: string) => invoke<{ success: boolean; error?: string }>('storage:setProjectsPath', { path: newPath }),
+    pickFolder: () => {
+      return new Promise<string | null>((resolve) => {
+        ipcRenderer.invoke('storage:pickFolder').then(resolve).catch(() => resolve(null));
+      });
+    },
+    pickSaveFile: (defaultName: string) => {
+      return new Promise<string | null>((resolve) => {
+        ipcRenderer.invoke('storage:pickSaveFile', { defaultName }).then(resolve).catch(() => resolve(null));
+      });
+    },
+    pickOpenFile: (extensions: string[]) => {
+      return new Promise<string | null>((resolve) => {
+        ipcRenderer.invoke('storage:pickOpenFile', { extensions }).then(resolve).catch(() => resolve(null));
+      });
+    },
   },
 });

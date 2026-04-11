@@ -39,6 +39,8 @@ export function getDefaultNodeFrame(
     case 'image':
     case 'video':
       return DEFAULT_MEDIA_NODE_FRAME;
+    case 'text':
+      return { width: 300, height: 200 };
     case 'backdrop':
       return { width: 420, height: 240 };
     default:

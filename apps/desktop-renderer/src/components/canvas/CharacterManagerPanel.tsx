@@ -16,6 +16,7 @@ import {
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
+import { addLog } from '../../store/slices/logger.js';
 import type {
   Character,
   ReferenceImage,
@@ -34,6 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog.js';
+import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 
 const ROLE_OPTIONS: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
@@ -69,16 +71,28 @@ function createDraft(char: Character): CharacterDraft {
 
 export function CharacterManagerPanel() {
   const { t } = useI18n();
+  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { items, selectedId, loading } = useSelector((s: RootState) => s.characters);
-  const equipment = useSelector((s: RootState) => s.equipment.items);
-
   const [draft, setDraft] = useState<CharacterDraft | null>(null);
   const [originalDraft, setOriginalDraft] = useState<CharacterDraft | null>(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loadoutName, setLoadoutName] = useState('');
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+
+  const reportError = useCallback((reason: unknown, detail: string) => {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    setError(message);
+    dispatch(
+      addLog({
+        level: 'error',
+        category: 'character',
+        message,
+        detail,
+      }),
+    );
+  }, [dispatch]);
 
   const isDirty = useMemo(() => {
     if (!draft || !originalDraft) return false;
@@ -128,15 +142,20 @@ export function CharacterManagerPanel() {
     setOriginalDraft(d);
   }, [selectedChar]);
 
-  const confirmDiscardIfDirty = useCallback((): boolean => {
+  const confirmDiscardIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
-    return window.confirm(t('characterManager.unsavedChanges'));
-  }, [isDirty, t]);
+    return confirm({
+      title: t('characterManager.unsavedChanges'),
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
+  }, [confirm, isDirty, t]);
 
   const handleSelectCharacter = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (id === selectedId) return;
-      if (!confirmDiscardIfDirty()) return;
+      if (!(await confirmDiscardIfDirty())) return;
       dispatch(selectCharacter(id));
     },
     [dispatch, selectedId, confirmDiscardIfDirty],
@@ -151,18 +170,18 @@ export function CharacterManagerPanel() {
         dispatch(setCharacters(list));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'loadCharacters');
     } finally {
       dispatch(setLoading(false));
     }
-  }, [dispatch]);
+  }, [dispatch, reportError]);
 
   useEffect(() => {
     void loadCharacters();
   }, [loadCharacters]);
 
   const createNewCharacter = useCallback(async () => {
-    if (!confirmDiscardIfDirty()) return;
+    if (!(await confirmDiscardIfDirty())) return;
     setError(null);
     try {
       const api = getAPI();
@@ -183,9 +202,9 @@ export function CharacterManagerPanel() {
         dispatch(selectCharacter(saved.id));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'createNewCharacter');
     }
-  }, [dispatch, confirmDiscardIfDirty, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, t]);
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedChar) return;
@@ -212,13 +231,19 @@ export function CharacterManagerPanel() {
         dispatch(updateCharacter({ id: saved.id, data: saved }));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'saveDraft');
     }
-  }, [dispatch, draft, selectedChar]);
+  }, [dispatch, draft, reportError, selectedChar]);
 
   const deleteSelected = useCallback(async () => {
     if (!selectedChar) return;
-    const ok = window.confirm(t('characterManager.deleteConfirm').replace('{name}', selectedChar.name));
+    const message = t('characterManager.deleteConfirm').replace('{name}', selectedChar.name);
+    const ok = await confirm({
+      title: message,
+      destructive: true,
+      confirmLabel: t('action.confirm'),
+      cancelLabel: t('action.cancel'),
+    });
     if (!ok) return;
     setError(null);
     try {
@@ -228,9 +253,9 @@ export function CharacterManagerPanel() {
       }
       dispatch(removeCharacter(selectedChar.id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'deleteSelected');
     }
-  }, [dispatch, selectedChar]);
+  }, [confirm, dispatch, reportError, selectedChar, t]);
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -249,10 +274,10 @@ export function CharacterManagerPanel() {
         )) as ReferenceImage;
         dispatch(setCharacterRefImage({ characterId: selectedChar.id, refImage }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageUpload');
       }
     },
-    [dispatch, selectedChar],
+    [dispatch, reportError, selectedChar],
   );
 
   const handleRefImageRemove = useCallback(
@@ -266,10 +291,10 @@ export function CharacterManagerPanel() {
         }
         dispatch(removeCharacterRefImage({ characterId: selectedChar.id, slot }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageRemove');
       }
     },
-    [dispatch, selectedChar],
+    [dispatch, reportError, selectedChar],
   );
 
   const handleRefImageFromAsset = useCallback(
@@ -288,10 +313,10 @@ export function CharacterManagerPanel() {
         )) as ReferenceImage;
         dispatch(setCharacterRefImage({ characterId: selectedChar.id, refImage }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageFromAsset');
       }
     },
-    [dispatch, selectedChar],
+    [dispatch, reportError, selectedChar],
   );
 
   const handleAddLoadout = useCallback(async () => {
@@ -310,9 +335,9 @@ export function CharacterManagerPanel() {
       }
       setLoadoutName('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'handleAddLoadout');
     }
-  }, [dispatch, selectedChar, loadoutName]);
+  }, [dispatch, loadoutName, reportError, selectedChar]);
 
   const handleDeleteLoadout = useCallback(
     async (loadoutId: string) => {
@@ -325,10 +350,10 @@ export function CharacterManagerPanel() {
         }
         dispatch(removeCharacterLoadout({ characterId: selectedChar.id, loadoutId }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleDeleteLoadout');
       }
     },
-    [dispatch, selectedChar],
+    [dispatch, reportError, selectedChar],
   );
 
   return (
@@ -355,28 +380,31 @@ export function CharacterManagerPanel() {
         <div className="border-r min-h-0 overflow-auto">
           <div className="p-1.5 border-b border-border/60 flex items-center gap-1">
             <button
-              onClick={createNewCharacter}
+              onClick={() => void createNewCharacter()}
               className="flex-1 text-[11px] rounded-md border border-border/60 px-2 py-1 hover:bg-muted/80 flex items-center justify-center gap-1 transition-colors"
+              aria-label={t('characterManager.newCharacter')}
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3 h-3" aria-hidden="true" />
               {t('characterManager.newCharacter')}
             </button>
             {draft && (
               <>
                 <button
-                  onClick={saveDraft}
+                  onClick={() => void saveDraft()}
                   disabled={!isDirty}
                   className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  aria-label={t('action.save')}
                   title={t('action.save')}
                 >
-                  <Save className="w-3 h-3" />
+                  <Save className="w-3 h-3" aria-hidden="true" />
                 </button>
                 <button
-                  onClick={deleteSelected}
+                  onClick={() => void deleteSelected()}
                   className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-destructive/20 transition-colors"
+                  aria-label={t('action.delete')}
                   title={t('action.delete')}
                 >
-                  <Trash2 className="w-3 h-3" />
+                  <Trash2 className="w-3 h-3" aria-hidden="true" />
                 </button>
               </>
             )}
@@ -388,7 +416,7 @@ export function CharacterManagerPanel() {
               {filtered.map((char) => (
                 <button
                   key={char.id}
-                  onClick={() => handleSelectCharacter(char.id)}
+                  onClick={() => void handleSelectCharacter(char.id)}
                   className={cn(
                     'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === char.id
@@ -576,6 +604,9 @@ export function CharacterManagerPanel() {
                   entityId={selectedChar?.id}
                   slot="main"
                 />
+                <p className="text-[9px] text-muted-foreground/70 italic mt-1">
+                  {t('characterManager.generateAllHint')}
+                </p>
               </div>
 
               <AssetPickerDialog
@@ -606,8 +637,9 @@ export function CharacterManagerPanel() {
                     <button
                       onClick={() => handleDeleteLoadout(loadout.id)}
                       className="text-[10px] text-destructive hover:underline"
+                      aria-label={`${t('action.delete')} ${loadout.name}`}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="w-3 h-3" aria-hidden="true" />
                     </button>
                   </div>
                 ))}
@@ -634,6 +666,7 @@ export function CharacterManagerPanel() {
           {error && <div className="text-[11px] text-destructive">{error}</div>}
         </div>
       </div>
+      {ConfirmDialog}
     </div>
   );
 }
@@ -660,7 +693,7 @@ function SingleReferenceImage({
   const { t } = useI18n();
   const [isDragOver, setIsDragOver] = useState(false);
   const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
-  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'jpg');
+  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
 
   const handleDragOver = (e: React.DragEvent) => {
     const types = e.dataTransfer.types;
@@ -748,14 +781,14 @@ function SingleReferenceImage({
           />
           {isDragOver && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
-              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">Drop here</span>
+              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">{t('entity.dropHere')}</span>
             </div>
           )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center h-[200px] gap-2">
           {isDragOver ? (
-            <span className="text-xs text-blue-400">Drop image here</span>
+            <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
           ) : (
             <Image className="w-8 h-8 text-muted-foreground/40" />
           )}
@@ -767,16 +800,18 @@ function SingleReferenceImage({
           type="button"
           onClick={onUpload}
           className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+          aria-label={translate('characterManager.upload')}
         >
-          <Upload className="w-3 h-3" />
+          <Upload className="w-3 h-3" aria-hidden="true" />
           {translate('characterManager.upload')}
         </button>
         <button
           type="button"
           onClick={onFromAssets}
           className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+          aria-label={t('entity.fromAssets')}
         >
-          <Image className="w-3 h-3" />
+          <Image className="w-3 h-3" aria-hidden="true" />
           {t('entity.fromAssets')}
         </button>
         {mainRef?.assetHash && (
@@ -784,8 +819,9 @@ function SingleReferenceImage({
             type="button"
             onClick={onRemove}
             className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
+            aria-label={t('entity.removeImage')}
           >
-            <X className="w-3 h-3" />
+            <X className="w-3 h-3" aria-hidden="true" />
             {t('entity.removeImage')}
           </button>
         )}
@@ -815,7 +851,7 @@ function AssetPickerDialog({
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
         </DialogHeader>
         {imageAssets.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-4 text-center">No image assets found.</div>
+          <div className="text-sm text-muted-foreground py-4 text-center">{t('entity.noImageAssetsFound')}</div>
         ) : (
           <div className="grid grid-cols-4 gap-2 max-h-96 overflow-y-auto p-1">
             {imageAssets.map((asset) => (

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n.js';
@@ -80,7 +80,6 @@ describe('CanvasNavigatorPanel', () => {
     api.canvas.create.mockReset();
     api.canvas.rename.mockReset();
     api.canvas.delete.mockReset();
-    vi.stubGlobal('confirm', vi.fn(() => true));
   });
 
   it('creates, switches, renames, and deletes canvases through the store and IPC', async () => {
@@ -118,7 +117,10 @@ describe('CanvasNavigatorPanel', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: `${t('action.delete')} Renamed Canvas` }));
-    expect(api.canvas.delete).toHaveBeenCalledWith('canvas-2');
-    expect(store.getState().canvas.canvases.map((canvas) => canvas.id)).not.toContain('canvas-2');
+    fireEvent.click(await screen.findByRole('button', { name: t('action.confirm') }));
+    await waitFor(() => {
+      expect(api.canvas.delete).toHaveBeenCalledWith('canvas-2');
+      expect(store.getState().canvas.canvases.map((canvas) => canvas.id)).not.toContain('canvas-2');
+    });
   });
 });

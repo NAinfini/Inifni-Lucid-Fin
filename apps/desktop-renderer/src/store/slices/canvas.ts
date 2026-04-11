@@ -136,7 +136,9 @@ const internalCanvasSlice = createSlice({
     clearNodeAsset: nodeReducers.clearNodeAsset,
     setVideoFrameNode: nodeReducers.setVideoFrameNode,
     setVideoFrameAsset: nodeReducers.setVideoFrameAsset,
-    applyCanvasFromCommander: nodeReducers.applyCanvasFromCommander,
+    setNodeAudio: nodeReducers.setNodeAudio,
+    setNodeQuality: nodeReducers.setNodeQuality,
+    restoreNodes: nodeReducers.restoreNodes,
     // --- Ref & clipboard actions (delegated) --------------------------------
 
     setNodeCharacterRefs: refReducers.setNodeCharacterRefs,
@@ -166,6 +168,7 @@ const internalCanvasSlice = createSlice({
     swapEdgeDirection: edgeReducers.swapEdgeDirection,
     disconnectNode: edgeReducers.disconnectNode,
     insertNodeIntoEdge: edgeReducers.insertNodeIntoEdge,
+    restoreEdges: edgeReducers.restoreEdges,
 
     // --- Generation actions (delegated) ------------------------------------
 
@@ -175,11 +178,41 @@ const internalCanvasSlice = createSlice({
     setNodeGenerationComplete: generationReducers.setNodeGenerationComplete,
     setNodeGenerationFailed: generationReducers.setNodeGenerationFailed,
     selectVariant: generationReducers.selectVariant,
+    deleteVariant: generationReducers.deleteVariant,
     setNodeSeed: generationReducers.setNodeSeed,
     setNodeResolution: generationReducers.setNodeResolution,
     setNodeDuration: generationReducers.setNodeDuration,
     setNodeFps: generationReducers.setNodeFps,
     toggleSeedLock: generationReducers.toggleSeedLock,
+
+    // --- Annotation / tags / grouping (M7, M9) ----------------------------
+
+    setNodeAnnotation: generationReducers.setNodeAnnotation,
+    setNodeTags: generationReducers.setNodeTags,
+    addNodeTag: generationReducers.addNodeTag,
+    removeNodeTag: generationReducers.removeNodeTag,
+    setNodeGroupId: generationReducers.setNodeGroupId,
+
+    // --- Advanced generation params (L17) ---------------------------------
+
+    setNodeAdvancedParams: generationReducers.setNodeAdvancedParams,
+    setNodeImagePrompt: generationReducers.setNodeImagePrompt,
+    setNodeVideoPrompt: generationReducers.setNodeVideoPrompt,
+    setNodeSourceImage: generationReducers.setNodeSourceImage,
+    setNodeFaceReferences: generationReducers.setNodeFaceReferences,
+
+    // --- Duration / scene metadata (L19) ----------------------------------
+
+    setNodeDurationOverride: generationReducers.setNodeDurationOverride,
+    setNodeSceneMetadata: generationReducers.setNodeSceneMetadata,
+
+    // --- Generation history (M10) -----------------------------------------
+
+    clearGenerationHistory: generationReducers.clearGenerationHistory,
+
+    // --- Lip Sync (F2) ----------------------------------------------------
+
+    setNodeLipSync: generationReducers.setNodeLipSync,
 
     // --- Preset / track actions (delegated) --------------------------------
 
@@ -298,6 +331,7 @@ export const {
   setNodeGenerationComplete,
   setNodeGenerationFailed,
   selectVariant,
+  deleteVariant,
   setNodeSeed,
   setNodeResolution,
   setNodeDuration,
@@ -322,7 +356,8 @@ export const {
   applyNodeShotTemplate,
   setVideoFrameNode,
   setVideoFrameAsset,
-  applyCanvasFromCommander,
+  setNodeAudio,
+  setNodeQuality,
   addNodePresetTrackEntry,
   updateNodePresetTrackEntry,
   removeNodePresetTrackEntry,
@@ -343,6 +378,7 @@ export const {
   setClipboard,
   pasteNodes,
   duplicateNodes,
+  restoreNodes,
   addEdge,
   removeEdges,
   updateEdge,
@@ -351,6 +387,7 @@ export const {
   swapEdgeDirection,
   disconnectNode,
   insertNodeIntoEdge,
+  restoreEdges,
   setSelection,
   clearSelection,
   updateViewport,
@@ -359,4 +396,24 @@ export const {
   addCanvasNote,
   updateCanvasNote,
   deleteCanvasNote,
+  // M7: Annotation
+  setNodeAnnotation,
+  // M9: Tags & grouping
+  setNodeTags,
+  addNodeTag,
+  removeNodeTag,
+  setNodeGroupId,
+  // M10: Generation history
+  clearGenerationHistory,
+  // F2: Lip Sync
+  setNodeLipSync,
+  // L17: Advanced generation params
+  setNodeAdvancedParams,
+  setNodeImagePrompt,
+  setNodeVideoPrompt,
+  setNodeSourceImage,
+  setNodeFaceReferences,
+  // L19: Duration / scene metadata
+  setNodeDurationOverride,
+  setNodeSceneMetadata,
 } = internalCanvasSlice.actions;

@@ -3,15 +3,23 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const desktopMainAppDir = path.resolve(__dirname, '..', 'apps', 'desktop-main');
 
-export async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
-  const app = await electron.launch({
-    args: [path.join(__dirname, '..', 'apps', 'desktop-main', 'dist', 'electron.js')],
+export function getElectronLaunchOptions() {
+  const env = { ...process.env } as NodeJS.ProcessEnv;
+  delete env.ELECTRON_RUN_AS_NODE;
+
+  return {
+    args: [desktopMainAppDir],
     env: {
-      ...process.env,
+      ...env,
       NODE_ENV: 'test',
     },
-  });
+  };
+}
+
+export async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
+  const app = await electron.launch(getElectronLaunchOptions());
 
   const page = await app.firstWindow();
   // Wait for the renderer to be ready

@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
+import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -10,11 +10,11 @@ const logger = vi.hoisted(() => ({
   fatal: vi.fn(),
 }));
 
-const showSaveDialog = vi.hoisted(() => vi.fn());
 const showOpenDialog = vi.hoisted(() => vi.fn());
-const getCurrentProjectId = vi.hoisted(() => vi.fn(() => 'project-1'));
+const showSaveDialog = vi.hoisted(() => vi.fn());
+const getCurrentProjectId = vi.hoisted(() => vi.fn(() => "project-1"));
 
-vi.mock('../../logger.js', () => ({
+vi.mock("../../logger.js", () => ({
   default: logger,
   debug: logger.debug,
   info: logger.info,
@@ -23,204 +23,82 @@ vi.mock('../../logger.js', () => ({
   fatal: logger.fatal,
 }));
 
-vi.mock('electron', () => ({
+vi.mock("electron", () => ({
   dialog: {
-    showSaveDialog,
     showOpenDialog,
+    showSaveDialog,
   },
 }));
 
-vi.mock('../project-context.js', () => ({
+vi.mock("../project-context.js", () => ({
   getCurrentProjectId,
 }));
 
-import { registerAssetHandlers } from './asset.handlers.js';
+import { registerAssetHandlers } from "./asset.handlers.js";
 
-describe('registerAssetHandlers', () => {
-  let handlers: Map<string, (...args: unknown[]) => unknown>;
+function resetCommon() {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+  showOpenDialog.mockReset();
+  showSaveDialog.mockReset();
+  getCurrentProjectId.mockReset();
+  getCurrentProjectId.mockReturnValue("project-1");
+}
 
-  beforeEach(() => {
-    handlers = new Map();
-    vi.clearAllMocks();
-  });
+function registerHandlers(
+  cas?: Record<string, unknown>,
+  db?: Record<string, unknown>,
+) {
+  const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('logs asset export success with source and destination paths', async () => {
-    const copySpy = vi.spyOn(fs, 'copyFileSync').mockImplementation(() => undefined);
-    const existsSpy = vi.spyOn(fs, 'existsSync').mockReturnValue(true);
-    const readSpy = vi.spyOn(fs, 'readFileSync').mockImplementation(() => JSON.stringify({ format: 'png' }));
-    showSaveDialog.mockResolvedValue({
-      canceled: false,
-      filePath: 'C:\\exports\\hero.png',
-    });
-
-    const cas = {
-      getAssetPath: vi.fn((hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`),
-    };
-    const db = {
+  registerAssetHandlers(
+    {
+      handle(channel: string, handler: (...args: unknown[]) => unknown) {
+        handlers.set(channel, handler);
+      },
+    } as never,
+    (cas ?? {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn(),
+      deleteAsset: vi.fn(),
+    }) as never,
+    (db ?? {
       insertAsset: vi.fn(),
       deleteAsset: vi.fn(),
       searchAssets: vi.fn(),
       queryAssets: vi.fn(),
-    };
+    }) as never,
+  );
 
-    registerAssetHandlers(
-      {
-        handle(channel: string, handler: (...args: unknown[]) => unknown) {
-          handlers.set(channel, handler);
-        },
-      } as never,
-      cas as never,
-      db as never,
-    );
+  return handlers;
+}
 
-    const exportAsset = handlers.get('asset:export');
-    expect(exportAsset).toBeTypeOf('function');
+describe("registerAssetHandlers", () => {
+  it("registers all asset IPC handlers", () => {
+    resetCommon();
+    const handlers = registerHandlers();
 
-    await expect(
-      exportAsset?.({}, {
-        hash: 'hash-123',
-        type: 'image',
-        format: 'png',
-        name: 'hero',
-      }),
-    ).resolves.toEqual({
-      success: true,
-      path: 'C:\\exports\\hero.png',
-    });
-
-    expect(readSpy).toHaveBeenCalled();
-    expect(existsSpy).toHaveBeenCalled();
-    expect(copySpy).toHaveBeenCalledWith('C:\\cas\\image\\hash-123.png', 'C:\\exports\\hero.png');
-    expect(logger.info).toHaveBeenCalledWith(
-      'Asset export completed',
-      expect.objectContaining({
-        category: 'asset',
-        hash: 'hash-123',
-        type: 'image',
-        sourcePath: 'C:\\cas\\image\\hash-123.png',
-        destinationPath: 'C:\\exports\\hero.png',
-      }),
-    );
+    expect([...handlers.keys()].sort()).toEqual([
+      "asset:delete",
+      "asset:export",
+      "asset:exportBatch",
+      "asset:getPath",
+      "asset:import",
+      "asset:importBuffer",
+      "asset:pickFile",
+      "asset:query",
+    ]);
   });
 
-  it('logs asset export failures before throwing', async () => {
-    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
-    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
-      throw new Error('meta missing');
-    });
-    showSaveDialog.mockResolvedValue({
-      canceled: false,
-      filePath: 'C:\\exports\\hero.png',
-    });
-
+  it("imports a file asset, associates the current project, and logs the import", async () => {
+    resetCommon();
     const cas = {
-      getAssetPath: vi.fn((hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`),
-    };
-
-    registerAssetHandlers(
-      {
-        handle(channel: string, handler: (...args: unknown[]) => unknown) {
-          handlers.set(channel, handler);
-        },
-      } as never,
-      cas as never,
-      {
-        insertAsset: vi.fn(),
-        deleteAsset: vi.fn(),
-        searchAssets: vi.fn(),
-        queryAssets: vi.fn(),
-      } as never,
-    );
-
-    const exportAsset = handlers.get('asset:export');
-    expect(exportAsset).toBeTypeOf('function');
-
-    await expect(
-      exportAsset?.({}, {
-        hash: 'missing-hash',
-        type: 'image',
-        format: 'png',
-      }),
-    ).rejects.toThrow('Asset file not found: missing-hash');
-
-    expect(logger.error).toHaveBeenCalledWith(
-      'Asset export failed',
-      expect.objectContaining({
-        category: 'asset',
-        hash: 'missing-hash',
-        type: 'image',
-        format: 'png',
-      }),
-    );
-  });
-
-  it('logs batch export counts including skipped assets', async () => {
-    const copySpy = vi.spyOn(fs, 'copyFileSync').mockImplementation(() => undefined);
-    vi.spyOn(fs, 'existsSync').mockImplementation((target) => String(target).includes('hash-ok'));
-    vi.spyOn(fs, 'readFileSync').mockImplementation(() => JSON.stringify({ format: 'png' }));
-    showOpenDialog.mockResolvedValue({
-      canceled: false,
-      filePaths: ['C:\\exports'],
-    });
-
-    const cas = {
-      getAssetPath: vi.fn((hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`),
-    };
-
-    registerAssetHandlers(
-      {
-        handle(channel: string, handler: (...args: unknown[]) => unknown) {
-          handlers.set(channel, handler);
-        },
-      } as never,
-      cas as never,
-      {
-        insertAsset: vi.fn(),
-        deleteAsset: vi.fn(),
-        searchAssets: vi.fn(),
-        queryAssets: vi.fn(),
-      } as never,
-    );
-
-    const exportBatch = handlers.get('asset:exportBatch');
-    expect(exportBatch).toBeTypeOf('function');
-
-    await expect(
-      exportBatch?.({}, {
-        items: [
-          { hash: 'hash-ok', type: 'image', name: 'hero' },
-          { hash: 'hash-missing', type: 'image', name: 'villain' },
-        ],
-      }),
-    ).resolves.toEqual({
-      success: true,
-      count: 1,
-      directory: 'C:\\exports',
-    });
-
-    expect(copySpy).toHaveBeenCalledTimes(1);
-    expect(copySpy).toHaveBeenCalledWith(
-      'C:\\cas\\image\\hash-ok.png',
-      path.join('C:\\exports', 'hero.png'),
-    );
-    expect(logger.info).toHaveBeenCalledWith(
-      'Asset batch export completed',
-      expect.objectContaining({
-        category: 'asset',
-        requestedCount: 2,
-        exportedCount: 1,
-        skippedCount: 1,
-        outputDir: 'C:\\exports',
-      }),
-    );
-  });
-
-  it('deletes the asset from CAS as well as the database record', async () => {
-    const cas = {
+      importAsset: vi.fn(async () => ({
+        ref: { hash: "hash-asset-1" },
+        meta: { hash: "hash-asset-1", type: "image", mimeType: "image/png", size: 128 },
+      })),
+      importBuffer: vi.fn(),
       getAssetPath: vi.fn(),
       deleteAsset: vi.fn(),
     };
@@ -230,23 +108,347 @@ describe('registerAssetHandlers', () => {
       searchAssets: vi.fn(),
       queryAssets: vi.fn(),
     };
+    const handlers = registerHandlers(cas, db);
 
-    registerAssetHandlers(
-      {
-        handle(channel: string, handler: (...args: unknown[]) => unknown) {
-          handlers.set(channel, handler);
-        },
-      } as never,
-      cas as never,
-      db as never,
+    const importAsset = handlers.get("asset:import");
+    const result = await importAsset?.({}, { filePath: "C:\\tmp\\hero.png", type: "image" });
+
+    expect(result).toEqual({ hash: "hash-asset-1" });
+    expect(cas.importAsset).toHaveBeenCalledWith("C:\\tmp\\hero.png", "image");
+    expect(db.insertAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hash: "hash-asset-1",
+        projectId: "project-1",
+      }),
     );
+    expect(logger.info).toHaveBeenCalledWith(
+      "Asset imported",
+      expect.objectContaining({
+        category: "asset",
+        hash: "hash-asset-1",
+        filePath: "C:\\tmp\\hero.png",
+        projectId: "project-1",
+      }),
+    );
+  });
 
-    const deleteAsset = handlers.get('asset:delete');
-    expect(deleteAsset).toBeTypeOf('function');
+  it("imports a buffer asset and records the uploaded size", async () => {
+    resetCommon();
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(async () => ({
+        ref: { hash: "hash-buffer-1" },
+        meta: { hash: "hash-buffer-1", type: "audio", mimeType: "audio/wav", size: 3 },
+      })),
+      getAssetPath: vi.fn(),
+      deleteAsset: vi.fn(),
+    };
+    const db = {
+      insertAsset: vi.fn(),
+      deleteAsset: vi.fn(),
+      searchAssets: vi.fn(),
+      queryAssets: vi.fn(),
+    };
+    const handlers = registerHandlers(cas, db);
+    const importBuffer = handlers.get("asset:importBuffer");
 
-    await expect(deleteAsset?.({}, { hash: 'hash-123' })).resolves.toEqual({ success: true });
+    const buffer = new Uint8Array([1, 2, 3]).buffer;
+    const result = await importBuffer?.({}, {
+      buffer,
+      fileName: "voice.wav",
+      type: "audio",
+    });
 
-    expect(db.deleteAsset).toHaveBeenCalledWith('hash-123');
-    expect(cas.deleteAsset).toHaveBeenCalledWith('hash-123');
+    expect(result).toEqual({ hash: "hash-buffer-1" });
+    expect(cas.importBuffer).toHaveBeenCalledWith(expect.any(Buffer), "voice.wav", "audio");
+    expect(db.insertAsset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hash: "hash-buffer-1",
+        projectId: "project-1",
+      }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "Asset imported from buffer",
+      expect.objectContaining({
+        category: "asset",
+        hash: "hash-buffer-1",
+        fileName: "voice.wav",
+        size: 3,
+      }),
+    );
+  });
+
+  it("rejects invalid importBuffer arguments before touching CAS", async () => {
+    resetCommon();
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn(),
+      deleteAsset: vi.fn(),
+    };
+    const handlers = registerHandlers(cas);
+    const importBuffer = handlers.get("asset:importBuffer");
+
+    await expect(
+      importBuffer?.({}, { buffer: undefined, fileName: "", type: "image" }),
+    ).rejects.toThrow("buffer and fileName are required");
+
+    expect(cas.importBuffer).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the asset picker is cancelled", async () => {
+    resetCommon();
+    showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] });
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn(),
+      deleteAsset: vi.fn(),
+    };
+    const handlers = registerHandlers(cas);
+    const pickFile = handlers.get("asset:pickFile");
+
+    await expect(pickFile?.({}, { type: "video" })).resolves.toBeNull();
+
+    expect(showOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        properties: ["openFile"],
+        filters: expect.arrayContaining([
+          expect.objectContaining({ name: "Videos" }),
+        ]),
+      }),
+    );
+    expect(cas.importAsset).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      "Asset picker cancelled",
+      expect.objectContaining({
+        category: "asset",
+        type: "video",
+      }),
+    );
+  });
+
+  it("routes search queries to searchAssets and plain listing to queryAssets", async () => {
+    resetCommon();
+    const db = {
+      insertAsset: vi.fn(),
+      deleteAsset: vi.fn(),
+      searchAssets: vi.fn(() => [{ hash: "searched" }]),
+      queryAssets: vi.fn(() => [{ hash: "listed" }]),
+    };
+    const handlers = registerHandlers(undefined, db);
+    const query = handlers.get("asset:query");
+
+    await expect(
+      query?.({}, { search: "hero", limit: 5, type: "image", offset: 2 }),
+    ).resolves.toEqual([{ hash: "searched" }]);
+    await expect(
+      query?.({}, { type: "audio", limit: 10, offset: 4 }),
+    ).resolves.toEqual([{ hash: "listed" }]);
+
+    expect(db.searchAssets).toHaveBeenCalledWith("hero", 5, "project-1");
+    expect(db.queryAssets).toHaveBeenCalledWith({
+      type: "audio",
+      projectId: "project-1",
+      limit: 10,
+      offset: 4,
+    });
+  });
+
+  it("returns an asset path with png fallback when ext is empty", async () => {
+    resetCommon();
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn(() => "C:\\cas\\image\\hash-1.png"),
+      deleteAsset: vi.fn(),
+    };
+    const handlers = registerHandlers(cas);
+    const getPath = handlers.get("asset:getPath");
+
+    await expect(
+      getPath?.({}, { hash: "hash-1", type: "image", ext: "" }),
+    ).resolves.toBe("C:\\cas\\image\\hash-1.png");
+
+    expect(cas.getAssetPath).toHaveBeenCalledWith("hash-1", "image", "png");
+  });
+
+  it("deletes an asset from CAS and sqlite and logs failures when deletion throws", async () => {
+    resetCommon();
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn(),
+      deleteAsset: vi.fn(() => {
+        throw new Error("cas delete failed");
+      }),
+    };
+    const db = {
+      insertAsset: vi.fn(),
+      deleteAsset: vi.fn(),
+      searchAssets: vi.fn(),
+      queryAssets: vi.fn(),
+    };
+    const handlers = registerHandlers(cas, db);
+    const deleteAsset = handlers.get("asset:delete");
+
+    await expect(deleteAsset?.({}, { hash: "hash-delete" })).rejects.toThrow("cas delete failed");
+
+    expect(cas.deleteAsset).toHaveBeenCalledWith("hash-delete");
+    expect(db.deleteAsset).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledWith(
+      "Failed to delete asset",
+      expect.objectContaining({
+        category: "asset",
+        hash: "hash-delete",
+        error: expect.stringContaining("cas delete failed"),
+      }),
+    );
+  });
+
+  it("exports an asset using the discovered source extension and default save name", async () => {
+    resetCommon();
+    showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: "C:\\exports\\hero.jpg",
+    });
+    vi.spyOn(fs, "readFileSync").mockImplementation((target) => {
+      if (String(target).endsWith("meta.json")) {
+        return JSON.stringify({ format: "jpg" });
+      }
+      throw new Error(`unexpected read: ${String(target)}`);
+    });
+    vi.spyOn(fs, "existsSync").mockImplementation((target) => String(target).endsWith(".jpg"));
+    vi.spyOn(fs, "copyFileSync").mockImplementation(() => undefined);
+
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn((hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`),
+      deleteAsset: vi.fn(),
+    };
+    const handlers = registerHandlers(cas);
+    const exportAsset = handlers.get("asset:export");
+
+    await expect(
+      exportAsset?.({}, { hash: "hash-export", type: "image", format: "png", name: "hero.png" }),
+    ).resolves.toEqual({
+      success: true,
+      path: "C:\\exports\\hero.jpg",
+    });
+
+    expect(showSaveDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: "hero.jpg",
+      }),
+    );
+    expect(fs.copyFileSync).toHaveBeenCalledWith(
+      "C:\\cas\\image\\hash-export.jpg",
+      "C:\\exports\\hero.jpg",
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "Asset export completed",
+      expect.objectContaining({
+        category: "asset",
+        hash: "hash-export",
+        sourcePath: "C:\\cas\\image\\hash-export.jpg",
+        destinationPath: "C:\\exports\\hero.jpg",
+      }),
+    );
+  });
+
+  it("logs and rethrows when no asset file can be resolved for export", async () => {
+    resetCommon();
+    showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: "C:\\exports\\missing.png",
+    });
+    vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+      throw new Error("meta missing");
+    });
+    vi.spyOn(fs, "existsSync").mockReturnValue(false);
+
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn((hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`),
+      deleteAsset: vi.fn(),
+    };
+    const handlers = registerHandlers(cas);
+    const exportAsset = handlers.get("asset:export");
+
+    await expect(
+      exportAsset?.({}, { hash: "hash-missing", type: "image", format: "png" }),
+    ).rejects.toThrow("Asset file not found: hash-missing");
+
+    expect(logger.error).toHaveBeenCalledWith(
+      "Asset export failed",
+      expect.objectContaining({
+        category: "asset",
+        hash: "hash-missing",
+        type: "image",
+        format: "png",
+      }),
+    );
+  });
+
+  it("exports a batch to the chosen directory and skips unresolved items", async () => {
+    resetCommon();
+    showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: ["C:\\exports"],
+    });
+    vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+      throw new Error("meta missing");
+    });
+    vi.spyOn(fs, "existsSync").mockImplementation((target) => String(target).includes("hash-1.png"));
+    vi.spyOn(fs, "copyFileSync").mockImplementation(() => undefined);
+
+    const cas = {
+      importAsset: vi.fn(),
+      importBuffer: vi.fn(),
+      getAssetPath: vi.fn((hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`),
+      deleteAsset: vi.fn(),
+    };
+    const handlers = registerHandlers(cas);
+    const exportBatch = handlers.get("asset:exportBatch");
+
+    await expect(
+      exportBatch?.({}, {
+        items: [
+          { hash: "hash-1", type: "image", name: "hero.png" },
+          { hash: "hash-2", type: "image", name: "villain.png" },
+        ],
+      }),
+    ).resolves.toEqual({
+      success: true,
+      count: 1,
+      directory: "C:\\exports",
+    });
+
+    expect(fs.copyFileSync).toHaveBeenCalledWith(
+      "C:\\cas\\image\\hash-1.png",
+      path.join("C:\\exports", "hero.png"),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "Asset batch export completed",
+      expect.objectContaining({
+        category: "asset",
+        requestedCount: 2,
+        exportedCount: 1,
+        skippedCount: 1,
+        outputDir: "C:\\exports",
+      }),
+    );
+  });
+
+  it("rejects empty batch export requests before opening a dialog", async () => {
+    resetCommon();
+    const handlers = registerHandlers();
+    const exportBatch = handlers.get("asset:exportBatch");
+
+    await expect(exportBatch?.({}, { items: [] })).rejects.toThrow("items required");
+
+    expect(showOpenDialog).not.toHaveBeenCalled();
   });
 });

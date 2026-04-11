@@ -144,6 +144,13 @@ describe('settings extracted sections', () => {
         id: 'storyboard-export',
         name: 'Storyboard Export',
       },
+      {
+        category: 'audio',
+        customContent: null,
+        defaultContent: 'Default emotion voice content',
+        id: 'emotion-voice-prompting',
+        name: 'Emotion & Voice Prompting',
+      },
     ];
 
     render(
@@ -161,7 +168,37 @@ describe('settings extracted sections', () => {
 
     expect(screen.getByText('My Audio Template')).toBeTruthy();
     expect(screen.getByText(t('promptTemplateNames.storyboard-export'))).toBeTruthy();
-    expect(screen.getByText(t('settings.category.audio'))).toBeTruthy();
+    expect(screen.getByText(t('promptTemplateNames.emotion-voice-prompting'))).toBeTruthy();
+    expect(screen.getAllByText(t('settings.category.audio')).length).toBeGreaterThan(0);
     expect(screen.getByText(t('settings.category.workflow'))).toBeTruthy();
+  });
+
+  it('creates localized default content for new prompt templates in zh-CN', () => {
+    setLocale('zh-CN');
+
+    const onAddTemplate = vi.fn();
+
+    render(
+      <SettingsPromptTemplatesSection
+        expandedTemplateId={null}
+        onExpandedTemplateIdChange={vi.fn()}
+        onResetAll={vi.fn()}
+        onResetTemplate={vi.fn()}
+        onSaveTemplate={vi.fn()}
+        onTemplateDraftChange={vi.fn()}
+        onAddTemplate={onAddTemplate}
+        templateDrafts={{}}
+        templates={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.addTemplate') }));
+
+    expect(onAddTemplate).toHaveBeenCalledWith({
+      id: expect.stringMatching(/^custom-/),
+      name: '新模板',
+      category: 'process',
+      content: '# 新模板\n\n在此编写你的提示词模板...',
+    });
   });
 });

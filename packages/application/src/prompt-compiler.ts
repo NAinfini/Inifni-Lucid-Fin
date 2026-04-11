@@ -17,7 +17,7 @@ import type {
 // Public types
 // ---------------------------------------------------------------------------
 
-export type PromptMode = 'text-to-image' | 'image-to-video' | 'text-to-video';
+export type PromptMode = 'text-to-image' | 'image-to-image' | 'image-to-video' | 'text-to-video';
 
 export type CameraShot = 'close-up' | 'medium' | 'wide' | 'default';
 
@@ -127,6 +127,14 @@ const I2V_CAMERA_KEYWORDS = [
   'track',
   'follow',
   'crane',
+  'handheld',
+  'push-in',
+  'pull-out',
+  'whip',
+  'boom',
+  'arc',
+  'steadicam',
+  'slow-motion',
 ];
 
 const I2V_ACTION_KEYWORDS = [
@@ -150,6 +158,43 @@ const I2V_ACTION_KEYWORDS = [
   'drift',
   'drifts',
   'transition',
+  // Force-reaction / physics verbs (Runway Gen-4.5, Kling 3.0)
+  'impact',
+  'crumple',
+  'shatter',
+  'recoil',
+  'collapse',
+  'scatter',
+  'ripple',
+  'sway',
+  'sways',
+  'tremble',
+  'trembles',
+  'settle',
+  'settles',
+  'flutter',
+  'flutters',
+  'surge',
+  'surges',
+  'pour',
+  'pours',
+  'splash',
+  'fall',
+  'falls',
+  'rise',
+  'rises',
+  'slide',
+  'slides',
+  'swing',
+  'swings',
+  'accelerat',
+  'decelerat',
+  // Endpoint/resolution descriptors
+  'gradually',
+  'slowly',
+  'briskly',
+  'then settles',
+  'comes to rest',
 ];
 
 const I2V_APPEARANCE_KEYWORDS = [
@@ -357,6 +402,33 @@ function collectReferenceImages(input: PromptCompilerInput): string[] {
   for (const ref of input.locationRefs ?? []) {
     if (typeof ref.referenceImageHash === 'string' && ref.referenceImageHash.trim()) {
       hashes.add(ref.referenceImageHash.trim());
+    }
+  }
+
+  // Collect reference images from resolved character entities
+  for (const resolved of input.characters ?? []) {
+    for (const img of resolved.character.referenceImages ?? []) {
+      if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
+        hashes.add(img.assetHash.trim());
+      }
+    }
+  }
+
+  // Collect reference images from resolved location entities
+  for (const location of input.locations ?? []) {
+    for (const img of (location as { referenceImages?: Array<{ assetHash: string }> }).referenceImages ?? []) {
+      if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
+        hashes.add(img.assetHash.trim());
+      }
+    }
+  }
+
+  // Collect reference images from standalone equipment entities
+  for (const item of input.equipmentItems ?? []) {
+    for (const img of (item as { referenceImages?: Array<{ assetHash: string }> }).referenceImages ?? []) {
+      if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
+        hashes.add(img.assetHash.trim());
+      }
     }
   }
 

@@ -58,12 +58,29 @@ export interface InspectorGenerationBarProps {
   fpsOptions?: readonly number[];
   fpsValue?: number;
   onFpsChange?: ChangeEventHandler<HTMLSelectElement>;
+  // Audio toggle (all video providers)
+  showAudioToggle?: boolean;
+  audioEnabled?: boolean;
+  onAudioChange?: (enabled: boolean) => void;
+  audioLabel?: string;
+  audioWarning?: string;
+  // Quality selector (all video providers)
+  showQualitySelector?: boolean;
+  qualityOptions?: Array<{ value: string; label: string }>;
+  qualityValue?: string;
+  onQualityChange?: ChangeEventHandler<HTMLSelectElement>;
+  qualityLabel?: string;
   // Variant gallery
   variantGrid?: ReactNode;
+  variantLabel?: string;
   // Upload
   uploadHasAsset?: boolean;
   onUpload?: () => void | Promise<void>;
   onClear?: () => void;
+  /** Warning message shown when no provider has an API key configured */
+  noKeyWarning?: string;
+  onNoKeyAction?: () => void;
+  noKeyActionLabel?: string;
 }
 
 export function InspectorGenerationBar({
@@ -102,15 +119,44 @@ export function InspectorGenerationBar({
   fpsOptions,
   fpsValue,
   onFpsChange,
+  showAudioToggle,
+  audioEnabled,
+  onAudioChange,
+  audioLabel,
+  audioWarning,
+  showQualitySelector,
+  qualityOptions,
+  qualityValue,
+  onQualityChange,
+  qualityLabel,
   variantGrid,
+  variantLabel,
   uploadHasAsset,
   onUpload,
   onClear,
+  noKeyWarning,
+  onNoKeyAction,
+  noKeyActionLabel,
 }: InspectorGenerationBarProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="shrink-0 border-t border-border/60 bg-card">
+      {/* No-key warning banner */}
+      {noKeyWarning && (
+        <div className="flex items-center gap-1.5 bg-amber-500/10 px-3 py-1.5 text-[10px] text-amber-400">
+          <span className="flex-1">{noKeyWarning}</span>
+          {onNoKeyAction && noKeyActionLabel && (
+            <button
+              type="button"
+              onClick={onNoKeyAction}
+              className="shrink-0 rounded px-1.5 py-0.5 font-medium text-amber-300 hover:bg-amber-500/20"
+            >
+              {noKeyActionLabel}
+            </button>
+          )}
+        </div>
+      )}
       {/* Collapsed: provider + generate in one row */}
       <div className="flex items-center gap-1.5 px-3 py-1.5">
         <button
@@ -141,6 +187,9 @@ export function InspectorGenerationBar({
           {isGenerating && <Loader2 className="h-3 w-3 animate-spin" />}
           {hasVariants ? t('generation.regenerate') : t('generation.generate')}
         </button>
+        {!expanded && estimatedCost && !isGenerating && (
+          <span className="text-[9px] text-muted-foreground whitespace-nowrap">{estimatedCost}</span>
+        )}
         {isGenerating && (
           <button
             type="button"
@@ -292,11 +341,50 @@ export function InspectorGenerationBar({
             </div>
           )}
 
+          {/* Audio toggle (all video providers) */}
+          {showAudioToggle && onAudioChange && (
+            <div className="space-y-0.5">
+              <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={audioEnabled ?? false}
+                  onChange={(e) => onAudioChange(e.target.checked)}
+                  className="rounded border-border accent-primary"
+                />
+                {audioLabel ?? 'Audio'}
+              </label>
+              {audioWarning && (
+                <span className="block text-[9px] text-yellow-500">{audioWarning}</span>
+              )}
+            </div>
+          )}
+
+          {/* Quality selector (all video providers) */}
+          {showQualitySelector && qualityOptions && qualityOptions.length > 0 && onQualityChange && (
+            <div className="space-y-1">
+              <span className="text-[10px] text-muted-foreground">{qualityLabel ?? 'Quality'}</span>
+              <select
+                value={qualityValue ?? ''}
+                onChange={onQualityChange}
+                className="w-full text-[11px] rounded-md border border-border/60 bg-background px-1.5 py-1 outline-none"
+              >
+                {qualityOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Variant gallery */}
           {variantGrid && (
             <div className="space-y-1">
-              <span className="text-[10px] text-muted-foreground">{t('generation.variants')}</span>
-              <div className="grid grid-cols-4 gap-1">{variantGrid}</div>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground">{t('generation.variants')}</span>
+                {variantLabel && <span className="text-[10px] text-muted-foreground">{variantLabel}</span>}
+              </div>
+              <div className="max-h-[140px] overflow-auto">
+                <div className="grid grid-cols-4 gap-1">{variantGrid}</div>
+              </div>
             </div>
           )}
 

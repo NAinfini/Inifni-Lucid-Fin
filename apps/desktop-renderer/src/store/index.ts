@@ -63,6 +63,3 @@ export const store = configureStore({
 
 export type RootState = ReturnType<typeof store.getState>;
 export type AppDispatch = typeof store.dispatch;
-
-// Expose store for main-process Commander AI provider tools
-(window as unknown as Record<string, unknown>).__REDUX_STORE__ = store;

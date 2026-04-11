@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   AlertCircle,
@@ -12,6 +12,7 @@ import {
   EyeOff,
   Image,
   Plus,
+  ScanEye,
   Trash2,
   Video,
   Volume2,
@@ -21,6 +22,8 @@ import type { LLMProviderProtocol } from '@lucid-fin/contracts';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import type { RootState } from '../store/index.js';
+import { addLog } from '../store/slices/logger.js';
+import { useToast } from '../hooks/use-toast.js';
 import {
   addCustomProvider,
   getProviderDefaults,
@@ -47,6 +50,7 @@ const GROUP_META: Record<
   image: { labelKey: 'settings.group.image', icon: Image },
   video: { labelKey: 'settings.group.video', icon: Video },
   audio: { labelKey: 'settings.group.audio', icon: Volume2 },
+  vision: { labelKey: 'settings.group.vision', icon: ScanEye },
 };
 
 interface SettingsProvidersSectionProps {
@@ -98,6 +102,7 @@ function ProviderCard({
   provider: ProviderConfig;
 }) {
   const dispatch = useDispatch();
+  const { error: showErrorToast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [keyValue, setKeyValue] = useState('');
   const [keyVisible, setKeyVisible] = useState(false);
@@ -125,6 +130,25 @@ function ProviderCard({
     ? provider.name
     : translateOrFallback(`providerNames.${provider.id}`, provider.name);
 
+  function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  function getErrorDetail(error: unknown): string {
+    return error instanceof Error ? error.stack ?? error.message : String(error);
+  }
+
+  const logProviderFailure = useCallback((message: string, error: unknown) => {
+    dispatch(
+      addLog({
+        level: 'error',
+        category: 'provider',
+        message,
+        detail: `${group}:${provider.id}\n${getErrorDetail(error)}`,
+      }),
+    );
+  }, [dispatch, group, provider.id]);
+
   useEffect(
     () => () => {
       mountedRef.current = false;
@@ -138,16 +162,21 @@ function ProviderCard({
     if (!api?.keychain.get) return;
 
     let cancelled = false;
-    void api.keychain.get(provider.id).then((storedKey) => {
-      if (cancelled || !mountedRef.current) return;
-      setKeyValue(storedKey ?? '');
-      setKeyLoaded(true);
-    });
+    void api.keychain.get(provider.id)
+      .then((storedKey) => {
+        if (cancelled || !mountedRef.current) return;
+        setKeyValue(storedKey ?? '');
+        setKeyLoaded(true);
+      })
+      .catch((error) => {
+        if (cancelled || !mountedRef.current) return;
+        logProviderFailure(t('settings.providerCard.log.keyLoadFailed'), error);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [expanded, keyLoaded, provider.hasKey, provider.id]);
+  }, [expanded, keyLoaded, logProviderFailure, provider.hasKey, provider.id]);
 
   async function handleSaveKey() {
     setSaving(true);
@@ -172,6 +201,13 @@ function ProviderCard({
         setKeyVisible(false);
         setTestResult(null);
       }
+    } catch (error) {
+      const title = t('settings.providerCard.saveKeyFailed');
+      logProviderFailure(title, error);
+      showErrorToast({
+        title,
+        message: getErrorMessage(error),
+      });
     } finally {
       if (mountedRef.current) setSaving(false);
     }
@@ -179,7 +215,16 @@ function ProviderCard({
 
   async function handleCopyKey() {
     if (!keyValue) return;
-    await navigator.clipboard.writeText(keyValue);
+    try {
+      await navigator.clipboard.writeText(keyValue);
+    } catch (error) {
+      const title = t('settings.providerCard.copyKeyFailed');
+      logProviderFailure(title, error);
+      showErrorToast({
+        title,
+        message: getErrorMessage(error),
+      });
+    }
   }
 
   async function handleTestConnection() {
@@ -200,8 +245,28 @@ function ProviderCard({
       );
       if (!mountedRef.current) return;
       setTestResult(result?.ok ? 'ok' : 'fail');
-    } catch {
+      if (!result?.ok) {
+        dispatch(
+          addLog({
+            level: 'warn',
+            category: 'provider',
+            message: t('settings.providerCard.log.connectionFailed'),
+            detail: `${group}:${provider.id}`,
+          }),
+        );
+      }
+    } catch (error) {
       if (!mountedRef.current) return;
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'provider',
+          message: t('settings.providerCard.log.connectionFailed'),
+          detail: error instanceof Error
+            ? `${group}:${provider.id}\n${error.stack ?? error.message}`
+            : `${group}:${provider.id}\n${String(error)}`,
+        }),
+      );
       setTestResult('fail');
     } finally {
       if (mountedRef.current) setTesting(false);
@@ -301,9 +366,9 @@ function ProviderCard({
                   <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                     <span>
                       {metadata?.modelExample
-                        ? `${translateOrFallback('settings.providerCard.modelExample', 'Example:')} ${metadata.modelExample}`
+                        ? `${translateOrFallback('settings.modelExample', 'Example:')} ${metadata.modelExample}`
                         : translateOrFallback(
-                            'settings.providerCard.modelExampleEmpty',
+                            'settings.modelExampleEmpty',
                             'No official model example yet',
                           )}
                     </span>
@@ -314,7 +379,7 @@ function ProviderCard({
                         className="inline-flex items-center gap-1 text-primary hover:underline"
                       >
                         <ExternalLink className="h-3 w-3" />
-                        {translateOrFallback('settings.providerCard.viewModels', 'View Models')}
+                        {translateOrFallback('settings.viewModels', 'View Models')}
                       </button>
                     )}
                   </div>
@@ -395,7 +460,7 @@ function ProviderCard({
                     type="button"
                     onClick={() => void handleCopyKey()}
                     disabled={!keyValue}
-                    aria-label="Copy Key"
+                    aria-label={t('settings.providerCard.copyKey')}
                     className="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
                   >
                     <Copy className="h-3 w-3" />

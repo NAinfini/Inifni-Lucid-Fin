@@ -134,13 +134,14 @@ describe('canvas generation reducers', () => {
 
   it('completes generation and sets variants/primary asset', () => {
     let state = setup();
+    state = canvasSlice.reducer(state, setNodeVariantCount({ id: 'vid-1', count: 4 }));
     state = canvasSlice.reducer(state, setNodeGenerating({ id: 'vid-1', jobId: 'job-video' }));
     state = canvasSlice.reducer(
       state,
       setNodeGenerationComplete({
         id: 'vid-1',
         variants: ['hash-a', 'hash-b'],
-        primaryAssetHash: 'hash-a',
+        primaryAssetHash: 'hash-b',
         cost: 0.2,
         generationTimeMs: 8000,
       }),
@@ -153,6 +154,7 @@ describe('canvas generation reducers', () => {
       selectedVariantIndex: number;
       assetHash?: string;
       progress?: number;
+      variantCount?: number;
       estimatedCost?: number;
       generationTimeMs?: number;
     };
@@ -161,6 +163,7 @@ describe('canvas generation reducers', () => {
     expect(data.variants).toEqual(['hash-a', 'hash-b']);
     expect(data.selectedVariantIndex).toBe(0);
     expect(data.assetHash).toBe('hash-a');
+    expect(data.variantCount).toBe(2);
     expect(data.progress).toBe(100);
     expect(data.estimatedCost).toBe(0.2);
     expect(data.generationTimeMs).toBe(8000);

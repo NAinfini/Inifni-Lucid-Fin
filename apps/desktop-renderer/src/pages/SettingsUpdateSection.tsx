@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { AlertCircle, Check, Download, Loader2, RotateCcw } from 'lucide-react';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import { Progress } from '../components/ui/Progress.js';
 import { cn } from '../lib/utils.js';
+import type { AppDispatch } from '../store/index.js';
+import { addLog } from '../store/slices/logger.js';
 
 interface UpdateInfo {
   releaseDate?: string;
@@ -32,6 +35,7 @@ function clampProgress(value?: number): number {
 }
 
 export function SettingsUpdateSection() {
+  const dispatch = useDispatch<AppDispatch>();
   const [version, setVersion] = useState('');
   const [state, setState] = useState<UpdateState>({ phase: 'idle' });
   const checkRequestedRef = useRef(false);
@@ -103,6 +107,14 @@ export function SettingsUpdateSection() {
       .then(applyStatus)
       .catch((error: unknown) => {
         if (!isMounted) return;
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'updater',
+            message: t('settings.update.log.statusLoadFailed'),
+            detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          }),
+        );
         setState({
           phase: 'error',
           message: error instanceof Error ? error.message : String(error),
@@ -115,7 +127,7 @@ export function SettingsUpdateSection() {
       isMounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [dispatch]);
 
   async function handleCheck(): Promise<void> {
     const api = getAPI();
@@ -126,6 +138,14 @@ export function SettingsUpdateSection() {
       await api.updater.check();
     } catch (error) {
       checkRequestedRef.current = false;
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'updater',
+          message: t('settings.update.log.checkFailed'),
+          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+        }),
+      );
       setState((current) => ({
         phase: 'error',
         availableVersion: current.availableVersion,
@@ -145,6 +165,14 @@ export function SettingsUpdateSection() {
     try {
       await api.updater.download();
     } catch (error) {
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'updater',
+          message: t('settings.update.log.downloadFailed'),
+          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+        }),
+      );
       setState((current) => ({
         phase: 'error',
         availableVersion: current.availableVersion,
@@ -156,7 +184,23 @@ export function SettingsUpdateSection() {
   async function handleInstall(): Promise<void> {
     const api = getAPI();
     if (!api) return;
-    await api.updater.install();
+    try {
+      await api.updater.install();
+    } catch (error) {
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'updater',
+          message: t('settings.update.log.installFailed'),
+          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+        }),
+      );
+      setState((current) => ({
+        phase: 'error',
+        availableVersion: current.availableVersion,
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    }
   }
 
   return (

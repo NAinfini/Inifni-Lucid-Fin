@@ -164,18 +164,23 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
           )}
 
           {d.variants.length > 1 && (
-            <div className="overflow-x-auto px-3 pb-2">
-              <div className="flex min-w-max items-center gap-1">
-                {d.variants.slice(0, 9).map((hash, index) => (
-                  <VariantThumb
-                    key={hash}
-                    hash={hash}
-                    index={index}
-                    selected={d.selectedVariantIndex === index}
-                    type="image"
-                    onClick={() => d.onSelectVariant?.(d.nodeId, index)}
-                  />
-                ))}
+            <div className="border-t border-blue-500/10 px-3 py-1.5">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <div className="flex min-w-max items-center gap-1">
+                  {d.variants.map((hash, index) => (
+                    <VariantThumb
+                      key={hash}
+                      hash={hash}
+                      index={index}
+                      selected={d.selectedVariantIndex === index}
+                      type="image"
+                      onClick={() => d.onSelectVariant?.(d.nodeId, index)}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
           )}

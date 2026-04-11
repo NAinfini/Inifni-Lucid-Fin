@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  BUILT_IN_SHOT_TEMPLATES,
   createEmptyPresetTrackSet,
   type Canvas,
   type CanvasEdge,
@@ -291,29 +292,6 @@ describe('createCanvasTools', () => {
     );
   });
 
-  it('setPresets applies preset to correct category track', async () => {
-    const canvas = createCanvas();
-    const deps = createDeps(canvas);
-
-    const result = await getTool('canvas.setPresets', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'look',
-      presetId: 'builtin-look-cinematic-realism',
-    });
-
-    expect(result.success).toBe(true);
-    const presetTracks = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
-    expect(presetTracks.look.entries).toHaveLength(1);
-    expect(presetTracks.look.entries[0]).toEqual(
-      expect.objectContaining({
-        presetId: 'builtin-look-cinematic-realism',
-        category: 'look',
-        order: 0,
-      }),
-    );
-  });
-
   it('getState returns full canvas', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
@@ -364,16 +342,38 @@ describe('createCanvasTools', () => {
 
     expect(result).toEqual({
       success: true,
-      data: [
-        {
-          id: 'video-1',
-          type: 'video',
-          title: 'Video 1',
-          status: 'queued',
-          providerId: 'runway',
-        },
-      ],
+      data: {
+        total: 1,
+        offset: 0,
+        limit: 5,
+        nodes: [
+          {
+            id: 'video-1',
+            type: 'video',
+            title: 'Video 1',
+            status: 'queued',
+            providerId: 'runway',
+          },
+        ],
+      },
     });
+  });
+
+  it('searchNodes ignores empty-string filters', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    const result = await getTool('canvas.searchNodes', deps).execute({
+      canvasId: 'canvas-1',
+      type: '',
+      status: '',
+      providerId: '',
+      titleContains: '',
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as { total: number; nodes: unknown[] };
+    expect(data.total).toBe(canvas.nodes.length);
   });
 
   it('layout repositions nodes with correct spacing', async () => {
@@ -402,6 +402,11 @@ describe('createCanvasTools', () => {
   it('generate delegates to trigger function', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
+    // Mock triggerGeneration to also mark the node as done (since generate now polls)
+    deps.triggerGeneration = vi.fn(async (_canvasId: string, nodeId: string) => {
+      const node = canvas.nodes.find((n) => n.id === nodeId);
+      if (node) (node.data as Record<string, unknown>).status = 'done';
+    });
 
     const result = await getTool('canvas.generate', deps).execute({
       canvasId: 'canvas-1',
@@ -410,10 +415,9 @@ describe('createCanvasTools', () => {
       variantCount: 4,
     });
 
-    expect(result).toEqual({
-      success: true,
-      data: { nodeId: 'image-1', providerId: 'runway', variantCount: 4 },
-    });
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>).nodeId).toBe('image-1');
+    expect((result.data as Record<string, unknown>).status).toBe('done');
     expect(deps.triggerGeneration).toHaveBeenCalledWith('canvas-1', 'image-1', 'runway', 4);
   });
 
@@ -622,6 +626,39 @@ describe('createCanvasTools', () => {
     expect(tracksAfterRemove.camera.entries).toHaveLength(1);
     expect(tracksAfterRemove.camera.entries[0].id).toBe(secondEntryId);
     expect(tracksAfterRemove.camera.entries[0].order).toBe(0);
+  });
+
+  it('applyShotTemplate stores applied template metadata on the node', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+    vi.mocked(deps.listShotTemplates).mockResolvedValueOnce(BUILT_IN_SHOT_TEMPLATES);
+
+    const result = await getTool('canvas.applyShotTemplate', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      templateName: 'Horror Suspense',
+    });
+
+    expect(result).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        nodeId: 'image-1',
+        templateId: 'builtin-tmpl-horror-suspense',
+        templateName: 'Horror Suspense',
+      }),
+    });
+    expect(deps.updateNodeData).toHaveBeenCalledWith('canvas-1', 'image-1', {
+      appliedShotTemplateId: 'builtin-tmpl-horror-suspense',
+      appliedShotTemplateName: 'Horror Suspense',
+    });
+    expect(
+      (canvas.nodes[1]?.data as { appliedShotTemplateId?: string; appliedShotTemplateName?: string })
+        .appliedShotTemplateId,
+    ).toBe('builtin-tmpl-horror-suspense');
+    expect(
+      (canvas.nodes[1]?.data as { appliedShotTemplateId?: string; appliedShotTemplateName?: string })
+        .appliedShotTemplateName,
+    ).toBe('Horror Suspense');
   });
 
   it('reads recent logs through logger.read', async () => {

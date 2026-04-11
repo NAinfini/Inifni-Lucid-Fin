@@ -639,9 +639,8 @@ describe('registerCommanderHandlers logging', () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const send = vi.fn();
     const canvas = makeCanvas();
-    const executeSpy = vi
-      .spyOn(AgentOrchestrator.prototype, 'execute')
-      .mockImplementationOnce(async (_message, _context, emit, options) => {
+    vi.spyOn(AgentOrchestrator.prototype, 'execute').mockImplementationOnce(
+      async (_message, _context, emit, options) => {
         options?.onLLMRequest?.({
           step: 1,
           toolCount: 4,
@@ -704,7 +703,8 @@ describe('registerCommanderHandlers logging', () => {
           type: 'done',
           content: 'assistant response',
         });
-      });
+      },
+    );
 
     registerCommanderHandlers(
       {
@@ -802,7 +802,7 @@ describe('registerCommanderHandlers logging', () => {
       }),
     );
     expect(send).toHaveBeenCalledWith(
-      'commander:canvas:updated',
+      'commander:canvas:dispatch',
       expect.objectContaining({
         canvasId: 'canvas-1',
         canvas,

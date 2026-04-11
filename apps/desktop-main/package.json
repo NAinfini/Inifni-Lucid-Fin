@@ -1,13 +1,15 @@
 {
   "name": "@lucid-fin/desktop-main",
   "version": "0.0.1",
+  "description": "Lucid Fin – Electron main process",
+  "author": "Lucid Fin Team",
   "private": true,
   "type": "module",
   "main": "dist/electron.js",
   "scripts": {
     "dev": "tsc && tsc -p tsconfig.preload.json && electron dist/electron.js",
     "build": "tsc && tsc -p tsconfig.preload.json",
-    "pack:renderer": "npm run build --workspace=apps/desktop-renderer",
+    "pack:renderer": "npm run build --prefix ../desktop-renderer",
     "pack": "npm run build && npm run pack:renderer && electron-builder --config electron-builder.json",
     "pack:win": "npm run pack -- --win",
     "pack:mac": "npm run pack -- --mac",
@@ -15,22 +17,26 @@
     "rebuild": "electron-rebuild"
   },
   "dependencies": {
-    "@lucid-fin/contracts": "*",
-    "@lucid-fin/storage": "*",
     "@lucid-fin/adapters-ai": "*",
     "@lucid-fin/application": "*",
+    "@lucid-fin/contracts": "*",
     "@lucid-fin/media-engine": "*",
+    "@lucid-fin/storage": "*",
+    "archiver": "^7.0.1",
     "better-sqlite3": "^12.8.0",
-    "keytar": "^7.9.0",
     "electron-log": "^5.4.3",
+    "keytar": "^7.9.0",
+    "pdfkit": "^0.18.0",
     "uuid": "^13.0.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
+    "@types/pdfkit": "^0.17.5",
     "electron": "^41.0.3",
     "electron-builder": "^26.8.1",
-    "electron-rebuild": "^3.2.9",
     "electron-devtools-installer": "^4.0.0",
+    "electron-rebuild": "^3.2.9",
     "typescript": "^5.9.3"
   }
 }

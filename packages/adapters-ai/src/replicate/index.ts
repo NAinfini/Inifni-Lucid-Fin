@@ -6,14 +6,19 @@ import type {
   GenerationResult,
   CostEstimate,
 } from '@lucid-fin/contracts';
-import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
+import {
+  LucidError,
+  ErrorCode,
+  JobStatus,
+  resolveVideoReferenceImageField,
+} from '@lucid-fin/contracts';
 import { createPrediction, getPrediction, cancelPrediction, toJobStatus } from './client.js';
 
 export class ReplicateAdapter implements AIProviderAdapter {
   readonly id = 'replicate';
   readonly name = 'Replicate';
   readonly type: AdapterType | AdapterType[] = ['image', 'video'];
-  readonly capabilities: Capability[] = ['text-to-image', 'text-to-video'];
+  readonly capabilities: Capability[] = ['text-to-image', 'text-to-video', 'image-to-video'];
   readonly maxConcurrent = 5;
 
   private apiKey = '';
@@ -24,7 +29,10 @@ export class ReplicateAdapter implements AIProviderAdapter {
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
     if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
-    if (options?.model) this.model = options.model as string;
+    if (options?.model) {
+      this.model = options.model as string;
+      this.videoModel = options.model as string;
+    }
     if (options?.videoModel) this.videoModel = options.videoModel as string;
   }
 
@@ -40,28 +48,43 @@ export class ReplicateAdapter implements AIProviderAdapter {
   }
 
   async generate(req: GenerationRequest): Promise<GenerationResult> {
+    // Select model based on generation type
+    const activeModel = req.type === 'video' ? this.videoModel : this.model;
     const input: Record<string, unknown> = {
       prompt: req.prompt,
     };
-
-    // Select model based on generation type
-    const activeModel = req.type === 'video' ? this.videoModel : this.model;
 
     // Add dimensions for image/video
     if (req.width) input.width = req.width;
     if (req.height) input.height = req.height;
     if (req.seed != null) input.seed = req.seed;
+    if (req.type === 'video') {
+      const referenceImage = req.referenceImages?.[0];
+      const referenceField = resolveVideoReferenceImageField(this.id, activeModel) ?? 'image';
+      if (referenceImage) {
+        input[referenceField] = referenceImage;
+      }
+      if (req.duration != null) {
+        input.duration = req.duration;
+      }
+    }
 
-    const prediction = await createPrediction(this.apiKey, activeModel, input, this.name);
+    const prediction = await createPrediction(
+      this.apiKey,
+      activeModel,
+      input,
+      this.name,
+      this.baseUrl,
+    );
 
     // Poll for completion
     let status = prediction.status;
-    let predictionId = prediction.id;
+    const predictionId = prediction.id;
     let output = prediction.output;
 
     while (status === 'starting' || status === 'processing') {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      const updated = await getPrediction(this.apiKey, predictionId, this.name);
+      const updated = await getPrediction(this.apiKey, predictionId, this.name, this.baseUrl);
       status = updated.status;
       output = updated.output;
 
@@ -75,12 +98,12 @@ export class ReplicateAdapter implements AIProviderAdapter {
     }
 
     // Extract URL from output
-    let url = '';
-    if (typeof output === 'string') {
-      url = output;
-    } else if (Array.isArray(output) && output.length > 0) {
-      url = typeof output[0] === 'string' ? output[0] : '';
-    }
+    const url =
+      typeof output === 'string'
+        ? output
+        : Array.isArray(output) && output.length > 0 && typeof output[0] === 'string'
+          ? output[0]
+          : '';
 
     return {
       assetHash: '',
@@ -96,7 +119,7 @@ export class ReplicateAdapter implements AIProviderAdapter {
 
   async checkStatus(jobId: string): Promise<JobStatus> {
     try {
-      const prediction = await getPrediction(this.apiKey, jobId, this.name);
+      const prediction = await getPrediction(this.apiKey, jobId, this.name, this.baseUrl);
       return toJobStatus(prediction.status);
     } catch {
       return JobStatus.Failed;
@@ -104,6 +127,6 @@ export class ReplicateAdapter implements AIProviderAdapter {
   }
 
   async cancel(jobId: string): Promise<void> {
-    await cancelPrediction(this.apiKey, jobId);
+    await cancelPrediction(this.apiKey, jobId, this.baseUrl);
   }
 }

@@ -10,6 +10,7 @@ import { addCustomProvider, settingsSlice, type SettingsState } from '../store/s
 import { promptTemplatesSlice, setCustomContent } from '../store/slices/promptTemplates.js';
 import { uiSlice } from '../store/slices/ui.js';
 import { workflowDefinitionsSlice } from '../store/slices/workflowDefinitions.js';
+import { commanderSlice } from '../store/slices/commander.js';
 import { getAPI } from '../utils/api.js';
 import { setLocale, t } from '../i18n.js';
 
@@ -28,6 +29,7 @@ function createStore(preloadedSettings?: SettingsState) {
       promptTemplates: promptTemplatesSlice.reducer,
       ui: uiSlice.reducer,
       workflowDefinitions: workflowDefinitionsSlice.reducer,
+      commander: commanderSlice.reducer,
     },
     preloadedState: preloadedSettings ? { settings: preloadedSettings } : undefined,
   });
@@ -131,6 +133,26 @@ describe('Settings updater UI', () => {
     fireEvent.click(screen.getByRole('button', { name: t('settings.nav.workflows') }));
 
     await waitFor(() => {
+      expect(screen.getByText(t('workflowDefinitionNames.wf-video-clone'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.wf-style-transfer'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-reverse-prompt'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-lip-sync'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-srt-import'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-capcut-export'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-semantic-search'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-multi-view'))).toBeTruthy();
+      expect(screen.queryByText(t('promptTemplateNames.video-clone'))).toBeNull();
+      expect(screen.queryByText(t('promptTemplateNames.dual-prompt-strategy'))).toBeNull();
+      expect(screen.queryByText(t('promptTemplateNames.lip-sync-workflow'))).toBeNull();
+    });
+
+    const builtInSkillButton = screen
+      .getByText(t('workflowDefinitionNames.sk-reverse-prompt'))
+      .closest('button') as HTMLElement | null;
+    expect(builtInSkillButton).toBeTruthy();
+    expect(within(builtInSkillButton as HTMLElement).getByText(t('settings.builtIn'))).toBeTruthy();
+
+    await waitFor(() => {
       expect(screen.getByText('工作流与技能')).toBeTruthy();
       expect(screen.getByText('专门管理工作流和技能的空间。')).toBeTruthy();
       expect(screen.getByText('故事创意 → 视频')).toBeTruthy();
@@ -140,7 +162,7 @@ describe('Settings updater UI', () => {
     });
   });
 
-  it('saves renamed skill templates from the workflows settings tab', async () => {
+  it('does not render prompt-template skills inside the workflows settings tab', async () => {
     vi.mocked(getAPI).mockReturnValue({
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
@@ -154,40 +176,17 @@ describe('Settings updater UI', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    const store = renderSettings();
+    renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
 
     await waitFor(() => {
       expect(screen.getAllByText('Workflows & Skills').length).toBeGreaterThan(0);
+      expect(screen.getByText('Reverse Prompt Inference')).toBeTruthy();
+      expect(screen.queryByText('Style Transfer')).toBeNull();
+      expect(screen.queryByText('Shot List from Script')).toBeNull();
+      expect(screen.queryByText('Dual Prompt Strategy')).toBeNull();
     });
-
-    fireEvent.click(screen.getByText('Style Transfer').closest('button')!);
-
-    const nameInput = await screen.findByDisplayValue('Style Transfer');
-    fireEvent.change(nameInput, { target: { value: 'Style Adaptation' } });
-
-    const skillContentEditor = screen
-      .getAllByRole('textbox')
-      .find((element) => element.tagName === 'TEXTAREA');
-    expect(skillContentEditor).toBeTruthy();
-
-    fireEvent.change(skillContentEditor as HTMLElement, {
-      target: { value: 'Custom skill content' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
-    const updatedTemplate = store
-      .getState()
-      .promptTemplates.templates.find((template) => template.id === 'style-transfer');
-
-    expect(updatedTemplate).toEqual(
-      expect.objectContaining({
-        id: 'style-transfer',
-        name: 'Style Adaptation',
-        customContent: 'Custom skill content',
-      }),
-    );
   });
 
   it('saves renamed prompt templates from the prompt templates tab', async () => {
@@ -236,7 +235,7 @@ describe('Settings updater UI', () => {
     expect(screen.getByText('Director Notes')).toBeTruthy();
   });
 
-  it('shows customized badges for prompt templates and skill templates in zh-CN', async () => {
+  it('shows customized badges for prompt templates in zh-CN', async () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
@@ -260,11 +259,6 @@ describe('Settings updater UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: t('settings.nav.promptTemplates') }));
     expect(screen.getAllByText(t('settings.customized')).length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.workflows') }));
-    await waitFor(() => {
-      expect(screen.getAllByText(t('settings.customized')).length).toBeGreaterThan(0);
-    });
   });
 
   it('updates the UI when download progress events arrive', async () => {
@@ -561,6 +555,62 @@ describe('Settings updater UI', () => {
       expect(screen.getByText(t('providerNames.qwen'))).toBeTruthy();
       expect(screen.getByText(t('providerNames.doubao'))).toBeTruthy();
       expect(screen.getByText(t('providerNames.volcengine-ark'))).toBeTruthy();
+    });
+  });
+
+  it('localizes the commander settings tab in zh-CN', async () => {
+    setLocale('zh-CN');
+
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: '指挥官 AI' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('指挥官 AI').length).toBeGreaterThan(0);
+      expect(screen.getByText(t('commander.permissionMode.autoDesc'))).toBeTruthy();
+      expect(screen.getByText(t('commander.permissionMode.normalDesc'))).toBeTruthy();
+      expect(screen.getByText(t('commander.permissionMode.strictDesc'))).toBeTruthy();
+    });
+  });
+
+  it('localizes provider hub helper text in zh-CN', async () => {
+    setLocale('zh-CN');
+
+    vi.mocked(getAPI).mockReturnValue({
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+      openExternal: vi.fn(),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    const openRouterCard = findProviderCard('OpenRouter');
+    fireEvent.click(within(openRouterCard).getByLabelText(t('settings.providerCard.expand')));
+
+    await waitFor(() => {
+      expect(screen.getByText(`示例: openai/gpt-4.1`)).toBeTruthy();
+      expect(screen.getByRole('button', { name: '查看模型' })).toBeTruthy();
     });
   });
 

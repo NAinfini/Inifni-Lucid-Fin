@@ -5,7 +5,7 @@ import { Activity } from 'lucide-react';
 import { t } from '../../i18n.js';
 
 export function StatusBar() {
-  const { title, path } = useSelector((s: RootState) => s.project);
+  const { path } = useSelector((s: RootState) => s.project);
   const { activeCount } = useSelector((s: RootState) => s.jobs);
 
   return (

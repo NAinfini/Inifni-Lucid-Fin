@@ -1,5 +1,4 @@
 import type { SqliteIndex } from '@lucid-fin/storage';
-import fs from 'node:fs';
 import log from '../logger.js';
 
 /**

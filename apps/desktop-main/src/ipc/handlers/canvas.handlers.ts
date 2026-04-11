@@ -1,9 +1,54 @@
 import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import log from '../../logger.js';
-import type { Canvas } from '@lucid-fin/contracts';
+import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { getCurrentProjectId } from '../project-context.js';
+
+interface CanvasPatch {
+  canvasId: string;
+  timestamp: number;
+  nameChange?: string;
+  addedNodes?: CanvasNode[];
+  removedNodeIds?: string[];
+  updatedNodes?: Array<{ id: string; changes: Record<string, unknown> }>;
+  addedEdges?: CanvasEdge[];
+  removedEdgeIds?: string[];
+}
+
+function applyPatch(canvas: Canvas, patch: CanvasPatch): void {
+  if (patch.nameChange !== undefined) {
+    canvas.name = patch.nameChange;
+  }
+
+  if (patch.removedNodeIds && patch.removedNodeIds.length > 0) {
+    const removedSet = new Set(patch.removedNodeIds);
+    canvas.nodes = canvas.nodes.filter(n => !removedSet.has(n.id));
+  }
+
+  if (patch.updatedNodes && patch.updatedNodes.length > 0) {
+    const nodeMap = new Map(canvas.nodes.map(n => [n.id, n]));
+    for (const { id, changes } of patch.updatedNodes) {
+      const node = nodeMap.get(id);
+      if (node) {
+        Object.assign(node, changes);
+      }
+    }
+  }
+
+  if (patch.addedNodes && patch.addedNodes.length > 0) {
+    canvas.nodes.push(...patch.addedNodes);
+  }
+
+  if (patch.removedEdgeIds && patch.removedEdgeIds.length > 0) {
+    const removedSet = new Set(patch.removedEdgeIds);
+    canvas.edges = canvas.edges.filter(e => !removedSet.has(e.id));
+  }
+
+  if (patch.addedEdges && patch.addedEdges.length > 0) {
+    canvas.edges.push(...patch.addedEdges);
+  }
+}
 
 function requireProject(): { projectId: string } {
   const projectId = getCurrentProjectId();
@@ -25,10 +70,24 @@ export interface CanvasStore {
 }
 
 export function createCanvasStore(db: SqliteIndex): CanvasStore {
+  const cache = new Map<string, Canvas>();
+
   return {
-    get: (id) => db.getCanvas(id),
-    save: (canvas) => db.upsertCanvas(canvas),
-    delete: (id) => db.deleteCanvas(id),
+    get: (id) => {
+      const cached = cache.get(id);
+      if (cached) return cached;
+      const fromDb = db.getCanvas(id);
+      if (fromDb) cache.set(id, fromDb);
+      return fromDb;
+    },
+    save: (canvas) => {
+      cache.set(canvas.id, canvas);
+      db.upsertCanvas(canvas);
+    },
+    delete: (id) => {
+      cache.delete(id);
+      db.deleteCanvas(id);
+    },
     listForProject: (projectId) => db.listCanvases(projectId),
   };
 }
@@ -52,7 +111,7 @@ export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): vo
     data.projectId = projectId;
     data.updatedAt = Date.now();
     store.save(data);
-    log.info('Canvas saved:', data.id);
+    log.debug('Canvas saved:', data.id);
   });
 
   ipcMain.handle('canvas:create', async (_e, args: { name: string }) => {
@@ -93,5 +152,15 @@ export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): vo
     canvas.updatedAt = Date.now();
     store.save(canvas);
     log.info('Canvas renamed:', args.id, canvas.name);
+  });
+
+  ipcMain.handle('canvas:patch', async (_e, args: { canvasId: string; patch: CanvasPatch }) => {
+    if (!args || typeof args.canvasId !== 'string') throw new Error('canvasId is required');
+    const canvas = store.get(args.canvasId);
+    if (!canvas) throw new Error(`Canvas not found: ${args.canvasId}`);
+    applyPatch(canvas, args.patch);
+    canvas.updatedAt = Date.now();
+    store.save(canvas);
+    log.debug('Canvas patched:', args.canvasId);
   });
 }

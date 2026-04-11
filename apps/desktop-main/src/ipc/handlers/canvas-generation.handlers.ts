@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { IpcMain } from 'electron';
 import log from '../../logger.js';
@@ -6,7 +7,7 @@ import type {
   AudioNodeData,
   Canvas,
   CanvasNode,
-  GenerationType,
+  ContentProvenance,
   ImageNodeData,
   ProgressUpdate,
   QueueUpdate,
@@ -28,11 +29,14 @@ import {
   normalizeErrorMessage,
   capitalizeUpdateStatus,
   materializeAsset,
+  materializeGenerationRequest,
   requireGenerateArgs,
   requireEstimateArgs,
   requireCancelArgs,
 } from './generation-helpers.js';
 import { buildGenerationContext, mapGenerationTypeToAssetType } from './generation-context.js';
+import { autoChainVideoFrame } from './video-chain.js';
+import { runLipSyncPostProcess } from './lipsync.handlers.js';
 
 // Re-export for external consumers
 export { canonicalizeCanvasProviderId } from './generation-helpers.js';
@@ -217,12 +221,13 @@ async function executeGeneration(args: {
       sendProgress(sender, runningJob.canvasId, runningJob.nodeId, progress, `Generating variant ${index + 1}`);
 
       const variantSeed = typeof baseSeed === 'number' ? baseSeed + index : undefined;
+      const variantRequest = materializeGenerationRequest(
+        { ...requestBase, seed: variantSeed },
+        deps.cas,
+      );
       const generated = await runAdapterGeneration({
         adapter,
-        request: {
-          ...requestBase,
-          seed: variantSeed,
-        },
+        request: variantRequest,
         sender,
         runningJob,
         variantIndex: index,
@@ -300,6 +305,18 @@ async function executeGeneration(args: {
         });
 
         variantHashes.push(ref.hash);
+
+        // Attach C2PA provenance to result metadata
+        const provenance: ContentProvenance = {
+          provider: adapter.id,
+          promptHash: crypto.createHash('sha256').update(requestBase.prompt).digest('hex'),
+          generatedAt: Date.now(),
+          softwareAgent: 'Lucid Fin',
+          ...(requestBase.sourceImageHash ? { sourceImageHash: requestBase.sourceImageHash } : {}),
+        };
+        generated.provenance = provenance;
+        generated.metadata = { ...(generated.metadata ?? {}), provenance };
+
         if (typeof generated.cost === 'number') {
           totalCost += generated.cost;
         }
@@ -322,6 +339,23 @@ async function executeGeneration(args: {
       cost: finalCost,
     });
     touchCanvas(canvas, deps);
+
+    if (node.type === 'video') {
+      void autoChainVideoFrame(canvas, node, deps.cas)
+        .then(() => touchCanvas(canvas, deps))
+        .catch((err) => {
+          log.warn('[canvas:generation] auto-chain frame extraction failed', { error: String(err) });
+        });
+    }
+
+    if (node.type === 'video') {
+      const videoData = node.data as VideoNodeData;
+      if (videoData.lipSyncEnabled) {
+        void runLipSyncPostProcess(canvas, node, deps).catch((err) => {
+          log.warn('[canvas:generation] lip-sync post-processing failed', { error: String(err) });
+        });
+      }
+    }
 
     sendProgress(sender, runningJob.canvasId, runningJob.nodeId, 100, 'completed');
     log.info('Canvas generation completed', {

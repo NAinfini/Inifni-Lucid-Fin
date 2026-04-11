@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
+import { FileText, Image, Music, Plus, SquareDashedBottom, Video } from 'lucide-react';
 import {
   ReactFlow,
   Background,
@@ -23,13 +24,11 @@ import '@xyflow/react/dist/style.css';
 import type { AppDispatch, RootState } from '../../store/index.js';
 import {
   addNode,
-  applyCanvasFromCommander,
   removeNodes,
   moveNode,
   renameNode,
   addEdge as addEdgeAction,
   copyNodes as copyNodesAction,
-  duplicateNodes,
   insertNodeIntoEdge,
   removeEdges,
   setClipboard,
@@ -37,7 +36,6 @@ import {
   setActiveCanvas,
   swapEdgeDirection,
   toggleSeedLock,
-  toggleBypass,
   setNodeColorTag,
   setNodeUploadedAsset,
   toggleLock,
@@ -53,14 +51,12 @@ import {
   type CanvasClipboardPayload,
 } from '../../store/slices/canvas.js';
 import {
-  setSearchPanelOpen,
   setRightPanel,
   toggleMinimapVisible,
   toggleSearchPanel,
   toggleSnapToGrid,
 } from '../../store/slices/ui.js';
 import {
-  createEmptyPresetTrackSet,
   type AudioNodeData,
   type BackdropNodeData,
   type CanvasEdge as CanvasEdgeDTO,
@@ -83,11 +79,17 @@ import { BackdropNode } from './nodes/BackdropNode.js';
 import { LinkEdge, type LinkEdgeData } from './edges/LinkEdge.js';
 import { CanvasSearchPanel } from './CanvasSearchPanel.js';
 import { CanvasToolbar } from './CanvasToolbar.js';
+import { VideoCloneDialog } from './VideoCloneDialog.js';
+import { EditView } from './views/EditView.js';
+import { AudioView } from './views/AudioView.js';
+import { MaterialsView } from './views/MaterialsView.js';
 import { CanvasContextMenu, setContextMenuPosition } from './CanvasContextMenu.js';
 import { useCanvasGeneration } from '../../hooks/useCanvasGeneration.js';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard.js';
+import { useCanvasDragDrop } from '../../hooks/useCanvasDragDrop.js';
 import { debounce } from '../../utils/performance.js';
 import { getAPI } from '../../utils/api.js';
+import { cn } from '../../lib/utils.js';
 import { downloadWorkflowDocument } from '../../utils/workflowExport.js';
 import { materializeImportedCanvas, readWorkflowDocument } from '../../utils/workflowImport.js';
 import { buildExternalAIPrompt } from '../../utils/prompt-export.js';
@@ -95,6 +97,7 @@ import { t } from '../../i18n.js';
 import {
   duplicateNode,
   disconnectNode,
+  setCanvases,
 } from '../../store/slices/canvas.js';
 import { getDefaultNodeFrame } from '../../store/slices/canvas-helpers.js';
 
@@ -139,12 +142,6 @@ interface PresetTrackNodeData {
   presetTracks?: Partial<PresetTrackSet> | Record<string, PresetTrack>;
 }
 
-interface DragAssetPayload {
-  hash: string;
-  name: string;
-  type: 'image' | 'video' | 'audio';
-}
-
 interface FlowVisualState {
   dependencyRole: 'upstream' | 'downstream' | 'focus' | null;
   dimmed: boolean;
@@ -175,57 +172,6 @@ function firstPresetNameFromCategory(
   if (!first.presetId) return null;
   const name = presetById[first.presetId]?.name;
   return name ? localizePresetName(name) : null;
-}
-
-function createNodePayloadFromAsset(asset: DragAssetPayload): {
-  type: CanvasNodeType;
-  title: string;
-  data: ImageNodeData | VideoNodeData | AudioNodeData;
-} {
-  switch (asset.type) {
-    case 'image':
-      return {
-        type: 'image',
-        title: asset.name,
-        data: {
-          assetHash: asset.hash,
-          status: 'done',
-          variants: [asset.hash],
-          selectedVariantIndex: 0,
-          variantCount: 1,
-          seedLocked: false,
-          presetTracks: createEmptyPresetTrackSet(),
-        },
-      };
-    case 'video':
-      return {
-        type: 'video',
-        title: asset.name,
-        data: {
-          assetHash: asset.hash,
-          status: 'done',
-          variants: [asset.hash],
-          selectedVariantIndex: 0,
-          variantCount: 1,
-          seedLocked: false,
-          presetTracks: createEmptyPresetTrackSet(),
-        },
-      };
-    case 'audio':
-      return {
-        type: 'audio',
-        title: asset.name,
-        data: {
-          assetHash: asset.hash,
-          audioType: 'voice',
-          status: 'done',
-          variants: [asset.hash],
-          selectedVariantIndex: 0,
-          variantCount: 1,
-          seedLocked: false,
-        },
-      };
-  }
 }
 
 function cloneDeep<T>(value: T): T {
@@ -551,6 +497,56 @@ function toFlowEdge(
   };
 }
 
+// ---- Node creation palette ---------------------------------------------------
+
+const NODE_PALETTE_ITEMS: Array<{ type: CanvasNodeType; icon: typeof Plus; label: string }> = [
+  { type: 'image', icon: Image, label: 'canvas.nodeType.image' },
+  { type: 'video', icon: Video, label: 'canvas.nodeType.video' },
+  { type: 'audio', icon: Music, label: 'canvas.nodeType.audio' },
+  { type: 'text', icon: FileText, label: 'canvas.nodeType.text' },
+  { type: 'backdrop', icon: SquareDashedBottom, label: 'canvas.nodeType.backdrop' },
+];
+
+function NodeCreationPalette({ onAdd }: { onAdd: (type: CanvasNodeType) => void }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="absolute bottom-4 left-4 z-30">
+      {open && (
+        <div className="mb-1.5 flex flex-col gap-1 rounded-lg border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
+          {NODE_PALETTE_ITEMS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.type}
+                type="button"
+                onClick={() => { onAdd(item.type); setOpen(false); }}
+                className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {t(item.label)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'inline-flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition-colors',
+          open
+            ? 'bg-primary text-primary-foreground rotate-45'
+            : 'bg-card/95 border border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground backdrop-blur-sm',
+        )}
+        aria-label={t('toolbar.add')}
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 // ---- Main component --------------------------------------------------------
 
 export function CanvasWorkspace() {
@@ -564,11 +560,13 @@ export function CanvasWorkspace() {
   const backdropChildrenRef = useRef<Map<string, { offsetX: number; offsetY: number }>>(new Map());
   const [depHighlightLocked, setDepHighlightLocked] = useState(false);
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null);
+  const [videoCloneOpen, setVideoCloneOpen] = useState(false);
 
   const activeCanvasId = useSelector((s: RootState) => s.canvas.activeCanvasId);
   const canvas = useSelector((s: RootState) =>
     s.canvas.canvases.find((c) => c.id === activeCanvasId),
   );
+  const projectStyleGuide = useSelector((s: RootState) => s.project.styleGuide);
   const selectedNodeIds = useSelector((s: RootState) => s.canvas.selectedNodeIds);
   const selectedEdgeIds = useSelector((s: RootState) => s.canvas.selectedEdgeIds);
   const clipboard = useSelector((s: RootState) => s.canvas.clipboard);
@@ -582,6 +580,8 @@ export function CanvasWorkspace() {
     snapToGrid,
     rightPanel,
     hoveredDependencyNodeId,
+    canvasViewMode,
+    editViewFocusedNodeId,
   } = useSelector((s: RootState) => s.ui);
 
   const debouncedViewportUpdate = useMemo(
@@ -861,7 +861,7 @@ export function CanvasWorkspace() {
       }
     }
     return matches;
-  }, [canvas?.nodes, canvasSearchQuery, canvasStatusFilters, canvasTypeFilters, searchQuery]);
+  }, [canvas?.nodes, canvasStatusFilters, canvasTypeFilters, searchQuery]);
 
   const matchedNodeIdsArray = useMemo(() => Array.from(matchingNodeIds), [matchingNodeIds]);
 
@@ -1206,146 +1206,8 @@ export function CanvasWorkspace() {
     [dispatch],
   );
 
-  const handleDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      event.preventDefault();
-
-      const rfInstance = rfInstanceRef.current;
-      if (!rfInstance) return;
-
-      // Handle file drops from OS
-      const files = event.dataTransfer.files;
-      if (files.length > 0) {
-        const basePos = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-        let offsetY = 0;
-        let handledAny = false;
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          if (!file) continue;
-          const ext = file.name.split('.').pop()?.toLowerCase();
-          // Text files → Text Node
-          if (ext === 'txt' || ext === 'md') {
-            const title = file.name.replace(/\.[^.]+$/, '');
-            const pos = { x: basePos.x, y: basePos.y + offsetY };
-            void file.text().then((content) => {
-              dispatch(
-                addNode({
-                  id: crypto.randomUUID(),
-                  type: 'text' as CanvasNodeType,
-                  title,
-                  data: { content },
-                  position: pos,
-                }),
-              );
-            });
-            offsetY += 180;
-            handledAny = true;
-          } else if (file.type.startsWith('image/')) {
-            // Image file → import + Image Node
-            const title = file.name.replace(/\.[^.]+$/, '');
-            const pos = { x: basePos.x, y: basePos.y + offsetY };
-            const filePath = (file as { path?: string }).path ?? '';
-            if (filePath) {
-              const api = getAPI();
-              void api?.asset.import(filePath, 'image').then((ref) => {
-                const r = ref as { hash: string } | null;
-                if (!r?.hash) return;
-                const payload = createNodePayloadFromAsset({ hash: r.hash, name: title, type: 'image' });
-                dispatch(
-                  addNode({
-                    id: crypto.randomUUID(),
-                    type: payload.type,
-                    title: payload.title,
-                    data: payload.data,
-                    position: pos,
-                  }),
-                );
-              });
-            }
-            offsetY += 220;
-            handledAny = true;
-          } else if (file.type.startsWith('video/')) {
-            // Video file → import + Video Node
-            const title = file.name.replace(/\.[^.]+$/, '');
-            const pos = { x: basePos.x, y: basePos.y + offsetY };
-            const filePath = (file as { path?: string }).path ?? '';
-            if (filePath) {
-              const api = getAPI();
-              void api?.asset.import(filePath, 'video').then((ref) => {
-                const r = ref as { hash: string } | null;
-                if (!r?.hash) return;
-                const payload = createNodePayloadFromAsset({ hash: r.hash, name: title, type: 'video' });
-                dispatch(
-                  addNode({
-                    id: crypto.randomUUID(),
-                    type: payload.type,
-                    title: payload.title,
-                    data: payload.data,
-                    position: pos,
-                  }),
-                );
-              });
-            }
-            offsetY += 220;
-            handledAny = true;
-          }
-        }
-        if (handledAny) return;
-      }
-
-      // Handle ref-image drops from entity panels
-      const refImageRaw = event.dataTransfer.getData('application/x-lucid-ref-image');
-      if (refImageRaw) {
-        try {
-          const payload = JSON.parse(refImageRaw) as { assetHash: string; entityType: string; entityId: string; slot: string };
-          if (payload.assetHash) {
-            const nodePayload = createNodePayloadFromAsset({ hash: payload.assetHash, name: `${payload.entityType} ref`, type: 'image' });
-            dispatch(
-              addNode({
-                id: crypto.randomUUID(),
-                type: nodePayload.type,
-                title: nodePayload.title,
-                data: nodePayload.data,
-                position: rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-              }),
-            );
-          }
-        } catch { /* malformed payload */ }
-        return;
-      }
-
-      // Handle asset drops from Asset Store or Canvas nodes
-      const raw = event.dataTransfer.getData('application/x-lucid-asset') || event.dataTransfer.getData('application/x-lucid-node-asset');
-      if (!raw) {
-        return;
-      }
-      const asset = JSON.parse(raw) as DragAssetPayload;
-      const payload = createNodePayloadFromAsset(asset);
-      dispatch(
-        addNode({
-          id: crypto.randomUUID(),
-          type: payload.type,
-          title: payload.title,
-          data: payload.data,
-          position: rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-        }),
-      );
-    },
-    [dispatch],
-  );
-
-  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    const types = event.dataTransfer.types;
-    if (
-      types.includes('application/x-lucid-asset') ||
-      types.includes('application/x-lucid-node-asset') ||
-      types.includes('application/x-lucid-ref-image') ||
-      types.includes('Files')
-    ) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
-    }
-  }, []);
+  // Drag-drop — delegated to extracted hook
+  const { handleDrop, handleDragOver } = useCanvasDragDrop(rfInstanceRef);
 
   // ---- Paste / Undo / Redo (shared by keyboard shortcuts + context menu) ----
 
@@ -1460,9 +1322,15 @@ export function CanvasWorkspace() {
         name: replacingActiveCanvas ? canvas.name : `${document.canvas.name} Imported`,
       });
 
-      dispatch(applyCanvasFromCommander(importedCanvas));
-      dispatch(setActiveCanvas(importedCanvas.id));
       await getAPI()?.canvas.save(importedCanvas);
+      // Reload canvases from server to pick up the imported canvas
+      const api = getAPI();
+      if (api) {
+        const list = await api.canvas.list();
+        const loaded = await Promise.all(list.map((item) => api.canvas.load(item.id)));
+        dispatch(setCanvases(loaded.filter(Boolean)));
+      }
+      dispatch(setActiveCanvas(importedCanvas.id));
       event.target.value = '';
     },
     [canvas, dispatch],
@@ -1479,6 +1347,7 @@ export function CanvasWorkspace() {
   }
 
   return (
+    <>
     <CanvasContextMenu
       onAddNode={handleAddNode}
       onPaste={() => { void handlePaste(); }}
@@ -1511,6 +1380,13 @@ export function CanvasWorkspace() {
           onToggleSnapToGrid={() => dispatch(toggleSnapToGrid())}
           onExportWorkflow={handleExportWorkflow}
           onImportWorkflow={handleOpenWorkflowImport}
+          onCloneVideo={() => setVideoCloneOpen(true)}
+          styleGuide={{
+            artStyle: projectStyleGuide?.global?.artStyle,
+            lighting: projectStyleGuide?.global?.lighting,
+            freeformDescription: projectStyleGuide?.global?.freeformDescription,
+            onOpenSettings: () => { window.location.hash = '#/settings'; },
+          }}
         />
         {connectingFromNodeId && (
           <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-full border border-primary/30 bg-card/95 px-3 py-1.5 text-xs text-foreground shadow-lg backdrop-blur">
@@ -1525,6 +1401,13 @@ export function CanvasWorkspace() {
             onNavigateToNode={handleNavigateToNode}
           />
         ) : null}
+        {canvasViewMode === 'edit' && <EditView focusedNodeId={editViewFocusedNodeId} />}
+        {canvasViewMode === 'audio' && <AudioView />}
+        {canvasViewMode === 'materials' && <MaterialsView />}
+        {canvasViewMode === 'main' && (
+        <>
+        {/* Node creation palette */}
+        <NodeCreationPalette onAdd={(type) => handleAddNode(type, { x: window.innerWidth / 2, y: window.innerHeight / 2 })} />
         <ReactFlow
           nodes={flowNodes}
           edges={flowEdges}
@@ -1601,7 +1484,16 @@ export function CanvasWorkspace() {
             />
           ) : null}
         </ReactFlow>
+        </>
+        )}
       </div>
     </CanvasContextMenu>
+    <VideoCloneDialog
+      open={videoCloneOpen}
+      projectId={canvas?.projectId ?? null}
+      onClose={() => setVideoCloneOpen(false)}
+      onCanvasCreated={(canvasId) => dispatch(setActiveCanvas(canvasId))}
+    />
+    </>
   );
 }

@@ -14,7 +14,17 @@ import {
   startStreaming,
   streamError,
 } from '../store/slices/commander.js';
-import { applyCanvasFromCommander } from '../store/slices/canvas.js';
+import {
+  addNode,
+  removeNodes,
+  updateNodeData,
+  moveNode,
+  renameNode,
+  addEdge,
+  removeEdges,
+  updateEdge,
+  renameCanvas,
+} from '../store/slices/canvas.js';
 import { setCharacters } from '../store/slices/characters.js';
 import { setEquipment } from '../store/slices/equipment.js';
 import { setLocations } from '../store/slices/locations.js';
@@ -27,6 +37,7 @@ import {
 } from '../store/slices/settings.js';
 import { selectActiveTemplates } from '../store/slices/promptTemplates.js';
 import { addLog } from '../store/slices/logger.js';
+import { t, getLocale } from '../i18n.js';
 import { getAPI, type LucidAPI } from '../utils/api.js';
 
 type CommanderEntityAPI = Pick<NonNullable<LucidAPI>, 'character' | 'equipment' | 'location'>;
@@ -72,7 +83,7 @@ export function useCommander(): {
     async (message: string) => {
       const api = getAPI();
       if (!api?.commander) {
-        throw new Error('Commander API unavailable');
+        throw new Error(t('commander.apiUnavailable'));
       }
 
       const trimmed = message.trim();
@@ -82,7 +93,7 @@ export function useCommander(): {
       const state = store.getState();
       const currentCanvasId = state.canvas.activeCanvasId;
       if (!currentCanvasId) {
-        throw new Error('No active canvas selected');
+        throw new Error(t('commander.noActiveCanvas'));
       }
 
       if (state.commander.streaming) {
@@ -91,19 +102,55 @@ export function useCommander(): {
         return;
       }
 
-      const history = state.commander.messages
-        .filter((entry) => entry.content.trim().length > 0)
-        .map((entry) => ({ role: entry.role, content: entry.content }));
+      // Build rich history with tool call context for LLM continuity
+      const history: Array<Record<string, unknown>> = [];
+      for (const entry of state.commander.messages) {
+        if (entry.role === 'assistant' && entry.toolCalls && entry.toolCalls.length > 0) {
+          const completedCalls = entry.toolCalls.filter((tc) => tc.status === 'done' || tc.status === 'error');
+          if (completedCalls.length > 0) {
+            // Push assistant message with tool calls attached
+            history.push({
+              role: 'assistant',
+              content: entry.content,
+              toolCalls: completedCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
+            });
+            // Push corresponding tool result messages
+            for (const tc of completedCalls) {
+              const resultStr = tc.result != null ? (typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result)) : '';
+              // Truncate tool results to avoid bloating context
+              const truncated = resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...(truncated)' : resultStr;
+              history.push({
+                role: 'tool',
+                content: truncated,
+                toolCallId: tc.id,
+              });
+            }
+          } else if (entry.content.trim().length > 0) {
+            // All tool calls still pending — treat as plain text message
+            history.push({ role: entry.role, content: entry.content });
+          }
+        } else if (entry.content.trim().length > 0) {
+          history.push({ role: entry.role, content: entry.content });
+        }
+      }
       const activeTemplates = selectActiveTemplates(state.promptTemplates.templates);
       const llmSettings = state.settings.llm;
       const selectedNodeIds = state.canvas.selectedNodeIds;
 
+      // Save current canvas to DB before Commander reads it
+      const { activeCanvasId: canvasId, canvases } = state.canvas;
+      const activeCanvas = canvases.find((c) => c.id === canvasId);
+      if (activeCanvas && api.canvas?.save) {
+        await api.canvas.save(activeCanvas).catch(() => {});
+      }
+
       dispatch(addUserMessage(trimmed));
       dispatch(startStreaming());
 
+      const llmProviders = llmSettings?.providers ?? [];
       const activeProvider =
-        llmSettings.providers.find((p) => p.id === state.commander.providerId) ??
-        llmSettings.providers[0];
+        llmProviders.find((p) => p.id === state.commander.providerId) ??
+        llmProviders[0];
       const customLLMProvider = activeProvider
         ? normalizeLLMProviderRuntimeConfig({
             id: activeProvider.id,
@@ -115,9 +162,10 @@ export function useCommander(): {
           })
         : undefined;
       const permissionMode = state.commander.permissionMode;
+      const { maxSteps, temperature, maxTokens } = state.commander;
 
       try {
-        await api.commander.chat(currentCanvasId, trimmed, history, selectedNodeIds, activeTemplates, customLLMProvider, permissionMode);
+        await api.commander.chat(currentCanvasId, trimmed, history, selectedNodeIds, activeTemplates, customLLMProvider, permissionMode, getLocale(), maxSteps, temperature, maxTokens);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         dispatch(
@@ -171,7 +219,7 @@ export function useCommander(): {
         if (data.toolName) {
           const resultSummary = data.result != null ? JSON.stringify(data.result).slice(0, 500) : '';
           const errorMsg = resultRecord?.success === false
-            ? (typeof resultRecord.error === 'string' ? resultRecord.error : 'Tool execution failed')
+            ? (typeof resultRecord.error === 'string' ? resultRecord.error : t('commander.toolExecutionFailed'))
             : undefined;
           dispatch(
             addLog({
@@ -186,11 +234,11 @@ export function useCommander(): {
           resolveToolCall({
             id: data.toolCallId,
             result: data.result,
-            error:
+              error:
               resultRecord?.success === false
                 ? typeof resultRecord.error === 'string'
                   ? resultRecord.error
-                  : 'Tool execution failed'
+                  : t('commander.toolExecutionFailed')
                 : undefined,
             completedAt: data.completedAt,
           }),
@@ -222,7 +270,7 @@ export function useCommander(): {
       }
 
       if (data.type === 'error') {
-        const errMsg = data.error ?? 'Unknown error';
+        const errMsg = data.error ?? t('commander.unknownError');
         dispatch(
           addLog({
             level: 'error',
@@ -235,7 +283,7 @@ export function useCommander(): {
           dispatch(
             resolveToolCall({
               id: data.toolCallId,
-              error: data.error ?? 'Tool execution failed',
+              error: data.error ?? t('commander.toolExecutionFailed'),
               completedAt: data.completedAt,
             }),
           );
@@ -251,7 +299,94 @@ export function useCommander(): {
     });
 
     const unsubCanvas = api.commander.onCanvasUpdated((data) => {
-      dispatch(applyCanvasFromCommander(data.canvas));
+      // Apply granular diffs between incoming canvas and current Redux state
+      const currentState = store.getState() as RootState;
+      const currentCanvas = currentState.canvas.canvases.find((c) => c.id === data.canvasId);
+      if (!currentCanvas) return;
+      const incoming = data.canvas;
+
+      // Canvas-level properties
+      if (incoming.name !== currentCanvas.name) {
+        dispatch(renameCanvas({ id: data.canvasId, name: incoming.name }));
+      }
+
+      // Nodes: detect added, removed, updated
+      const currentNodeIds = new Set(currentCanvas.nodes.map((n) => n.id));
+      const incomingNodeIds = new Set(incoming.nodes.map((n) => n.id));
+
+      // Added nodes
+      for (const node of incoming.nodes) {
+        if (!currentNodeIds.has(node.id)) {
+          dispatch(addNode({
+            id: node.id,
+            type: node.type,
+            title: node.title,
+            position: node.position,
+            data: node.data,
+            width: node.width,
+            height: node.height,
+          }));
+        }
+      }
+
+      // Removed nodes
+      const removedNodeIds = [...currentNodeIds].filter((id) => !incomingNodeIds.has(id));
+      if (removedNodeIds.length > 0) {
+        dispatch(removeNodes(removedNodeIds));
+      }
+
+      // Updated nodes (compare updatedAt timestamp)
+      for (const inNode of incoming.nodes) {
+        if (!currentNodeIds.has(inNode.id)) continue;
+        const curNode = currentCanvas.nodes.find((n) => n.id === inNode.id);
+        if (!curNode || curNode.updatedAt >= inNode.updatedAt) continue;
+
+        // Position changed
+        if (curNode.position.x !== inNode.position.x || curNode.position.y !== inNode.position.y) {
+          dispatch(moveNode({ id: inNode.id, position: inNode.position }));
+        }
+        // Title changed
+        if (curNode.title !== inNode.title) {
+          dispatch(renameNode({ id: inNode.id, title: inNode.title }));
+        }
+        // Data changed — update entire data object
+        if (JSON.stringify(curNode.data) !== JSON.stringify(inNode.data)) {
+          dispatch(updateNodeData({ id: inNode.id, data: inNode.data as Record<string, unknown> }));
+        }
+      }
+
+      // Edges: detect added, removed
+      const currentEdgeIds = new Set(currentCanvas.edges.map((e) => e.id));
+      const incomingEdgeIds = new Set(incoming.edges.map((e) => e.id));
+
+      // Added edges
+      for (const edge of incoming.edges) {
+        if (!currentEdgeIds.has(edge.id)) {
+          dispatch(addEdge(edge));
+        }
+      }
+
+      // Updated edges (source, target, or data changed)
+      for (const inEdge of incoming.edges) {
+        if (!currentEdgeIds.has(inEdge.id)) continue;
+        const curEdge = currentCanvas.edges.find((e) => e.id === inEdge.id);
+        if (!curEdge) continue;
+        const changed =
+          curEdge.source !== inEdge.source ||
+          curEdge.target !== inEdge.target ||
+          curEdge.sourceHandle !== inEdge.sourceHandle ||
+          curEdge.targetHandle !== inEdge.targetHandle ||
+          JSON.stringify(curEdge.data) !== JSON.stringify(inEdge.data);
+        if (changed) {
+          dispatch(updateEdge({ id: inEdge.id, changes: inEdge }));
+        }
+      }
+
+      // Removed edges
+      const removedEdgeIds = [...currentEdgeIds].filter((id) => !incomingEdgeIds.has(id));
+      if (removedEdgeIds.length > 0) {
+        dispatch(removeEdges(removedEdgeIds));
+      }
     });
 
     const unsubEntities = api.commander.onEntitiesUpdated?.((data) => {
@@ -286,16 +421,15 @@ export function useCommander(): {
       unsubEntities?.();
       unsubSettings?.();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
 
   const cancel = useCallback(async () => {
     const api = getAPI();
     if (!api?.commander) {
-      throw new Error('Commander API unavailable');
+      throw new Error(t('commander.apiUnavailable'));
     }
     if (!activeCanvasId) {
-      throw new Error('No active canvas selected');
+      throw new Error(t('commander.noActiveCanvas'));
     }
     await api.commander.cancel(activeCanvasId);
   }, [activeCanvasId]);

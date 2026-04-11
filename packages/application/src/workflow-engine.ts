@@ -90,6 +90,10 @@ export class WorkflowEngine {
       this.options.db.insertWorkflowTaskRun(taskRun);
     }
 
+    // Auto-pump: begin executing the workflow immediately so callers don't need
+    // to manually call pump() after start().
+    void this.pump(planned.workflowRun.id);
+
     return planned.workflowRun.id;
   }
 

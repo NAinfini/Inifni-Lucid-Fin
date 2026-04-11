@@ -13,7 +13,7 @@ import type {
   VideoNodeData,
 } from '@lucid-fin/contracts';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
-import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
+import type { CAS, Keychain } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import { resolveMediaProviderIds } from '../../bootstrap/init-app.js';
 import {
@@ -101,9 +101,29 @@ export async function buildGenerationContext(
   const resolvedLocations = resolveLocationEntities(deps.db, locationRefs);
   const resolvedEquipment = resolveStandaloneEquipment(deps.db, equipmentRefs, resolvedCharacters);
 
+  // Select the best prompt for this generation type:
+  // image nodes → imagePrompt > prompt > title
+  // video nodes → videoPrompt > prompt > title
+  // audio nodes → prompt > title
+  const effectivePrompt = (() => {
+    if (generableNodeType === 'image') {
+      const imgData = nodeData as ImageNodeData;
+      return normalizeOptionalString(imgData.imagePrompt)
+        ?? normalizeOptionalString(imgData.prompt)
+        ?? node.title;
+    }
+    if (generableNodeType === 'video') {
+      const vidData = nodeData as VideoNodeData;
+      return normalizeOptionalString(vidData.videoPrompt)
+        ?? normalizeOptionalString(vidData.prompt)
+        ?? node.title;
+    }
+    return normalizeOptionalString(nodeData.prompt) ?? node.title;
+  })();
+
   const compiled = compilePrompt({
     nodeType: generableNodeType,
-    prompt: normalizeOptionalString(nodeData.prompt) ?? node.title,
+    prompt: effectivePrompt,
     presetTracks: presetTracks as PresetTrackSet | undefined,
     characterRefs,
     equipmentRefs,
@@ -120,6 +140,12 @@ export async function buildGenerationContext(
   const mediaConfig = resolveMediaDimensions(node, generationType);
   const { fps, ...mediaRequest } = mediaConfig;
 
+  const videoData = node.type === 'video' ? (node.data as VideoNodeData) : undefined;
+
+  const imageOrVideoData = (node.type === 'image' || node.type === 'video')
+    ? (node.data as ImageNodeData | VideoNodeData)
+    : undefined;
+
   const requestBase: GenerationRequest = {
     type: generationType,
     providerId: adapter.id,
@@ -127,8 +153,23 @@ export async function buildGenerationContext(
     negativePrompt: compiled.negativePrompt,
     referenceImages: compiled.referenceImages,
     seed: baseSeed,
+    audio: videoData?.audio,
+    quality: videoData?.quality,
     params: mergeGenerationParams(compiled.params, fps),
     ...mediaRequest,
+    sourceImageHash: normalizeOptionalString(imageOrVideoData?.sourceImageHash),
+    img2imgStrength: imageOrVideoData?.img2imgStrength,
+    steps: imageOrVideoData?.steps,
+    cfgScale: imageOrVideoData?.cfgScale,
+    scheduler: normalizeOptionalString(imageOrVideoData?.scheduler),
+    faceReferenceHashes:
+      imageOrVideoData?.faceReferenceHashes && imageOrVideoData.faceReferenceHashes.length > 0
+        ? imageOrVideoData.faceReferenceHashes
+        : undefined,
+    emotionVector:
+      generableNodeType === 'audio'
+        ? (nodeData as AudioNodeData).emotionVector
+        : undefined,
   };
 
   return {
@@ -152,7 +193,7 @@ export function determinePromptMode(canvas: Canvas, node: CanvasNode): PromptMod
   if (node.type === 'image') {
     const data = node.data as ImageNodeData;
     if (normalizeOptionalString(data.sourceImageHash)) {
-      throw new Error('Image node image-to-image generation is not supported yet');
+      return 'image-to-image';
     }
     return 'text-to-image';
   }
@@ -306,7 +347,9 @@ function resolveRequiredCapability(
   generationType: GenerationType,
   mode: PromptMode,
 ): Capability | undefined {
-  if (generationType === 'image') return 'text-to-image';
+  if (generationType === 'image') {
+    return mode === 'image-to-image' ? 'image-to-image' : 'text-to-image';
+  }
   if (generationType === 'video') {
     return mode === 'image-to-video' ? 'image-to-video' : 'text-to-video';
   }

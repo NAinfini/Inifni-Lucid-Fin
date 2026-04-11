@@ -2,11 +2,12 @@ import type { IpcMain } from 'electron';
 import { dialog } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { CAS, SqliteIndex } from '@lucid-fin/storage';
+import type { CAS, SqliteIndex, Keychain } from '@lucid-fin/storage';
 import type { AssetType } from '@lucid-fin/contracts';
 import log from '../../logger.js';
 import { getCurrentProjectId } from '../project-context.js';
 import { assertValidAssetType } from '../validation.js';
+import { generateEmbeddingForAsset } from './embedding.handlers.js';
 
 const FALLBACK_EXTS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
@@ -61,7 +62,7 @@ const ASSET_FILTERS: Record<string, Electron.FileFilter[]> = {
   ],
 };
 
-export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteIndex): void {
+export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteIndex, keychain?: Keychain): void {
   ipcMain.handle('asset:import', async (_e, args: { filePath: string; type: AssetType }) => {
     if (!args.filePath || typeof args.filePath !== 'string')
       throw new Error('filePath is required');
@@ -76,6 +77,34 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       projectId: projectId ?? undefined,
       hash: ref.hash,
     });
+    if (args.type === 'image' && keychain) {
+      void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
+        log.warn('Auto-embed failed after import', { category: 'embedding', hash: ref.hash, error: String(err) }),
+      );
+    }
+    return ref;
+  });
+
+  ipcMain.handle('asset:importBuffer', async (_e, args: { buffer: ArrayBuffer; fileName: string; type: AssetType }) => {
+    if (!args.buffer || !args.fileName) throw new Error('buffer and fileName are required');
+    assertValidAssetType(args.type);
+    const buf = Buffer.from(args.buffer);
+    const { ref, meta } = await cas.importBuffer(buf, args.fileName, args.type);
+    const projectId = getCurrentProjectId();
+    db.insertAsset({ ...meta, projectId: projectId ?? undefined });
+    log.info('Asset imported from buffer', {
+      category: 'asset',
+      type: args.type,
+      fileName: args.fileName,
+      projectId: projectId ?? undefined,
+      hash: ref.hash,
+      size: buf.length,
+    });
+    if (args.type === 'image' && keychain) {
+      void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
+        log.warn('Auto-embed failed after buffer import', { category: 'embedding', hash: ref.hash, error: String(err) }),
+      );
+    }
     return ref;
   });
 
@@ -104,6 +133,11 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       projectId: projectId ?? undefined,
       hash: ref.hash,
     });
+    if (args.type === 'image' && keychain) {
+      void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
+        log.warn('Auto-embed failed after pick', { category: 'embedding', hash: ref.hash, error: String(err) }),
+      );
+    }
     return ref;
   });
 

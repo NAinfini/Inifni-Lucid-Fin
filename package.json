@@ -1,6 +1,8 @@
 {
   "name": "lucid-fin",
   "version": "0.0.1",
+  "description": "Lucid Fin – AI Movie Production Tool",
+  "author": "Lucid Fin Team",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -26,6 +28,7 @@
     "@playwright/test": "^1.58.2",
     "@vitest/coverage-v8": "^4.1.0",
     "eslint": "^10.1.0",
+    "eslint-plugin-react-hooks": "^7.1.0-canary-404b38c7-20260408",
     "globals": "^17.4.0",
     "jsdom": "^29.0.1",
     "prettier": "^3.8.1",

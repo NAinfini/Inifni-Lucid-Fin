@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowDownAZ, Check, Clock, Layers, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { Canvas } from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
@@ -7,17 +7,31 @@ import { addCanvas, removeCanvas, renameCanvas, setActiveCanvas } from '../../st
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
+import { useConfirm } from '../../components/ui/ConfirmDialog.js';
+
+type SortMode = 'recent' | 'name';
 
 export function CanvasNavigatorPanel() {
+  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { canvases, activeCanvasId } = useSelector((state: RootState) => state.canvas);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortMode, setSortMode] = useState<SortMode>('recent');
 
-  const sortedCanvases = useMemo(
-    () => [...canvases].sort((left, right) => right.updatedAt - left.updatedAt),
-    [canvases],
-  );
+  const sortedCanvases = useMemo(() => {
+    let filtered = canvases;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      filtered = canvases.filter((c) => c.name.toLowerCase().includes(q));
+    }
+    return [...filtered].sort((left, right) =>
+      sortMode === 'name'
+        ? left.name.localeCompare(right.name)
+        : right.updatedAt - left.updatedAt,
+    );
+  }, [canvases, searchQuery, sortMode]);
 
   const startEditing = (canvas: Canvas) => {
     setEditingId(canvas.id);
@@ -46,6 +60,32 @@ export function CanvasNavigatorPanel() {
         </div>
         <p className="mt-0.5 text-[11px] text-muted-foreground">{t('panels.canvasNavigatorHint')}</p>
       </div>
+
+      {/* Search & Sort */}
+      {canvases.length > 3 && (
+        <div className="border-b border-border/60 px-3 py-1.5 flex items-center gap-1.5">
+          <div className="flex flex-1 items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5">
+            <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('panels.searchCanvases')}
+              className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setSortMode((m) => (m === 'recent' ? 'name' : 'recent'))}
+            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title={sortMode === 'recent' ? t('panels.sortByName') : t('panels.sortByRecent')}
+          >
+            {sortMode === 'recent'
+              ? <Clock className="h-3.5 w-3.5" />
+              : <ArrowDownAZ className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+      )}
 
       <div className="border-b border-border/60 px-3 py-2">
         <button
@@ -149,7 +189,13 @@ export function CanvasNavigatorPanel() {
                       type="button"
                       aria-label={`${t('action.delete')} ${canvas.name}`}
                       onClick={async () => {
-                        if (!window.confirm(t('panels.deleteCanvasConfirm'))) return;
+                        const shouldDelete = await confirm({
+                          title: t('panels.deleteCanvasConfirm'),
+                          destructive: true,
+                          confirmLabel: t('action.confirm'),
+                          cancelLabel: t('action.cancel'),
+                        });
+                        if (!shouldDelete) return;
                         dispatch(removeCanvas(canvas.id));
                         await getAPI()?.canvas.delete(canvas.id);
                       }}
@@ -164,6 +210,7 @@ export function CanvasNavigatorPanel() {
           })}
         </div>
       </div>
+      {ConfirmDialog}
     </div>
   );
 }

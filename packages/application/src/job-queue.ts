@@ -3,7 +3,6 @@ import type {
   Job,
   GenerationRequest,
   GenerationResult,
-  AIProviderAdapter,
   ProgressUpdate,
   QueueUpdate,
 } from '@lucid-fin/contracts';
@@ -37,6 +36,9 @@ export class JobQueue {
   ) {}
 
   start(intervalMs = 2000): void {
+    // TODO: Replace setInterval polling with event-driven completion notification.
+    // When a job completes/fails, emit a 'job:completed' event so the queue can
+    // immediately pick up the next queued job rather than waiting for the next tick.
     this.tickTimer = setInterval(() => this.tick(), intervalMs);
   }
 

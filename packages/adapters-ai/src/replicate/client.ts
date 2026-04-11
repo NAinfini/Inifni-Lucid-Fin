@@ -37,6 +37,7 @@ export async function createPrediction(
   model: string,
   input: Record<string, unknown>,
   provider: string,
+  baseUrl = REPLICATE_BASE,
 ): Promise<ReplicatePrediction> {
   // Official models use /models/{owner}/{name}/predictions
   // Version-pinned models use /predictions with version field
@@ -46,8 +47,8 @@ export async function createPrediction(
 
   const isOfficialModel = !version || version === 'latest';
   const url = isOfficialModel
-    ? `${REPLICATE_BASE}/models/${slug}/predictions`
-    : `${REPLICATE_BASE}/predictions`;
+    ? `${baseUrl}/models/${slug}/predictions`
+    : `${baseUrl}/predictions`;
 
   const body = isOfficialModel
     ? { input }
@@ -68,8 +69,9 @@ export async function getPrediction(
   apiKey: string,
   predictionId: string,
   provider: string,
+  baseUrl = REPLICATE_BASE,
 ): Promise<ReplicatePrediction> {
-  const res = await fetchWithTimeout(`${REPLICATE_BASE}/predictions/${predictionId}`, {
+  const res = await fetchWithTimeout(`${baseUrl}/predictions/${predictionId}`, {
     headers: headers(apiKey),
   });
 
@@ -82,8 +84,9 @@ export async function getPrediction(
 export async function cancelPrediction(
   apiKey: string,
   predictionId: string,
+  baseUrl = REPLICATE_BASE,
 ): Promise<void> {
-  await fetchWithTimeout(`${REPLICATE_BASE}/predictions/${predictionId}/cancel`, {
+  await fetchWithTimeout(`${baseUrl}/predictions/${predictionId}/cancel`, {
     method: 'POST',
     headers: headers(apiKey),
   });

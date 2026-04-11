@@ -13,6 +13,13 @@ import {
   type TrackMap,
 } from './canvas-helpers.js';
 
+function clearAppliedShotTemplate(
+  data: Record<string, unknown>,
+): void {
+  delete data.appliedShotTemplateId;
+  delete data.appliedShotTemplateName;
+}
+
 // ---------------------------------------------------------------------------
 // Track AI decide
 // ---------------------------------------------------------------------------
@@ -38,6 +45,7 @@ export function setNodeTrackAiDecide(
   track.entries.forEach((entry) => {
     entry.aiDecide = action.payload.aiDecide;
   });
+  clearAppliedShotTemplate(data);
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -57,6 +65,7 @@ export function setAllTracksAiDecide(
       entry.aiDecide = action.payload.aiDecide;
     });
   });
+  clearAppliedShotTemplate(data);
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -74,6 +83,7 @@ export function applyNodeShotTemplate(
   const node = canvas.nodes.find((n) => n.id === action.payload.nodeId);
   if (!node || (node.type !== 'image' && node.type !== 'video')) return;
   const data = ensureNodePresetTracks(node);
+  const nodeData = node.data as Record<string, unknown>;
   const { template } = action.payload;
   for (const cat of PRESET_CATEGORIES) {
     const tmplTrack = template.tracks[cat];
@@ -90,6 +100,8 @@ export function applyNodeShotTemplate(
       };
     }
   }
+  nodeData.appliedShotTemplateId = template.id;
+  nodeData.appliedShotTemplateName = template.name;
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -121,6 +133,7 @@ export function addNodePresetTrackEntry(
     order: track.entries.length,
   });
   normalizeTrackEntries(track, action.payload.category);
+  clearAppliedShotTemplate(data);
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -151,6 +164,7 @@ export function updateNodePresetTrackEntry(
   if (!entry) return;
   Object.assign(entry, action.payload.changes);
   normalizeTrackEntries(track, action.payload.category);
+  clearAppliedShotTemplate(data);
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -174,6 +188,7 @@ export function removeNodePresetTrackEntry(
   const track = data.presetTracks[action.payload.category];
   track.entries = track.entries.filter((item) => item.id !== action.payload.entryId);
   normalizeTrackEntries(track, action.payload.category);
+  clearAppliedShotTemplate(data);
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -208,6 +223,7 @@ export function moveNodePresetTrackEntry(
   const [moved] = track.entries.splice(currentIndex, 1);
   track.entries.splice(targetIndex, 0, moved);
   normalizeTrackEntries(track, action.payload.category);
+  clearAppliedShotTemplate(data);
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }

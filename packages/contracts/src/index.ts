@@ -14,6 +14,7 @@ export * from './dto/workflow.js';
 export * from './dto/canvas.js';
 export * from './dto/presets.js';
 export * from './llm-provider.js';
+export * from './provider-media.js';
 
 // Events
 export * from './events/index.js';
@@ -24,3 +25,4 @@ export * from './error.js';
 
 // IPC
 export type { IpcChannelMap } from './ipc.js';
+export type { IpcChannel, IpcRequest, IpcResponse } from './ipc-helpers.js';

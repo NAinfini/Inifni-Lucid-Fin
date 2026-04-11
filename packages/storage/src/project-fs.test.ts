@@ -76,7 +76,7 @@ describe('ProjectFS', () => {
 
   describe('snapshots', () => {
     it('creates, lists, and restores snapshots', () => {
-      const { manifest, projectPath } = pfs.createProject({ title: 'Snap Test', basePath: base });
+      const { projectPath } = pfs.createProject({ title: 'Snap Test', basePath: base });
 
       // Modify script.json to have something to snapshot
       fs.writeFileSync(

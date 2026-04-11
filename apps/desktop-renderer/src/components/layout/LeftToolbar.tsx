@@ -1,4 +1,4 @@
-import React, { type ComponentType } from 'react';
+import React, { type ComponentType, useCallback, useRef } from 'react';
 import {
   Clapperboard,
   FolderSearch,
@@ -6,7 +6,6 @@ import {
   MapPin,
   Package,
   Plus,
-  ScrollText,
   Settings,
   SlidersHorizontal,
   Users,
@@ -17,7 +16,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store/index.js';
 import {
   setActivePanel,
-  toggleRightPanel,
   type LeftPanelId,
   togglePanel,
 } from '../../store/slices/ui.js';
@@ -56,21 +54,49 @@ export function LeftToolbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const activePanel = useSelector((state: RootState) => state.ui.activePanel);
-  const rightPanel = useSelector((state: RootState) => state.ui.rightPanel);
   const commanderOpen = useSelector((state: RootState) => state.commander.open);
-  const loggerOpen = rightPanel === 'logger';
+  const toolbarRef = useRef<HTMLElement>(null);
+
+  const anyActive =
+    activePanel !== null ||
+    commanderOpen ||
+    location.pathname === '/settings';
+
+  const handleToolbarKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (!toolbarRef.current) return;
+    const buttons = Array.from(
+      toolbarRef.current.querySelectorAll<HTMLButtonElement>('button:not([disabled])'),
+    );
+    const focused = document.activeElement as HTMLButtonElement;
+    const idx = buttons.indexOf(focused);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      buttons[(idx + 1) % buttons.length]?.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      buttons[(idx - 1 + buttons.length) % buttons.length]?.focus();
+    }
+  }, []);
 
   return (
     <TooltipProvider delayDuration={120}>
-      <aside className="flex h-full w-11 shrink-0 flex-col border-r border-border bg-card px-0.5 py-1.5">
+      <aside
+        ref={toolbarRef}
+        role="toolbar"
+        aria-label={t('toolbar.ariaLabel')}
+        aria-orientation="vertical"
+        onKeyDown={handleToolbarKeyDown}
+        className="flex h-full w-11 shrink-0 flex-col border-r border-border bg-card px-0.5 py-1.5"
+      >
         <div className="flex flex-col gap-0.5">
-          {TOOLBAR_BUTTONS.slice(0, -1).map((button) => {
+          {TOOLBAR_BUTTONS.slice(0, -1).map((button, idx) => {
             const label = t(button.label);
             const Icon = button.icon;
             const active = Boolean(
               (button.panel && activePanel === button.panel) ||
                 (button.route && location.pathname === button.route),
             );
+            const isDefaultFocusable = !anyActive && idx === 0;
 
             return (
               <Tooltip key={button.id}>
@@ -79,6 +105,7 @@ export function LeftToolbar() {
                     type="button"
                     aria-label={label}
                     aria-pressed={active}
+                    tabIndex={active || isDefaultFocusable ? 0 : -1}
                     onClick={() => {
                       if (button.panel) {
                         dispatch(togglePanel(button.panel));
@@ -113,6 +140,7 @@ export function LeftToolbar() {
               type="button"
               aria-label="Commander AI (Ctrl+J)"
               aria-pressed={commanderOpen}
+              tabIndex={commanderOpen ? 0 : -1}
               onClick={() => dispatch(toggleCommander())}
               className={cn(
                 'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
@@ -140,6 +168,7 @@ export function LeftToolbar() {
                   type="button"
                   aria-label={label}
                   aria-pressed={active}
+                  tabIndex={active ? 0 : -1}
                   onClick={() => {
                     if (button.route) {
                       dispatch(setActivePanel(null));

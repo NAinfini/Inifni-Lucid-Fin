@@ -1,3 +1,4 @@
+import { getBuiltinProviderCapabilityProfile } from '@lucid-fin/contracts';
 import type { AgentTool, ToolResult } from '../tool-registry.js';
 
 export interface ProviderInfo {
@@ -37,6 +38,8 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
       type: 'object',
       properties: {
         group: { type: 'string', description: 'Provider group: llm, image, video, or audio.', enum: ['llm', 'image', 'video', 'audio'] },
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
       required: ['group'],
     },
@@ -44,7 +47,9 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
       try {
         const group = args.group as string;
         const providers = await deps.listProviders(group);
-        return ok(providers);
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: providers.length, offset, limit, providers: providers.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }
@@ -256,5 +261,36 @@ Example search queries:
     },
   };
 
-  return [listProviders, getActive, setActive, setBaseUrl, setModel, rename, addCustom, removeCustom, researchProvider];
+  const getCapabilities: AgentTool = {
+    name: 'provider.getCapabilities',
+    description:
+      'Get the known capabilities and constraints for a video or image provider. Returns supported features (audio, quality tiers), resolution limits, duration limits, and provider-specific notes. Use this before setting node media config to ensure correct parameters.',
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        providerId: { type: 'string', description: 'The provider ID to query.' },
+      },
+      required: ['providerId'],
+    },
+    async execute(args) {
+      const providerId = args.providerId as string;
+      const caps = getBuiltinProviderCapabilityProfile(providerId);
+      if (!caps) {
+        return ok({
+          providerId,
+          known: false,
+          message: `No built-in capability data for "${providerId}". Use default settings.`,
+        });
+      }
+      return ok({
+        providerId,
+        known: true,
+        audio: Boolean(caps.supportsAudio),
+        ...caps,
+      });
+    },
+  };
+
+  return [listProviders, getActive, setActive, setBaseUrl, setModel, rename, addCustom, removeCustom, researchProvider, getCapabilities];
 }

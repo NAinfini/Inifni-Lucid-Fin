@@ -39,7 +39,7 @@ export function useClipboardWatcher() {
               addNode({
                 id: crypto.randomUUID(),
                 type: 'text',
-                title: 'Imported from clipboard',
+                title: t('toast.clipboard.importedNodeTitle'),
                 data: { content: data.text },
                 position: { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 },
               }),
@@ -48,7 +48,10 @@ export function useClipboardWatcher() {
               addLog({
                 level: 'info',
                 category: 'clipboard',
-                message: `AI response imported from clipboard (${data.text.length} chars)`,
+                message: t('toast.clipboard.importedLog').replace(
+                  '{count}',
+                  String(data.text.length),
+                ),
               }),
             );
           },

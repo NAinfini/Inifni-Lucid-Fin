@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import type {
-  AudioNodeData,
   Canvas,
   CanvasNode,
   Equipment,

@@ -1,8 +1,8 @@
-import { Cpu, FileText, Info, Sun, Workflow } from 'lucide-react';
+import { Bot, Cpu, FileText, HardDrive, Info, Sun, Workflow } from 'lucide-react';
 import { t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 
-export type SettingsTab = 'providers' | 'appearance' | 'promptTemplates' | 'workflows' | 'about';
+export type SettingsTab = 'providers' | 'commander' | 'appearance' | 'storage' | 'promptTemplates' | 'workflows' | 'about';
 
 export const SETTINGS_TAB_META: Record<
   SettingsTab,
@@ -13,7 +13,9 @@ export const SETTINGS_TAB_META: Record<
   }
 > = {
   providers: { labelKey: 'settings.nav.providers', fallbackLabel: 'Providers', icon: Cpu },
+  commander: { labelKey: 'settings.nav.commander', fallbackLabel: 'Commander AI', icon: Bot },
   appearance: { labelKey: 'settings.nav.appearance', fallbackLabel: 'Appearance', icon: Sun },
+  storage: { labelKey: 'settings.nav.storage', fallbackLabel: 'Storage', icon: HardDrive },
   promptTemplates: {
     labelKey: 'settings.nav.promptTemplates',
     fallbackLabel: 'Prompt Templates',

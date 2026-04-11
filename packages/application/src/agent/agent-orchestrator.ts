@@ -6,7 +6,7 @@ import type {
   LLMToolParameter,
 } from '@lucid-fin/contracts';
 import { LucidError } from '@lucid-fin/contracts';
-import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
+import type { AgentToolRegistry, ToolResult, AgentTool } from './tool-registry.js';
 
 export interface AgentContext {
   page?: string;
@@ -38,8 +38,17 @@ export interface AgentOptions {
   maxTokens?: number;
 }
 
+/**
+ * A single entry in the conversation history passed across turns.
+ * Text-only entries (backward-compatible) have just role + content.
+ * Rich entries include toolCalls (assistant role) or toolCallId (tool role).
+ */
+export type HistoryEntry =
+  | { role: 'user' | 'assistant'; content: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+  | { role: 'tool'; content: string; toolCallId: string };
+
 export interface AgentExecutionOptions {
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  history?: HistoryEntry[];
   isAborted?: () => boolean;
   permissionMode?: 'auto' | 'normal' | 'strict';
   onLLMRequest?: (diagnostics: AgentLLMRequestDiagnostics) => void;
@@ -55,15 +64,14 @@ export interface AgentLLMRequestDiagnostics {
   promptGuideChars: number;
 }
 
-const HISTORY_TOKEN_BUDGET = 8000;
+const HISTORY_TOKEN_BUDGET = 200000;
 const ESTIMATED_CHARS_PER_TOKEN = 4;
 const HISTORY_CHAR_BUDGET = HISTORY_TOKEN_BUDGET * ESTIMATED_CHARS_PER_TOKEN;
 const SMALL_RESULT_LIMIT = 500;
-const COLLECTION_SUMMARY_CHAR_BUDGET = 2000;
+const COLLECTION_SUMMARY_CHAR_BUDGET = 4000;
+const COLLECTION_MAX_ITEMS = 50;
 const CONTEXT_EXTRA_VALUE_CHAR_LIMIT = 600;
 const TOOL_DESCRIPTION_CHAR_LIMIT = 160;
-const SYSTEM_PROMPT_CHAR_BUDGET = 2200;
-const LAZY_DISCOVERY_TOOL_NAMES = ['tool.search', 'guide.list', 'guide.get', 'commander.askUser'] as const;
 const LIST_ACTION_PREFIXES = ['list', 'search'];
 const MUTATION_ACTION_PREFIXES = [
   'add',
@@ -105,6 +113,97 @@ const SUMMARY_KEYS = [
   'variantCount',
   'selectedVariantIndex',
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Smart Context Assembly — domain detection & tool loading
+// ---------------------------------------------------------------------------
+
+/** Maps domain IDs to their keyword triggers and tool name prefixes. */
+const DOMAIN_CONFIG: Record<string, { keywords: RegExp; toolPrefixes: string[] }> = {
+  canvas: {
+    keywords: /\b(canvas|node|edge|backdrop|layout|duplicate|bypass|lock|batch|workflow)\b/i,
+    toolPrefixes: ['canvas.'],
+  },
+  entity: {
+    keywords: /\b(character|location|equipment|entity|actor|place|prop|scene)\b/i,
+    toolPrefixes: ['character.', 'equipment.', 'location.', 'scene.'],
+  },
+  preset: {
+    keywords: /\b(preset|style|template|shot.?template|color.?style|look|mood|emotion|camera|lens|composition)\b/i,
+    toolPrefixes: ['preset.', 'colorStyle.', 'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks', 'canvas.addPresetTrackEntry', 'canvas.removePresetTrackEntry', 'canvas.updatePresetTrackEntry', 'canvas.movePresetTrackEntry', 'canvas.applyShotTemplate', 'canvas.autoFillEmptyTracks', 'canvas.createCustomPreset'],
+  },
+  generation: {
+    keywords: /\b(generat|render|provider|image|video|audio|cost|seed|variant|media.?config|resolution|duration|fps)\b/i,
+    toolPrefixes: ['provider.', 'canvas.generate', 'canvas.cancelGeneration', 'canvas.generateAll', 'canvas.setSeed', 'canvas.toggleSeedLock', 'canvas.setVariantCount', 'canvas.selectVariant', 'canvas.estimateCost', 'canvas.setNodeProvider', 'canvas.setNodeMediaConfig', 'canvas.setVideoFrames', 'render.', 'asset.'],
+  },
+  script: {
+    keywords: /\b(script|screenplay|fountain|scene.?heading|dialogue)\b/i,
+    toolPrefixes: ['script.'],
+  },
+  project: {
+    keywords: /\b(project|snapshot|series|episode|job|workflow\.(pause|resume|cancel|retry)|undo|redo)\b/i,
+    toolPrefixes: ['project.', 'series.', 'job.', 'workflow.', 'orchestration.', 'canvas.undo', 'canvas.redo'],
+  },
+};
+
+/** Tools always loaded regardless of domain detection. */
+const ALWAYS_LOADED_TOOLS = [
+  'tool.search', 'tool.list', 'guide.list', 'guide.get', 'commander.askUser', 'logger.read',
+  'canvas.getState', 'canvas.listNodes', 'canvas.listEdges', 'canvas.getNode', 'canvas.searchNodes',
+] as const;
+
+/** Prompt codes for domain briefings, keyed by domain ID. Each domain can load multiple briefings. */
+const DOMAIN_PROMPT_CODES: Record<string, string[]> = {
+  canvas: ['domain-canvas-tools', 'domain-canvas-video-rules', 'domain-canvas-video-workflow'],
+  entity: ['domain-entity'],
+  preset: ['domain-preset-tools', 'domain-preset-tracks'],
+  generation: ['domain-generation-providers', 'domain-generation-guides'],
+  script: ['domain-script'],
+  project: ['domain-project'],
+};
+
+/**
+ * Detect which domains are relevant based on the user message.
+ * Always includes 'canvas' when page is 'canvas'.
+ */
+function detectDomains(userMessage: string, contextPage?: string): Set<string> {
+  const domains = new Set<string>();
+  // Always include canvas domain when on canvas page
+  if (contextPage === 'canvas') {
+    domains.add('canvas');
+  }
+  for (const [domain, config] of Object.entries(DOMAIN_CONFIG)) {
+    if (config.keywords.test(userMessage)) {
+      domains.add(domain);
+    }
+  }
+  // If no specific domain detected, default to canvas
+  if (domains.size === 0) {
+    domains.add('canvas');
+  }
+  return domains;
+}
+
+/**
+ * Get tool names to load for the given domains.
+ * Returns always-loaded tools + domain-specific tools.
+ */
+function getToolNamesForDomains(domains: Set<string>, allTools: AgentTool[]): Set<string> {
+  const names = new Set<string>(ALWAYS_LOADED_TOOLS);
+  for (const domain of domains) {
+    const config = DOMAIN_CONFIG[domain];
+    if (!config) continue;
+    for (const tool of allTools) {
+      const matchesPrefix = config.toolPrefixes.some((prefix) =>
+        prefix.endsWith('.') ? tool.name.startsWith(prefix) : tool.name === prefix,
+      );
+      if (matchesPrefix) {
+        names.add(tool.name);
+      }
+    }
+  }
+  return names;
+}
 
 function needsConfirmation(tier: number, mode: string): boolean {
   if (mode === 'auto') return tier === 4;
@@ -214,16 +313,16 @@ function summarizeCollection(value: unknown): unknown {
   if (Array.isArray(value)) {
     return {
       count: value.length,
-      items: summarizeItemsWithinBudget(value, 10, (entry) => summarizeValue(entry)),
+      items: summarizeItemsWithinBudget(value, COLLECTION_MAX_ITEMS, (entry) => summarizeValue(entry)),
     };
   }
 
   if (isRecord(value)) {
-    for (const key of ['items', 'results', 'nodes', 'characters', 'equipment', 'locations', 'presets']) {
+    for (const key of ['items', 'results', 'nodes', 'edges', 'characters', 'equipment', 'locations', 'presets', 'tools', 'guides', 'episodes', 'snapshots', 'assets', 'prompts']) {
       if (Array.isArray(value[key])) {
         return {
           count: value[key].length,
-          items: summarizeItemsWithinBudget(value[key], 10, (entry) => summarizeValue(entry)),
+          items: summarizeItemsWithinBudget(value[key], COLLECTION_MAX_ITEMS, (entry) => summarizeValue(entry)),
         };
       }
     }
@@ -233,13 +332,13 @@ function summarizeCollection(value: unknown): unknown {
 }
 
 function pruneHistory(
-  history: Array<{ role: 'user' | 'assistant'; content: string }> | undefined,
-): Array<{ role: 'user' | 'assistant'; content: string }> {
+  history: HistoryEntry[] | undefined,
+): HistoryEntry[] {
   if (!history || history.length === 0) {
     return [];
   }
 
-  const pruned: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const pruned: HistoryEntry[] = [];
   let totalChars = 0;
 
   for (let index = history.length - 1; index >= 0; index -= 1) {
@@ -255,6 +354,40 @@ function pruneHistory(
 
     if (totalChars >= HISTORY_CHAR_BUDGET) {
       break;
+    }
+  }
+
+  // Ensure we don't start with a dangling tool result (role='tool') without its
+  // preceding assistant message that contains the corresponding toolCalls.
+  while (pruned.length > 0 && pruned[0].role === 'tool') {
+    pruned.shift();
+  }
+
+  // If the first message is an assistant with toolCalls, ensure ALL referenced
+  // tool results are present. LLM APIs require a tool result for every toolCall.
+  // If any are missing (budget cut mid-group), drop the entire tool exchange.
+  if (pruned.length > 0 && pruned[0].role === 'assistant') {
+    const first = pruned[0] as { toolCalls?: Array<{ id: string }> };
+    if (first.toolCalls && first.toolCalls.length > 0) {
+      const requiredIds = new Set(first.toolCalls.map((tc) => tc.id));
+      const presentIds = new Set(
+        pruned
+          .filter((e): e is { role: 'tool'; content: string; toolCallId: string } => e.role === 'tool')
+          .map((e) => e.toolCallId),
+      );
+      const allPresent = [...requiredIds].every((id) => presentIds.has(id));
+      if (!allPresent) {
+        // Drop the assistant + any orphaned tool results until we hit a clean entry
+        while (pruned.length > 0 && (pruned[0].role === 'assistant' || pruned[0].role === 'tool')) {
+          const dropped = pruned.shift()!;
+          if (dropped.role !== 'tool' && dropped.role !== 'assistant') break;
+          if (dropped.role === 'assistant' && !(dropped as { toolCalls?: unknown[] }).toolCalls?.length) {
+            // This is a clean assistant message without tool calls — put it back
+            pruned.unshift(dropped);
+            break;
+          }
+        }
+      }
     }
   }
 
@@ -333,7 +466,7 @@ function summarizeMutationResult(value: unknown): unknown {
   }
 
   const summary: Record<string, unknown> = {};
-  for (const key of ['id', 'nodeId', 'canvasId', 'characterId', 'equipmentId', 'locationId', 'status']) {
+  for (const key of ['id', 'title', 'name', 'nodeTitle', 'nodeId', 'canvasId', 'characterId', 'equipmentId', 'locationId', 'status']) {
     if (key in value && value[key] != null) {
       summary[key] = summarizeScalar(value[key]);
     }
@@ -373,6 +506,7 @@ export class AgentOrchestrator {
   private pendingResolvers = new Map<string, (approved: boolean) => void>();
   private pendingQuestionResolvers = new Map<string, (answer: string) => void>();
   private activeMessages: LLMMessage[] | null = null;
+  private _cancelled = false;
 
   constructor(
     adapter: LLMAdapter,
@@ -383,9 +517,9 @@ export class AgentOrchestrator {
     this.adapter = adapter;
     this.tools = tools;
     this.resolvePrompt = resolvePrompt;
-    this.maxSteps = opts?.maxSteps ?? 20;
+    this.maxSteps = opts?.maxSteps ?? 50;
     this.temperature = opts?.temperature ?? 0.7;
-    this.maxTokens = opts?.maxTokens ?? 4096;
+    this.maxTokens = opts?.maxTokens ?? 200000;
   }
 
   /** Resolve a pending tool confirmation. Called from outside (IPC handler). */
@@ -406,12 +540,28 @@ export class AgentOrchestrator {
     }
   }
 
+  /** Cancel the running agent. Resolves all pending promises so the loop unblocks. */
+  cancel(): void {
+    this._cancelled = true;
+    for (const [id, resolve] of this.pendingResolvers) {
+      resolve(false);
+      this.pendingResolvers.delete(id);
+    }
+    for (const [id, resolve] of this.pendingQuestionResolvers) {
+      resolve('');
+      this.pendingQuestionResolvers.delete(id);
+    }
+  }
+
+  private injectedMessageCount = 0;
+
   injectMessage(content: string): void {
     const trimmed = content.trim();
     if (!trimmed || !this.activeMessages) {
       return;
     }
     this.activeMessages.push({ role: 'user', content: trimmed });
+    this.injectedMessageCount++;
   }
 
   async execute(
@@ -420,17 +570,25 @@ export class AgentOrchestrator {
     emit: (event: AgentEvent) => void,
     options?: AgentExecutionOptions,
   ): Promise<LLMCompletionResult> {
-    const lazyDiscovery = this.tools.get('tool.search') !== undefined;
+    const domains = detectDomains(userMessage, context.page);
+    const allTools = context.page ? this.tools.forContext(context.page) : this.tools.list();
+    const loadedToolNames = getToolNamesForDomains(domains, allTools);
     const discoveredToolNames = new Set<string>();
-    const systemPrompt = this.buildSystemPrompt(context, lazyDiscovery);
+    const systemPrompt = this.buildSystemPrompt(context, domains);
     const history = pruneHistory(options?.history);
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...history.map((entry) => ({
-        role: entry.role,
-        content: entry.content,
-      })),
+      ...history.map((entry): LLMMessage => {
+        if (entry.role === 'tool') {
+          return { role: 'tool', content: entry.content, toolCallId: entry.toolCallId };
+        }
+        const msg: LLMMessage = { role: entry.role, content: entry.content };
+        if (entry.role === 'assistant' && Array.isArray(entry.toolCalls) && entry.toolCalls.length > 0) {
+          msg.toolCalls = entry.toolCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.arguments }));
+        }
+        return msg;
+      }),
       { role: 'user', content: userMessage },
     ];
 
@@ -438,18 +596,23 @@ export class AgentOrchestrator {
     let lastResult: LLMCompletionResult = { content: '', toolCalls: [], finishReason: 'stop' };
 
     this.activeMessages = messages;
+    this.injectedMessageCount = 0;
+    this._cancelled = false;
     try {
       while (steps < this.maxSteps) {
-        if (options?.isAborted?.()) {
+        if (this._cancelled || options?.isAborted?.()) {
           emit({ type: 'done', content: 'Cancelled.' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
         }
 
         steps++;
 
-        const availableTools = lazyDiscovery
-          ? this.buildLazyAvailableTools(context.page, discoveredToolNames)
-          : compactToolDefinitions(this.tools, context.page);
+        // Merge always-loaded + domain-detected + discovered tool names
+        const activeToolNames = new Set(loadedToolNames);
+        for (const name of discoveredToolNames) {
+          activeToolNames.add(name);
+        }
+        const availableTools = compactNamedToolDefinitions(this.tools, Array.from(activeToolNames), context.page);
 
         options?.onLLMRequest?.({
           step: steps,
@@ -486,7 +649,7 @@ export class AgentOrchestrator {
         });
 
         for (const tc of lastResult.toolCalls) {
-          if (options?.isAborted?.()) {
+          if (this._cancelled || options?.isAborted?.()) {
             emit({ type: 'done', content: 'Cancelled.' });
             return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
           }
@@ -569,14 +732,14 @@ export class AgentOrchestrator {
             const toolResult = await this.tools.execute(tc.name, tc.arguments);
             const completedAt = Date.now();
             resultContent = summarizeToolResult(tc.name, toolResult);
-            if (lazyDiscovery && tc.name === 'tool.search' && toolResult.success && Array.isArray(toolResult.data)) {
-              for (const item of toolResult.data) {
-                if (
-                  isRecord(item)
-                  && typeof item.name === 'string'
-                  && this.tools.get(item.name)
-                  && !LAZY_DISCOVERY_TOOL_NAMES.includes(item.name as (typeof LAZY_DISCOVERY_TOOL_NAMES)[number])
-                ) {
+            if (tc.name === 'tool.search' && toolResult.success && toolResult.data != null) {
+              const discovered = Array.isArray(toolResult.data)
+                ? toolResult.data
+                : isRecord(toolResult.data) && Array.isArray((toolResult.data as Record<string, unknown>).tools)
+                  ? (toolResult.data as Record<string, unknown>).tools as unknown[]
+                  : [];
+              for (const item of discovered) {
+                if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
                   discoveredToolNames.add(item.name);
                 }
               }
@@ -604,9 +767,28 @@ export class AgentOrchestrator {
 
           messages.push({ role: 'tool', content: resultContent, toolCallId: tc.id });
         }
+
+        // Check for user messages injected during tool execution.
+        // These are already in the messages array (pushed by injectMessage).
+        // Add a system hint so the LLM knows to address them in the next turn.
+        if (this.injectedMessageCount > 0) {
+          const count = this.injectedMessageCount;
+          this.injectedMessageCount = 0;
+          messages.push({
+            role: 'system',
+            content: `[${count} new user message${count > 1 ? 's were' : ' was'} received while you were working. Check the latest user messages above and address them before continuing your current task.]`,
+          });
+        }
       }
 
-      const finalContent = lastResult.content || (steps > 1 ? 'Task completed.' : 'No response generated.');
+      // Reached maxSteps — notify the user explicitly
+      const pendingToolCalls = lastResult.toolCalls.length;
+      const limitMsg = pendingToolCalls > 0
+        ? `⚠️ Reached the step limit (${this.maxSteps} steps). ${pendingToolCalls} pending tool call(s) were not executed. You can increase "Max Steps" in Settings → Commander, or send a follow-up message to continue.`
+        : `Reached the step limit (${this.maxSteps} steps). You can increase "Max Steps" in Settings → Commander if needed.`;
+      const finalContent = lastResult.content
+        ? `${lastResult.content}\n\n${limitMsg}`
+        : limitMsg;
       emit({ type: 'done', content: finalContent });
       return lastResult;
     } finally {
@@ -635,21 +817,57 @@ export class AgentOrchestrator {
     throw lastErr;
   }
 
-  private buildLazyAvailableTools(contextPage: string | undefined, discoveredToolNames: Set<string>): LLMToolDefinition[] {
-    const toolNames = new Set<string>(LAZY_DISCOVERY_TOOL_NAMES.filter((name) => this.tools.get(name)));
-    for (const toolName of discoveredToolNames) {
-      toolNames.add(toolName);
-    }
-    return compactNamedToolDefinitions(this.tools, Array.from(toolNames), contextPage);
-  }
-
-  private buildSystemPrompt(context: AgentContext, lazyDiscovery = false): string {
+  private buildSystemPrompt(context: AgentContext, domains: Set<string>): string {
+    // Core prompt — always included, kept short
     let prompt = this.resolvePrompt('agent-system');
 
-    if (lazyDiscovery) {
-      prompt += '\n\nTool discovery is lazy. Start with tool.search to find the specific tools you need before attempting non-discovery tool calls. Use guide.list to inspect available guides and guide.get to load one guide only when needed.';
+    // Append domain-specific briefings
+    for (const domain of domains) {
+      const promptCodes = DOMAIN_PROMPT_CODES[domain];
+      if (!promptCodes) continue;
+      for (const code of promptCodes) {
+        try {
+          const briefing = this.resolvePrompt(code);
+          if (briefing) {
+            prompt += `\n\n${briefing}`;
+          }
+        } catch {
+          // Domain briefing not found — skip silently
+        }
+      }
     }
 
+    // Build tool catalog for domains NOT loaded (so AI knows they exist)
+    const allTools = context.page ? this.tools.forContext(context.page) : this.tools.list();
+    const loadedPrefixes = new Set<string>();
+    for (const domain of domains) {
+      const config = DOMAIN_CONFIG[domain];
+      if (config) {
+        for (const prefix of config.toolPrefixes) {
+          loadedPrefixes.add(prefix);
+        }
+      }
+    }
+    const unloadedByDomain = new Map<string, string[]>();
+    for (const tool of allTools) {
+      const isLoaded = ALWAYS_LOADED_TOOLS.includes(tool.name as (typeof ALWAYS_LOADED_TOOLS)[number])
+        || Array.from(loadedPrefixes).some((prefix) =>
+          prefix.endsWith('.') ? tool.name.startsWith(prefix) : tool.name === prefix,
+        );
+      if (!isLoaded) {
+        const domain = tool.name.split('.')[0] ?? 'other';
+        if (!unloadedByDomain.has(domain)) unloadedByDomain.set(domain, []);
+        unloadedByDomain.get(domain)!.push(tool.name);
+      }
+    }
+    if (unloadedByDomain.size > 0) {
+      const catalogLines = Array.from(unloadedByDomain.entries())
+        .map(([domain, names]) => `- ${domain}: ${names.join(', ')}`)
+        .join('\n');
+      prompt += `\n\nAdditional tools available (use tool.search to load their schemas):\n${catalogLines}`;
+    }
+
+    // Append context
     const contextLines: string[] = [];
     if (context.page) contextLines.push(`Current page: ${context.page}`);
     if (context.sceneId) contextLines.push(`Active scene ID: ${context.sceneId}`);
@@ -661,11 +879,10 @@ export class AgentOrchestrator {
         contextLines.push(`${k}: ${stringifyContextExtraValue(v)}`);
       }
     }
-
     if (contextLines.length > 0) {
       prompt += `\n\n## Current Context\n${contextLines.join('\n')}`;
     }
 
-    return truncateString(prompt, SYSTEM_PROMPT_CHAR_BUDGET);
+    return prompt;
   }
 }

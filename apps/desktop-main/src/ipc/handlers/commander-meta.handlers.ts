@@ -14,7 +14,10 @@ export function registerCommanderMetaHandlers(ipcMain: IpcMain): void {
       canvasId: args.canvasId,
       hasSession: !!session,
     });
-    if (session) session.aborted = true;
+    if (session) {
+      session.aborted = true;
+      session.orchestrator?.cancel();
+    }
   });
 
   ipcMain.handle('commander:inject-message', async (_event, args: { canvasId: string; message: string }) => {

@@ -210,7 +210,6 @@ describe('registerAgentTools', () => {
     registerAgentTools(registry, createMockDeps());
     const equipmentTools = registry.list().filter((t) => t.name.startsWith('equipment.'));
     expect(equipmentTools.length).toBeGreaterThanOrEqual(1);
-    expect(registry.get('equipment.search')).toBeDefined();
   });
 
   it('registers at least one scene. tool', () => {

@@ -1,4 +1,4 @@
-import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { createSelector, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 export interface Asset {
   id: string;
@@ -144,44 +144,54 @@ export const {
 } = assetsSlice.actions;
 
 /** Selector: filtered + sorted assets */
-export function selectFilteredAssets(state: { assets: AssetsState }): Asset[] {
-  let items = [...state.assets.items];
-  const { searchQuery, filterType, filterTags, sortBy, sortOrder } = state.assets;
+const selectAssetsState = (state: { assets: AssetsState }) => state.assets;
+const selectAssetItems = (state: { assets: AssetsState }) => state.assets.items;
 
-  // Type filter
-  if (filterType !== 'all') {
-    items = items.filter((a) => a.type === filterType);
-  }
+/** Selector: filtered + sorted assets */
+export const selectFilteredAssets = createSelector(
+  [
+    selectAssetItems,
+    selectAssetsState,
+  ],
+  (items, assetsState) => {
+    const { searchQuery, filterType, filterTags, sortBy, sortOrder } = assetsState;
+    let filteredItems = [...items];
 
-  // Tag filter
-  if (filterTags.length > 0) {
-    items = items.filter((a) => filterTags.every((t) => a.tags.includes(t)));
-  }
-
-  // FTS search (name + tags)
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    items = items.filter(
-      (a) => a.name.toLowerCase().includes(q) || a.tags.some((t) => t.toLowerCase().includes(q)),
-    );
-  }
-
-  // Sort
-  const dir = sortOrder === 'asc' ? 1 : -1;
-  items.sort((a, b) => {
-    switch (sortBy) {
-      case 'name':
-        return dir * a.name.localeCompare(b.name);
-      case 'date':
-        return dir * (a.createdAt - b.createdAt);
-      case 'size':
-        return dir * (a.size - b.size);
-      case 'type':
-        return dir * a.type.localeCompare(b.type);
-      default:
-        return 0;
+    if (filterType !== 'all') {
+      filteredItems = filteredItems.filter((asset) => asset.type === filterType);
     }
-  });
 
-  return items;
-}
+    if (filterTags.length > 0) {
+      filteredItems = filteredItems.filter((asset) =>
+        filterTags.every((tag) => asset.tags.includes(tag)),
+      );
+    }
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filteredItems = filteredItems.filter(
+        (asset) =>
+          asset.name.toLowerCase().includes(query)
+          || asset.tags.some((tag) => tag.toLowerCase().includes(query)),
+      );
+    }
+
+    const direction = sortOrder === 'asc' ? 1 : -1;
+    filteredItems.sort((left, right) => {
+      switch (sortBy) {
+        case 'name':
+          return direction * left.name.localeCompare(right.name);
+        case 'date':
+          return direction * (left.createdAt - right.createdAt);
+        case 'size':
+          return direction * (left.size - right.size);
+        case 'type':
+          return direction * left.type.localeCompare(right.type);
+        default:
+          return 0;
+      }
+    });
+
+    return filteredItems;
+  },
+);

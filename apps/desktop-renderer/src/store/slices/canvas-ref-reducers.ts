@@ -11,7 +11,6 @@ import type { CanvasClipboardPayload, CanvasSliceState } from './canvas.js';
 import {
   findActiveCanvas,
   findCanvasById,
-  cloneDeep,
   buildCanvasClipboardPayload,
   pasteClipboardPayload,
   normalizeEquipmentRefs,

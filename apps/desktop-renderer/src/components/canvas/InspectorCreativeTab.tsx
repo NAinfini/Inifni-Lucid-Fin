@@ -6,6 +6,7 @@ import type {
   BackdropNodeData,
   CanvasNodeType,
   ImageNodeData,
+  PresetTrackSet,
   ShotTemplate,
   VideoNodeData,
 } from '@lucid-fin/contracts';
@@ -50,6 +51,46 @@ interface InspectorCreativeTabProps {
   textWordCount?: number;
   charsLabel?: string;
   wordsLabel?: string;
+  /** Suggested templates shown when prompt is empty and no presets applied */
+  suggestedTemplates?: ShotTemplate[];
+}
+
+function getNonEmptyTrackCategories(trackSet: PresetTrackSet): string[] {
+  return Object.entries(trackSet)
+    .filter(([, track]) => track.entries.length > 0)
+    .map(([category]) => category)
+    .sort();
+}
+
+function matchesTemplateTracks(trackSet: PresetTrackSet, template: ShotTemplate): boolean {
+  const nodeCategories = getNonEmptyTrackCategories(trackSet);
+  const templateCategories = Object.entries(template.tracks)
+    .filter(([, track]) => track && track.entries.length > 0)
+    .map(([category]) => category)
+    .sort();
+
+  if (nodeCategories.length !== templateCategories.length) return false;
+  if (nodeCategories.some((category, index) => category !== templateCategories[index])) return false;
+
+  return templateCategories.every((category) => {
+    const nodeTrack = trackSet[category as keyof PresetTrackSet];
+    const templateTrack = template.tracks[category as keyof ShotTemplate['tracks']];
+    if (!templateTrack) return false;
+    if ((nodeTrack.intensity ?? null) !== (templateTrack.intensity ?? null)) return false;
+    if (nodeTrack.entries.length !== templateTrack.entries.length) return false;
+
+    return nodeTrack.entries.every((entry, index) => {
+      const templateEntry = templateTrack.entries[index];
+      if (!templateEntry) return false;
+      return (
+        entry.presetId === templateEntry.presetId &&
+        (entry.intensity ?? null) === (templateEntry.intensity ?? null) &&
+        (entry.direction ?? null) === (templateEntry.direction ?? null) &&
+        (entry.durationMs ?? null) === (templateEntry.durationMs ?? null) &&
+        JSON.stringify(entry.params ?? {}) === JSON.stringify(templateEntry.params ?? {})
+      );
+    });
+  });
 }
 
 export function InspectorCreativeTab({
@@ -76,9 +117,42 @@ export function InspectorCreativeTab({
   textWordCount,
   charsLabel,
   wordsLabel,
+  suggestedTemplates,
 }: InspectorCreativeTabProps) {
   const visibleBuiltInTemplates = builtInTemplates.filter((template) => !hiddenTemplateIds.includes(template.id));
   const visibleCustomTemplates = customTemplates.filter((template) => !hiddenTemplateIds.includes(template.id));
+  const currentTrackTemplate =
+    generationData &&
+    'presetTracks' in generationData &&
+    generationData.presetTracks &&
+    !('appliedShotTemplateId' in generationData && generationData.appliedShotTemplateId)
+      ? [...builtInTemplates, ...customTemplates].find((template) =>
+          matchesTemplateTracks(generationData.presetTracks as PresetTrackSet, template),
+        )
+      : undefined;
+  const currentTemplateLabel =
+    generationData && ('appliedShotTemplateName' in generationData || 'appliedShotTemplateId' in generationData)
+      ? (() => {
+          const templateId =
+            'appliedShotTemplateId' in generationData ? generationData.appliedShotTemplateId : undefined;
+          const templateName =
+            'appliedShotTemplateName' in generationData ? generationData.appliedShotTemplateName : undefined;
+          if (!templateId && !templateName) return undefined;
+          const builtInTemplate = templateId
+            ? builtInTemplates.find((template) => template.id === templateId)
+            : undefined;
+          if (builtInTemplate) {
+            return localizeShotTemplateName(builtInTemplate.id, builtInTemplate.name);
+          }
+          if (templateName) return templateName;
+          if (currentTrackTemplate?.builtIn) {
+            return localizeShotTemplateName(currentTrackTemplate.id, currentTrackTemplate.name);
+          }
+          return currentTrackTemplate?.name;
+        })()
+      : currentTrackTemplate?.builtIn
+        ? localizeShotTemplateName(currentTrackTemplate.id, currentTrackTemplate.name)
+        : currentTrackTemplate?.name;
 
   return (
     <>
@@ -113,6 +187,27 @@ export function InspectorCreativeTab({
             onChange={onPromptChange}
             placeholder={t('inspector.promptPlaceholder')}
           />
+          {/* Suggested templates — shown when prompt is empty */}
+          {!generationData.prompt && suggestedTemplates && suggestedTemplates.length > 0 && (
+            <div className="mt-1.5 space-y-1">
+              <span className="text-[10px] text-muted-foreground">
+                {t('inspector.suggestedTemplates')}
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {suggestedTemplates.slice(0, 6).map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/40 transition-colors"
+                    onClick={() => onApplyTemplate(tpl)}
+                    title={localizeShotTemplateDescription(tpl.id, tpl.description)}
+                  >
+                    {localizeShotTemplateName(tpl.id, tpl.name)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -128,7 +223,9 @@ export function InspectorCreativeTab({
               className="w-full flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5 text-xs hover:bg-muted/50 transition-colors"
               onClick={onToggleTemplateDropdown}
             >
-              <span className="text-muted-foreground text-[11px]">{t('shotTemplate.selectTemplate')}</span>
+              <span className={cn('text-[11px]', currentTemplateLabel ? 'text-foreground' : 'text-muted-foreground')}>
+                {currentTemplateLabel ?? t('shotTemplate.selectTemplate')}
+              </span>
               <ChevronDown className="w-3 h-3 text-muted-foreground" />
             </button>
             {templateDropdownOpen && (

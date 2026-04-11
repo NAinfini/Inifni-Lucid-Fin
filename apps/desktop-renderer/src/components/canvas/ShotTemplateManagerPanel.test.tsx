@@ -83,7 +83,7 @@ describe('ShotTemplateManagerPanel', () => {
     expect(screen.getByText('Push In')).toBeTruthy();
   });
 
-  it('adds, edits, deletes, and closes the panel for custom templates', () => {
+  it('adds, edits, and deletes custom templates without rendering a close button', () => {
     const store = renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: /custom template/i }));
@@ -102,8 +102,7 @@ describe('ShotTemplateManagerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: t('shotTemplates.deleteTemplate') }));
     expect(store.getState().shotTemplates.custom).toHaveLength(1);
-
-    fireEvent.click(screen.getByRole('button', { name: t('commander.close') }));
-    expect(store.getState().ui.activePanel).toBeNull();
+    expect(screen.queryByRole('button', { name: t('commander.close') })).toBeNull();
+    expect(store.getState().ui.activePanel).toBe('shotTemplates');
   });
 });

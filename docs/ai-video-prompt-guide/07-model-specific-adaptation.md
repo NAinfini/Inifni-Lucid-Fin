@@ -14,17 +14,30 @@ Each AI video model has different prompt parsing, optimal lengths, negative prom
 
 ## Quick Reference Table
 
-| Model              | Prompt Length | Neg. Prompt          | i2v                   | Camera Control       | Open Source      | Duration |
-| ------------------ | ------------- | -------------------- | --------------------- | -------------------- | ---------------- | -------- |
-| **Kling 2.0**      | 100-200 words | Yes (separate field) | Yes                   | API params + prompt  | No               | 5-10s    |
-| **Runway Gen-4**   | 50-100 words  | No                   | Yes                   | Director Mode fields | No               | 5-10s    |
-| **Luma Ray 2**     | 50-150 words  | No                   | Yes                   | Prompt + keyframe    | No               | 5s       |
-| **Wan 2.1**        | 50-150 words  | Yes                  | Yes (dedicated model) | Prompt               | Yes (Apache 2.0) | ~5s      |
-| **MiniMax/Hailuo** | 80-150 words  | No                   | Yes (first_frame)     | Director Mode params | No               | 5-6s     |
-| **Pika 2.0+**      | 30-100 words  | Yes                  | Yes (core feature)    | Prompt (weaker)      | No               | 3-4s     |
-| **Seedance**       | 50-120 words  | Limited              | Yes                   | Prompt               | No               | 5-8s     |
-| **HunyuanVideo**   | 50-200 words  | Yes                  | Yes                   | Prompt               | Yes (Tencent)    | ~5s      |
-| **CogVideoX**      | 50-200 words  | Yes                  | Yes                   | Prompt               | Yes (Apache 2.0) | 6s       |
+| Model              | Prompt Length | Neg. Prompt          | i2v                   | Camera Control            | Audio            | Duration | Quality Tiers  |
+| ------------------ | ------------- | -------------------- | --------------------- | ------------------------- | ---------------- | -------- | -------------- |
+| **Kling 3.0**      | 100-200 words | Yes (separate field) | Yes                   | API params + prompt       | Yes (enable_audio) | 5-10s  | std / pro      |
+| **Runway Gen-4.5** | 50-100 words  | No                   | Yes                   | Director Mode sliders     | No               | 2-10s    | —              |
+| **Google Veo 3**   | 100-200 words | No                   | Yes                   | Prompt (cinematography)   | Yes (generateAudio) | 5-8s  | —              |
+| **Luma Ray 2**     | 50-150 words  | No                   | Yes                   | Prompt + keyframe + loop  | No               | 5s       | —              |
+| **Wan 2.1**        | 50-150 words  | Yes                  | Yes (dedicated model) | Prompt                    | No               | ~5s      | —              |
+| **MiniMax/Hailuo** | 80-150 words  | No                   | Yes (first_frame)     | Prompt                    | No               | 5-6s     | —              |
+| **Pika 2.2**       | 30-100 words  | Yes                  | Yes (core feature)    | Prompt (weaker)           | No (web only)    | 3-4s     | —              |
+| **Seedance 2**     | 50-120 words  | Limited              | Yes                   | Prompt                    | No               | 4-15s    | —              |
+| **HunyuanVideo**   | 50-200 words  | Yes                  | Yes                   | Prompt                    | No               | ~5s      | —              |
+
+### Image Providers
+
+| Model              | Prompt Length | Neg. Prompt | Seed | Text-in-Image | Style Control             |
+| ------------------ | ------------- | ----------- | ---- | ------------- | ------------------------- |
+| **DALL-E (gpt-image-1)** | Natural language | No    | No   | Good          | Via prompt description    |
+| **Ideogram V3**    | 50-150 words  | Yes         | Yes  | Excellent     | GENERAL/REALISTIC/DESIGN  |
+| **Flux**           | 50-150 words  | No          | Yes  | Fair          | Via model variant (schnell/pro) |
+| **Recraft V3**     | 50-100 words  | No          | No   | Fair          | realistic/digital_art/vector |
+| **Leonardo**       | 50-200 words  | Yes         | Yes  | Fair          | LoRA + modelId selection  |
+| **Google Imagen 4** | 50-150 words | No          | No   | Good          | Via prompt                |
+| **SD WebUI (local)** | 50-200 words | Yes        | Yes  | Poor          | sampler + cfg_scale + LoRA |
+| **ComfyUI (local)** | 50-200 words | Yes         | Yes  | Poor          | Full node workflow        |
 
 ---
 

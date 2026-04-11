@@ -1,5 +1,5 @@
 import React, { type ComponentType, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileType, FolderSearch, Image, Music, Search, Upload, Video, Download, CheckSquare, Trash2, ArrowUpDown, X, Save, Pencil, LayoutGrid, List, Copy } from 'lucide-react';
+import { FileType, FolderSearch, Image, Music, Search, Sparkles, Upload, Video, Download, CheckSquare, Trash2, ArrowUpDown, X, Save, Pencil, LayoutGrid, List, Copy, RefreshCw } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import {
@@ -12,7 +12,9 @@ import {
   type Asset,
 } from '../../store/slices/assets.js';
 import { getAPI } from '../../utils/api.js';
-import { t } from '../../i18n.js';
+import { getLocale, t } from '../../i18n.js';
+import { addLog } from '../../store/slices/logger.js';
+import { useToast } from '../../hooks/use-toast.js';
 import { cn } from '../../lib/utils.js';
 import {
   Dialog,
@@ -60,6 +62,25 @@ function formatDurationShort(seconds: number): string {
   const secs = Math.floor(seconds % 60);
   if (mins === 0) return `${secs}s`;
   return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : t('toast.error.unknownError');
+}
+
+function getErrorDetail(error: unknown): string | undefined {
+  return error instanceof Error ? error.stack ?? error.message : String(error);
+}
+
+function formatFailureSummary(summary: string, extraCount: number): string {
+  if (extraCount <= 0) return summary;
+  return `${summary} (+${extraCount} ${t('assetBrowser.moreFailures')})`;
+}
+
+function localizeAssetType(type: string): string {
+  const key = `asset.${type}`;
+  const localized = t(key);
+  return localized === key ? type : localized;
 }
 
 /** Derive a short uppercase format label from the asset */
@@ -122,7 +143,9 @@ function VideoGridCard({ src, className }: { src: string; className?: string }) 
 
 export function AssetBrowserPanel() {
   const dispatch = useDispatch();
+  const { error: showErrorToast } = useToast();
   const { filterType, searchQuery } = useSelector((state: RootState) => state.assets);
+  const allAssets = useSelector((state: RootState) => state.assets.items);
   const filteredAssets = useSelector(selectFilteredAssets);
   const [loading, setLoading] = useState(false);
   const [selectedHashes, setSelectedHashes] = useState<Set<string>>(new Set());
@@ -141,8 +164,48 @@ export function AssetBrowserPanel() {
   const [pendingDeleteHashes, setPendingDeleteHashes] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isDragOver, setIsDragOver] = useState(false);
+  const [semanticMode, setSemanticMode] = useState(false);
+  const [semanticResults, setSemanticResults] = useState<{ hash: string; score: number; description: string }[]>([]);
+  const [semanticIndexing, setSemanticIndexing] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  const logAssetFailure = useCallback((message: string, error: unknown) => {
+    dispatch(
+      addLog({
+        level: 'error',
+        category: 'asset',
+        message,
+        detail: getErrorDetail(error),
+      }),
+    );
+  }, [dispatch]);
+
+  const handleSemanticSearch = useCallback(async (query: string) => {
+    if (!query.trim()) { setSemanticResults([]); return; }
+    const api = getAPI();
+    if (!api?.embedding) return;
+    try {
+      const results = await api.embedding.search(query, 50);
+      setSemanticResults(results);
+    } catch (error) {
+      dispatch(addLog({ level: 'error', category: 'asset', message: 'Semantic search failed', detail: getErrorDetail(error) }));
+      setSemanticResults([]);
+    }
+  }, [dispatch]);
+
+  const handleReindex = useCallback(async () => {
+    const api = getAPI();
+    if (!api?.embedding) return;
+    setSemanticIndexing(true);
+    try {
+      await api.embedding.reindex();
+    } catch (error) {
+      dispatch(addLog({ level: 'error', category: 'asset', message: 'Re-index failed', detail: getErrorDetail(error) }));
+    } finally {
+      setSemanticIndexing(false);
+    }
+  }, [dispatch]);
 
   const loadAssets = useCallback(async () => {
     setLoading(true);
@@ -170,19 +233,35 @@ export function AssetBrowserPanel() {
             duration: typeof asset.duration === 'number' ? asset.duration : undefined,
             provider: typeof asset.provider === 'string' ? asset.provider : undefined,
             prompt: typeof asset.prompt === 'string' ? asset.prompt : undefined,
-          })),
-        ),
+            })),
+          ),
       );
+    } catch (error) {
+      const title = t('assetBrowser.loadFailed');
+      logAssetFailure(title, error);
+      showErrorToast({
+        title,
+        message: getErrorMessage(error),
+      });
     } finally {
       setLoading(false);
     }
-  }, [dispatch, filterType]);
+  }, [dispatch, filterType, logAssetFailure, showErrorToast]);
 
   useEffect(() => {
     void loadAssets();
   }, [loadAssets]);
 
   const gridAssets = useMemo(() => {
+    if (semanticMode) {
+      // Map semantic results to asset objects, preserving score order
+      return semanticResults
+        .map((r) => {
+          const asset = allAssets.find((a) => a.hash === r.hash);
+          return asset ? { ...asset, _semanticScore: r.score } : null;
+        })
+        .filter((a): a is Asset & { _semanticScore: number } => a !== null);
+    }
     const sorted = [...filteredAssets].sort((a, b) => {
       let cmp = 0;
       if (sortBy === 'date') cmp = a.createdAt - b.createdAt;
@@ -191,15 +270,24 @@ export function AssetBrowserPanel() {
       return sortOrder === 'desc' ? -cmp : cmp;
     });
     return sorted.slice(0, 200);
-  }, [filteredAssets, sortBy, sortOrder]);
+  }, [semanticMode, semanticResults, allAssets, filteredAssets, sortBy, sortOrder]);
 
   const handleImport = useCallback(async () => {
     const api = getAPI();
     if (!api) return;
-    const ref = await api.asset.pickFile('image');
-    if (!ref) return;
-    await loadAssets();
-  }, [loadAssets]);
+    try {
+      const ref = await api.asset.pickFile('image');
+      if (!ref) return;
+      await loadAssets();
+    } catch (error) {
+      const title = t('assetBrowser.importFailed');
+      logAssetFailure(title, error);
+      showErrorToast({
+        title,
+        message: getErrorMessage(error),
+      });
+    }
+  }, [loadAssets, logAssetFailure, showErrorToast]);
 
   // --- File/Asset drop into panel ---
   const handlePanelDragOver = useCallback((e: React.DragEvent) => {
@@ -235,23 +323,61 @@ export function AssetBrowserPanel() {
     const files = e.dataTransfer.files;
     if (files.length === 0) return;
     const importPromises: Promise<void>[] = [];
+    const failedImports: string[] = [];
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       if (!file) continue;
-      const filePath = (file as { path?: string }).path ?? '';
-      if (!filePath) continue;
       let type: string | null = null;
       if (file.type.startsWith('image/')) type = 'image';
       else if (file.type.startsWith('video/')) type = 'video';
       else if (file.type.startsWith('audio/')) type = 'audio';
-      if (!type) continue;
-      importPromises.push(
-        api.asset.import(filePath, type).then(() => { /* import done */ }).catch(() => { /* ignore per-file errors */ }),
-      );
+      if (!type) {
+        const msg = `${file.name}: ${t('assetBrowser.unsupportedFileType')}`;
+        failedImports.push(msg);
+        dispatch(addLog({ level: 'warn', category: 'asset', message: msg }));
+        continue;
+      }
+      const filePath = (file as { path?: string }).path ?? '';
+      if (filePath) {
+        // Electron with File.path available — import by path
+        importPromises.push(
+          api.asset.import(filePath, type)
+            .then(() => undefined)
+            .catch((error: unknown) => {
+              const msg = `${file.name}: ${getErrorMessage(error)}`;
+              failedImports.push(msg);
+              dispatch(addLog({ level: 'error', category: 'asset', message: msg }));
+            }),
+        );
+      } else if (api.asset.importBuffer) {
+        // Sandboxed renderer — read file as ArrayBuffer and send via IPC
+        importPromises.push(
+          file.arrayBuffer()
+            .then((buf) => api.asset.importBuffer!(buf, file.name, type!))
+            .then(() => undefined)
+            .catch((error: unknown) => {
+              const msg = `${file.name}: ${getErrorMessage(error)}`;
+              failedImports.push(msg);
+              dispatch(addLog({ level: 'error', category: 'asset', message: msg }));
+            }),
+        );
+      } else {
+        const msg = `${file.name}: ${t('assetBrowser.importPathUnavailable')}`;
+        failedImports.push(msg);
+        dispatch(addLog({ level: 'error', category: 'asset', message: msg }));
+      }
     }
     await Promise.all(importPromises);
+    if (failedImports.length > 0) {
+      const summary = failedImports[0] ?? t('toast.error.unknownError');
+      const extraCount = failedImports.length - 1;
+      showErrorToast({
+        title: t('assetBrowser.importFailed'),
+        message: formatFailureSummary(summary, extraCount),
+      });
+    }
     await loadAssets();
-  }, [loadAssets]);
+  }, [dispatch, loadAssets, showErrorToast]);
 
   // --- Multi-select click handler ---
   const handleAssetClick = useCallback((asset: Asset, e: React.MouseEvent) => {
@@ -294,6 +420,16 @@ export function AssetBrowserPanel() {
     setLastClickedHash(asset.hash);
   }, [gridAssets, lastClickedHash, selectMode]);
 
+  const handleAssetCardKeyDown = useCallback((asset: Asset, event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    setSelectedHashes(new Set([asset.hash]));
+    setDetailAsset(asset);
+    setEditingName(asset.name);
+    setIsEditingName(false);
+    setLastClickedHash(asset.hash);
+  }, []);
+
   // --- Delete selected assets ---
   const handleDeleteSelected = useCallback(() => {
     if (selectedHashes.size === 0) return;
@@ -305,43 +441,100 @@ export function AssetBrowserPanel() {
     const api = getAPI();
     if (!api) { setDeleteConfirmOpen(false); return; }
     const hashesToDelete = new Set(pendingDeleteHashes);
+    const deletedHashes = new Set<string>();
+    const failedDeletes: string[] = [];
     setDeleteConfirmOpen(false);
     for (const hash of hashesToDelete) {
+      const asset = allAssets.find((entry) => entry.hash === hash);
       try {
         await api.asset.delete(hash);
-        const asset = gridAssets.find((a) => a.hash === hash);
+        deletedHashes.add(hash);
         if (asset) dispatch(removeAsset(asset.id));
-      } catch {
-        // IPC failed — asset stays in Redux and on disk; skip silently
+      } catch (error) {
+        const msg = `${asset?.name ?? hash}: ${getErrorMessage(error)}`;
+        failedDeletes.push(msg);
+        dispatch(addLog({ level: 'error', category: 'asset', message: msg }));
+        // Keep failed assets visible so the user can retry.
       }
+    }
+    if (failedDeletes.length > 0) {
+      const summary = failedDeletes[0] ?? t('toast.error.unknownError');
+      const extraCount = failedDeletes.length - 1;
+      showErrorToast({
+        title: t('assetBrowser.deleteFailed'),
+        message: formatFailureSummary(summary, extraCount),
+      });
     }
     setSelectedHashes((prev) => {
       const next = new Set(prev);
-      for (const h of hashesToDelete) next.delete(h);
+      for (const h of deletedHashes) next.delete(h);
       return next;
     });
-    setDetailAsset((prev) => (prev && hashesToDelete.has(prev.hash) ? null : prev));
+    setDetailAsset((prev) => (prev && deletedHashes.has(prev.hash) ? null : prev));
     setContextMenu(null);
-  }, [pendingDeleteHashes, gridAssets, dispatch]);
+  }, [pendingDeleteHashes, allAssets, dispatch, showErrorToast]);
 
   // --- Export selected ---
-  const handleExportSelected = useCallback(() => {
+  const handleExportSelected = useCallback(async () => {
     const api = getAPI();
+    if (!api) return;
     const items = gridAssets
       .filter((a) => selectedHashes.has(a.hash))
       .map((a) => ({ hash: a.hash, type: a.type as 'image' | 'video' | 'audio', name: a.name }));
-    void api?.asset.exportBatch({ items });
-    setContextMenu(null);
-  }, [gridAssets, selectedHashes]);
-
-  // --- Copy hash ---
-  const handleCopyHash = useCallback(() => {
-    if (selectedHashes.size === 1) {
-      const hash = [...selectedHashes][0];
-      void navigator.clipboard.writeText(hash ?? '');
+    if (items.length === 0) {
+      setContextMenu(null);
+      return;
+    }
+    try {
+      await api.asset.exportBatch({ items });
+    } catch (error) {
+      const title = t('assetBrowser.exportFailed');
+      logAssetFailure(title, error);
+      showErrorToast({
+        title,
+        message: getErrorMessage(error),
+      });
     }
     setContextMenu(null);
-  }, [selectedHashes]);
+  }, [gridAssets, logAssetFailure, selectedHashes, showErrorToast]);
+
+  // --- Copy hash ---
+  const handleCopyHash = useCallback(async () => {
+    if (selectedHashes.size === 1) {
+      const hash = [...selectedHashes][0];
+      try {
+        await navigator.clipboard.writeText(hash ?? '');
+      } catch (error) {
+        const title = t('assetBrowser.copyHashFailed');
+        logAssetFailure(title, error);
+        showErrorToast({
+          title,
+          message: getErrorMessage(error),
+        });
+      }
+    }
+    setContextMenu(null);
+  }, [logAssetFailure, selectedHashes, showErrorToast]);
+
+  const handleQuickExport = useCallback(async (asset: Asset, exportConfig: { type: 'image' | 'video' | 'audio'; format: string }) => {
+    const api = getAPI();
+    if (!api) return;
+    try {
+      await api.asset.export({
+        hash: asset.hash,
+        type: exportConfig.type,
+        format: exportConfig.format,
+        name: asset.name,
+      });
+    } catch (error) {
+      const title = t('assetBrowser.exportFailed');
+      logAssetFailure(title, error);
+      showErrorToast({
+        title,
+        message: getErrorMessage(error),
+      });
+    }
+  }, [logAssetFailure, showErrorToast]);
 
   // --- Batch rename ---
   const handleBatchRename = useCallback(() => {
@@ -394,8 +587,10 @@ export function AssetBrowserPanel() {
 
   // --- Drag select (rubber band) ---
   const handleGridMouseDown = useCallback((e: React.MouseEvent) => {
-    // Only start drag select on left click on the grid background (not on an asset card)
-    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-asset-card]')) return;
+    // Only start drag select on left click on the grid background (not on an asset card or interactive element)
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-asset-card], button, a, input, [role="button"]')) return;
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -457,23 +652,57 @@ export function AssetBrowserPanel() {
 
       {/* Fixed header: search + type filter + view toggle */}
       <div className="border-b border-border/60 px-3 py-2 space-y-2">
-        {/* Row 1: search + view toggle */}
+        {/* Row 1: search + semantic toggle + reindex + view toggle */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            {semanticMode ? (
+              <Sparkles className="absolute left-2 top-2 h-3.5 w-3.5 text-primary" />
+            ) : (
+              <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            )}
             <input
               value={searchQuery}
-              onChange={(event) => dispatch(setSearchQuery(event.target.value))}
-              placeholder={t('assetBrowser.searchPlaceholder')}
-              className="w-full rounded-md border border-border/60 bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+              onChange={(event) => {
+                dispatch(setSearchQuery(event.target.value));
+                if (semanticMode) void handleSemanticSearch(event.target.value);
+              }}
+              placeholder={semanticMode ? t('assetBrowser.semantic.toggle') + '...' : t('assetBrowser.searchPlaceholder')}
+              className={cn(
+                'w-full rounded-md border bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring',
+                semanticMode ? 'border-primary/60' : 'border-border/60',
+              )}
             />
           </div>
+          {/* Semantic search toggle */}
+          <button
+            type="button"
+            onClick={() => { setSemanticMode((v) => !v); setSemanticResults([]); }}
+            title={t('assetBrowser.semantic.toggle')}
+            className={cn(
+              'flex items-center justify-center rounded-md border px-2 py-1.5 transition-colors',
+              semanticMode
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border/60 text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </button>
+          {/* Re-index button */}
+          <button
+            type="button"
+            onClick={() => { void handleReindex(); }}
+            disabled={semanticIndexing}
+            title={t('assetBrowser.semantic.reindex')}
+            className="flex items-center justify-center rounded-md border border-border/60 px-2 py-1.5 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', semanticIndexing && 'animate-spin')} />
+          </button>
           {/* View toggle */}
           <div className="flex items-center rounded-md border border-border/60 overflow-hidden">
             <button
               type="button"
               onClick={() => setViewMode('grid')}
-              title={t('assetBrowser.viewGrid') || 'Grid'}
+              title={t('assetBrowser.viewGrid')}
               className={cn(
                 'flex items-center justify-center px-2 py-1.5 text-[11px] transition-colors',
                 viewMode === 'grid'
@@ -486,7 +715,7 @@ export function AssetBrowserPanel() {
             <button
               type="button"
               onClick={() => setViewMode('list')}
-              title={t('assetBrowser.viewList') || 'List'}
+              title={t('assetBrowser.viewList')}
               className={cn(
                 'flex items-center justify-center px-2 py-1.5 text-[11px] transition-colors border-l border-border/60',
                 viewMode === 'list'
@@ -537,7 +766,7 @@ export function AssetBrowserPanel() {
             )}
           >
             <CheckSquare className="h-3 w-3" />
-            {selectMode ? t('assetBrowser.cancelSelect') || 'Cancel' : t('assetBrowser.export')}
+            {selectMode ? t('assetBrowser.cancelSelect') : t('assetBrowser.export')}
           </button>
           <button
             type="button"
@@ -549,7 +778,11 @@ export function AssetBrowserPanel() {
             className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
           >
             <ArrowUpDown className="h-3 w-3" />
-            {sortBy === 'date' ? t('assetBrowser.sortBy.date') || 'Date' : sortBy === 'name' ? t('assetBrowser.sortBy.name') || 'Name' : t('assetBrowser.sortBy.size') || 'Size'}
+            {sortBy === 'date'
+              ? t('assetBrowser.sortBy.date')
+              : sortBy === 'name'
+                ? t('assetBrowser.sortBy.name')
+                : t('assetBrowser.sortBy.size')}
           </button>
           <button
             type="button"
@@ -576,17 +809,19 @@ export function AssetBrowserPanel() {
         {isDragOver && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
             <div className="rounded-lg border-2 border-dashed border-blue-400/70 bg-blue-500/10 px-6 py-3 text-xs font-medium text-blue-400">
-              Drop files to import
+              {t('assetBrowser.dropToImport')}
             </div>
           </div>
         )}
         <div className="p-3">
           {loading ? (
             <div className="text-xs text-muted-foreground">{t('assetBrowser.loading')}</div>
+          ) : semanticIndexing ? (
+            <div className="text-xs text-muted-foreground">{t('assetBrowser.semantic.indexing')}</div>
           ) : gridAssets.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center text-xs text-muted-foreground">
               <FolderSearch className="mb-2 h-8 w-8 opacity-20" />
-              <div>{t('assetBrowser.empty')}</div>
+              <div>{semanticMode && searchQuery ? t('assetBrowser.semantic.noResults') : t('assetBrowser.empty')}</div>
               <div className="mt-0.5 text-[11px]">{t('assetBrowser.emptyHint')}</div>
             </div>
           ) : viewMode === 'grid' ? (
@@ -605,104 +840,107 @@ export function AssetBrowserPanel() {
                 const typeBadgeColor = TYPE_BADGE_COLORS[asset.type] ?? 'bg-muted text-muted-foreground';
 
                 return (
-                  <button
+                  <div
                     key={asset.id}
-                    type="button"
-                    data-asset-card
-                    data-asset-hash={asset.hash}
-                    draggable
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData(
-                        'application/x-lucid-asset',
-                        JSON.stringify({
-                          hash: asset.hash,
-                          name: asset.name,
-                          type: asset.type,
-                        }),
-                      );
-                      event.dataTransfer.effectAllowed = 'copy';
-                    }}
-                    onClick={(e) => handleAssetClick(asset, e)}
-                    onContextMenu={(e) => {
-                      // Right-click: select if not already selected, then show context menu
-                      if (!selectedHashes.has(asset.hash)) {
-                        if (!e.ctrlKey && !e.metaKey) setSelectedHashes(new Set([asset.hash]));
-                        else setSelectedHashes((prev) => new Set([...prev, asset.hash]));
-                      }
-                    }}
                     className={cn(
-                      'group rounded-md border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/80',
+                      'group relative rounded-md border bg-background p-1.5 transition-colors hover:border-primary/40 hover:bg-muted/80',
                       isSelected ? 'border-primary ring-1 ring-primary/40' : 'border-border/60',
                     )}
                   >
-                    <div className="mb-1.5 flex aspect-square items-center justify-center overflow-hidden rounded-md bg-muted relative">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      data-asset-card
+                      data-asset-hash={asset.hash}
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData(
+                          'application/x-lucid-asset',
+                          JSON.stringify({
+                            hash: asset.hash,
+                            name: asset.name,
+                            type: asset.type,
+                          }),
+                        );
+                        event.dataTransfer.effectAllowed = 'copy';
+                      }}
+                      onClick={(e) => handleAssetClick(asset, e)}
+                      onKeyDown={(event) => handleAssetCardKeyDown(asset, event)}
+                      onContextMenu={(e) => {
+                        // Right-click: select if not already selected, then show context menu
+                        if (!selectedHashes.has(asset.hash)) {
+                          if (!e.ctrlKey && !e.metaKey) setSelectedHashes(new Set([asset.hash]));
+                          else setSelectedHashes((prev) => new Set([...prev, asset.hash]));
+                        }
+                      }}
+                      className="text-left"
+                    >
+                      <div className="mb-1.5 flex aspect-square items-center justify-center overflow-hidden rounded-md bg-muted relative">
                       {/* Thumbnail or video */}
-                      {thumbnail ? (
-                        <img
-                          src={thumbnail}
-                          alt={asset.name}
-                          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                        />
-                      ) : videoUrl ? (
-                        <VideoGridCard
-                          src={videoUrl}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Icon className="h-6 w-6 text-muted-foreground" />
-                      )}
+                        {thumbnail ? (
+                          <img
+                            src={thumbnail}
+                            alt={asset.name}
+                            className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+                          />
+                        ) : videoUrl ? (
+                          <VideoGridCard
+                            src={videoUrl}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <Icon className="h-6 w-6 text-muted-foreground" />
+                        )}
 
-                      {/* Type badge: top-left */}
-                      <span className={cn(
-                        'absolute top-1 left-1 flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight',
-                        typeBadgeColor,
-                      )}>
-                        <Icon className="h-2.5 w-2.5" />
-                      </span>
-
-                      {/* Duration badge: bottom-right (video/audio) */}
-                      {asset.duration != null && (asset.type === 'video' || asset.type === 'audio') && (
-                        <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold leading-tight text-white">
-                          {formatDurationShort(asset.duration)}
+                        {/* Type badge: top-left */}
+                        <span className={cn(
+                          'absolute top-1 left-1 flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight',
+                          typeBadgeColor,
+                        )}>
+                          <Icon className="h-2.5 w-2.5" />
                         </span>
-                      )}
 
-                      {/* Format badge: bottom-left */}
-                      {(() => {
-                        const fmt = getFormatLabel(asset);
-                        return fmt ? (
-                          <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold leading-tight text-white">
-                            {fmt}
+                        {/* Duration badge: bottom-right (video/audio) */}
+                        {asset.duration != null && (asset.type === 'video' || asset.type === 'audio') && (
+                          <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold leading-tight text-white">
+                            {formatDurationShort(asset.duration)}
                           </span>
-                        ) : null;
-                      })()}
+                        )}
 
-                      {/* Export quick action: top-right (on hover) */}
-                      {exportConfig && (
-                        <button
-                          type="button"
-                          className="absolute top-1 right-1 rounded bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const api = getAPI();
-                            void api?.asset.export({
-                              hash: asset.hash,
-                              type: exportConfig.type,
-                              format: exportConfig.format,
-                              name: asset.name,
-                            });
-                          }}
-                          title={t('assetBrowser.export')}
-                        >
-                          <Download className="h-3 w-3" />
-                        </button>
-                      )}
+                        {/* Format badge: bottom-left */}
+                        {(() => {
+                          const fmt = getFormatLabel(asset);
+                          return fmt ? (
+                            <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-px text-[9px] font-semibold leading-tight text-white">
+                              {fmt}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
+                      <div className="truncate text-[11px] font-medium">{asset.name}</div>
+                      <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                        <span>{formatSize(asset.size)}</span>
+                        {'_semanticScore' in asset && (
+                          <span className="rounded bg-primary/10 px-1 py-px text-[9px] font-semibold text-primary">
+                            {Math.round((asset as Asset & { _semanticScore: number })._semanticScore * 100)}%
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="truncate text-[11px] font-medium">{asset.name}</div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {formatSize(asset.size)}
-                    </div>
-                  </button>
+
+                    {exportConfig && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-2 rounded bg-background/80 p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                        onClick={() => {
+                          void handleQuickExport(asset, exportConfig);
+                        }}
+                        title={t('assetBrowser.export')}
+                      >
+                        <Download className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -714,7 +952,7 @@ export function AssetBrowserPanel() {
                 <span />
                 <span>{t('assetBrowser.fields.name')}</span>
                 <span>{t('assetBrowser.fields.type')}</span>
-                <span>Date</span>
+                <span>{t('assetBrowser.sortBy.date')}</span>
                 <span>{t('assetBrowser.fields.size')}</span>
               </div>
               {gridAssets.map((asset) => {
@@ -768,11 +1006,11 @@ export function AssetBrowserPanel() {
                     {/* Type badge */}
                     <span className={cn('inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight w-fit', typeBadgeColor)}>
                       <Icon className="h-2.5 w-2.5" />
-                      <span className="capitalize">{asset.type}</span>
+                      <span>{localizeAssetType(asset.type)}</span>
                     </span>
                     {/* Date */}
                     <span className="text-[10px] text-muted-foreground truncate">
-                      {new Date(asset.createdAt).toLocaleDateString()}
+                      {new Date(asset.createdAt).toLocaleDateString(getLocale())}
                     </span>
                     {/* Size */}
                     <span className="text-[10px] text-muted-foreground">{formatSize(asset.size)}</span>
@@ -785,18 +1023,18 @@ export function AssetBrowserPanel() {
 
         {/* Sticky bottom floating selection bar */}
         {selectedHashes.size > 0 && (
-          <div className="sticky bottom-0 left-0 right-0 z-10 border-t border-border/60 bg-card/90 backdrop-blur-sm px-3 py-2">
+          <div className="sticky bottom-0 left-0 right-0 z-10 border-t border-border/60 bg-card/90 backdrop-blur-sm px-3 py-2 select-none">
             <div className="flex items-center gap-2">
               <span className="flex-1 text-[11px] text-muted-foreground">
-                {selectedHashes.size} {selectedHashes.size === 1 ? 'selected' : 'selected'}
+                {t('assetBrowser.selectedCount').replace('{count}', String(selectedHashes.size))}
               </span>
               <button
                 type="button"
-                onClick={handleExportSelected}
+                onClick={() => void handleExportSelected()}
                 className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] text-primary-foreground"
               >
                 <Download className="h-3 w-3" />
-                {t('assetBrowser.exportSelected') || 'Export'}
+                {t('assetBrowser.exportSelected')}
               </button>
               <button
                 type="button"
@@ -804,7 +1042,7 @@ export function AssetBrowserPanel() {
                 className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/20"
               >
                 <Trash2 className="h-3 w-3" />
-                {t('action.delete') || 'Delete'}
+                {t('action.delete')}
               </button>
             </div>
           </div>
@@ -829,20 +1067,20 @@ export function AssetBrowserPanel() {
           {selectedHashes.size === 1 && (
             <button
               type="button"
-              onClick={handleCopyHash}
+              onClick={() => void handleCopyHash()}
               className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
             >
               <Copy className="h-3.5 w-3.5" />
-              {t('assetBrowser.copyHash') || 'Copy Hash'}
+              {t('assetBrowser.copyHash')}
             </button>
           )}
           <button
             type="button"
-            onClick={handleExportSelected}
+            onClick={() => void handleExportSelected()}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
           >
             <Download className="h-3.5 w-3.5" />
-            {t('assetBrowser.export') || 'Export'} ({selectedHashes.size})
+            {t('assetBrowser.exportSelected')} ({selectedHashes.size})
           </button>
           <button
             type="button"
@@ -850,7 +1088,7 @@ export function AssetBrowserPanel() {
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
           >
             <Pencil className="h-3.5 w-3.5" />
-            Batch Rename ({selectedHashes.size})
+            {t('assetBrowser.batchRename')} ({selectedHashes.size})
           </button>
           <button
             type="button"
@@ -858,7 +1096,7 @@ export function AssetBrowserPanel() {
             className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-muted"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            {t('action.delete') || 'Delete'} ({selectedHashes.size})
+            {t('action.delete')} ({selectedHashes.size})
           </button>
         </div>
       )}
@@ -867,17 +1105,19 @@ export function AssetBrowserPanel() {
       {batchRenaming && (
         <div className="border-t border-border/60 px-3 py-2 space-y-1.5 bg-card">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium">Batch Rename ({selectedHashes.size} items)</span>
+            <span className="text-[11px] font-medium">
+              {t('assetBrowser.batchRenameItems').replace('{count}', String(selectedHashes.size))}
+            </span>
             <button type="button" onClick={() => setBatchRenaming(false)} className="text-muted-foreground hover:text-foreground">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="text-[10px] text-muted-foreground">Prefix + _001, _002, ...</div>
+          <div className="text-[10px] text-muted-foreground">{t('assetBrowser.batchRenamePattern')}</div>
           <div className="flex items-center gap-1">
             <input
               value={batchPrefix}
               onChange={(e) => setBatchPrefix(e.target.value)}
-              placeholder="Enter prefix..."
+              placeholder={t('assetBrowser.batchRenamePrefixPlaceholder')}
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') handleBatchRename(); if (e.key === 'Escape') setBatchRenaming(false); }}
               className="flex-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
@@ -933,7 +1173,7 @@ export function AssetBrowserPanel() {
                     setIsEditingName(false);
                   }}
                   className="rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground"
-                  title="Save"
+                  title={t('action.save')}
                 >
                   <Save className="h-3 w-3" />
                 </button>
@@ -941,7 +1181,7 @@ export function AssetBrowserPanel() {
                   type="button"
                   onClick={() => { setEditingName(detailAsset.name); setIsEditingName(false); }}
                   className="rounded px-1.5 py-1 text-destructive hover:bg-destructive/10"
-                  title="Cancel"
+                  title={t('action.cancel')}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -951,32 +1191,32 @@ export function AssetBrowserPanel() {
                 type="button"
                 onClick={() => setIsEditingName(true)}
                 className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
-                title="Edit name"
+                title={t('contextMenu.rename')}
               >
                 <Pencil className="h-3 w-3" />
               </button>
             )}
           </div>
           <div className="space-y-1 text-[10px] text-muted-foreground">
-            <div className="flex justify-between"><span>{t('assetBrowser.fields.type')}</span><span>{detailAsset.type}</span></div>
+            <div className="flex justify-between"><span>{t('assetBrowser.fields.type')}</span><span>{localizeAssetType(detailAsset.type)}</span></div>
             <div className="flex justify-between"><span>{t('assetBrowser.fields.size')}</span><span>{formatSize(detailAsset.size)}</span></div>
             {detailAsset.format && (
-              <div className="flex justify-between"><span>Format</span><span className="uppercase">{detailAsset.format}</span></div>
+              <div className="flex justify-between"><span>{t('assetBrowser.fields.format')}</span><span className="uppercase">{detailAsset.format}</span></div>
             )}
             {detailAsset.width != null && detailAsset.height != null && (
-              <div className="flex justify-between"><span>Dimensions</span><span>{detailAsset.width}&times;{detailAsset.height}</span></div>
+              <div className="flex justify-between"><span>{t('assetBrowser.fields.dimensions')}</span><span>{detailAsset.width}&times;{detailAsset.height}</span></div>
             )}
             {detailAsset.duration != null && (detailAsset.type === 'video' || detailAsset.type === 'audio') && (
-              <div className="flex justify-between"><span>Duration</span><span>{formatDuration(detailAsset.duration)}</span></div>
+              <div className="flex justify-between"><span>{t('assetBrowser.fields.duration')}</span><span>{formatDuration(detailAsset.duration)}</span></div>
             )}
-            <div className="flex justify-between"><span>Hash</span><span className="font-mono truncate max-w-[120px]" title={detailAsset.hash}>{detailAsset.hash.slice(0, 16)}...</span></div>
-            <div className="flex justify-between"><span>{t('assetBrowser.created') || 'Created'}</span><span>{new Date(detailAsset.createdAt).toLocaleString()}</span></div>
+            <div className="flex justify-between"><span>{t('assetBrowser.fields.hash')}</span><span className="font-mono truncate max-w-[120px]" title={detailAsset.hash}>{detailAsset.hash.slice(0, 16)}...</span></div>
+            <div className="flex justify-between"><span>{t('assetBrowser.created')}</span><span>{new Date(detailAsset.createdAt).toLocaleString(getLocale())}</span></div>
             {detailAsset.provider && (
-              <div className="flex justify-between"><span>Provider</span><span>{detailAsset.provider}</span></div>
+              <div className="flex justify-between"><span>{t('assetBrowser.fields.provider')}</span><span>{detailAsset.provider}</span></div>
             )}
             {detailAsset.prompt && (
               <div className="flex flex-col gap-0.5">
-                <span>Prompt</span>
+                <span>{t('assetBrowser.fields.prompt')}</span>
                 <span className="text-[10px] text-foreground/80 break-words leading-snug">{detailAsset.prompt}</span>
               </div>
             )}
@@ -988,8 +1228,13 @@ export function AssetBrowserPanel() {
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete {pendingDeleteHashes.size} asset{pendingDeleteHashes.size !== 1 ? 's' : ''}?</DialogTitle>
-            <DialogDescription>This cannot be undone.</DialogDescription>
+            <DialogTitle>
+              {t('assetBrowser.deleteSelectedConfirm').replace(
+                '{count}',
+                String(pendingDeleteHashes.size),
+              )}
+            </DialogTitle>
+            <DialogDescription>{t('assetBrowser.deleteConfirmDescription')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <button
@@ -997,14 +1242,14 @@ export function AssetBrowserPanel() {
               onClick={() => setDeleteConfirmOpen(false)}
               className="rounded-md border border-border/60 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
             >
-              Cancel
+              {t('action.cancel')}
             </button>
             <button
               type="button"
               onClick={() => void executeDelete()}
               className="rounded-md bg-destructive px-3 py-1.5 text-xs text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete
+              {t('action.delete')}
             </button>
           </DialogFooter>
         </DialogContent>

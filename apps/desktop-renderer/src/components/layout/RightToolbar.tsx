@@ -16,17 +16,16 @@ interface ToolbarButton {
   id: string;
   panel: RightPanelId;
   icon: ComponentType<{ className?: string }>;
-  label: string;
 }
 
 const TOOLBAR_BUTTONS: ToolbarButton[] = [
-  { id: 'inspector', panel: 'inspector', icon: Info, label: 'Inspector' },
-  { id: 'dependencies', panel: 'dependencies', icon: GitBranch, label: 'Dependencies' },
-  { id: 'queue', panel: 'queue', icon: ListTodo, label: 'Generation Queue' },
-  { id: 'history', panel: 'history', icon: History, label: 'History' },
-  { id: 'notes', panel: 'notes', icon: StickyNote, label: 'Canvas Notes' },
-  { id: 'export', panel: 'export', icon: Share2, label: 'Export / Render' },
-  { id: 'logger', panel: 'logger', icon: ScrollText, label: 'Logger' },
+  { id: 'inspector', panel: 'inspector', icon: Info },
+  { id: 'dependencies', panel: 'dependencies', icon: GitBranch },
+  { id: 'queue', panel: 'queue', icon: ListTodo },
+  { id: 'history', panel: 'history', icon: History },
+  { id: 'notes', panel: 'notes', icon: StickyNote },
+  { id: 'export', panel: 'export', icon: Share2 },
+  { id: 'logger', panel: 'logger', icon: ScrollText },
 ];
 
 export function RightToolbar() {
@@ -40,9 +39,7 @@ export function RightToolbar() {
           {TOOLBAR_BUTTONS.map((button) => {
             const Icon = button.icon;
             const active = rightPanel === button.panel;
-            const label = t(`toolbar.${button.id}`) !== `toolbar.${button.id}`
-              ? t(`toolbar.${button.id}`)
-              : button.label;
+            const label = t(`toolbar.${button.id}`);
 
             return (
               <Tooltip key={button.id}>

@@ -1,30 +1,36 @@
 import type { NodeStatus } from '@lucid-fin/contracts';
 import { cn } from '../../lib/utils.js';
-import { Clock, Loader2, Check, X, Lock, EyeOff } from 'lucide-react';
-import { t } from '../../i18n.js';
-
-const STATUS_CONFIG: Record<
-  NodeStatus,
-  { icon: typeof Clock; labelKey: string; className: string } | null
-> = {
-  idle: null,
-  queued: { icon: Clock, labelKey: 'status.queued', className: 'text-yellow-500 bg-yellow-500/10' },
-  generating: {
-    icon: Loader2,
-    labelKey: 'status.generating',
-    className: 'text-blue-500 bg-blue-500/10',
-  },
-  done: { icon: Check, labelKey: 'status.done', className: 'text-green-500 bg-green-500/10' },
-  failed: { icon: X, labelKey: 'status.failed', className: 'text-red-500 bg-red-500/10' },
-  locked: { icon: Lock, labelKey: 'status.locked', className: 'text-muted-foreground bg-muted' },
-  bypassed: { icon: EyeOff, labelKey: 'status.bypassed', className: 'text-muted-foreground bg-muted' },
-};
 
 interface NodeStatusBadgeProps {
   status: NodeStatus;
 }
 
+const STATUS_CONFIG: Record<
+  NodeStatus,
+  { dot: string; label: string } | null
+> = {
+  idle: null,
+  queued: { dot: 'bg-amber-400', label: 'Queued' },
+  generating: { dot: 'bg-blue-400 animate-pulse', label: 'Generating' },
+  done: null,
+  failed: { dot: 'bg-red-400', label: 'Failed' },
+  locked: { dot: 'bg-slate-400', label: 'Locked' },
+  bypassed: { dot: 'bg-slate-500', label: 'Bypassed' },
+};
+
 export function NodeStatusBadge({ status }: NodeStatusBadgeProps) {
-  void status;
-  return null;
+  const config = STATUS_CONFIG[status];
+  if (!config) return null;
+
+  return (
+    <div
+      className="absolute left-1.5 top-1.5 z-20 flex items-center gap-1 rounded-full bg-background/80 px-1.5 py-0.5 backdrop-blur-sm"
+      title={config.label}
+    >
+      <span className={cn('inline-block h-1.5 w-1.5 rounded-full', config.dot)} />
+      <span className="text-[9px] font-medium leading-none text-muted-foreground">
+        {config.label}
+      </span>
+    </div>
+  );
 }

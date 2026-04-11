@@ -212,8 +212,10 @@ describe('new agent tool groups', () => {
       resumeJob: vi.fn(async () => undefined),
     });
     const projectTools = createProjectTools({
-      saveProject: vi.fn(async () => undefined),
-      openProject: vi.fn(async () => undefined),
+      listProjects: vi.fn(async () => [{ id: 'project-1', title: 'Project', path: '/tmp/project', updatedAt: 1 }]),
+      createSnapshot: vi.fn(async () => ({ id: 'snapshot-1' })),
+      listSnapshots: vi.fn(async () => []),
+      restoreSnapshot: vi.fn(async () => undefined),
     });
     const renderTools = createRenderTools({
       startRender: vi.fn(async () => ({ renderId: 'render-1' })),
@@ -242,19 +244,15 @@ describe('new agent tool groups', () => {
       resumeWorkflow: vi.fn(async () => undefined),
       cancelWorkflow: vi.fn(async () => undefined),
       retryWorkflow: vi.fn(async () => undefined),
-      expandIdea: vi.fn(async (prompt: string) => ({
-        workflowRunId: 'wf-expand-1',
-        prompt,
-      })),
     });
 
     await expect(getTool(jobTools, 'job.cancel').execute({ jobId: 'job-1' })).resolves.toEqual({
       success: true,
       data: { jobId: 'job-1' },
     });
-    await expect(getTool(projectTools, 'project.open').execute({ path: '/tmp/project' })).resolves.toEqual({
+    await expect(getTool(projectTools, 'project.list').execute({})).resolves.toEqual({
       success: true,
-      data: { path: '/tmp/project' },
+      data: { total: 1, offset: 0, limit: 50, projects: [{ id: 'project-1', title: 'Project', path: '/tmp/project', updatedAt: 1 }] },
     });
     await expect(getTool(renderTools, 'render.start').execute({ canvasId: 'canvas-1', format: 'mp4' })).resolves.toEqual({
       success: true,
@@ -270,16 +268,12 @@ describe('new agent tool groups', () => {
     });
   });
 
-  it('workflow tools support idea expansion delegation', async () => {
+  it('workflow tools return built-in structured idea expansion instructions', async () => {
     const workflowTools = createWorkflowTools({
       pauseWorkflow: vi.fn(async () => undefined),
       resumeWorkflow: vi.fn(async () => undefined),
       cancelWorkflow: vi.fn(async () => undefined),
       retryWorkflow: vi.fn(async () => undefined),
-      expandIdea: vi.fn(async (prompt: string) => ({
-        workflowRunId: 'wf-expand-1',
-        prompt,
-      })),
     });
 
     await expect(
@@ -287,13 +281,32 @@ describe('new agent tool groups', () => {
     ).resolves.toEqual({
       success: true,
       data: {
-        workflowRunId: 'wf-expand-1',
-        prompt: 'samurai travels through time',
+        instructions:
+          'Expand the idea "samurai travels through time" into a cinematic story with 3 acts and 2-4 scenes per act. For each scene: call canvas.addNode with type "text", title = scene name, data.content = 2-3 sentence scene summary. After all nodes are created, present the full outline to the user and ask if they want to proceed to entity generation.',
+        outlineFormat: {
+          title: '<story title>',
+          genre: 'cinematic',
+          logline: '<one sentence summary>',
+          acts: [
+            {
+              name: 'Act 1',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+            {
+              name: 'Act 2',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+            {
+              name: 'Act 3',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+          ],
+        },
       },
     });
   });
 
-  it('workflow expandIdea reports unavailable when no handler is provided', async () => {
+  it('workflow expandIdea succeeds without a delegated handler', async () => {
     const workflowTools = createWorkflowTools({
       pauseWorkflow: vi.fn(async () => undefined),
       resumeWorkflow: vi.fn(async () => undefined),
@@ -301,24 +314,75 @@ describe('new agent tool groups', () => {
       retryWorkflow: vi.fn(async () => undefined),
     });
 
-    await expect(getTool(workflowTools, 'workflow.expandIdea').execute({ prompt: 'samurai travels through time' }))
+    await expect(getTool(workflowTools, 'workflow.expandIdea').execute({
+      prompt: 'samurai travels through time',
+      genre: 'anime',
+      actCount: 2,
+    }))
       .resolves.toEqual({
-        success: false,
-        error: 'workflow.expandIdea is not available',
+        success: true,
+        data: {
+          instructions:
+            'Expand the idea "samurai travels through time" into a anime story with 2 acts and 2-4 scenes per act. For each scene: call canvas.addNode with type "text", title = scene name, data.content = 2-3 sentence scene summary. After all nodes are created, present the full outline to the user and ask if they want to proceed to entity generation.',
+          outlineFormat: {
+            title: '<story title>',
+            genre: 'anime',
+            logline: '<one sentence summary>',
+            acts: [
+              {
+                name: 'Act 1',
+                scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+              },
+              {
+                name: 'Act 2',
+                scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+              },
+            ],
+          },
+        },
       });
   });
 
   it('series and color style tools support compatible save/list/delete flows', async () => {
+    const currentSeries = {
+      id: 'series-1',
+      title: 'Series',
+      description: 'Desc',
+      styleGuide: {
+        global: {
+          artStyle: '',
+          colorPalette: { primary: '', secondary: '', forbidden: [] },
+          lighting: 'natural' as const,
+          texture: '',
+          referenceImages: [],
+          freeformDescription: '',
+        },
+        sceneOverrides: {},
+      },
+      episodeIds: [],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const colorStyle = {
+      id: 'style-2',
+      name: 'Cool',
+      sourceType: 'manual' as const,
+      palette: [{ hex: '#112233', weight: 1 }],
+      gradients: [],
+      exposure: {
+        brightness: 0,
+        contrast: 0,
+        highlights: 0,
+        shadows: 0,
+        temperature: 6500,
+        tint: 0,
+      },
+      tags: ['cool'],
+      createdAt: 1,
+      updatedAt: 1,
+    };
     const seriesTools = createSeriesTools({
-      getSeries: vi.fn(async () => ({
-        id: 'series-1',
-        title: 'Series',
-        description: 'Desc',
-        styleGuide: { global: { artStyle: '', colorPalette: { primary: '', secondary: '', forbidden: [] }, lighting: 'natural', texture: '', referenceImages: [], freeformDescription: '' }, sceneOverrides: {} },
-        episodeIds: [],
-        createdAt: 1,
-        updatedAt: 1,
-      })),
+      getSeries: vi.fn(async () => currentSeries),
       saveSeries: vi.fn(async (series: Record<string, unknown>) => series),
       listEpisodes: vi.fn(async () => [{ id: 'episode-1', title: 'Pilot', canvasId: 'canvas-1' }]),
       addEpisode: vi.fn(async () => ({ id: 'episode-2' })),
@@ -327,7 +391,7 @@ describe('new agent tool groups', () => {
     });
     const colorStyleTools = createColorStyleTools({
       listColorStyles: vi.fn(async () => [{ id: 'style-1', name: 'Warm' }]),
-      saveColorStyle: vi.fn(async (style: Record<string, unknown>) => undefined),
+      saveColorStyle: vi.fn(async (_style: Record<string, unknown>) => undefined),
       deleteColorStyle: vi.fn(async () => undefined),
     });
 
@@ -336,7 +400,7 @@ describe('new agent tool groups', () => {
       description: 'Updated Desc',
     })).resolves.toEqual({
       success: true,
-      data: { title: 'Updated Series', description: 'Updated Desc' },
+      data: { ...currentSeries, title: 'Updated Series', description: 'Updated Desc' },
     });
     await expect(getTool(seriesTools, 'series.removeEpisode').execute({ episodeId: 'episode-1' })).resolves.toEqual({
       success: true,
@@ -345,13 +409,13 @@ describe('new agent tool groups', () => {
 
     await expect(getTool(colorStyleTools, 'colorStyle.list').execute({})).resolves.toEqual({
       success: true,
-      data: [{ id: 'style-1', name: 'Warm' }],
+      data: { total: 1, offset: 0, limit: 50, colorStyles: [{ id: 'style-1', name: 'Warm' }] },
     });
     await expect(getTool(colorStyleTools, 'colorStyle.save').execute({
-      style: { id: 'style-2', name: 'Cool' },
+      style: colorStyle,
     })).resolves.toEqual({
       success: true,
-      data: { style: { id: 'style-2', name: 'Cool' } },
+      data: { style: colorStyle },
     });
     await expect(getTool(colorStyleTools, 'colorStyle.delete').execute({ id: 'style-2' })).resolves.toEqual({
       success: true,

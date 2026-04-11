@@ -38,10 +38,20 @@ export function createColorStyleTools(deps: ColorStyleToolDeps): AgentTool[] {
     name: 'colorStyle.list',
     description: 'List saved color styles in the current project.',
     tier: 1,
-    parameters: { type: 'object', properties: {}, required: [] },
-    async execute() {
+    parameters: {
+      type: 'object',
+      properties: {
+        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+      },
+      required: [],
+    },
+    async execute(args) {
       try {
-        return ok(await deps.listColorStyles());
+        const styles = await deps.listColorStyles();
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({ total: styles.length, offset, limit, colorStyles: styles.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }

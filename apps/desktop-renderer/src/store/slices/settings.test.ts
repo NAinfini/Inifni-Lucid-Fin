@@ -89,6 +89,13 @@ describe('provider registry metadata', () => {
       defaultDurationSeconds: 5,
       outputFormats: ['mp4'],
     });
+    expect(getProviderMetadata('video', 'google-video')).toMatchObject({
+      supportsAudio: true,
+    });
+    expect(getProviderMetadata('video', 'kling')).toMatchObject({
+      supportsAudio: true,
+      qualityTiers: ['std', 'pro'],
+    });
 
     expect(getProviderMetadata('audio', 'openai-tts')).toMatchObject({
       capabilities: ['text-to-voice'],

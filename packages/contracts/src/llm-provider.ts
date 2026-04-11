@@ -236,3 +236,157 @@ export function getBuiltinLLMProviderPreset(providerId: string): LLMProviderPres
   const preset = BUILTIN_LLM_PROVIDER_PRESETS.find((entry) => entry.id === providerId);
   return preset ? { ...preset } : undefined;
 }
+
+// ---------------------------------------------------------------------------
+// Vision provider presets (image-understanding models)
+// ---------------------------------------------------------------------------
+
+export interface VisionProviderPreset extends LLMProviderRuntimeConfig {
+  keyUrl?: string;
+}
+
+export const BUILTIN_VISION_PROVIDER_PRESETS: readonly VisionProviderPreset[] = [
+  {
+    id: 'openai-vision',
+    name: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4.1',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://platform.openai.com/api-keys',
+  },
+  {
+    id: 'gemini-vision',
+    name: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    model: 'gemini-2.5-flash',
+    protocol: 'gemini',
+    authStyle: 'x-goog-api-key',
+    keyUrl: 'https://aistudio.google.com/apikey',
+  },
+  {
+    id: 'claude-vision',
+    name: 'Anthropic Claude',
+    baseUrl: 'https://api.anthropic.com',
+    model: 'claude-sonnet-4-20250514',
+    protocol: 'anthropic',
+    authStyle: 'x-api-key',
+    keyUrl: 'https://console.anthropic.com/settings/keys',
+  },
+  {
+    id: 'qwen-vision',
+    name: 'Qwen',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen-vl-max',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://dashscope.aliyun.com/api-key',
+  },
+  {
+    id: 'openrouter-vision',
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'openai/gpt-4.1',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://openrouter.ai/settings/keys',
+  },
+  {
+    id: 'siliconflow-vision',
+    name: 'SiliconFlow',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    model: 'Pro/Qwen/Qwen2.5-VL-7B-Instruct',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://cloud.siliconflow.cn/account/ak',
+  },
+  {
+    id: 'together-vision',
+    name: 'Together AI',
+    baseUrl: 'https://api.together.xyz/v1',
+    model: 'meta-llama/Llama-Vision-Free',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://api.together.ai/settings/api-keys',
+  },
+  {
+    id: 'deepseek-vision',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://platform.deepseek.com/api_keys',
+  },
+  {
+    id: 'grok-vision',
+    name: 'Grok (xAI)',
+    baseUrl: 'https://api.x.ai/v1',
+    model: 'grok-2-vision-1212',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://console.x.ai/team/api-keys',
+  },
+  {
+    id: 'mistral-vision',
+    name: 'Mistral',
+    baseUrl: 'https://api.mistral.ai/v1',
+    model: 'pixtral-large-latest',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://console.mistral.ai/api-keys/',
+  },
+  {
+    id: 'doubao-vision',
+    name: 'Doubao (ByteDance)',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    model: 'doubao-vision-pro-32k',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+  },
+  {
+    id: 'zhipu-vision',
+    name: 'Zhipu GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    model: 'glm-4v-plus',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
+  },
+  {
+    id: 'moonshot-vision',
+    name: 'Moonshot / Kimi',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    model: 'kimi-k2.5',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://platform.moonshot.ai/console',
+  },
+  {
+    id: 'stepfun-vision',
+    name: 'StepFun',
+    baseUrl: 'https://api.stepfun.com/v1',
+    model: 'step-1v-8k',
+    protocol: 'openai-compatible',
+    authStyle: 'bearer',
+    keyUrl: 'https://platform.stepfun.com/interface-key',
+  },
+  {
+    id: 'ollama-vision',
+    name: 'Ollama (Local)',
+    baseUrl: 'http://localhost:11434/v1',
+    model: 'llama3.2-vision',
+    protocol: 'openai-compatible',
+    authStyle: 'none',
+  },
+] as const;
+
+export function listBuiltinVisionProviderPresets(): VisionProviderPreset[] {
+  return BUILTIN_VISION_PROVIDER_PRESETS.map((preset) => ({ ...preset }));
+}
+
+export function getBuiltinVisionProviderPreset(providerId: string): VisionProviderPreset | undefined {
+  const preset = BUILTIN_VISION_PROVIDER_PRESETS.find((entry) => entry.id === providerId);
+  return preset ? { ...preset } : undefined;
+}

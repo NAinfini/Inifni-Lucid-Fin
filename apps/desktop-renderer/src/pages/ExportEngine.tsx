@@ -10,15 +10,15 @@ type ExportTab = 'render' | 'nle' | 'assets';
 type NLEFormat = 'fcpxml' | 'edl';
 
 const VIDEO_FORMATS = [
-  { id: 'h264', label: 'H.264 (MP4)', ext: '.mp4' },
-  { id: 'h265', label: 'H.265 (MP4)', ext: '.mp4' },
-  { id: 'prores', label: 'ProRes (MOV)', ext: '.mov' },
+  { id: 'h264', labelKey: 'export.formatOptions.h264', ext: '.mp4' },
+  { id: 'h265', labelKey: 'export.formatOptions.h265', ext: '.mp4' },
+  { id: 'prores', labelKey: 'export.formatOptions.prores', ext: '.mov' },
 ];
 
 const RESOLUTIONS = [
-  { id: '1080p', label: '1920×1080 (1080p)', width: 1920, height: 1080 },
-  { id: '4k', label: '3840×2160 (4K)', width: 3840, height: 2160 },
-  { id: '720p', label: '1280×720 (720p)', width: 1280, height: 720 },
+  { id: '1080p', labelKey: 'export.resolutionOptions.1080p', width: 1920, height: 1080 },
+  { id: '4k', labelKey: 'export.resolutionOptions.4k', width: 3840, height: 2160 },
+  { id: '720p', labelKey: 'export.resolutionOptions.720p', width: 1280, height: 720 },
 ];
 
 const FPS_OPTIONS = [24, 25, 30, 60];
@@ -59,14 +59,14 @@ export function ExportEngine() {
         addLog({
           level: 'error',
           category: 'export',
-          message: 'Render failed',
+          message: t('export.renderFailed'),
           detail: err instanceof Error ? err.stack ?? err.message : String(err),
         }),
       );
     } finally {
       setExporting(false);
     }
-  }, [dispatch, format, fps, resolution, title]);
+  }, [dispatch, format, fps, resolution]);
 
   const handleNleExport = useCallback(async () => {
     setExporting(true);
@@ -79,7 +79,7 @@ export function ExportEngine() {
         addLog({
           level: 'error',
           category: 'export',
-          message: 'NLE export failed',
+          message: t('export.nleFailed'),
           detail: err instanceof Error ? err.stack ?? err.message : String(err),
         }),
       );
@@ -93,13 +93,27 @@ export function ExportEngine() {
     try {
       const api = getAPI();
       if (!api) return;
-      await api.export.assetBundle(`${title || 'project'}-assets.zip`);
+      // Collect all asset hashes from the active canvas
+      const state = (await import('../store/index.js')).store.getState() as RootState;
+      const activeCanvas = state.canvas.canvases.find((c) => c.id === state.canvas.activeCanvasId);
+      const hashes: string[] = [];
+      for (const node of activeCanvas?.nodes ?? []) {
+        const data = node.data as { assetHash?: string; variants?: string[] };
+        if (data.assetHash) hashes.push(data.assetHash);
+        if (Array.isArray(data.variants)) {
+          for (const v of data.variants) {
+            if (v && !hashes.includes(v)) hashes.push(v);
+          }
+        }
+      }
+      if (hashes.length === 0) return;
+      await api.export.assetBundle(hashes);
     } catch (err) {
       dispatch(
         addLog({
           level: 'error',
           category: 'export',
-          message: 'Asset pack failed',
+          message: t('export.assetPackFailed'),
           detail: err instanceof Error ? err.stack ?? err.message : String(err),
         }),
       );
@@ -157,7 +171,7 @@ export function ExportEngine() {
                     onClick={() => setFormat(f.id)}
                     className={`px-2.5 py-1.5 text-xs rounded-md border border-border/60 ${format === f.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
                   >
-                    {f.label}
+                    {t(f.labelKey)}
                   </button>
                 ))}
               </div>
@@ -174,7 +188,7 @@ export function ExportEngine() {
               >
                 {RESOLUTIONS.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.label}
+                    {t(r.labelKey)}
                   </option>
                 ))}
               </select>
