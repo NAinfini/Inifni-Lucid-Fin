@@ -16,6 +16,11 @@ import { setLocale, t } from '../i18n.js';
 
 vi.mock('../utils/api.js', () => ({ getAPI: vi.fn(() => null) }));
 
+/** onReady fires callback immediately (simulates app already initialized) */
+function mockOnReady() {
+  return vi.fn((cb: () => void) => { cb(); return () => {}; });
+}
+
 type UpdateStatus =
   | { state: 'idle' | 'checking' }
   | { state: 'available' | 'downloaded'; info: { version: string } }
@@ -64,6 +69,7 @@ describe('Settings updater UI', () => {
 
   it('renders the about and updates section', async () => {
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -89,6 +95,7 @@ describe('Settings updater UI', () => {
 
   it('shows the workflows management surface from the sidebar navigation', async () => {
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -116,6 +123,7 @@ describe('Settings updater UI', () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -164,6 +172,7 @@ describe('Settings updater UI', () => {
 
   it('does not render prompt-template skills inside the workflows settings tab', async () => {
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -191,6 +200,7 @@ describe('Settings updater UI', () => {
 
   it('saves renamed prompt templates from the prompt templates tab', async () => {
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -239,6 +249,7 @@ describe('Settings updater UI', () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -265,6 +276,7 @@ describe('Settings updater UI', () => {
     let onProgress: ((status: UpdateStatus) => void) | undefined;
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -307,6 +319,7 @@ describe('Settings updater UI', () => {
     const openExternal = vi.fn();
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -333,7 +346,7 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(openRouterCard).getByLabelText('Expand'));
 
     await waitFor(() => {
-      expect(screen.getByText('Example: openai/gpt-4.1')).toBeTruthy();
+      expect(screen.getByText('Example: openai/gpt-5.4')).toBeTruthy();
       expect(screen.getByRole('button', { name: 'View Models' })).toBeTruthy();
     });
 
@@ -358,6 +371,7 @@ describe('Settings updater UI', () => {
     const deleteKey = vi.fn().mockResolvedValue(undefined);
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured,
         get: getKey,
@@ -417,8 +431,12 @@ describe('Settings updater UI', () => {
 
   it('allows resetting built-in provider endpoint and model back to defaults', async () => {
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
       },
       updater: {
         status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
@@ -436,11 +454,21 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(openAiCard).getByLabelText('Expand'));
 
     const endpointInput = await screen.findByDisplayValue('https://api.openai.com/v1');
-    const modelInput = await screen.findByDisplayValue('gpt-4.1');
+    const modelInput = await screen.findByDisplayValue('gpt-5.4');
 
     fireEvent.change(endpointInput, { target: { value: 'https://proxy.example.com/v1' } });
-    fireEvent.change(modelInput, { target: { value: 'gpt-4.1-mini' } });
+    fireEvent.change(modelInput, { target: { value: 'gpt-5.4-mini' } });
 
+    // Draft is dirty — Save is enabled; click Save to commit to Redux
+    fireEvent.click(within(openAiCard).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(
+        store.getState().settings.llm.providers.find((p) => p.id === 'openai')?.baseUrl,
+      ).toBe('https://proxy.example.com/v1');
+    });
+
+    // Now committed state differs from defaults → Reset to Defaults appears
     await waitFor(() => {
       expect(within(openAiCard).getByRole('button', { name: 'Reset to Defaults' })).toBeTruthy();
     });
@@ -449,7 +477,7 @@ describe('Settings updater UI', () => {
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('https://api.openai.com/v1')).toBeTruthy();
-      expect(screen.getByDisplayValue('gpt-4.1')).toBeTruthy();
+      expect(screen.getByDisplayValue('gpt-5.4')).toBeTruthy();
     });
 
     expect(
@@ -457,7 +485,7 @@ describe('Settings updater UI', () => {
     ).toMatchObject({
       name: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4.1',
+      model: 'gpt-5.4',
     });
   });
 
@@ -471,6 +499,7 @@ describe('Settings updater UI', () => {
     const setKey = vi.fn().mockResolvedValue(undefined);
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured,
         get: getKey,
@@ -504,7 +533,7 @@ describe('Settings updater UI', () => {
     });
 
     const customCard = screen
-      .getByDisplayValue('Local Proxy')
+      .getByText('Local Proxy')
       .closest('div.rounded-md.border') as HTMLElement | null;
     expect(customCard).toBeTruthy();
     const resolvedCustomCard = customCard as HTMLElement;
@@ -533,10 +562,118 @@ describe('Settings updater UI', () => {
     });
   });
 
+  it('keeps a newly saved API key in the field and re-hides it after saving', async () => {
+    const setKey = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+        get: vi.fn().mockResolvedValue(null),
+        set: setKey,
+        delete: vi.fn().mockResolvedValue(undefined),
+        test: vi.fn().mockResolvedValue({ ok: true }),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+      openExternal: vi.fn(),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = createStore();
+    store.dispatch(
+      addCustomProvider({
+        group: 'llm',
+        id: 'custom-llm-new-key',
+        name: 'Custom Proxy',
+      }),
+    );
+
+    renderSettings(store);
+
+    const customCard = screen
+      .getByText('Custom Proxy')
+      .closest('div.rounded-md.border') as HTMLElement | null;
+    expect(customCard).toBeTruthy();
+    const resolvedCustomCard = customCard as HTMLElement;
+    fireEvent.click(within(resolvedCustomCard).getByLabelText('Expand'));
+
+    const input = await screen.findByPlaceholderText('sk-...');
+    fireEvent.change(input, { target: { value: 'sk-live-added' } });
+    fireEvent.click(within(resolvedCustomCard).getByRole('button', { name: '' }));
+    expect((input as HTMLInputElement).type).toBe('text');
+    fireEvent.click(within(resolvedCustomCard).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(setKey).toHaveBeenCalledWith('custom-llm-new-key', 'sk-live-added');
+      expect(within(resolvedCustomCard).getByText('Configured in keychain')).toBeTruthy();
+    });
+
+    const savedInput = screen.getByDisplayValue('sk-live-added');
+    expect((savedInput as HTMLInputElement).getAttribute('type')).toBe('password');
+    expect((savedInput as HTMLInputElement).value).toBe('sk-live-added');
+  });
+
+  it('retries loading a configured custom provider key after a transient keychain read failure', async () => {
+    const getKey = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('temporary keychain failure'))
+      .mockResolvedValueOnce('sk-refresh-loaded');
+
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi
+          .fn()
+          .mockImplementation(async (provider: string) => provider === 'custom-llm-refresh'),
+        get: getKey,
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        test: vi.fn().mockResolvedValue({ ok: true }),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+      openExternal: vi.fn(),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = createStore();
+    store.dispatch(
+      addCustomProvider({
+        group: 'llm',
+        id: 'custom-llm-refresh',
+        name: 'Refresh Proxy',
+      }),
+    );
+
+    renderSettings(store);
+
+    const customCard = screen
+      .getByText('Refresh Proxy')
+      .closest('div.rounded-md.border') as HTMLElement | null;
+    expect(customCard).toBeTruthy();
+    const resolvedCustomCard = customCard as HTMLElement;
+    fireEvent.click(within(resolvedCustomCard).getByLabelText('Expand'));
+
+    await waitFor(() => {
+      expect(getKey).toHaveBeenCalledTimes(2);
+      expect(screen.getByDisplayValue('sk-refresh-loaded')).toBeTruthy();
+    });
+  });
+
   it('shows localized names for China providers when locale is zh-CN', async () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -562,6 +699,7 @@ describe('Settings updater UI', () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -576,10 +714,10 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: '指挥官 AI' }));
+    fireEvent.click(screen.getByRole('button', { name: '梦鱼 AI' }));
 
     await waitFor(() => {
-      expect(screen.getAllByText('指挥官 AI').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('梦鱼 AI').length).toBeGreaterThan(0);
       expect(screen.getByText(t('commander.permissionMode.autoDesc'))).toBeTruthy();
       expect(screen.getByText(t('commander.permissionMode.normalDesc'))).toBeTruthy();
       expect(screen.getByText(t('commander.permissionMode.strictDesc'))).toBeTruthy();
@@ -590,6 +728,7 @@ describe('Settings updater UI', () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
       },
@@ -609,7 +748,7 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(openRouterCard).getByLabelText(t('settings.providerCard.expand')));
 
     await waitFor(() => {
-      expect(screen.getByText(`示例: openai/gpt-4.1`)).toBeTruthy();
+      expect(screen.getByText(`示例: openai/gpt-5.4`)).toBeTruthy();
       expect(screen.getByRole('button', { name: '查看模型' })).toBeTruthy();
     });
   });
@@ -618,6 +757,7 @@ describe('Settings updater UI', () => {
     const isConfigured = vi.fn().mockResolvedValue(false);
 
     vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
       keychain: {
         isConfigured,
       },

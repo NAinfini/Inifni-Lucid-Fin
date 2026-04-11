@@ -12,13 +12,14 @@ import {
   EyeOff,
   Image,
   Plus,
+  RotateCcw,
   ScanEye,
   Trash2,
   Video,
   Volume2,
   Zap,
 } from 'lucide-react';
-import type { LLMProviderProtocol } from '@lucid-fin/contracts';
+import type { LLMProviderAuthStyle, LLMProviderProtocol } from '@lucid-fin/contracts';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import type { RootState } from '../store/index.js';
@@ -26,15 +27,12 @@ import { addLog } from '../store/slices/logger.js';
 import { useToast } from '../hooks/use-toast.js';
 import {
   addCustomProvider,
+  commitProvider,
   getProviderDefaults,
   getProviderMetadata,
   removeCustomProvider,
   resetProviderToDefaults,
-  setProviderBaseUrl,
   setProviderHasKey,
-  setProviderModel,
-  setProviderName,
-  setProviderProtocol,
   type APIGroup,
   type ProviderConfig,
   type ProviderMetadata,
@@ -104,7 +102,15 @@ function ProviderCard({
   const dispatch = useDispatch();
   const { error: showErrorToast } = useToast();
   const [expanded, setExpanded] = useState(false);
-  const [keyValue, setKeyValue] = useState('');
+
+  // --- Draft state (local, not Redux) ---
+  const [draftBaseUrl, setDraftBaseUrl] = useState(provider.baseUrl);
+  const [draftModel, setDraftModel] = useState(provider.model);
+  const [draftProtocol, setDraftProtocol] = useState<LLMProviderProtocol | undefined>(provider.protocol);
+  const [draftName, setDraftName] = useState(provider.name);
+  const [draftKey, setDraftKey] = useState('');
+  const [loadedKey, setLoadedKey] = useState('');
+
   const [keyVisible, setKeyVisible] = useState(false);
   const [keyLoaded, setKeyLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -117,6 +123,17 @@ function ProviderCard({
   const showHubGuidance = metadata?.kind === 'hub';
   const providerDefaults = getProviderDefaults(group, provider.id);
   const isBuiltinProvider = !provider.isCustom && providerDefaults !== undefined;
+
+  // Dirty detection: compare draft against committed Redux state + loaded key
+  const configDirty =
+    draftBaseUrl !== provider.baseUrl ||
+    draftModel !== provider.model ||
+    draftProtocol !== provider.protocol ||
+    (provider.isCustom && draftName !== provider.name);
+  const keyDirty = draftKey !== loadedKey;
+  const isDirty = configDirty || keyDirty;
+
+  // "Customized" badge: compare committed Redux state against registry defaults
   const isCustomized = Boolean(
     providerDefaults
     && (
@@ -126,9 +143,12 @@ function ProviderCard({
       || provider.authStyle !== providerDefaults.authStyle
     ),
   );
+
   const displayName = provider.isCustom
-    ? provider.name
+    ? (expanded ? draftName : provider.name)
     : translateOrFallback(`providerNames.${provider.id}`, provider.name);
+  const KEY_LOAD_RETRY_DELAY_MS = 150;
+  const MAX_KEY_LOAD_ATTEMPTS = 3;
 
   function getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -156,51 +176,103 @@ function ProviderCard({
     [],
   );
 
+  // Sync draft from Redux when committed state changes (e.g. after reset-to-defaults)
+  useEffect(() => {
+    setDraftBaseUrl(provider.baseUrl);
+    setDraftModel(provider.model);
+    setDraftProtocol(provider.protocol);
+    setDraftName(provider.name);
+  }, [provider.baseUrl, provider.model, provider.protocol, provider.name]);
+
+  // Load API key from keychain when card expands
   useEffect(() => {
     if (!expanded || !provider.hasKey || keyLoaded) return;
     const api = getAPI();
-    if (!api?.keychain.get) return;
+    if (!api) return;
 
     let cancelled = false;
-    void api.keychain.get(provider.id)
-      .then((storedKey) => {
-        if (cancelled || !mountedRef.current) return;
-        setKeyValue(storedKey ?? '');
-        setKeyLoaded(true);
-      })
-      .catch((error) => {
-        if (cancelled || !mountedRef.current) return;
-        logProviderFailure(t('settings.providerCard.log.keyLoadFailed'), error);
-      });
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const loadKey = (attempt: number) => {
+      void api.keychain.get(provider.id)
+        .then((storedKey) => {
+          if (cancelled || !mountedRef.current) return;
+          const value = storedKey ?? '';
+          setDraftKey(value);
+          setLoadedKey(value);
+          setKeyLoaded(true);
+        })
+        .catch((error) => {
+          if (cancelled || !mountedRef.current) return;
+          if (attempt + 1 < MAX_KEY_LOAD_ATTEMPTS) {
+            retryTimer = setTimeout(() => {
+              loadKey(attempt + 1);
+            }, KEY_LOAD_RETRY_DELAY_MS);
+            return;
+          }
+          logProviderFailure(t('settings.providerCard.log.keyLoadFailed'), error);
+        });
+    };
+
+    loadKey(0);
 
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) {
+        clearTimeout(retryTimer);
+      }
     };
   }, [expanded, keyLoaded, logProviderFailure, provider.hasKey, provider.id]);
 
-  async function handleSaveKey() {
+  // --- Unified save: config + API key in one action ---
+  async function handleSave() {
+    if (saving) return;
     setSaving(true);
     try {
-      const trimmed = keyValue.trim();
-      if (trimmed) {
-        await getAPI()?.keychain.set(provider.id, trimmed);
-        if (!mountedRef.current) return;
-        dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
-        setKeyValue(trimmed);
-        setKeyLoaded(true);
-        setSaved(true);
-        setTimeout(() => {
-          if (mountedRef.current) setSaved(false);
-        }, 2000);
-      } else {
-        await getAPI()?.keychain.delete(provider.id);
-        if (!mountedRef.current) return;
-        dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: false }));
-        setKeyValue('');
-        setKeyLoaded(false);
-        setKeyVisible(false);
-        setTestResult(null);
+      const api = getAPI();
+      if (!api) throw new Error('API not available');
+
+      // 1. Save API key to keychain if changed
+      if (keyDirty) {
+        const trimmedKey = draftKey.trim();
+        if (trimmedKey) {
+          await api.keychain.set(provider.id, trimmedKey);
+          dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
+          setDraftKey(trimmedKey);
+          setLoadedKey(trimmedKey);
+          setKeyLoaded(true);
+          setKeyVisible(false);
+        } else {
+          await api.keychain.delete(provider.id);
+          dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: false }));
+          setDraftKey('');
+          setLoadedKey('');
+          setKeyLoaded(false);
+          setKeyVisible(false);
+          setTestResult(null);
+        }
       }
+
+      // 2. Commit config to Redux (triggers debounced persist)
+      if (configDirty) {
+        dispatch(
+          commitProvider({
+            group,
+            providerId: provider.id,
+            config: {
+              baseUrl: draftBaseUrl,
+              model: draftModel,
+              protocol: draftProtocol,
+              name: provider.isCustom ? draftName : undefined,
+            },
+          }),
+        );
+      }
+
+      setSaved(true);
+      setTimeout(() => {
+        if (mountedRef.current) setSaved(false);
+      }, 2000);
     } catch (error) {
       const title = t('settings.providerCard.saveKeyFailed');
       logProviderFailure(title, error);
@@ -209,14 +281,29 @@ function ProviderCard({
         message: getErrorMessage(error),
       });
     } finally {
-      if (mountedRef.current) setSaving(false);
+      setSaving(false);
     }
   }
 
+  function handleDiscard() {
+    setDraftBaseUrl(provider.baseUrl);
+    setDraftModel(provider.model);
+    setDraftProtocol(provider.protocol);
+    setDraftName(provider.name);
+    setDraftKey(loadedKey);
+    setTestResult(null);
+  }
+
   async function handleCopyKey() {
-    if (!keyValue) return;
     try {
-      await navigator.clipboard.writeText(keyValue);
+      let value = draftKey;
+      if (!value && provider.hasKey) {
+        const api = getAPI();
+        if (!api) throw new Error('API not available');
+        value = (await api.keychain.get(provider.id)) ?? '';
+      }
+      if (!value) return;
+      await navigator.clipboard.writeText(value);
     } catch (error) {
       const title = t('settings.providerCard.copyKeyFailed');
       logProviderFailure(title, error);
@@ -228,24 +315,25 @@ function ProviderCard({
   }
 
   async function handleTestConnection() {
+    if (testing) return;
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await getAPI()?.keychain.test(
+      const api = getAPI();
+      if (!api) throw new Error('API not available');
+      const result = await api.keychain.test(
         provider.id,
         {
-          authStyle: provider.authStyle,
-          baseUrl: provider.baseUrl,
+          baseUrl: draftBaseUrl,
           id: provider.id,
-          model: provider.model,
-          name: provider.name,
-          protocol: provider.protocol,
+          model: draftModel,
+          name: provider.isCustom ? draftName : provider.name,
+          protocol: draftProtocol,
         },
         group,
       );
-      if (!mountedRef.current) return;
-      setTestResult(result?.ok ? 'ok' : 'fail');
-      if (!result?.ok) {
+      setTestResult(result.ok ? 'ok' : 'fail');
+      if (!result.ok) {
         dispatch(
           addLog({
             level: 'warn',
@@ -256,7 +344,6 @@ function ProviderCard({
         );
       }
     } catch (error) {
-      if (!mountedRef.current) return;
       dispatch(
         addLog({
           level: 'error',
@@ -269,7 +356,7 @@ function ProviderCard({
       );
       setTestResult('fail');
     } finally {
-      if (mountedRef.current) setTesting(false);
+      setTesting(false);
     }
   }
 
@@ -283,24 +370,26 @@ function ProviderCard({
       <div className="flex items-center gap-2 px-3 py-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            {provider.isCustom ? (
+            {provider.isCustom && expanded ? (
               <input
                 type="text"
-                value={provider.name}
-                onChange={(e) =>
-                  dispatch(setProviderName({ group, provider: provider.id, name: e.target.value }))
-                }
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
                 className="border-b border-transparent bg-transparent text-xs font-medium hover:border-border focus:border-primary focus:outline-none"
               />
             ) : (
               <span className="text-xs font-medium">{displayName}</span>
             )}
           </div>
-          <div className="truncate text-[10px] text-muted-foreground">{provider.baseUrl}</div>
+          <div className="truncate text-[10px] text-muted-foreground">{expanded ? draftBaseUrl : provider.baseUrl}</div>
         </div>
 
         <div className="flex items-center gap-2">
-          {isCustomized ? (
+          {isDirty && expanded ? (
+            <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+              {t('settings.providerCard.unsaved')}
+            </span>
+          ) : isCustomized ? (
             <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
               {t('settings.providerCard.customized')}
             </span>
@@ -314,7 +403,27 @@ function ProviderCard({
           )}
           <button
             type="button"
-            onClick={() => setExpanded((value) => !value)}
+            onClick={() => {
+              const willExpand = !expanded;
+              setExpanded(willExpand);
+              // Eagerly load key when expanding — don't wait for hasKey since
+              // the isConfigured check may not have resolved yet
+              if (willExpand && !keyLoaded) {
+                const api = getAPI();
+                if (api) {
+                  void api.keychain.get(provider.id).then((storedKey) => {
+                    if (!mountedRef.current) return;
+                    const value = storedKey ?? '';
+                    setDraftKey(value);
+                    setLoadedKey(value);
+                    setKeyLoaded(true);
+                    if (storedKey && !provider.hasKey) {
+                      dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
+                    }
+                  });
+                }
+              }
+            }}
             className="rounded p-1 text-muted-foreground hover:bg-muted"
             aria-label={
               expanded ? t('settings.providerCard.collapse') : t('settings.providerCard.expand')
@@ -338,12 +447,8 @@ function ProviderCard({
               </label>
               <input
                 type="url"
-                value={provider.baseUrl}
-                onChange={(e) =>
-                  dispatch(
-                    setProviderBaseUrl({ group, provider: provider.id, url: e.target.value }),
-                  )
-                }
+                value={draftBaseUrl}
+                onChange={(e) => setDraftBaseUrl(e.target.value)}
                 className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
@@ -354,12 +459,8 @@ function ProviderCard({
                 </label>
                 <input
                   type="text"
-                  value={provider.model}
-                  onChange={(e) =>
-                    dispatch(
-                      setProviderModel({ group, provider: provider.id, model: e.target.value }),
-                    )
-                  }
+                  value={draftModel}
+                  onChange={(e) => setDraftModel(e.target.value)}
                   className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 />
                 {showHubGuidance && (
@@ -388,22 +489,14 @@ function ProviderCard({
             )}
           </div>
 
-          {group === 'llm' && provider.isCustom && (
+          {(group === 'llm' || group === 'vision') && provider.isCustom && (
             <div>
               <label className="mb-1 block text-[10px] text-muted-foreground">
                 {t('settings.providerCard.protocol')}
               </label>
               <select
-                value={provider.protocol ?? 'openai-compatible'}
-                onChange={(e) =>
-                  dispatch(
-                    setProviderProtocol({
-                      group,
-                      provider: provider.id,
-                      protocol: e.target.value as LLMProviderProtocol,
-                    }),
-                  )
-                }
+                value={draftProtocol ?? 'openai-compatible'}
+                onChange={(e) => setDraftProtocol(e.target.value as LLMProviderProtocol)}
                 className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
               >
                 <option value="openai-compatible">
@@ -430,7 +523,7 @@ function ProviderCard({
               {t('settings.providerCard.apiKey')}
             </label>
             <div className="space-y-2">
-              {provider.hasKey && (
+              {provider.hasKey && keyLoaded && !keyDirty && (
                 <div className="flex items-center gap-1 text-xs text-green-400">
                   <Check className="h-3 w-3" /> {t('settings.providerCard.configuredInKeychain')}
                 </div>
@@ -440,10 +533,10 @@ function ProviderCard({
                   <input
                     type={keyVisible ? 'text' : 'password'}
                     placeholder={t('settings.providerCard.keyPlaceholder')}
-                    value={keyValue}
-                    onChange={(e) => setKeyValue(e.target.value)}
+                    value={draftKey}
+                    onChange={(e) => setDraftKey(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') void handleSaveKey();
+                      if (e.key === 'Enter') void handleSave();
                     }}
                     className="flex-1 bg-transparent px-2 py-1 text-xs focus:outline-none"
                   />
@@ -459,33 +552,44 @@ function ProviderCard({
                   <button
                     type="button"
                     onClick={() => void handleCopyKey()}
-                    disabled={!keyValue}
+                    disabled={!draftKey && !provider.hasKey}
                     aria-label={t('settings.providerCard.copyKey')}
                     className="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
                   >
                     <Copy className="h-3 w-3" />
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => void handleSaveKey()}
-                  disabled={saving}
-                  className={cn(
-                    'rounded px-2 py-1 text-xs transition-colors disabled:opacity-50',
-                    saved ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground',
-                  )}
-                >
-                  {saving
-                    ? t('settings.providerCard.saving')
-                    : saved
-                      ? t('settings.providerCard.saved')
-                      : t('settings.providerCard.save')}
-                </button>
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Unified Save button */}
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving || !isDirty}
+              className={cn(
+                'rounded px-2 py-1 text-xs transition-colors disabled:opacity-50',
+                saved ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground',
+              )}
+            >
+              {saving
+                ? t('settings.providerCard.saving')
+                : saved
+                  ? t('settings.providerCard.saved')
+                  : t('settings.providerCard.save')}
+            </button>
+            {isDirty && (
+              <button
+                type="button"
+                onClick={handleDiscard}
+                className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+              >
+                <RotateCcw className="h-3 w-3" />
+                {t('settings.providerCard.discard')}
+              </button>
+            )}
             {isBuiltinProvider && isCustomized ? (
               <button
                 type="button"
@@ -596,14 +700,28 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
     if (!api) return;
     const providerIds = providerIdsKey ? providerIdsKey.split('|') : [];
 
-    for (const id of providerIds) {
-      void api.keychain.isConfigured(id).then((configured) => {
-        if (mounted) dispatch(setProviderHasKey({ group, provider: id, hasKey: configured }));
-      });
-    }
+    // Wait for IPC handlers to be registered before calling keychain
+    const unsub = api.onReady(() => {
+      for (const id of providerIds) {
+        void api.keychain.isConfigured(id).then((configured) => {
+          if (mounted) dispatch(setProviderHasKey({ group, provider: id, hasKey: configured }));
+        }).catch((error: unknown) => {
+          if (!mounted) return;
+          dispatch(
+            addLog({
+              level: 'error',
+              category: 'provider',
+              message: `Failed to check keychain for provider ${id}`,
+              detail: error instanceof Error ? error.stack ?? error.message : String(error),
+            }),
+          );
+        });
+      }
+    });
 
     return () => {
       mounted = false;
+      unsub();
     };
   }, [dispatch, group, providerIdsKey]);
 

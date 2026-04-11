@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { listBuiltinLLMProviderPresets } from '@lucid-fin/contracts';
 import { enUSMessages } from '../../i18n.messages.en-US.js';
 import { zhCNMessages } from '../../i18n.messages.zh-CN.js';
-import { getProviderMetadata, PROVIDER_REGISTRY, settingsSlice } from './settings.js';
+import { buildSparseSettings, getProviderMetadata, PROVIDER_REGISTRY, settingsSlice } from './settings.js';
 
 function toDefaultStateSummary(group: keyof typeof PROVIDER_REGISTRY) {
   return PROVIDER_REGISTRY[group].map(({ id, model, protocol, authStyle, baseUrl }) => ({
@@ -213,7 +213,7 @@ describe('settings defaults', () => {
               id: 'openai',
               name: 'OpenAI',
               baseUrl: 'https://api.openai.com/v1',
-              model: 'gpt-4o',
+              model: 'gpt-5.4',
               hasKey: false,
               isCustom: false,
             },
@@ -284,7 +284,7 @@ describe('settings defaults', () => {
               id: 'openai-tts',
               name: 'OpenAI TTS',
               baseUrl: 'https://api.openai.com/v1',
-              model: 'gpt-4o-mini-tts',
+              model: 'gpt-5.4-mini-tts',
               hasKey: false,
               isCustom: false,
             },
@@ -308,7 +308,7 @@ describe('settings defaults', () => {
       'custom-llm-1',
     ]);
     expect(restored.llm.providers.find((provider) => provider.id === 'openai')?.model).toBe(
-      'gpt-4o',
+      'gpt-5.4',
     );
     expect(restored.llm.providers.find((provider) => provider.id === 'custom-llm-1')).toMatchObject(
       {
@@ -342,7 +342,7 @@ describe('settings defaults', () => {
               id: 'openai',
               name: 'Renamed OpenAI',
               baseUrl: 'https://proxy.example.com/v1',
-              model: 'gpt-4.1-mini',
+              model: 'gpt-5.4-mini',
               hasKey: false,
               isCustom: false,
             },
@@ -355,7 +355,7 @@ describe('settings defaults', () => {
       id: 'openai',
       name: 'OpenAI',
       baseUrl: 'https://proxy.example.com/v1',
-      model: 'gpt-4.1-mini',
+      model: 'gpt-5.4-mini',
       isCustom: false,
     });
   });
@@ -374,7 +374,7 @@ describe('settings defaults', () => {
       settingsSlice.actions.setProviderModel({
         group: 'llm',
         provider: 'openai',
-        model: 'gpt-4.1-mini',
+        model: 'gpt-5.4-mini',
       }),
     );
     state = settingsSlice.reducer(
@@ -389,7 +389,7 @@ describe('settings defaults', () => {
       id: 'openai',
       name: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4.1',
+      model: 'gpt-5.4',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
     });
@@ -416,5 +416,151 @@ describe('settings defaults', () => {
       authStyle: 'bearer',
       isCustom: true,
     });
+  });
+
+  it('commits all provider config fields atomically via commitProvider', () => {
+    const state = settingsSlice.reducer(
+      undefined,
+      settingsSlice.actions.commitProvider({
+        group: 'llm',
+        providerId: 'openai',
+        config: {
+          baseUrl: 'https://proxy.example.com/v1',
+          model: 'gpt-5.4-mini',
+        },
+      }),
+    );
+
+    expect(state.llm.providers.find((p) => p.id === 'openai')).toMatchObject({
+      baseUrl: 'https://proxy.example.com/v1',
+      model: 'gpt-5.4-mini',
+      name: 'OpenAI',
+    });
+  });
+
+  it('commitProvider normalizes protocol and authStyle for LLM providers', () => {
+    let state = settingsSlice.reducer(
+      undefined,
+      settingsSlice.actions.addCustomProvider({
+        group: 'llm',
+        id: 'custom-commit-test',
+        name: 'Test',
+      }),
+    );
+
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.commitProvider({
+        group: 'llm',
+        providerId: 'custom-commit-test',
+        config: {
+          baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+          model: 'gemini-2.5-flash',
+          protocol: 'gemini',
+          name: 'Gemini Custom',
+        },
+      }),
+    );
+
+    const provider = state.llm.providers.find((p) => p.id === 'custom-commit-test');
+    expect(provider).toMatchObject({
+      protocol: 'gemini',
+      authStyle: 'x-goog-api-key',
+      name: 'Gemini Custom',
+    });
+  });
+
+  it('commitProvider only updates name for custom providers', () => {
+    const state = settingsSlice.reducer(
+      undefined,
+      settingsSlice.actions.commitProvider({
+        group: 'llm',
+        providerId: 'openai',
+        config: {
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-5.4',
+          name: 'Should Not Change',
+        },
+      }),
+    );
+
+    expect(state.llm.providers.find((p) => p.id === 'openai')?.name).toBe('OpenAI');
+  });
+});
+
+describe('buildSparseSettings', () => {
+  it('excludes untouched default providers', () => {
+    const state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    const sparse = buildSparseSettings(state);
+
+    expect(sparse.llm.providers).toHaveLength(0);
+    expect(sparse.image.providers).toHaveLength(0);
+    expect(sparse.video.providers).toHaveLength(0);
+    expect(sparse.audio.providers).toHaveLength(0);
+    expect(sparse.vision.providers).toHaveLength(0);
+    expect(sparse.renderPreset).toBe('standard');
+  });
+
+  it('includes providers with hasKey set', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.setProviderHasKey({ group: 'llm', provider: 'openai', hasKey: true }),
+    );
+
+    const sparse = buildSparseSettings(state);
+    expect(sparse.llm.providers).toHaveLength(1);
+    expect(sparse.llm.providers[0].id).toBe('openai');
+  });
+
+  it('includes providers with customized baseUrl', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.setProviderBaseUrl({
+        group: 'image',
+        provider: 'openai-image',
+        url: 'https://proxy.example.com/v1',
+      }),
+    );
+
+    const sparse = buildSparseSettings(state);
+    expect(sparse.image.providers).toHaveLength(1);
+    expect(sparse.image.providers[0].baseUrl).toBe('https://proxy.example.com/v1');
+  });
+
+  it('includes custom providers', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.addCustomProvider({
+        group: 'llm',
+        id: 'custom-sparse-test',
+        name: 'Sparse Test',
+      }),
+    );
+
+    const sparse = buildSparseSettings(state);
+    expect(sparse.llm.providers).toHaveLength(1);
+    expect(sparse.llm.providers[0].id).toBe('custom-sparse-test');
+  });
+
+  it('preserves hasKey in persisted output', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.setProviderHasKey({ group: 'llm', provider: 'openai', hasKey: true }),
+    );
+
+    const sparse = buildSparseSettings(state);
+    expect(sparse.llm.providers[0]).toHaveProperty('hasKey', true);
+  });
+
+  it('preserves renderPreset', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(state, settingsSlice.actions.setRenderPreset('cinematic'));
+
+    const sparse = buildSparseSettings(state);
+    expect(sparse.renderPreset).toBe('cinematic');
   });
 });

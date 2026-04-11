@@ -68,6 +68,8 @@ export {
   setProviderBaseUrl,
   setProviderModel,
   setProviderHasKey,
+  commitProvider,
+  buildSparseSettings,
   restore as restoreSettings,
   type APIGroup,
   type ProviderConfig,

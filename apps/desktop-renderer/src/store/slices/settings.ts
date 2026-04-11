@@ -188,7 +188,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       id: 'openai',
       name: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4.1',
+      model: 'gpt-5.4',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
       kind: 'official',
@@ -265,13 +265,13 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       id: 'openrouter',
       name: 'OpenRouter',
       baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'openai/gpt-4.1',
+      model: 'openai/gpt-5.4',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
       kind: 'hub',
       docsUrl: 'https://openrouter.ai/docs/api-reference/chat-completion',
       keyUrl: 'https://openrouter.ai/settings/keys',
-      modelExample: 'openai/gpt-4.1',
+      modelExample: 'openai/gpt-5.4',
     }),
     createLLMProvider({
       id: 'together',
@@ -826,7 +826,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       id: 'openai-vision',
       name: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4.1',
+      model: 'gpt-5.4',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
       kind: 'official',
@@ -870,7 +870,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       id: 'openrouter-vision',
       name: 'OpenRouter',
       baseUrl: 'https://openrouter.ai/api/v1',
-      model: 'openai/gpt-4.1',
+      model: 'openai/gpt-5.4',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
       kind: 'hub',
@@ -985,7 +985,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       authStyle: 'none',
       kind: 'official',
       docsUrl: 'https://ollama.com/blog/vision-models',
-      keyUrl: '',
+      keyUrl: 'http://localhost:11434',
     }),
   ],
 };
@@ -1193,11 +1193,11 @@ export const settingsSlice = createSlice({
         protocol: LLMProviderProtocol;
       }>,
     ) {
-      if (action.payload.group !== 'llm') {
+      if (action.payload.group !== 'llm' && action.payload.group !== 'vision') {
         return;
       }
 
-      const provider = findProvider(state.llm, action.payload.provider);
+      const provider = findProvider(state[action.payload.group], action.payload.provider);
       if (!provider) {
         return;
       }
@@ -1229,6 +1229,44 @@ export const settingsSlice = createSlice({
       const provider = findProvider(state[action.payload.group], action.payload.provider);
       if (provider?.isCustom) {
         provider.name = action.payload.name;
+      }
+    },
+    commitProvider(
+      state,
+      action: PayloadAction<{
+        group: APIGroup;
+        providerId: string;
+        config: {
+          baseUrl: string;
+          model: string;
+          protocol?: LLMProviderProtocol;
+          authStyle?: LLMProviderAuthStyle;
+          name?: string;
+        };
+      }>,
+    ) {
+      const { group, providerId, config } = action.payload;
+      const provider = findProvider(state[group], providerId);
+      if (!provider) return;
+
+      provider.baseUrl = config.baseUrl;
+      provider.model = config.model;
+
+      if (group === 'llm' || group === 'vision') {
+        const runtime = normalizeLLMProviderRuntimeConfig({
+          id: provider.id,
+          name: config.name ?? provider.name,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          protocol: config.protocol,
+          authStyle: config.authStyle,
+        });
+        provider.protocol = runtime.protocol;
+        provider.authStyle = runtime.authStyle;
+      }
+
+      if (config.name !== undefined && provider.isCustom) {
+        provider.name = config.name;
       }
     },
     resetProviderToDefaults(
@@ -1303,6 +1341,7 @@ export const settingsSlice = createSlice({
 });
 
 export const {
+  commitProvider,
   setProviderBaseUrl,
   setProviderModel,
   setProviderProtocol,
@@ -1316,3 +1355,73 @@ export const {
   toggleProvider,
   restore,
 } = settingsSlice.actions;
+
+// ---------------------------------------------------------------------------
+// Sparse persistence — only persist providers the user has actually configured
+// ---------------------------------------------------------------------------
+
+interface SparseProviderConfig {
+  id: string;
+  name: string;
+  baseUrl: string;
+  model: string;
+  isCustom: boolean;
+  hasKey: boolean;
+  protocol?: LLMProviderProtocol;
+  authStyle?: LLMProviderAuthStyle;
+}
+
+interface SparseSettingsState {
+  llm: { providers: SparseProviderConfig[] };
+  image: { providers: SparseProviderConfig[] };
+  video: { providers: SparseProviderConfig[] };
+  audio: { providers: SparseProviderConfig[] };
+  vision: { providers: SparseProviderConfig[] };
+  renderPreset: string;
+}
+
+function isProviderConfigured(group: APIGroup, provider: ProviderConfig): boolean {
+  if (provider.isCustom) return true;
+  if (provider.hasKey) return true;
+
+  const defaults = getProviderDefaults(group, provider.id);
+  if (!defaults) return true; // unknown provider — preserve it
+
+  return (
+    provider.baseUrl !== defaults.baseUrl ||
+    provider.model !== defaults.model ||
+    provider.protocol !== defaults.protocol ||
+    provider.authStyle !== defaults.authStyle
+  );
+}
+
+function toSparseProvider(provider: ProviderConfig): SparseProviderConfig {
+  return {
+    id: provider.id,
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    model: provider.model,
+    isCustom: provider.isCustom,
+    hasKey: provider.hasKey,
+    protocol: provider.protocol,
+    authStyle: provider.authStyle,
+  };
+}
+
+export function buildSparseSettings(state: SettingsState): SparseSettingsState {
+  const groups = ['llm', 'image', 'video', 'audio', 'vision'] as const;
+  const sparse = {} as Record<string, { providers: SparseProviderConfig[] }>;
+
+  for (const group of groups) {
+    sparse[group] = {
+      providers: state[group].providers
+        .filter((p) => isProviderConfigured(group, p))
+        .map(toSparseProvider),
+    };
+  }
+
+  return {
+    ...sparse,
+    renderPreset: state.renderPreset,
+  } as SparseSettingsState;
+}

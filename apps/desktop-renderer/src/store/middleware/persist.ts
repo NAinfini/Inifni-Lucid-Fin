@@ -6,6 +6,7 @@ import { addLog } from '../slices/logger.js';
 import type { RootState } from '../index.js';
 import type { Canvas } from '@lucid-fin/contracts';
 import { diffCanvas, shouldUsePatch } from './canvas-differ.js';
+import { buildSparseSettings } from '../slices/settings.js';
 
 const PROJECT_PERSIST_SLICES = [
   'project',
@@ -196,8 +197,9 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
       settingsTimer = setTimeout(() => {
         settingsTimer = null;
         const currentState = store.getState() as RootState;
+        const sparse = buildSparseSettings(currentState.settings);
         getAPI()
-          ?.settings.save(currentState.settings)
+          ?.settings.save(sparse)
           .catch((error: unknown) => {
             store.dispatch(
               addLog({
