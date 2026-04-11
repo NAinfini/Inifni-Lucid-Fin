@@ -199,46 +199,6 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     },
   };
 
-  const researchProvider: AgentTool = {
-    name: 'provider.research',
-    description: 'Research an AI provider to find its API base URL, authentication method, and available models. Use web search to find official documentation. Returns structured information that can be used with provider.addCustom.',
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        providerName: { type: 'string', description: 'Name of the AI provider to research (e.g., "Replicate", "Hugging Face", "Together AI").' },
-        group: { type: 'string', description: 'Provider group to research for.', enum: ['llm', 'image', 'video', 'audio'] },
-      },
-      required: ['providerName', 'group'],
-    },
-    async execute(args) {
-      const providerName = args.providerName as string;
-      const group = args.group as string;
-
-      return ok({
-        instructions: `To research ${providerName} for ${group}:
-1. Use web search to find "${providerName} API documentation" or "${providerName} ${group} API"
-2. Look for:
-   - API base URL (usually https://api.{provider}.com/v1 or similar)
-   - Authentication method (usually API key in header)
-   - Available models for ${group} generation
-   - Example API endpoints
-3. Once you have the information, use provider.addCustom with the baseUrl and model parameters
-4. Inform the user they need to add their API key in Settings
-
-Example search queries:
-- "${providerName} API documentation"
-- "${providerName} ${group} API endpoint"
-- "${providerName} API base URL"`,
-        suggestedSearches: [
-          `${providerName} API documentation`,
-          `${providerName} ${group} API`,
-          `${providerName} API base URL`,
-        ],
-      });
-    },
-  };
-
   const removeCustom: AgentTool = {
     name: 'provider.removeCustom',
     description: 'Remove a custom provider from a group. Only custom providers can be removed.',
@@ -292,5 +252,5 @@ Example search queries:
     },
   };
 
-  return [listProviders, getActive, setActive, setBaseUrl, setModel, rename, addCustom, removeCustom, researchProvider, getCapabilities];
+  return [listProviders, getActive, setActive, setBaseUrl, setModel, rename, addCustom, removeCustom, getCapabilities];
 }

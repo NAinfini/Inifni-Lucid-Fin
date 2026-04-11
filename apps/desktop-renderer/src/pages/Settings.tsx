@@ -26,6 +26,7 @@ import { SettingsUpdateSection } from './SettingsUpdateSection.js';
 import { SettingsWorkflowsSection } from './SettingsWorkflowsSection.js';
 import { SettingsStorageSection } from './SettingsStorageSection.js';
 import { SettingsCommanderSection } from './SettingsCommanderSection.js';
+import { SettingsUsageSection } from './SettingsUsageSection.js';
 
 type TemplateDraft = {
   content: string;
@@ -103,7 +104,9 @@ export function Settings() {
             ? translateOrFallback('settings.storage.title', 'Storage & Data')
             : activeTab === 'commander'
               ? translateOrFallback('settings.commander.title', 'Commander AI')
-              : activeTab === 'about'
+              : activeTab === 'usage'
+                ? translateOrFallback('settings.usage.title', 'Usage Statistics')
+                : activeTab === 'about'
                 ? t('settings.update.title')
                 : translateOrFallback('settings.nav.providers', 'Providers');
 
@@ -187,6 +190,8 @@ export function Settings() {
                   {activeTab === 'commander' && <SettingsCommanderSection />}
 
                   {activeTab === 'storage' && <SettingsStorageSection />}
+
+                  {activeTab === 'usage' && <SettingsUsageSection />}
 
                   {activeTab === 'about' && <SettingsUpdateSection />}
                 </div>

@@ -1,8 +1,8 @@
-import { Bot, Cpu, FileText, HardDrive, Info, Sun, Workflow } from 'lucide-react';
+import { BarChart3, Bot, Cpu, FileText, HardDrive, Info, Sun, Workflow } from 'lucide-react';
 import { t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 
-export type SettingsTab = 'providers' | 'commander' | 'appearance' | 'storage' | 'promptTemplates' | 'workflows' | 'about';
+export type SettingsTab = 'providers' | 'commander' | 'appearance' | 'storage' | 'promptTemplates' | 'workflows' | 'about' | 'usage';
 
 export const SETTINGS_TAB_META: Record<
   SettingsTab,
@@ -23,6 +23,7 @@ export const SETTINGS_TAB_META: Record<
   },
   workflows: { labelKey: 'settings.nav.workflows', fallbackLabel: 'Workflows', icon: Workflow },
   about: { labelKey: 'settings.nav.about', fallbackLabel: 'About', icon: Info },
+  usage: { labelKey: 'settings.nav.usage', fallbackLabel: 'Usage', icon: BarChart3 },
 };
 
 export function translateOrFallback(key: string, fallback: string): string {

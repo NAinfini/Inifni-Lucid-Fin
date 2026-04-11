@@ -193,14 +193,6 @@ export function useCommander(): {
 
       if (data.type === 'tool_call' && data.toolName && data.toolCallId) {
         dispatch(
-          addLog({
-            level: 'debug',
-            category: 'commander',
-            message: `Tool: ${data.toolName}`,
-            detail: data.arguments ? JSON.stringify(data.arguments, null, 2) : undefined,
-          }),
-        );
-        dispatch(
           addToolCall({
             name: data.toolName,
             id: data.toolCallId,
@@ -216,20 +208,6 @@ export function useCommander(): {
           typeof data.result === 'object' && data.result !== null
             ? (data.result as { success?: unknown; error?: unknown })
             : undefined;
-        if (data.toolName) {
-          const resultSummary = data.result != null ? JSON.stringify(data.result).slice(0, 500) : '';
-          const errorMsg = resultRecord?.success === false
-            ? (typeof resultRecord.error === 'string' ? resultRecord.error : t('commander.toolExecutionFailed'))
-            : undefined;
-          dispatch(
-            addLog({
-              level: errorMsg ? 'warn' : 'debug',
-              category: 'commander',
-              message: `Result: ${data.toolName}${errorMsg ? ` — ${errorMsg}` : ''}`,
-              detail: resultSummary || undefined,
-            }),
-          );
-        }
         dispatch(
           resolveToolCall({
             id: data.toolCallId,

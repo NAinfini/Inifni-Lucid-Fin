@@ -63,15 +63,24 @@ function requirePreset(args: Record<string, unknown>): PresetDefinition {
 export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
   const list: AgentTool = {
     name: 'preset.list',
-    description: 'List presets in the current project, optionally filtered by category.',
+    description: 'List presets in the current project, optionally filtered by category or categories.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
         category: {
           type: 'string',
-          description: 'Optional preset category filter.',
+          description: 'Optional single preset category filter (backward compat). Use categories[] for OR-matching multiple.',
           enum: [...PRESET_CATEGORIES],
+        },
+        categories: {
+          type: 'array',
+          description: 'Optional array of preset categories to OR-match against. Matches if preset category is any of the provided values.',
+          items: { type: 'string', description: 'A preset category.' },
+        },
+        query: {
+          type: 'string',
+          description: 'Optional search query. Matches against preset name or description (case-insensitive OR logic).',
         },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
@@ -80,8 +89,54 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
-        const category = parseOptionalCategory(args);
-        const presets = await deps.listPresets(category);
+        // Resolve category filter: categories[] takes precedence; if category string passed, wrap it
+        let categorySet: Set<PresetCategory> | undefined;
+        if (Array.isArray(args.categories) && args.categories.length > 0) {
+          const validatedCategories: PresetCategory[] = [];
+          for (const cat of args.categories as unknown[]) {
+            if (typeof cat === 'string' && PRESET_CATEGORIES.includes(cat as PresetCategory)) {
+              validatedCategories.push(cat as PresetCategory);
+            }
+          }
+          if (validatedCategories.length > 0) {
+            categorySet = new Set(validatedCategories);
+          }
+        } else if (typeof args.category === 'string') {
+          const parsed = parseOptionalCategory(args);
+          if (parsed !== undefined) {
+            categorySet = new Set([parsed]);
+          }
+        }
+
+        // Fetch presets: for multiple categories fetch each separately and merge (deduped)
+        let presets: PresetDefinition[];
+        if (categorySet && categorySet.size > 1) {
+          const seen = new Set<string>();
+          presets = [];
+          for (const cat of categorySet) {
+            const batch = await deps.listPresets(cat);
+            for (const p of batch) {
+              if (!seen.has(p.id)) {
+                seen.add(p.id);
+                presets.push(p);
+              }
+            }
+          }
+        } else {
+          presets = await deps.listPresets(categorySet ? [...categorySet][0] : undefined);
+        }
+
+        // Apply query filter
+        const query = typeof args.query === 'string' && args.query.length > 0
+          ? args.query.toLowerCase()
+          : undefined;
+        if (query) {
+          presets = presets.filter((p) =>
+            p.name?.toLowerCase().includes(query) ||
+            p.description?.toLowerCase().includes(query),
+          );
+        }
+
         const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
         const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
         return ok({ total: presets.length, offset, limit, presets: presets.slice(offset, offset + limit) });
@@ -165,23 +220,39 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
 
   const get: AgentTool = {
     name: 'preset.get',
-    description: 'Get a preset definition by ID.',
+    description: 'Get one or more preset definitions by ID. Pass a single ID string or an array of IDs.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        presetId: { type: 'string', description: 'The preset ID to load.' },
+        ids: { type: 'array', items: { type: 'string', description: 'Preset ID.' }, description: 'Preset ID or array of preset IDs to fetch.' },
       },
-      required: ['presetId'],
+      required: ['ids'],
     },
     async execute(args) {
       try {
-        const presetId = requireString(args, 'presetId');
-        const preset = await deps.getPreset(presetId);
-        if (!preset) {
-          throw new Error(`Preset not found: ${presetId}`);
+        const rawIds = args.ids;
+        if (typeof rawIds === 'string') {
+          const id = rawIds.trim();
+          const preset = await deps.getPreset(id);
+          if (!preset) {
+            throw new Error(`Preset not found: ${id}`);
+          }
+          return ok(preset);
         }
-        return ok(preset);
+        if (Array.isArray(rawIds)) {
+          const results = [];
+          for (const entry of rawIds) {
+            const id = typeof entry === 'string' ? entry.trim() : String(entry);
+            const preset = await deps.getPreset(id);
+            if (!preset) {
+              return fail(new Error(`Preset not found: ${id}`));
+            }
+            results.push(preset);
+          }
+          return ok(results);
+        }
+        return fail('ids must be a string or array of strings');
       } catch (error) {
         return fail(error);
       }

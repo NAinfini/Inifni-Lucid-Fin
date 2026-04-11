@@ -204,9 +204,7 @@ describe('createCanvasGenerationTools', () => {
       'canvas.toggleSeedLock',
       'canvas.selectVariant',
       'canvas.estimateCost',
-      'canvas.addNote',
-      'canvas.updateNote',
-      'canvas.deleteNote',
+      'canvas.note',
       'canvas.undo',
       'canvas.redo',
       'canvas.generateAll',
@@ -349,23 +347,26 @@ describe('createCanvasGenerationTools', () => {
         ],
       },
     });
-    await expect(getTool('canvas.addNote', deps).execute({
+    await expect(getTool('canvas.note', deps).execute({
       canvasId: 'canvas-1',
+      action: 'add',
       content: ' keep spacing ',
     })).resolves.toEqual({
       success: true,
       data: { id: 'note-2', content: ' keep spacing ', createdAt: 2, updatedAt: 2 },
     });
-    await expect(getTool('canvas.updateNote', deps).execute({
+    await expect(getTool('canvas.note', deps).execute({
       canvasId: 'canvas-1',
+      action: 'update',
       noteId: 'note-1',
       content: 'updated',
     })).resolves.toEqual({
       success: true,
       data: { noteId: 'note-1', content: 'updated' },
     });
-    await expect(getTool('canvas.deleteNote', deps).execute({
+    await expect(getTool('canvas.note', deps).execute({
       canvasId: 'canvas-1',
+      action: 'delete',
       noteId: 'note-1',
     })).resolves.toEqual({
       success: true,

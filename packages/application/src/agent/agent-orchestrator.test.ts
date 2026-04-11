@@ -75,7 +75,9 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: unknown[] = [];
-    const result = await agent.execute('List characters', {}, (e) => events.push(e));
+    const result = await agent.execute('List characters', {}, (e) => events.push(e), {
+      discoveredTools: ['character.list'],
+    });
 
     expect(mockTool).toHaveBeenCalled();
     expect(result.content).toBe('Found 5 characters.');
@@ -108,7 +110,9 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: unknown[] = [];
-    const result = await agent.execute('do error', {}, (e) => events.push(e));
+    const result = await agent.execute('do error', {}, (e) => events.push(e), {
+      discoveredTools: ['error.tool'],
+    });
 
     expect(result.content).toBe('Tool failed, sorry.');
     expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'error' && (e as Record<string, unknown>).error === 'boom')).toBe(true);
@@ -132,7 +136,9 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, { maxSteps: 3 });
-    await agent.execute('loop', {}, () => {});
+    await agent.execute('loop', {}, () => {}, {
+      discoveredTools: ['loop.tool'],
+    });
 
     expect((adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls.length).toBe(3);
   });
@@ -210,7 +216,9 @@ describe('AgentOrchestrator', () => {
 
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('add node', { page: 'canvas' }, () => {});
+    await agent.execute('add node', { page: 'canvas' }, () => {}, {
+      discoveredTools: ['canvas.addNode'],
+    });
 
     const opts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
       tools: Array<Record<string, unknown>>;
@@ -345,7 +353,7 @@ describe('AgentOrchestrator', () => {
           agent.confirmTool(record.toolCallId, true);
         }
       },
-      { permissionMode: 'normal' },
+      { permissionMode: 'normal', discoveredTools: ['character.get'] },
     );
 
     expect(execute).toHaveBeenCalledTimes(1);
@@ -354,7 +362,7 @@ describe('AgentOrchestrator', () => {
 
   it('injects steering messages into the next LLM iteration', async () => {
     toolRegistry.register({
-      name: 'canvas.searchNodes',
+      name: 'canvas.listNodes',
       description: 'List nodes',
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => {
@@ -369,7 +377,7 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-inject', name: 'canvas.searchNodes', arguments: {} }],
+        toolCalls: [{ id: 'tc-inject', name: 'canvas.listNodes', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -380,7 +388,9 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('list nodes', {}, () => {});
+    await agent.execute('list nodes', {}, () => {}, {
+      discoveredTools: ['canvas.listNodes'],
+    });
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
       role: string;
@@ -425,7 +435,9 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('list characters', {}, () => {});
+    await agent.execute('list characters', {}, () => {}, {
+      discoveredTools: ['character.list'],
+    });
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
       role: string;
@@ -469,7 +481,9 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('set provider', {}, () => {});
+    await agent.execute('set provider', {}, () => {}, {
+      discoveredTools: ['canvas.setNodeProvider'],
+    });
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
       role: string;
@@ -546,7 +560,9 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('list characters', {}, () => {});
+    await agent.execute('list characters', {}, () => {}, {
+      discoveredTools: ['character.list'],
+    });
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
       role: string;
@@ -563,23 +579,22 @@ describe('AgentOrchestrator', () => {
     expect(parsed.data?.items?.length).toBeLessThan(10);
   });
 
-  it('loads domain-relevant tools and expands discovered tools after tool.search', async () => {
-    const searchExecute = vi.fn(async () => ({
-      success: true,
-      data: [
-        {
-          name: 'character.list',
-          description: 'Search characters',
-          tags: ['character', 'read', 'search'],
-        },
-      ],
-    }));
-
+  it('loads only always-loaded tools initially and expands via tool.get', async () => {
+    // Register always-loaded tools
     toolRegistry.register({
-      name: 'tool.search',
-      description: 'Search available tools',
+      name: 'tool.list',
+      description: 'List tools',
       parameters: { type: 'object', properties: {}, required: [] },
-      execute: searchExecute,
+      execute: vi.fn(async () => ({ success: true, data: {} })),
+    });
+    toolRegistry.register({
+      name: 'tool.get',
+      description: 'Get tool schema',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({
+        success: true,
+        data: { name: 'character.list', description: 'List characters', parameters: { type: 'object', properties: {}, required: [] } },
+      })),
     });
     toolRegistry.register({
       name: 'guide.list',
@@ -600,57 +615,119 @@ describe('AgentOrchestrator', () => {
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
     toolRegistry.register({
-      name: 'character.list',
-      description: 'Search characters',
+      name: 'canvas.getState',
+      description: 'Get canvas state',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: {} })),
+    });
+    toolRegistry.register({
+      name: 'canvas.listNodes',
+      description: 'List canvas nodes',
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
     });
     toolRegistry.register({
-      name: 'character.delete',
-      description: 'Delete a character',
+      name: 'canvas.getNode',
+      description: 'Get a canvas node',
       parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true })),
+      execute: vi.fn(async () => ({ success: true, data: null })),
+    });
+
+    // Register a tool that is NOT always-loaded
+    toolRegistry.register({
+      name: 'character.list',
+      description: 'List characters',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: [] })),
     });
 
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-discover', name: 'tool.search', arguments: { query: 'character' } }],
+        toolCalls: [{ id: 'tc-get', name: 'tool.get', arguments: { names: 'character.list' } }],
         finishReason: 'tool_calls',
       },
       {
-        content: 'ready',
+        content: '',
+        toolCalls: [{ id: 'tc-use', name: 'character.list', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: 'done',
         toolCalls: [],
         finishReason: 'stop',
       },
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('find character tools', { page: 'canvas' }, () => {});
+    await agent.execute('list characters', { page: 'canvas' }, () => {});
 
+    // First call: only always-loaded tools (8)
     const firstOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
       tools: Array<{ name: string }>;
     };
+    const firstToolNames = firstOpts.tools.map((t) => t.name);
+    expect(firstToolNames).not.toContain('character.list');
+    expect(firstToolNames).toContain('tool.list');
+    expect(firstToolNames).toContain('tool.get');
+    expect(firstToolNames).toContain('canvas.getState');
+    expect(firstToolNames.length).toBe(8);
+
+    // Second call: character.list now available after tool.get
     const secondOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][1] as {
       tools: Array<{ name: string }>;
     };
+    expect(secondOpts.tools.map((t) => t.name)).toContain('character.list');
+  });
 
-    // With domain detection (canvas page + 'character' keyword), all 6 registered tools
-    // are included in the first call (ALWAYS_LOADED + entity prefix match).
-    // After tool.search returns character.list, it is added to discoveredToolNames (already present).
-    const allToolNames = [
-      'tool.search',
-      'guide.list',
-      'guide.get',
-      'commander.askUser',
-      'character.list',
-      'character.delete',
-    ];
-    expect(firstOpts.tools.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining(allToolNames),
+  it('returns error when calling an unloaded tool', async () => {
+    toolRegistry.register({
+      name: 'tool.list',
+      description: 'List tools',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: {} })),
+    });
+    toolRegistry.register({
+      name: 'tool.get',
+      description: 'Get tool schema',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: null })),
+    });
+    toolRegistry.register({
+      name: 'character.list',
+      description: 'List characters',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: [] })),
+    });
+
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-blocked', name: 'character.list', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: 'understood',
+        toolCalls: [],
+        finishReason: 'stop',
+      },
+    ]);
+
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const events: Array<Record<string, unknown>> = [];
+    await agent.execute('list characters', {}, (e) => events.push(e as unknown as Record<string, unknown>));
+
+    // Tool should NOT have been executed
+    expect(toolRegistry.get('character.list')!.execute).not.toHaveBeenCalled();
+
+    // Should have emitted a tool_result event with the error
+    const toolResultEvent = events.find(
+      (e) => e.type === 'tool_result' && e.toolName === 'character.list',
     );
-    expect(secondOpts.tools.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining(allToolNames),
-    );
+    expect(toolResultEvent).toBeDefined();
+    const result = toolResultEvent?.result as { success: boolean; error: string };
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Tool 'character.list' exists but is not loaded");
+    expect(result.error).toContain('tool.get');
   });
 });

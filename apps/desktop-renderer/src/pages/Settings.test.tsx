@@ -786,4 +786,34 @@ describe('Settings updater UI', () => {
       expect(isConfigured).toHaveBeenCalledWith('openai-tts');
     });
   });
+
+  it('renders the Usage tab button and shows overview cards when clicked', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    expect(screen.getByRole('button', { name: 'Usage' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Usage Statistics').length).toBeGreaterThan(0);
+      expect(screen.getByText('Total Sessions')).toBeTruthy();
+      expect(screen.getByText('Total Tool Calls')).toBeTruthy();
+      expect(screen.getByText('Total Generations')).toBeTruthy();
+      expect(screen.getByText('Usage Time')).toBeTruthy();
+    });
+  });
 });

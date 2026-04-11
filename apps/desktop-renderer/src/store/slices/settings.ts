@@ -42,6 +42,42 @@ export interface ProviderCollectionConfig {
   providers: ProviderConfig[];
 }
 
+export interface UsageStats {
+  // Commander AI
+  sessionCount: number;
+  totalToolCalls: number;
+  toolFrequency: Record<string, number>;
+  toolErrors: Record<string, number>;
+  recentTools: string[]; // last 50 tool names used
+  avgToolsPerSession: number;
+  avgTurnsPerSession: number;
+  totalSessionDurationMs: number;
+  cancelledSessions: number;
+  failedSessions: number;
+
+  // Generation
+  generationCount: Record<string, number>; // by type: image, video, audio
+  generationSuccessRate: Record<string, number>; // by type: 0-1
+  totalGenerationTimeMs: number;
+
+  // Provider
+  providerUsage: Record<string, {
+    requestCount: number;
+    errorCount: number;
+    avgLatencyMs: number;
+    lastUsed: string; // ISO date
+  }>;
+
+  // Project activity
+  nodesCreated: number;
+  edgesCreated: number;
+  entitiesCreated: number;
+  snapshotsUsed: number;
+
+  // Activity tracking
+  dailyActiveMinutes: Record<string, number>; // date string -> minutes
+}
+
 export interface SettingsState {
   llm: ProviderCollectionConfig;
   image: ProviderCollectionConfig;
@@ -49,6 +85,7 @@ export interface SettingsState {
   audio: ProviderCollectionConfig;
   vision: ProviderCollectionConfig;
   renderPreset: string;
+  usage: UsageStats;
 }
 
 interface PersistedSettingsState {
@@ -58,6 +95,7 @@ interface PersistedSettingsState {
   audio?: ProviderCollectionConfig & { activeProvider?: string };
   vision?: ProviderCollectionConfig & { activeProvider?: string };
   renderPreset?: string;
+  usage?: Partial<UsageStats>;
 }
 
 type ProviderMetadataDefaults = Omit<ProviderMetadata, 'kind' | 'docsUrl' | 'keyUrl'>;
@@ -1014,6 +1052,28 @@ function getDefaultProviders(group: APIGroup): ProviderConfig[] {
   return PROVIDER_REGISTRY[group].map((provider) => ({ ...toProviderConfig(provider) }));
 }
 
+const initialUsageStats: UsageStats = {
+  sessionCount: 0,
+  totalToolCalls: 0,
+  toolFrequency: {},
+  toolErrors: {},
+  recentTools: [],
+  avgToolsPerSession: 0,
+  avgTurnsPerSession: 0,
+  totalSessionDurationMs: 0,
+  cancelledSessions: 0,
+  failedSessions: 0,
+  generationCount: {},
+  generationSuccessRate: {},
+  totalGenerationTimeMs: 0,
+  providerUsage: {},
+  nodesCreated: 0,
+  edgesCreated: 0,
+  entitiesCreated: 0,
+  snapshotsUsed: 0,
+  dailyActiveMinutes: {},
+};
+
 function createInitialState(): SettingsState {
   return {
     llm: { providers: getDefaultProviders('llm') },
@@ -1022,6 +1082,7 @@ function createInitialState(): SettingsState {
     audio: { providers: getDefaultProviders('audio') },
     vision: { providers: getDefaultProviders('vision') },
     renderPreset: 'standard',
+    usage: initialUsageStats,
   };
 }
 
@@ -1160,6 +1221,7 @@ function mergeSavedSettings(saved: PersistedSettingsState): SettingsState {
     audio: mergeProviderDefaults('audio', saved.audio),
     vision: mergeProviderDefaults('vision', saved.vision),
     renderPreset: saved.renderPreset ?? initialState.renderPreset,
+    usage: saved.usage ? { ...initialUsageStats, ...saved.usage } : initialUsageStats,
   };
 }
 
@@ -1330,6 +1392,79 @@ export const settingsSlice = createSlice({
     setRenderPreset(state, action: PayloadAction<string>) {
       state.renderPreset = action.payload;
     },
+    recordToolCall(state, action: PayloadAction<{ toolName: string; error?: boolean }>) {
+      state.usage.totalToolCalls += 1;
+      state.usage.toolFrequency[action.payload.toolName] =
+        (state.usage.toolFrequency[action.payload.toolName] ?? 0) + 1;
+      if (action.payload.error) {
+        state.usage.toolErrors[action.payload.toolName] =
+          (state.usage.toolErrors[action.payload.toolName] ?? 0) + 1;
+      }
+      state.usage.recentTools.push(action.payload.toolName);
+      if (state.usage.recentTools.length > 50) {
+        state.usage.recentTools = state.usage.recentTools.slice(-50);
+      }
+    },
+    recordSession(state, action: PayloadAction<{
+      durationMs: number;
+      toolCount: number;
+      turnCount: number;
+      cancelled?: boolean;
+      failed?: boolean;
+    }>) {
+      state.usage.sessionCount += 1;
+      state.usage.totalSessionDurationMs += action.payload.durationMs;
+      if (action.payload.cancelled) state.usage.cancelledSessions += 1;
+      if (action.payload.failed) state.usage.failedSessions += 1;
+      // Running averages
+      const n = state.usage.sessionCount;
+      state.usage.avgToolsPerSession = state.usage.avgToolsPerSession + (action.payload.toolCount - state.usage.avgToolsPerSession) / n;
+      state.usage.avgTurnsPerSession = state.usage.avgTurnsPerSession + (action.payload.turnCount - state.usage.avgTurnsPerSession) / n;
+    },
+    recordGeneration(state, action: PayloadAction<{
+      type: string;
+      success: boolean;
+      durationMs: number;
+    }>) {
+      const { type, success, durationMs } = action.payload;
+      state.usage.generationCount[type] = (state.usage.generationCount[type] ?? 0) + 1;
+      state.usage.totalGenerationTimeMs += durationMs;
+      // Running success rate
+      const count = state.usage.generationCount[type];
+      const prev = state.usage.generationSuccessRate[type] ?? 1;
+      state.usage.generationSuccessRate[type] = prev + ((success ? 1 : 0) - prev) / count;
+    },
+    recordProviderRequest(state, action: PayloadAction<{
+      providerId: string;
+      latencyMs: number;
+      error?: boolean;
+    }>) {
+      const { providerId, latencyMs, error } = action.payload;
+      const existing = state.usage.providerUsage[providerId] ?? {
+        requestCount: 0, errorCount: 0, avgLatencyMs: 0, lastUsed: '',
+      };
+      existing.requestCount += 1;
+      if (error) existing.errorCount += 1;
+      existing.avgLatencyMs = existing.avgLatencyMs + (latencyMs - existing.avgLatencyMs) / existing.requestCount;
+      existing.lastUsed = new Date().toISOString();
+      state.usage.providerUsage[providerId] = existing;
+    },
+    recordProjectActivity(state, action: PayloadAction<{
+      nodesCreated?: number;
+      edgesCreated?: number;
+      entitiesCreated?: number;
+      snapshotsUsed?: number;
+    }>) {
+      const p = action.payload;
+      if (p.nodesCreated) state.usage.nodesCreated += p.nodesCreated;
+      if (p.edgesCreated) state.usage.edgesCreated += p.edgesCreated;
+      if (p.entitiesCreated) state.usage.entitiesCreated += p.entitiesCreated;
+      if (p.snapshotsUsed) state.usage.snapshotsUsed += p.snapshotsUsed;
+    },
+    updateDailyActive(state, action: PayloadAction<{ date: string; minutes: number }>) {
+      state.usage.dailyActiveMinutes[action.payload.date] =
+        (state.usage.dailyActiveMinutes[action.payload.date] ?? 0) + action.payload.minutes;
+    },
     // Legacy compat - keep slice compiling with old index.ts exports
     setActiveProvider() {},
     setProviders() {},
@@ -1351,6 +1486,12 @@ export const {
   addCustomProvider,
   removeCustomProvider,
   setRenderPreset,
+  recordToolCall,
+  recordSession,
+  recordGeneration,
+  recordProviderRequest,
+  recordProjectActivity,
+  updateDailyActive,
   setProviders,
   toggleProvider,
   restore,
@@ -1378,6 +1519,7 @@ interface SparseSettingsState {
   audio: { providers: SparseProviderConfig[] };
   vision: { providers: SparseProviderConfig[] };
   renderPreset: string;
+  usage: UsageStats;
 }
 
 function isProviderConfigured(group: APIGroup, provider: ProviderConfig): boolean {
@@ -1423,5 +1565,6 @@ export function buildSparseSettings(state: SettingsState): SparseSettingsState {
   return {
     ...sparse,
     renderPreset: state.renderPreset,
+    usage: state.usage,
   } as SparseSettingsState;
 }

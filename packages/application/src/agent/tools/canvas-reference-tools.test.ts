@@ -112,9 +112,6 @@ describe('createCanvasReferenceTools', () => {
       'canvas.setCharacterRefs',
       'canvas.setEquipmentRefs',
       'canvas.setLocationRefs',
-      'canvas.removeCharacterRef',
-      'canvas.removeEquipmentRef',
-      'canvas.removeLocationRef',
     ]);
   });
 
@@ -148,32 +145,33 @@ describe('createCanvasReferenceTools', () => {
     });
   });
 
-  it('removes refs through dependency methods for visual nodes', async () => {
-    const deps = createDeps();
+  it('removes refs by passing empty array to set tools', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.removeCharacterRef', deps).execute({
+    await expect(getTool('canvas.setCharacterRefs', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      characterId: 'char-1',
+      characterRefs: [],
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', characterId: 'char-1' },
+      data: { nodeId: 'image-1', characterRefs: [] },
     });
-    await expect(getTool('canvas.removeEquipmentRef', deps).execute({
+    await expect(getTool('canvas.setEquipmentRefs', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      equipmentId: 'eq-1',
+      equipmentRefs: [],
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', equipmentId: 'eq-1' },
+      data: { nodeId: 'image-1', equipmentRefs: [] },
     });
-    await expect(getTool('canvas.removeLocationRef', deps).execute({
+    await expect(getTool('canvas.setLocationRefs', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      locationId: 'loc-1',
+      locationRefs: [],
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', locationId: 'loc-1' },
+      data: { nodeId: 'image-1', locationRefs: [] },
     });
   });
 
@@ -187,14 +185,6 @@ describe('createCanvasReferenceTools', () => {
     })).resolves.toEqual({
       success: false,
       error: 'characterRefs must be an array',
-    });
-    await expect(getTool('canvas.removeCharacterRef', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'audio-1',
-      characterId: 'char-1',
-    })).resolves.toEqual({
-      success: false,
-      error: 'Node type "audio" does not support character refs',
     });
     await expect(getTool('canvas.setLocationRefs', deps).execute({
       canvasId: 'canvas-1',

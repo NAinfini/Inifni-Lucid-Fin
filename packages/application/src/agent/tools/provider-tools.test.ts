@@ -50,7 +50,6 @@ describe('createProviderTools', () => {
       'provider.rename',
       'provider.addCustom',
       'provider.removeCustom',
-      'provider.research',
       'provider.getCapabilities',
     ]);
   });
@@ -122,7 +121,7 @@ describe('createProviderTools', () => {
     });
   });
 
-  it('creates research and capability results', async () => {
+  it('creates custom provider and returns capability results', async () => {
     const deps = createDeps();
     vi.spyOn(Date, 'now').mockReturnValue(12345);
 
@@ -147,21 +146,6 @@ describe('createProviderTools', () => {
       'https://custom.example.com',
       'custom-model',
     );
-
-    await expect(getTool('provider.research', deps).execute({
-      providerName: 'Replicate',
-      group: 'image',
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        instructions: expect.stringContaining('Replicate'),
-        suggestedSearches: [
-          'Replicate API documentation',
-          'Replicate image API',
-          'Replicate API base URL',
-        ],
-      }),
-    });
 
     await expect(getTool('provider.getCapabilities', deps).execute({ providerId: 'kling-v1' })).resolves.toEqual({
       success: true,

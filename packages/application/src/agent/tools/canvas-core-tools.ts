@@ -358,46 +358,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     },
   };
 
-  const cutNodes: AgentTool = {
-    name: 'canvas.cutNodes',
-    description: 'Copy nodes into the internal Commander clipboard, then delete them from the canvas.',
-    context: CANVAS_CONTEXT,
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeIds: {
-          type: 'array',
-          description: 'The node IDs to cut.',
-          items: { type: 'string', description: 'A node ID.' },
-        },
-      },
-      required: ['canvasId', 'nodeIds'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeIds = requireStringArray(args, 'nodeIds');
-        const canvas = await requireCanvas(deps, canvasId);
-        const copiedNodes = buildDuplicatedNodes(canvas, nodeIds);
-        clipboardRef.nodes = copiedNodes;
-
-        for (const nodeId of nodeIds) {
-          await deps.deleteNode(canvasId, nodeId);
-        }
-
-        return ok({
-          nodeIds,
-          clipboardCount: clipboardRef.nodes.length,
-          nodes: clipboardRef.nodes,
-        });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
   const toggleBypass: AgentTool = {
     name: 'canvas.toggleBypass',
     description: 'Set the bypassed flag on one or more nodes.',
@@ -472,91 +432,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     },
   };
 
-  const selectNodes: AgentTool = {
-    name: 'canvas.selectNodes',
-    description: 'Query nodes by type or status and return matching node IDs without changing UI selection.',
-    context: CANVAS_CONTEXT,
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        filter: {
-          type: 'object',
-          description: 'Optional query filter.',
-          properties: {
-            type: {
-              type: 'string',
-              description: 'Optional node type filter.',
-              enum: ['text', 'image', 'video', 'audio', 'backdrop'],
-            },
-            status: {
-              type: 'string',
-              description: 'Optional node status filter.',
-              enum: ['idle', 'queued', 'generating', 'done', 'failed', 'locked', 'bypassed'],
-            },
-            all: {
-              type: 'boolean',
-              description: 'When true, return all nodes unless other filters narrow the result.',
-            },
-          },
-        },
-      },
-      required: ['canvasId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const canvas = await requireCanvas(deps, canvasId);
-        const filter =
-          typeof args.filter === 'object' && args.filter !== null
-            ? (args.filter as { type?: CanvasNode['type']; status?: CanvasNode['status']; all?: boolean })
-            : undefined;
-        const matches = canvas.nodes.filter((node) => {
-          if (filter?.type && node.type !== filter.type) {
-            return false;
-          }
-          if (filter?.status && node.status !== filter.status) {
-            return false;
-          }
-          return true;
-        });
-
-        return ok({
-          nodeIds: matches.map((node) => node.id),
-          count: matches.length,
-          filter: filter ?? { all: true },
-        });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const clearSelection: AgentTool = {
-    name: 'canvas.clearSelection',
-    description: 'Clear the current canvas selection.',
-    context: CANVAS_CONTEXT,
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-      },
-      required: ['canvasId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        await requireCanvas(deps, canvasId);
-        await deps.clearSelection(canvasId);
-        return ok({ canvasId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
   const importWorkflow: AgentTool = {
     name: 'canvas.importWorkflow',
     description: 'Import a workflow JSON document into the current canvas.',
@@ -608,7 +483,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const getState: AgentTool = {
     name: 'canvas.getState',
-    description: 'Read canvas metadata and edge list only (no node details). Use canvas.searchNodes to find nodes, canvas.getNode for a single node.',
+    description: 'Read canvas metadata and edge list only (no node details). Use canvas.listNodes to find nodes, canvas.getNode for a single node.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -640,7 +515,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     name: 'canvas.listNodes',
     description: 'List nodes on a canvas with pagination. Returns { total, offset, limit, nodes[] }. '
       + 'Check "total" — if total > offset+limit, there are more pages. '
-      + 'Use type filter to get all nodes of one kind (e.g. type="image"). Default limit is 50.',
+      + 'Use types filter to get nodes of specific kinds (e.g. types=["image"]). Default limit is 50.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -651,6 +526,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max nodes to return. Default 50.' },
         type: { type: 'string', description: 'Filter by node type: text, image, video, audio, backdrop. Omit to list all types.', enum: ['text', 'image', 'video', 'audio', 'backdrop'] },
+        types: { type: 'array', description: 'Filter by one or more node types (OR-matched). e.g. ["image", "video"]. Overrides "type" if both provided.', items: { type: 'string', description: 'A node type.' } },
+        query: { type: 'string', description: 'Optional search query. Matches against node title or prompt (case-insensitive OR logic).' },
       },
       required: ['canvasId'],
     },
@@ -658,12 +535,35 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
       try {
         const canvasId = requireString(args, 'canvasId');
         const canvas = await requireCanvas(deps, canvasId);
-        const typeFilter = typeof args.type === 'string' && args.type ? args.type : undefined;
+
+        // Resolve type filter: `types` array takes precedence over singular `type`
+        let typeSet: Set<string> | undefined;
+        if (Array.isArray(args.types) && args.types.length > 0) {
+          typeSet = new Set((args.types as string[]).filter((t) => typeof t === 'string' && t.length > 0));
+        } else if (typeof args.type === 'string' && args.type) {
+          typeSet = new Set([args.type]);
+        }
+
+        const query = typeof args.query === 'string' && args.query.length > 0
+          ? args.query.toLowerCase()
+          : undefined;
+
         const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
         const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        const filtered = typeFilter
-          ? canvas.nodes.filter((n) => n.type === typeFilter)
-          : canvas.nodes;
+
+        let filtered = canvas.nodes;
+        if (typeSet) {
+          filtered = filtered.filter((n) => typeSet!.has(n.type));
+        }
+        if (query) {
+          filtered = filtered.filter((n) => {
+            if (n.title?.toLowerCase().includes(query)) return true;
+            const data = n.data as Record<string, unknown>;
+            if (typeof data.prompt === 'string' && data.prompt.toLowerCase().includes(query)) return true;
+            return false;
+          });
+        }
+
         const page = filtered.slice(offset, offset + limit).map((node) => {
           const data = node.data as Record<string, unknown>;
           return {
@@ -718,65 +618,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     },
   };
 
-  const searchNodes: AgentTool = {
-    name: 'canvas.searchNodes',
-    description: 'Search canvas nodes with filters and pagination. Returns { total, offset, limit, nodes[] }. '
-      + 'Check "total" — if total > offset+limit, call again with offset=offset+limit to get the next page. '
-      + 'Omit a filter (or pass empty string) to skip it. Use canvas.getNode for full node details.',
-    tags: ['canvas', 'read', 'search'],
-    context: CANVAS_CONTEXT,
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        type: { type: 'string', description: 'Filter by node type. Omit to match all types.', enum: ['text', 'image', 'video', 'audio', 'backdrop'] },
-        titleContains: { type: 'string', description: 'Case-insensitive title substring filter. Omit to match all titles.' },
-        status: { type: 'string', description: 'Filter by status (e.g. "idle", "queued", "done"). Omit to match all statuses.' },
-        providerId: { type: 'string', description: 'Filter by provider ID. Omit to match all providers.' },
-        offset: { type: 'number', description: 'Start index in filtered results (0-based). Default 0.' },
-        limit: { type: 'number', description: 'Max nodes to return per page. Default 50.' },
-      },
-      required: ['canvasId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const canvas = await requireCanvas(deps, canvasId);
-        const type = typeof args.type === 'string' && args.type ? args.type : undefined;
-        const titleContains = typeof args.titleContains === 'string' ? args.titleContains.trim().toLowerCase() : '';
-        const status = typeof args.status === 'string' && args.status ? args.status : undefined;
-        const providerId = typeof args.providerId === 'string' && args.providerId ? args.providerId : undefined;
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-
-        const filtered = canvas.nodes
-          .map((node) => {
-            const data = node.data as Record<string, unknown>;
-            return {
-              id: node.id,
-              type: node.type,
-              title: node.title,
-              status: typeof data.status === 'string' ? data.status : node.status,
-              providerId: typeof data.providerId === 'string' ? data.providerId : null,
-            };
-          })
-          .filter((node) => (
-            (type === undefined || node.type === type)
-            && (titleContains.length === 0 || node.title.toLowerCase().includes(titleContains))
-            && (status === undefined || node.status === status)
-            && (providerId === undefined || node.providerId === providerId)
-          ));
-        return ok({ total: filtered.length, offset, limit, nodes: filtered.slice(offset, offset + limit) });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
   const getNode: AgentTool = {
     name: 'canvas.getNode',
-    description: 'Read full details of a single node by ID, including prompt, presets, refs, variants.',
+    description: 'Read full details of one or more nodes by ID, including prompt, presets, refs, variants. Pass a single ID string or an array of IDs.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -784,18 +628,32 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to read.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Node ID or array of node IDs to fetch.' },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId', 'nodeIds'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
+        const rawIds = args.nodeIds;
         const canvas = await requireCanvas(deps, canvasId);
-        const node = canvas.nodes.find((n) => n.id === nodeId);
-        if (!node) return fail(new Error(`Node not found: ${nodeId}`));
-        return ok(node);
+        if (typeof rawIds === 'string') {
+          const nodeId = rawIds.trim();
+          const node = canvas.nodes.find((n) => n.id === nodeId);
+          if (!node) return fail(new Error(`Node not found: ${nodeId}`));
+          return ok(node);
+        }
+        if (Array.isArray(rawIds)) {
+          const results = [];
+          for (const entry of rawIds) {
+            const nodeId = typeof entry === 'string' ? entry.trim() : String(entry);
+            const node = canvas.nodes.find((n) => n.id === nodeId);
+            if (!node) return fail(new Error(`Node not found: ${nodeId}`));
+            results.push(node);
+          }
+          return ok(results);
+        }
+        return fail('nodeIds must be a string or array of strings');
       } catch (error) {
         return fail(error);
       }
@@ -1022,8 +880,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   return {
     tools: [
-      addNode, moveNode, renameNode, renameCanvas, loadCanvas, saveCanvas, deleteCanvas, connectNodes, duplicateNodes, cutNodes, toggleBypass, toggleLock,
-      selectNodes, clearSelection, importWorkflow, exportWorkflow, getState, listNodes, listEdges, searchNodes, getNode, layout, batchCreate,
+      addNode, moveNode, renameNode, renameCanvas, loadCanvas, saveCanvas, deleteCanvas, connectNodes, duplicateNodes, toggleBypass, toggleLock,
+      importWorkflow, exportWorkflow, getState, listNodes, listEdges, getNode, layout, batchCreate,
     ],
     clipboardRef,
   };

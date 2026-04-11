@@ -6,7 +6,7 @@ import type {
   LLMToolParameter,
 } from '@lucid-fin/contracts';
 import { LucidError } from '@lucid-fin/contracts';
-import type { AgentToolRegistry, ToolResult, AgentTool } from './tool-registry.js';
+import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
 
 export interface AgentContext {
   page?: string;
@@ -52,6 +52,8 @@ export interface AgentExecutionOptions {
   isAborted?: () => boolean;
   permissionMode?: 'auto' | 'normal' | 'strict';
   onLLMRequest?: (diagnostics: AgentLLMRequestDiagnostics) => void;
+  /** Pre-seed tools into the active set (e.g. from a resumed session). */
+  discoveredTools?: string[];
 }
 
 export interface AgentLLMRequestDiagnostics {
@@ -114,96 +116,12 @@ const SUMMARY_KEYS = [
   'selectedVariantIndex',
 ] as const;
 
-// ---------------------------------------------------------------------------
-// Smart Context Assembly — domain detection & tool loading
-// ---------------------------------------------------------------------------
-
-/** Maps domain IDs to their keyword triggers and tool name prefixes. */
-const DOMAIN_CONFIG: Record<string, { keywords: RegExp; toolPrefixes: string[] }> = {
-  canvas: {
-    keywords: /\b(canvas|node|edge|backdrop|layout|duplicate|bypass|lock|batch|workflow)\b/i,
-    toolPrefixes: ['canvas.'],
-  },
-  entity: {
-    keywords: /\b(character|location|equipment|entity|actor|place|prop|scene)\b/i,
-    toolPrefixes: ['character.', 'equipment.', 'location.', 'scene.'],
-  },
-  preset: {
-    keywords: /\b(preset|style|template|shot.?template|color.?style|look|mood|emotion|camera|lens|composition)\b/i,
-    toolPrefixes: ['preset.', 'colorStyle.', 'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks', 'canvas.addPresetTrackEntry', 'canvas.removePresetTrackEntry', 'canvas.updatePresetTrackEntry', 'canvas.movePresetTrackEntry', 'canvas.applyShotTemplate', 'canvas.autoFillEmptyTracks', 'canvas.createCustomPreset'],
-  },
-  generation: {
-    keywords: /\b(generat|render|provider|image|video|audio|cost|seed|variant|media.?config|resolution|duration|fps)\b/i,
-    toolPrefixes: ['provider.', 'canvas.generate', 'canvas.cancelGeneration', 'canvas.generateAll', 'canvas.setSeed', 'canvas.toggleSeedLock', 'canvas.setVariantCount', 'canvas.selectVariant', 'canvas.estimateCost', 'canvas.setNodeProvider', 'canvas.setNodeMediaConfig', 'canvas.setVideoFrames', 'render.', 'asset.'],
-  },
-  script: {
-    keywords: /\b(script|screenplay|fountain|scene.?heading|dialogue)\b/i,
-    toolPrefixes: ['script.'],
-  },
-  project: {
-    keywords: /\b(project|snapshot|series|episode|job|workflow\.(pause|resume|cancel|retry)|undo|redo)\b/i,
-    toolPrefixes: ['project.', 'series.', 'job.', 'workflow.', 'orchestration.', 'canvas.undo', 'canvas.redo'],
-  },
-};
-
-/** Tools always loaded regardless of domain detection. */
+/** Tools always loaded regardless of discovery — the LLM gets these in every request. */
 const ALWAYS_LOADED_TOOLS = [
-  'tool.search', 'tool.list', 'guide.list', 'guide.get', 'commander.askUser', 'logger.read',
-  'canvas.getState', 'canvas.listNodes', 'canvas.listEdges', 'canvas.getNode', 'canvas.searchNodes',
+  'tool.list', 'tool.get', 'commander.askUser',
+  'canvas.getState', 'canvas.listNodes', 'canvas.getNode',
+  'guide.list', 'guide.get',
 ] as const;
-
-/** Prompt codes for domain briefings, keyed by domain ID. Each domain can load multiple briefings. */
-const DOMAIN_PROMPT_CODES: Record<string, string[]> = {
-  canvas: ['domain-canvas-tools', 'domain-canvas-video-rules', 'domain-canvas-video-workflow'],
-  entity: ['domain-entity'],
-  preset: ['domain-preset-tools', 'domain-preset-tracks'],
-  generation: ['domain-generation-providers', 'domain-generation-guides'],
-  script: ['domain-script'],
-  project: ['domain-project'],
-};
-
-/**
- * Detect which domains are relevant based on the user message.
- * Always includes 'canvas' when page is 'canvas'.
- */
-function detectDomains(userMessage: string, contextPage?: string): Set<string> {
-  const domains = new Set<string>();
-  // Always include canvas domain when on canvas page
-  if (contextPage === 'canvas') {
-    domains.add('canvas');
-  }
-  for (const [domain, config] of Object.entries(DOMAIN_CONFIG)) {
-    if (config.keywords.test(userMessage)) {
-      domains.add(domain);
-    }
-  }
-  // If no specific domain detected, default to canvas
-  if (domains.size === 0) {
-    domains.add('canvas');
-  }
-  return domains;
-}
-
-/**
- * Get tool names to load for the given domains.
- * Returns always-loaded tools + domain-specific tools.
- */
-function getToolNamesForDomains(domains: Set<string>, allTools: AgentTool[]): Set<string> {
-  const names = new Set<string>(ALWAYS_LOADED_TOOLS);
-  for (const domain of domains) {
-    const config = DOMAIN_CONFIG[domain];
-    if (!config) continue;
-    for (const tool of allTools) {
-      const matchesPrefix = config.toolPrefixes.some((prefix) =>
-        prefix.endsWith('.') ? tool.name.startsWith(prefix) : tool.name === prefix,
-      );
-      if (matchesPrefix) {
-        names.add(tool.name);
-      }
-    }
-  }
-  return names;
-}
 
 function needsConfirmation(tier: number, mode: string): boolean {
   if (mode === 'auto') return tier === 4;
@@ -420,21 +338,6 @@ function compactToolParameter(parameter: LLMToolParameter): LLMToolParameter {
   return compacted;
 }
 
-function compactToolDefinitions(tools: AgentToolRegistry, contextPage?: string): LLMToolDefinition[] {
-  const sourceTools = contextPage ? tools.forContext(contextPage) : tools.list();
-  return sourceTools.map((tool) => ({
-    name: tool.name,
-    description: truncateString(tool.description, TOOL_DESCRIPTION_CHAR_LIMIT),
-    parameters: {
-      type: 'object' as const,
-      required: tool.parameters.required,
-      properties: Object.fromEntries(
-        Object.entries(tool.parameters.properties).map(([key, value]) => [key, compactToolParameter(value)]),
-      ),
-    },
-  }));
-}
-
 function compactNamedToolDefinitions(
   tools: AgentToolRegistry,
   toolNames: string[],
@@ -570,11 +473,9 @@ export class AgentOrchestrator {
     emit: (event: AgentEvent) => void,
     options?: AgentExecutionOptions,
   ): Promise<LLMCompletionResult> {
-    const domains = detectDomains(userMessage, context.page);
-    const allTools = context.page ? this.tools.forContext(context.page) : this.tools.list();
-    const loadedToolNames = new Set(allTools.map((t) => t.name));
-    const discoveredToolNames = new Set<string>();
-    const systemPrompt = this.buildSystemPrompt(context, domains);
+    const loadedToolNames = new Set<string>(ALWAYS_LOADED_TOOLS);
+    const discoveredToolNames = new Set<string>(options?.discoveredTools ?? []);
+    const systemPrompt = this.buildSystemPrompt(context);
     const history = pruneHistory(options?.history);
 
     const messages: LLMMessage[] = [
@@ -607,7 +508,7 @@ export class AgentOrchestrator {
 
         steps++;
 
-        // Merge always-loaded + domain-detected + discovered tool names
+        // Merge always-loaded + discovered tool names
         const activeToolNames = new Set(loadedToolNames);
         for (const name of discoveredToolNames) {
           activeToolNames.add(name);
@@ -657,6 +558,22 @@ export class AgentOrchestrator {
           const tool = this.tools.get(tc.name);
           const tier = tool?.tier ?? 1;
           const mode = options?.permissionMode ?? 'normal';
+
+          // Block unloaded tools — the LLM must call tool.get first
+          if (tool && !activeToolNames.has(tc.name)) {
+            const unloadedPayload = {
+              success: false,
+              error: `Tool '${tc.name}' exists but is not loaded. Call tool.get('${tc.name}') first to load its schema.`,
+            };
+            emit({
+              type: 'tool_result',
+              toolCallId: tc.id,
+              toolName: tc.name,
+              result: unloadedPayload,
+            });
+            messages.push({ role: 'tool', content: safeStringify(unloadedPayload), toolCallId: tc.id });
+            continue;
+          }
 
           if (tc.name === 'commander.askUser') {
             const question = typeof tc.arguments.question === 'string' ? tc.arguments.question : '';
@@ -732,13 +649,11 @@ export class AgentOrchestrator {
             const toolResult = await this.tools.execute(tc.name, tc.arguments);
             const completedAt = Date.now();
             resultContent = summarizeToolResult(tc.name, toolResult);
-            if (tc.name === 'tool.search' && toolResult.success && toolResult.data != null) {
-              const discovered = Array.isArray(toolResult.data)
-                ? toolResult.data
-                : isRecord(toolResult.data) && Array.isArray((toolResult.data as Record<string, unknown>).tools)
-                  ? (toolResult.data as Record<string, unknown>).tools as unknown[]
-                  : [];
-              for (const item of discovered) {
+            // When tool.get succeeds, inject discovered tools for next iteration
+            if (tc.name === 'tool.get' && toolResult.success && toolResult.data != null) {
+              const data = toolResult.data;
+              const items = Array.isArray(data) ? data : [data];
+              for (const item of items) {
                 if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
                   discoveredToolNames.add(item.name);
                 }
@@ -817,55 +732,9 @@ export class AgentOrchestrator {
     throw lastErr;
   }
 
-  private buildSystemPrompt(context: AgentContext, domains: Set<string>): string {
+  private buildSystemPrompt(context: AgentContext): string {
     // Core prompt — always included, kept short
     let prompt = this.resolvePrompt('agent-system');
-
-    // Append domain-specific briefings
-    for (const domain of domains) {
-      const promptCodes = DOMAIN_PROMPT_CODES[domain];
-      if (!promptCodes) continue;
-      for (const code of promptCodes) {
-        try {
-          const briefing = this.resolvePrompt(code);
-          if (briefing) {
-            prompt += `\n\n${briefing}`;
-          }
-        } catch {
-          // Domain briefing not found — skip silently
-        }
-      }
-    }
-
-    // Build tool catalog for domains NOT loaded (so AI knows they exist)
-    const allTools = context.page ? this.tools.forContext(context.page) : this.tools.list();
-    const loadedPrefixes = new Set<string>();
-    for (const domain of domains) {
-      const config = DOMAIN_CONFIG[domain];
-      if (config) {
-        for (const prefix of config.toolPrefixes) {
-          loadedPrefixes.add(prefix);
-        }
-      }
-    }
-    const unloadedByDomain = new Map<string, string[]>();
-    for (const tool of allTools) {
-      const isLoaded = ALWAYS_LOADED_TOOLS.includes(tool.name as (typeof ALWAYS_LOADED_TOOLS)[number])
-        || Array.from(loadedPrefixes).some((prefix) =>
-          prefix.endsWith('.') ? tool.name.startsWith(prefix) : tool.name === prefix,
-        );
-      if (!isLoaded) {
-        const domain = tool.name.split('.')[0] ?? 'other';
-        if (!unloadedByDomain.has(domain)) unloadedByDomain.set(domain, []);
-        unloadedByDomain.get(domain)!.push(tool.name);
-      }
-    }
-    if (unloadedByDomain.size > 0) {
-      const catalogLines = Array.from(unloadedByDomain.entries())
-        .map(([domain, names]) => `- ${domain}: ${names.join(', ')}`)
-        .join('\n');
-      prompt += `\n\nAdditional tools available (use tool.search to load their schemas):\n${catalogLines}`;
-    }
 
     // Append context
     const contextLines: string[] = [];

@@ -67,23 +67,39 @@ export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
 
   const get: AgentTool = {
     name: 'prompt.get',
-    description: 'Get a prompt template by code.',
+    description: 'Get one or more prompt templates by code. Pass a single code string or an array of codes.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: 'Prompt template code.' },
+        ids: { type: 'array', items: { type: 'string', description: 'Prompt ID.' }, description: 'Prompt ID or array of prompt IDs to fetch.' },
       },
-      required: ['code'],
+      required: ['ids'],
     },
     async execute(args) {
       try {
-        const code = requireString(args, 'code');
-        const prompt = await deps.getPrompt(code);
-        if (!prompt) {
-          throw new Error(`Prompt not found: ${code}`);
+        const rawIds = args.ids;
+        if (typeof rawIds === 'string') {
+          const id = rawIds.trim();
+          const prompt = await deps.getPrompt(id);
+          if (!prompt) {
+            throw new Error(`Prompt not found: ${id}`);
+          }
+          return ok(prompt);
         }
-        return ok(prompt);
+        if (Array.isArray(rawIds)) {
+          const results = [];
+          for (const entry of rawIds) {
+            const id = typeof entry === 'string' ? entry.trim() : String(entry);
+            const prompt = await deps.getPrompt(id);
+            if (!prompt) {
+              return fail(new Error(`Prompt not found: ${id}`));
+            }
+            results.push(prompt);
+          }
+          return ok(results);
+        }
+        return fail('ids must be a string or array of strings');
       } catch (error) {
         return fail(error);
       }

@@ -312,76 +312,41 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
     },
   };
 
-  const addNote: AgentTool = {
-    name: 'canvas.addNote',
-    description: 'Add a note to the current canvas.',
+  const note: AgentTool = {
+    name: 'canvas.note',
+    description: 'Add, update, or delete a canvas note.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        content: { type: 'string', description: 'The note content.' },
+        action: { type: 'string', enum: ['add', 'update', 'delete'], description: 'Action to perform.' },
+        content: { type: 'string', description: 'The note content (required for add/update).' },
+        noteId: { type: 'string', description: 'The note ID (required for update/delete).' },
       },
-      required: ['canvasId', 'content'],
+      required: ['canvasId', 'action'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const content = requireText(args, 'content');
-        return ok(await deps.addNote(canvasId, content));
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const updateNote: AgentTool = {
-    name: 'canvas.updateNote',
-    description: 'Update the content of an existing canvas note.',
-    context: CANVAS_CONTEXT,
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        noteId: { type: 'string', description: 'The note ID to update.' },
-        content: { type: 'string', description: 'The new note content.' },
-      },
-      required: ['canvasId', 'noteId', 'content'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const noteId = requireString(args, 'noteId');
-        const content = requireText(args, 'content');
-        await deps.updateNote(canvasId, noteId, content);
-        return ok({ noteId, content });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const deleteNote: AgentTool = {
-    name: 'canvas.deleteNote',
-    description: 'Delete a note from the current canvas.',
-    context: CANVAS_CONTEXT,
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        noteId: { type: 'string', description: 'The note ID to delete.' },
-      },
-      required: ['canvasId', 'noteId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const noteId = requireString(args, 'noteId');
-        await deps.deleteNote(canvasId, noteId);
-        return ok({ noteId });
+        const action = requireString(args, 'action');
+        if (action === 'add') {
+          const content = requireText(args, 'content');
+          return ok(await deps.addNote(canvasId, content));
+        }
+        if (action === 'update') {
+          const noteId = requireString(args, 'noteId');
+          const content = requireText(args, 'content');
+          await deps.updateNote(canvasId, noteId, content);
+          return ok({ noteId, content });
+        }
+        if (action === 'delete') {
+          const noteId = requireString(args, 'noteId');
+          await deps.deleteNote(canvasId, noteId);
+          return ok({ noteId });
+        }
+        throw new Error(`Unknown action: ${action}`);
       } catch (error) {
         return fail(error);
       }
@@ -770,7 +735,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   return [
     generate, cancelGeneration, setSeed, setVariantCount, setNodeColorTag, toggleSeedLock, selectVariant, estimateCost,
-    addNote, updateNote, deleteNote, undo, redo, generateAll,
+    note, undo, redo, generateAll,
     deleteNode, deleteEdge, swapEdgeDirection, disconnectNode, editNodeContent, setNodeProvider, setNodeMediaConfig, setVideoFrames,
   ];
 }

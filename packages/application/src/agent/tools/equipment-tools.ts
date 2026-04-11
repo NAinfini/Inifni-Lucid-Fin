@@ -29,6 +29,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
+        query: { type: 'string', description: 'Optional search query. Matches against name, type, or description (case-insensitive OR logic).' },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
@@ -36,9 +37,20 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
     async execute(args) {
       const items = await deps.listEquipment();
+      const query = typeof args.query === 'string' && args.query.length > 0
+        ? args.query.toLowerCase()
+        : undefined;
+      let filtered = items;
+      if (query) {
+        filtered = filtered.filter((e) =>
+          e.name?.toLowerCase().includes(query) ||
+          e.type?.toLowerCase().includes(query) ||
+          e.description?.toLowerCase().includes(query),
+        );
+      }
       const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
       const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-      const mapped = items.map((e) => ({ id: e.id, name: e.name, type: e.type }));
+      const mapped = filtered.map((e) => ({ id: e.id, name: e.name, type: e.type }));
       return { success: true, data: { total: mapped.length, offset, limit, equipment: mapped.slice(offset, offset + limit) } };
     },
   };

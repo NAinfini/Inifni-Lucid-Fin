@@ -814,7 +814,7 @@ describe('registerCommanderHandlers logging', () => {
         toolName: 'character.create',
       }),
     );
-    expect(logger.info).toHaveBeenCalledWith(
+    expect(logger.debug).toHaveBeenCalledWith(
       'Commander LLM request prepared',
       expect.objectContaining({
         category: 'commander',

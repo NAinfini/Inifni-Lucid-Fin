@@ -122,7 +122,7 @@ describe('AgentToolRegistry', () => {
   it('searches tools by tag and query within a context', () => {
     const registry = new AgentToolRegistry();
     registry.register({
-      name: 'canvas.searchNodes',
+      name: 'canvas.listNodes',
       description: 'Search nodes on the canvas',
       tags: ['canvas', 'read', 'search'],
       context: ['canvas'],
@@ -151,6 +151,6 @@ describe('AgentToolRegistry', () => {
         tags: ['search'],
         query: 'node',
       }).map((tool) => tool.name),
-    ).toEqual(['canvas.searchNodes']);
+    ).toEqual(['canvas.listNodes']);
   });
 });

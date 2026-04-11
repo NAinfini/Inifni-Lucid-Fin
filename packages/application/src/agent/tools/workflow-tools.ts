@@ -279,39 +279,6 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     },
   };
 
-  const fileClassify: AgentTool = {
-    name: 'file.classify',
-    description: 'Classify uploaded file content to determine how Commander should handle it.',
-    tags: ['workflow', 'meta'],
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        content: { type: 'string', description: 'File content to classify.' },
-        filename: { type: 'string', description: 'Optional filename for extension hints.' },
-      },
-      required: ['content'],
-    },
-    async execute(args) {
-      try {
-        const content = String(args.content);
-        const filename = typeof args.filename === 'string' ? args.filename.toLowerCase() : '';
-        const isScript = /\b(INT\.|EXT\.)\s/.test(content) || filename.endsWith('.fountain') || filename.endsWith('.fdx');
-        const isPrompt = /^(#|You are|system:|SYSTEM:)/.test(content.trim());
-        const isWorkflow = /\b(workflow:|skill:)\s/.test(content);
-        const detectedType = isScript ? 'script' : isPrompt ? 'prompt' : isWorkflow ? 'workflow' : 'unknown';
-        const confidence = (isScript || isPrompt || isWorkflow) ? 'high' : 'low';
-        const suggestions: Record<string, string> = {
-          script: 'Call script.import to parse this as a script, then use workflow.expandIdea pattern to create text nodes.',
-          prompt: 'Offer to replace an existing prompt template via guide.list + guide.get, or create a new one.',
-          workflow: 'Inform user that workflow/skill management is in Settings > Workflows & Skills.',
-          unknown: 'Ask user what they want to do with this file.',
-        };
-        return ok({ detectedType, confidence, suggestion: suggestions[detectedType] });
-      } catch (error) { return fail(error); }
-    },
-  };
-
   const imageAnalyze: AgentTool = {
     name: 'workflow.imageAnalyze',
     description: 'Analyze a generated canvas image node to extract characters, equipment, and scene details.',
@@ -446,5 +413,5 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     },
   };
 
-  return [styleTransfer, shotList, batchRePrompt, continuityCheck, storyboardExport, fileClassify, imageAnalyze, videoCloneWorkflow, lipSyncWorkflow, emotionVoiceWorkflow, dualPromptWorkflow];
+  return [styleTransfer, shotList, batchRePrompt, continuityCheck, storyboardExport, imageAnalyze, videoCloneWorkflow, lipSyncWorkflow, emotionVoiceWorkflow, dualPromptWorkflow];
 }

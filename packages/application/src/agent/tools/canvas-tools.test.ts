@@ -310,72 +310,6 @@ describe('createCanvasTools', () => {
     });
   });
 
-  it('searches canvas nodes with lightweight summaries and filters', async () => {
-    const canvas = createCanvas();
-    canvas.nodes.push({
-      id: 'video-1',
-      type: 'video',
-      title: 'Video 1',
-      position: { x: 90, y: 110 },
-      data: {
-        status: 'queued',
-        providerId: 'runway',
-        variants: [],
-        selectedVariantIndex: 0,
-      },
-      status: 'idle',
-      bypassed: false,
-      locked: false,
-      createdAt: 1,
-      updatedAt: 1,
-    });
-    const deps = createDeps(canvas);
-
-    const result = await getTool('canvas.searchNodes', deps).execute({
-      canvasId: 'canvas-1',
-      type: 'video',
-      titleContains: 'video',
-      status: 'queued',
-      providerId: 'runway',
-      limit: 5,
-    });
-
-    expect(result).toEqual({
-      success: true,
-      data: {
-        total: 1,
-        offset: 0,
-        limit: 5,
-        nodes: [
-          {
-            id: 'video-1',
-            type: 'video',
-            title: 'Video 1',
-            status: 'queued',
-            providerId: 'runway',
-          },
-        ],
-      },
-    });
-  });
-
-  it('searchNodes ignores empty-string filters', async () => {
-    const canvas = createCanvas();
-    const deps = createDeps(canvas);
-
-    const result = await getTool('canvas.searchNodes', deps).execute({
-      canvasId: 'canvas-1',
-      type: '',
-      status: '',
-      providerId: '',
-      titleContains: '',
-    });
-
-    expect(result.success).toBe(true);
-    const data = result.data as { total: number; nodes: unknown[] };
-    expect(data.total).toBe(canvas.nodes.length);
-  });
-
   it('layout repositions nodes with correct spacing', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
@@ -419,41 +353,6 @@ describe('createCanvasTools', () => {
     expect((result.data as Record<string, unknown>).nodeId).toBe('image-1');
     expect((result.data as Record<string, unknown>).status).toBe('done');
     expect(deps.triggerGeneration).toHaveBeenCalledWith('canvas-1', 'image-1', 'runway', 4);
-  });
-
-  it('cutNodes copies nodes into clipboard output and deletes originals', async () => {
-    const canvas = createCanvas();
-    canvas.edges.push({
-      id: 'edge-1',
-      source: 'text-1',
-      target: 'image-1',
-      data: { status: 'idle' },
-    });
-    const deps = createDeps(canvas);
-
-    const result = await getTool('canvas.cutNodes', deps).execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['text-1'],
-    });
-
-    expect(result.success).toBe(true);
-    expect(result).toEqual(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          nodeIds: ['text-1'],
-          clipboardCount: 1,
-          nodes: [
-            expect.objectContaining({
-              title: 'Text 1',
-              position: { x: 60, y: 70 },
-            }),
-          ],
-        }),
-      }),
-    );
-    expect(canvas.nodes.find((node) => node.id === 'text-1')).toBeUndefined();
-    expect(canvas.edges).toEqual([]);
-    expect(deps.deleteNode).toHaveBeenCalledWith('canvas-1', 'text-1');
   });
 
   it('returns error for missing canvas', async () => {
@@ -693,5 +592,136 @@ describe('createCanvasTools', () => {
       ],
     });
     expect(deps.getRecentLogs).toHaveBeenCalledWith('error', 'generation', 10);
+  });
+
+  describe('canvas.listNodes query and types filter', () => {
+    function createCanvasWithNodes(): Canvas {
+      return {
+        id: 'canvas-1',
+        projectId: 'project-1',
+        name: 'Canvas',
+        nodes: [
+          {
+            id: 'img-1',
+            type: 'image',
+            title: 'Sunset Shot',
+            position: { x: 0, y: 0 },
+            data: { prompt: 'golden hour sunset', status: 'empty', variants: [], selectedVariantIndex: 0 },
+            status: 'idle',
+            bypassed: false,
+            locked: false,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            id: 'vid-1',
+            type: 'video',
+            title: 'Action Clip',
+            position: { x: 300, y: 0 },
+            data: { prompt: 'fast car chase', status: 'empty', variants: [], selectedVariantIndex: 0 },
+            status: 'idle',
+            bypassed: false,
+            locked: false,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            id: 'txt-1',
+            type: 'text',
+            title: 'Scene Notes',
+            position: { x: 600, y: 0 },
+            data: { content: 'notes about sunset' },
+            status: 'idle',
+            bypassed: false,
+            locked: false,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        notes: [],
+        createdAt: 1,
+        updatedAt: 1,
+      };
+    }
+
+    it('returns all nodes when no filter is provided', async () => {
+      const canvas = createCanvasWithNodes();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1' });
+      expect(result).toMatchObject({ success: true, data: { total: 3 } });
+    });
+
+    it('filters by types array (OR-matched)', async () => {
+      const canvas = createCanvasWithNodes();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', types: ['image', 'video'] });
+      expect(result).toMatchObject({ success: true, data: { total: 2 } });
+      const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
+      expect(data.nodes.map((n) => n.id)).toEqual(expect.arrayContaining(['img-1', 'vid-1']));
+    });
+
+    it('filters by query against title', async () => {
+      const canvas = createCanvasWithNodes();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', query: 'action' });
+      expect(result).toMatchObject({ success: true, data: { total: 1 } });
+      const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
+      expect(data.nodes[0].id).toBe('vid-1');
+    });
+
+    it('filters by query against prompt (OR logic)', async () => {
+      const canvas = createCanvasWithNodes();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', query: 'sunset' });
+      expect(result).toMatchObject({ success: true, data: { total: 1 } });
+      const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
+      expect(data.nodes[0].id).toBe('img-1');
+    });
+
+    it('combines query and types with AND logic', async () => {
+      const canvas = createCanvasWithNodes();
+      const deps = createDeps(canvas);
+      // types=['image','video'] AND query='sunset' → only img-1 (video has 'fast car' prompt, not 'sunset')
+      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', types: ['image', 'video'], query: 'sunset' });
+      expect(result).toMatchObject({ success: true, data: { total: 1 } });
+      const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
+      expect(data.nodes[0].id).toBe('img-1');
+    });
+
+    it('returns empty when query matches nothing', async () => {
+      const canvas = createCanvasWithNodes();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', query: 'xyz123' });
+      expect(result).toMatchObject({ success: true, data: { total: 0, nodes: [] } });
+    });
+  });
+
+  describe('canvas.getNode batch support', () => {
+    it('single string ID returns single node (backward compat)', async () => {
+      const canvas = createCanvas();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.getNode', deps).execute({ canvasId: 'canvas-1', nodeIds: 'text-1' });
+      expect(result.success).toBe(true);
+      expect((result.data as { id: string }).id).toBe('text-1');
+    });
+
+    it('array of IDs returns array of nodes', async () => {
+      const canvas = createCanvas();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.getNode', deps).execute({ canvasId: 'canvas-1', nodeIds: ['text-1', 'image-1'] });
+      expect(result.success).toBe(true);
+      const nodes = result.data as { id: string }[];
+      expect(nodes).toHaveLength(2);
+      expect(nodes.map((n) => n.id)).toEqual(['text-1', 'image-1']);
+    });
+
+    it('missing ID in batch returns error for first missing', async () => {
+      const canvas = createCanvas();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.getNode', deps).execute({ canvasId: 'canvas-1', nodeIds: ['text-1', 'missing-node'] });
+      expect(result).toEqual({ success: false, error: 'Node not found: missing-node' });
+    });
   });
 });

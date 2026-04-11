@@ -44,6 +44,7 @@ export function createSceneTools(deps: SceneToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
+        query: { type: 'string', description: 'Optional search query. Matches against title or description (case-insensitive OR logic).' },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
@@ -52,9 +53,19 @@ export function createSceneTools(deps: SceneToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const scenes = await deps.listScenes();
+        const query = typeof args.query === 'string' && args.query.length > 0
+          ? args.query.toLowerCase()
+          : undefined;
+        let filtered = scenes;
+        if (query) {
+          filtered = filtered.filter((s) =>
+            s.title?.toLowerCase().includes(query) ||
+            s.description?.toLowerCase().includes(query),
+          );
+        }
         const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
         const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        return { success: true, data: { total: scenes.length, offset, limit, scenes: scenes.slice(offset, offset + limit) } };
+        return { success: true, data: { total: filtered.length, offset, limit, scenes: filtered.slice(offset, offset + limit) } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }

@@ -266,7 +266,7 @@ export function registerCommanderHandlers(
       let session: RunningCommanderSession | undefined;
       try {
         const canvas = requireCanvas(deps.canvasStore, args.canvasId);
-        log.info('Commander chat request received', {
+        log.debug('Commander chat request received', {
           category: 'commander',
           canvasId: args.canvasId,
           selectedNodeCount: args.selectedNodeIds.length,
@@ -317,7 +317,7 @@ export function registerCommanderHandlers(
           extra['Current language'] = args.locale;
         }
         const contextExtra = context.extra as Record<string, unknown> | undefined;
-        log.info('Commander context prepared', {
+        log.debug('Commander context prepared', {
           category: 'commander',
           canvasId: args.canvasId,
           contextKeys: contextExtra ? Object.keys(contextExtra) : [],
@@ -347,7 +347,7 @@ export function registerCommanderHandlers(
             systemPromptChars: number;
             promptGuideChars: number;
           }) => {
-            log.info('Commander LLM request prepared', {
+            log.debug('Commander LLM request prepared', {
               category: 'commander',
               canvasId: args.canvasId,
               providerId: args.customLLMProvider?.id,

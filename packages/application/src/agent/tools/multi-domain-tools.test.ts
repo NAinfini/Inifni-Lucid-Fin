@@ -130,7 +130,7 @@ function getTool<T extends { name: string; execute: (args: Record<string, unknow
 }
 
 describe('new agent tool groups', () => {
-  it('canvas tools support rename/load/save and reference removal', async () => {
+  it('canvas tools support rename/load/save and clearing refs via empty array', async () => {
     const canvas = createCanvas();
     const deps = createCanvasDeps(canvas);
     const tools = createCanvasTools(deps);
@@ -148,20 +148,20 @@ describe('new agent tool groups', () => {
       data: { canvasId: 'canvas-1' },
     });
 
-    await getTool(tools, 'canvas.removeCharacterRef').execute({
+    await getTool(tools, 'canvas.setCharacterRefs').execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      characterId: 'char-1',
+      characterRefs: [],
     });
-    await getTool(tools, 'canvas.removeEquipmentRef').execute({
+    await getTool(tools, 'canvas.setEquipmentRefs').execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      equipmentId: 'eq-1',
+      equipmentRefs: [],
     });
-    await getTool(tools, 'canvas.removeLocationRef').execute({
+    await getTool(tools, 'canvas.setLocationRefs').execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      locationId: 'loc-1',
+      locationRefs: [],
     });
 
     expect(canvas.name).toBe('Renamed Canvas');

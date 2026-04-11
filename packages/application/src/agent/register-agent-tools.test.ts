@@ -186,7 +186,7 @@ describe('registerAgentTools', () => {
     const registry = new AgentToolRegistry();
     registerAgentTools(registry, createMockDeps());
     expect(registry.list().length).toBeGreaterThanOrEqual(120);
-    expect(registry.get('tool.search')).toBeDefined();
+    expect(registry.get('tool.get')).toBeDefined();
     expect(registry.get('guide.list')).toBeDefined();
     expect(registry.get('guide.get')).toBeDefined();
   });
@@ -279,7 +279,7 @@ describe('registerAgentTools', () => {
     const canvasContextTools = registry.forContext('canvas');
     const canvasTools = canvasContextTools.filter((t) => t.name.startsWith('canvas.'));
     expect(canvasTools.length).toBeGreaterThanOrEqual(50);
-    expect(canvasContextTools.some((t) => t.name === 'canvas.searchNodes')).toBe(true);
+    expect(canvasContextTools.some((t) => t.name === 'canvas.listNodes')).toBe(true);
     expect(canvasContextTools.some((t) => t.name === 'logger.read')).toBe(true);
 
     const storyboardContextTools = registry.forContext('storyboard');

@@ -44,7 +44,7 @@ describe('createPromptTools', () => {
         prompts: [{ code: 'shot.user', name: 'Shot', type: 'user', hasCustom: true }],
       },
     });
-    await expect(getTool('prompt.get', deps).execute({ code: 'scene.system' })).resolves.toEqual({
+    await expect(getTool('prompt.get', deps).execute({ ids: 'scene.system' })).resolves.toEqual({
       success: true,
       data: {
         code: 'scene.system',
@@ -72,7 +72,7 @@ describe('createPromptTools', () => {
     const deps = createDeps();
     vi.mocked(deps.clearCustomPrompt).mockRejectedValueOnce(new Error('clear failed'));
 
-    await expect(getTool('prompt.get', deps).execute({ code: 'missing' })).resolves.toEqual({
+    await expect(getTool('prompt.get', deps).execute({ ids: 'missing' })).resolves.toEqual({
       success: false,
       error: 'Prompt not found: missing',
     });
@@ -83,6 +83,48 @@ describe('createPromptTools', () => {
     await expect(getTool('prompt.clearCustom', deps).execute({ code: 'scene.system' })).resolves.toEqual({
       success: false,
       error: 'clear failed',
+    });
+  });
+
+  describe('prompt.get batch support', () => {
+    const scenePrompt = { code: 'scene.system', name: 'Scene', defaultValue: 'default', customValue: null };
+    const shotPrompt = { code: 'shot.user', name: 'Shot', defaultValue: 'shot default', customValue: 'custom shot' };
+
+    function createBatchDeps(): PromptToolDeps {
+      const store = new Map([
+        ['scene.system', scenePrompt],
+        ['shot.user', shotPrompt],
+      ]);
+      return {
+        listPrompts: vi.fn(async () => [
+          { code: 'scene.system', name: 'Scene', type: 'system', hasCustom: false },
+          { code: 'shot.user', name: 'Shot', type: 'user', hasCustom: true },
+        ]),
+        getPrompt: vi.fn(async (code: string) => store.get(code) ?? null),
+        setCustomPrompt: vi.fn(async () => undefined),
+        clearCustomPrompt: vi.fn(async () => undefined),
+      };
+    }
+
+    it('single string ID returns single prompt (backward compat)', async () => {
+      const deps = createBatchDeps();
+      const result = await getTool('prompt.get', deps).execute({ ids: 'scene.system' });
+      expect(result).toEqual({ success: true, data: scenePrompt });
+    });
+
+    it('array of IDs returns array of prompts', async () => {
+      const deps = createBatchDeps();
+      const result = await getTool('prompt.get', deps).execute({ ids: ['scene.system', 'shot.user'] });
+      expect(result.success).toBe(true);
+      const data = result.data as typeof scenePrompt[];
+      expect(data).toHaveLength(2);
+      expect(data.map((p) => p.code)).toEqual(['scene.system', 'shot.user']);
+    });
+
+    it('missing ID in batch returns error for first missing', async () => {
+      const deps = createBatchDeps();
+      const result = await getTool('prompt.get', deps).execute({ ids: ['scene.system', 'missing.code'] });
+      expect(result).toEqual({ success: false, error: 'Prompt not found: missing.code' });
     });
   });
 });

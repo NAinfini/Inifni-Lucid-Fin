@@ -564,3 +564,160 @@ describe('buildSparseSettings', () => {
     expect(sparse.renderPreset).toBe('cinematic');
   });
 });
+
+describe('usage stats reducers', () => {
+  it('recordToolCall increments totalToolCalls and toolFrequency', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordToolCall({ toolName: 'search' }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordToolCall({ toolName: 'search' }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordToolCall({ toolName: 'write', error: true }),
+    );
+
+    expect(state.usage.totalToolCalls).toBe(3);
+    expect(state.usage.toolFrequency['search']).toBe(2);
+    expect(state.usage.toolFrequency['write']).toBe(1);
+    expect(state.usage.toolErrors['write']).toBe(1);
+    expect(state.usage.toolErrors['search']).toBeUndefined();
+  });
+
+  it('recordToolCall limits recentTools to 50 entries', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    for (let i = 0; i < 55; i++) {
+      state = settingsSlice.reducer(
+        state,
+        settingsSlice.actions.recordToolCall({ toolName: `tool-${i}` }),
+      );
+    }
+
+    expect(state.usage.recentTools).toHaveLength(50);
+    expect(state.usage.recentTools[0]).toBe('tool-5');
+    expect(state.usage.recentTools[49]).toBe('tool-54');
+  });
+
+  it('recordSession updates running averages and counters', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordSession({ durationMs: 1000, toolCount: 4, turnCount: 2 }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordSession({ durationMs: 3000, toolCount: 8, turnCount: 6, cancelled: true }),
+    );
+
+    expect(state.usage.sessionCount).toBe(2);
+    expect(state.usage.totalSessionDurationMs).toBe(4000);
+    expect(state.usage.cancelledSessions).toBe(1);
+    expect(state.usage.failedSessions).toBe(0);
+    expect(state.usage.avgToolsPerSession).toBe(6); // (4 + 8) / 2
+    expect(state.usage.avgTurnsPerSession).toBe(4); // (2 + 6) / 2
+  });
+
+  it('recordGeneration tracks count, total time, and running success rate', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordGeneration({ type: 'image', success: true, durationMs: 500 }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordGeneration({ type: 'image', success: false, durationMs: 200 }),
+    );
+
+    expect(state.usage.generationCount['image']).toBe(2);
+    expect(state.usage.totalGenerationTimeMs).toBe(700);
+    // After first success (rate = 1): rate = 1 + (1 - 1) / 1 = 1
+    // After second failure (rate = 1): rate = 1 + (0 - 1) / 2 = 0.5
+    expect(state.usage.generationSuccessRate['image']).toBe(0.5);
+  });
+
+  it('recordProviderRequest updates provider usage stats with running average latency', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordProviderRequest({ providerId: 'openai', latencyMs: 100 }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordProviderRequest({ providerId: 'openai', latencyMs: 300, error: true }),
+    );
+
+    const openai = state.usage.providerUsage['openai'];
+    expect(openai).toBeDefined();
+    expect(openai.requestCount).toBe(2);
+    expect(openai.errorCount).toBe(1);
+    expect(openai.avgLatencyMs).toBe(200); // (100 + 300) / 2
+    expect(openai.lastUsed).not.toBe('');
+  });
+
+  it('recordProjectActivity increments counters', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordProjectActivity({ nodesCreated: 3, edgesCreated: 2 }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordProjectActivity({ entitiesCreated: 5, snapshotsUsed: 1 }),
+    );
+
+    expect(state.usage.nodesCreated).toBe(3);
+    expect(state.usage.edgesCreated).toBe(2);
+    expect(state.usage.entitiesCreated).toBe(5);
+    expect(state.usage.snapshotsUsed).toBe(1);
+  });
+
+  it('updateDailyActive accumulates minutes per date', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.updateDailyActive({ date: '2026-04-11', minutes: 30 }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.updateDailyActive({ date: '2026-04-11', minutes: 15 }),
+    );
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.updateDailyActive({ date: '2026-04-10', minutes: 60 }),
+    );
+
+    expect(state.usage.dailyActiveMinutes['2026-04-11']).toBe(45);
+    expect(state.usage.dailyActiveMinutes['2026-04-10']).toBe(60);
+  });
+
+  it('buildSparseSettings includes usage in persisted output', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.recordToolCall({ toolName: 'search' }),
+    );
+
+    const sparse = buildSparseSettings(state);
+    expect(sparse.usage).toBeDefined();
+    expect(sparse.usage.totalToolCalls).toBe(1);
+  });
+
+  it('restore merges saved usage with initialUsageStats defaults', () => {
+    const restored = settingsSlice.reducer(undefined, {
+      type: settingsSlice.actions.restore.type,
+      payload: {
+        usage: { totalToolCalls: 42, sessionCount: 5 },
+      },
+    });
+
+    expect(restored.usage.totalToolCalls).toBe(42);
+    expect(restored.usage.sessionCount).toBe(5);
+    // Fields not in saved usage fall back to defaults
+    expect(restored.usage.toolFrequency).toEqual({});
+    expect(restored.usage.nodesCreated).toBe(0);
+  });
+});

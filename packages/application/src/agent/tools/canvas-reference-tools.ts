@@ -5,13 +5,12 @@ import {
   fail,
   requireString,
   requireNode,
-  requireVisualGenerationNode,
 } from './canvas-tool-utils.js';
 
 export function createCanvasReferenceTools(deps: CanvasToolDeps): AgentTool[] {
   const setCharacterRefs: AgentTool = {
     name: 'canvas.setCharacterRefs',
-    description: 'Assign character references to an image or video node.',
+    description: 'Assign character references to an image or video node. Pass empty array to clear all refs.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -57,7 +56,7 @@ export function createCanvasReferenceTools(deps: CanvasToolDeps): AgentTool[] {
 
   const setEquipmentRefs: AgentTool = {
     name: 'canvas.setEquipmentRefs',
-    description: 'Assign equipment references to an image or video node.',
+    description: 'Assign equipment references to an image or video node. Pass empty array to clear all refs.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -101,7 +100,7 @@ export function createCanvasReferenceTools(deps: CanvasToolDeps): AgentTool[] {
 
   const setLocationRefs: AgentTool = {
     name: 'canvas.setLocationRefs',
-    description: 'Assign location references to an image or video node.',
+    description: 'Assign location references to an image or video node. Pass empty array to clear all refs.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -143,95 +142,7 @@ export function createCanvasReferenceTools(deps: CanvasToolDeps): AgentTool[] {
     },
   };
 
-  const removeCharacterRef: AgentTool = {
-    name: 'canvas.removeCharacterRef',
-    description: 'Remove a character reference from an image or video node.',
-    context: CANVAS_CONTEXT,
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
-        characterId: { type: 'string', description: 'The character ID to remove.' },
-      },
-      required: ['canvasId', 'nodeId', 'characterId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const characterId = requireString(args, 'characterId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        requireVisualGenerationNode(node, `Node type "${node.type}" does not support character refs`);
-        await deps.removeCharacterRef(canvasId, nodeId, characterId);
-        return ok({ nodeId, characterId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const removeEquipmentRef: AgentTool = {
-    name: 'canvas.removeEquipmentRef',
-    description: 'Remove an equipment reference from an image or video node.',
-    context: CANVAS_CONTEXT,
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
-        equipmentId: { type: 'string', description: 'The equipment ID to remove.' },
-      },
-      required: ['canvasId', 'nodeId', 'equipmentId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const equipmentId = requireString(args, 'equipmentId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        requireVisualGenerationNode(node, `Node type "${node.type}" does not support equipment refs`);
-        await deps.removeEquipmentRef(canvasId, nodeId, equipmentId);
-        return ok({ nodeId, equipmentId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const removeLocationRef: AgentTool = {
-    name: 'canvas.removeLocationRef',
-    description: 'Remove a location reference from an image or video node.',
-    context: CANVAS_CONTEXT,
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
-        locationId: { type: 'string', description: 'The location ID to remove.' },
-      },
-      required: ['canvasId', 'nodeId', 'locationId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const locationId = requireString(args, 'locationId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        requireVisualGenerationNode(node, `Node type "${node.type}" does not support location refs`);
-        await deps.removeLocationRef(canvasId, nodeId, locationId);
-        return ok({ nodeId, locationId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
   return [
     setCharacterRefs, setEquipmentRefs, setLocationRefs,
-    removeCharacterRef, removeEquipmentRef, removeLocationRef,
   ];
 }
