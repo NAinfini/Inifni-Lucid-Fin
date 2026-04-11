@@ -1,6 +1,39 @@
-import { defineConfig } from 'vitest/config';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { defineConfig, type Plugin } from 'vitest/config';
+
+/**
+ * Rolldown (Vite 8) doesn't recognise .cts as TypeScript — it parses
+ * the file as JS and chokes on `type` imports.  This plugin resolves
+ * `.cjs` test imports to a virtual `.ts` ID so rolldown's parser
+ * treats the source as TypeScript.
+ */
+function ctsPlugin(): Plugin {
+  const CTS_SUFFIX = '?cts-source.ts';
+
+  return {
+    name: 'cts-as-ts',
+    enforce: 'pre',
+    async resolveId(source, importer) {
+      if (source.endsWith('.cjs') && importer) {
+        const dir = importer.replace(/[\\/][^\\/]+$/, '');
+        const ctsPath = resolve(dir, source.replace(/\.cjs$/, '.cts'));
+        return ctsPath + CTS_SUFFIX;
+      }
+      return null;
+    },
+    async load(id) {
+      if (id.endsWith(CTS_SUFFIX)) {
+        const realPath = id.slice(0, -CTS_SUFFIX.length);
+        const code = await readFile(realPath, 'utf-8');
+        return { code, map: null };
+      }
+    },
+  };
+}
 
 export default defineConfig({
+  plugins: [ctsPlugin()],
   test: {
     exclude: ['**/dist/**', '**/node_modules/**'],
     coverage: {

@@ -24,7 +24,7 @@ describe('preload commander bridge', () => {
   });
 
   it('exposes commander tool discovery methods through lucidAPI', async () => {
-    await import('./preload.js');
+    await import('./preload.cjs');
 
     expect(exposeInMainWorld).toHaveBeenCalledOnce();
 
