@@ -37,6 +37,7 @@ export function LoggerPanel() {
   const [enabledLevels, setEnabledLevels] = useState<Set<LogLevel>>(new Set(['info', 'warn', 'error']));
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const prevEntryCountRef = useRef(0);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -67,10 +68,14 @@ export function LoggerPanel() {
     void navigator.clipboard.writeText(text);
   }, [filteredEntries]);
 
+  // Only auto-scroll when NEW entries arrive, not on expand/copy/filter changes
   useEffect(() => {
     const node = listRef.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
+    if (filteredEntries.length > prevEntryCountRef.current) {
+      node.scrollTop = node.scrollHeight;
+    }
+    prevEntryCountRef.current = filteredEntries.length;
   }, [filteredEntries]);
 
   return (
@@ -142,68 +147,74 @@ export function LoggerPanel() {
             <div
               key={entry.id}
               className={cn(
-                'w-full rounded-md border border-border/60 bg-muted/40 p-2 text-left',
+                'w-full rounded-md border border-border/60 bg-muted/40 text-left',
                 expandable && 'transition-colors hover:bg-muted/60',
               )}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div
-                  data-testid={`logger-entry-meta-${entry.id}`}
-                  className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]"
-                >
-                  <span className="shrink-0 font-mono text-muted-foreground">
-                    [{formatTimestamp(entry.timestamp)}]
-                  </span>
-                  <span
-                    className={cn(
-                      'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase',
-                      LEVEL_STYLES[entry.level],
-                    )}
+              {/* Sticky header: always visible at top of entry so user can collapse */}
+              <div className={cn(
+                'p-2',
+                expanded && 'sticky top-0 z-10 rounded-t-md border-b border-border/40 bg-muted/90 backdrop-blur-sm',
+              )}>
+                <div className="flex items-start justify-between gap-2">
+                  <div
+                    data-testid={`logger-entry-meta-${entry.id}`}
+                    className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]"
                   >
-                    {entry.level}
-                  </span>
-                  <span className="shrink-0 text-muted-foreground">{entry.category}</span>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={(e) => handleCopyEntry(entry, e)}
-                    className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground"
-                    title="Copy"
-                  >
-                    {copiedId === entry.id ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                  </button>
-                  {expandable ? (
+                    <span className="shrink-0 font-mono text-muted-foreground">
+                      [{formatTimestamp(entry.timestamp)}]
+                    </span>
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+                        LEVEL_STYLES[entry.level],
+                      )}
+                    >
+                      {entry.level}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">{entry.category}</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
-                      aria-expanded={expanded}
-                      onClick={() =>
-                        setExpandedIds((current) =>
-                          current.includes(entry.id)
-                            ? current.filter((id) => id !== entry.id)
-                            : [...current, entry.id],
-                        )
-                      }
+                      onClick={(e) => handleCopyEntry(entry, e)}
                       className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground"
-                      title={expanded ? t('logger.hideDetails') : t('logger.showDetails')}
+                      title="Copy"
                     >
-                      {expanded ? (
-                        <ChevronDown className="h-3 w-3" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3" />
-                      )}
+                      {copiedId === entry.id ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
                     </button>
-                  ) : null}
+                    {expandable ? (
+                      <button
+                        type="button"
+                        aria-expanded={expanded}
+                        onClick={() =>
+                          setExpandedIds((current) =>
+                            current.includes(entry.id)
+                              ? current.filter((id) => id !== entry.id)
+                              : [...current, entry.id],
+                          )
+                        }
+                        className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground"
+                        title={expanded ? t('logger.hideDetails') : t('logger.showDetails')}
+                      >
+                        {expanded ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-              <div data-testid={`logger-entry-body-${entry.id}`} className="mt-1.5 min-w-0">
-                <p className="whitespace-pre-wrap break-words text-xs leading-4 text-foreground">
-                  {entry.message}
-                </p>
+                <div data-testid={`logger-entry-body-${entry.id}`} className="mt-1.5 min-w-0">
+                  <p className="whitespace-pre-wrap break-words text-xs leading-4 text-foreground">
+                    {entry.message}
+                  </p>
+                </div>
               </div>
               {expandable && expanded ? (
                 <pre className={cn(
-                  'mt-1.5 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap',
+                  'mx-2 mb-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap',
                   entry.level === 'error' && 'text-red-300/80',
                 )}>
                   {entry.detail}
