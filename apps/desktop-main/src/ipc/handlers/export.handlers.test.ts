@@ -167,10 +167,12 @@ describe("registerExportHandlers", () => {
 
     expect([...handlers.keys()].sort()).toEqual([
       "export:assetBundle",
+      "export:capcut",
       "export:metadata",
       "export:nle",
       "export:storyboard",
       "export:subtitles",
+      "import:srt",
     ]);
   });
 

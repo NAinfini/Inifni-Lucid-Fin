@@ -153,7 +153,7 @@ describe('createStoryboardWorkflowHandlers', () => {
       },
     });
 
-    const executed = await workflowEngine.pump(workflowRunId);
+    await workflowEngine.waitForAutoPump();
     const workflow = workflowEngine.get(workflowRunId);
     const scene = db.getScene('scene-1');
     const assets = db.queryAssets({
@@ -163,7 +163,6 @@ describe('createStoryboardWorkflowHandlers', () => {
     });
     const artifacts = db.listWorkflowArtifacts(workflowRunId);
 
-    expect(executed).toBe(3);
     expect(workflow).toEqual(
       expect.objectContaining({
         id: workflowRunId,
@@ -280,7 +279,7 @@ describe('createStoryboardWorkflowHandlers', () => {
       },
     });
 
-    await workflowEngine.pump(workflowRunId);
+    await workflowEngine.waitForAutoPump();
 
     const scene = db.getScene('scene-1');
     const assets = db.queryAssets({

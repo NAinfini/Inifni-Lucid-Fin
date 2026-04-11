@@ -923,8 +923,8 @@ export function registerAllTools(
         name: providerInfo.name || preset?.name || providerInfo.id,
         baseUrl: providerInfo.baseUrl || preset?.baseUrl || '',
         model: providerInfo.model || preset?.model || '',
-        protocol: preset?.protocol,
-        authStyle: preset?.authStyle,
+        protocol: providerInfo.protocol ?? preset?.protocol,
+        authStyle: providerInfo.authStyle ?? preset?.authStyle,
       });
       const adapter = buildRuntimeLLMAdapter(runtimeConfig);
       adapter.configure(apiKey ?? '', {

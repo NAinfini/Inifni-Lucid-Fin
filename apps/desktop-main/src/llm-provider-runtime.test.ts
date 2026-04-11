@@ -101,7 +101,7 @@ describe('llm-provider-runtime helpers', () => {
       id: 'openai',
       name: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4.1',
+      model: 'gpt-5.4',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
     } as const;
@@ -112,7 +112,7 @@ describe('llm-provider-runtime helpers', () => {
     expect(buildRuntimeLLMAdapter).not.toHaveBeenCalled();
     expect(configure).toHaveBeenCalledWith('sk-live', {
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4.1',
+      model: 'gpt-5.4',
     });
   });
 

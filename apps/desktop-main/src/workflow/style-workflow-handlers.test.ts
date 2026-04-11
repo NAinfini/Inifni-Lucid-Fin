@@ -128,12 +128,11 @@ describe('createStyleWorkflowHandlers', () => {
       },
     });
 
-    const executed = await workflowEngine.pump(workflowRunId);
+    await workflowEngine.waitForAutoPump();
     const styles = db.listColorStyles();
     const workflow = workflowEngine.get(workflowRunId);
     const persistArtifacts = db.listWorkflowArtifactsByTaskRun('task-persist');
 
-    expect(executed).toBe(3);
     expect(styles).toEqual([
       expect.objectContaining({
         id: 'color-style-1',
@@ -233,7 +232,7 @@ describe('createStyleWorkflowHandlers', () => {
       },
     });
 
-    await workflowEngine.pump(workflowRunId);
+    await workflowEngine.waitForAutoPump();
 
     expect(videoFrameExtractor).toHaveBeenCalledTimes(1);
     expect(completeMock).toHaveBeenCalledTimes(1);

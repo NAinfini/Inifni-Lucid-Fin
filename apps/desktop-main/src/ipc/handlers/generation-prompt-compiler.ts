@@ -94,7 +94,6 @@ function maybeFillTrack(tracks: TrackMap, category: PresetCategory, presetId: st
   if (current?.entries.length) return;
   tracks[category] = {
     category,
-    aiDecide: false,
     entries: [
       {
         id: randomUUID(),

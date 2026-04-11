@@ -58,10 +58,8 @@ describe('applyStyleGuideDefaultsToEmptyTracks', () => {
       BUILT_IN_PRESET_LIBRARY,
     );
 
-    expect(result.look.aiDecide).toBe(false);
     expect(result.look.entries).toHaveLength(1);
     expect(result.look.entries[0]?.presetId).toBe('builtin-look-cinematic-realism');
-    expect(result.scene.aiDecide).toBe(false);
     expect(result.scene.entries).toHaveLength(1);
     expect(result.scene.entries[0]?.presetId).toBe('scene:low-key');
   });
@@ -70,7 +68,6 @@ describe('applyStyleGuideDefaultsToEmptyTracks', () => {
     const tracks = createEmptyPresetTrackSet();
     tracks.look = {
       category: 'look',
-      aiDecide: false,
       entries: [
         {
           id: 'existing-look',

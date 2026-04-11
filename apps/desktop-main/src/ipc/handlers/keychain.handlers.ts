@@ -14,7 +14,7 @@ import {
 
 type KeychainTestArgs = {
   provider: string;
-  group?: 'llm' | 'image' | 'video' | 'audio';
+  group?: 'llm' | 'image' | 'video' | 'audio' | 'vision';
   providerConfig?: LLMProviderRuntimeInput;
   baseUrl?: string;
   model?: string;
@@ -76,7 +76,8 @@ export function registerKeychainHandlers(
       ...getLLMProviderLogFields(runtimeConfig),
     });
 
-    const mediaAdapter = args.group === 'llm' ? undefined : resolveMediaAdapter(registry, args.provider);
+    const isLLMGroup = args.group === 'llm' || args.group === 'vision';
+    const mediaAdapter = isLLMGroup ? undefined : resolveMediaAdapter(registry, args.provider);
     if (mediaAdapter) {
       const apiKey = await getStoredKey(keychain, args.provider);
       mediaAdapter.configure(apiKey ?? '', {
@@ -107,7 +108,7 @@ export function registerKeychainHandlers(
       }
     }
 
-    if (args.group && args.group !== 'llm') {
+    if (args.group && !isLLMGroup) {
       log.warn('Provider connection test requested for unsupported direct media validation', {
         category: 'provider',
         providerId: args.provider,

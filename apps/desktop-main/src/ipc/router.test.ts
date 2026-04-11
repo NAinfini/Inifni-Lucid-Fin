@@ -69,7 +69,10 @@ vi.mock('./handlers/canvas-generation.handlers.js', () => ({ registerCanvasGener
 vi.mock('./handlers/preset.handlers.js', () => ({ registerPresetHandlers }));
 vi.mock('./handlers/commander.handlers.js', () => ({ registerCommanderHandlers }));
 vi.mock('./handlers/entity.handlers.js', () => ({ registerEntityHandlers }));
-vi.mock('@lucid-fin/contracts', () => ({ BUILT_IN_PRESET_LIBRARY: [{ id: 'preset-1' }] }));
+vi.mock('@lucid-fin/contracts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@lucid-fin/contracts')>()),
+  BUILT_IN_PRESET_LIBRARY: [{ id: 'preset-1' }],
+}));
 
 import { registerAllHandlers, type AppDeps } from './router.js';
 
