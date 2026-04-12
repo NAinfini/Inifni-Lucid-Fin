@@ -3,6 +3,8 @@ import type { AgentTool, AgentToolRegistry, ToolResult } from '../tool-registry.
 export interface MetaToolDeps {
   promptGuides?: Array<{ id: string; name: string; content: string }>;
   context?: string;
+  /** Callback to trigger mid-loop context compaction. Optional instructions guide the summary focus. */
+  compactContext?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
 }
 
 function ok(data?: unknown): ToolResult {
@@ -21,38 +23,21 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
 
   const toolList: AgentTool = {
     name: 'tool.list',
-    description: 'Discover available tools grouped by domain. Use optional query to filter by name or description substring.',
+    description: 'List ALL available tools grouped by domain. Returns the complete tool catalog — use tool.get to load full schema for specific tools.',
     tags: ['meta', 'read'],
     tier: 1,
     parameters: {
       type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Optional search text matched against tool names and descriptions (case-insensitive substring).',
-        },
-      },
+      properties: {},
       required: [],
     },
-    async execute(args) {
+    async execute() {
       const allTools = deps.context
         ? registry.forContext(deps.context)
         : registry.list();
 
-      const query = typeof args.query === 'string' && args.query.length > 0
-        ? args.query.toLowerCase()
-        : undefined;
-
-      const filtered = query
-        ? allTools.filter(
-            (tool) =>
-              tool.name.toLowerCase().includes(query) ||
-              tool.description.toLowerCase().includes(query),
-          )
-        : allTools;
-
       const grouped: Record<string, Array<{ name: string; desc: string }>> = {};
-      for (const tool of filtered) {
+      for (const tool of allTools) {
         const domain = tool.name.includes('.') ? tool.name.split('.')[0] : tool.name;
         if (!grouped[domain]) {
           grouped[domain] = [];
@@ -186,5 +171,34 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     },
   };
 
-  return [toolList, toolGet, guideList, guideGet];
+  const toolCompact: AgentTool = {
+    name: 'tool.compact',
+    description: 'Compact conversation context by summarizing old tool exchanges and stripping unused tool schemas. Optionally pass "instructions" to focus the summary (e.g. "focus on the API changes"). Call proactively when context feels large or before complex multi-step operations.',
+    tags: ['meta'],
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        instructions: { type: 'string', description: 'Optional focus instructions to guide what the compaction summary should emphasize (e.g. "focus on character setup and preset changes").' },
+      },
+      required: [],
+    },
+    async execute(args) {
+      if (!deps.compactContext) {
+        return ok({ note: 'Compaction not available in this session.' });
+      }
+      const instructions = typeof args.instructions === 'string' ? args.instructions : undefined;
+      const result = await deps.compactContext(instructions);
+      return ok({
+        freedChars: result.freedChars,
+        messageCount: result.messageCount,
+        toolCount: result.toolCount,
+        note: result.freedChars > 0
+          ? `Freed ~${result.freedChars.toLocaleString()} chars of context.`
+          : 'Context already compact — nothing to free.',
+      });
+    },
+  };
+
+  return [toolList, toolGet, toolCompact, guideList, guideGet];
 }

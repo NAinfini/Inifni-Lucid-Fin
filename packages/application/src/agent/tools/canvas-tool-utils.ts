@@ -69,6 +69,8 @@ export interface CanvasToolDeps {
   setActiveLLMProvider?: (providerId: string) => Promise<void>;
   setLLMProviderApiKey?: (providerId: string, apiKey: string) => Promise<void>;
   deleteProviderKey?: (providerId: string) => Promise<void>;
+  /** Check whether a media provider has an API key stored. */
+  isProviderKeyConfigured?: (providerId: string) => Promise<boolean>;
 }
 
 export type CanvasToolResult =

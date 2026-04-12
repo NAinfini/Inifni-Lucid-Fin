@@ -9,6 +9,8 @@ export interface ReferenceImage {
   slot: string;
   assetHash?: string;
   isStandard: boolean;
+  /** Alternative generated images for this slot. User can pick one to promote to assetHash. */
+  variants?: string[];
 }
 
 export const STANDARD_ANGLE_SLOTS = [

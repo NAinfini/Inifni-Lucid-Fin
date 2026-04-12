@@ -270,6 +270,42 @@ export function EquipmentManagerPanel() {
     [dispatch, selectedEquip],
   );
 
+  const handleSelectVariant = useCallback(
+    async (variantHash: string) => {
+      if (!selectedEquip) return;
+      setError(null);
+      try {
+        const mainRef = selectedEquip.referenceImages.find((r) => r.slot === 'main') ?? selectedEquip.referenceImages[0];
+        if (!mainRef) return;
+
+        const currentHash = mainRef.assetHash;
+        const prevVariants = [...(mainRef.variants ?? [])];
+        const updatedVariants = prevVariants.filter((h) => h !== variantHash);
+        if (currentHash && !updatedVariants.includes(currentHash)) {
+          updatedVariants.push(currentHash);
+        }
+
+        const updatedRef: ReferenceImage = {
+          ...mainRef,
+          assetHash: variantHash,
+          variants: updatedVariants,
+        };
+
+        const updatedRefs = selectedEquip.referenceImages.map((r) =>
+          r.slot === mainRef.slot ? updatedRef : r,
+        );
+        const api = getAPI();
+        if (api?.equipment) {
+          await api.equipment.save({ id: selectedEquip.id, referenceImages: updatedRefs } as Record<string, unknown>);
+        }
+        dispatch(setEquipmentRefImage({ equipmentId: selectedEquip.id, refImage: updatedRef }));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      }
+    },
+    [dispatch, selectedEquip],
+  );
+
   const handleRefImageFromAsset = useCallback(
     async (hash: string) => {
       if (!selectedEquip) return;
@@ -372,20 +408,25 @@ export function EquipmentManagerPanel() {
                       : 'border-border/60 hover:bg-muted/80',
                   )}
                 >
-                  <div className="font-medium truncate">{equip.name || t('equipmentManager.untitled')}</div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-muted-foreground">{t('equipmentManager.types.' + equip.type)}</span>
-                    {equip.subtype && (
-                      <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
-                        {equip.subtype}
-                      </span>
-                    )}
-                  </div>
-                  {(usageCountById[equip.id] ?? 0) > 0 && (
-                    <div className="text-[9px] text-muted-foreground mt-0.5">
-                      {t('equipmentManager.usedInNodes').replace('{count}', String(usageCountById[equip.id]))}
+                  <div className="flex items-center gap-2">
+                    <ListThumb hash={equip.referenceImages?.find((r) => r.slot === 'main')?.assetHash ?? equip.referenceImages?.[0]?.assetHash} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium truncate">{equip.name || t('equipmentManager.untitled')}</div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground">{t('equipmentManager.types.' + equip.type)}</span>
+                        {equip.subtype && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                            {equip.subtype}
+                          </span>
+                        )}
+                      </div>
+                      {(usageCountById[equip.id] ?? 0) > 0 && (
+                        <div className="text-[9px] text-muted-foreground mt-0.5">
+                          {t('equipmentManager.usedInNodes').replace('{count}', String(usageCountById[equip.id]))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </button>
               ))}
               {filtered.length === 0 && (
@@ -499,6 +540,7 @@ export function EquipmentManagerPanel() {
                   onRemove={() => handleRefImageRemove('main')}
                   onFromAssets={() => setAssetPickerOpen(true)}
                   onDropHash={(hash) => void handleRefImageFromAsset(hash)}
+                  onSelectVariant={(hash) => void handleSelectVariant(hash)}
                   entityType="equipment"
                   entityId={selectedEquip?.id}
                   slot="main"
@@ -531,6 +573,7 @@ function SingleReferenceImage({
   onRemove,
   onFromAssets,
   onDropHash,
+  onSelectVariant,
   entityType,
   entityId,
   slot,
@@ -540,6 +583,7 @@ function SingleReferenceImage({
   onRemove: () => void;
   onFromAssets: () => void;
   onDropHash?: (hash: string) => void;
+  onSelectVariant?: (hash: string) => void;
   entityType?: string;
   entityId?: string;
   slot?: string;
@@ -605,6 +649,7 @@ function SingleReferenceImage({
   };
 
   return (
+    <div className="space-y-1.5">
     <div
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -618,7 +663,7 @@ function SingleReferenceImage({
       )}
     >
       {url ? (
-        <div className="relative w-full h-[200px] bg-muted rounded overflow-hidden">
+        <div className="relative w-full aspect-[2/3] bg-muted rounded overflow-hidden">
           <img
             src={url}
             alt="Reference"
@@ -642,7 +687,7 @@ function SingleReferenceImage({
           )}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center h-[200px] gap-2">
+        <div className="flex flex-col items-center justify-center aspect-[2/3] gap-2">
           {isDragOver ? (
             <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
           ) : (
@@ -687,7 +732,49 @@ function SingleReferenceImage({
         )}
       </div>
     </div>
+    {url && mainRef?.variants && mainRef.variants.length > 0 && (
+      <div className="flex items-center gap-1">
+        <span className="text-[9px] text-muted-foreground/70 shrink-0">{t('equipmentManager.variants')}:</span>
+        <div className="flex gap-1 overflow-x-auto">
+          {mainRef.assetHash && (
+            <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
+          )}
+          {mainRef.variants.map((variantHash) => (
+            <VariantThumb
+              key={variantHash}
+              hash={variantHash}
+              isActive={false}
+              onClick={() => onSelectVariant?.(variantHash)}
+            />
+          ))}
+        </div>
+      </div>
+    )}
+    </div>
   );
+}
+
+function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boolean; onClick?: () => void }) {
+  const { url } = useAssetUrl(hash, 'image', 'png');
+  if (!url) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'shrink-0 h-8 w-12 rounded border overflow-hidden transition-colors',
+        isActive ? 'border-primary ring-1 ring-primary/40' : 'border-border/60 hover:border-primary/50',
+      )}
+    >
+      <img src={url} alt="variant" className="h-full w-full object-cover" />
+    </button>
+  );
+}
+
+function ListThumb({ hash }: { hash?: string }) {
+  const { url } = useAssetUrl(hash, 'image', 'png');
+  if (!url) return <div className="shrink-0 w-8 h-8 rounded bg-muted/50" />;
+  return <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" />;
 }
 
 function AssetPickerDialog({

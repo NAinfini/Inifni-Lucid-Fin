@@ -105,10 +105,12 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       const loc = db.getLocation(args.locationId);
       if (!loc) throw new Error(`Location not found: ${args.locationId}`);
 
+      const existing = loc.referenceImages.find((r) => r.slot === args.slot);
       const refImage: ReferenceImage = {
         slot: args.slot,
         assetHash: args.assetHash,
         isStandard: args.isStandard ?? true,
+        ...(existing?.variants ? { variants: existing.variants } : {}),
       };
 
       const refs = loc.referenceImages.filter((r) => r.slot !== args.slot);

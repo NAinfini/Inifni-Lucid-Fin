@@ -153,14 +153,15 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
 
   const addPresetTrackEntry: AgentTool = {
     name: 'canvas.addPresetTrackEntry',
-    description: 'Add a single preset entry to a specific preset track on an image or video node.',
+    description: 'Add a preset entry to a specific preset track on image/video nodes. Supports batch: pass nodeIds array to apply the same preset to multiple nodes at once.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
+        nodeId: { type: 'string', description: 'Single node ID to update.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to update with the same preset.' },
         category: {
           type: 'string',
           description: 'The preset category to modify.',
@@ -169,29 +170,40 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         presetId: { type: 'string', description: 'The preset definition ID to add.' },
         intensity: { type: 'number', description: 'Optional entry-level intensity (0-100).' },
       },
-      required: ['canvasId', 'nodeId', 'category', 'presetId'],
+      required: ['canvasId', 'category', 'presetId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
+        const nodeIds = Array.isArray(args.nodeIds) && args.nodeIds.length > 0
+          ? (args.nodeIds as string[]).map(String)
+          : [requireString(args, 'nodeId')];
         const category = requirePresetCategory(args);
         const presetId = requireString(args, 'presetId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        const trackSet = clonePresetTrackSet(node);
-        const track = trackSet[category];
-        const entry: PresetTrackEntry = {
-          id: crypto.randomUUID(),
-          category,
-          presetId,
-          params: {},
-          order: track.entries.length,
-          intensity: clampIntensity(args.intensity),
-        };
-        track.entries.push(entry);
-        normalizeTrackOrders(track);
-        await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
-        return ok({ nodeId, category, entry });
+        const results: Array<{ nodeId: string; success: boolean; entry?: PresetTrackEntry; error?: string }> = [];
+        for (const nodeId of nodeIds) {
+          try {
+            const { node } = await requireNode(deps, canvasId, nodeId);
+            const trackSet = clonePresetTrackSet(node);
+            const track = trackSet[category];
+            const entry: PresetTrackEntry = {
+              id: crypto.randomUUID(),
+              category,
+              presetId,
+              params: {},
+              order: track.entries.length,
+              intensity: clampIntensity(args.intensity),
+            };
+            track.entries.push(entry);
+            normalizeTrackOrders(track);
+            await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
+            results.push({ nodeId, success: true, entry });
+          } catch (error) {
+            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        if (results.length === 1) return ok({ nodeId: nodeIds[0], category, entry: results[0]?.entry });
+        return ok({ updated: results.filter((r) => r.success).length, total: nodeIds.length, category, results });
       } catch (error) {
         return fail(error);
       }
@@ -351,7 +363,7 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
   const applyShotTemplate: AgentTool = {
     name: 'canvas.applyShotTemplate',
     description:
-      'Apply a shot template to an image or video node by name. Searches built-in and custom templates. ' +
+      'Apply a shot template to image/video nodes by name. Supports batch: pass nodeIds array to apply the same template to multiple nodes at once. ' +
       'Overwrites preset tracks defined in the template; leaves other categories unchanged.',
     context: CANVAS_CONTEXT,
     tier: 2,
@@ -359,23 +371,22 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to apply the template to.' },
+        nodeId: { type: 'string', description: 'Single node ID to apply the template to.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to apply the same template to.' },
         templateName: {
           type: 'string',
           description: 'The template name to search for (case-insensitive partial match).',
         },
       },
-      required: ['canvasId', 'nodeId', 'templateName'],
+      required: ['canvasId', 'templateName'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
+        const nodeIds = Array.isArray(args.nodeIds) && args.nodeIds.length > 0
+          ? (args.nodeIds as string[]).map(String)
+          : [requireString(args, 'nodeId')];
         const templateName = requireString(args, 'templateName').toLowerCase();
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        if (node.type !== 'image' && node.type !== 'video') {
-          throw new Error(`Node type "${node.type}" does not support presets`);
-        }
 
         const templates = await deps.listShotTemplates();
         const match =
@@ -387,28 +398,43 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           );
         }
 
-        const existing =
-          (node.data as { presetTracks?: PresetTrackSet }).presetTracks ??
-          createEmptyPresetTrackSet();
-        const trackSet = structuredClone(existing) as TrackMap;
+        const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
+        const appliedCategories = Object.keys(match.tracks).filter((k) => match.tracks[k as PresetCategory]);
 
-        for (const [cat, track] of Object.entries(match.tracks)) {
-          if (track) {
-            trackSet[cat as PresetCategory] = structuredClone(track);
+        for (const nodeId of nodeIds) {
+          try {
+            const { node } = await requireNode(deps, canvasId, nodeId);
+            if (node.type !== 'image' && node.type !== 'video') {
+              results.push({ nodeId, success: false, error: `Node type "${node.type}" does not support presets` });
+              continue;
+            }
+
+            const existing =
+              (node.data as { presetTracks?: PresetTrackSet }).presetTracks ??
+              createEmptyPresetTrackSet();
+            const trackSet = structuredClone(existing) as TrackMap;
+
+            for (const [cat, track] of Object.entries(match.tracks)) {
+              if (track) {
+                trackSet[cat as PresetCategory] = structuredClone(track);
+              }
+            }
+
+            await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
+            await deps.updateNodeData(canvasId, nodeId, {
+              appliedShotTemplateId: match.id,
+              appliedShotTemplateName: match.name,
+            });
+            results.push({ nodeId, success: true });
+          } catch (error) {
+            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
           }
         }
 
-        await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
-        await deps.updateNodeData(canvasId, nodeId, {
-          appliedShotTemplateId: match.id,
-          appliedShotTemplateName: match.name,
-        });
-        return ok({
-          nodeId,
-          templateId: match.id,
-          templateName: match.name,
-          appliedCategories: Object.keys(match.tracks),
-        });
+        if (results.length === 1) {
+          return ok({ nodeId: nodeIds[0], templateId: match.id, templateName: match.name, appliedCategories });
+        }
+        return ok({ templateId: match.id, templateName: match.name, appliedCategories, updated: results.filter((r) => r.success).length, total: nodeIds.length, results });
       } catch (error) {
         return fail(error);
       }

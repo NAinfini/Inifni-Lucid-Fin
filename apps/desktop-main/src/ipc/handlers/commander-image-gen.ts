@@ -9,7 +9,8 @@ import os from 'node:os';
 import path from 'node:path';
 import log from '../../logger.js';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
-import type { CAS } from '@lucid-fin/storage';
+import type { CAS, SqliteIndex } from '@lucid-fin/storage';
+import { getBuiltinProviderCapabilityProfile } from '@lucid-fin/contracts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,6 +22,30 @@ export type MaterializedAsset = {
   sourceUrl?: string;
 };
 
+/** Clamp width/height to the provider's maxDimension while preserving aspect ratio. */
+function clampDimensions(
+  width: number,
+  height: number,
+  providerId: string,
+): { width: number; height: number } {
+  const profile = getBuiltinProviderCapabilityProfile(providerId);
+  const max = profile?.maxDimension ?? 1024;
+  if (width <= max && height <= max) return { width, height };
+
+  const scale = max / Math.max(width, height);
+  // Round down to nearest 8 (universal safe alignment)
+  const clampedW = Math.floor((width * scale) / 8) * 8;
+  const clampedH = Math.floor((height * scale) / 8) * 8;
+  log.info('Clamped image dimensions to provider max', {
+    category: 'commander',
+    providerId,
+    maxDimension: max,
+    requested: `${width}x${height}`,
+    clamped: `${clampedW}x${clampedH}`,
+  });
+  return { width: clampedW, height: clampedH };
+}
+
 // ---------------------------------------------------------------------------
 // Public factory
 // ---------------------------------------------------------------------------
@@ -28,8 +53,13 @@ export type MaterializedAsset = {
 export function makeGenerateImage(deps: {
   adapterRegistry: AdapterRegistry;
   cas: CAS;
-}): (prompt: string, providerId?: string) => Promise<{ assetHash: string }> {
-  return async (prompt: string, providerId?: string) => {
+  db?: SqliteIndex;
+  getProjectId?: () => string | undefined;
+}): (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => Promise<{ assetHash: string }> {
+  return async (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => {
+    const providerId = options?.providerId;
+    const width = options?.width ?? 1024;
+    const height = options?.height ?? 1024;
     const candidates = providerId
       ? deps.adapterRegistry.list('image').filter((adapter) => adapter.id === providerId)
       : deps.adapterRegistry.list('image');
@@ -39,16 +69,43 @@ export function makeGenerateImage(deps: {
         continue;
       }
 
+      const actualProviderId = providerId ?? adapter.id;
+      const clamped = clampDimensions(width, height, actualProviderId);
+
       const generated = await adapter.generate({
         type: 'image',
-        providerId: providerId ?? adapter.id,
+        providerId: actualProviderId,
         prompt,
-        width: 1024,
-        height: 1024,
+        width: clamped.width,
+        height: clamped.height,
       });
       const materialized = await materializeAsset(generated);
       try {
         const { ref } = await deps.cas.importAsset(materialized.filePath, 'image');
+
+        // Register in asset library so the image appears in the asset browser
+        if (deps.db) {
+          try {
+            deps.db.insertAsset({
+              hash: ref.hash,
+              type: 'image',
+              format: ref.format,
+              prompt,
+              provider: actualProviderId,
+              width: clamped.width,
+              height: clamped.height,
+              projectId: deps.getProjectId?.(),
+            });
+          } catch (dbErr) {
+            // Non-fatal — CAS already has the file
+            log.warn('Failed to register generated image in asset index', {
+              category: 'commander',
+              hash: ref.hash,
+              error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+            });
+          }
+        }
+
         log.info('Commander image generated and stored', {
           category: 'commander',
           hash: ref.hash,

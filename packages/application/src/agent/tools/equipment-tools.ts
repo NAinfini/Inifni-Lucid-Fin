@@ -14,7 +14,7 @@ export interface EquipmentToolDeps {
   listEquipment: () => Promise<Equipment[]>;
   saveEquipment: (equipment: Equipment) => Promise<void>;
   deleteEquipment: (id: string) => Promise<void>;
-  generateImage?: (prompt: string, providerId?: string) => Promise<{ assetHash: string }>;
+  generateImage?: (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => Promise<{ assetHash: string }>;
   getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
@@ -177,7 +177,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
 
   const equipmentGenerateReferenceImage: AgentTool = {
     name: 'equipment.generateReferenceImage',
-    description: 'Generate a reference image for an equipment slot. Each slot produces a specific view with plain background, item isolated.',
+    description: 'Generate a reference image for equipment. Automatically compiles all equipment fields (type, description, material, color, condition, visual details) into the prompt. Default slot is "main" for a front product shot. IMPORTANT: Call ONE at a time, verify success before generating the next. Never batch parallel generation calls.',
     tags: ['equipment', 'generation'],
     tier: 3,
     parameters: {
@@ -186,12 +186,14 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
         id: { type: 'string', description: 'The equipment ID.' },
         slot: {
           type: 'string',
-          description: 'Reference image slot. front/back/left-side/right-side = orthographic views; detail-closeup = macro detail; in-use = contextual action shot.',
-          enum: ['front', 'back', 'left-side', 'right-side', 'detail-closeup', 'in-use'],
+          description: 'Reference image slot. Default: "main". Use specific slots for targeted views.',
+          enum: ['main', 'front', 'back', 'left-side', 'right-side', 'detail-closeup', 'in-use'],
         },
-        prompt: { type: 'string', description: 'Optional custom image generation prompt.' },
+        width: { type: 'number', description: 'Image width in pixels. Default 1024. Auto-clamped to provider max.' },
+        height: { type: 'number', description: 'Image height in pixels. Default 1536. Auto-clamped to provider max.' },
+        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates from equipment data.' },
       },
-      required: ['id', 'slot'],
+      required: ['id'],
     },
     async execute(args) {
       try {
@@ -204,8 +206,9 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
           return { success: false, error: 'Image generation not available' };
         }
 
-        const slot = args.slot as string;
+        const slot = typeof args.slot === 'string' ? args.slot : 'main';
         const slotDescriptions: Record<string, string> = {
+          'main': 'front orthographic view, straight-on angle, full item visible, centered composition',
           'front': 'front orthographic view, straight-on angle, full item visible',
           'back': 'back orthographic view, rear details visible, full item visible',
           'left-side': 'left side orthographic view, pure profile, full item visible',
@@ -214,24 +217,46 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
           'in-use': 'contextual action shot showing the item being held or used, clear view of the item with minimal background',
         };
         const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
-        const description = entity.description ? `${entity.description}. ` : '';
+
+        // Build rich description from all available fields
+        const descParts: string[] = [];
+        if (entity.description) descParts.push(entity.description);
+        if (entity.function) descParts.push(`Function: ${entity.function}`);
+        if (entity.material) descParts.push(`Material: ${entity.material}`);
+        if (entity.color) descParts.push(`Color: ${entity.color}`);
+        if (entity.condition) descParts.push(`Condition: ${entity.condition}`);
+        if (entity.visualDetails) descParts.push(`Visual details: ${entity.visualDetails}`);
+        if (entity.subtype) descParts.push(`Subtype: ${entity.subtype}`);
+        const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
+
         const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
           ? args.prompt
           : `Product design reference, solid white background, even studio lighting, no characters, no environment, no scene. `
-            + `Item: ${entity.name} (${entity.type}). ${description}${slotDesc}. `
+            + `Item: ${entity.name} (${entity.type}). ${richDesc}`
+            + `${slotDesc}. `
             + `Object only, clean edges, high detail, consistent scale, professional product photography style, technical illustration quality.`;
-        const result = await deps.generateImage(finalPrompt);
+        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1024;
+        const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1536;
+        const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight });
         const referenceImages = [...(entity.referenceImages ?? [])];
-        const referenceImage = {
-          slot,
-          assetHash: result.assetHash,
-          isStandard: EQUIPMENT_STANDARD_SLOTS.includes(slot as Equipment['referenceImages'][number]['slot'] & (typeof EQUIPMENT_STANDARD_SLOTS)[number]),
-        };
         const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
         if (existingIndex >= 0) {
-          referenceImages[existingIndex] = referenceImage;
+          const existing = referenceImages[existingIndex];
+          const prevVariants = existing.variants ?? [];
+          if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
+            prevVariants.push(existing.assetHash);
+          }
+          referenceImages[existingIndex] = {
+            ...existing,
+            assetHash: result.assetHash,
+            variants: prevVariants,
+          };
         } else {
-          referenceImages.push(referenceImage);
+          referenceImages.push({
+            slot,
+            assetHash: result.assetHash,
+            isStandard: EQUIPMENT_STANDARD_SLOTS.includes(slot as Equipment['referenceImages'][number]['slot'] & (typeof EQUIPMENT_STANDARD_SLOTS)[number]),
+          });
         }
 
         entity.referenceImages = referenceImages;

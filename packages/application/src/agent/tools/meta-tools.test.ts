@@ -48,16 +48,15 @@ describe('createMetaTools', () => {
       });
     });
 
-    it('filters by query (case-insensitive OR against name and description)', async () => {
+    it('ignores unknown arguments (no query filtering)', async () => {
       const registry = makeRegistry();
       const tools = createMetaTools(registry, { context: 'canvas' });
       const toolList = tools.find((t) => t.name === 'tool.list')!;
 
+      // Even with a query arg, all tools are returned (query is not supported)
       const result = await toolList.execute({ query: 'delete' });
       expect(result.success).toBe(true);
-      expect(result.data).toEqual({
-        canvas: [{ name: 'canvas.deleteNode', desc: 'Delete a node from the current canvas' }],
-      });
+      expect(Object.keys(result.data as Record<string, unknown>)).toEqual(['canvas', 'character']);
     });
 
     it('truncates long descriptions to 80 chars', async () => {
@@ -78,15 +77,6 @@ describe('createMetaTools', () => {
       expect(desc.endsWith('...')).toBe(true);
     });
 
-    it('returns empty object when query matches nothing', async () => {
-      const registry = makeRegistry();
-      const tools = createMetaTools(registry, { context: 'canvas' });
-      const toolList = tools.find((t) => t.name === 'tool.list')!;
-
-      const result = await toolList.execute({ query: 'zzzznotfound' });
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({});
-    });
   });
 
   describe('tool.get', () => {

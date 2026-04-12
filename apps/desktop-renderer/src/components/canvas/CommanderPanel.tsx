@@ -15,6 +15,7 @@ import {
   SendHorizonal,
   Shield,
   ShieldAlert,
+  Slash,
   Trash2,
   X,
   Zap,
@@ -36,11 +37,14 @@ import {
   removeQueuedMessage,
   editQueuedMessage,
   clearQueue,
+  addSystemNotice,
+  compactLocalContext,
 } from '../../store/slices/commander.js';
 import { useCommander } from '../../hooks/useCommander.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { cn } from '../../lib/utils.js';
 import { getAPI } from '../../utils/api.js';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip.js';
 
 const MIN_WIDTH = 320;
 const MIN_HEIGHT = 400;
@@ -81,15 +85,104 @@ function renderMarkdown(raw: string): string {
   return html;
 }
 
-function formatToolName(name: string): string {
-  const parts = name.split('.');
-  const domain = parts[0] ?? '';
-  const action = parts[parts.length - 1] ?? name;
-  const actionFormatted = action
+/** Format camelCase action name to human-readable. e.g. "generateReferenceImage" → "Generate Reference Image" */
+function formatAction(action: string, t?: (key: string) => string): string {
+  // Try localized action name first
+  if (t) {
+    const localized = t(`commander.toolAction.${action}`);
+    if (!localized.startsWith('commander.toolAction.')) return localized;
+  }
+  return action
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (c) => c.toUpperCase())
     .trim();
-  return parts.length > 1 ? `${domain}.${actionFormatted}` : actionFormatted;
+}
+
+/** Format full tool name for display. e.g. "character.list" → "角色: 列表" (localized) */
+function formatToolName(name: string, t?: (key: string) => string): string {
+  const parts = name.split('.');
+  const domain = parts[0] ?? '';
+  const action = parts[parts.length - 1] ?? name;
+  if (parts.length > 1) {
+    const localizedDomain = t?.(`commander.toolDomain.${domain}`);
+    const domainLabel = localizedDomain && !localizedDomain.startsWith('commander.toolDomain.')
+      ? localizedDomain
+      : domain.replace(/^./, (c) => c.toUpperCase());
+    return `${domainLabel}: ${formatAction(action, t)}`;
+  }
+  return formatAction(action, t);
+}
+
+/** Build a human-readable one-line summary of what a tool call will do. */
+function summarizeToolAction(
+  toolName: string,
+  args: Record<string, unknown>,
+  t: (key: string) => string,
+): { action: string; detail: string } {
+  const parts = toolName.split('.');
+  const domain = parts[0] ?? '';
+  const method = parts[parts.length - 1] ?? '';
+
+  // Count nodeIds if present (batch operations)
+  const nodeIds = Array.isArray(args.nodeIds) ? args.nodeIds : [];
+  const nodeCount = nodeIds.length || (args.nodeId ? 1 : 0);
+
+  // Identify the target entity
+  const name = typeof args.name === 'string' ? args.name : undefined;
+  const id = typeof args.id === 'string' ? args.id.slice(0, 8) : undefined;
+  const canvasId = typeof args.canvasId === 'string' ? args.canvasId.slice(0, 8) : undefined;
+
+  // Domain labels
+  const domainLabels: Record<string, string> = {
+    canvas: t('commander.toolDomain.canvas'),
+    character: t('commander.toolDomain.character'),
+    equipment: t('commander.toolDomain.equipment'),
+    location: t('commander.toolDomain.location'),
+    scene: t('commander.toolDomain.scene'),
+    preset: t('commander.toolDomain.preset'),
+    provider: t('commander.toolDomain.provider'),
+    workflow: t('commander.toolDomain.workflow'),
+    script: t('commander.toolDomain.script'),
+    render: t('commander.toolDomain.render'),
+    project: t('commander.toolDomain.project'),
+    series: t('commander.toolDomain.series'),
+    settings: t('commander.toolDomain.settings'),
+    asset: t('commander.toolDomain.asset'),
+    vision: t('commander.toolDomain.vision'),
+    tool: t('commander.toolDomain.tool'),
+    guide: t('commander.toolDomain.guide'),
+    commander: t('commander.toolDomain.commander'),
+    logger: t('commander.toolDomain.logger'),
+  };
+  const domainLabel = domainLabels[domain] ?? domain;
+
+  // Action-specific summaries
+  const action = formatAction(method, t);
+
+  // Build detail string
+  const detailParts: string[] = [];
+  if (nodeCount > 1) detailParts.push(`${nodeCount} ${t('commander.toolSummary.nodes')}`);
+  else if (nodeCount === 1) detailParts.push(`1 ${t('commander.toolSummary.node')}`);
+  if (name) detailParts.push(`"${name}"`);
+  else if (id) detailParts.push(`#${id}…`);
+  if (canvasId && !name) detailParts.push(`${t('commander.toolSummary.canvas')} #${canvasId}…`);
+
+  // Slot info
+  if (typeof args.slot === 'string') detailParts.push(`slot: ${args.slot}`);
+
+  // Provider info
+  if (typeof args.providerId === 'string') detailParts.push(args.providerId as string);
+
+  // Prompt snippet — only if non-empty
+  if (typeof args.prompt === 'string' && (args.prompt as string).trim().length > 0) {
+    const prompt = (args.prompt as string).trim();
+    detailParts.push(`"${prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt}"`);
+  }
+
+  return {
+    action: `${domainLabel} — ${action}`,
+    detail: detailParts.join(' · ') || method,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -224,7 +317,7 @@ function ToolCallCard({
         )}
         {toolCall.status === 'done' && <Check className="h-3.5 w-3.5 text-emerald-400" />}
         {toolCall.status === 'error' && <X className="h-3.5 w-3.5 text-destructive" />}
-        <span className="flex-1 text-left">{formatToolName(toolCall.name)}</span>
+        <span className="flex-1 text-left">{formatToolName(toolCall.name, t)}</span>
         {elapsed && (
           <span className="text-[10px] text-muted-foreground">
             {t('commander.elapsed')} {elapsed}
@@ -238,27 +331,37 @@ function ToolCallCard({
         />
       </button>
       {expanded && (
-        <div className="border-t border-border/40 px-2.5 py-2 text-[11px]">
-          <pre className="overflow-x-auto whitespace-pre-wrap text-muted-foreground">
-            {formattedArguments}
-          </pre>
-          {toolCall.result !== undefined && (
-            <>
-              <div className="mt-2 font-medium">
-                {t('commander.toolResult')}:{' '}
-                <span
-                  className={cn(
-                    toolCall.status === 'error' ? 'text-destructive' : 'text-emerald-400',
-                  )}
-                >
-                  {toolCall.status}
-                </span>
-              </div>
-              <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-muted-foreground">
-                {formattedResult}
-              </pre>
-            </>
-          )}
+        <div className="border-t border-border/40 text-[11px]">
+          <div className="max-h-60 overflow-y-auto px-2.5 py-2">
+            <pre className="overflow-x-auto whitespace-pre-wrap text-muted-foreground">
+              {formattedArguments}
+            </pre>
+            {toolCall.result !== undefined && (
+              <>
+                <div className="mt-2 font-medium">
+                  {t('commander.toolResult')}:{' '}
+                  <span
+                    className={cn(
+                      toolCall.status === 'error' ? 'text-destructive' : 'text-emerald-400',
+                    )}
+                  >
+                    {toolCall.status}
+                  </span>
+                </div>
+                <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-muted-foreground">
+                  {formattedResult}
+                </pre>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-1 border-t border-border/40 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            onClick={() => setExpanded(false)}
+          >
+            <ChevronDown className="h-3 w-3 rotate-180" />
+            <span>{t('commander.minimize')}</span>
+          </button>
         </div>
       )}
     </div>
@@ -326,9 +429,18 @@ function ToolConfirmCard({
   const tierLabels: Record<number, string> = {
     1: t('commander.tierLabels.safe'),
     2: t('commander.tierLabels.mutation'),
-    3: t('commander.tierLabels.destructive'),
+    3: t('commander.tierLabels.generation'),
     4: t('commander.tierLabels.system'),
   };
+  const tierColors: Record<number, string> = {
+    1: 'bg-emerald-500/15 text-emerald-400',
+    2: 'bg-amber-500/15 text-amber-400',
+    3: 'bg-blue-500/15 text-blue-400',
+    4: 'bg-red-500/15 text-red-400',
+  };
+
+  const { action, detail } = summarizeToolAction(toolName, args, t);
+  const [showRaw, setShowRaw] = useState(false);
 
   return (
     <div className="mx-3 my-2 rounded-lg border border-amber-500/50 bg-amber-500/5 p-3">
@@ -338,19 +450,28 @@ function ToolConfirmCard({
         <span
           className={cn(
             'ml-auto rounded px-1.5 py-0.5 text-[10px]',
-            tier <= 2 ? 'bg-amber-500/15 text-amber-400' : 'bg-red-500/15 text-red-400',
+            tierColors[tier] ?? 'bg-amber-500/15 text-amber-400',
           )}
         >
           {tierLabels[tier] ?? `Tier ${tier}`}
         </span>
       </div>
-      <div className="mt-2 text-xs">
-        <span className="font-medium">{formatToolName(toolName)}</span>
-        <span className="ml-1 text-muted-foreground">({toolName})</span>
-      </div>
-      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap text-[10px] text-muted-foreground">
-        {JSON.stringify(args, null, 2)}
-      </pre>
+      <div className="mt-2 text-xs font-medium">{action}</div>
+      {detail && (
+        <div className="mt-0.5 text-[11px] text-muted-foreground">{detail}</div>
+      )}
+      <button
+        type="button"
+        className="mt-1.5 text-[9px] text-muted-foreground/60 hover:text-muted-foreground underline"
+        onClick={() => setShowRaw((v) => !v)}
+      >
+        {showRaw ? t('commander.toolConfirm.hideRaw') : t('commander.toolConfirm.showRaw')}
+      </button>
+      {showRaw && (
+        <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/30 p-1.5 text-[10px] text-muted-foreground">
+          {JSON.stringify(args, null, 2)}
+        </pre>
+      )}
       <div className="mt-3 flex items-center justify-end gap-2">
         <button
           type="button"
@@ -473,6 +594,7 @@ export function CommanderPanel() {
     pendingConfirmation,
     pendingQuestion,
     messageQueue,
+    historyTokenBudget,
   } = useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -499,6 +621,176 @@ export function CommanderPanel() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [permPickerOpen, setPermPickerOpen] = useState(false);
   const [nodePickerOpen, setNodePickerOpen] = useState(false);
+
+  // Slash command system — Claude Code style: / shows commands, typing filters
+  const [slashMenuIndex, setSlashMenuIndex] = useState(0);
+  const slashMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const SLASH_COMMANDS = useMemo(
+    () => [
+      { name: 'compact', desc: t('commander.slashCommand.compactDesc') },
+      { name: 'clear', desc: t('commander.slashCommand.clearDesc') },
+      { name: 'context', desc: t('commander.slashCommand.contextDesc') },
+      { name: 'status', desc: t('commander.slashCommand.statusDesc') },
+      { name: 'help', desc: t('commander.slashCommand.helpDesc') },
+    ],
+    [t],
+  );
+
+  const slashQuery = useMemo(() => {
+    if (!input.startsWith('/')) return null;
+    return input.slice(1).toLowerCase();
+  }, [input]);
+
+  const filteredSlashItems = useMemo(() => {
+    if (slashQuery === null) return [];
+    if (slashQuery === '') return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter(
+      (cmd) => cmd.name.includes(slashQuery) || cmd.desc.toLowerCase().includes(slashQuery),
+    );
+  }, [slashQuery, SLASH_COMMANDS]);
+
+  const slashMenuOpen = slashQuery !== null && filteredSlashItems.length > 0;
+
+  // Reset menu index when filtered list changes
+  useEffect(() => {
+    setSlashMenuIndex(0);
+  }, [slashQuery]);
+
+  // Scroll selected item into view
+  useEffect(() => {
+    if (!slashMenuOpen || !slashMenuRef.current) return;
+    const container = slashMenuRef.current;
+    const selected = container.children[slashMenuIndex] as HTMLElement | undefined;
+    if (selected) selected.scrollIntoView({ block: 'nearest' });
+  }, [slashMenuIndex, slashMenuOpen]);
+
+  const triggerCompact = useCallback(async () => {
+    dispatch(addSystemNotice(t('commander.slashCommand.compacting')));
+    // Phase 1: compact local Redux store (truncate old tool results + assistant text)
+    dispatch(compactLocalContext());
+    // Phase 2: compact backend activeMessages via IPC
+    const api = getAPI();
+    const canvasId = store.getState().canvas.activeCanvasId;
+    if (api?.commander && canvasId) {
+      try {
+        const result = await api.commander.compact(canvasId) as { freedChars: number; messageCount: number; toolCount: number };
+        if (result.freedChars > 0) {
+          dispatch(addSystemNotice(
+            t('commander.slashCommand.compactResult')
+              .replace('{chars}', result.freedChars.toLocaleString())
+              .replace('{messages}', String(result.messageCount))
+              .replace('{tools}', String(result.toolCount)),
+          ));
+        } else {
+          dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
+        }
+      } catch {
+        dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
+      }
+    }
+  }, [dispatch, t]);
+
+  const executeSlashCommand = useCallback(
+    async (cmdName: string) => {
+      setInput('');
+      switch (cmdName) {
+        case 'compact': {
+          await triggerCompact();
+          break;
+        }
+        case 'clear':
+          dispatch(newSession());
+          break;
+        case 'status': {
+          const msgs = store.getState().commander.messages;
+          const totalChars = msgs.reduce((sum, m) => sum + m.content.length, 0);
+          dispatch(addSystemNotice(
+            t('commander.slashCommand.statusResult')
+              .replace('{messages}', String(msgs.length))
+              .replace('{chars}', totalChars.toLocaleString()),
+          ));
+          break;
+        }
+        case 'context': {
+          const msgs = store.getState().commander.messages;
+          let uChars = 0, aChars = 0, tcChars = 0, trChars = 0;
+          let uCount = 0, aCount = 0, tcCount = 0;
+          const toolFreq: Record<string, number> = {};
+          // Per-tool token breakdown: args + results
+          const toolArgChars: Record<string, number> = {};
+          const toolResultChars: Record<string, number> = {};
+          for (const m of msgs) {
+            const cl = m.content?.length ?? 0;
+            if (m.role === 'user') { uChars += cl; uCount++; }
+            else { aChars += cl; aCount++; }
+            if (m.toolCalls) {
+              for (const tc of m.toolCalls) {
+                const argLen = JSON.stringify(tc.arguments).length;
+                const resLen = tc.result !== undefined ? JSON.stringify(tc.result).length : 0;
+                tcChars += argLen;
+                trChars += resLen;
+                tcCount++;
+                toolFreq[tc.name] = (toolFreq[tc.name] ?? 0) + 1;
+                toolArgChars[tc.name] = (toolArgChars[tc.name] ?? 0) + argLen;
+                toolResultChars[tc.name] = (toolResultChars[tc.name] ?? 0) + resLen;
+              }
+            }
+          }
+          const tok = (c: number) => Math.round(c / 4);
+          const totalTok = tok(uChars + aChars + tcChars + trChars);
+          const budget = store.getState().commander.historyTokenBudget;
+          const pctVal = Math.min(100, Math.round((totalTok / budget) * 100));
+          const fK = (n: number) => {
+            if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; }
+            return String(n);
+          };
+          const pctOf = (part: number, whole: number) => whole > 0 ? `${Math.round(part / whole * 100)}%` : '0%';
+
+          const totalCharsAll = uChars + aChars + tcChars + trChars;
+
+          // Top 10 tools by total token usage (args + results)
+          const toolTotalChars: Record<string, number> = {};
+          for (const name of Object.keys(toolFreq)) {
+            toolTotalChars[name] = (toolArgChars[name] ?? 0) + (toolResultChars[name] ?? 0);
+          }
+          const topBySize = Object.entries(toolTotalChars)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([name, chars]) => {
+              const calls = toolFreq[name];
+              const argTok = tok(toolArgChars[name] ?? 0);
+              const resTok = tok(toolResultChars[name] ?? 0);
+              return `  ${name}: ${fK(tok(chars))} ${t('commander.contextBreakdown.tokens')} (${calls}x) — ${t('commander.contextBreakdown.args')} ${fK(argTok)}, ${t('commander.contextBreakdown.resultsLabel')} ${fK(resTok)}`;
+            })
+            .join('\n');
+
+          const detail = [
+            `${t('commander.contextBreakdown.context')}: ${fK(totalTok)} / ${fK(budget)} ${t('commander.contextBreakdown.tokens')} (${pctVal}%)`,
+            ``,
+            `${t('commander.contextBreakdown.user')}: ${fK(tok(uChars))} ${t('commander.contextBreakdown.tokens')} (${uCount} ${t('commander.contextBreakdown.msgs')}) — ${pctOf(uChars, totalCharsAll)}`,
+            `${t('commander.contextBreakdown.assistant')}: ${fK(tok(aChars))} ${t('commander.contextBreakdown.tokens')} (${aCount} ${t('commander.contextBreakdown.msgs')}) — ${pctOf(aChars, totalCharsAll)}`,
+            `${t('commander.contextBreakdown.toolCalls')}: ${fK(tok(tcChars))} ${t('commander.contextBreakdown.tokens')} (${tcCount} ${t('commander.contextBreakdown.calls')}) — ${pctOf(tcChars, totalCharsAll)}`,
+            `${t('commander.contextBreakdown.toolResults')}: ${fK(tok(trChars))} ${t('commander.contextBreakdown.tokens')} — ${pctOf(trChars, totalCharsAll)}`,
+            ``,
+            `${t('commander.contextBreakdown.topToolsBySize')}:`,
+            topBySize || `  (${t('commander.contextBreakdown.none')})`,
+          ].join('\n');
+
+          dispatch(addSystemNotice(detail));
+          break;
+        }
+        case 'help': {
+          const helpLines = SLASH_COMMANDS.map((cmd) => `/${cmd.name} — ${cmd.desc}`).join('\n');
+          dispatch(addSystemNotice(`${t('commander.slashCommand.helpTitle')}:\n${helpLines}`));
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [sendMessage, dispatch, t, SLASH_COMMANDS],
+  );
 
   // Auto-expanding textarea height
   useEffect(() => {
@@ -756,6 +1048,15 @@ export function CommanderPanel() {
     const value = input.trim();
     userScrolledUpRef.current = false;
     if (value) {
+      // Check for exact slash command match
+      if (value.startsWith('/')) {
+        const cmdName = value.slice(1).toLowerCase();
+        const matched = SLASH_COMMANDS.find((cmd) => cmd.name === cmdName);
+        if (matched) {
+          void executeSlashCommand(matched.name);
+          return;
+        }
+      }
       setInput('');
       setAttachments([]);
       await sendMessage(value);
@@ -788,6 +1089,76 @@ export function CommanderPanel() {
 
   const providers = llmSettings?.providers ?? [];
   const activeProvider = providers.find((p) => p.id === providerId) ?? providers[0];
+
+  // Estimate context usage with per-category breakdown
+  const contextUsage = useMemo(() => {
+    let userChars = 0;
+    let assistantChars = 0;
+    let toolCallChars = 0;
+    let toolResultChars = 0;
+    let userCount = 0;
+    let assistantCount = 0;
+    let toolCallCount = 0;
+    for (const msg of messages) {
+      const contentLen = msg.content?.length ?? 0;
+      if (msg.role === 'user') {
+        userChars += contentLen;
+        userCount++;
+      } else {
+        assistantChars += contentLen;
+        assistantCount++;
+      }
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          toolCallChars += JSON.stringify(tc.arguments).length;
+          toolCallCount++;
+          if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
+        }
+      }
+    }
+    assistantChars += currentStreamContent?.length ?? 0;
+    const totalChars = userChars + assistantChars + toolCallChars + toolResultChars;
+    // Token estimate: ~4 chars per token (matches backend ESTIMATED_CHARS_PER_TOKEN)
+    const toTokens = (c: number) => Math.round(c / 4);
+    const estimatedTokens = toTokens(totalChars);
+    const ctxWindow = historyTokenBudget;
+    const pct = Math.min(100, Math.round((estimatedTokens / ctxWindow) * 100));
+    return {
+      pct,
+      estimatedTokens,
+      ctxWindow,
+      breakdown: {
+        user: toTokens(userChars),
+        assistant: toTokens(assistantChars),
+        toolCalls: toTokens(toolCallChars),
+        toolResults: toTokens(toolResultChars),
+      },
+      counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
+    };
+  }, [historyTokenBudget, messages, currentStreamContent]);
+
+  // Auto-compact when context reaches 95%, with 10s cooldown
+  const autoCompactedRef = useRef(false);
+  const lastCompactTimeRef = useRef(0);
+  useEffect(() => {
+    const now = Date.now();
+    const cooldownMs = 10_000;
+    if (
+      contextUsage?.pct != null
+      && contextUsage.pct >= 95
+      && !autoCompactedRef.current
+      && !isStreaming
+      && now - lastCompactTimeRef.current > cooldownMs
+    ) {
+      autoCompactedRef.current = true;
+      lastCompactTimeRef.current = now;
+      void triggerCompact();
+    }
+    // Reset the flag when usage drops below 70% (after successful compact)
+    if (contextUsage?.pct != null && contextUsage.pct < 70) {
+      autoCompactedRef.current = false;
+    }
+  }, [contextUsage?.pct, isStreaming, triggerCompact]);
 
   return (
     <section
@@ -1126,13 +1497,72 @@ export function CommanderPanel() {
         )}
 
         {/* Input area — Claude Code style */}
-        <div className="rounded-xl border border-border/60 bg-background m-2 mb-3">
+        <div className="relative rounded-xl border border-border/60 bg-background m-2 mb-3">
+          {/* Slash command popup */}
+          {slashMenuOpen && (
+            <div
+              ref={slashMenuRef}
+              className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-card shadow-xl"
+            >
+              {filteredSlashItems.map((cmd, i) => (
+                <button
+                  key={cmd.name}
+                  type="button"
+                  className={cn(
+                    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
+                    i === slashMenuIndex
+                      ? 'bg-primary/10 text-primary'
+                      : 'hover:bg-muted',
+                  )}
+                  onMouseEnter={() => setSlashMenuIndex(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); // prevent blur
+                    void executeSlashCommand(cmd.name);
+                  }}
+                >
+                  <Slash className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  <span className="font-medium">{cmd.name}</span>
+                  <span className="truncate text-muted-foreground">{cmd.desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {/* Textarea */}
           <textarea
             ref={inputRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
+              // Slash menu navigation
+              if (slashMenuOpen) {
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setSlashMenuIndex((prev) => Math.min(prev + 1, filteredSlashItems.length - 1));
+                  return;
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setSlashMenuIndex((prev) => Math.max(prev - 1, 0));
+                  return;
+                }
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  const selected = filteredSlashItems[slashMenuIndex];
+                  if (selected) void executeSlashCommand(selected.name);
+                  return;
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setInput('');
+                  return;
+                }
+                if (event.key === 'Tab') {
+                  event.preventDefault();
+                  const selected = filteredSlashItems[slashMenuIndex];
+                  if (selected) setInput(`/${selected.name}`);
+                  return;
+                }
+              }
               if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
                 void handleSendNow();
@@ -1229,7 +1659,61 @@ export function CommanderPanel() {
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Model selector */}
+            {/* Context usage — click to compact, hover for details */}
+            {contextUsage && (() => {
+              const pct = contextUsage.pct;
+              const r = 6;
+              const circ = 2 * Math.PI * r;
+              const offset = circ - (circ * Math.min(pct, 100)) / 100;
+              const ringColor = pct >= 80 ? 'stroke-red-400' : pct >= 50 ? 'stroke-amber-400' : 'stroke-emerald-400';
+              const fmtK = (n: number) => { if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; } return String(n); };
+              const used = fmtK(contextUsage.estimatedTokens);
+              const total = contextUsage.ctxWindow >= 1_000_000
+                ? `${(contextUsage.ctxWindow / 1_000_000).toFixed(contextUsage.ctxWindow % 1_000_000 === 0 ? 0 : 1)}M`
+                : `${Math.round(contextUsage.ctxWindow / 1000)}K`;
+              const { breakdown: bd, counts: ct } = contextUsage;
+              return (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => void triggerCompact()}
+                        className="shrink-0 rounded p-0.5 hover:bg-muted transition-colors"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 16 16">
+                          <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2" className="stroke-border" />
+                          {pct > 0 && (
+                            <circle
+                              cx="8" cy="8" r={r} fill="none" strokeWidth="2"
+                              className={ringColor}
+                              strokeDasharray={circ}
+                              strokeDashoffset={offset}
+                              strokeLinecap="round"
+                              transform="rotate(-90 8 8)"
+                            />
+                          )}
+                        </svg>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={8} className="max-w-xs">
+                      <div className="text-[11px] font-medium">{used} / {total} {t('commander.contextBreakdown.tokens')} ({pct}%)</div>
+                      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] text-primary-foreground/70">
+                        <span>{t('commander.contextBreakdown.user')}</span>
+                        <span className="text-right">{fmtK(bd.user)} ({ct.user})</span>
+                        <span>{t('commander.contextBreakdown.assistant')}</span>
+                        <span className="text-right">{fmtK(bd.assistant)} ({ct.assistant})</span>
+                        <span>{t('commander.contextBreakdown.toolCalls')}</span>
+                        <span className="text-right">{fmtK(bd.toolCalls)} ({ct.toolCalls})</span>
+                        <span>{t('commander.contextBreakdown.toolResults')}</span>
+                        <span className="text-right">{fmtK(bd.toolResults)}</span>
+                      </div>
+                      <div className="mt-1 text-[10px] text-primary-foreground/50">{t('commander.slashCommand.compact')}</div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              );
+            })()}
             <div className="relative" data-dropdown-menu>
               <button
                 type="button"
@@ -1254,7 +1738,16 @@ export function CommanderPanel() {
                         setModelPickerOpen(false);
                       }}
                     >
-                      <div className="font-medium">{p.name}</div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{p.name}</span>
+                        {p.contextWindow && (
+                          <span className="text-[9px] text-muted-foreground/60">
+                            {p.contextWindow >= 1_000_000
+                              ? `${(p.contextWindow / 1_000_000).toFixed(p.contextWindow % 1_000_000 === 0 ? 0 : 1)}M`
+                              : `${Math.round(p.contextWindow / 1000)}K`}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[9px] text-muted-foreground">{p.model}</div>
                     </button>
                   ))}

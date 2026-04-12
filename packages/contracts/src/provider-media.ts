@@ -15,6 +15,8 @@ export interface BuiltinProviderCapabilityProfile {
   durationRange?: [number, number];
   styles?: string[];
   notes?: string;
+  /** Maximum pixel dimension (width or height). Used to clamp requests. */
+  maxDimension?: number;
 }
 
 export interface BuiltinAudioGenerationProvider {
@@ -102,34 +104,71 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     aliases: ['openai-image'],
     qualityTiers: ['standard', 'hd'],
     resolutions: ['1024x1024', '1024x1792', '1792x1024'],
+    maxDimension: 1792,
     notes: 'Fixed resolution options only. No negative prompt or seed support.',
   },
   ideogram: {
     type: 'image',
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    maxDimension: 1024,
     notes: 'Supports negative prompt and seed. Good at text rendering in images.',
   },
   'recraft-v3': {
     type: 'image',
     aliases: ['recraft', 'recraft-v4'],
     styles: ['realistic_image', 'digital_illustration', 'digital_art', 'vector_illustration'],
-    notes: 'Style-based API. Default style is realistic_image.',
+    maxDimension: 2048,
+    notes: 'Style-based API. Max 16MP total pixels, max single dimension 4096px.',
   },
   'leonardo-v2': {
     type: 'image',
     resolutions: ['512x512', '1024x1024'],
+    maxDimension: 1024,
     notes: 'Supports LoRA models and image-to-image.',
   },
   'google-imagen3': {
     type: 'image',
     aliases: ['google-image'],
     aspectRatios: ['1:1', '3:4', '4:3', '9:16', '16:9'],
-    notes: 'Predefined aspect ratios only.',
+    maxDimension: 1536,
+    notes: 'Predefined aspect ratios only. Supports up to 2K resolution.',
   },
   flux: {
     type: 'image',
     resolutions: ['1024x1024'],
-    notes: 'Replicate-hosted. Multiple variants: schnell (fast), pro, dev.',
+    maxDimension: 1440,
+    notes: 'Replicate-hosted. Max dimension 1440px. Dimensions must be divisible by 32.',
+  },
+  replicate: {
+    type: 'image',
+    aliases: ['replicate-sdxl'],
+    resolutions: ['1024x1024'],
+    maxDimension: 1024,
+    notes: 'Replicate generic. SDXL-based models: max 1024px, divisible by 8.',
+  },
+  'fal-ai': {
+    type: 'image',
+    aliases: ['fal'],
+    maxDimension: 1536,
+    notes: 'fal.ai hosted. Most models support up to 1536px.',
+  },
+  'stability-v2': {
+    type: 'image',
+    aliases: ['stability', 'sd3'],
+    resolutions: ['1024x1024'],
+    maxDimension: 1024,
+    notes: 'Stability AI. SD3/SDXL: max 1024px per dimension.',
+  },
+  'together-ai': {
+    type: 'image',
+    aliases: ['together'],
+    maxDimension: 1440,
+    notes: 'Together AI hosted. Flux-based models: max 1440px.',
+  },
+  siliconflow: {
+    type: 'image',
+    maxDimension: 1024,
+    notes: 'SiliconFlow hosted. Most models max 1024px.',
   },
 };
 

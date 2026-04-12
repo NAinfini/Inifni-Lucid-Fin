@@ -363,6 +363,10 @@ export interface IpcChannelMap {
     request: { canvasId: string };
     response: void;
   };
+  'commander:compact': {
+    request: { canvasId: string };
+    response: { freedChars: number; messageCount: number; toolCount: number };
+  };
   'commander:inject-message': {
     request: { canvasId: string; message: string };
     response: void;

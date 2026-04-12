@@ -159,6 +159,7 @@ export function useCommander(): {
             model: activeProvider.model,
             protocol: activeProvider.protocol,
             authStyle: activeProvider.authStyle,
+            contextWindow: activeProvider.contextWindow,
           })
         : undefined;
       const permissionMode = state.commander.permissionMode;

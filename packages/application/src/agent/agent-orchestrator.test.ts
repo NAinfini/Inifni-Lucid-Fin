@@ -403,7 +403,7 @@ describe('AgentOrchestrator', () => {
     );
   });
 
-  it('summarizes large tool results before adding them to LLM context', async () => {
+  it('preserves tool results under the hard limit without truncation', async () => {
     toolRegistry.register({
       name: 'character.list',
       description: 'List characters',
@@ -415,7 +415,7 @@ describe('AgentOrchestrator', () => {
             id: 'char-1',
             name: 'Astra',
             title: 'Captain Astra',
-            biography: 'Very long hidden details that should not be forwarded to the model. '.repeat(24),
+            biography: 'Detailed biography content that should be preserved in full. '.repeat(10),
           },
         ],
       })),
@@ -447,10 +447,12 @@ describe('AgentOrchestrator', () => {
 
     expect(toolMessage?.content).toContain('char-1');
     expect(toolMessage?.content).toContain('Astra');
-    expect(toolMessage?.content).not.toContain('Very long hidden details');
+    // Under RESULT_HARD_LIMIT — content preserved in full
+    expect(toolMessage?.content).toContain('Detailed biography content');
   });
 
-  it('preserves node titles when summarizing large mutation results', async () => {
+  it('preserves mutation results under hard limit and trims oversized ones', async () => {
+    // Generate a mutation result that exceeds RESULT_HARD_LIMIT (20000 chars)
     toolRegistry.register({
       name: 'canvas.setNodeProvider',
       description: 'Set node provider',
@@ -462,7 +464,7 @@ describe('AgentOrchestrator', () => {
           nodeTitle: 'Opening Shot',
           status: 'done',
           providerId: 'replicate',
-          details: 'Hidden verbose result '.repeat(80),
+          details: 'Verbose result '.repeat(1500), // ~22500 chars → over hard limit
         },
       })),
     });
@@ -491,9 +493,11 @@ describe('AgentOrchestrator', () => {
     }>;
     const toolMessage = secondCallMessages.find((message) => message.role === 'tool');
 
+    // Key identifiers preserved
     expect(toolMessage?.content).toContain('node-1');
     expect(toolMessage?.content).toContain('Opening Shot');
-    expect(toolMessage?.content).not.toContain('Hidden verbose result');
+    // Over hard limit → mutation summarizer extracts only key fields, dropping verbose details
+    expect(toolMessage?.content.length).toBeLessThan(500);
   });
 
   it('truncates oversized context.extra values before adding them to the system prompt', async () => {
@@ -528,7 +532,7 @@ describe('AgentOrchestrator', () => {
     expect(systemMsg?.content).not.toContain('TAIL-OBJECT');
   });
 
-  it('caps summarized collection payloads to a total item budget', async () => {
+  it('trims long strings in results exceeding the hard limit', async () => {
     toolRegistry.register({
       name: 'character.list',
       description: 'List characters',
@@ -571,12 +575,17 @@ describe('AgentOrchestrator', () => {
     const toolMessage = secondCallMessages.find((message) => message.role === 'tool');
     const parsed = JSON.parse(toolMessage?.content ?? '{}') as {
       success?: boolean;
-      data?: { count?: number; items?: unknown[] };
+      data?: Array<Record<string, string>>;
     };
 
     expect(parsed.success).toBe(true);
-    expect(parsed.data?.count).toBe(10);
-    expect(parsed.data?.items?.length).toBeLessThan(10);
+    // All 10 items preserved (no item dropping — pagination is the tool's job)
+    expect(Array.isArray(parsed.data)).toBe(true);
+    expect(parsed.data?.length).toBe(10);
+    // But long strings are trimmed (300 char limit + "...")
+    const firstAlpha = parsed.data?.[0]?.alpha ?? '';
+    expect(firstAlpha.length).toBeLessThan(500);
+    expect(firstAlpha).toContain('...');
   });
 
   it('loads only always-loaded tools initially and expands via tool.get', async () => {

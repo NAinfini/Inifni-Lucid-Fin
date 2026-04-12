@@ -28,6 +28,14 @@ const KLING_QUALITY_DESCRIPTION =
     : 'provider-specific';
 
 export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
+  /** Resolve nodeId (string) or nodeIds (string[]) from tool args. */
+  function resolveNodeIds(args: Record<string, unknown>): string[] {
+    if (Array.isArray(args.nodeIds)) {
+      return args.nodeIds.map((id: unknown) => (typeof id === 'string' ? id.trim() : String(id)));
+    }
+    return [requireString(args, 'nodeId')];
+  }
+
   const generate: AgentTool = {
     name: 'canvas.generate',
     description: 'Trigger media generation for an image, video, or audio node and wait for completion. Returns the result including success/failure status, variant hashes, and any error message.',
@@ -91,25 +99,35 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const cancelGeneration: AgentTool = {
     name: 'canvas.cancelGeneration',
-    description: 'Cancel an active generation job for an image, video, or audio node.',
+    description: 'Cancel active generation jobs for one or more image, video, or audio nodes. Supports batch: pass nodeIds array.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID whose generation should be cancelled.' },
+        nodeId: { type: 'string', description: 'Single node ID to cancel.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to cancel generation.' },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        requireMediaNode(node);
-        await deps.cancelGeneration(canvasId, nodeId);
-        return ok({ nodeId });
+        const ids = resolveNodeIds(args);
+        const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
+        for (const nodeId of ids) {
+          try {
+            const { node } = await requireNode(deps, canvasId, nodeId);
+            requireMediaNode(node);
+            await deps.cancelGeneration(canvasId, nodeId);
+            results.push({ nodeId, success: true });
+          } catch (error) {
+            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        if (ids.length === 1) return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
+        return ok({ cancelled: results.filter((r) => r.success).length, total: ids.length, results });
       } catch (error) {
         return fail(error);
       }
@@ -198,26 +216,36 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const setNodeColorTag: AgentTool = {
     name: 'canvas.setNodeColorTag',
-    description: 'Set the color tag for a node.',
+    description: 'Set the color tag for nodes. Supports batch: pass nodeIds array to color-tag multiple nodes at once.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
+        nodeId: { type: 'string', description: 'Single node ID to update.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to color-tag.' },
         color: { type: 'string', description: 'The color tag to assign.' },
       },
-      required: ['canvasId', 'nodeId', 'color'],
+      required: ['canvasId', 'color'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
+        const ids = resolveNodeIds(args);
         const color = requireString(args, 'color');
-        await requireNode(deps, canvasId, nodeId);
-        await deps.setNodeColorTag(canvasId, nodeId, color);
-        return ok({ nodeId, color });
+        const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
+        for (const nodeId of ids) {
+          try {
+            await requireNode(deps, canvasId, nodeId);
+            await deps.setNodeColorTag(canvasId, nodeId, color);
+            results.push({ nodeId, success: true });
+          } catch (error) {
+            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        if (ids.length === 1) return results[0].success ? ok({ nodeId: ids[0], color }) : fail(results[0].error!);
+        return ok({ tagged: results.filter((r) => r.success).length, total: ids.length, color, results });
       } catch (error) {
         return fail(error);
       }
@@ -226,25 +254,35 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const toggleSeedLock: AgentTool = {
     name: 'canvas.toggleSeedLock',
-    description: 'Toggle the seed lock state for an image, video, or audio node.',
+    description: 'Toggle the seed lock state for one or more image, video, or audio nodes. Supports batch: pass nodeIds array.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
+        nodeId: { type: 'string', description: 'Single node ID to update.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to toggle seed lock.' },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        requireMediaNode(node);
-        await deps.toggleSeedLock(canvasId, nodeId);
-        return ok({ nodeId });
+        const ids = resolveNodeIds(args);
+        const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
+        for (const nodeId of ids) {
+          try {
+            const { node } = await requireNode(deps, canvasId, nodeId);
+            requireMediaNode(node);
+            await deps.toggleSeedLock(canvasId, nodeId);
+            results.push({ nodeId, success: true });
+          } catch (error) {
+            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        if (ids.length === 1) return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
+        return ok({ toggled: results.filter((r) => r.success).length, total: ids.length, results });
       } catch (error) {
         return fail(error);
       }
@@ -456,24 +494,34 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const deleteNode: AgentTool = {
     name: 'canvas.deleteNode',
-    description: 'Delete a node from the canvas (also removes connected edges).',
+    description: 'Delete one or more nodes from the canvas (also removes connected edges). Supports batch: pass nodeIds array.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to delete.' },
+        nodeId: { type: 'string', description: 'Single node ID to delete.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to delete.' },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        await requireNode(deps, canvasId, nodeId);
-        await deps.deleteNode(canvasId, nodeId);
-        return ok({ nodeId });
+        const ids = resolveNodeIds(args);
+        const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
+        for (const nodeId of ids) {
+          try {
+            await requireNode(deps, canvasId, nodeId);
+            await deps.deleteNode(canvasId, nodeId);
+            results.push({ nodeId, success: true });
+          } catch (error) {
+            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        if (ids.length === 1) return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
+        return ok({ deleted: results.filter((r) => r.success).length, total: ids.length, results });
       } catch (error) {
         return fail(error);
       }
@@ -543,31 +591,42 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const disconnectNode: AgentTool = {
     name: 'canvas.disconnectNode',
-    description: 'Remove all edges connected to a node.',
+    description: 'Remove all edges connected to one or more nodes. Supports batch: pass nodeIds array.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to disconnect.' },
+        nodeId: { type: 'string', description: 'Single node ID to disconnect.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to disconnect.' },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const { canvas } = await requireNode(deps, canvasId, nodeId);
-        const edgeIds = canvas.edges
-          .filter((edge) => edge.source === nodeId || edge.target === nodeId)
-          .map((edge) => edge.id);
-
-        for (const edgeId of edgeIds) {
-          await deps.deleteEdge(canvasId, edgeId);
+        const ids = resolveNodeIds(args);
+        const results: Array<{ nodeId: string; success: boolean; edgeIds?: string[]; count?: number; error?: string }> = [];
+        for (const nodeId of ids) {
+          try {
+            const { canvas } = await requireNode(deps, canvasId, nodeId);
+            const edgeIds = canvas.edges
+              .filter((edge) => edge.source === nodeId || edge.target === nodeId)
+              .map((edge) => edge.id);
+            for (const edgeId of edgeIds) {
+              await deps.deleteEdge(canvasId, edgeId);
+            }
+            results.push({ nodeId, success: true, edgeIds, count: edgeIds.length });
+          } catch (error) {
+            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+          }
         }
-
-        return ok({ nodeId, edgeIds, count: edgeIds.length });
+        if (ids.length === 1) {
+          const r = results[0];
+          return r.success ? ok({ nodeId: ids[0], edgeIds: r.edgeIds, count: r.count }) : fail(r.error!);
+        }
+        return ok({ disconnected: results.filter((r) => r.success).length, total: ids.length, results });
       } catch (error) {
         return fail(error);
       }
@@ -577,34 +636,90 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
   const editNodeContent: AgentTool = {
     name: 'canvas.editNodeContent',
     description:
-      'Edit node content: sets "content" on text nodes, "prompt" on image/video/audio nodes.',
+      'Edit node content and advanced generation parameters. For text nodes: sets "content". For image/video/audio nodes: sets "prompt" and/or advanced params (negativePrompt, steps, cfgScale, scheduler, img2imgStrength). At least one field must be provided. Supports batch via nodeIds.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to edit.' },
+        nodeId: { type: 'string', description: 'Single node ID to edit.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs to edit (batch). Each entry can be a string nodeId, or an object {nodeId, content?, prompt?, negativePrompt?, ...} for per-node values.' },
         content: { type: 'string', description: 'Text content (for text nodes).' },
         prompt: { type: 'string', description: 'Prompt text (for image/video/audio nodes).' },
+        negativePrompt: { type: 'string', description: 'Negative prompt: elements to avoid in the generated output.' },
+        steps: { type: 'number', description: 'Inference steps (typically 20-50). Higher = more detail but slower.' },
+        cfgScale: { type: 'number', description: 'CFG scale / guidance (typically 3-15). Higher = stricter prompt adherence.' },
+        scheduler: { type: 'string', description: 'Sampling scheduler/method (e.g. "euler_a", "dpm++_2m", "ddim").' },
+        img2imgStrength: { type: 'number', description: 'Image-to-image strength (0-1). 0 = ignore source, 1 = max influence from source image.' },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        const data: Record<string, unknown> = {};
-        if (node.type === 'text') {
-          if (typeof args.content !== 'string') throw new Error('content is required for text nodes');
-          data.content = args.content;
-        } else {
-          if (typeof args.prompt !== 'string') throw new Error('prompt is required for media nodes');
-          data.prompt = args.prompt;
+        // Extract shared advanced params from top-level args
+        const sharedAdvanced: Record<string, unknown> = {};
+        if (typeof args.negativePrompt === 'string') sharedAdvanced.negativePrompt = args.negativePrompt;
+        if (typeof args.steps === 'number') sharedAdvanced.steps = Math.round(args.steps as number);
+        if (typeof args.cfgScale === 'number') sharedAdvanced.cfgScale = args.cfgScale;
+        if (typeof args.scheduler === 'string') sharedAdvanced.scheduler = args.scheduler;
+        if (typeof args.img2imgStrength === 'number') {
+          sharedAdvanced.img2imgStrength = Math.max(0, Math.min(1, args.img2imgStrength as number));
         }
-        await deps.updateNodeData(canvasId, nodeId, data);
-        return ok({ nodeId, ...data });
+
+        // Resolve target node(s)
+        type Target = { nodeId: string; content?: string; prompt?: string; advanced: Record<string, unknown> };
+        const targets: Target[] = [];
+        if (Array.isArray(args.nodeIds)) {
+          for (const entry of args.nodeIds) {
+            if (typeof entry === 'string') {
+              targets.push({ nodeId: entry, content: args.content as string | undefined, prompt: args.prompt as string | undefined, advanced: { ...sharedAdvanced } });
+            } else if (typeof entry === 'object' && entry !== null) {
+              const e = entry as Record<string, unknown>;
+              const perNode: Record<string, unknown> = { ...sharedAdvanced };
+              if (typeof e.negativePrompt === 'string') perNode.negativePrompt = e.negativePrompt;
+              if (typeof e.steps === 'number') perNode.steps = Math.round(e.steps as number);
+              if (typeof e.cfgScale === 'number') perNode.cfgScale = e.cfgScale;
+              if (typeof e.scheduler === 'string') perNode.scheduler = e.scheduler;
+              if (typeof e.img2imgStrength === 'number') perNode.img2imgStrength = Math.max(0, Math.min(1, e.img2imgStrength as number));
+              targets.push({
+                nodeId: requireString(e, 'nodeId'),
+                content: typeof e.content === 'string' ? e.content : args.content as string | undefined,
+                prompt: typeof e.prompt === 'string' ? e.prompt : args.prompt as string | undefined,
+                advanced: perNode,
+              });
+            }
+          }
+        } else {
+          targets.push({ nodeId: requireString(args, 'nodeId'), content: args.content as string | undefined, prompt: args.prompt as string | undefined, advanced: { ...sharedAdvanced } });
+        }
+        const results: Array<{ nodeId: string; [k: string]: unknown }> = [];
+        for (const t of targets) {
+          const { node } = await requireNode(deps, canvasId, t.nodeId);
+          const data: Record<string, unknown> = {};
+          if (node.type === 'text') {
+            if (typeof t.content !== 'string') throw new Error(`content is required for text node ${t.nodeId}`);
+            data.content = t.content;
+          } else {
+            // Media node: prompt is optional if advanced params are provided
+            if (typeof t.prompt === 'string') data.prompt = t.prompt;
+            // Merge advanced params for image/video nodes
+            if (node.type === 'image' || node.type === 'video') {
+              Object.assign(data, t.advanced);
+            } else if (node.type === 'audio' && typeof t.advanced.negativePrompt === 'string') {
+              // Audio only supports negativePrompt from advanced params
+              data.negativePrompt = t.advanced.negativePrompt;
+            }
+            // Must have at least prompt or some advanced param
+            if (Object.keys(data).length === 0) {
+              throw new Error(`At least prompt or an advanced param is required for media node ${t.nodeId}`);
+            }
+          }
+          await deps.updateNodeData(canvasId, t.nodeId, data);
+          results.push({ nodeId: t.nodeId, ...data });
+        }
+        return ok(results.length === 1 ? results[0] : results);
       } catch (error) {
         return fail(error);
       }
@@ -613,29 +728,43 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const setNodeProvider: AgentTool = {
     name: 'canvas.setNodeProvider',
-    description: 'Set the AI provider for an image, video, or audio node.',
+    description: 'Set the AI provider for image, video, or audio nodes. Accepts a single nodeId or nodeIds array for batch operation. IMPORTANT: Before assigning a provider, check provider.list to verify the provider has an API key configured (hasKey=true). Do NOT assign providers without configured keys.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
+        nodeId: { type: 'string', description: 'Single node ID to update.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs to update (batch).' },
         providerId: { type: 'string', description: 'The provider ID to assign.' },
       },
-      required: ['canvasId', 'nodeId', 'providerId'],
+      required: ['canvasId', 'providerId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
         const providerId = requireString(args, 'providerId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
-          throw new Error(`Node type "${node.type}" does not support providers`);
+        const ids = resolveNodeIds(args);
+        // Warn if provider has no API key configured
+        let keyWarning: string | undefined;
+        if (deps.isProviderKeyConfigured) {
+          const hasKey = await deps.isProviderKeyConfigured(providerId);
+          if (!hasKey) {
+            keyWarning = `Warning: Provider "${providerId}" does not have an API key configured. Generation will fail. Use provider.list to find providers with hasKey=true.`;
+          }
         }
-        await deps.updateNodeData(canvasId, nodeId, { providerId });
-        return ok({ nodeId, providerId });
+        const results: Array<{ nodeId: string; providerId: string }> = [];
+        for (const nodeId of ids) {
+          const { node } = await requireNode(deps, canvasId, nodeId);
+          if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
+            throw new Error(`Node "${nodeId}" type "${node.type}" does not support providers`);
+          }
+          await deps.updateNodeData(canvasId, nodeId, { providerId });
+          results.push({ nodeId, providerId });
+        }
+        const data = results.length === 1 ? results[0] : results;
+        return keyWarning ? ok({ ...( Array.isArray(data) ? { nodes: data } : data), _warning: keyWarning }) : ok(data);
       } catch (error) {
         return fail(error);
       }
@@ -645,40 +774,45 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
   const setNodeMediaConfig: AgentTool = {
     name: 'canvas.setNodeMediaConfig',
     description:
-      'Set media generation configuration on an image or video node: resolution (width/height), duration, audio, quality. Only applicable fields are written; others are ignored based on node type.',
+      'Set media generation configuration on image or video nodes: resolution (width/height), duration, audio, quality. Accepts a single nodeId or nodeIds array for batch operation. Only applicable fields are written; others are ignored based on node type.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to update.' },
+        nodeId: { type: 'string', description: 'Single node ID to update.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs to update (batch).' },
         width: { type: 'number', description: 'Image/video width in pixels.' },
         height: { type: 'number', description: 'Image/video height in pixels.' },
         duration: { type: 'number', description: 'Video duration in seconds.' },
         audio: { type: 'boolean', description: `Enable audio generation (video only). Only supported by: ${AUDIO_CAPABLE_VIDEO_PROVIDER_IDS}.` },
         quality: { type: 'string', description: `Quality/mode tier (video only). ${KLING_QUALITY_DESCRIPTION}. Other providers: "standard".` },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        if (node.type !== 'image' && node.type !== 'video') {
-          throw new Error(`Node type "${node.type}" does not support media config`);
+        const ids = resolveNodeIds(args);
+        const results: Array<{ nodeId: string; [k: string]: unknown }> = [];
+        for (const nodeId of ids) {
+          const { node } = await requireNode(deps, canvasId, nodeId);
+          if (node.type !== 'image' && node.type !== 'video') {
+            throw new Error(`Node "${nodeId}" type "${node.type}" does not support media config`);
+          }
+          const data: Record<string, unknown> = {};
+          if (typeof args.width === 'number') data.width = args.width;
+          if (typeof args.height === 'number') data.height = args.height;
+          if (node.type === 'video') {
+            if (typeof args.duration === 'number') data.duration = args.duration;
+            if (typeof args.audio === 'boolean') data.audio = args.audio;
+            if (typeof args.quality === 'string') data.quality = args.quality;
+          }
+          await deps.updateNodeData(canvasId, nodeId, data);
+          results.push({ nodeId, ...data });
         }
-        const data: Record<string, unknown> = {};
-        if (typeof args.width === 'number') data.width = args.width;
-        if (typeof args.height === 'number') data.height = args.height;
-        if (node.type === 'video') {
-          if (typeof args.duration === 'number') data.duration = args.duration;
-          if (typeof args.audio === 'boolean') data.audio = args.audio;
-          if (typeof args.quality === 'string') data.quality = args.quality;
-        }
-        await deps.updateNodeData(canvasId, nodeId, data);
-        return ok({ nodeId, ...data });
+        return ok(results.length === 1 ? results[0] : results);
       } catch (error) {
         return fail(error);
       }
@@ -687,46 +821,51 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const setVideoFrames: AgentTool = {
     name: 'canvas.setVideoFrames',
-    description: 'Set first and/or last frame reference for a video node. IMPORTANT: First frame requires an INCOMING edge (image→video), last frame requires an OUTGOING edge (video→image). Connect edges with correct direction BEFORE calling this tool.',
+    description: 'Set first and/or last frame reference for video nodes. Accepts a single nodeId or nodeIds array for batch. IMPORTANT: First frame requires an INCOMING edge (image→video), last frame requires an OUTGOING edge (video→image). Connect edges with correct direction BEFORE calling this tool.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The video node ID.' },
+        nodeId: { type: 'string', description: 'Single video node ID.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of video node IDs (batch).' },
         firstFrameNodeId: { type: 'string', description: 'ID of a connected image node to use as first frame.' },
         lastFrameNodeId: { type: 'string', description: 'ID of a connected image node to use as last frame.' },
         firstFrameAssetHash: { type: 'string', description: 'Direct asset hash for first frame image.' },
         lastFrameAssetHash: { type: 'string', description: 'Direct asset hash for last frame image.' },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const { node } = await requireNode(deps, canvasId, nodeId);
-        if (node.type !== 'video') {
-          throw new Error(`Node type "${node.type}" is not a video node`);
+        const ids = resolveNodeIds(args);
+        const results: Array<{ nodeId: string; [k: string]: unknown }> = [];
+        for (const nodeId of ids) {
+          const { node } = await requireNode(deps, canvasId, nodeId);
+          if (node.type !== 'video') {
+            throw new Error(`Node "${nodeId}" type "${node.type}" is not a video node`);
+          }
+          const data: Record<string, unknown> = {};
+          if (typeof args.firstFrameNodeId === 'string') {
+            data.firstFrameNodeId = args.firstFrameNodeId;
+            data.firstFrameAssetHash = undefined;
+          } else if (typeof args.firstFrameAssetHash === 'string') {
+            data.firstFrameAssetHash = args.firstFrameAssetHash;
+            data.firstFrameNodeId = undefined;
+          }
+          if (typeof args.lastFrameNodeId === 'string') {
+            data.lastFrameNodeId = args.lastFrameNodeId;
+            data.lastFrameAssetHash = undefined;
+          } else if (typeof args.lastFrameAssetHash === 'string') {
+            data.lastFrameAssetHash = args.lastFrameAssetHash;
+            data.lastFrameNodeId = undefined;
+          }
+          await deps.updateNodeData(canvasId, nodeId, data);
+          results.push({ nodeId, ...data });
         }
-        const data: Record<string, unknown> = {};
-        if (typeof args.firstFrameNodeId === 'string') {
-          data.firstFrameNodeId = args.firstFrameNodeId;
-          data.firstFrameAssetHash = undefined;
-        } else if (typeof args.firstFrameAssetHash === 'string') {
-          data.firstFrameAssetHash = args.firstFrameAssetHash;
-          data.firstFrameNodeId = undefined;
-        }
-        if (typeof args.lastFrameNodeId === 'string') {
-          data.lastFrameNodeId = args.lastFrameNodeId;
-          data.lastFrameAssetHash = undefined;
-        } else if (typeof args.lastFrameAssetHash === 'string') {
-          data.lastFrameAssetHash = args.lastFrameAssetHash;
-          data.lastFrameNodeId = undefined;
-        }
-        await deps.updateNodeData(canvasId, nodeId, data);
-        return ok({ nodeId, ...data });
+        return ok(results.length === 1 ? results[0] : results);
       } catch (error) {
         return fail(error);
       }

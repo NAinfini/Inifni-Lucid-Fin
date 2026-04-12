@@ -138,7 +138,7 @@ export function LeftToolbar() {
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label="Commander AI (Ctrl+J)"
+              aria-label={`${t('commander.commanderAI')} (Ctrl+J)`}
               aria-pressed={commanderOpen}
               tabIndex={commanderOpen ? 0 : -1}
               onClick={() => dispatch(toggleCommander())}
@@ -152,7 +152,7 @@ export function LeftToolbar() {
               <Zap className="h-[15px] w-[15px]" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">Commander AI (Ctrl+J)</TooltipContent>
+          <TooltipContent side="right">{t('commander.commanderAI')} (Ctrl+J)</TooltipContent>
         </Tooltip>
 
         {(() => {

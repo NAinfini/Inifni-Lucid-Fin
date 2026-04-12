@@ -602,6 +602,52 @@ export const commanderSlice = createSlice({
     clearQueue(state) {
       state.messageQueue = [];
     },
+    addSystemNotice(state, action: PayloadAction<string>) {
+      state.messages.push({
+        id: createMessageId('system'),
+        role: 'assistant',
+        content: action.payload,
+        timestamp: Date.now(),
+      });
+    },
+    /** Compact local message store: truncate old tool results + remove old assistant text bulk. */
+    compactLocalContext(state) {
+      // Find assistant messages with toolCalls, protect the last 3 groups
+      const groupIndices: number[] = [];
+      for (let i = 0; i < state.messages.length; i++) {
+        if (state.messages[i].toolCalls && state.messages[i].toolCalls!.length > 0) {
+          groupIndices.push(i);
+        }
+      }
+      const protectedFrom = Math.max(0, groupIndices.length - 3);
+      const protectedSet = new Set(groupIndices.slice(protectedFrom));
+
+      for (let i = 0; i < state.messages.length; i++) {
+        const msg = state.messages[i];
+
+        // Truncate old assistant text (not in recent groups)
+        if (msg.role === 'assistant' && !protectedSet.has(i) && msg.content.length > 500) {
+          msg.content = msg.content.slice(0, 200) + '... [compacted]';
+        }
+
+        if (!msg.toolCalls || protectedSet.has(i)) continue;
+        for (const tc of msg.toolCalls) {
+          if (tc.result === undefined) continue;
+          const resStr = typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result);
+          if (resStr.length <= 300) continue;
+          // Compact: keep status + minimal info
+          if (typeof tc.result === 'object' && tc.result !== null && !Array.isArray(tc.result)) {
+            const r = tc.result as Record<string, unknown>;
+            const compact: Record<string, unknown> = { success: r.success ?? true };
+            if (r.error) compact.error = String(r.error).slice(0, 120);
+            else compact.data = '[compacted]';
+            tc.result = compact;
+          } else {
+            tc.result = { success: true, data: '[compacted]' };
+          }
+        }
+      }
+    },
     restore(_state, action: PayloadAction<CommanderState>) {
       return {
         ...initialState,
@@ -660,4 +706,6 @@ export const {
   removeQueuedMessage,
   editQueuedMessage,
   clearQueue,
+  addSystemNotice,
+  compactLocalContext,
 } = commanderSlice.actions;

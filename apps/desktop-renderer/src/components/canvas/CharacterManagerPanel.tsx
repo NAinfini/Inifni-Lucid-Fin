@@ -10,8 +10,6 @@ import {
   setLoading,
   setCharacterRefImage,
   removeCharacterRefImage,
-  setCharacterLoadout,
-  removeCharacterLoadout,
 } from '../../store/slices/characters.js';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { getAPI } from '../../utils/api.js';
@@ -20,7 +18,6 @@ import { addLog } from '../../store/slices/logger.js';
 import type {
   Character,
   ReferenceImage,
-  EquipmentLoadout,
   CharacterGender,
   CharacterFace,
   CharacterHair,
@@ -94,7 +91,6 @@ export function CharacterManagerPanel() {
   const [originalDraft, setOriginalDraft] = useState<CharacterDraft | null>(null);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [loadoutName, setLoadoutName] = useState('');
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
   const [structuredOpen, setStructuredOpen] = useState(false);
 
@@ -344,42 +340,44 @@ export function CharacterManagerPanel() {
     [dispatch, reportError, selectedChar],
   );
 
-  const handleAddLoadout = useCallback(async () => {
-    if (!selectedChar || !loadoutName.trim()) return;
-    setError(null);
-    try {
-      const loadout: EquipmentLoadout = {
-        id: '',
-        name: loadoutName.trim(),
-        equipmentIds: [],
-      };
-      const api = getAPI();
-      if (api?.character) {
-        const saved = (await api.character.saveLoadout(selectedChar.id, loadout)) as EquipmentLoadout;
-        dispatch(setCharacterLoadout({ characterId: selectedChar.id, loadout: saved }));
-      }
-      setLoadoutName('');
-    } catch (reason) {
-      reportError(reason, 'handleAddLoadout');
-    }
-  }, [dispatch, loadoutName, reportError, selectedChar]);
-
-  const handleDeleteLoadout = useCallback(
-    async (loadoutId: string) => {
+  const handleSelectVariant = useCallback(
+    async (variantHash: string) => {
       if (!selectedChar) return;
       setError(null);
       try {
+        const mainRef = selectedChar.referenceImages.find((r) => r.slot === 'main') ?? selectedChar.referenceImages[0];
+        if (!mainRef) return;
+
+        // Swap: current active goes into variants, selected variant becomes active
+        const currentHash = mainRef.assetHash;
+        const prevVariants = [...(mainRef.variants ?? [])];
+        const updatedVariants = prevVariants.filter((h) => h !== variantHash);
+        if (currentHash && !updatedVariants.includes(currentHash)) {
+          updatedVariants.push(currentHash);
+        }
+
+        const updatedRef: ReferenceImage = {
+          ...mainRef,
+          assetHash: variantHash,
+          variants: updatedVariants,
+        };
+
+        // Persist the full updated referenceImages via character:save so variants are preserved
+        const updatedRefs = selectedChar.referenceImages.map((r) =>
+          r.slot === mainRef.slot ? updatedRef : r,
+        );
         const api = getAPI();
         if (api?.character) {
-          await api.character.deleteLoadout(selectedChar.id, loadoutId);
+          await api.character.save({ id: selectedChar.id, referenceImages: updatedRefs } as Record<string, unknown>);
         }
-        dispatch(removeCharacterLoadout({ characterId: selectedChar.id, loadoutId }));
+        dispatch(setCharacterRefImage({ characterId: selectedChar.id, refImage: updatedRef }));
       } catch (reason) {
-        reportError(reason, 'handleDeleteLoadout');
+        reportError(reason, 'handleSelectVariant');
       }
     },
     [dispatch, reportError, selectedChar],
   );
+
 
   return (
     <div className="h-full border-r border-border/60 bg-card flex flex-col">
@@ -449,22 +447,27 @@ export function CharacterManagerPanel() {
                       : 'border-border/60 hover:bg-muted/80',
                   )}
                 >
-                  <div className="flex items-center gap-1">
-                    <span className="font-medium truncate">{char.name || t('characterManager.untitled')}</span>
-                    <span className="shrink-0 inline-block text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary">
-                      {t('characterManager.roles.' + char.role)}
-                    </span>
-                    {char.age != null && (
-                      <span className="shrink-0 inline-block text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
-                        {char.age}
-                      </span>
-                    )}
-                  </div>
-                  {(usageCountById[char.id] ?? 0) > 0 && (
-                    <div className="text-[9px] text-muted-foreground mt-0.5">
-                      {t('characterManager.usedInNodes').replace('{count}', String(usageCountById[char.id]))}
+                  <div className="flex items-center gap-2">
+                    <ListThumb hash={char.referenceImages?.find((r) => r.slot === 'main')?.assetHash ?? char.referenceImages?.[0]?.assetHash} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium truncate">{char.name || t('characterManager.untitled')}</span>
+                        <span className="shrink-0 inline-block text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary">
+                          {t('characterManager.roles.' + char.role)}
+                        </span>
+                        {char.age != null && (
+                          <span className="shrink-0 inline-block text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
+                            {char.age}
+                          </span>
+                        )}
+                      </div>
+                      {(usageCountById[char.id] ?? 0) > 0 && (
+                        <div className="text-[9px] text-muted-foreground mt-0.5">
+                          {t('characterManager.usedInNodes').replace('{count}', String(usageCountById[char.id]))}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </button>
               ))}
               {filtered.length === 0 && (
@@ -553,11 +556,10 @@ export function CharacterManagerPanel() {
                   <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
                     {t('characterManager.fields.voice')}
                   </label>
-                  <textarea
-                    rows={4}
+                  <input
                     value={draft.voice}
                     onChange={(e) => setDraft((p) => (p ? { ...p, voice: e.target.value } : p))}
-                    className="w-full rounded bg-muted px-2 py-1 text-xs resize-none"
+                    className="w-full rounded bg-muted px-2 py-1 text-xs"
                     placeholder={t('characterManager.fields.voice')}
                   />
                 </div>
@@ -692,6 +694,7 @@ export function CharacterManagerPanel() {
                   onRemove={() => handleRefImageRemove('main')}
                   onFromAssets={() => setAssetPickerOpen(true)}
                   onDropHash={(hash) => void handleRefImageFromAsset(hash)}
+                  onSelectVariant={(hash) => void handleSelectVariant(hash)}
                   entityType="character"
                   entityId={selectedChar?.id}
                   slot="main"
@@ -706,51 +709,6 @@ export function CharacterManagerPanel() {
                 onClose={() => setAssetPickerOpen(false)}
                 onSelect={(hash) => void handleRefImageFromAsset(hash)}
               />
-
-              {/* Equipment Loadouts */}
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                  {t('characterManager.loadouts')}
-                </label>
-                {selectedChar?.loadouts.map((loadout) => (
-                  <div
-                    key={loadout.id}
-                    className="flex items-center justify-between rounded-md border border-border/60 px-2 py-1"
-                  >
-                    <div>
-                      <span className="text-[10px] font-medium">{loadout.name}</span>
-                      <span className="text-[9px] text-muted-foreground ml-1">
-                      ({loadout.equipmentIds.length} {t('characterManager.items')})
-                      </span>
-                      {selectedChar.defaultLoadoutId === loadout.id && (
-                        <span className="text-[9px] text-primary ml-1">({t('characterManager.default')})</span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => handleDeleteLoadout(loadout.id)}
-                      className="text-[10px] text-destructive hover:underline"
-                      aria-label={`${t('action.delete')} ${loadout.name}`}
-                    >
-                      <Trash2 className="w-3 h-3" aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-                <div className="flex items-center gap-1">
-                  <input
-                    value={loadoutName}
-                    onChange={(e) => setLoadoutName(e.target.value)}
-                    className="flex-1 rounded bg-muted px-2 py-1 text-[10px]"
-                    placeholder={t('characterManager.loadoutNamePlaceholder')}
-                  />
-                  <button
-                    onClick={handleAddLoadout}
-                    disabled={!loadoutName.trim()}
-                    className="text-[10px] rounded-md border border-border/60 px-1.5 py-1 hover:bg-muted/80 disabled:opacity-50 transition-colors"
-                  >
-                    {t('characterManager.addCustomSlot')}
-                  </button>
-                </div>
-              </div>
 
             </>
           )}
@@ -769,6 +727,7 @@ function SingleReferenceImage({
   onRemove,
   onFromAssets,
   onDropHash,
+  onSelectVariant,
   entityType,
   entityId,
   slot,
@@ -778,6 +737,7 @@ function SingleReferenceImage({
   onRemove: () => void;
   onFromAssets: () => void;
   onDropHash?: (hash: string) => void;
+  onSelectVariant?: (hash: string) => void;
   entityType?: string;
   entityId?: string;
   slot?: string;
@@ -843,6 +803,7 @@ function SingleReferenceImage({
   };
 
   return (
+    <div className="space-y-1.5">
     <div
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -856,7 +817,7 @@ function SingleReferenceImage({
       )}
     >
       {url ? (
-        <div className="relative w-full h-[200px] bg-muted rounded overflow-hidden">
+        <div className="relative w-full aspect-[3/2] bg-muted rounded overflow-hidden">
           <img
             src={url}
             alt="Reference"
@@ -878,7 +839,7 @@ function SingleReferenceImage({
           )}
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center h-[200px] gap-2">
+        <div className="flex flex-col items-center justify-center aspect-[3/2] gap-2">
           {isDragOver ? (
             <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
           ) : (
@@ -919,7 +880,53 @@ function SingleReferenceImage({
         )}
       </div>
     </div>
+    {url && mainRef?.variants && mainRef.variants.length > 0 && (
+      <div className="flex items-center gap-1">
+        <span className="text-[9px] text-muted-foreground/70 shrink-0">{t('characterManager.variants')}:</span>
+        <div className="flex gap-1 overflow-x-auto">
+          {mainRef.assetHash && (
+            <VariantThumb
+              key={mainRef.assetHash}
+              hash={mainRef.assetHash}
+              isActive
+            />
+          )}
+          {mainRef.variants.map((variantHash) => (
+            <VariantThumb
+              key={variantHash}
+              hash={variantHash}
+              isActive={false}
+              onClick={() => onSelectVariant?.(variantHash)}
+            />
+          ))}
+        </div>
+      </div>
+    )}
+    </div>
   );
+}
+
+function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boolean; onClick?: () => void }) {
+  const { url } = useAssetUrl(hash, 'image', 'png');
+  if (!url) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'shrink-0 h-8 w-12 rounded border overflow-hidden transition-colors',
+        isActive ? 'border-primary ring-1 ring-primary/40' : 'border-border/60 hover:border-primary/50',
+      )}
+    >
+      <img src={url} alt="variant" className="h-full w-full object-cover" />
+    </button>
+  );
+}
+
+function ListThumb({ hash }: { hash?: string }) {
+  const { url } = useAssetUrl(hash, 'image', 'png');
+  if (!url) return <div className="shrink-0 w-8 h-8 rounded bg-muted/50" />;
+  return <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" />;
 }
 
 function StructField({

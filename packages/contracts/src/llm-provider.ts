@@ -44,7 +44,7 @@ export function getDefaultAuthStyleForProtocol(
 
 export function normalizeLLMProviderRuntimeConfig(
   config: Pick<LLMProviderRuntimeConfig, 'id' | 'name' | 'baseUrl' | 'model'> &
-    Partial<Pick<LLMProviderRuntimeConfig, 'protocol' | 'authStyle'>>,
+    Partial<Pick<LLMProviderRuntimeConfig, 'protocol' | 'authStyle' | 'contextWindow'>>,
 ): LLMProviderRuntimeConfig {
   const protocol = config.protocol ?? 'openai-compatible';
   const authStyle = config.authStyle ?? getDefaultAuthStyleForProtocol(protocol);
@@ -55,6 +55,7 @@ export function normalizeLLMProviderRuntimeConfig(
     model: config.model,
     protocol,
     authStyle,
+    ...(config.contextWindow != null && { contextWindow: config.contextWindow }),
   };
 }
 

@@ -182,8 +182,12 @@ export function registerAllTools(
   deps: ToolRegistrationDeps,
   getWindow: () => BrowserWindow | null,
   promptGuides: Array<{ id: string; name: string; content: string }>,
+  compactRef?: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> },
 ): void {
-  const generateImage = makeGenerateImage(deps);
+  const generateImage = makeGenerateImage({
+    ...deps,
+    getProjectId: () => getCurrentProjectId() ?? undefined,
+  });
 
   // ---- Preset helpers (shared by canvas + preset tools) ----
   const listCommanderPresets = async (category?: PresetCategory): Promise<PresetDefinition[]> => {
@@ -429,6 +433,14 @@ export function registerAllTools(
       const win = getWindow();
       if (win) {
         win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: false });
+      }
+    },
+    isProviderKeyConfigured: async (providerId: string) => {
+      try {
+        const key = await deps.keychain.getKey(providerId);
+        return key != null && key.length > 0;
+      } catch {
+        return false;
       }
     },
     clearSelection: async (_canvasId: string) => {},
@@ -870,6 +882,12 @@ export function registerAllTools(
   for (const tool of createMetaTools(registry, {
     promptGuides: promptGuides,
     context: 'canvas',
+    compactContext: compactRef
+      ? async (instructions?: string) => {
+          if (!compactRef.compact) return { freedChars: 0, messageCount: 0, toolCount: 0 };
+          return compactRef.compact(instructions);
+        }
+      : undefined,
   })) {
     registry.register(tool);
   }

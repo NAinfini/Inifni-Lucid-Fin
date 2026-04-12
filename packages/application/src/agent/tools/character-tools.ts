@@ -9,15 +9,84 @@ import {
 } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
 
+export interface GenerateImageOptions {
+  providerId?: string;
+  width?: number;
+  height?: number;
+}
+
 export interface CharacterToolDeps {
   listCharacters: () => Promise<Character[]>;
   saveCharacter: (character: Character) => Promise<void>;
   deleteCharacter: (id: string) => Promise<void>;
-  generateImage?: (prompt: string, providerId?: string) => Promise<{ assetHash: string }>;
+  generateImage?: (prompt: string, options?: GenerateImageOptions) => Promise<{ assetHash: string }>;
   getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
 export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
+
+  /** Build a compact appearance string from structured fields + freeform appearance text. */
+  function buildAppearancePrompt(entity: Character): string {
+    const parts: string[] = [];
+
+    // Age and gender
+    const ageGender: string[] = [];
+    if (entity.age) ageGender.push(`${entity.age} years old`);
+    if (entity.gender) ageGender.push(entity.gender);
+    if (ageGender.length > 0) parts.push(ageGender.join(', '));
+
+    // Face
+    const face = entity.face;
+    if (face) {
+      const faceParts: string[] = [];
+      if (face.eyeShape) faceParts.push(`${face.eyeShape} eyes`);
+      if (face.eyeColor) faceParts.push(`${face.eyeColor} eye color`);
+      if (face.noseType) faceParts.push(`${face.noseType} nose`);
+      if (face.lipShape) faceParts.push(`${face.lipShape} lips`);
+      if (face.jawline) faceParts.push(`${face.jawline} jawline`);
+      if (face.definingFeatures) faceParts.push(face.definingFeatures);
+      if (faceParts.length > 0) parts.push(`Face: ${faceParts.join(', ')}`);
+    }
+
+    // Hair
+    const hair = entity.hair;
+    if (hair) {
+      const hairParts: string[] = [];
+      if (hair.color) hairParts.push(hair.color);
+      if (hair.length) hairParts.push(hair.length);
+      if (hair.style) hairParts.push(hair.style);
+      if (hair.texture) hairParts.push(hair.texture);
+      if (hairParts.length > 0) parts.push(`Hair: ${hairParts.join(', ')}`);
+    }
+
+    // Skin
+    if (entity.skinTone) parts.push(`Skin tone: ${entity.skinTone}`);
+
+    // Body
+    const body = entity.body;
+    if (body) {
+      const bodyParts: string[] = [];
+      if (body.height) bodyParts.push(body.height);
+      if (body.build) bodyParts.push(`${body.build} build`);
+      if (body.proportions) bodyParts.push(body.proportions);
+      if (bodyParts.length > 0) parts.push(`Body: ${bodyParts.join(', ')}`);
+    }
+
+    // Distinct traits
+    if (entity.distinctTraits && entity.distinctTraits.length > 0) {
+      parts.push(`Distinctive: ${entity.distinctTraits.join(', ')}`);
+    }
+
+    // Freeform appearance as supplement (only if structured fields are empty)
+    if (entity.appearance && parts.length === 0) {
+      parts.push(entity.appearance);
+    } else if (entity.appearance && parts.length > 0) {
+      // Append freeform as extra details
+      parts.push(`Additional: ${entity.appearance}`);
+    }
+
+    return parts.join('. ');
+  }
   const characterList: AgentTool = {
     name: 'character.list',
     description: 'List all characters in the current project.',
@@ -301,7 +370,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
   const characterGenerateReferenceImage: AgentTool = {
     name: 'character.generateReferenceImage',
-    description: 'Generate a reference image for a character slot. Each slot produces a specific view with plain background and no scene elements.',
+    description: 'Generate a character turnaround reference sheet. Produces a multi-view image with front, side, and back views plus facial expression range on a plain white background. Uses structured appearance fields (face, hair, body) when available. IMPORTANT: Call this tool ONE character at a time, wait for the result, and verify success before generating the next character. Never batch multiple generation calls in parallel — if one fails (wrong provider, quota, etc.) you waste all calls.',
     tags: ['character', 'generation'],
     tier: 3,
     parameters: {
@@ -310,12 +379,14 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         id: { type: 'string', description: 'The character ID.' },
         slot: {
           type: 'string',
-          description: 'Reference image slot. front/back/left-side/right-side = full body views; face-closeup = detailed portrait; top-down = overhead view.',
-          enum: ['front', 'back', 'left-side', 'right-side', 'face-closeup', 'top-down'],
+          description: 'Reference image slot to store the result. Default: "main".',
+          enum: ['main', 'front', 'back', 'left-side', 'right-side', 'face-closeup', 'top-down'],
         },
-        prompt: { type: 'string', description: 'Optional custom prompt. Default auto-generates a character-only reference prompt with neutral background.' },
+        width: { type: 'number', description: 'Image width in pixels. Default 1536. Auto-clamped to provider max.' },
+        height: { type: 'number', description: 'Image height in pixels. Default 1024. Auto-clamped to provider max.' },
+        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates a turnaround sheet prompt from character data.' },
       },
-      required: ['id', 'slot'],
+      required: ['id'],
     },
     async execute(args) {
       try {
@@ -328,41 +399,53 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           return { success: false, error: 'Image generation not available' };
         }
 
-        const slot = args.slot as string;
-        const slotDescriptions: Record<string, string> = {
-          'front': 'full body front view, neutral standing pose, facing camera directly, head to toe visible, arms slightly away from body',
-          'back': 'full body back view, neutral standing pose, facing away from camera, head to toe visible, showing hair and costume details from behind',
-          'left-side': 'full body left side profile view, neutral standing pose, clean silhouette, head to toe visible',
-          'right-side': 'full body right side profile view, neutral standing pose, clean silhouette, head to toe visible',
-          'face-closeup': 'close-up portrait of face, head and shoulders framing, highly detailed facial features, detailed eyes and skin texture, multiple subtle expressions showing emotional range, neutral and slight smile',
-          'top-down': 'top-down overhead view looking straight down, full body visible, arms slightly spread for shape clarity',
-        };
-        const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
-        const appearance = entity.appearance ? `Appearance: ${entity.appearance}. ` : '';
+        const slot = typeof args.slot === 'string' ? args.slot : 'main';
+        const appearanceDesc = buildAppearancePrompt(entity);
+
         const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
           ? args.prompt
-          : `Character design reference, solid white background, even studio lighting, no environment, no scene, no props, no other characters. `
-            + `Subject: ${entity.name}. ${slotDesc}. ${appearance}`
-            + `Single character only, clean edges, high detail, consistent proportions, professional character concept art.`;
-        const result = await deps.generateImage(finalPrompt);
+          : `Professional character turnaround reference sheet for animation/film production. `
+            + `Solid white background, even studio lighting, no environment, no scene, no props. `
+            + `Character: ${entity.name}. `
+            + (appearanceDesc ? `${appearanceDesc}. ` : '')
+            + `TOP ROW: Three full-body standing poses shown from head to feet with shoes visible — front view, side profile, back view. `
+            + `Each pose shows the complete figure at identical scale, arms slightly away from body for silhouette clarity. `
+            + `BOTTOM ROW: Five head-and-shoulders close-up portraits of the same character showing distinct facial expressions — neutral, happy, sad, angry, surprised. `
+            + `Each close-up fills a square frame with detailed facial features and expression clearly visible. `
+            + `Consistent character design, proportions, clothing, and art style across all views. `
+            + `High detail, clean lines, professional character concept art, no text labels, single character only.`;
+
+        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1536;
+        const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1024;
+        const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight });
         const referenceImages = [...(entity.referenceImages ?? [])];
-        const referenceImage = {
-          slot,
-          assetHash: result.assetHash,
-          isStandard: STANDARD_ANGLE_SLOTS.includes(slot as Character['referenceImages'][number]['slot'] & (typeof STANDARD_ANGLE_SLOTS)[number]),
-        };
         const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
         if (existingIndex >= 0) {
-          referenceImages[existingIndex] = referenceImage;
+          // Add as variant — keep previous image, user can switch
+          const existing = referenceImages[existingIndex];
+          const prevVariants = existing.variants ?? [];
+          if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
+            prevVariants.push(existing.assetHash);
+          }
+          referenceImages[existingIndex] = {
+            ...existing,
+            assetHash: result.assetHash,
+            variants: prevVariants,
+          };
         } else {
-          referenceImages.push(referenceImage);
+          referenceImages.push({
+            slot,
+            assetHash: result.assetHash,
+            isStandard: STANDARD_ANGLE_SLOTS.includes(slot as Character['referenceImages'][number]['slot'] & (typeof STANDARD_ANGLE_SLOTS)[number]),
+          });
         }
 
         entity.referenceImages = referenceImages;
         entity.updatedAt = Date.now();
         await deps.saveCharacter(entity);
 
-        return { success: true, data: { assetHash: result.assetHash, slot } };
+        const variantCount = referenceImages.find((r) => r.slot === slot)?.variants?.length ?? 0;
+        return { success: true, data: { assetHash: result.assetHash, slot, variantCount } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }

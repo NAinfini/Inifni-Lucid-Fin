@@ -438,6 +438,7 @@ declare global {
           maxTokens?: number,
         ) => Promise<void>;
         cancel: (canvasId: string) => Promise<void>;
+        compact: (canvasId: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
         injectMessage: (canvasId: string, message: string) => Promise<void>;
         confirmTool: (canvasId: string, toolCallId: string, approved: boolean) => Promise<void>;
         answerQuestion: (canvasId: string, toolCallId: string, answer: string) => Promise<void>;

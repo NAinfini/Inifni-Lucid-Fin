@@ -125,10 +125,13 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       const char = db.getCharacter(args.characterId);
       if (!char) throw new Error(`Character not found: ${args.characterId}`);
 
+      // Preserve existing variants when swapping the active image
+      const existing = char.referenceImages.find((r) => r.slot === args.slot);
       const refImage: ReferenceImage = {
         slot: args.slot,
         assetHash: args.assetHash,
         isStandard: args.isStandard ?? true,
+        ...(existing?.variants ? { variants: existing.variants } : {}),
       };
 
       const refs = char.referenceImages.filter((r) => r.slot !== args.slot);

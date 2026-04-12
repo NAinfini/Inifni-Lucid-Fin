@@ -12,7 +12,7 @@ import {
 } from '../../store/slices/shotTemplates.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizePresetName, localizeShotTemplateName, localizeShotTemplateDescription } from '../../i18n.js';
+import { localizePresetName, localizePresetDescription, localizeShotTemplateName, localizeShotTemplateDescription } from '../../i18n.js';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 
 const CATEGORIES: PresetCategory[] = ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'];
@@ -166,7 +166,7 @@ function CategoryCell({ templateId: _templateId, category, track, presetsById, a
                 className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
               >
                 <div className="font-medium">{localizePresetName(p.name)}</div>
-                {p.description && <div className="text-[10px] text-muted-foreground truncate">{p.description}</div>}
+                {p.description && <div className="text-[10px] text-muted-foreground truncate">{localizePresetDescription(category, p.name, p.description)}</div>}
               </button>
             ))}
             {filteredPresets.length === 0 && (

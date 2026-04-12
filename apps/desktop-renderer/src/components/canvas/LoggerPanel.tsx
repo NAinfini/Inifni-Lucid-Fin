@@ -79,7 +79,7 @@ export function LoggerPanel() {
   }, [filteredEntries]);
 
   return (
-    <div className="h-full bg-card border-l border-border/60 flex flex-col">
+    <div className="h-full bg-card border-l border-border/60 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/60">
         <div className="flex items-center gap-2">
           <ScrollText className="w-3.5 h-3.5 text-muted-foreground" />

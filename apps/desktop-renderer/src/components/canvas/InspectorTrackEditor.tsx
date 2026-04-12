@@ -9,7 +9,7 @@ import {
 } from '../../store/slices/canvas.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizePresetName } from '../../i18n.js';
+import { localizePresetName, localizePresetDescription } from '../../i18n.js';
 import type {
   PresetCategory,
   PresetDefinition,
@@ -345,7 +345,7 @@ export function InspectorTrackEditor({
                   placeholder={t('inspector.searchPresets')}
                 />
               </div>
-              <div className="max-h-56 space-y-1 overflow-auto">
+              <div className="max-h-80 space-y-1 overflow-auto">
                 {filteredPresets.map((preset) => (
                   <button
                     key={preset.id}
@@ -357,7 +357,7 @@ export function InspectorTrackEditor({
                       {localizePresetName(preset.name)}
                     </div>
                     <div className="truncate text-[11px] text-muted-foreground">
-                      {preset.description}
+                      {localizePresetDescription(category, preset.name, preset.description)}
                     </div>
                   </button>
                 ))}

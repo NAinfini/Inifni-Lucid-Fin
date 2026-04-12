@@ -243,6 +243,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       maxTokens?: number,
     ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode, locale, maxSteps, temperature, maxTokens }),
     cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),
+    compact: (canvasId: string) => invoke<{ freedChars: number; messageCount: number; toolCount: number }>('commander:compact', { canvasId }),
     injectMessage: (canvasId: string, message: string) =>
       invoke('commander:inject-message', { canvasId, message }),
     confirmTool: (canvasId: string, toolCallId: string, approved: boolean) =>

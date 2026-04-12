@@ -5,7 +5,7 @@ export interface LocationToolDeps {
   listLocations: () => Promise<Location[]>;
   saveLocation: (location: Location) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
-  generateImage?: (prompt: string, providerId?: string) => Promise<{ assetHash: string }>;
+  generateImage?: (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => Promise<{ assetHash: string }>;
 }
 
 export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
@@ -214,7 +214,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
 
   const locationGenerateReferenceImage: AgentTool = {
     name: 'location.generateReferenceImage',
-    description: 'Generate a reference image for a location slot. Each slot produces a specific view — environment only, no characters.',
+    description: 'Generate a reference image for a location. Automatically compiles all location fields (type, description, mood, lighting, weather, architecture, colors, features) into the prompt. Default slot is "main" for a wide establishing shot. IMPORTANT: Call ONE at a time, verify success before generating the next. Never batch parallel generation calls.',
     tags: ['location', 'generation'],
     tier: 3,
     parameters: {
@@ -223,12 +223,14 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
         id: { type: 'string', description: 'The location ID.' },
         slot: {
           type: 'string',
-          description: 'Reference image slot. wide-establishing = full overview; interior-detail = close-up of interior elements; atmosphere = mood/lighting study; key-angle-1/2 = important camera positions; overhead = bird\'s eye layout.',
-          enum: ['wide-establishing', 'interior-detail', 'atmosphere', 'key-angle-1', 'key-angle-2', 'overhead'],
+          description: 'Reference image slot. Default: "main". Use specific slots for targeted views.',
+          enum: ['main', 'wide-establishing', 'interior-detail', 'atmosphere', 'key-angle-1', 'key-angle-2', 'overhead'],
         },
-        prompt: { type: 'string', description: 'Optional custom image generation prompt.' },
+        width: { type: 'number', description: 'Image width in pixels. Default 1536. Auto-clamped to provider max.' },
+        height: { type: 'number', description: 'Image height in pixels. Default 1024. Auto-clamped to provider max.' },
+        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates from location data.' },
       },
-      required: ['id', 'slot'],
+      required: ['id'],
     },
     async execute(args) {
       try {
@@ -241,9 +243,10 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           return { success: false, error: 'Image generation not available' };
         }
 
-        const slot = args.slot as string;
+        const slot = typeof args.slot === 'string' ? args.slot : 'main';
         const typeLabel = entity.type === 'interior' ? 'Interior space' : entity.type === 'exterior' ? 'Exterior view' : 'Interior-exterior transition';
         const slotDescriptions: Record<string, string> = {
+          'main': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
           'wide-establishing': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
           'interior-detail': 'close-up interior detail shot, architectural features, furniture, textures, material quality visible',
           'atmosphere': 'atmospheric mood study, emphasizing lighting, weather, time of day, volumetric light and shadow',
@@ -252,27 +255,50 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           'overhead': 'overhead bird\'s eye view, looking straight down, showing spatial layout, floor plan perspective',
         };
         const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
-        const description = entity.description ? `${entity.description}. ` : '';
-        const mood = entity.mood ? `Mood: ${entity.mood}. ` : '';
-        const lighting = entity.lighting ? `Lighting: ${entity.lighting}. ` : '';
+
+        // Build rich description from all available fields
+        const descParts: string[] = [];
+        if (entity.description) descParts.push(entity.description);
+        if (entity.subLocation) descParts.push(`Sub-location: ${entity.subLocation}`);
+        if (entity.architectureStyle) descParts.push(`Architecture: ${entity.architectureStyle}`);
+        if (entity.mood) descParts.push(`Mood: ${entity.mood}`);
+        if (entity.lighting) descParts.push(`Lighting: ${entity.lighting}`);
+        if (entity.weather) descParts.push(`Weather: ${entity.weather}`);
+        if (entity.timeOfDay) descParts.push(`Time of day: ${entity.timeOfDay}`);
+        if (entity.dominantColors && entity.dominantColors.length > 0) descParts.push(`Color palette: ${entity.dominantColors.join(', ')}`);
+        if (entity.keyFeatures && entity.keyFeatures.length > 0) descParts.push(`Key features: ${entity.keyFeatures.join(', ')}`);
+        if (entity.atmosphereKeywords && entity.atmosphereKeywords.length > 0) descParts.push(`Atmosphere: ${entity.atmosphereKeywords.join(', ')}`);
+        const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
+
         const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
           ? args.prompt
-          : `Environment concept art reference. Location: ${entity.name}. ${description}${typeLabel}. `
-            + `${slotDesc}. ${mood}${lighting}`
+          : `Environment concept art reference. Location: ${entity.name}. ${typeLabel}. `
+            + `${richDesc}`
+            + `${slotDesc}. `
             + `No characters, no people, no figures, empty scene, environment only. `
             + `Consistent architectural style, detailed textures, professional environment concept art, cinematic quality.`;
-        const result = await deps.generateImage(finalPrompt);
+        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1536;
+        const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1024;
+        const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight });
         const referenceImages = [...(entity.referenceImages ?? [])];
-        const referenceImage = {
-          slot,
-          assetHash: result.assetHash,
-          isStandard: LOCATION_STANDARD_SLOTS.includes(slot as Location['referenceImages'][number]['slot'] & (typeof LOCATION_STANDARD_SLOTS)[number]),
-        };
         const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
         if (existingIndex >= 0) {
-          referenceImages[existingIndex] = referenceImage;
+          const existing = referenceImages[existingIndex];
+          const prevVariants = existing.variants ?? [];
+          if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
+            prevVariants.push(existing.assetHash);
+          }
+          referenceImages[existingIndex] = {
+            ...existing,
+            assetHash: result.assetHash,
+            variants: prevVariants,
+          };
         } else {
-          referenceImages.push(referenceImage);
+          referenceImages.push({
+            slot,
+            assetHash: result.assetHash,
+            isStandard: LOCATION_STANDARD_SLOTS.includes(slot as Location['referenceImages'][number]['slot'] & (typeof LOCATION_STANDARD_SLOTS)[number]),
+          });
         }
 
         entity.referenceImages = referenceImages;

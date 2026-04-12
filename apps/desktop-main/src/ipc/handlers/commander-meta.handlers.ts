@@ -78,6 +78,25 @@ export function registerCommanderMetaHandlers(ipcMain: IpcMain): void {
     session.orchestrator.answerQuestion(args.toolCallId, args.answer);
   });
 
+  ipcMain.handle('commander:compact', async (_event, args: { canvasId: string }) => {
+    if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
+      throw new Error('canvasId is required');
+    }
+    const session = runningSessions.get(args.canvasId);
+    if (!session?.orchestrator) {
+      logger.warn('Commander compact requested with no active session', {
+        canvasId: args.canvasId,
+      });
+      return { freedChars: 0, messageCount: 0, toolCount: 0 };
+    }
+    const result = await session.orchestrator.compactNow();
+    logger.info('Commander compact executed', {
+      canvasId: args.canvasId,
+      ...result,
+    });
+    return result;
+  });
+
   ipcMain.handle('commander:tool-list', async () => {
     const tools = lastToolRegistry?.list().map((t) => ({
       name: t.name,

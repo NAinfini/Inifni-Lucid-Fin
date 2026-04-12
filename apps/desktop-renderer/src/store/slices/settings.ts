@@ -19,6 +19,7 @@ export interface ProviderConfig {
   isCustom: boolean;
   protocol?: LLMProviderProtocol;
   authStyle?: LLMProviderAuthStyle;
+  contextWindow?: number;
 }
 
 export interface ProviderMetadata {
@@ -229,6 +230,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'gpt-5.4',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      contextWindow: 1_000_000,
       kind: 'official',
       docsUrl: 'https://platform.openai.com/docs/api-reference/chat',
       keyUrl: 'https://platform.openai.com/api-keys',
@@ -240,6 +242,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'claude-sonnet-4-20250514',
       protocol: 'anthropic',
       authStyle: 'x-api-key',
+      contextWindow: 200_000,
       kind: 'official',
       docsUrl: 'https://docs.anthropic.com/en/api/messages',
       keyUrl: 'https://console.anthropic.com/settings/keys',
@@ -251,6 +254,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'gemini-2.5-flash',
       protocol: 'gemini',
       authStyle: 'x-goog-api-key',
+      contextWindow: 1_000_000,
       kind: 'official',
       docsUrl: 'https://ai.google.dev/gemini-api/docs',
       keyUrl: 'https://aistudio.google.com/apikey',
@@ -262,6 +266,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'grok-3',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      contextWindow: 131_072,
       kind: 'official',
       docsUrl: 'https://docs.x.ai/docs/guides/chat-completions',
       keyUrl: 'https://console.x.ai/team/api-keys',
@@ -273,6 +278,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'deepseek-chat',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      contextWindow: 128_000,
       kind: 'official',
       docsUrl: 'https://api-docs.deepseek.com/api/create-chat-completion',
       keyUrl: 'https://platform.deepseek.com/api_keys',
@@ -284,6 +290,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'mistral-large-latest',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      contextWindow: 128_000,
       kind: 'official',
       docsUrl: 'https://docs.mistral.ai/api',
       keyUrl: 'https://console.mistral.ai/api-keys/',
@@ -295,6 +302,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'command-a-03-2025',
       protocol: 'cohere',
       authStyle: 'bearer',
+      contextWindow: 256_000,
       kind: 'official',
       docsUrl: 'https://docs.cohere.com/',
       keyUrl: 'https://dashboard.cohere.com/api-keys',
@@ -342,6 +350,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'qwen-plus',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      contextWindow: 131_072,
       kind: 'official',
       docsUrl: 'https://help.aliyun.com/zh/model-studio/developer-reference/use-qwen-by-calling-api',
       keyUrl: 'https://bailian.console.aliyun.com/',
@@ -365,6 +374,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'doubao-1.5-pro-256k',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      contextWindow: 256_000,
       kind: 'official',
       docsUrl: 'https://www.volcengine.com/docs/82379/1263482',
       keyUrl: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
@@ -376,6 +386,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'glm-4-plus',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      contextWindow: 128_000,
       kind: 'official',
       docsUrl: 'https://open.bigmodel.cn/dev/api/normal-model/glm-4',
       keyUrl: 'https://open.bigmodel.cn/usercenter/apikeys',
@@ -1038,6 +1049,7 @@ function toProviderConfig(provider: BuiltinProviderConfig): ProviderConfig {
     isCustom: false,
     protocol: provider.protocol,
     authStyle: provider.authStyle,
+    ...(provider.contextWindow ? { contextWindow: provider.contextWindow } : {}),
   };
 }
 
@@ -1185,6 +1197,7 @@ function mergeBuiltinProvider(
     model: effectiveModel,
     hasKey: savedProvider.hasKey,
     isCustom: false,
+    ...(savedProvider.contextWindow ? { contextWindow: savedProvider.contextWindow } : {}),
   };
 
   return normalizeSavedProvider(group, merged);
@@ -1304,6 +1317,7 @@ export const settingsSlice = createSlice({
           protocol?: LLMProviderProtocol;
           authStyle?: LLMProviderAuthStyle;
           name?: string;
+          contextWindow?: number;
         };
       }>,
     ) {
@@ -1329,6 +1343,10 @@ export const settingsSlice = createSlice({
 
       if (config.name !== undefined && provider.isCustom) {
         provider.name = config.name;
+      }
+
+      if (config.contextWindow !== undefined) {
+        provider.contextWindow = config.contextWindow || undefined;
       }
     },
     resetProviderToDefaults(
@@ -1376,6 +1394,7 @@ export const settingsSlice = createSlice({
         isCustom: true,
         protocol: runtime?.protocol,
         authStyle: runtime?.authStyle,
+        ...(action.payload.group === 'llm' ? { contextWindow: 128_000 } : {}),
       });
     },
     removeCustomProvider(state, action: PayloadAction<{ group: APIGroup; provider: string }>) {
@@ -1510,6 +1529,7 @@ interface SparseProviderConfig {
   hasKey: boolean;
   protocol?: LLMProviderProtocol;
   authStyle?: LLMProviderAuthStyle;
+  contextWindow?: number;
 }
 
 interface SparseSettingsState {
@@ -1547,6 +1567,7 @@ function toSparseProvider(provider: ProviderConfig): SparseProviderConfig {
     hasKey: provider.hasKey,
     protocol: provider.protocol,
     authStyle: provider.authStyle,
+    ...(provider.contextWindow ? { contextWindow: provider.contextWindow } : {}),
   };
 }
 

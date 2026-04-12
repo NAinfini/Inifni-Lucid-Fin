@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 import {
   ReactFlow,
   Background,
@@ -519,7 +519,7 @@ export function CanvasWorkspace() {
   const projectStyleGuide = useSelector((s: RootState) => s.project.styleGuide);
   const selectedNodeIds = useSelector((s: RootState) => s.canvas.selectedNodeIds);
   const selectedEdgeIds = useSelector((s: RootState) => s.canvas.selectedEdgeIds);
-  const clipboard = useSelector((s: RootState) => s.canvas.clipboard);
+  const clipboard = useSelector((s: RootState) => s.canvas.clipboard, shallowEqual);
   const presetById = useSelector((s: RootState) => s.presets.byId);
   const {
     canvasSearchQuery,
@@ -920,11 +920,9 @@ export function CanvasWorkspace() {
   // ReactFlow needs dimension changes applied to nodes for drag/selection to work.
   // We track applied nodes in local state, resetting from Redux when flowNodes change.
   const [appliedNodes, setAppliedNodes] = useState<Node[]>(flowNodes);
-  const prevFlowNodesRef = useRef(flowNodes);
-  if (prevFlowNodesRef.current !== flowNodes) {
-    prevFlowNodesRef.current = flowNodes;
+  useEffect(() => {
     setAppliedNodes(flowNodes);
-  }
+  }, [flowNodes]);
 
   const targetSummaryByNodeId = useMemo(() => {
     const summary: Record<string, string> = {};

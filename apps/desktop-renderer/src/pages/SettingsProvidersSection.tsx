@@ -108,6 +108,7 @@ function ProviderCard({
   const [draftModel, setDraftModel] = useState(provider.model);
   const [draftProtocol, setDraftProtocol] = useState<LLMProviderProtocol | undefined>(provider.protocol);
   const [draftName, setDraftName] = useState(provider.name);
+  const [draftContextWindow, setDraftContextWindow] = useState(provider.contextWindow ?? 0);
   const [draftKey, setDraftKey] = useState('');
   const [loadedKey, setLoadedKey] = useState('');
 
@@ -129,7 +130,8 @@ function ProviderCard({
     draftBaseUrl !== provider.baseUrl ||
     draftModel !== provider.model ||
     draftProtocol !== provider.protocol ||
-    (provider.isCustom && draftName !== provider.name);
+    (provider.isCustom && draftName !== provider.name) ||
+    (group === 'llm' && (draftContextWindow || 0) !== (provider.contextWindow || 0));
   const keyDirty = draftKey !== loadedKey;
   const isDirty = configDirty || keyDirty;
 
@@ -182,7 +184,8 @@ function ProviderCard({
     setDraftModel(provider.model);
     setDraftProtocol(provider.protocol);
     setDraftName(provider.name);
-  }, [provider.baseUrl, provider.model, provider.protocol, provider.name]);
+    setDraftContextWindow(provider.contextWindow ?? 0);
+  }, [provider.baseUrl, provider.model, provider.protocol, provider.name, provider.contextWindow]);
 
   // Load API key from keychain when card expands
   useEffect(() => {
@@ -264,6 +267,7 @@ function ProviderCard({
               model: draftModel,
               protocol: draftProtocol,
               name: provider.isCustom ? draftName : undefined,
+              contextWindow: group === 'llm' ? (draftContextWindow || undefined) : undefined,
             },
           }),
         );
@@ -515,6 +519,23 @@ function ProviderCard({
                 {t('settings.providerCard.authLabel')}{' '}
                 {t(`settings.providerCard.authStyles.${provider.authStyle ?? 'bearer'}`)}
               </div>
+            </div>
+          )}
+
+          {group === 'llm' && (
+            <div>
+              <label className="mb-1 block text-[10px] text-muted-foreground">
+                {t('settings.providerCard.contextWindow')}
+              </label>
+              <input
+                type="number"
+                min={0}
+                step={1000}
+                value={draftContextWindow || ''}
+                onChange={(e) => setDraftContextWindow(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                placeholder="128000"
+                className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
             </div>
           )}
 

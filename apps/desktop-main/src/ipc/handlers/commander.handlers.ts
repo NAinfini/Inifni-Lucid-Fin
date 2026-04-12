@@ -287,6 +287,7 @@ export function registerCommanderHandlers(
 
         // Build tool registry
         const registry = new AgentToolRegistry();
+        const compactRef: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> } = {};
         const toolDeps: ToolRegistrationDeps = {
           adapterRegistry: deps.adapterRegistry,
           llmRegistry: deps.llmRegistry,
@@ -299,7 +300,7 @@ export function registerCommanderHandlers(
           projectFS: deps.projectFS,
           keychain: deps.keychain,
         };
-        registerAllTools(registry, toolDeps, getWindow, args.promptGuides ?? []);
+        registerAllTools(registry, toolDeps, getWindow, args.promptGuides ?? [], compactRef);
         setLastToolRegistry(registry);
 
         // Create orchestrator
@@ -308,6 +309,7 @@ export function registerCommanderHandlers(
           temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
           maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
         });
+        compactRef.compact = (instructions?: string) => orchestrator.compactNow(instructions);
         session = { aborted: false, canvasId: args.canvasId, orchestrator };
         runningSessions.set(args.canvasId, session);
 

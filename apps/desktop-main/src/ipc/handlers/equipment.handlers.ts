@@ -107,10 +107,12 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       const equip = db.getEquipment(args.equipmentId);
       if (!equip) throw new Error(`Equipment not found: ${args.equipmentId}`);
 
+      const existing = equip.referenceImages.find((r) => r.slot === args.slot);
       const refImage: ReferenceImage = {
         slot: args.slot,
         assetHash: args.assetHash,
         isStandard: args.isStandard ?? true,
+        ...(existing?.variants ? { variants: existing.variants } : {}),
       };
 
       const refs = equip.referenceImages.filter((r) => r.slot !== args.slot);

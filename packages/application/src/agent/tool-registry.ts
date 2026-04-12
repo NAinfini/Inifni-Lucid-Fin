@@ -14,6 +14,8 @@ export interface AgentTool {
   context?: string[];
   /** Permission tier: 1=safe/read, 2=single-entity mutation, 3=batch/destructive, 4=system */
   tier?: 1 | 2 | 3 | 4;
+  /** Max characters for this tool's result before truncation. Overrides RESULT_HARD_LIMIT. */
+  maxResultChars?: number;
   parameters: {
     type: 'object';
     properties: Record<

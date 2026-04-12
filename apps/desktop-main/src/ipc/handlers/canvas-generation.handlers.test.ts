@@ -487,6 +487,11 @@ describe('startCanvasGeneration progress events', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-video-frames-'));
     const assetPath = path.join(tmpDir, 'video.mp4');
     fs.writeFileSync(assetPath, Buffer.from([1, 2, 3, 4]));
+    // Create dummy reference image files for CAS resolution
+    const firstFramePath = path.join(tmpDir, 'connected-first-frame.png');
+    const lastFramePath = path.join(tmpDir, 'uploaded-last-frame.png');
+    fs.writeFileSync(firstFramePath, Buffer.from([5, 6, 7, 8]));
+    fs.writeFileSync(lastFramePath, Buffer.from([9, 10, 11, 12]));
 
     const now = Date.now();
     const canvas: Canvas = {
@@ -602,6 +607,11 @@ describe('startCanvasGeneration progress events', () => {
               createdAt: Date.now(),
             },
           })),
+          getAssetPath: vi.fn((hash: string, _type: string, ext: string) => {
+            if (hash === 'connected-first-frame') return firstFramePath;
+            if (hash === 'uploaded-last-frame') return lastFramePath;
+            return path.join(tmpDir, `${hash}.${ext}`);
+          }),
         },
         db: {
           insertAsset: vi.fn(),
@@ -623,7 +633,7 @@ describe('startCanvasGeneration progress events', () => {
 
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
-        referenceImages: ['connected-first-frame', 'uploaded-last-frame'],
+        referenceImages: [firstFramePath, lastFramePath],
       }),
     );
 

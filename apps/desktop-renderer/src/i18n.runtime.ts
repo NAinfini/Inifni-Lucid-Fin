@@ -63,6 +63,16 @@ export function localizePresetName(name: string): string {
   return localizeWithFallback('presetNames.' + name, name);
 }
 
+export function localizePresetDescription(category: string, name: string, fallbackDesc: string): string {
+  const localizedName = localizePresetName(name);
+  const localizedCategory = localizeWithFallback('presetCategory.' + category, category);
+  const template = t('presetDescriptionTemplate');
+  if (template && template !== 'presetDescriptionTemplate') {
+    return template.replace('{name}', localizedName).replace('{category}', localizedCategory);
+  }
+  return fallbackDesc;
+}
+
 export function localizeSlot(slot: string): string {
   const result = t('slots.' + slot);
   if (result !== 'slots.' + slot) return result;

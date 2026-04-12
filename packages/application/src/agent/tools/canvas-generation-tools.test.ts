@@ -525,7 +525,7 @@ describe('createCanvasGenerationTools', () => {
       prompt: 'wrong field',
     })).resolves.toEqual({
       success: false,
-      error: 'content is required for text nodes',
+      error: 'content is required for text node text-1',
     });
     await expect(getTool('canvas.setNodeProvider', deps).execute({
       canvasId: 'canvas-1',
@@ -533,21 +533,21 @@ describe('createCanvasGenerationTools', () => {
       providerId: 'runway',
     })).resolves.toEqual({
       success: false,
-      error: 'Node type "text" does not support providers',
+      error: 'Node "text-1" type "text" does not support providers',
     });
     await expect(getTool('canvas.setNodeMediaConfig', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'audio-1',
     })).resolves.toEqual({
       success: false,
-      error: 'Node type "audio" does not support media config',
+      error: 'Node "audio-1" type "audio" does not support media config',
     });
     await expect(getTool('canvas.setVideoFrames', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
     })).resolves.toEqual({
       success: false,
-      error: 'Node type "image" is not a video node',
+      error: 'Node "image-1" type "image" is not a video node',
     });
   });
 

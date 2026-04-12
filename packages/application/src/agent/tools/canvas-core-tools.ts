@@ -260,39 +260,75 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const connectNodes: AgentTool = {
     name: 'canvas.connectNodes',
-    description: 'Create a directional edge between two nodes.',
+    description: 'Create directional edges between nodes. Single pair: pass sourceId+targetId. Batch: pass "connections" array of {sourceId, targetId, label?} objects.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        sourceId: { type: 'string', description: 'The source node ID.' },
-        targetId: { type: 'string', description: 'The target node ID.' },
-        label: { type: 'string', description: 'Optional edge label.' },
+        sourceId: { type: 'string', description: 'Source node ID (single connection).' },
+        targetId: { type: 'string', description: 'Target node ID (single connection).' },
+        label: { type: 'string', description: 'Optional edge label (single connection).' },
+        connections: {
+          type: 'array',
+          description: 'Batch: array of connection descriptors.',
+          items: {
+            type: 'object',
+            description: 'A connection descriptor.',
+            properties: {
+              sourceId: { type: 'string', description: 'Source node ID.' },
+              targetId: { type: 'string', description: 'Target node ID.' },
+              label: { type: 'string', description: 'Optional edge label.' },
+            },
+          },
+        },
       },
-      required: ['canvasId', 'sourceId', 'targetId'],
+      required: ['canvasId'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        const sourceId = requireString(args, 'sourceId');
-        const targetId = requireString(args, 'targetId');
-        const canvas = await requireCanvas(deps, canvasId);
-        const sourceNode = requireCanvasNodeById(canvas, sourceId);
-        const targetNode = requireCanvasNodeById(canvas, targetId);
-        const edge: CanvasEdge = {
-          id: crypto.randomUUID(),
-          source: sourceId,
-          target: targetId,
-          ...selectEdgeHandles(sourceNode, targetNode),
-          data: {
+        // Resolve connection descriptors
+        type ConnDesc = { sourceId: string; targetId: string; label?: string };
+        let pairs: ConnDesc[];
+        if (Array.isArray(args.connections) && args.connections.length > 0) {
+          pairs = (args.connections as Array<Record<string, unknown>>).map((c) => ({
+            sourceId: String(c.sourceId ?? ''),
+            targetId: String(c.targetId ?? ''),
+            label: typeof c.label === 'string' ? c.label : undefined,
+          }));
+        } else {
+          pairs = [{
+            sourceId: requireString(args, 'sourceId'),
+            targetId: requireString(args, 'targetId'),
             label: typeof args.label === 'string' ? args.label : undefined,
-            status: 'idle',
-          },
-        };
-        await deps.connectNodes(canvasId, edge);
-        return ok(edge);
+          }];
+        }
+        const canvas = await requireCanvas(deps, canvasId);
+        const results: Array<{ sourceId: string; targetId: string; success: boolean; edge?: CanvasEdge; error?: string }> = [];
+        for (const pair of pairs) {
+          try {
+            const sourceNode = requireCanvasNodeById(canvas, pair.sourceId);
+            const targetNode = requireCanvasNodeById(canvas, pair.targetId);
+            const edge: CanvasEdge = {
+              id: crypto.randomUUID(),
+              source: pair.sourceId,
+              target: pair.targetId,
+              ...selectEdgeHandles(sourceNode, targetNode),
+              data: {
+                label: pair.label,
+                status: 'idle',
+              },
+            };
+            await deps.connectNodes(canvasId, edge);
+            results.push({ sourceId: pair.sourceId, targetId: pair.targetId, success: true, edge });
+          } catch (error) {
+            results.push({ sourceId: pair.sourceId, targetId: pair.targetId, success: false, error: error instanceof Error ? error.message : String(error) });
+          }
+        }
+        if (pairs.length === 1) return results[0].success ? ok(results[0].edge!) : fail(results[0].error!);
+        return ok({ connected: results.filter((r) => r.success).length, total: pairs.length, results });
       } catch (error) {
         return fail(error);
       }

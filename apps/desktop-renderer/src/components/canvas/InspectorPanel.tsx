@@ -979,19 +979,12 @@ export function InspectorPanel() {
   const locationPickerOptions = availableLocations.map((location) => ({
     id: location.id,
     label: location.name || t('locationManager.title'),
-    description: location.type.toUpperCase(),
   }));
   const locationContextItems = nodeLocationRefs.map((ref) => {
     const location = locationById[ref.locationId];
-    const typeBadge = location?.type
-      ? location.type === 'int-ext'
-        ? 'INT-EXT'
-        : location.type.toUpperCase()
-      : undefined;
     return {
       id: ref.locationId,
       label: location?.name ?? ref.locationId.slice(0, 8),
-      description: typeBadge,
     };
   });
   const videoFramesSection =
@@ -1430,7 +1423,10 @@ export function InspectorPanel() {
       {isGenerationNode(selectedNode) && (
         <InspectorGenerationBar
           t={t}
-          providerOptions={configuredProviders.map((p) => ({ id: p.id, name: p.name }))}
+          providerOptions={configuredProviders.map((p) => {
+            const localized = t(`providerNames.${p.id}`);
+            return { id: p.id, name: localized !== `providerNames.${p.id}` ? localized : p.name };
+          })}
           activeProviderId={activeProviderId}
           providerLoading={providerLoading}
           onProviderChange={handleProviderSelectChange}
@@ -1479,12 +1475,12 @@ export function InspectorPanel() {
           showAudioToggle={selectedNode.type === 'video'}
           audioEnabled={selectedNode.type === 'video' ? (selectedNode.data as VideoNodeData).audio ?? false : false}
           onAudioChange={handleAudioChange}
-          audioLabel={t('generation.generateAudio')}
-          audioWarning={selectedNode.type === 'video' && (selectedNode.data as VideoNodeData).audio && !activeVideoProviderMetadata?.supportsAudio ? t('generation.audioUnsupported') : undefined}
-          qualityOptions={((activeVideoProviderMetadata?.qualityTiers?.length ?? 0) > 0 ? activeVideoProviderMetadata?.qualityTiers : ['standard'])?.map((v) => ({ value: v, label: t(`generation.quality_${v}` as 'generation.quality') || v }))}
+          audioLabel={t('node.generateAudio')}
+          audioWarning={selectedNode.type === 'video' && (selectedNode.data as VideoNodeData).audio && !activeVideoProviderMetadata?.supportsAudio ? t('node.audioUnsupported') : undefined}
+          qualityOptions={((activeVideoProviderMetadata?.qualityTiers?.length ?? 0) > 0 ? activeVideoProviderMetadata?.qualityTiers : ['standard'])?.map((v) => ({ value: v, label: t(`node.quality_${v}` as 'node.quality') || v }))}
           qualityValue={selectedNode.type === 'video' ? (selectedNode.data as VideoNodeData).quality ?? (activeVideoProviderMetadata?.qualityTiers?.[0] ?? 'standard') : undefined}
           onQualityChange={handleQualityChange}
-          qualityLabel={t('generation.quality')}
+          qualityLabel={t('node.quality')}
           showQualitySelector={selectedNode.type === 'video'}
           variantGrid={variantGrid}
           variantLabel={visibleVariantCount > 0 ? `${selectedVariantIndex + 1} / ${visibleVariantCount}` : undefined}

@@ -195,26 +195,10 @@ export function InspectorContextTab({
                 key={item.id}
                 className="flex items-center justify-between rounded-md border border-border/60 bg-card px-2.5 py-1.5"
               >
-                <div className="min-w-0 flex-1 space-y-0.5">
-                  <span className="text-xs truncate block">{item.label}</span>
-                  {item.slotOptions && item.slotOptions.length > 0 ? (
-                    <select
-                      value={item.selectedSlot ?? ''}
-                      onChange={(event) => onCharacterSlotChange(item.id, event.target.value || undefined)}
-                      className="w-full text-[10px] rounded-md border border-border/60 bg-background px-1.5 py-0.5 outline-none"
-                    >
-                      <option value="">{t('inspector.autoAngle')}</option>
-                      {item.slotOptions.map((slot) => (
-                        <option key={slot.value} value={slot.value}>
-                          {slot.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                </div>
+                <span className="text-xs truncate min-w-0 flex-1">{item.label}</span>
                 <button
                   onClick={() => onRemoveCharacter(item.id)}
-                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/20 shrink-0 ml-1.5"
+                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/40 hover:border-destructive/60 hover:text-destructive shrink-0 ml-1.5 transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -275,26 +259,10 @@ export function InspectorContextTab({
                 key={item.id}
                 className="flex items-center justify-between rounded-md border border-border/60 bg-card px-2.5 py-1.5"
               >
-                <div className="min-w-0 flex-1 space-y-0.5">
-                  <span className="text-xs truncate block">{item.label}</span>
-                  {item.slotOptions && item.slotOptions.length > 0 ? (
-                    <select
-                      value={item.selectedSlot ?? ''}
-                      onChange={(event) => onEquipmentSlotChange(item.id, event.target.value || undefined)}
-                      className="w-full text-[10px] rounded-md border border-border/60 bg-background px-1.5 py-0.5 outline-none"
-                    >
-                      <option value="">{t('inspector.autoAngle')}</option>
-                      {item.slotOptions.map((slot) => (
-                        <option key={slot.value} value={slot.value}>
-                          {slot.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                </div>
+                <span className="text-xs truncate min-w-0 flex-1">{item.label}</span>
                 <button
                   onClick={() => onRemoveEquipment(item.id)}
-                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/20 shrink-0 ml-1.5"
+                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/40 hover:border-destructive/60 hover:text-destructive shrink-0 ml-1.5 transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -363,7 +331,7 @@ export function InspectorContextTab({
                 </div>
                 <button
                   onClick={() => onRemoveLocation(item.id)}
-                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/20 shrink-0 ml-1.5"
+                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/40 hover:border-destructive/60 hover:text-destructive shrink-0 ml-1.5 transition-colors"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>

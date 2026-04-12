@@ -116,6 +116,8 @@ import {
   recomputeStageAggregate as _recomputeStageAggregate,
   recomputeWorkflowAggregate as _recomputeWorkflowAggregate,
 } from './sqlite-workflows.js';
+import { runMigrations } from './migrations/runner.js';
+import { migrations } from './migrations/index.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -483,10 +485,7 @@ export class SqliteIndex {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA_SQL);
-    this.migrateCharacters();
-    this.migrateJobs();
-    this.migrateCanvases();
-    this.migrateAssets();
+    runMigrations(this.db, migrations);
   }
 
   close(): void {
@@ -511,9 +510,7 @@ export class SqliteIndex {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA_SQL);
-    this.migrateCharacters();
-    this.migrateJobs();
-    this.migrateCanvases();
+    runMigrations(this.db, migrations);
     try {
       const old = new Database(backupPath, { readonly: true });
       const tables = old
@@ -541,78 +538,6 @@ export class SqliteIndex {
       old.close();
     } catch {
       /* backup unreadable -- fresh DB is still valid */
-    }
-  }
-
-  // --- Migrations ---
-
-  private migrateCharacters(): void {
-    const cols = this.db.prepare('PRAGMA table_info(characters)').all() as Array<{ name: string }>;
-    const existing = new Set(cols.map((c) => c.name));
-    const additions: Array<[string, string]> = [
-      ['description', "TEXT DEFAULT ''"],
-      ['appearance', "TEXT DEFAULT ''"],
-      ['personality', "TEXT DEFAULT ''"],
-      ['costumes', "TEXT DEFAULT '[]'"],
-      ['created_at', 'INTEGER'],
-      ['updated_at', 'INTEGER'],
-      ['age', 'INTEGER'],
-      ['gender', 'TEXT'],
-      ['voice', 'TEXT'],
-      ['reference_images', "TEXT DEFAULT '[]'"],
-      ['loadouts', "TEXT DEFAULT '[]'"],
-      ['default_loadout_id', "TEXT DEFAULT ''"],
-    ];
-    for (const [col, def] of additions) {
-      if (!existing.has(col)) {
-        this.db.exec(`ALTER TABLE characters ADD COLUMN ${col} ${def}`);
-      }
-    }
-  }
-
-  private migrateJobs(): void {
-    const cols = this.db.prepare('PRAGMA table_info(jobs)').all() as Array<{ name: string }>;
-    const existing = new Set(cols.map((c) => c.name));
-    const additions: Array<[string, string]> = [
-      ['progress', 'REAL'],
-      ['completed_steps', 'INTEGER'],
-      ['total_steps', 'INTEGER'],
-      ['current_step', 'TEXT'],
-      ['batch_id', 'TEXT'],
-      ['batch_index', 'INTEGER'],
-    ];
-    for (const [col, def] of additions) {
-      if (!existing.has(col)) {
-        this.db.exec(`ALTER TABLE jobs ADD COLUMN ${col} ${def}`);
-      }
-    }
-  }
-
-  private migrateCanvases(): void {
-    const cols = this.db.prepare('PRAGMA table_info(canvases)').all() as Array<{ name: string }>;
-    const existing = new Set(cols.map((c) => c.name));
-    const additions: Array<[string, string]> = [
-      ['notes', "TEXT NOT NULL DEFAULT '[]'"],
-    ];
-    for (const [col, def] of additions) {
-      if (!existing.has(col)) {
-        this.db.exec(`ALTER TABLE canvases ADD COLUMN ${col} ${def}`);
-      }
-    }
-  }
-
-  private migrateAssets(): void {
-    const cols = this.db.prepare('PRAGMA table_info(assets)').all() as Array<{ name: string }>;
-    const existing = new Set(cols.map((c) => c.name));
-    const additions: Array<[string, string]> = [
-      ['width', 'INTEGER'],
-      ['height', 'INTEGER'],
-      ['duration', 'REAL'],
-    ];
-    for (const [col, def] of additions) {
-      if (!existing.has(col)) {
-        this.db.exec(`ALTER TABLE assets ADD COLUMN ${col} ${def}`);
-      }
     }
   }
 

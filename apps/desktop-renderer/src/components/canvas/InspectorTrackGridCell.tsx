@@ -85,7 +85,7 @@ export function InspectorTrackGridCell({
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[80vh] max-w-md overflow-auto">
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-auto">
           <DialogHeader>
             <DialogTitle>
               {t('inspector.categoryPresetsTitle').replace(

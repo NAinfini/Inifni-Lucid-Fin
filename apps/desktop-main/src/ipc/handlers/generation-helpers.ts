@@ -385,7 +385,22 @@ export function materializeGenerationRequest(
     }
   }
 
-  let referenceImages = request.referenceImages;
+  let referenceImages: string[] | undefined;
+
+  // Resolve referenceImages hashes → file paths via CAS
+  if (request.referenceImages && request.referenceImages.length > 0) {
+    const resolved = request.referenceImages
+      .map((hash) => resolveImg2ImgSourcePath(hash, cas))
+      .filter((p): p is string => p !== undefined);
+    referenceImages = resolved.length > 0 ? resolved : undefined;
+    if (resolved.length < request.referenceImages.length) {
+      log.warn('[canvas:generation] some referenceImage hashes could not be resolved', {
+        total: request.referenceImages.length,
+        resolved: resolved.length,
+      });
+    }
+  }
+
   if (request.faceReferenceHashes && request.faceReferenceHashes.length > 0) {
     const resolvedFaceImages = request.faceReferenceHashes
       .map((hash) => resolveImg2ImgSourcePath(hash, cas))
