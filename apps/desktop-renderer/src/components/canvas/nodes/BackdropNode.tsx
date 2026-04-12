@@ -5,6 +5,7 @@ import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import { NodeResizeControls } from './node-resize-controls.js';
+import { useNodeCallbacks } from '../node-callbacks-context.js';
 
 const DEFAULT_COLOR = '#334155';
 const DEFAULT_OPACITY = 0.14;
@@ -42,22 +43,11 @@ export interface BackdropNodeFlowData {
   borderStyle?: 'dashed' | 'solid' | 'dotted';
   titleSize?: 'sm' | 'md' | 'lg';
   childCount?: number;
-  onTitleChange?: (id: string, title: string) => void;
-  onToggleCollapse?: (id: string) => void;
-  onOpacityChange?: (id: string, opacity: number) => void;
-  onDelete?: (id: string) => void;
-  onDuplicate?: (id: string) => void;
-  onDisconnect?: (id: string) => void;
-  onRename?: (id: string) => void;
-  onCut?: (id: string) => void;
-  onCopy?: (id: string) => void;
-  onPaste?: (id: string) => void;
-  onLock?: (id: string) => void;
-  onColorTag?: (id: string, color: string | undefined) => void;
 }
 
 function BackdropNodeComponent({ data, selected }: NodeProps) {
   const d = data as unknown as BackdropNodeFlowData;
+  const cb = useNodeCallbacks();
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(d.title);
 
@@ -70,9 +60,9 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
   const commitTitle = useCallback(() => {
     setEditing(false);
     if (titleDraft !== d.title) {
-      d.onTitleChange?.(d.nodeId, titleDraft);
+      cb.onTitleChange(d.nodeId, titleDraft);
     }
-  }, [d, titleDraft]);
+  }, [cb, d, titleDraft]);
 
   const borderClass =
     borderStyle === 'solid'
@@ -87,16 +77,6 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
       nodeType="backdrop"
       locked={d.locked ?? false}
       colorTag={d.colorTag}
-      onRename={d.onRename ?? (() => {})}
-      onDelete={d.onDelete ?? (() => {})}
-      onDuplicate={d.onDuplicate ?? (() => {})}
-      onCut={d.onCut ?? (() => {})}
-      onCopy={d.onCopy ?? (() => {})}
-      onPaste={d.onPaste ?? (() => {})}
-      onDisconnect={d.onDisconnect ?? (() => {})}
-      onLock={d.onLock ?? (() => {})}
-      onGenerate={() => {}}
-      onColorTag={d.onColorTag ?? (() => {})}
     >
       <div
         className={cn(
@@ -124,7 +104,7 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
               type="button"
               className="nodrag inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-300 transition-colors hover:bg-slate-700/50 hover:text-slate-100"
               aria-label={collapsed ? t('node.expandBackdrop') : t('node.collapseBackdrop')}
-              onClick={(e) => { e.stopPropagation(); if (!d.locked) d.onToggleCollapse?.(d.nodeId); }}
+              onClick={(e) => { e.stopPropagation(); if (!d.locked) cb.onToggleCollapse(d.nodeId); }}
               onContextMenu={(e) => e.preventDefault()}
               disabled={d.locked}
             >

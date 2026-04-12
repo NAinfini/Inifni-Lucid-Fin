@@ -49,7 +49,7 @@ export function JobQueuePanel() {
               <div className="flex items-center gap-2 mt-1">
                 <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full bg-primary rounded-full transition-all duration-300"
+                    className="h-full bg-primary rounded-full transition-[width] duration-300"
                     style={{ width: `${job.progress ?? 0}%` }}
                   />
                 </div>

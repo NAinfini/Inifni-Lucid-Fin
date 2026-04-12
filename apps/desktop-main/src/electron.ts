@@ -45,9 +45,26 @@ function registerEarlyIpcHandlers(): void {
   if (earlyIpcRegistered) return;
   earlyIpcRegistered = true;
   ipcMain.handle('logger:getRecent', () => getBufferedLogs());
-  log.debug('Registered early IPC handler', {
+
+  // Updater + app version — must be available before renderer loads
+  ipcMain.handle('updater:check', () => checkForUpdates());
+  ipcMain.handle('updater:download', () => downloadUpdate());
+  ipcMain.handle('updater:install', () => installUpdate());
+  ipcMain.handle('updater:status', () => getUpdateStatus());
+  ipcMain.handle('app:version', () => {
+    // app.getVersion() returns Electron version in dev; read package.json directly
+    try {
+      const pkgPath = path.join(__dirname, '..', 'package.json');
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      return pkg.version ?? app.getVersion();
+    } catch {
+      return app.getVersion();
+    }
+  });
+
+  log.debug('Registered early IPC handlers', {
     category: 'ipc',
-    channel: 'logger:getRecent',
+    channels: ['logger:getRecent', 'updater:*', 'app:version'],
   });
 }
 
@@ -88,7 +105,9 @@ function createWindow(): BrowserWindow {
     width: 1400,
     height: 900,
     show: false,
-    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    icon: app.isPackaged
+      ? path.join(process.resourcesPath, 'icon.png')
+      : path.join(__dirname, '..', 'build', 'icon.png'),
     backgroundColor: '#0a0a0a',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -282,13 +301,8 @@ app.whenReady().then(async () => {
 
     startApiServer({ db });
 
-    // Auto-updater init + IPC handlers
+    // Auto-updater init (hooks into already-registered IPC handlers)
     await initAutoUpdater(mainWindow);
-    ipcMain.handle('updater:check', () => checkForUpdates());
-    ipcMain.handle('updater:download', () => downloadUpdate());
-    ipcMain.handle('updater:install', () => installUpdate());
-    ipcMain.handle('updater:status', () => getUpdateStatus());
-    ipcMain.handle('app:version', () => app.getVersion());
 
     // Auto-check for updates 10s after startup (non-blocking)
     setTimeout(() => { void checkForUpdates(); }, 10_000);

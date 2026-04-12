@@ -19,13 +19,6 @@ function createMockDeps(): AllToolDeps {
     createScene: vi.fn(async () => undefined),
     updateScene: vi.fn(async () => undefined),
     deleteScene: vi.fn(async () => undefined),
-    // SegmentToolDeps
-    listSegments: vi.fn(async () => []),
-    saveSegment: vi.fn(async () => undefined),
-    deleteSegment: vi.fn(async () => undefined),
-    // StoryboardToolDeps
-    listKeyframes: vi.fn(async () => []),
-    updateKeyframe: vi.fn(async () => undefined),
     // CanvasToolDeps
     getCanvas: vi.fn(async () => ({
       id: 'canvas-1',
@@ -110,9 +103,6 @@ function createMockDeps(): AllToolDeps {
     cancelJob: vi.fn(async () => undefined),
     pauseJob: vi.fn(async () => undefined),
     resumeJob: vi.fn(async () => undefined),
-    // OrchestrationToolDeps
-    listOrchestrations: vi.fn(async () => []),
-    deleteOrchestration: vi.fn(async () => undefined),
     // SeriesToolDeps
     getSeries: vi.fn(async () => null),
     saveSeries: vi.fn(async (series: Record<string, unknown>) => series),
@@ -187,9 +177,8 @@ describe('registerAgentTools', () => {
   it('registers the full expected tool set', () => {
     const registry = new AgentToolRegistry();
     registerAgentTools(registry, createMockDeps());
-    expect(registry.list().length).toBeGreaterThanOrEqual(120);
+    expect(registry.list().length).toBeGreaterThanOrEqual(80);
     expect(registry.get('tool.get')).toBeDefined();
-    expect(registry.get('guide.list')).toBeDefined();
     expect(registry.get('guide.get')).toBeDefined();
   });
 
@@ -221,54 +210,6 @@ describe('registerAgentTools', () => {
     expect(sceneTools.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('registers at least one segment. tool', () => {
-    const registry = new AgentToolRegistry();
-    registerAgentTools(registry, createMockDeps());
-    const segmentTools = registry.list().filter((t) => t.name.startsWith('segment.'));
-    expect(segmentTools.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('registers at least one storyboard. tool', () => {
-    const registry = new AgentToolRegistry();
-    registerAgentTools(registry, createMockDeps());
-    const storyboardTools = registry.list().filter((t) => t.name.startsWith('storyboard.'));
-    expect(storyboardTools.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('filters segment tools by orchestrator context', () => {
-    const registry = new AgentToolRegistry();
-    registerAgentTools(registry, createMockDeps());
-    const orchTools = registry.forContext('orchestrator');
-    const segmentTools = orchTools.filter((t) => t.name.startsWith('segment.'));
-    expect(segmentTools.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('filters storyboard tools by storyboard context', () => {
-    const registry = new AgentToolRegistry();
-    registerAgentTools(registry, createMockDeps());
-    const storyboardContextTools = registry.forContext('storyboard');
-    const storyboardTools = storyboardContextTools.filter((t) => t.name.startsWith('storyboard.'));
-    expect(storyboardTools.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('segment tools are only available in orchestrator context, not storyboard', () => {
-    const registry = new AgentToolRegistry();
-    registerAgentTools(registry, createMockDeps());
-    const storyboardContextTools = registry.forContext('storyboard');
-    const segmentToolsInStoryboard = storyboardContextTools.filter((t) =>
-      t.name.startsWith('segment.'),
-    );
-    expect(segmentToolsInStoryboard.length).toBe(0);
-  });
-
-  it('storyboard tools are only available in storyboard context, not orchestrator', () => {
-    const registry = new AgentToolRegistry();
-    registerAgentTools(registry, createMockDeps());
-    const orchTools = registry.forContext('orchestrator');
-    const storyboardToolsInOrch = orchTools.filter((t) => t.name.startsWith('storyboard.'));
-    expect(storyboardToolsInOrch.length).toBe(0);
-  });
-
   it('returns the same registry instance', () => {
     const registry = new AgentToolRegistry();
     const result = registerAgentTools(registry, createMockDeps());
@@ -280,7 +221,7 @@ describe('registerAgentTools', () => {
     registerAgentTools(registry, createMockDeps());
     const canvasContextTools = registry.forContext('canvas');
     const canvasTools = canvasContextTools.filter((t) => t.name.startsWith('canvas.'));
-    expect(canvasTools.length).toBeGreaterThanOrEqual(50);
+    expect(canvasTools.length).toBeGreaterThanOrEqual(30);
     expect(canvasContextTools.some((t) => t.name === 'canvas.listNodes')).toBe(true);
     expect(canvasContextTools.some((t) => t.name === 'logger.read')).toBe(true);
 

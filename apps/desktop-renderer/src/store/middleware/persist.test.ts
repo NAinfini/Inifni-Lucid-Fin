@@ -13,7 +13,7 @@ import {
 } from '../slices/canvas.js';
 import { loggerSlice } from '../slices/logger.js';
 import { setProject, projectSlice } from '../slices/project.js';
-import { setRenderPreset, settingsSlice } from '../slices/settings.js';
+import { setRenderPreset, settingsSlice, restore as restoreSettings } from '../slices/settings.js';
 import { scriptSlice, updateContent } from '../slices/script.js';
 import { toastSlice } from '../slices/toast.js';
 
@@ -214,6 +214,9 @@ describe('persistMiddleware', () => {
       },
       middleware: (getDefault) => getDefault().concat(persistMiddleware),
     });
+
+    // Signal that settings have been loaded from disk (required before persist kicks in)
+    store.dispatch(restoreSettings({} as never));
 
     store.dispatch(setRenderPreset('film'));
     await vi.advanceTimersByTimeAsync(500);

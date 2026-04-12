@@ -489,8 +489,12 @@ export function registerAllTools(
     },
     updateNote: async () => {},
     deleteNote: async () => {},
-    undo: async () => {},
-    redo: async () => {},
+    undo: async () => {
+      emitToWindow(getWindow, 'commander:undo:dispatch', { action: 'undo' });
+    },
+    redo: async () => {
+      emitToWindow(getWindow, 'commander:undo:dispatch', { action: 'redo' });
+    },
     importWorkflow: async (canvasId: string, _json: string): Promise<Canvas> => {
       return requireCanvas(deps.canvasStore, canvasId);
     },
@@ -836,6 +840,17 @@ export function registerAllTools(
     removeCustomProvider: async (group: string, providerId: string) => {
       emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'removeCustomProvider', payload: { group, provider: providerId } });
     },
+    setProviderApiKey: async (providerId: string, apiKey: string) => {
+      const mediaAdapter = deps.adapterRegistry.get(providerId);
+      if (mediaAdapter) mediaAdapter.configure(apiKey);
+      const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
+      if (llmProvider) llmProvider.configure(apiKey);
+      await deps.keychain.setKey(providerId, apiKey);
+      const win = getWindow();
+      if (win) {
+        win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: true });
+      }
+    },
   })) {
     registry.register(tool);
   }
@@ -1019,21 +1034,6 @@ export function registerAllTools(
           return;
         }
       }
-    },
-    listVisionProviders: async () => {
-      const visionProviders = getCachedProviders('vision');
-      const results = [];
-      for (const p of visionProviders) {
-        const hasKey = p.id ? Boolean(await deps.keychain.getKey(p.id)) : false;
-        const preset = getBuiltinVisionProviderPreset(p.id);
-        results.push({
-          id: p.id,
-          name: p.name || preset?.name || p.id,
-          model: p.model || preset?.model || '',
-          hasKey,
-        });
-      }
-      return results;
     },
   })) {
     registry.register(tool);

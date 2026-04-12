@@ -14,17 +14,18 @@ import {
 } from '../../store/slices/locations.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import type { Location, LocationType, ReferenceImage, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
+import type {
+  Location,
+  LocationType,
+  ReferenceImage,
+  ImageNodeData,
+  VideoNodeData,
+} from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
-import { MapPin, Plus, Search, Trash2, Save, Upload, Image, X } from 'lucide-react';
+import { MapPin, Plus, Search, Trash2, Save, Upload, Image, ImageOff, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
-import type { Asset } from '../../store/slices/assets.js';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/Dialog.js';
+import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 const TYPE_OPTIONS: LocationType[] = ['interior', 'exterior', 'int-ext'];
@@ -75,9 +76,7 @@ export function LocationManagerPanel() {
   const { t } = useI18n();
   const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
-  const { items, selectedId, filterType, loading } = useSelector(
-    (s: RootState) => s.locations,
-  );
+  const { items, selectedId, filterType, loading } = useSelector((s: RootState) => s.locations);
 
   const [draft, setDraft] = useState<LocationDraft | null>(null);
   const [originalDraft, setOriginalDraft] = useState<LocationDraft | null>(null);
@@ -90,10 +89,7 @@ export function LocationManagerPanel() {
     return JSON.stringify(draft) !== JSON.stringify(originalDraft);
   }, [draft, originalDraft]);
 
-  const selectedLoc = useMemo(
-    () => items.find((l) => l.id === selectedId),
-    [items, selectedId],
-  );
+  const selectedLoc = useMemo(() => items.find((l) => l.id === selectedId), [items, selectedId]);
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -185,9 +181,7 @@ export function LocationManagerPanel() {
         referenceImages: [],
       };
       if (api?.location) {
-        const saved = (await api.location.save(
-          data as Record<string, unknown>,
-        )) as Location;
+        const saved = (await api.location.save(data as Record<string, unknown>)) as Location;
         dispatch(addLocation(saved));
         dispatch(selectLocation(saved.id));
       }
@@ -217,9 +211,7 @@ export function LocationManagerPanel() {
       };
       const api = getAPI();
       if (api?.location) {
-        const saved = (await api.location.save(
-          data as Record<string, unknown>,
-        )) as Location;
+        const saved = (await api.location.save(data as Record<string, unknown>)) as Location;
         dispatch(updateLocation({ id: saved.id, data: saved }));
       }
     } catch (reason) {
@@ -293,7 +285,9 @@ export function LocationManagerPanel() {
       if (!selectedLoc) return;
       setError(null);
       try {
-        const mainRef = selectedLoc.referenceImages.find((r) => r.slot === 'main') ?? selectedLoc.referenceImages[0];
+        const mainRef =
+          selectedLoc.referenceImages.find((r) => r.slot === 'main') ??
+          selectedLoc.referenceImages[0];
         if (!mainRef) return;
 
         const currentHash = mainRef.assetHash;
@@ -314,7 +308,10 @@ export function LocationManagerPanel() {
         );
         const api = getAPI();
         if (api?.location) {
-          await api.location.save({ id: selectedLoc.id, referenceImages: updatedRefs } as Record<string, unknown>);
+          await api.location.save({ id: selectedLoc.id, referenceImages: updatedRefs } as Record<
+            string,
+            unknown
+          >);
         }
         dispatch(setLocationRefImage({ locationId: selectedLoc.id, refImage: updatedRef }));
       } catch (reason) {
@@ -366,9 +363,7 @@ export function LocationManagerPanel() {
         </div>
         <select
           value={filterType}
-          onChange={(e) =>
-            dispatch(setLocationsFilterType(e.target.value as LocationType | 'all'))
-          }
+          onChange={(e) => dispatch(setLocationsFilterType(e.target.value as LocationType | 'all'))}
           className="w-full rounded bg-muted px-2 py-1.5 text-xs"
         >
           <option value="all">{t('locationManager.allTypes')}</option>
@@ -429,9 +424,16 @@ export function LocationManagerPanel() {
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    <ListThumb hash={loc.referenceImages?.find((r) => r.slot === 'main')?.assetHash ?? loc.referenceImages?.[0]?.assetHash} />
+                    <ListThumb
+                      hash={
+                        loc.referenceImages?.find((r) => r.slot === 'main')?.assetHash ??
+                        loc.referenceImages?.[0]?.assetHash
+                      }
+                    />
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">{loc.name || t('locationManager.untitled')}</div>
+                      <div className="font-medium truncate">
+                        {loc.name || t('locationManager.untitled')}
+                      </div>
                       <div className="flex items-center gap-1 flex-wrap">
                         <span
                           className={cn(
@@ -445,19 +447,23 @@ export function LocationManagerPanel() {
                             return translated === key ? loc.type : translated;
                           })()}
                         </span>
-                        {loc.timeOfDay && (() => {
-                          const key = `locationManager.timeOfDayOptions.${loc.timeOfDay}`;
-                          const translated = t(key as 'locationManager.fields.name');
-                          return (
-                            <span className="inline-block text-[9px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400">
-                              {translated === key ? loc.timeOfDay : translated}
-                            </span>
-                          );
-                        })()}
+                        {loc.timeOfDay &&
+                          (() => {
+                            const key = `locationManager.timeOfDayOptions.${loc.timeOfDay}`;
+                            const translated = t(key as 'locationManager.fields.name');
+                            return (
+                              <span className="inline-block text-[9px] px-1 py-0.5 rounded bg-violet-500/20 text-violet-400">
+                                {translated === key ? loc.timeOfDay : translated}
+                              </span>
+                            );
+                          })()}
                       </div>
                       {(usageCountById[loc.id] ?? 0) > 0 && (
                         <div className="text-[9px] text-muted-foreground mt-0.5">
-                          {t('locationManager.usedInNodes').replace('{count}', String(usageCountById[loc.id]))}
+                          {t('locationManager.usedInNodes').replace(
+                            '{count}',
+                            String(usageCountById[loc.id]),
+                          )}
                         </div>
                       )}
                     </div>
@@ -475,7 +481,9 @@ export function LocationManagerPanel() {
 
         <div className="min-h-0 overflow-auto p-2 space-y-2">
           {!draft ? (
-            <div className="text-xs text-muted-foreground">{t('locationManager.selectOrCreate')}</div>
+            <div className="text-xs text-muted-foreground">
+              {t('locationManager.selectOrCreate')}
+            </div>
           ) : (
             <>
               <div className="space-y-1">
@@ -484,9 +492,7 @@ export function LocationManagerPanel() {
                 </label>
                 <input
                   value={draft.name}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, name: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, name: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                 />
               </div>
@@ -499,9 +505,7 @@ export function LocationManagerPanel() {
                   <select
                     value={draft.type}
                     onChange={(e) =>
-                      setDraft((p) =>
-                        p ? { ...p, type: e.target.value as LocationType } : p,
-                      )
+                      setDraft((p) => (p ? { ...p, type: e.target.value as LocationType } : p))
                     }
                     className="w-full rounded bg-muted px-2 py-1 text-xs"
                   >
@@ -519,9 +523,7 @@ export function LocationManagerPanel() {
                   <input
                     value={draft.subLocation}
                     onChange={(e) =>
-                      setDraft((p) =>
-                        p ? { ...p, subLocation: e.target.value } : p,
-                      )
+                      setDraft((p) => (p ? { ...p, subLocation: e.target.value } : p))
                     }
                     className="w-full rounded bg-muted px-2 py-1 text-xs"
                     placeholder={t('locationManager.optional')}
@@ -535,11 +537,7 @@ export function LocationManagerPanel() {
                 </label>
                 <select
                   value={draft.timeOfDay}
-                  onChange={(e) =>
-                    setDraft((p) =>
-                      p ? { ...p, timeOfDay: e.target.value } : p,
-                    )
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, timeOfDay: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                 >
                   <option value="">--</option>
@@ -557,11 +555,7 @@ export function LocationManagerPanel() {
                 </label>
                 <textarea
                   value={draft.description}
-                  onChange={(e) =>
-                    setDraft((p) =>
-                      p ? { ...p, description: e.target.value } : p,
-                    )
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, description: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[60px]"
                 />
               </div>
@@ -572,9 +566,7 @@ export function LocationManagerPanel() {
                 </label>
                 <input
                   value={draft.mood}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, mood: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, mood: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                   placeholder={t('locationManager.placeholders.mood')}
                 />
@@ -586,9 +578,7 @@ export function LocationManagerPanel() {
                 </label>
                 <input
                   value={draft.weather}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, weather: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, weather: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                   placeholder={t('locationManager.placeholders.weather')}
                 />
@@ -600,11 +590,7 @@ export function LocationManagerPanel() {
                 </label>
                 <input
                   value={draft.lighting}
-                  onChange={(e) =>
-                    setDraft((p) =>
-                      p ? { ...p, lighting: e.target.value } : p,
-                    )
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, lighting: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                   placeholder={t('locationManager.placeholders.lighting')}
                 />
@@ -616,9 +602,7 @@ export function LocationManagerPanel() {
                 </label>
                 <input
                   value={draft.tags}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, tags: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, tags: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                   placeholder={t('locationManager.placeholders.tags')}
                 />
@@ -650,7 +634,6 @@ export function LocationManagerPanel() {
                 onClose={() => setAssetPickerOpen(false)}
                 onSelect={(hash) => void handleRefImageFromAsset(hash)}
               />
-
             </>
           )}
 
@@ -686,11 +669,15 @@ function SingleReferenceImage({
   const { t } = useI18n();
   const [isDragOver, setIsDragOver] = useState(false);
   const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
-  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
+  const { url, markFailed } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
 
   const handleDragOver = (e: React.DragEvent) => {
     const types = e.dataTransfer.types;
-    if (types.includes('Files') || types.includes('application/x-lucid-asset') || types.includes('application/x-lucid-ref-image')) {
+    if (
+      types.includes('Files') ||
+      types.includes('application/x-lucid-asset') ||
+      types.includes('application/x-lucid-ref-image')
+    ) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       setIsDragOver(true);
@@ -714,7 +701,9 @@ function SingleReferenceImage({
       try {
         const payload = JSON.parse(assetRaw) as { hash: string; type: string };
         if (payload.hash && payload.type === 'image') onDropHash(payload.hash);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -723,7 +712,9 @@ function SingleReferenceImage({
       try {
         const payload = JSON.parse(refRaw) as { assetHash: string };
         if (payload.assetHash) onDropHash(payload.assetHash);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -734,10 +725,15 @@ function SingleReferenceImage({
         const filePath = (file as { path?: string }).path ?? '';
         if (filePath) {
           const api = getAPI();
-          void api?.asset.import(filePath, 'image').then((ref) => {
-            const r = ref as { hash: string } | null;
-            if (r?.hash) onDropHash(r.hash);
-          }).catch(() => { /* image import failure is non-critical */ });
+          void api?.asset
+            .import(filePath, 'image')
+            .then((ref) => {
+              const r = ref as { hash: string } | null;
+              if (r?.hash) onDropHash(r.hash);
+            })
+            .catch(() => {
+              /* image import failure is non-critical */
+            });
         }
       }
     }
@@ -745,113 +741,135 @@ function SingleReferenceImage({
 
   return (
     <div className="space-y-1.5">
-    <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={cn(
-        'rounded border w-full',
-        mainRef?.assetHash
-          ? 'border-primary/50 bg-primary/5'
-          : 'border-dashed border-border/70',
-        isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
-      )}
-    >
-      {url ? (
-        <div className="relative w-full aspect-[3/2] bg-muted rounded overflow-hidden">
-          <img
-            src={url}
-            alt="Reference"
-            className="h-full w-full object-contain"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-            draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
-            onDragStart={mainRef?.assetHash && entityType && entityId && slot ? (e) => {
-              e.stopPropagation();
-              e.dataTransfer.setData(
-                'application/x-lucid-ref-image',
-                JSON.stringify({ assetHash: mainRef.assetHash, entityType, entityId, slot }),
-              );
-              e.dataTransfer.effectAllowed = 'copy';
-            } : undefined}
-          />
-          {isDragOver && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
-              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
-                {t('entity.dropHere')}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={cn(
+          'rounded border w-full',
+          mainRef?.assetHash ? 'border-primary/50 bg-primary/5' : 'border-dashed border-border/70',
+          isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
+        )}
+      >
+        {url ? (
+          <div className="relative w-full aspect-[3/2] bg-muted rounded overflow-hidden">
+            <img
+              src={url}
+              alt="Reference"
+              className="h-full w-full object-contain"
+              onError={markFailed}
+              draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
+              onDragStart={
+                mainRef?.assetHash && entityType && entityId && slot
+                  ? (e) => {
+                      e.stopPropagation();
+                      e.dataTransfer.setData(
+                        'application/x-lucid-ref-image',
+                        JSON.stringify({
+                          assetHash: mainRef.assetHash,
+                          entityType,
+                          entityId,
+                          slot,
+                        }),
+                      );
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }
+                  : undefined
+              }
+            />
+            {isDragOver && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
+                <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
+                  {t('entity.dropHere')}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center aspect-[3/2] gap-2">
+            {isDragOver ? (
+              <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
+            ) : mainRef?.assetHash ? (
+              <>
+                <ImageOff className="w-8 h-8 text-destructive/40" />
+                <span className="text-[10px] text-destructive/60">{t('entity.brokenImage')}</span>
+              </>
+            ) : (
+              <Image className="w-8 h-8 text-muted-foreground/40" />
+            )}
+            {!isDragOver && !mainRef?.assetHash && (
+              <span className="text-xs text-muted-foreground">
+                {t('entity.clickToUploadReferenceImage')}
               </span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center aspect-[3/2] gap-2">
-          {isDragOver ? (
-            <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
-          ) : (
-            <Image className="w-8 h-8 text-muted-foreground/40" />
-          )}
-          {!isDragOver && (
-            <span className="text-xs text-muted-foreground">
-              {t('entity.clickToUploadReferenceImage')}
-            </span>
-          )}
-        </div>
-      )}
-      <div className="flex items-center gap-1 p-1.5">
-        <button
-          type="button"
-          onClick={onUpload}
-          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-          aria-label={t('entity.upload')}
-        >
-          <Upload className="w-3 h-3" aria-hidden="true" />
-          {t('entity.upload')}
-        </button>
-        <button
-          type="button"
-          onClick={onFromAssets}
-          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-          aria-label={t('entity.fromAssets')}
-        >
-          <Image className="w-3 h-3" aria-hidden="true" />
-          {t('entity.fromAssets')}
-        </button>
-        {mainRef?.assetHash && (
+            )}
+          </div>
+        )}
+        <div className="flex items-center gap-1 p-1.5">
           <button
             type="button"
-            onClick={onRemove}
-            className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
-            aria-label={t('entity.removeImage')}
+            onClick={onUpload}
+            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+            aria-label={t('entity.upload')}
           >
-            <X className="w-3 h-3" aria-hidden="true" />
-            {t('entity.removeImage')}
+            <Upload className="w-3 h-3" aria-hidden="true" />
+            {t('entity.upload')}
           </button>
-        )}
-      </div>
-    </div>
-    {url && mainRef?.variants && mainRef.variants.length > 0 && (
-      <div className="flex items-center gap-1">
-        <span className="text-[9px] text-muted-foreground/70 shrink-0">{t('locationManager.variants')}:</span>
-        <div className="flex gap-1 overflow-x-auto">
-          {mainRef.assetHash && (
-            <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
+          <button
+            type="button"
+            onClick={onFromAssets}
+            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+            aria-label={t('entity.fromAssets')}
+          >
+            <Image className="w-3 h-3" aria-hidden="true" />
+            {t('entity.fromAssets')}
+          </button>
+          {mainRef?.assetHash && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
+              aria-label={t('entity.removeImage')}
+            >
+              <X className="w-3 h-3" aria-hidden="true" />
+              {t('entity.removeImage')}
+            </button>
           )}
-          {mainRef.variants.map((variantHash) => (
-            <VariantThumb
-              key={variantHash}
-              hash={variantHash}
-              isActive={false}
-              onClick={() => onSelectVariant?.(variantHash)}
-            />
-          ))}
         </div>
       </div>
-    )}
+      {url && mainRef?.variants && mainRef.variants.length > 0 && (
+        <div className="flex items-center gap-1">
+          <span className="text-[9px] text-muted-foreground/70 shrink-0">
+            {t('locationManager.variants')}:
+          </span>
+          <div className="flex gap-1 overflow-x-auto">
+            {mainRef.assetHash && (
+              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
+            )}
+            {mainRef.variants.map((variantHash) => (
+              <VariantThumb
+                key={variantHash}
+                hash={variantHash}
+                isActive={false}
+                onClick={() => onSelectVariant?.(variantHash)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boolean; onClick?: () => void }) {
-  const { url } = useAssetUrl(hash, 'image', 'png');
+function VariantThumb({
+  hash,
+  isActive,
+  onClick,
+}: {
+  hash: string;
+  isActive: boolean;
+  onClick?: () => void;
+}) {
+  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return null;
   return (
     <button
@@ -859,18 +877,22 @@ function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boo
       onClick={onClick}
       className={cn(
         'shrink-0 h-8 w-12 rounded border overflow-hidden transition-colors',
-        isActive ? 'border-primary ring-1 ring-primary/40' : 'border-border/60 hover:border-primary/50',
+        isActive
+          ? 'border-primary ring-1 ring-primary/40'
+          : 'border-border/60 hover:border-primary/50',
       )}
     >
-      <img src={url} alt="variant" className="h-full w-full object-cover" />
+      <img src={url} alt="variant" className="h-full w-full object-cover" onError={markFailed} />
     </button>
   );
 }
 
 function ListThumb({ hash }: { hash?: string }) {
-  const { url } = useAssetUrl(hash, 'image', 'png');
+  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return <div className="shrink-0 w-8 h-8 rounded bg-muted/50" />;
-  return <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" />;
+  return (
+    <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" onError={markFailed} />
+  );
 }
 
 function AssetPickerDialog({
@@ -883,12 +905,15 @@ function AssetPickerDialog({
   onSelect: (hash: string) => void;
 }) {
   const { t } = useI18n();
-  const imageAssets = useSelector((s: RootState) =>
-    s.assets.items.filter((a) => a.type === 'image'),
-  );
+  const imageAssets = useSelector(selectImageAssets);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
@@ -910,7 +935,7 @@ function AssetPickerDialog({
 }
 
 function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string) => void }) {
-  const { url } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
+  const { url, markFailed } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
   return (
     <button
       type="button"
@@ -919,7 +944,12 @@ function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string
       title={asset.name}
     >
       {url ? (
-        <img src={url} alt={asset.name} className="w-full aspect-square object-cover" />
+        <img
+          src={url}
+          alt={asset.name}
+          className="w-full aspect-square object-cover"
+          onError={markFailed}
+        />
       ) : (
         <div className="w-full aspect-square bg-muted flex items-center justify-center">
           <Image className="w-6 h-6 text-muted-foreground/40" />
@@ -929,4 +959,3 @@ function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string
     </button>
   );
 }
-

@@ -1,6 +1,7 @@
-import type { ChangeEventHandler, ReactNode } from 'react';
+import { memo, type ChangeEventHandler, type ReactNode } from 'react';
 import { ChevronDown, Clapperboard, LayoutGrid } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
+import { CommitSlider } from '../ui/CommitSlider.js';
 import type {
   AudioNodeData,
   BackdropNodeData,
@@ -91,7 +92,7 @@ function matchesTemplateTracks(trackSet: PresetTrackSet, template: ShotTemplate)
   });
 }
 
-export function InspectorCreativeTab({
+export const InspectorCreativeTab = memo(function InspectorCreativeTab({
   t,
   selectedNodeType,
   generationData,
@@ -333,13 +334,12 @@ export function InspectorCreativeTab({
             <div className="space-y-1">
               <label className="text-[11px] text-muted-foreground">{t('inspector.backdrop.opacity')}</label>
               <div className="flex items-center gap-2">
-                <input
-                  type="range"
+                <CommitSlider
                   min={5}
                   max={100}
                   step={5}
                   value={Math.round((backdropControls.data.opacity ?? 0.14) * 100)}
-                  onChange={(event) => backdropControls.onOpacityChange(Number(event.target.value) / 100)}
+                  onCommit={(v) => backdropControls.onOpacityChange(v / 100)}
                   className="flex-1 h-1.5 accent-primary"
                 />
                 <span className="text-[11px] text-muted-foreground w-8 text-right">
@@ -418,4 +418,4 @@ export function InspectorCreativeTab({
       ) : null}
     </>
   );
-}
+});

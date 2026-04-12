@@ -7,10 +7,13 @@ import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import { WaveformPlayer } from '../../audio/WaveformPlayer.js';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
+import { useNodeVisibility } from '../../../hooks/useNodeVisibility.js';
 import { cn } from '../../../lib/utils.js';
 import type { NodeStatus } from '@lucid-fin/contracts';
 import { NodeBorderHandles } from './node-border-handles.js';
 import { NodeResizeControls } from './node-resize-controls.js';
+import { useNodeCallbacks } from '../node-callbacks-context.js';
+import { useCanvasLodFromContext } from '../use-canvas-lod.js';
 
 export interface AudioNodeFlowData {
   nodeId: string;
@@ -32,20 +35,6 @@ export interface AudioNodeFlowData {
   variantCount?: number;
   progress?: number;
   error?: string;
-  onTitleChange?: (id: string, title: string) => void;
-  onDelete?: (id: string) => void;
-  onDuplicate?: (id: string) => void;
-  onDisconnect?: (id: string) => void;
-  onConnectTo?: (id: string) => void;
-  onRename?: (id: string) => void;
-  onCut?: (id: string) => void;
-  onCopy?: (id: string) => void;
-  onPaste?: (id: string) => void;
-  onLock?: (id: string) => void;
-  onColorTag?: (id: string, color: string | undefined) => void;
-  onGenerate?: (id: string) => void;
-  onSelectVariant?: (id: string, index: number) => void;
-  onToggleSeedLock?: (id: string) => void;
 }
 
 const AUDIO_TYPE_LABELS: Record<string, string> = {
@@ -56,8 +45,11 @@ const AUDIO_TYPE_LABELS: Record<string, string> = {
 
 function AudioNodeComponent({ data, selected }: NodeProps) {
   const d = data as unknown as AudioNodeFlowData;
+  const cb = useNodeCallbacks();
+  const lod = useCanvasLodFromContext();
   const activeHash = d.assetHash ?? d.variants[d.selectedVariantIndex];
-  const { url: activeUrl } = useAssetUrl(activeHash, 'audio', 'mp3');
+  const { url: activeUrl } = useAssetUrl(lod !== 'minimal' ? activeHash : undefined, 'audio', 'mp3');
+  const { ref: visibilityRef, isVisible } = useNodeVisibility<HTMLDivElement>();
 
   const isGenerating = d.generationStatus === 'generating';
 
@@ -67,26 +59,17 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
       nodeType="audio"
       locked={d.locked}
       colorTag={d.colorTag}
-      onRename={d.onRename ?? (() => {})}
-      onDelete={d.onDelete ?? (() => {})}
-      onDuplicate={d.onDuplicate ?? (() => {})}
-      onCut={d.onCut ?? (() => {})}
-      onCopy={d.onCopy ?? (() => {})}
-      onPaste={d.onPaste ?? (() => {})}
-      onDisconnect={d.onDisconnect ?? (() => {})}
-      onConnectTo={d.onConnectTo}
-      onLock={d.onLock ?? (() => {})}
-      onGenerate={d.onGenerate ?? (() => {})}
-      onColorTag={d.onColorTag ?? (() => {})}
     >
-      <div className="relative min-w-[200px]">
+      <div ref={visibilityRef} className="relative min-w-[200px]">
         <NodeBorderHandles colorClassName="!bg-green-500" />
-        <NodeResizeControls
-          minWidth={200}
-          minHeight={120}
-          isVisible={selected}
-          className="!h-2.5 !w-2.5 !border-background !bg-green-400"
-        />
+        {lod === 'full' && (
+          <NodeResizeControls
+            minWidth={200}
+            minHeight={120}
+            isVisible={selected}
+            className="!h-2.5 !w-2.5 !border-background !bg-green-400"
+          />
+        )}
         <div
           className={cn(
             'relative rounded-md border bg-card shadow-sm min-w-[200px]',
@@ -103,104 +86,118 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
             </div>
           )}
 
-          {isGenerating && (
-            <div className="pointer-events-none absolute inset-0 z-10 animate-pulse rounded-lg border-2 border-green-500 bg-green-500/5" />
-          )}
-
           <div className="flex items-center gap-1.5 border-b border-green-500/20 px-3 py-2">
             <Volume2 className="h-3.5 w-3.5 shrink-0 text-green-400" />
             <span className="flex-1 truncate text-xs font-medium">
               {d.title || t('node.audioNode')}
             </span>
-            {d.providerId && <span className="text-[9px] text-muted-foreground/70">{getProviderDisplayName(d.providerId)}</span>}
+            {lod === 'full' && d.providerId && <span className="text-[9px] text-muted-foreground/70">{getProviderDisplayName(d.providerId)}</span>}
             <span className="rounded bg-green-500/10 px-1.5 text-[10px] text-green-400">
               {AUDIO_TYPE_LABELS[d.audioType] ?? d.audioType}
             </span>
           </div>
 
-          <div className="flex min-h-[50px] items-center justify-center px-3 py-3">
-            {activeUrl ? (
-              <WaveformPlayer
-                audioUrl={activeUrl}
-                height={32}
-                waveColor="hsl(142 71% 45% / 0.6)"
-                progressColor="hsl(142 71% 45%)"
-              />
-            ) : activeHash ? (
-              <div className="flex h-8 w-full items-center justify-center rounded bg-green-500/10 text-xs text-muted-foreground">
-                {t('node.loading')}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                <Volume2 className="h-6 w-6 opacity-30" />
-                <span className="text-[10px]">{t('node.noAudio')}</span>
-              </div>
-            )}
-          </div>
-
-          {d.duration != null && (
-            <div className="px-3 pb-1 text-[10px] text-muted-foreground">{t('node.duration')}: {d.duration.toFixed(1)}s</div>
-          )}
-
-          {d.generationStatus === 'failed' && d.error && (
-            <div className="px-3 pb-1">
-              <span className="block truncate text-[10px] text-destructive">{d.error}</span>
+          {/* LOD: minimal = green-tinted placeholder only, no media content */}
+          {lod === 'minimal' ? (
+            <div className="flex min-h-[50px] items-center justify-center bg-green-500/5">
+              <Volume2 className="h-6 w-6 text-green-400/30" />
             </div>
-          )}
+          ) : (
+            <>
+              {isGenerating && (
+                <div className="pointer-events-none absolute inset-0 z-10 animate-pulse rounded-lg border-2 border-green-500 bg-green-500/5" />
+              )}
 
-          {isGenerating && typeof d.progress === 'number' && (
-            <div className="px-3 pb-1">
-              <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-green-500 transition-all" style={{ width: `${d.progress}%` }} />
+              <div className="flex min-h-[50px] items-center justify-center px-3 py-3">
+                {activeUrl && isVisible ? (
+                  <WaveformPlayer
+                    audioUrl={activeUrl}
+                    height={32}
+                    waveColor="hsl(142 71% 45% / 0.6)"
+                    progressColor="hsl(142 71% 45%)"
+                  />
+                ) : activeUrl || activeHash ? (
+                  <div className="flex h-8 w-full items-center justify-center rounded bg-green-500/10 text-xs text-muted-foreground">
+                    {isVisible ? t('node.loading') : <Volume2 className="h-4 w-4 text-green-400/40" />}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                    <Volume2 className="h-6 w-6 opacity-30" />
+                    <span className="text-[10px]">{t('node.noAudio')}</span>
+                  </div>
+                )}
               </div>
-              <span className="text-[10px] text-muted-foreground">{d.progress}%</span>
-            </div>
-          )}
 
-          {d.variants.length > 1 && (
-            <div className="border-t border-green-500/10 px-3 py-1.5">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
-              </div>
-              <div className="overflow-x-auto">
-                <div className="flex min-w-max items-center gap-1">
-                  {d.variants.map((hash, index) => (
-                    <VariantThumb
-                      key={hash}
-                      hash={hash}
-                      index={index}
-                      selected={d.selectedVariantIndex === index}
-                      onClick={() => d.onSelectVariant?.(d.nodeId, index)}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+              {/* LOD: medium skips duration, progress, variants, seed/generate buttons */}
+              {lod === 'full' && (
+                <>
+                  {d.duration != null && (
+                    <div className="px-3 pb-1 text-[10px] text-muted-foreground">{t('node.duration')}: {d.duration.toFixed(1)}s</div>
+                  )}
 
-          <div className="flex items-center gap-1 border-t border-green-500/20 px-3 py-1.5 nopan nodrag">
-            <button
-              className="flex items-center gap-1 rounded bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400 transition-colors hover:bg-green-500/20"
-              aria-label={t('node.generate')}
-              onClick={() => d.onGenerate?.(d.nodeId)}
-              onContextMenu={(e) => e.preventDefault()}
-              disabled={isGenerating}
-            >
-              <Sparkles className="h-3 w-3" />
-              {t('node.generate')}
-            </button>
-            <span className="ml-auto inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {t('node.seed')} {typeof d.seed === 'number' ? d.seed : '-'}
-              <button
-                className="text-green-400 hover:text-green-300"
-                onClick={() => d.onToggleSeedLock?.(d.nodeId)}
-                onContextMenu={(e) => e.preventDefault()}
-                aria-label={d.seedLocked ? 'Unlock seed' : 'Lock seed'}
-              >
-                {d.seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
-              </button>
-            </span>
-          </div>
+                  {d.generationStatus === 'failed' && d.error && (
+                    <div className="px-3 pb-1">
+                      <span className="block truncate text-[10px] text-destructive">{d.error}</span>
+                    </div>
+                  )}
+
+                  {isGenerating && typeof d.progress === 'number' && (
+                    <div className="px-3 pb-1">
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                        <div className="h-full bg-green-500 transition-[width] duration-200" style={{ width: `${d.progress}%` }} />
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">{d.progress}%</span>
+                    </div>
+                  )}
+
+                  {d.variants.length > 1 && (
+                    <div className="border-t border-green-500/10 px-3 py-1.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <div className="flex min-w-max items-center gap-1">
+                          {d.variants.map((hash, index) => (
+                            <VariantThumb
+                              key={hash}
+                              hash={hash}
+                              index={index}
+                              selected={d.selectedVariantIndex === index}
+                              onClick={() => cb.onSelectVariant(d.nodeId, index)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1 border-t border-green-500/20 px-3 py-1.5 nopan nodrag">
+                    <button
+                      className="flex items-center gap-1 rounded bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400 transition-colors hover:bg-green-500/20"
+                      aria-label={t('node.generate')}
+                      onClick={() => cb.onGenerate(d.nodeId)}
+                      onContextMenu={(e) => e.preventDefault()}
+                      disabled={isGenerating}
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      {t('node.generate')}
+                    </button>
+                    <span className="ml-auto inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {t('node.seed')} {typeof d.seed === 'number' ? d.seed : '-'}
+                      <button
+                        className="text-green-400 hover:text-green-300"
+                        onClick={() => cb.onToggleSeedLock(d.nodeId)}
+                        onContextMenu={(e) => e.preventDefault()}
+                        aria-label={d.seedLocked ? 'Unlock seed' : 'Lock seed'}
+                      >
+                        {d.seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                      </button>
+                    </span>
+                  </div>
+                </>
+              )}
+            </>
+          )}
 
         </div>
       </div>
@@ -208,7 +205,7 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
   );
 }
 
-function VariantThumb({
+const VariantThumb = memo(function VariantThumb({
   hash,
   index,
   selected,
@@ -245,6 +242,6 @@ function VariantThumb({
       </span>
     </button>
   );
-}
+});
 
 export const AudioNode = memo(AudioNodeComponent);

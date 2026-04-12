@@ -282,6 +282,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       subscribe('commander:entities:updated', cb as Callback),
     onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) =>
       subscribe('commander:settings:dispatch', cb as Callback),
+    onUndoDispatch: (cb: (data: { action: 'undo' | 'redo' }) => void) =>
+      subscribe('commander:undo:dispatch', cb as Callback),
   },
 
   // Clipboard watcher

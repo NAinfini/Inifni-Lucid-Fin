@@ -8,8 +8,9 @@ import {
   updateNodePresetTrackEntry,
 } from '../../store/slices/canvas.js';
 import { cn } from '../../lib/utils.js';
+import { CommitSlider } from '../ui/CommitSlider.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizePresetName, localizePresetDescription } from '../../i18n.js';
+import { localizePresetName, localizePresetDescription, localizeParamLabel, localizeParamValue } from '../../i18n.js';
 import type {
   PresetCategory,
   PresetDefinition,
@@ -52,26 +53,28 @@ function PresetParamControl({
   value: number | string | undefined;
   onChange: (key: string, val: number | string) => void;
 }) {
+  const localizedLabel = localizeParamLabel(paramDef.key, paramDef.label);
+
   if (paramDef.type === 'intensity') {
     const numValue = typeof value === 'number' ? value : paramDef.default as number;
-    const label = paramDef.levels ? resolveIntensityLabel(paramDef.levels, numValue) : '';
+    const rawLabel = paramDef.levels ? resolveIntensityLabel(paramDef.levels, numValue) : '';
+    const displayLabel = rawLabel ? localizeParamValue(rawLabel) : '';
     return (
       <div className="space-y-0.5">
         <div className="flex items-center justify-between gap-1">
-          <span className="text-[10px] text-muted-foreground">{paramDef.label}</span>
+          <span className="text-[10px] text-muted-foreground">{localizedLabel}</span>
           <span className="text-[10px] tabular-nums text-foreground">{numValue}</span>
         </div>
-        <input
-          type="range"
+        <CommitSlider
           min={0}
           max={100}
           step={1}
           value={numValue}
-          onChange={(e) => onChange(paramDef.key, Number(e.target.value))}
+          onCommit={(v) => onChange(paramDef.key, v)}
           className="h-1 w-full cursor-pointer accent-primary"
         />
-        {label ? (
-          <div className="truncate text-[9px] text-muted-foreground/70">{label}</div>
+        {displayLabel ? (
+          <div className="truncate text-[9px] text-muted-foreground/70">{displayLabel}</div>
         ) : null}
       </div>
     );
@@ -81,7 +84,7 @@ function PresetParamControl({
     const strValue = typeof value === 'string' ? value : paramDef.default as string;
     return (
       <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">{paramDef.label}</span>
+        <span className="text-[10px] text-muted-foreground">{localizedLabel}</span>
         <select
           value={strValue}
           onChange={(e) => onChange(paramDef.key, e.target.value)}
@@ -89,7 +92,7 @@ function PresetParamControl({
         >
           {paramDef.options.map((opt) => (
             <option key={opt} value={opt}>
-              {opt}
+              {localizeParamValue(opt)}
             </option>
           ))}
         </select>
@@ -101,7 +104,7 @@ function PresetParamControl({
     const numValue = typeof value === 'number' ? value : paramDef.default as number;
     return (
       <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">{paramDef.label}</span>
+        <span className="text-[10px] text-muted-foreground">{localizedLabel}</span>
         <input
           type="number"
           min={paramDef.min}

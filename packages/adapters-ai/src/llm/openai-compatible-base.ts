@@ -514,10 +514,15 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     const responseText = await res.text();
     const responseBody = this.tryParseJson(responseText);
     const requestDiagnostics = this.measureRequestDiagnostics(requestBody);
+    // When the response is HTML (e.g. Cloudflare error pages), don't use it as the
+    // error message — it produces unreadable log spam and broken UI. Fall through to
+    // the defaultStatusMessage instead.
+    const isHtml = responseText.trimStart().startsWith('<!') || responseText.trimStart().startsWith('<html');
+    const errorInput = isHtml ? undefined : (responseBody ?? responseText);
     const normalized = parseAdapterError({
       provider: this.name,
       status: res.status,
-      error: responseBody ?? responseText ?? this.defaultStatusMessage(res.status),
+      error: errorInput ?? this.defaultStatusMessage(res.status),
     });
     const lucid = adapterErrorToLucidError(normalized);
 
@@ -539,8 +544,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       streaming,
       hasTools,
       ...requestDiagnostics,
-      requestBody,
-      responseText: responseText || undefined,
+      // Never store raw HTML in error details — truncate to a short snippet for diagnostics
+      responseText: isHtml ? responseText.slice(0, 200) + '… (HTML truncated)' : (responseText || undefined),
       responseBody,
     });
   }

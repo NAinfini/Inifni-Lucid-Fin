@@ -368,215 +368,176 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
   };
 
-  const characterGenerateReferenceImage: AgentTool = {
-    name: 'character.generateReferenceImage',
-    description: 'Generate a character turnaround reference sheet. Produces a multi-view image with front, side, and back views plus facial expression range on a plain white background. Uses structured appearance fields (face, hair, body) when available. IMPORTANT: Call this tool ONE character at a time, wait for the result, and verify success before generating the next character. Never batch multiple generation calls in parallel — if one fails (wrong provider, quota, etc.) you waste all calls.',
+  const characterRefImage: AgentTool = {
+    name: 'character.refImage',
+    description: 'Manage a character reference image. Use action=generate to generate a turnaround ref sheet, action=set to assign an existing asset, action=delete to remove a slot, action=setFromNode to pull an asset from a canvas node.',
     tags: ['character', 'generation'],
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The character ID.' },
-        slot: {
+        action: {
           type: 'string',
-          description: 'Reference image slot to store the result. Default: "main".',
-          enum: ['main', 'front', 'back', 'left-side', 'right-side', 'face-closeup', 'top-down'],
+          description: 'The operation to perform.',
+          enum: ['generate', 'set', 'delete', 'setFromNode'],
         },
-        width: { type: 'number', description: 'Image width in pixels. Default 1536. Auto-clamped to provider max.' },
-        height: { type: 'number', description: 'Image height in pixels. Default 1024. Auto-clamped to provider max.' },
-        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates a turnaround sheet prompt from character data.' },
+        slot: { type: 'string', description: 'Reference image slot or angle. Default: "main" for generate.' },
+        assetHash: { type: 'string', description: 'CAS asset hash to assign. Required for action=set.' },
+        canvasId: { type: 'string', description: 'Canvas ID. Required for action=setFromNode.' },
+        nodeId: { type: 'string', description: 'Image node ID to pull the generated asset from. Required for action=setFromNode.' },
+        width: { type: 'number', description: 'Image width in pixels. Default 1536. Auto-clamped to provider max. For action=generate.' },
+        height: { type: 'number', description: 'Image height in pixels. Default 1024. Auto-clamped to provider max. For action=generate.' },
+        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates a turnaround sheet prompt from character data. For action=generate.' },
+        providerId: { type: 'string', description: 'Optional provider ID override. For action=generate.' },
       },
-      required: ['id'],
+      required: ['id', 'action'],
     },
     async execute(args) {
       try {
-        const characters = await deps.listCharacters();
-        const entity = characters.find((character) => character.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Character not found: ${args.id}` };
-        }
-        if (!deps.generateImage) {
-          return { success: false, error: 'Image generation not available' };
-        }
+        const action = args.action as string;
 
-        const slot = typeof args.slot === 'string' ? args.slot : 'main';
-        const appearanceDesc = buildAppearancePrompt(entity);
-
-        const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
-          ? args.prompt
-          : `Professional character turnaround reference sheet for animation/film production. `
-            + `Solid white background, even studio lighting, no environment, no scene, no props. `
-            + `Character: ${entity.name}. `
-            + (appearanceDesc ? `${appearanceDesc}. ` : '')
-            + `TOP ROW: Three full-body standing poses shown from head to feet with shoes visible — front view, side profile, back view. `
-            + `Each pose shows the complete figure at identical scale, arms slightly away from body for silhouette clarity. `
-            + `BOTTOM ROW: Five head-and-shoulders close-up portraits of the same character showing distinct facial expressions — neutral, happy, sad, angry, surprised. `
-            + `Each close-up fills a square frame with detailed facial features and expression clearly visible. `
-            + `Consistent character design, proportions, clothing, and art style across all views. `
-            + `High detail, clean lines, professional character concept art, no text labels, single character only.`;
-
-        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1536;
-        const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1024;
-        const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight });
-        const referenceImages = [...(entity.referenceImages ?? [])];
-        const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
-        if (existingIndex >= 0) {
-          // Add as variant — keep previous image, user can switch
-          const existing = referenceImages[existingIndex];
-          const prevVariants = existing.variants ?? [];
-          if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
-            prevVariants.push(existing.assetHash);
+        if (action === 'generate') {
+          const characters = await deps.listCharacters();
+          const entity = characters.find((character) => character.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Character not found: ${args.id}` };
           }
-          referenceImages[existingIndex] = {
-            ...existing,
-            assetHash: result.assetHash,
-            variants: prevVariants,
-          };
-        } else {
-          referenceImages.push({
+          if (!deps.generateImage) {
+            return { success: false, error: 'Image generation not available' };
+          }
+
+          const slot = typeof args.slot === 'string' ? args.slot : 'main';
+          const appearanceDesc = buildAppearancePrompt(entity);
+
+          const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
+            ? args.prompt
+            : `Professional character turnaround reference sheet for animation/film production. `
+              + `Solid white background, even studio lighting, no environment, no scene, no props. `
+              + `Character: ${entity.name}. `
+              + (appearanceDesc ? `${appearanceDesc}. ` : '')
+              + `TOP ROW: Three full-body standing poses shown from head to feet with shoes visible — front view, side profile, back view. `
+              + `Each pose shows the complete figure at identical scale, arms slightly away from body for silhouette clarity. `
+              + `BOTTOM ROW: Five head-and-shoulders close-up portraits of the same character showing distinct facial expressions — neutral, happy, sad, angry, surprised. `
+              + `Each close-up fills a square frame with detailed facial features and expression clearly visible. `
+              + `Consistent character design, proportions, clothing, and art style across all views. `
+              + `High detail, clean lines, professional character concept art, no text labels, single character only.`;
+
+          const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1536;
+          const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1024;
+          const providerId = typeof args.providerId === 'string' && args.providerId ? args.providerId : undefined;
+          const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight, ...(providerId !== undefined && { providerId }) });
+          const referenceImages = [...(entity.referenceImages ?? [])];
+          const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
+          if (existingIndex >= 0) {
+            // Add as variant — keep previous image, user can switch
+            const existing = referenceImages[existingIndex];
+            const prevVariants = existing.variants ?? [];
+            if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
+              prevVariants.push(existing.assetHash);
+            }
+            referenceImages[existingIndex] = {
+              ...existing,
+              assetHash: result.assetHash,
+              variants: prevVariants,
+            };
+          } else {
+            referenceImages.push({
+              slot,
+              assetHash: result.assetHash,
+              isStandard: STANDARD_ANGLE_SLOTS.includes(slot as Character['referenceImages'][number]['slot'] & (typeof STANDARD_ANGLE_SLOTS)[number]),
+            });
+          }
+
+          entity.referenceImages = referenceImages;
+          entity.updatedAt = Date.now();
+          await deps.saveCharacter(entity);
+
+          const variantCount = referenceImages.find((r) => r.slot === slot)?.variants?.length ?? 0;
+          return { success: true, data: { assetHash: result.assetHash, slot, variantCount } };
+        }
+
+        if (action === 'set') {
+          const characters = await deps.listCharacters();
+          const entity = characters.find((character) => character.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Character not found: ${args.id}` };
+          }
+
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=set');
+          if (typeof args.assetHash !== 'string' || !args.assetHash.trim()) throw new Error('assetHash is required for action=set');
+          const slot = args.slot;
+          const assetHash = args.assetHash;
+          const referenceImages = [...(entity.referenceImages ?? [])];
+          const referenceImage = {
             slot,
-            assetHash: result.assetHash,
+            assetHash,
             isStandard: STANDARD_ANGLE_SLOTS.includes(slot as Character['referenceImages'][number]['slot'] & (typeof STANDARD_ANGLE_SLOTS)[number]),
+          };
+          const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
+          if (existingIndex >= 0) {
+            referenceImages[existingIndex] = referenceImage;
+          } else {
+            referenceImages.push(referenceImage);
+          }
+
+          entity.referenceImages = referenceImages;
+          entity.updatedAt = Date.now();
+          await deps.saveCharacter(entity);
+
+          return { success: true, data: { assetHash, slot } };
+        }
+
+        if (action === 'delete') {
+          const characters = await deps.listCharacters();
+          const entity = characters.find((character) => character.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Character not found: ${args.id}` };
+          }
+
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=delete');
+          const slot = args.slot;
+          entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
+          entity.updatedAt = Date.now();
+          await deps.saveCharacter(entity);
+
+          return { success: true, data: { id: entity.id, slot } };
+        }
+
+        if (action === 'setFromNode') {
+          if (!deps.getCanvas) return { success: false, error: 'getCanvas not available' };
+          if (typeof args.canvasId !== 'string' || !args.canvasId.trim()) throw new Error('canvasId is required for action=setFromNode');
+          if (typeof args.nodeId !== 'string' || !args.nodeId.trim()) throw new Error('nodeId is required for action=setFromNode');
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=setFromNode');
+          const canvas = await deps.getCanvas(args.canvasId);
+          const node = canvas.nodes.find((n) => n.id === args.nodeId);
+          if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
+          if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
+            return { success: false, error: `Node type does not support reference images: ${node.type}` };
+          }
+          const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
+          const variants = Array.isArray(data.variants) ? data.variants : [];
+          const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
+          const assetHash = variants[idx] ?? data.assetHash;
+          if (typeof assetHash !== 'string' || !assetHash) return { success: false, error: 'No generated asset on node' };
+          const characters = await deps.listCharacters();
+          const entity = characters.find((c) => c.id === args.id);
+          if (!entity) return { success: false, error: `Character not found: ${args.id}` };
+          const slot = args.slot as string;
+          entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
+          entity.referenceImages.push({
+            slot,
+            assetHash,
+            isStandard: STANDARD_ANGLE_SLOTS.includes(
+              slot as ReferenceImage['slot'] & (typeof STANDARD_ANGLE_SLOTS)[number],
+            ),
           });
+          entity.updatedAt = Date.now();
+          await deps.saveCharacter(entity);
+          return { success: true, data: { id: entity.id, slot, assetHash } };
         }
 
-        entity.referenceImages = referenceImages;
-        entity.updatedAt = Date.now();
-        await deps.saveCharacter(entity);
-
-        const variantCount = referenceImages.find((r) => r.slot === slot)?.variants?.length ?? 0;
-        return { success: true, data: { assetHash: result.assetHash, slot, variantCount } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  const characterSetReferenceImage: AgentTool = {
-    name: 'character.setReferenceImage',
-    description: 'Set a reference image asset for a character slot.',
-    tags: ['character', 'mutate'],
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The character ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
-        assetHash: { type: 'string', description: 'The CAS asset hash to assign.' },
-      },
-      required: ['id', 'slot', 'assetHash'],
-    },
-    async execute(args) {
-      try {
-        const characters = await deps.listCharacters();
-        const entity = characters.find((character) => character.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Character not found: ${args.id}` };
-        }
-
-        const slot = args.slot as string;
-        const assetHash = args.assetHash as string;
-        const referenceImages = [...(entity.referenceImages ?? [])];
-        const referenceImage = {
-          slot,
-          assetHash,
-          isStandard: STANDARD_ANGLE_SLOTS.includes(slot as Character['referenceImages'][number]['slot'] & (typeof STANDARD_ANGLE_SLOTS)[number]),
-        };
-        const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
-        if (existingIndex >= 0) {
-          referenceImages[existingIndex] = referenceImage;
-        } else {
-          referenceImages.push(referenceImage);
-        }
-
-        entity.referenceImages = referenceImages;
-        entity.updatedAt = Date.now();
-        await deps.saveCharacter(entity);
-
-        return { success: true, data: { assetHash, slot } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  const characterDeleteReferenceImage: AgentTool = {
-    name: 'character.deleteReferenceImage',
-    description: 'Remove a reference image from a character slot.',
-    tags: ['character', 'mutate'],
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The character ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
-      },
-      required: ['id', 'slot'],
-    },
-    async execute(args) {
-      try {
-        const characters = await deps.listCharacters();
-        const entity = characters.find((character) => character.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Character not found: ${args.id}` };
-        }
-
-        const slot = args.slot as string;
-        entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
-        entity.updatedAt = Date.now();
-        await deps.saveCharacter(entity);
-
-        return { success: true, data: { id: entity.id, slot } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  const characterSetReferenceImageFromNode: AgentTool = {
-    name: 'character.setReferenceImageFromNode',
-    description: 'Set a character reference image directly from a generated canvas image node.',
-    tags: ['character', 'mutate'],
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The character ID.' },
-        slot: { type: 'string', description: 'The reference image slot.' },
-        canvasId: { type: 'string', description: 'The canvas ID.' },
-        nodeId: { type: 'string', description: 'The image node ID to pull the generated asset from.' },
-      },
-      required: ['id', 'slot', 'canvasId', 'nodeId'],
-    },
-    async execute(args) {
-      try {
-        if (!deps.getCanvas) return { success: false, error: 'getCanvas not available' };
-        const canvas = await deps.getCanvas(String(args.canvasId));
-        const node = canvas.nodes.find((n) => n.id === args.nodeId);
-        if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
-        if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
-          return { success: false, error: `Node type does not support reference images: ${node.type}` };
-        }
-        const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
-        const variants = Array.isArray(data.variants) ? data.variants : [];
-        const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
-        const assetHash = variants[idx] ?? data.assetHash;
-        if (typeof assetHash !== 'string' || !assetHash) return { success: false, error: 'No generated asset on node' };
-        const characters = await deps.listCharacters();
-        const entity = characters.find((c) => c.id === args.id);
-        if (!entity) return { success: false, error: `Character not found: ${args.id}` };
-        const slot = String(args.slot);
-        entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
-        entity.referenceImages.push({
-          slot,
-          assetHash,
-          isStandard: STANDARD_ANGLE_SLOTS.includes(
-            slot as ReferenceImage['slot'] & (typeof STANDARD_ANGLE_SLOTS)[number],
-          ),
-        });
-        entity.updatedAt = Date.now();
-        await deps.saveCharacter(entity);
-        return { success: true, data: { id: entity.id, slot, assetHash } };
+        return { success: false, error: `Unknown action: ${action}` };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -588,9 +549,6 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     characterCreate,
     characterUpdate,
     characterDelete,
-    characterGenerateReferenceImage,
-    characterSetReferenceImage,
-    characterDeleteReferenceImage,
-    characterSetReferenceImageFromNode,
+    characterRefImage,
   ];
 }

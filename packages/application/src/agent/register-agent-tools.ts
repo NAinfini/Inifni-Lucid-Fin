@@ -2,15 +2,9 @@ import { AgentToolRegistry } from './tool-registry.js';
 import { createScriptTools, type ScriptToolDeps } from './tools/script-tools.js';
 import { createCharacterTools, type CharacterToolDeps } from './tools/character-tools.js';
 import { createSceneTools, type SceneToolDeps } from './tools/scene-tools.js';
-import { createSegmentTools, type SegmentToolDeps } from './tools/segment-tools.js';
-import { createStoryboardTools, type StoryboardToolDeps } from './tools/storyboard-tools.js';
 import { createCanvasTools, type CanvasToolDeps } from './tools/canvas-tools.js';
 import { createLocationTools, type LocationToolDeps } from './tools/location-tools.js';
 import { createJobTools, type JobToolDeps } from './tools/job-tools.js';
-import {
-  createOrchestrationTools,
-  type OrchestrationToolDeps,
-} from './tools/orchestration-tools.js';
 import { createSeriesTools, type SeriesToolDeps } from './tools/series-tools.js';
 import { createColorStyleTools, type ColorStyleToolDeps } from './tools/color-style-tools.js';
 import { createEquipmentTools, type EquipmentToolDeps } from './tools/equipment-tools.js';
@@ -26,12 +20,9 @@ export interface AllToolDeps
   extends ScriptToolDeps,
     Omit<CharacterToolDeps, 'getCanvas'>,
     Omit<SceneToolDeps, 'getCanvas'>,
-    SegmentToolDeps,
-    StoryboardToolDeps,
     CanvasToolDeps,
-    LocationToolDeps,
+    Omit<LocationToolDeps, 'getCanvas'>,
     JobToolDeps,
-    OrchestrationToolDeps,
     SeriesToolDeps,
     ColorStyleToolDeps,
     Omit<EquipmentToolDeps, 'getCanvas'>,
@@ -50,12 +41,9 @@ export function registerAgentTools(
   for (const tool of createScriptTools(deps)) registry.register(tool);
   for (const tool of createCharacterTools(deps)) registry.register(tool);
   for (const tool of createSceneTools(deps)) registry.register(tool);
-  for (const tool of createSegmentTools(deps)) registry.register(tool);
-  for (const tool of createStoryboardTools(deps)) registry.register(tool);
   for (const tool of createCanvasTools(deps)) registry.register(tool);
   for (const tool of createLocationTools(deps)) registry.register(tool);
   for (const tool of createJobTools(deps)) registry.register(tool);
-  for (const tool of createOrchestrationTools(deps)) registry.register(tool);
   for (const tool of createSeriesTools(deps)) registry.register(tool);
   for (const tool of createColorStyleTools(deps)) registry.register(tool);
   for (const tool of createEquipmentTools(deps)) registry.register(tool);

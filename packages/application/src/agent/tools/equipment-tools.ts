@@ -36,22 +36,25 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
       required: [],
     },
     async execute(args) {
-      const items = await deps.listEquipment();
-      const query = typeof args.query === 'string' && args.query.length > 0
-        ? args.query.toLowerCase()
-        : undefined;
-      let filtered = items;
-      if (query) {
-        filtered = filtered.filter((e) =>
-          e.name?.toLowerCase().includes(query) ||
-          e.type?.toLowerCase().includes(query) ||
-          e.description?.toLowerCase().includes(query),
-        );
+      try {
+        const items = await deps.listEquipment();
+        const query = typeof args.query === 'string' && args.query.length > 0
+          ? args.query.toLowerCase()
+          : undefined;
+        let filtered = items;
+        if (query) {
+          filtered = filtered.filter((e) =>
+            e.name?.toLowerCase().includes(query) ||
+            e.type?.toLowerCase().includes(query) ||
+            e.description?.toLowerCase().includes(query),
+          );
+        }
+        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return { success: true, data: { total: filtered.length, offset, limit, equipment: filtered.slice(offset, offset + limit) } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
-      const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-      const mapped = filtered.map((e) => ({ id: e.id, name: e.name, type: e.type }));
-      return { success: true, data: { total: mapped.length, offset, limit, equipment: mapped.slice(offset, offset + limit) } };
     },
   };
 
@@ -175,209 +178,162 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
   };
 
-  const equipmentGenerateReferenceImage: AgentTool = {
-    name: 'equipment.generateReferenceImage',
-    description: 'Generate a reference image for equipment. Automatically compiles all equipment fields (type, description, material, color, condition, visual details) into the prompt. Default slot is "main" for a front product shot. IMPORTANT: Call ONE at a time, verify success before generating the next. Never batch parallel generation calls.',
-    tags: ['equipment', 'generation'],
+  const equipmentRefImage: AgentTool = {
+    name: 'equipment.refImage',
+    description: 'Manage reference images for an equipment item. Use action=generate to produce a new image (auto-compiles all equipment fields into the prompt; call ONE at a time, verify success before the next). Use action=set to assign an existing asset hash. Use action=delete to remove a slot. Use action=setFromNode to pull the asset directly from a generated canvas image node.',
+    tags: ['equipment', 'generation', 'mutate'],
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The equipment ID.' },
+        action: {
+          type: 'string',
+          description: 'Operation to perform.',
+          enum: ['generate', 'set', 'delete', 'setFromNode'],
+        },
         slot: {
           type: 'string',
           description: 'Reference image slot. Default: "main". Use specific slots for targeted views.',
           enum: ['main', 'front', 'back', 'left-side', 'right-side', 'detail-closeup', 'in-use'],
         },
-        width: { type: 'number', description: 'Image width in pixels. Default 1024. Auto-clamped to provider max.' },
-        height: { type: 'number', description: 'Image height in pixels. Default 1536. Auto-clamped to provider max.' },
-        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates from equipment data.' },
+        assetHash: { type: 'string', description: 'The CAS asset hash to assign. Required for action=set.' },
+        canvasId: { type: 'string', description: 'The canvas ID. Required for action=setFromNode.' },
+        nodeId: { type: 'string', description: 'The image node ID. Required for action=setFromNode.' },
+        width: { type: 'number', description: 'Image width in pixels. Default 1024. Auto-clamped to provider max. For action=generate.' },
+        height: { type: 'number', description: 'Image height in pixels. Default 1536. Auto-clamped to provider max. For action=generate.' },
+        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates from equipment data. For action=generate.' },
+        providerId: { type: 'string', description: 'Provider ID override. For action=generate.' },
       },
-      required: ['id'],
+      required: ['id', 'action'],
     },
     async execute(args) {
       try {
-        const items = await deps.listEquipment();
-        const entity = items.find((equipment) => equipment.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Equipment not found: ${args.id as string}` };
-        }
-        if (!deps.generateImage) {
-          return { success: false, error: 'Image generation not available' };
-        }
+        const action = args.action as string;
 
-        const slot = typeof args.slot === 'string' ? args.slot : 'main';
-        const slotDescriptions: Record<string, string> = {
-          'main': 'front orthographic view, straight-on angle, full item visible, centered composition',
-          'front': 'front orthographic view, straight-on angle, full item visible',
-          'back': 'back orthographic view, rear details visible, full item visible',
-          'left-side': 'left side orthographic view, pure profile, full item visible',
-          'right-side': 'right side orthographic view, pure profile, full item visible',
-          'detail-closeup': 'extreme close-up macro view, fine surface textures, material details, engravings and mechanical parts visible',
-          'in-use': 'contextual action shot showing the item being held or used, clear view of the item with minimal background',
-        };
-        const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
-
-        // Build rich description from all available fields
-        const descParts: string[] = [];
-        if (entity.description) descParts.push(entity.description);
-        if (entity.function) descParts.push(`Function: ${entity.function}`);
-        if (entity.material) descParts.push(`Material: ${entity.material}`);
-        if (entity.color) descParts.push(`Color: ${entity.color}`);
-        if (entity.condition) descParts.push(`Condition: ${entity.condition}`);
-        if (entity.visualDetails) descParts.push(`Visual details: ${entity.visualDetails}`);
-        if (entity.subtype) descParts.push(`Subtype: ${entity.subtype}`);
-        const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
-
-        const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
-          ? args.prompt
-          : `Product design reference, solid white background, even studio lighting, no characters, no environment, no scene. `
-            + `Item: ${entity.name} (${entity.type}). ${richDesc}`
-            + `${slotDesc}. `
-            + `Object only, clean edges, high detail, consistent scale, professional product photography style, technical illustration quality.`;
-        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1024;
-        const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1536;
-        const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight });
-        const referenceImages = [...(entity.referenceImages ?? [])];
-        const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
-        if (existingIndex >= 0) {
-          const existing = referenceImages[existingIndex];
-          const prevVariants = existing.variants ?? [];
-          if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
-            prevVariants.push(existing.assetHash);
+        if (action === 'generate') {
+          const items = await deps.listEquipment();
+          const entity = items.find((equipment) => equipment.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Equipment not found: ${args.id as string}` };
           }
-          referenceImages[existingIndex] = {
-            ...existing,
-            assetHash: result.assetHash,
-            variants: prevVariants,
+          if (!deps.generateImage) {
+            return { success: false, error: 'Image generation not available' };
+          }
+
+          const slot = typeof args.slot === 'string' ? args.slot : 'main';
+          const slotDescriptions: Record<string, string> = {
+            'main': 'front orthographic view, straight-on angle, full item visible, centered composition',
+            'front': 'front orthographic view, straight-on angle, full item visible',
+            'back': 'back orthographic view, rear details visible, full item visible',
+            'left-side': 'left side orthographic view, pure profile, full item visible',
+            'right-side': 'right side orthographic view, pure profile, full item visible',
+            'detail-closeup': 'extreme close-up macro view, fine surface textures, material details, engravings and mechanical parts visible',
+            'in-use': 'contextual action shot showing the item being held or used, clear view of the item with minimal background',
           };
-        } else {
-          referenceImages.push({
+          const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
+
+          const descParts: string[] = [];
+          if (entity.description) descParts.push(entity.description);
+          if (entity.function) descParts.push(`Function: ${entity.function}`);
+          if (entity.material) descParts.push(`Material: ${entity.material}`);
+          if (entity.color) descParts.push(`Color: ${entity.color}`);
+          if (entity.condition) descParts.push(`Condition: ${entity.condition}`);
+          if (entity.visualDetails) descParts.push(`Visual details: ${entity.visualDetails}`);
+          if (entity.subtype) descParts.push(`Subtype: ${entity.subtype}`);
+          const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
+
+          const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
+            ? args.prompt
+            : `Product design reference, solid white background, even studio lighting, no characters, no environment, no scene. `
+              + `Item: ${entity.name} (${entity.type}). ${richDesc}`
+              + `${slotDesc}. `
+              + `Object only, clean edges, high detail, consistent scale, professional product photography style, technical illustration quality.`;
+          const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1024;
+          const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1536;
+          const providerId = typeof args.providerId === 'string' ? args.providerId : undefined;
+          const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight, providerId });
+          const referenceImages = [...(entity.referenceImages ?? [])];
+          const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
+          if (existingIndex >= 0) {
+            const existing = referenceImages[existingIndex];
+            const prevVariants = existing.variants ?? [];
+            if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
+              prevVariants.push(existing.assetHash);
+            }
+            referenceImages[existingIndex] = {
+              ...existing,
+              assetHash: result.assetHash,
+              variants: prevVariants,
+            };
+          } else {
+            referenceImages.push({
+              slot,
+              assetHash: result.assetHash,
+              isStandard: EQUIPMENT_STANDARD_SLOTS.includes(slot as Equipment['referenceImages'][number]['slot'] & (typeof EQUIPMENT_STANDARD_SLOTS)[number]),
+            });
+          }
+
+          entity.referenceImages = referenceImages;
+          entity.updatedAt = Date.now();
+          await deps.saveEquipment(entity);
+
+          return { success: true, data: { assetHash: result.assetHash, slot } };
+        }
+
+        if (action === 'set') {
+          const items = await deps.listEquipment();
+          const entity = items.find((equipment) => equipment.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Equipment not found: ${args.id as string}` };
+          }
+
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=set');
+          if (typeof args.assetHash !== 'string' || !args.assetHash.trim()) throw new Error('assetHash is required for action=set');
+          const slot = args.slot;
+          const assetHash = args.assetHash;
+          const referenceImages = [...(entity.referenceImages ?? [])];
+          const referenceImage = {
             slot,
-            assetHash: result.assetHash,
+            assetHash,
             isStandard: EQUIPMENT_STANDARD_SLOTS.includes(slot as Equipment['referenceImages'][number]['slot'] & (typeof EQUIPMENT_STANDARD_SLOTS)[number]),
-          });
+          };
+          const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
+          if (existingIndex >= 0) {
+            referenceImages[existingIndex] = referenceImage;
+          } else {
+            referenceImages.push(referenceImage);
+          }
+
+          entity.referenceImages = referenceImages;
+          entity.updatedAt = Date.now();
+          await deps.saveEquipment(entity);
+
+          return { success: true, data: { assetHash, slot } };
         }
 
-        entity.referenceImages = referenceImages;
-        entity.updatedAt = Date.now();
-        await deps.saveEquipment(entity);
+        if (action === 'delete') {
+          const items = await deps.listEquipment();
+          const entity = items.find((equipment) => equipment.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Equipment not found: ${args.id as string}` };
+          }
 
-        return { success: true, data: { assetHash: result.assetHash, slot } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=delete');
+          const slot = args.slot;
+          entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
+          entity.updatedAt = Date.now();
+          await deps.saveEquipment(entity);
 
-  const equipmentSetReferenceImage: AgentTool = {
-    name: 'equipment.setReferenceImage',
-    description: 'Set a reference image asset for an equipment slot.',
-    tags: ['equipment', 'mutate'],
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The equipment ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
-        assetHash: { type: 'string', description: 'The CAS asset hash to assign.' },
-      },
-      required: ['id', 'slot', 'assetHash'],
-    },
-    async execute(args) {
-      try {
-        const items = await deps.listEquipment();
-        const entity = items.find((equipment) => equipment.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Equipment not found: ${args.id as string}` };
+          return { success: true, data: { id: entity.id, slot } };
         }
 
-        const slot = args.slot as string;
-        const assetHash = args.assetHash as string;
-        const referenceImages = [...(entity.referenceImages ?? [])];
-        const referenceImage = {
-          slot,
-          assetHash,
-          isStandard: EQUIPMENT_STANDARD_SLOTS.includes(slot as Equipment['referenceImages'][number]['slot'] & (typeof EQUIPMENT_STANDARD_SLOTS)[number]),
-        };
-        const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
-        if (existingIndex >= 0) {
-          referenceImages[existingIndex] = referenceImage;
-        } else {
-          referenceImages.push(referenceImage);
-        }
-
-        entity.referenceImages = referenceImages;
-        entity.updatedAt = Date.now();
-        await deps.saveEquipment(entity);
-
-        return { success: true, data: { assetHash, slot } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  const equipmentDeleteReferenceImage: AgentTool = {
-    name: 'equipment.deleteReferenceImage',
-    description: 'Remove a reference image from an equipment slot.',
-    tags: ['equipment', 'mutate'],
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The equipment ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
-      },
-      required: ['id', 'slot'],
-    },
-    async execute(args) {
-      try {
-        const items = await deps.listEquipment();
-        const entity = items.find((equipment) => equipment.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Equipment not found: ${args.id as string}` };
-        }
-
-        const slot = args.slot as string;
-        entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
-        entity.updatedAt = Date.now();
-        await deps.saveEquipment(entity);
-
-        return { success: true, data: { id: entity.id, slot } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  return [
-    equipmentList,
-    equipmentCreate,
-    equipmentUpdate,
-    equipmentDelete,
-    equipmentGenerateReferenceImage,
-    equipmentSetReferenceImage,
-    equipmentDeleteReferenceImage,
-    {
-      name: 'equipment.setReferenceImageFromNode',
-      description: 'Set an equipment reference image directly from a generated canvas image node.',
-      tags: ['equipment', 'mutate'],
-      tier: 2,
-      parameters: {
-        type: 'object' as const,
-        properties: {
-          id: { type: 'string' as const, description: 'The equipment ID.' },
-          slot: { type: 'string' as const, description: 'The reference image slot.' },
-          canvasId: { type: 'string' as const, description: 'The canvas ID.' },
-          nodeId: { type: 'string' as const, description: 'The image node ID.' },
-        },
-        required: ['id', 'slot', 'canvasId', 'nodeId'],
-      },
-      async execute(args: Record<string, unknown>) {
-        try {
+        if (action === 'setFromNode') {
           if (!deps.getCanvas) return { success: false, error: 'getCanvas not available' };
-          const canvas = await deps.getCanvas(String(args.canvasId));
+          if (typeof args.canvasId !== 'string' || !args.canvasId.trim()) throw new Error('canvasId is required for action=setFromNode');
+          if (typeof args.nodeId !== 'string' || !args.nodeId.trim()) throw new Error('nodeId is required for action=setFromNode');
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=setFromNode');
+          const canvas = await deps.getCanvas(args.canvasId);
           const node = canvas.nodes.find((n) => n.id === args.nodeId);
           if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
           if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
@@ -391,7 +347,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
           const equipment = await deps.listEquipment();
           const entity = equipment.find((e) => e.id === args.id);
           if (!entity) return { success: false, error: `Equipment not found: ${args.id}` };
-          const slot = String(args.slot);
+          const slot = args.slot as string;
           entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
           entity.referenceImages.push({
             slot,
@@ -403,10 +359,20 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
           entity.updatedAt = Date.now();
           await deps.saveEquipment(entity);
           return { success: true, data: { id: entity.id, slot, assetHash } };
-        } catch (err) {
-          return { success: false, error: err instanceof Error ? err.message : String(err) };
         }
-      },
-    } as AgentTool,
+
+        return { success: false, error: `Unknown action: ${action}` };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
+  return [
+    equipmentList,
+    equipmentCreate,
+    equipmentUpdate,
+    equipmentDelete,
+    equipmentRefImage,
   ];
 }

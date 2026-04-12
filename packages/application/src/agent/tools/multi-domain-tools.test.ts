@@ -150,19 +150,11 @@ describe('new agent tool groups', () => {
       data: { canvasId: 'canvas-1' },
     });
 
-    await getTool(tools, 'canvas.setCharacterRefs').execute({
+    await getTool(tools, 'canvas.setNodeRefs').execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       characterRefs: [],
-    });
-    await getTool(tools, 'canvas.setEquipmentRefs').execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
       equipmentRefs: [],
-    });
-    await getTool(tools, 'canvas.setLocationRefs').execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
       locationRefs: [],
     });
 
@@ -192,7 +184,7 @@ describe('new agent tool groups', () => {
       })),
     });
 
-    await expect(getTool(tools, 'script.load').execute({ path: '/tmp/test.fountain' })).resolves.toEqual({
+    await expect(getTool(tools, 'script.import').execute({ path: '/tmp/test.fountain' })).resolves.toEqual({
       success: true,
       data: { path: '/tmp/test.fountain' },
     });
@@ -248,15 +240,15 @@ describe('new agent tool groups', () => {
       retryWorkflow: vi.fn(async () => undefined),
     });
 
-    await expect(getTool(jobTools, 'job.cancel').execute({ jobId: 'job-1' })).resolves.toEqual({
+    await expect(getTool(jobTools, 'job.control').execute({ jobId: 'job-1', action: 'cancel' })).resolves.toEqual({
       success: true,
-      data: { jobId: 'job-1' },
+      data: { jobId: 'job-1', action: 'cancel' },
     });
     await expect(getTool(projectTools, 'project.list').execute({})).resolves.toEqual({
       success: true,
       data: { total: 1, offset: 0, limit: 50, projects: [{ id: 'project-1', title: 'Project', path: '/tmp/project', updatedAt: 1 }] },
     });
-    await expect(getTool(renderTools, 'render.start').execute({ canvasId: 'canvas-1', format: 'mp4' })).resolves.toEqual({
+    await expect(getTool(renderTools, 'render.control').execute({ canvasId: 'canvas-1', format: 'mp4', action: 'start' })).resolves.toEqual({
       success: true,
       data: { renderId: 'render-1' },
     });
@@ -264,9 +256,9 @@ describe('new agent tool groups', () => {
       success: true,
       data: { presetId: 'preset-1' },
     });
-    await expect(getTool(workflowTools, 'workflow.retry').execute({ id: 'wf-1' })).resolves.toEqual({
+    await expect(getTool(workflowTools, 'workflow.control').execute({ id: 'wf-1', action: 'retry' })).resolves.toEqual({
       success: true,
-      data: { id: 'wf-1' },
+      data: { id: 'wf-1', action: 'retry' },
     });
   });
 

@@ -18,13 +18,37 @@ export interface WaveformPlayerRef {
   seekTo: (progress: number) => void;
 }
 
+function formatTime(s: number) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
 export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>(
   ({ audioUrl, onReady, onSeek, onFinish, height = 64, waveColor, progressColor }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const timeDisplayRef = useRef<HTMLSpanElement>(null);
     const wsRef = useRef<WaveSurfer | null>(null);
     const [playing, setPlaying] = useState(false);
-    const [duration, setDuration] = useState(0);
-    const [currentTime, setCurrentTime] = useState(0);
+    const durationRef = useRef(0);
+    const rafIdRef = useRef(0);
+
+    // Keep callback refs stable so WaveSurfer is only recreated when
+    // audioUrl or visual config changes, not when parent re-renders.
+    const onReadyRef = useRef(onReady);
+    onReadyRef.current = onReady;
+    const onSeekRef = useRef(onSeek);
+    onSeekRef.current = onSeek;
+    const onFinishRef = useRef(onFinish);
+    onFinishRef.current = onFinish;
+
+    const updateTimeDisplay = useCallback(() => {
+      const el = timeDisplayRef.current;
+      const ws = wsRef.current;
+      if (el && ws) {
+        el.textContent = `${formatTime(ws.getCurrentTime())} / ${formatTime(durationRef.current)}`;
+      }
+    }, []);
 
     useImperativeHandle(ref, () => ({
       play: () => wsRef.current?.play(),
@@ -51,29 +75,39 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
       ws.load(audioUrl);
 
       ws.on('ready', () => {
-        setDuration(ws.getDuration());
-        onReady?.();
+        durationRef.current = ws.getDuration();
+        updateTimeDisplay();
+        onReadyRef.current?.();
       });
 
-      ws.on('audioprocess', () => setCurrentTime(ws.getCurrentTime()));
+      // Use RAF-throttled time display updates instead of setState per audio frame
+      ws.on('audioprocess', () => {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = requestAnimationFrame(updateTimeDisplay);
+      });
       ws.on('seeking', () => {
-        setCurrentTime(ws.getCurrentTime());
-        onSeek?.(ws.getCurrentTime());
+        updateTimeDisplay();
+        onSeekRef.current?.(ws.getCurrentTime());
       });
       ws.on('play', () => setPlaying(true));
-      ws.on('pause', () => setPlaying(false));
+      ws.on('pause', () => {
+        setPlaying(false);
+        updateTimeDisplay();
+      });
       ws.on('finish', () => {
         setPlaying(false);
-        onFinish?.();
+        updateTimeDisplay();
+        onFinishRef.current?.();
       });
 
       wsRef.current = ws;
 
       return () => {
+        cancelAnimationFrame(rafIdRef.current);
         ws.destroy();
         wsRef.current = null;
       };
-    }, [audioUrl, height, onFinish, onReady, onSeek, progressColor, waveColor]);
+    }, [audioUrl, height, progressColor, updateTimeDisplay, waveColor]);
 
     const togglePlay = useCallback(() => {
       wsRef.current?.playPause();
@@ -83,12 +117,6 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
       wsRef.current?.seekTo(0);
       wsRef.current?.play();
     }, []);
-
-    const formatTime = (s: number) => {
-      const m = Math.floor(s / 60);
-      const sec = Math.floor(s % 60);
-      return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-    };
 
     return (
       <div className="flex flex-col gap-2 p-3 rounded-lg border bg-card">
@@ -104,8 +132,8 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
           <button onClick={restart} className="p-1.5 rounded hover:bg-muted" aria-label="Restart">
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
-          <span className="text-xs text-muted-foreground font-mono ml-auto">
-            {formatTime(currentTime)} / {formatTime(duration)}
+          <span ref={timeDisplayRef} className="text-xs text-muted-foreground font-mono ml-auto">
+            00:00 / 00:00
           </span>
         </div>
       </div>

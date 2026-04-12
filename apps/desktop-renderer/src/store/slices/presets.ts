@@ -1,4 +1,4 @@
-import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import { createSelector, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { PresetCategory, PresetDefinition } from '@lucid-fin/contracts';
 
 export interface PresetsState {
@@ -90,3 +90,19 @@ export const {
   togglePresetHidden,
 } = presetsSlice.actions;
 
+const selectPresetIds = (state: { presets: PresetsState }) => state.presets.allIds;
+const selectPresetById = (state: { presets: PresetsState }) => state.presets.byId;
+
+export const selectPresetList = createSelector(
+  [selectPresetIds, selectPresetById],
+  (allIds, byId) => {
+    const presets: PresetDefinition[] = [];
+    for (const id of allIds) {
+      const preset = byId[id];
+      if (preset) {
+        presets.push(preset);
+      }
+    }
+    return presets;
+  },
+);

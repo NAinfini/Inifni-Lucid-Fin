@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Layers, Plus } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { Canvas } from '@lucid-fin/contracts';
@@ -37,32 +37,47 @@ const LoggerPanel = lazy(() => import('../components/canvas/LoggerPanel.js').the
 const PresetManagerPanel = lazy(() => import('../components/canvas/PresetManagerPanel.js').then(m => ({ default: m.PresetManagerPanel })));
 const ShotTemplateManagerPanel = lazy(() => import('../components/canvas/ShotTemplateManagerPanel.js').then(m => ({ default: m.ShotTemplateManagerPanel })));
 
-function DragHandle({ side, onResize }: { side: 'left' | 'right'; onResize: (delta: number) => void }) {
-  const dragging = useRef(false);
+const MIN_PANEL_WIDTH = 200;
+const MAX_PANEL_WIDTH = 500;
+
+function DragHandle({
+  side,
+  panelRef,
+  widthRef,
+}: {
+  side: 'left' | 'right';
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  widthRef: React.MutableRefObject<number>;
+}) {
   const lastX = useRef(0);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    dragging.current = true;
     lastX.current = e.clientX;
+
     const onMouseMove = (ev: MouseEvent) => {
-      if (!dragging.current) return;
       const delta = ev.clientX - lastX.current;
       lastX.current = ev.clientX;
-      onResize(side === 'left' ? delta : -delta);
+      const signed = side === 'left' ? delta : -delta;
+      const next = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, widthRef.current + signed));
+      widthRef.current = next;
+      if (panelRef.current) {
+        panelRef.current.style.width = `${next}px`;
+      }
     };
+
     const onMouseUp = () => {
-      dragging.current = false;
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
+
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [onResize, side]);
+  }, [panelRef, side, widthRef]);
 
   return (
     <div
@@ -75,8 +90,10 @@ function DragHandle({ side, onResize }: { side: 'left' | 'right'; onResize: (del
 export function CanvasPage() {
   const dispatch = useDispatch<AppDispatch>();
   useClipboardWatcher();
-  const [leftWidth, setLeftWidth] = useState(320);
-  const [rightWidth, setRightWidth] = useState(320);
+  const leftWidthRef = useRef(380);
+  const rightWidthRef = useRef(380);
+  const leftPanelRef = useRef<HTMLDivElement>(null);
+  const rightPanelRef = useRef<HTMLDivElement>(null);
   const { canvases, activeCanvasId, loading } = useSelector(
     (state: RootState) => state.canvas,
   );
@@ -321,10 +338,10 @@ export function CanvasPage() {
           <div className="flex h-full w-full">
             {activePanel ? (
               <>
-                <div className="h-full shrink-0 overflow-hidden" style={{ width: leftWidth }}>
+                <div ref={leftPanelRef} className="h-full shrink-0 overflow-hidden" style={{ width: leftWidthRef.current }}>
                   {renderActivePanel()}
                 </div>
-                <DragHandle side="left" onResize={(d) => setLeftWidth((w) => Math.max(200, Math.min(500, w + d)))} />
+                <DragHandle side="left" panelRef={leftPanelRef} widthRef={leftWidthRef} />
               </>
             ) : null}
 
@@ -334,8 +351,8 @@ export function CanvasPage() {
 
             {rightPanel !== null ? (
               <>
-                <DragHandle side="right" onResize={(d) => setRightWidth((w) => Math.max(200, Math.min(500, w + d)))} />
-                <div className="h-full shrink-0 overflow-hidden" style={{ width: rightWidth }}>
+                <DragHandle side="right" panelRef={rightPanelRef} widthRef={rightWidthRef} />
+                <div ref={rightPanelRef} className="h-full shrink-0 overflow-hidden" style={{ width: rightWidthRef.current }}>
                   {renderRightPanel()}
                 </div>
               </>

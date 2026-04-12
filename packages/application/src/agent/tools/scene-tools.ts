@@ -105,7 +105,9 @@ export function createSceneTools(deps: SceneToolDeps): AgentTool[] {
           description: args.description as string,
           location: args.location as string,
           timeOfDay: args.timeOfDay as string,
-          characters: (args.characters as string[]) ?? [],
+          characters: Array.isArray(args.characters)
+            ? (args.characters as unknown[]).filter((c): c is string => typeof c === 'string')
+            : [],
           keyframes: [],
           segments: [],
           createdAt: now,
@@ -187,44 +189,80 @@ export function createSceneTools(deps: SceneToolDeps): AgentTool[] {
   };
 
   return [sceneList, sceneCreate, sceneUpdate, sceneDelete, {
-    name: 'scene.setReferenceImageFromNode',
-    description: 'Set a scene reference image directly from a generated canvas image node.',
+    name: 'scene.refImage',
+    description: 'Manage scene reference images. action=set: assign an existing asset hash to a slot, action=delete: remove a slot, action=setFromNode: set from a generated canvas image node.',
     tags: ['scene', 'mutate'],
     tier: 2,
     parameters: {
       type: 'object' as const,
       properties: {
         id: { type: 'string' as const, description: 'The scene ID.' },
+        action: { type: 'string' as const, enum: ['set', 'delete', 'setFromNode'], description: 'The action to perform.' },
         slot: { type: 'string' as const, description: 'The reference image slot.' },
-        canvasId: { type: 'string' as const, description: 'The canvas ID.' },
-        nodeId: { type: 'string' as const, description: 'The image node ID.' },
+        assetHash: { type: 'string' as const, description: 'CAS asset hash. Required for action=set.' },
+        canvasId: { type: 'string' as const, description: 'The canvas ID. Required for action=setFromNode.' },
+        nodeId: { type: 'string' as const, description: 'The image node ID. Required for action=setFromNode.' },
       },
-      required: ['id', 'slot', 'canvasId', 'nodeId'],
+      required: ['id', 'action'],
     },
     async execute(args: Record<string, unknown>) {
       try {
-        if (!deps.getCanvas) return { success: false, error: 'getCanvas not available' };
-        const canvas = await deps.getCanvas(String(args.canvasId));
-        const node = canvas.nodes.find((n) => n.id === args.nodeId);
-        if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
-        if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
-          return { success: false, error: `Node type does not support reference images: ${node.type}` };
-        }
-        const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
-        const variants = Array.isArray(data.variants) ? data.variants : [];
-        const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
-        const assetHash = variants[idx] ?? data.assetHash;
-        if (typeof assetHash !== 'string' || !assetHash) return { success: false, error: 'No generated asset on node' };
+        const action = args.action as string;
+        const id = args.id as string;
+        if (typeof id !== 'string' || !id.trim()) return { success: false, error: 'id is required' };
+
         const scenes = await deps.listScenes();
-        const entity = scenes.find((s) => s.id === args.id);
-        if (!entity) return { success: false, error: `Scene not found: ${args.id}` };
-        const slot = String(args.slot);
+        const entity = scenes.find((s) => s.id === id);
+        if (!entity) return { success: false, error: `Scene not found: ${id}` };
         const sceneWithRefs = entity as SceneWithReferenceImages;
-        sceneWithRefs.referenceImages = (sceneWithRefs.referenceImages ?? []).filter((image) => image.slot !== slot);
-        sceneWithRefs.referenceImages.push({ slot, assetHash, isStandard: false });
-        sceneWithRefs.updatedAt = Date.now();
-        await deps.updateScene(sceneWithRefs);
-        return { success: true, data: { id: entity.id, slot, assetHash } };
+        sceneWithRefs.referenceImages = sceneWithRefs.referenceImages ?? [];
+
+        if (action === 'set') {
+          if (typeof args.slot !== 'string' || !(args.slot as string).trim()) return { success: false, error: 'slot is required for action=set' };
+          if (typeof args.assetHash !== 'string' || !(args.assetHash as string).trim()) return { success: false, error: 'assetHash is required for action=set' };
+          const slot = (args.slot as string).trim();
+          const assetHash = (args.assetHash as string).trim();
+          sceneWithRefs.referenceImages = sceneWithRefs.referenceImages.filter((img) => img.slot !== slot);
+          sceneWithRefs.referenceImages.push({ slot, assetHash, isStandard: false });
+          sceneWithRefs.updatedAt = Date.now();
+          await deps.updateScene(sceneWithRefs);
+          return { success: true, data: { id, slot, assetHash } };
+        }
+
+        if (action === 'delete') {
+          if (typeof args.slot !== 'string' || !(args.slot as string).trim()) return { success: false, error: 'slot is required for action=delete' };
+          const slot = (args.slot as string).trim();
+          sceneWithRefs.referenceImages = sceneWithRefs.referenceImages.filter((img) => img.slot !== slot);
+          sceneWithRefs.updatedAt = Date.now();
+          await deps.updateScene(sceneWithRefs);
+          return { success: true, data: { id, slot } };
+        }
+
+        if (action === 'setFromNode') {
+          if (!deps.getCanvas) return { success: false, error: 'getCanvas not available' };
+          if (typeof args.canvasId !== 'string' || !(args.canvasId as string).trim()) return { success: false, error: 'canvasId is required for action=setFromNode' };
+          if (typeof args.nodeId !== 'string' || !(args.nodeId as string).trim()) return { success: false, error: 'nodeId is required for action=setFromNode' };
+          if (typeof args.slot !== 'string' || !(args.slot as string).trim()) return { success: false, error: 'slot is required for action=setFromNode' };
+          const canvas = await deps.getCanvas(args.canvasId as string);
+          const node = canvas.nodes.find((n) => n.id === args.nodeId);
+          if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
+          if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
+            return { success: false, error: `Node type does not support reference images: ${node.type}` };
+          }
+          const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
+          const variants = Array.isArray(data.variants) ? data.variants : [];
+          const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
+          const assetHash = variants[idx] ?? data.assetHash;
+          if (typeof assetHash !== 'string' || !assetHash) return { success: false, error: 'No generated asset on node' };
+          const slot = (args.slot as string).trim();
+          sceneWithRefs.referenceImages = sceneWithRefs.referenceImages.filter((image) => image.slot !== slot);
+          sceneWithRefs.referenceImages.push({ slot, assetHash, isStandard: false });
+          sceneWithRefs.updatedAt = Date.now();
+          await deps.updateScene(sceneWithRefs);
+          return { success: true, data: { id, slot, assetHash } };
+        }
+
+        return { success: false, error: `Unknown action: ${action}` };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }

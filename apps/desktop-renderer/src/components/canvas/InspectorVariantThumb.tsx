@@ -23,7 +23,7 @@ export function InspectorVariantThumb({
 }: InspectorVariantThumbProps) {
   const assetType = mediaType === 'audio' ? 'audio' : mediaType;
   const assetExt = mediaType === 'image' ? 'png' : mediaType === 'video' ? 'mp4' : 'mp3';
-  const { url } = useAssetUrl(hash, assetType, assetExt);
+  const { url, markFailed } = useAssetUrl(hash, assetType, assetExt);
   const isSelectable = Boolean(hash);
 
   return (
@@ -39,9 +39,20 @@ export function InspectorVariantThumb({
       aria-label={`Select variant ${index + 1}`}
     >
       {hash && mediaType === 'image' && url ? (
-        <img src={url} alt={`Variant ${index + 1}`} className="h-full w-full object-cover" />
+        <img
+          src={url}
+          alt={`Variant ${index + 1}`}
+          className="h-full w-full object-cover"
+          onError={markFailed}
+        />
       ) : hash && mediaType === 'video' && url ? (
-        <video src={url} className="h-full w-full object-cover" muted preload="metadata" />
+        <video
+          src={url}
+          className="h-full w-full object-cover"
+          muted
+          preload="metadata"
+          onError={markFailed}
+        />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-xs font-medium text-muted-foreground">
           V{index + 1}
@@ -55,8 +66,16 @@ export function InspectorVariantThumb({
           role="button"
           tabIndex={0}
           className="absolute top-0.5 right-0.5 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-destructive/90 text-destructive-foreground hover:bg-destructive cursor-pointer"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onDelete(); } }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.stopPropagation();
+              onDelete();
+            }
+          }}
           aria-label={`Delete variant ${index + 1}`}
         >
           <X className="h-2.5 w-2.5" />

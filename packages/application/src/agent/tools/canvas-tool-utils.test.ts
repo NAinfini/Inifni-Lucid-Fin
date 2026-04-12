@@ -203,7 +203,8 @@ describe('canvas-tool-utils', () => {
     expect(() => requirePosition({ position: { x: 1 } })).toThrow('position with numeric x and y is required');
 
     expect(requireCanvasNodeType({ type: 'audio' })).toBe('audio');
-    expect(() => requireCanvasNodeType({ type: 'backdrop' })).toThrow('type must be one of text, image, video, or audio');
+    expect(requireCanvasNodeType({ type: 'backdrop' })).toBe('backdrop');
+    expect(() => requireCanvasNodeType({ type: 'invalid' })).toThrow('type must be one of text, image, video, audio, or backdrop');
 
     expect(requirePresetCategory({ category: 'camera' })).toBe('camera');
     expect(() => requirePresetCategory({ category: 'bad' })).toThrow(

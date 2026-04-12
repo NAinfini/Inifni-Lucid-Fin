@@ -26,10 +26,7 @@ describe('createWorkflowTools', () => {
     const tools = createWorkflowTools(deps);
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      'workflow.pause',
-      'workflow.resume',
-      'workflow.cancel',
-      'workflow.retry',
+      'workflow.control',
       'workflow.expandIdea',
     ]);
     expect(tools.every((tool) => tool.context?.includes('canvas'))).toBe(true);
@@ -39,24 +36,24 @@ describe('createWorkflowTools', () => {
     const deps = createDeps();
     const tools = createWorkflowTools(deps);
 
-    await expect(getTool(tools, 'workflow.pause').execute({ id: 'wf-1' })).resolves.toEqual({
+    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-1', action: 'pause' })).resolves.toEqual({
       success: true,
-      data: { id: 'wf-1' },
+      data: { id: 'wf-1', action: 'pause' },
     });
-    await expect(getTool(tools, 'workflow.resume').execute({ id: 'wf-2' })).resolves.toEqual({
+    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-2', action: 'resume' })).resolves.toEqual({
       success: true,
-      data: { id: 'wf-2' },
+      data: { id: 'wf-2', action: 'resume' },
     });
-    await expect(getTool(tools, 'workflow.cancel').execute({ id: 'wf-3' })).resolves.toEqual({
+    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-3', action: 'cancel' })).resolves.toEqual({
       success: true,
-      data: { id: 'wf-3' },
+      data: { id: 'wf-3', action: 'cancel' },
     });
-    await expect(getTool(tools, 'workflow.retry').execute({ id: 'wf-4' })).resolves.toEqual({
+    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-4', action: 'retry' })).resolves.toEqual({
       success: true,
-      data: { id: 'wf-4' },
+      data: { id: 'wf-4', action: 'retry' },
     });
 
-    await expect(getTool(tools, 'workflow.pause').execute({ id: ' ' })).resolves.toEqual({
+    await expect(getTool(tools, 'workflow.control').execute({ id: ' ', action: 'pause' })).resolves.toEqual({
       success: false,
       error: 'id is required',
     });
@@ -105,7 +102,7 @@ describe('createWorkflowTools', () => {
     const deps = createDeps();
     vi.mocked(deps.cancelWorkflow).mockRejectedValueOnce(new Error('cancel failed'));
 
-    await expect(createWorkflowTools(deps).find((tool) => tool.name === 'workflow.cancel')?.execute({ id: 'wf-1' }))
+    await expect(createWorkflowTools(deps).find((tool) => tool.name === 'workflow.control')?.execute({ id: 'wf-1', action: 'cancel' }))
       .resolves.toEqual({
         success: false,
         error: 'cancel failed',
@@ -133,7 +130,7 @@ describe('createUtilityWorkflowTools', () => {
     })).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
-        instructions: expect.stringContaining('canvas.searchNodes'),
+        instructions: expect.stringContaining('canvas.listNodes'),
         shotSchema: expect.objectContaining({ shotType: 'ECU|CU|MS|LS|ELS' }),
       }),
     });
@@ -168,7 +165,7 @@ describe('createUtilityWorkflowTools', () => {
     })).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
-        instructions: expect.stringContaining('canvas.searchNodes(canvasId="canvas-1", type="image")'),
+        instructions: expect.stringContaining('canvas.listNodes(canvasId="canvas-1", type="image")'),
       }),
     });
 

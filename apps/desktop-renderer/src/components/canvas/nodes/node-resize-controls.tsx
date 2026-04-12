@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { NodeResizeControl } from '@xyflow/react';
 
 const CORNER_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
@@ -9,7 +10,7 @@ interface NodeResizeControlsProps {
   className: string;
 }
 
-export function NodeResizeControls({
+export const NodeResizeControls = memo(function NodeResizeControls({
   isVisible,
   minWidth,
   minHeight,
@@ -31,4 +32,4 @@ export function NodeResizeControls({
       ))}
     </>
   );
-}
+});

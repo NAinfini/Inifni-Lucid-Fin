@@ -61,6 +61,24 @@ describe('createPresetTools', () => {
       success: true,
       data: preset,
     });
+
+    // Custom preset creation mode (individual fields)
+    const customResult = await getTool('preset.save', deps).execute({
+      name: 'Dreamy Blur',
+      category: 'look',
+      description: 'Soft dreamlike atmosphere',
+      prompt: 'dreamy blur and glow',
+    });
+    expect(customResult.success).toBe(true);
+    expect(customResult.data).toMatchObject({
+      category: 'look',
+      name: 'Dreamy Blur',
+      description: 'Soft dreamlike atmosphere',
+      prompt: 'dreamy blur and glow',
+      builtIn: false,
+    });
+    expect((customResult.data as PresetDefinition).id).toMatch(/^custom-/);
+
     await expect(getTool('preset.reset', deps).execute({ presetId: 'preset-2', scope: 'params' })).resolves.toEqual({
       success: true,
       data: { ...preset, id: 'preset-2' },
@@ -84,7 +102,7 @@ describe('createPresetTools', () => {
     });
     await expect(getTool('preset.save', deps).execute({ preset: [] })).resolves.toEqual({
       success: false,
-      error: 'preset is required',
+      error: 'Provide either a "preset" object or individual fields (name, category, description, prompt)',
     });
     await expect(getTool('preset.reset', deps).execute({ presetId: 'preset-1', scope: 'bad' })).resolves.toEqual({
       success: false,

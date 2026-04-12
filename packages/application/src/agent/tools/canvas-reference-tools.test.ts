@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Canvas } from '@lucid-fin/contracts';
-import { createCanvasReferenceTools } from './canvas-reference-tools.js';
+import { createCanvasGenerationTools } from './canvas-generation-tools.js';
 import type { CanvasToolDeps } from './canvas-tool-utils.js';
 
 function createCanvas(): Canvas {
@@ -102,99 +102,93 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
 }
 
 function getTool(name: string, deps: CanvasToolDeps) {
-  const tool = createCanvasReferenceTools(deps).find((entry) => entry.name === name);
+  const tool = createCanvasGenerationTools(deps).find((entry) => entry.name === name);
   if (!tool) throw new Error(`Missing tool: ${name}`);
   return tool;
 }
 
-describe('createCanvasReferenceTools', () => {
-  it('defines the expected reference tools', () => {
-    const deps = createDeps();
-    expect(createCanvasReferenceTools(deps).map((tool) => tool.name)).toEqual([
-      'canvas.setCharacterRefs',
-      'canvas.setEquipmentRefs',
-      'canvas.setLocationRefs',
-    ]);
-  });
-
-  it('sets character, equipment, and location refs on image/video nodes', async () => {
+describe('canvas.setNodeRefs', () => {
+  it('sets all ref types on an image node in one call', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setCharacterRefs', deps).execute({
+    await expect(getTool('canvas.setNodeRefs', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       characterRefs: [{ characterId: 'char-1', loadoutId: 'look-1' }],
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'image-1', characterRefs: [{ characterId: 'char-1', loadoutId: 'look-1' }] },
-    });
-    await expect(getTool('canvas.setEquipmentRefs', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
       equipmentRefs: [{ equipmentId: 'eq-1' }],
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'image-1', equipmentRefs: [{ equipmentId: 'eq-1' }] },
-    });
-    await expect(getTool('canvas.setLocationRefs', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
       locationRefs: [{ locationId: 'loc-1' }],
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', locationRefs: [{ locationId: 'loc-1' }] },
+      data: {
+        nodeId: 'image-1',
+        characterRefs: [{ characterId: 'char-1', loadoutId: 'look-1' }],
+        equipmentRefs: [{ equipmentId: 'eq-1' }],
+        locationRefs: [{ locationId: 'loc-1' }],
+      },
     });
   });
 
-  it('removes refs by passing empty array to set tools', async () => {
+  it('clears refs by passing empty arrays', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setCharacterRefs', deps).execute({
+    await expect(getTool('canvas.setNodeRefs', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       characterRefs: [],
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'image-1', characterRefs: [] },
-    });
-    await expect(getTool('canvas.setEquipmentRefs', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
       equipmentRefs: [],
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'image-1', equipmentRefs: [] },
-    });
-    await expect(getTool('canvas.setLocationRefs', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
       locationRefs: [],
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', locationRefs: [] },
+      data: {
+        nodeId: 'image-1',
+        characterRefs: [],
+        equipmentRefs: [],
+        locationRefs: [],
+      },
     });
   });
 
-  it('validates arrays and rejects unsupported node types', async () => {
-    const deps = createDeps();
+  it('updates only specified ref types', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setCharacterRefs', deps).execute({
+    await expect(getTool('canvas.setNodeRefs', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      characterRefs: 'bad',
+      characterRefs: [{ characterId: 'char-1' }],
     })).resolves.toEqual({
-      success: false,
-      error: 'characterRefs must be an array',
+      success: true,
+      data: {
+        nodeId: 'image-1',
+        characterRefs: [{ characterId: 'char-1', loadoutId: '' }],
+      },
     });
-    await expect(getTool('canvas.setLocationRefs', deps).execute({
+  });
+
+  it('rejects unsupported node types', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.setNodeRefs', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       locationRefs: [],
     })).resolves.toEqual({
       success: false,
-      error: 'Node type "text" does not support location refs',
+      error: 'Node type "text" does not support entity refs',
+    });
+  });
+
+  it('requires at least one ref type', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.setNodeRefs', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+    })).resolves.toEqual({
+      success: false,
+      error: 'At least one of characterRefs, equipmentRefs, or locationRefs is required',
     });
   });
 });

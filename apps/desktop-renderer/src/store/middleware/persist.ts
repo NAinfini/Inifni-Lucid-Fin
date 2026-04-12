@@ -17,7 +17,6 @@ const PROJECT_PERSIST_SLICES = [
   'orchestration',
   'audio',
   'series',
-  'settings',
   'presets',
   'shotTemplates',
 ];
@@ -29,6 +28,7 @@ const CANVAS_MUTATE_PREFIXES = [
   'canvas/updateNode',
   'canvas/updateNodeData',
   'canvas/moveNode',
+  'canvas/moveNodes',
   'canvas/renameNode',
   'canvas/addEdge',
   'canvas/removeEdges',
@@ -52,7 +52,6 @@ const CANVAS_MUTATE_PREFIXES = [
   'canvas/removeNodePresetTrackEntry',
   'canvas/setVideoFrameNode',
   'canvas/setVideoFrameAsset',
-  'canvas/updateViewport',
   'canvas/setNodeUploadedAsset',
   'canvas/clearNodeAsset',
   'canvas/setNodeSeed',
@@ -85,6 +84,10 @@ let projectTimer: ReturnType<typeof setTimeout> | null = null;
 let canvasTimer: ReturnType<typeof setTimeout> | null = null;
 let settingsTimer: ReturnType<typeof setTimeout> | null = null;
 let consecutiveFailures = 0;
+// Guard: don't persist settings until the initial restore from disk has run.
+// Without this, early settings/* actions (usage tracking, daily active, etc.)
+// would save default/empty provider state, overwriting the real settings.json.
+let settingsRestoredFromDisk = false;
 
 // Tracks the last successfully saved canvas state per canvas id for patch diffing
 const savedCanvasSnapshots = new Map<string, Canvas>();
@@ -133,27 +136,41 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
       }, DEBOUNCE_MS);
     }
 
+    // Prune savedCanvasSnapshots when a canvas is removed to prevent memory leak.
+    // Without this, deleted canvas objects accumulate in the Map permanently.
+    if (actionType === 'canvas/removeCanvas') {
+      const removedId = (action as unknown as { payload: string }).payload;
+      savedCanvasSnapshots.delete(removedId);
+    }
+
     // Canvas-level save: persist the active canvas when nodes/edges change
     if (CANVAS_MUTATE_PREFIXES.includes(actionType) && state.project.loaded) {
       if (canvasTimer) clearTimeout(canvasTimer);
       canvasTimer = setTimeout(() => {
         canvasTimer = null;
         const currentState = store.getState() as RootState;
-        const { activeCanvasId, canvases } = currentState.canvas;
+        const { activeCanvasId, canvases, viewport } = currentState.canvas;
         const canvas = canvases.find((c) => c.id === activeCanvasId);
         if (!canvas) return;
+
+        // Snapshot current viewport into canvas for persistence.
+        // updateViewport no longer writes canvas.viewport (to avoid Immer
+        // invalidation), so we merge it here right before save.
+        const canvasToSave = canvas.viewport === viewport
+          ? canvas
+          : { ...canvas, viewport };
 
         const api = getAPI();
         if (!api) return;
 
         const prevSnapshot = savedCanvasSnapshots.get(canvas.id);
-        const patch = diffCanvas(prevSnapshot, canvas);
+        const patch = diffCanvas(prevSnapshot, canvasToSave);
 
         const doFullSave = (): void => {
           api.canvas
-            .save(canvas)
+            .save(canvasToSave)
             .then(() => {
-              savedCanvasSnapshots.set(canvas.id, canvas);
+              savedCanvasSnapshots.set(canvas.id, canvasToSave);
             })
             .catch((error: unknown) => {
               store.dispatch(
@@ -167,11 +184,11 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
             });
         };
 
-        if (patch && shouldUsePatch(patch, canvas)) {
+        if (patch && shouldUsePatch(patch, canvasToSave)) {
           api.canvas
             .patch({ canvasId: canvas.id, patch })
             .then(() => {
-              savedCanvasSnapshots.set(canvas.id, canvas);
+              savedCanvasSnapshots.set(canvas.id, canvasToSave);
             })
             .catch((error: unknown) => {
               // Patch failed — fall back to full save
@@ -193,24 +210,32 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
 
     // Settings save (app-level, independent of project)
     if (sliceName === 'settings') {
-      if (settingsTimer) clearTimeout(settingsTimer);
-      settingsTimer = setTimeout(() => {
-        settingsTimer = null;
-        const currentState = store.getState() as RootState;
-        const sparse = buildSparseSettings(currentState.settings);
-        getAPI()
-          ?.settings.save(sparse)
-          .catch((error: unknown) => {
-            store.dispatch(
-              addLog({
-                level: 'error',
-                category: 'persistence',
-                message: 'Settings save failed',
-                detail: error instanceof Error ? error.stack ?? error.message : String(error),
-              }),
-            );
-          });
-      }, DEBOUNCE_MS);
+      // Mark as loaded once the initial restore from disk completes.
+      if (actionType === 'settings/restore') {
+        settingsRestoredFromDisk = true;
+      }
+      // Don't persist until settings have been loaded from disk — otherwise
+      // early usage-tracking dispatches would overwrite saved provider keys.
+      if (settingsRestoredFromDisk) {
+        if (settingsTimer) clearTimeout(settingsTimer);
+        settingsTimer = setTimeout(() => {
+          settingsTimer = null;
+          const currentState = store.getState() as RootState;
+          const sparse = buildSparseSettings(currentState.settings);
+          getAPI()
+            ?.settings.save(sparse)
+            .catch((error: unknown) => {
+              store.dispatch(
+                addLog({
+                  level: 'error',
+                  category: 'persistence',
+                  message: 'Settings save failed',
+                  detail: error instanceof Error ? error.stack ?? error.message : String(error),
+                }),
+              );
+            });
+        }, DEBOUNCE_MS);
+      }
     }
   }
 

@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Download, Film, Grid2X2, Map, Palette, Search, Upload } from 'lucide-react';
+import { Download, Film, Grid2X2, Map, Palette, Redo2, Search, Undo2, Upload } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
 import {
@@ -11,23 +11,27 @@ import {
 
 interface ToolbarButtonProps {
   active?: boolean;
+  disabled?: boolean;
   ariaLabel: string;
   icon: ReactNode;
   onClick: () => void;
 }
 
-function ToolbarButton({ active = false, ariaLabel, icon, onClick }: ToolbarButtonProps) {
+function ToolbarButton({ active = false, disabled = false, ariaLabel, icon, onClick }: ToolbarButtonProps) {
   return (
     <button
       type="button"
       aria-label={ariaLabel}
       aria-pressed={active}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
         'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-        active
-          ? 'bg-primary/12 text-primary'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+        disabled
+          ? 'text-muted-foreground/30 cursor-not-allowed'
+          : active
+            ? 'bg-primary/12 text-primary'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
     >
       {icon}
@@ -105,6 +109,10 @@ interface CanvasToolbarProps {
   onExportWorkflow: () => void;
   onImportWorkflow: () => void;
   onCloneVideo: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  undoEnabled: boolean;
+  redoEnabled: boolean;
   styleGuide?: StyleGuideIndicatorProps;
 }
 
@@ -118,6 +126,10 @@ export function CanvasToolbar({
   onExportWorkflow,
   onImportWorkflow,
   onCloneVideo,
+  onUndo,
+  onRedo,
+  undoEnabled,
+  redoEnabled,
   styleGuide,
 }: CanvasToolbarProps) {
   const buttons = [
@@ -165,7 +177,35 @@ export function CanvasToolbar({
   return (
     <TooltipProvider delayDuration={120}>
       <div className="absolute right-3 top-3 z-30 flex items-center gap-1.5">
-        <div className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
+        <div role="toolbar" aria-label="Undo / Redo" className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <ToolbarButton
+                  disabled={!undoEnabled}
+                  ariaLabel={t('canvas.undo')}
+                  icon={<Undo2 className="h-3.5 w-3.5" />}
+                  onClick={onUndo}
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('canvas.undo')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <ToolbarButton
+                  disabled={!redoEnabled}
+                  ariaLabel={t('canvas.redo')}
+                  icon={<Redo2 className="h-3.5 w-3.5" />}
+                  onClick={onRedo}
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{t('canvas.redo')}</TooltipContent>
+          </Tooltip>
+        </div>
+        <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
         {styleGuide && <StyleGuideIndicator {...styleGuide} />}
         {buttons.map((button) => (
           <Tooltip key={button.id}>

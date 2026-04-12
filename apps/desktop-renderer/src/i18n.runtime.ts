@@ -87,6 +87,25 @@ export function localizeShotTemplateDescription(id: string, fallback: string): s
   return localizeWithFallback('shotTemplateDescriptions.' + id, fallback);
 }
 
+/**
+ * Localize a preset parameter label (e.g. "Crop Tightness" → "裁剪紧度").
+ * Looks up `presetParamLabels.<key>`, falls back to the English label.
+ */
+export function localizeParamLabel(key: string, fallback: string): string {
+  return localizeWithFallback('presetParamLabels.' + key, fallback);
+}
+
+/**
+ * Localize a preset parameter option or intensity level label.
+ * These are display-only — the underlying value for prompt templates stays English.
+ * Looks up `presetParamValues.<value>`, falls back to the English string.
+ */
+export function localizeParamValue(value: string): string {
+  // Normalize to a key-friendly format (spaces → underscores, lowercase)
+  const key = value.toLowerCase().replace(/\s+/g, '_');
+  return localizeWithFallback('presetParamValues.' + key, value);
+}
+
 export function localizePromptTemplateName(id: string, fallback: string): string {
   return localizeWithFallback('promptTemplateNames.' + id, fallback);
 }

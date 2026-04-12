@@ -28,6 +28,7 @@ function createDeps(): ProviderToolDeps {
     setProviderName: vi.fn(async () => undefined),
     addCustomProvider: vi.fn(async () => undefined),
     removeCustomProvider: vi.fn(async () => undefined),
+    setProviderApiKey: vi.fn(async () => undefined),
   };
 }
 
@@ -45,9 +46,8 @@ describe('createProviderTools', () => {
       'provider.list',
       'provider.getActive',
       'provider.setActive',
-      'provider.setBaseUrl',
-      'provider.setModel',
-      'provider.rename',
+      'provider.update',
+      'provider.setKey',
       'provider.addCustom',
       'provider.removeCustom',
       'provider.getCapabilities',
@@ -88,29 +88,39 @@ describe('createProviderTools', () => {
       success: true,
       data: { activated: 'provider-2' },
     });
-    await expect(getTool('provider.setBaseUrl', deps).execute({
+    await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-2',
       baseUrl: 'https://override.example.com',
     })).resolves.toEqual({
       success: true,
-      data: { updated: true },
+      data: { providerId: 'provider-2', baseUrl: 'https://override.example.com' },
     });
-    await expect(getTool('provider.setModel', deps).execute({
+    await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-2',
       model: 'model-3',
     })).resolves.toEqual({
       success: true,
-      data: { updated: true },
+      data: { providerId: 'provider-2', model: 'model-3' },
     });
-    await expect(getTool('provider.rename', deps).execute({
+    await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-2',
       name: 'Renamed',
     })).resolves.toEqual({
       success: true,
-      data: { renamed: true },
+      data: { providerId: 'provider-2', name: 'Renamed' },
+    });
+    await expect(getTool('provider.update', deps).execute({
+      group: 'llm',
+      providerId: 'provider-2',
+      baseUrl: 'https://override.example.com',
+      model: 'model-3',
+      name: 'Renamed',
+    })).resolves.toEqual({
+      success: true,
+      data: { providerId: 'provider-2', baseUrl: 'https://override.example.com', model: 'model-3', name: 'Renamed' },
     });
     await expect(getTool('provider.removeCustom', deps).execute({
       group: 'llm',
@@ -118,6 +128,63 @@ describe('createProviderTools', () => {
     })).resolves.toEqual({
       success: true,
       data: { removed: 'provider-2' },
+    });
+  });
+
+  it('provider.update rejects when no fields are provided', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('provider.update', deps).execute({
+      group: 'llm',
+      providerId: 'provider-1',
+    })).resolves.toEqual({
+      success: false,
+      error: 'At least one of baseUrl, model, or name must be provided',
+    });
+  });
+
+  it('provider.setKey stores API key via dep', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('provider.setKey', deps).execute({
+      providerId: ' openai ',
+      apiKey: ' sk-test ',
+    })).resolves.toEqual({
+      success: true,
+      data: { providerId: 'openai', message: 'API key set for openai' },
+    });
+    expect(deps.setProviderApiKey).toHaveBeenCalledWith('openai', 'sk-test');
+  });
+
+  it('provider.setKey returns error when dep is unavailable', async () => {
+    const deps = createDeps();
+    deps.setProviderApiKey = undefined;
+
+    await expect(getTool('provider.setKey', deps).execute({
+      providerId: 'openai',
+      apiKey: 'sk-test',
+    })).resolves.toEqual({
+      success: false,
+      error: 'API key management not available',
+    });
+  });
+
+  it('provider.setKey validates required fields', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('provider.setKey', deps).execute({
+      providerId: '',
+      apiKey: 'sk-test',
+    })).resolves.toEqual({
+      success: false,
+      error: 'providerId is required',
+    });
+    await expect(getTool('provider.setKey', deps).execute({
+      providerId: 'openai',
+      apiKey: '',
+    })).resolves.toEqual({
+      success: false,
+      error: 'apiKey is required',
     });
   });
 
@@ -177,3 +244,4 @@ describe('createProviderTools', () => {
     });
   });
 });
+

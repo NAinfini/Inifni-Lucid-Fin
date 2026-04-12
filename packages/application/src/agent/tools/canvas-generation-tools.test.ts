@@ -200,24 +200,19 @@ describe('createCanvasGenerationTools', () => {
     expect(createCanvasGenerationTools(deps).map((tool) => tool.name)).toEqual([
       'canvas.generate',
       'canvas.cancelGeneration',
-      'canvas.setSeed',
-      'canvas.setVariantCount',
-      'canvas.setNodeColorTag',
-      'canvas.toggleSeedLock',
+      'canvas.updateNodes',
       'canvas.selectVariant',
       'canvas.estimateCost',
       'canvas.note',
       'canvas.undo',
       'canvas.redo',
-      'canvas.generateAll',
       'canvas.deleteNode',
       'canvas.deleteEdge',
       'canvas.swapEdgeDirection',
       'canvas.disconnectNode',
-      'canvas.editNodeContent',
-      'canvas.setNodeProvider',
-      'canvas.setNodeMediaConfig',
       'canvas.setVideoFrames',
+      'canvas.updateBackdrop',
+      'canvas.setNodeRefs',
     ]);
   });
 
@@ -276,7 +271,24 @@ describe('createCanvasGenerationTools', () => {
     });
   });
 
-  it('delegates generation configuration and selection updates', async () => {
+  it('returns immediately when wait=false (fire-and-forget)', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    const result = await getTool('canvas.generate', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      wait: false,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      data: { nodeId: 'image-1', status: 'generating' },
+    });
+    expect(deps.triggerGeneration).toHaveBeenCalledWith('canvas-1', 'image-1', undefined, undefined);
+  });
+
+  it('delegates generation configuration and selection updates via updateNodes', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
@@ -285,41 +297,52 @@ describe('createCanvasGenerationTools', () => {
       nodeId: 'image-1',
     })).resolves.toEqual({ success: true, data: { nodeId: 'image-1' } });
 
-    await expect(getTool('canvas.setSeed', deps).execute({
+    // updateNodes: set seed
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
-      nodeIds: ['image-1', 'audio-1', 'image-1'],
+      nodeIds: ['image-1', 'audio-1'],
       seed: 9.6,
     })).resolves.toEqual({
       success: true,
-      data: { nodeIds: ['image-1', 'audio-1'], seed: 10 },
+      data: [
+        { nodeId: 'image-1', updated: { seed: 10 } },
+        { nodeId: 'audio-1', updated: { seed: 10 } },
+      ],
     });
     expect((canvas.nodes[1].data as Record<string, unknown>).seed).toBe(10);
     expect((canvas.nodes[3].data as Record<string, unknown>).seed).toBe(10);
 
-    await expect(getTool('canvas.setVariantCount', deps).execute({
+    // updateNodes: set variantCount
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeIds: ['image-1', 'video-1'],
-      count: 4,
+      variantCount: 4,
     })).resolves.toEqual({
       success: true,
-      data: { nodeIds: ['image-1', 'video-1'], count: 4 },
+      data: [
+        { nodeId: 'image-1', updated: { variantCount: 4 } },
+        { nodeId: 'video-1', updated: { variantCount: 4 } },
+      ],
     });
 
-    await expect(getTool('canvas.setNodeColorTag', deps).execute({
+    // updateNodes: set colorTag
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      color: 'gold',
+      colorTag: 'gold',
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', color: 'gold' },
+      data: { nodeId: 'image-1', updated: { colorTag: 'gold' } },
     });
 
-    await expect(getTool('canvas.toggleSeedLock', deps).execute({
+    // updateNodes: toggle seedLock
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'audio-1',
+      seedLock: true,
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'audio-1' },
+      data: { nodeId: 'audio-1', updated: { seedLockToggled: true } },
     });
 
     await expect(getTool('canvas.selectVariant', deps).execute({
@@ -384,19 +407,9 @@ describe('createCanvasGenerationTools', () => {
     });
   });
 
-  it('generates all media nodes and performs edge and node mutations', async () => {
+  it('performs edge and node mutations', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
-
-    await expect(getTool('canvas.generateAll', deps).execute({
-      canvasId: 'canvas-1',
-      providerId: 'runway',
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeIds: ['image-1', 'video-1'], providerId: 'runway', count: 2 },
-    });
-    expect(deps.triggerGeneration).toHaveBeenNthCalledWith(1, 'canvas-1', 'image-1', 'runway');
-    expect(deps.triggerGeneration).toHaveBeenNthCalledWith(2, 'canvas-1', 'video-1', 'runway');
 
     await expect(getTool('canvas.swapEdgeDirection', deps).execute({
       canvasId: 'canvas-1',
@@ -436,37 +449,41 @@ describe('createCanvasGenerationTools', () => {
     });
   });
 
-  it('edits content, providers, media config, and video frame references', async () => {
+  it('edits content, updates node props, and sets video frame references', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.editNodeContent', deps).execute({
+    // updateNodes: set text content
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       content: 'rewritten',
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'text-1', content: 'rewritten' },
+      data: { nodeId: 'text-1', updated: { content: 'rewritten' } },
     });
-    await expect(getTool('canvas.editNodeContent', deps).execute({
+    // updateNodes: set prompt
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       prompt: 'new image prompt',
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', prompt: 'new image prompt' },
+      data: { nodeId: 'image-1', updated: { prompt: 'new image prompt' } },
     });
 
-    await expect(getTool('canvas.setNodeProvider', deps).execute({
+    // updateNodes: set provider
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'video-1',
       providerId: 'kling-v1',
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'video-1', providerId: 'kling-v1' },
+      data: { nodeId: 'video-1', updated: { providerId: 'kling-v1' } },
     });
 
-    await expect(getTool('canvas.setNodeMediaConfig', deps).execute({
+    // updateNodes: set media config
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'video-1',
       width: 1920,
@@ -478,11 +495,13 @@ describe('createCanvasGenerationTools', () => {
       success: true,
       data: {
         nodeId: 'video-1',
-        width: 1920,
-        height: 1080,
-        duration: 5,
-        audio: true,
-        quality: 'pro',
+        updated: {
+          width: 1920,
+          height: 1080,
+          duration: 5,
+          audio: true,
+          quality: 'pro',
+        },
       },
     });
 
@@ -506,30 +525,23 @@ describe('createCanvasGenerationTools', () => {
   it('validates unsupported node types and bad parameters', async () => {
     const deps = createDeps();
 
-    await expect(getTool('canvas.setVariantCount', deps).execute({
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeIds: ['image-1'],
-      count: 3,
+      variantCount: 3,
     })).resolves.toEqual({
       success: false,
-      error: 'count must be one of 1, 2, 4, or 9',
+      error: 'variantCount must be one of 1, 2, 4, 9, or 25',
     });
-    await expect(getTool('canvas.generateAll', deps).execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['text-1'],
-    })).resolves.toEqual({
-      success: false,
-      error: 'Node type "text" does not support generation',
-    });
-    await expect(getTool('canvas.editNodeContent', deps).execute({
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       prompt: 'wrong field',
     })).resolves.toEqual({
       success: false,
-      error: 'content is required for text node text-1',
+      error: 'Node "text-1" type "text" does not support prompt (use content for text nodes)',
     });
-    await expect(getTool('canvas.setNodeProvider', deps).execute({
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       providerId: 'runway',
@@ -537,12 +549,13 @@ describe('createCanvasGenerationTools', () => {
       success: false,
       error: 'Node "text-1" type "text" does not support providers',
     });
-    await expect(getTool('canvas.setNodeMediaConfig', deps).execute({
+    await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'audio-1',
+      width: 1024,
     })).resolves.toEqual({
       success: false,
-      error: 'Node "audio-1" type "audio" does not support media config',
+      error: 'Node "audio-1" type "audio" does not support width',
     });
     await expect(getTool('canvas.setVideoFrames', deps).execute({
       canvasId: 'canvas-1',
@@ -563,6 +576,77 @@ describe('createCanvasGenerationTools', () => {
     })).resolves.toEqual({
       success: false,
       error: 'edge delete failed',
+    });
+  });
+
+  it('sets imagePrompt on an image node', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    await expect(getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      imagePrompt: 'sharp cinematic still',
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'image-1', updated: { imagePrompt: 'sharp cinematic still' } },
+    });
+    expect((canvas.nodes[1].data as Record<string, unknown>).imagePrompt).toBe('sharp cinematic still');
+  });
+
+  it('sets audioType on an audio node', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    await expect(getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'audio-1',
+      audioType: 'voice',
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'audio-1', updated: { audioType: 'voice' } },
+    });
+    expect((canvas.nodes[3].data as Record<string, unknown>).audioType).toBe('voice');
+  });
+
+  it('sets lipSyncEnabled on a video node', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    await expect(getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'video-1',
+      lipSyncEnabled: true,
+    })).resolves.toEqual({
+      success: true,
+      data: { nodeId: 'video-1', updated: { lipSyncEnabled: true } },
+    });
+    expect((canvas.nodes[2].data as Record<string, unknown>).lipSyncEnabled).toBe(true);
+  });
+
+  it('throws when audioType is set on a non-audio node', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      audioType: 'sfx',
+    })).resolves.toEqual({
+      success: false,
+      error: 'Node "image-1" type "image" does not support audioType',
+    });
+  });
+
+  it('throws when lipSyncEnabled is set on a non-video node', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'audio-1',
+      lipSyncEnabled: true,
+    })).resolves.toEqual({
+      success: false,
+      error: 'Node "audio-1" type "audio" does not support lipSyncEnabled',
     });
   });
 });

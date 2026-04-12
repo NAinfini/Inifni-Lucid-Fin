@@ -461,6 +461,7 @@ declare global {
         onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;
         onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) => () => void;
+        onUndoDispatch: (cb: (data: { action: 'undo' | 'redo' }) => void) => () => void;
       };
       clipboard: {
         onAIDetected: (cb: (data: { text: string }) => void) => () => void;

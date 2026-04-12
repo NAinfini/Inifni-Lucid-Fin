@@ -7,6 +7,7 @@ import {
   removeAsset,
   removeTag,
   selectFilteredAssets,
+  selectImageAssets,
   setAssets,
   setFilterTags,
   setFilterType,
@@ -289,6 +290,34 @@ describe('assets slice', () => {
     const first = selectFilteredAssets({ assets: state });
     const second = selectFilteredAssets({ assets: state });
 
+    expect(second).toBe(first);
+  });
+
+  it('selects image assets with a stable reference when the asset list is unchanged', () => {
+    const state = assetsSlice.reducer(
+      undefined,
+      setAssets([
+        makeAsset({ id: 'asset-1', type: 'image' }),
+        makeAsset({
+          id: 'asset-2',
+          hash: 'hash-2',
+          type: 'video',
+          name: 'Clip',
+          path: '/tmp/clip.mp4',
+        }),
+        makeAsset({
+          id: 'asset-3',
+          hash: 'hash-3',
+          type: 'image',
+          name: 'Portrait',
+        }),
+      ]),
+    );
+
+    const first = selectImageAssets({ assets: state });
+    const second = selectImageAssets({ assets: state });
+
+    expect(first.map((asset) => asset.id)).toEqual(['asset-1', 'asset-3']);
     expect(second).toBe(first);
   });
 });

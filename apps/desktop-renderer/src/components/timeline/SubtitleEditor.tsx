@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Plus, Trash2, Type } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
@@ -33,9 +33,20 @@ export function SubtitleEditor() {
     dispatch(selectClip(entry.id));
   }, [dispatch, subtitles]);
 
+  const colorTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
   const handleUpdate = useCallback(
     (id: string, data: Partial<SubtitleEntry>) => {
       dispatch(updateSubtitle({ id, data }));
+    },
+    [dispatch],
+  );
+
+  /** Debounced color update — color picker fires onChange on every pixel move */
+  const handleColorChange = useCallback(
+    (id: string, color: string) => {
+      clearTimeout(colorTimerRef.current);
+      colorTimerRef.current = setTimeout(() => dispatch(updateSubtitle({ id, data: { color } })), 100);
     },
     [dispatch],
   );
@@ -142,7 +153,7 @@ export function SubtitleEditor() {
                     <input
                       type="color"
                       value={entry.color}
-                      onChange={(e) => handleUpdate(entry.id, { color: e.target.value })}
+                      onChange={(e) => handleColorChange(entry.id, e.target.value)}
                       className="w-full h-5 rounded border cursor-pointer"
                     />
                   </div>

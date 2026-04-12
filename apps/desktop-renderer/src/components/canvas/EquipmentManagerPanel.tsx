@@ -14,17 +14,19 @@ import {
 } from '../../store/slices/equipment.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import type { Equipment, EquipmentType, ReferenceImage, ImageNodeData, VideoNodeData, EquipmentRef } from '@lucid-fin/contracts';
+import type {
+  Equipment,
+  EquipmentType,
+  ReferenceImage,
+  ImageNodeData,
+  VideoNodeData,
+  EquipmentRef,
+} from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
-import { Plus, Search, Trash2, Save, Upload, Package, Image, X } from 'lucide-react';
+import { Plus, Search, Trash2, Save, Upload, Package, Image, ImageOff, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
-import type { Asset } from '../../store/slices/assets.js';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/Dialog.js';
+import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 const TYPE_OPTIONS: EquipmentType[] = [
@@ -77,10 +79,7 @@ export function EquipmentManagerPanel() {
     return JSON.stringify(draft) !== JSON.stringify(originalDraft);
   }, [draft, originalDraft]);
 
-  const selectedEquip = useMemo(
-    () => items.find((e) => e.id === selectedId),
-    [items, selectedId],
-  );
+  const selectedEquip = useMemo(() => items.find((e) => e.id === selectedId), [items, selectedId]);
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -275,7 +274,9 @@ export function EquipmentManagerPanel() {
       if (!selectedEquip) return;
       setError(null);
       try {
-        const mainRef = selectedEquip.referenceImages.find((r) => r.slot === 'main') ?? selectedEquip.referenceImages[0];
+        const mainRef =
+          selectedEquip.referenceImages.find((r) => r.slot === 'main') ??
+          selectedEquip.referenceImages[0];
         if (!mainRef) return;
 
         const currentHash = mainRef.assetHash;
@@ -296,7 +297,10 @@ export function EquipmentManagerPanel() {
         );
         const api = getAPI();
         if (api?.equipment) {
-          await api.equipment.save({ id: selectedEquip.id, referenceImages: updatedRefs } as Record<string, unknown>);
+          await api.equipment.save({ id: selectedEquip.id, referenceImages: updatedRefs } as Record<
+            string,
+            unknown
+          >);
         }
         dispatch(setEquipmentRefImage({ equipmentId: selectedEquip.id, refImage: updatedRef }));
       } catch (reason) {
@@ -409,11 +413,20 @@ export function EquipmentManagerPanel() {
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    <ListThumb hash={equip.referenceImages?.find((r) => r.slot === 'main')?.assetHash ?? equip.referenceImages?.[0]?.assetHash} />
+                    <ListThumb
+                      hash={
+                        equip.referenceImages?.find((r) => r.slot === 'main')?.assetHash ??
+                        equip.referenceImages?.[0]?.assetHash
+                      }
+                    />
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">{equip.name || t('equipmentManager.untitled')}</div>
+                      <div className="font-medium truncate">
+                        {equip.name || t('equipmentManager.untitled')}
+                      </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-muted-foreground">{t('equipmentManager.types.' + equip.type)}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {t('equipmentManager.types.' + equip.type)}
+                        </span>
                         {equip.subtype && (
                           <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
                             {equip.subtype}
@@ -422,7 +435,10 @@ export function EquipmentManagerPanel() {
                       </div>
                       {(usageCountById[equip.id] ?? 0) > 0 && (
                         <div className="text-[9px] text-muted-foreground mt-0.5">
-                          {t('equipmentManager.usedInNodes').replace('{count}', String(usageCountById[equip.id]))}
+                          {t('equipmentManager.usedInNodes').replace(
+                            '{count}',
+                            String(usageCountById[equip.id]),
+                          )}
                         </div>
                       )}
                     </div>
@@ -440,7 +456,9 @@ export function EquipmentManagerPanel() {
 
         <div className="min-h-0 overflow-auto p-2 space-y-2">
           {!draft ? (
-            <div className="text-xs text-muted-foreground">{t('equipmentManager.selectOrCreate')}</div>
+            <div className="text-xs text-muted-foreground">
+              {t('equipmentManager.selectOrCreate')}
+            </div>
           ) : (
             <>
               <div className="space-y-1">
@@ -462,9 +480,7 @@ export function EquipmentManagerPanel() {
                   <select
                     value={draft.type}
                     onChange={(e) =>
-                      setDraft((p) =>
-                        p ? { ...p, type: e.target.value as EquipmentType } : p,
-                      )
+                      setDraft((p) => (p ? { ...p, type: e.target.value as EquipmentType } : p))
                     }
                     className="w-full rounded bg-muted px-2 py-1 text-xs"
                   >
@@ -481,9 +497,7 @@ export function EquipmentManagerPanel() {
                   </label>
                   <input
                     value={draft.subtype}
-                    onChange={(e) =>
-                      setDraft((p) => (p ? { ...p, subtype: e.target.value } : p))
-                    }
+                    onChange={(e) => setDraft((p) => (p ? { ...p, subtype: e.target.value } : p))}
                     className="w-full rounded bg-muted px-2 py-1 text-xs"
                     placeholder={t('equipmentManager.optional')}
                   />
@@ -496,9 +510,7 @@ export function EquipmentManagerPanel() {
                 </label>
                 <textarea
                   value={draft.description}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, description: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, description: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[60px]"
                 />
               </div>
@@ -555,7 +567,6 @@ export function EquipmentManagerPanel() {
                 onClose={() => setAssetPickerOpen(false)}
                 onSelect={(hash) => void handleRefImageFromAsset(hash)}
               />
-
             </>
           )}
 
@@ -591,11 +602,15 @@ function SingleReferenceImage({
   const { t } = useI18n();
   const [isDragOver, setIsDragOver] = useState(false);
   const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
-  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
+  const { url, markFailed } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
 
   const handleDragOver = (e: React.DragEvent) => {
     const types = e.dataTransfer.types;
-    if (types.includes('Files') || types.includes('application/x-lucid-asset') || types.includes('application/x-lucid-ref-image')) {
+    if (
+      types.includes('Files') ||
+      types.includes('application/x-lucid-asset') ||
+      types.includes('application/x-lucid-ref-image')
+    ) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       setIsDragOver(true);
@@ -619,7 +634,9 @@ function SingleReferenceImage({
       try {
         const payload = JSON.parse(assetRaw) as { hash: string; type: string };
         if (payload.hash && payload.type === 'image') onDropHash(payload.hash);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -628,7 +645,9 @@ function SingleReferenceImage({
       try {
         const payload = JSON.parse(refRaw) as { assetHash: string };
         if (payload.assetHash) onDropHash(payload.assetHash);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -639,10 +658,15 @@ function SingleReferenceImage({
         const filePath = (file as { path?: string }).path ?? '';
         if (filePath) {
           const api = getAPI();
-          void api?.asset.import(filePath, 'image').then((ref) => {
-            const r = ref as { hash: string } | null;
-            if (r?.hash) onDropHash(r.hash);
-          }).catch(() => { /* image import failure is non-critical */ });
+          void api?.asset
+            .import(filePath, 'image')
+            .then((ref) => {
+              const r = ref as { hash: string } | null;
+              if (r?.hash) onDropHash(r.hash);
+            })
+            .catch(() => {
+              /* image import failure is non-critical */
+            });
         }
       }
     }
@@ -650,112 +674,135 @@ function SingleReferenceImage({
 
   return (
     <div className="space-y-1.5">
-    <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={cn(
-        'rounded border w-full',
-        mainRef?.assetHash
-          ? 'border-primary/50 bg-primary/5'
-          : 'border-dashed border-border/70',
-        isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
-      )}
-    >
-      {url ? (
-        <div className="relative w-full aspect-[2/3] bg-muted rounded overflow-hidden">
-          <img
-            src={url}
-            alt="Reference"
-            className="h-full w-full object-contain"
-            draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
-            onDragStart={mainRef?.assetHash && entityType && entityId && slot ? (e) => {
-              e.stopPropagation();
-              e.dataTransfer.setData(
-                'application/x-lucid-ref-image',
-                JSON.stringify({ assetHash: mainRef.assetHash, entityType, entityId, slot }),
-              );
-              e.dataTransfer.effectAllowed = 'copy';
-            } : undefined}
-          />
-          {isDragOver && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
-              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
-                {t('entity.dropHere')}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={cn(
+          'rounded border w-full',
+          mainRef?.assetHash ? 'border-primary/50 bg-primary/5' : 'border-dashed border-border/70',
+          isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
+        )}
+      >
+        {url ? (
+          <div className="relative w-full aspect-[2/3] bg-muted rounded overflow-hidden">
+            <img
+              src={url}
+              alt="Reference"
+              className="h-full w-full object-contain"
+              onError={markFailed}
+              draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
+              onDragStart={
+                mainRef?.assetHash && entityType && entityId && slot
+                  ? (e) => {
+                      e.stopPropagation();
+                      e.dataTransfer.setData(
+                        'application/x-lucid-ref-image',
+                        JSON.stringify({
+                          assetHash: mainRef.assetHash,
+                          entityType,
+                          entityId,
+                          slot,
+                        }),
+                      );
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }
+                  : undefined
+              }
+            />
+            {isDragOver && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
+                <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
+                  {t('entity.dropHere')}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center aspect-[2/3] gap-2">
+            {isDragOver ? (
+              <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
+            ) : mainRef?.assetHash ? (
+              <>
+                <ImageOff className="w-8 h-8 text-destructive/40" />
+                <span className="text-[10px] text-destructive/60">{t('entity.brokenImage')}</span>
+              </>
+            ) : (
+              <Image className="w-8 h-8 text-muted-foreground/40" />
+            )}
+            {!isDragOver && !mainRef?.assetHash && (
+              <span className="text-xs text-muted-foreground">
+                {t('entity.clickToUploadReferenceImage')}
               </span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center aspect-[2/3] gap-2">
-          {isDragOver ? (
-            <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
-          ) : (
-            <Image className="w-8 h-8 text-muted-foreground/40" />
-          )}
-          {!isDragOver && (
-            <span className="text-xs text-muted-foreground">
-              {t('entity.clickToUploadReferenceImage')}
-            </span>
-          )}
-        </div>
-      )}
-      <div className="flex items-center gap-1 p-1.5">
-        <button
-          type="button"
-          onClick={onUpload}
-          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-          aria-label={t('entity.upload')}
-        >
-          <Upload className="w-3 h-3" aria-hidden="true" />
-          {t('entity.upload')}
-        </button>
-        <button
-          type="button"
-          onClick={onFromAssets}
-          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-          aria-label={t('entity.fromAssets')}
-        >
-          <Image className="w-3 h-3" aria-hidden="true" />
-          {t('entity.fromAssets')}
-        </button>
-        {mainRef?.assetHash && (
+            )}
+          </div>
+        )}
+        <div className="flex items-center gap-1 p-1.5">
           <button
             type="button"
-            onClick={onRemove}
-            className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
-            aria-label={t('entity.removeImage')}
+            onClick={onUpload}
+            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+            aria-label={t('entity.upload')}
           >
-            <X className="w-3 h-3" aria-hidden="true" />
-            {t('entity.removeImage')}
+            <Upload className="w-3 h-3" aria-hidden="true" />
+            {t('entity.upload')}
           </button>
-        )}
-      </div>
-    </div>
-    {url && mainRef?.variants && mainRef.variants.length > 0 && (
-      <div className="flex items-center gap-1">
-        <span className="text-[9px] text-muted-foreground/70 shrink-0">{t('equipmentManager.variants')}:</span>
-        <div className="flex gap-1 overflow-x-auto">
-          {mainRef.assetHash && (
-            <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
+          <button
+            type="button"
+            onClick={onFromAssets}
+            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+            aria-label={t('entity.fromAssets')}
+          >
+            <Image className="w-3 h-3" aria-hidden="true" />
+            {t('entity.fromAssets')}
+          </button>
+          {mainRef?.assetHash && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
+              aria-label={t('entity.removeImage')}
+            >
+              <X className="w-3 h-3" aria-hidden="true" />
+              {t('entity.removeImage')}
+            </button>
           )}
-          {mainRef.variants.map((variantHash) => (
-            <VariantThumb
-              key={variantHash}
-              hash={variantHash}
-              isActive={false}
-              onClick={() => onSelectVariant?.(variantHash)}
-            />
-          ))}
         </div>
       </div>
-    )}
+      {url && mainRef?.variants && mainRef.variants.length > 0 && (
+        <div className="flex items-center gap-1">
+          <span className="text-[9px] text-muted-foreground/70 shrink-0">
+            {t('equipmentManager.variants')}:
+          </span>
+          <div className="flex gap-1 overflow-x-auto">
+            {mainRef.assetHash && (
+              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
+            )}
+            {mainRef.variants.map((variantHash) => (
+              <VariantThumb
+                key={variantHash}
+                hash={variantHash}
+                isActive={false}
+                onClick={() => onSelectVariant?.(variantHash)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boolean; onClick?: () => void }) {
-  const { url } = useAssetUrl(hash, 'image', 'png');
+function VariantThumb({
+  hash,
+  isActive,
+  onClick,
+}: {
+  hash: string;
+  isActive: boolean;
+  onClick?: () => void;
+}) {
+  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return null;
   return (
     <button
@@ -763,18 +810,22 @@ function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boo
       onClick={onClick}
       className={cn(
         'shrink-0 h-8 w-12 rounded border overflow-hidden transition-colors',
-        isActive ? 'border-primary ring-1 ring-primary/40' : 'border-border/60 hover:border-primary/50',
+        isActive
+          ? 'border-primary ring-1 ring-primary/40'
+          : 'border-border/60 hover:border-primary/50',
       )}
     >
-      <img src={url} alt="variant" className="h-full w-full object-cover" />
+      <img src={url} alt="variant" className="h-full w-full object-cover" onError={markFailed} />
     </button>
   );
 }
 
 function ListThumb({ hash }: { hash?: string }) {
-  const { url } = useAssetUrl(hash, 'image', 'png');
+  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return <div className="shrink-0 w-8 h-8 rounded bg-muted/50" />;
-  return <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" />;
+  return (
+    <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" onError={markFailed} />
+  );
 }
 
 function AssetPickerDialog({
@@ -787,12 +838,15 @@ function AssetPickerDialog({
   onSelect: (hash: string) => void;
 }) {
   const { t } = useI18n();
-  const imageAssets = useSelector((s: RootState) =>
-    s.assets.items.filter((a) => a.type === 'image'),
-  );
+  const imageAssets = useSelector(selectImageAssets);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
@@ -814,7 +868,7 @@ function AssetPickerDialog({
 }
 
 function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string) => void }) {
-  const { url } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
+  const { url, markFailed } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
   return (
     <button
       type="button"
@@ -823,7 +877,12 @@ function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string
       title={asset.name}
     >
       {url ? (
-        <img src={url} alt={asset.name} className="w-full aspect-square object-cover" />
+        <img
+          src={url}
+          alt={asset.name}
+          className="w-full aspect-square object-cover"
+          onError={markFailed}
+        />
       ) : (
         <div className="w-full aspect-square bg-muted flex items-center justify-center">
           <Image className="w-6 h-6 text-muted-foreground/40" />

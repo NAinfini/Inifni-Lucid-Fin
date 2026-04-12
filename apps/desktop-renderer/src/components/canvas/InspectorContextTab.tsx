@@ -1,4 +1,4 @@
-import { type DragEvent, type ReactNode, useCallback, useState } from 'react';
+import { memo, type DragEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { MapPin, Package, Plus, Search, Trash2, Upload, User } from 'lucide-react';
 import type { CanvasNodeType } from '@lucid-fin/contracts';
 
@@ -79,7 +79,7 @@ interface InspectorContextTabProps {
   videoFramesSection?: VideoFramesSection;
 }
 
-export function InspectorContextTab({
+export const InspectorContextTab = memo(function InspectorContextTab({
   t,
   selectedNodeType,
   charPickerOpen,
@@ -342,7 +342,7 @@ export function InspectorContextTab({
       </div>
     </>
   );
-}
+});
 
 interface VideoFrameSlotSectionProps {
   label: string;
@@ -398,6 +398,13 @@ function VideoFrameSlotSection({ label, slot, t }: VideoFrameSlotSectionProps) {
   for (const opt of slot.connectedOptions) {
     allOptions.push(opt);
   }
+
+  // Auto-select when there's exactly one option and nothing selected yet
+  useEffect(() => {
+    if (allOptions.length === 1 && !slot.selectedValue) {
+      slot.onSelect(allOptions[0].value);
+    }
+  }, [allOptions.length, slot.selectedValue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-1.5">

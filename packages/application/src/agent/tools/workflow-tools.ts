@@ -28,92 +28,35 @@ function requireString(args: Record<string, unknown>, key: string): string {
 export function createWorkflowTools(deps: WorkflowToolDeps): AgentTool[] {
   const context = ['canvas'];
 
-  const pause: AgentTool = {
-    name: 'workflow.pause',
-    description: 'Pause a workflow run by ID.',
+  const control: AgentTool = {
+    name: 'workflow.control',
+    description: 'Control a workflow run: pause, resume, cancel, or retry by ID.',
     context,
     tier: 4,
     parameters: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Workflow run ID.' },
+        action: { type: 'string', description: 'Action to perform.', enum: ['pause', 'resume', 'cancel', 'retry'] },
       },
-      required: ['id'],
+      required: ['id', 'action'],
     },
     async execute(args) {
       try {
         const id = requireString(args, 'id');
-        await deps.pauseWorkflow(id);
-        return ok({ id });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const resume: AgentTool = {
-    name: 'workflow.resume',
-    description: 'Resume a paused workflow run by ID.',
-    context,
-    tier: 4,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Workflow run ID.' },
-      },
-      required: ['id'],
-    },
-    async execute(args) {
-      try {
-        const id = requireString(args, 'id');
-        await deps.resumeWorkflow(id);
-        return ok({ id });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const cancel: AgentTool = {
-    name: 'workflow.cancel',
-    description: 'Cancel a workflow run by ID.',
-    context,
-    tier: 4,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Workflow run ID.' },
-      },
-      required: ['id'],
-    },
-    async execute(args) {
-      try {
-        const id = requireString(args, 'id');
-        await deps.cancelWorkflow(id);
-        return ok({ id });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const retry: AgentTool = {
-    name: 'workflow.retry',
-    description: 'Retry a workflow run by ID.',
-    context,
-    tier: 4,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Workflow run ID.' },
-      },
-      required: ['id'],
-    },
-    async execute(args) {
-      try {
-        const id = requireString(args, 'id');
-        await deps.retryWorkflow(id);
-        return ok({ id });
+        const action = requireString(args, 'action');
+        if (action === 'pause') {
+          await deps.pauseWorkflow(id);
+        } else if (action === 'resume') {
+          await deps.resumeWorkflow(id);
+        } else if (action === 'cancel') {
+          await deps.cancelWorkflow(id);
+        } else if (action === 'retry') {
+          await deps.retryWorkflow(id);
+        } else {
+          throw new Error(`Unknown action: ${action}. Must be pause, resume, cancel, or retry.`);
+        }
+        return ok({ id, action });
       } catch (error) {
         return fail(error);
       }
@@ -158,7 +101,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): AgentTool[] {
     },
   };
 
-  return [pause, resume, cancel, retry, expandIdea];
+  return [control, expandIdea];
 }
 
 export function createUtilityWorkflowTools(): AgentTool[] {
@@ -182,7 +125,7 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     async execute(args) {
       try {
         return ok({
-          instructions: `1. Call canvas.getNode(canvasId="${args.canvasId}", nodeId="${args.referenceNodeId}") to read the reference node prompt. 2. Extract style descriptors: rendering technique, color palette, lighting logic, texture. 3. For each nodeId in ${JSON.stringify(args.targetNodeIds)}: call canvas.getNode to read its prompt, prepend [STYLE: <extracted descriptors>] to the prompt, call canvas.updateNodeData to write it back. 4. Report which nodes were updated.`,
+          instructions: `1. Call canvas.getNode(canvasId="${args.canvasId}", nodeId="${args.referenceNodeId}") to read the reference node prompt. 2. Extract style descriptors: rendering technique, color palette, lighting logic, texture. 3. For each nodeId in ${JSON.stringify(args.targetNodeIds)}: call canvas.getNode to read its prompt, prepend [STYLE: <extracted descriptors>] to the prompt, call canvas.updateNodes to write it back. 4. Report which nodes were updated.`,
         });
       } catch (error) { return fail(error); }
     },
@@ -204,7 +147,7 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     async execute(_args) {
       try {
         return ok({
-          instructions: `1. If sceneNodeIds provided, read each via canvas.getNode. Otherwise call canvas.searchNodes(type="text") to find all text nodes. 2. For each scene node: decompose into 1-3 shots. Each shot needs: shotType (ECU/CU/MS/LS/ELS), subject, action (state-flow verb), setting, duration (seconds), cameraMove, mood. 3. Create one text node per shot via canvas.addNode(type="text", title="Shot: <shotType> - <subject>", data.content=<shot details>). 4. Present the shot list to the user.`,
+          instructions: `1. If sceneNodeIds provided, read each via canvas.getNode. Otherwise call canvas.listNodes(type="text") to find all text nodes. 2. For each scene node: decompose into 1-3 shots. Each shot needs: shotType (ECU/CU/MS/LS/ELS), subject, action (state-flow verb), setting, duration (seconds), cameraMove, mood. 3. Create one text node per shot via canvas.addNode(type="text", title="Shot: <shotType> - <subject>", data.content=<shot details>). 4. Present the shot list to the user.`,
           shotSchema: { shotType: 'ECU|CU|MS|LS|ELS', subject: '', action: '', setting: '', duration: 5, cameraMove: '', mood: '' },
         });
       } catch (error) { return fail(error); }
@@ -228,7 +171,7 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     async execute(args) {
       try {
         return ok({
-          instructions: `Style target: "${args.styleTarget}". For each nodeId in ${JSON.stringify(args.nodeIds)}: 1. Call canvas.getNode to read current prompt. 2. Rewrite prompt: keep subject/action/content, apply style target (rendering, color, lighting vocabulary). 3. Show diff (BEFORE/AFTER truncated to 80 chars). 4. Call commander.askUser to confirm before writing. 5. On approval: call canvas.updateNodeData to write rewritten prompt.`,
+          instructions: `Style target: "${args.styleTarget}". For each nodeId in ${JSON.stringify(args.nodeIds)}: 1. Call canvas.getNode to read current prompt. 2. Rewrite prompt: keep subject/action/content, apply style target (rendering, color, lighting vocabulary). 3. Show diff (BEFORE/AFTER truncated to 80 chars). 4. Call commander.askUser to confirm before writing. 5. On approval: call canvas.updateNodes to write rewritten prompt.`,
         });
       } catch (error) { return fail(error); }
     },
@@ -273,7 +216,7 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     async execute(args) {
       try {
         return ok({
-          instructions: `1. If nodeIds not provided, call canvas.searchNodes(canvasId="${args.canvasId}", type="image") to get all image nodes. 2. Resolve story order: follow directed edges first, then sort by canvas position (left-to-right, top-to-bottom), then by title numbering. 3. For each node call canvas.getNode to read title, prompt, status. 4. Output a markdown table: | # | Node ID | Shot Type | Duration | Action Summary | Status |. Skip nodes with status "empty" and mark them PENDING. 5. Present the storyboard to the user.`,
+          instructions: `1. If nodeIds not provided, call canvas.listNodes(canvasId="${args.canvasId}", type="image") to get all image nodes. 2. Resolve story order: follow directed edges first, then sort by canvas position (left-to-right, top-to-bottom), then by title numbering. 3. For each node call canvas.getNode to read title, prompt, status. 4. Output a markdown table: | # | Node ID | Shot Type | Duration | Action Summary | Status |. Skip nodes with status "empty" and mark them PENDING. 5. Present the storyboard to the user.`,
         });
       } catch (error) { return fail(error); }
     },
@@ -346,7 +289,7 @@ export function createUtilityWorkflowTools(): AgentTool[] {
       try {
         const emotion = typeof args.emotion === 'string' ? args.emotion : 'neutral';
         return ok({
-          instructions: `Lip Sync Setup for node ${args.videoNodeId} on canvas ${args.canvasId}: 1. Create an audio node: canvas.addNode(canvasId="${args.canvasId}", type="audio", data={ audioType: "voice", prompt: "${args.dialogue || '[dialogue text]'}", emotionVector: { ${emotion}: 0.8, neutral: 0.2 } }). 2. Connect the audio node to the video node: canvas.connectNodes(canvasId="${args.canvasId}", sourceId=audioNodeId, targetId="${args.videoNodeId}"). 3. Enable lip sync on the video node: canvas.updateNodeData(canvasId="${args.canvasId}", nodeId="${args.videoNodeId}", data={ lipSyncEnabled: true }). 4. Generate the audio node first, then generate/regenerate the video — lip sync processing runs automatically after video generation completes.`,
+          instructions: `Lip Sync Setup for node ${args.videoNodeId} on canvas ${args.canvasId}: 1. Create an audio node: canvas.addNode(canvasId="${args.canvasId}", type="audio", data={ audioType: "voice", prompt: "${args.dialogue || '[dialogue text]'}", emotionVector: { ${emotion}: 0.8, neutral: 0.2 } }). 2. Connect the audio node to the video node: canvas.connectNodes(canvasId="${args.canvasId}", sourceId=audioNodeId, targetId="${args.videoNodeId}"). 3. Enable lip sync on the video node: canvas.updateNodes(canvasId="${args.canvasId}", nodeId="${args.videoNodeId}", lipSyncEnabled=true). 4. Generate the audio node first, then generate/regenerate the video — lip sync processing runs automatically after video generation completes.`,
         });
       } catch (error) { return fail(error); }
     },
@@ -407,7 +350,7 @@ export function createUtilityWorkflowTools(): AgentTool[] {
     async execute(args) {
       try {
         return ok({
-          instructions: `Dual Prompt Setup on canvas "${args.canvasId}" for nodes ${JSON.stringify(args.nodeIds)}: For each node: 1. Read the current prompt via canvas.getNode. 2. Generate an imagePrompt variant: emphasize environment detail, texture, lighting, static composition — remove motion verbs. 3. Generate a videoPrompt variant: add motion verbs (pan, track, dolly), camera movement, temporal transitions — keep subject consistent. 4. Call canvas.updateNodeData to set imagePrompt and videoPrompt. 5. The original prompt field is kept as fallback. Show the user: ORIGINAL → IMAGE → VIDEO for each node.`,
+          instructions: `Dual Prompt Setup on canvas "${args.canvasId}" for nodes ${JSON.stringify(args.nodeIds)}: For each node: 1. Read the current prompt via canvas.getNode. 2. Generate an imagePrompt variant: emphasize environment detail, texture, lighting, static composition — remove motion verbs. 3. Generate a videoPrompt variant: add motion verbs (pan, track, dolly), camera movement, temporal transitions — keep subject consistent. 4. Call canvas.updateNodes to set imagePrompt and videoPrompt. 5. The original prompt field is kept as fallback. Show the user: ORIGINAL → IMAGE → VIDEO for each node.`,
         });
       } catch (error) { return fail(error); }
     },

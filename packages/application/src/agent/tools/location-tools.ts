@@ -1,4 +1,4 @@
-import { LOCATION_STANDARD_SLOTS, type Location } from '@lucid-fin/contracts';
+import { LOCATION_STANDARD_SLOTS, type AudioNodeData, type Canvas, type ImageNodeData, type Location, type VideoNodeData } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
 
 export interface LocationToolDeps {
@@ -6,6 +6,7 @@ export interface LocationToolDeps {
   saveLocation: (location: Location) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
   generateImage?: (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => Promise<{ assetHash: string }>;
+  getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
 export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
@@ -212,181 +213,191 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
-  const locationGenerateReferenceImage: AgentTool = {
-    name: 'location.generateReferenceImage',
-    description: 'Generate a reference image for a location. Automatically compiles all location fields (type, description, mood, lighting, weather, architecture, colors, features) into the prompt. Default slot is "main" for a wide establishing shot. IMPORTANT: Call ONE at a time, verify success before generating the next. Never batch parallel generation calls.',
-    tags: ['location', 'generation'],
+  const locationRefImage: AgentTool = {
+    name: 'location.refImage',
+    description: 'Manage reference images for a location. Supports generate (auto-compiles location fields into prompt), set (assign by assetHash), delete (remove slot), and setFromNode (pull asset from a canvas image node). IMPORTANT for generate: Call ONE at a time, verify success before generating the next. Never batch parallel generation calls.',
+    tags: ['location', 'generation', 'mutate'],
     tier: 3,
     parameters: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The location ID.' },
-        slot: {
+        action: {
           type: 'string',
-          description: 'Reference image slot. Default: "main". Use specific slots for targeted views.',
-          enum: ['main', 'wide-establishing', 'interior-detail', 'atmosphere', 'key-angle-1', 'key-angle-2', 'overhead'],
+          description: 'Action to perform.',
+          enum: ['generate', 'set', 'delete', 'setFromNode'],
         },
-        width: { type: 'number', description: 'Image width in pixels. Default 1536. Auto-clamped to provider max.' },
-        height: { type: 'number', description: 'Image height in pixels. Default 1024. Auto-clamped to provider max.' },
-        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates from location data.' },
+        slot: { type: 'string', description: 'Reference image slot or angle.' },
+        assetHash: { type: 'string', description: 'The CAS asset hash to assign (for action=set).' },
+        canvasId: { type: 'string', description: 'The canvas ID (for action=setFromNode).' },
+        nodeId: { type: 'string', description: 'The image node ID to pull the generated asset from (for action=setFromNode).' },
+        width: { type: 'number', description: 'Image width in pixels. Default 1536. Auto-clamped to provider max (for action=generate).' },
+        height: { type: 'number', description: 'Image height in pixels. Default 1024. Auto-clamped to provider max (for action=generate).' },
+        prompt: { type: 'string', description: 'Optional custom prompt override. Default auto-generates from location data (for action=generate).' },
+        providerId: { type: 'string', description: 'Optional provider ID override (for action=generate).' },
       },
-      required: ['id'],
+      required: ['id', 'action'],
     },
     async execute(args) {
       try {
-        const locations = await deps.listLocations();
-        const entity = locations.find((location) => location.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Location not found: ${args.id}` };
-        }
-        if (!deps.generateImage) {
-          return { success: false, error: 'Image generation not available' };
-        }
+        const action = args.action as string;
 
-        const slot = typeof args.slot === 'string' ? args.slot : 'main';
-        const typeLabel = entity.type === 'interior' ? 'Interior space' : entity.type === 'exterior' ? 'Exterior view' : 'Interior-exterior transition';
-        const slotDescriptions: Record<string, string> = {
-          'main': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
-          'wide-establishing': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
-          'interior-detail': 'close-up interior detail shot, architectural features, furniture, textures, material quality visible',
-          'atmosphere': 'atmospheric mood study, emphasizing lighting, weather, time of day, volumetric light and shadow',
-          'key-angle-1': 'key camera angle, eye-level cinematic shot, showing primary viewpoint for scene staging',
-          'key-angle-2': 'alternate camera angle, different perspective of the same location, revealing secondary details',
-          'overhead': 'overhead bird\'s eye view, looking straight down, showing spatial layout, floor plan perspective',
-        };
-        const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
-
-        // Build rich description from all available fields
-        const descParts: string[] = [];
-        if (entity.description) descParts.push(entity.description);
-        if (entity.subLocation) descParts.push(`Sub-location: ${entity.subLocation}`);
-        if (entity.architectureStyle) descParts.push(`Architecture: ${entity.architectureStyle}`);
-        if (entity.mood) descParts.push(`Mood: ${entity.mood}`);
-        if (entity.lighting) descParts.push(`Lighting: ${entity.lighting}`);
-        if (entity.weather) descParts.push(`Weather: ${entity.weather}`);
-        if (entity.timeOfDay) descParts.push(`Time of day: ${entity.timeOfDay}`);
-        if (entity.dominantColors && entity.dominantColors.length > 0) descParts.push(`Color palette: ${entity.dominantColors.join(', ')}`);
-        if (entity.keyFeatures && entity.keyFeatures.length > 0) descParts.push(`Key features: ${entity.keyFeatures.join(', ')}`);
-        if (entity.atmosphereKeywords && entity.atmosphereKeywords.length > 0) descParts.push(`Atmosphere: ${entity.atmosphereKeywords.join(', ')}`);
-        const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
-
-        const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
-          ? args.prompt
-          : `Environment concept art reference. Location: ${entity.name}. ${typeLabel}. `
-            + `${richDesc}`
-            + `${slotDesc}. `
-            + `No characters, no people, no figures, empty scene, environment only. `
-            + `Consistent architectural style, detailed textures, professional environment concept art, cinematic quality.`;
-        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1536;
-        const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1024;
-        const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight });
-        const referenceImages = [...(entity.referenceImages ?? [])];
-        const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
-        if (existingIndex >= 0) {
-          const existing = referenceImages[existingIndex];
-          const prevVariants = existing.variants ?? [];
-          if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
-            prevVariants.push(existing.assetHash);
+        if (action === 'generate') {
+          const locations = await deps.listLocations();
+          const entity = locations.find((location) => location.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Location not found: ${args.id}` };
           }
-          referenceImages[existingIndex] = {
-            ...existing,
-            assetHash: result.assetHash,
-            variants: prevVariants,
+          if (!deps.generateImage) {
+            return { success: false, error: 'Image generation not available' };
+          }
+
+          const slot = typeof args.slot === 'string' ? args.slot : 'main';
+          const typeLabel = entity.type === 'interior' ? 'Interior space' : entity.type === 'exterior' ? 'Exterior view' : 'Interior-exterior transition';
+          const slotDescriptions: Record<string, string> = {
+            'main': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
+            'wide-establishing': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
+            'interior-detail': 'close-up interior detail shot, architectural features, furniture, textures, material quality visible',
+            'atmosphere': 'atmospheric mood study, emphasizing lighting, weather, time of day, volumetric light and shadow',
+            'key-angle-1': 'key camera angle, eye-level cinematic shot, showing primary viewpoint for scene staging',
+            'key-angle-2': 'alternate camera angle, different perspective of the same location, revealing secondary details',
+            'overhead': 'overhead bird\'s eye view, looking straight down, showing spatial layout, floor plan perspective',
           };
-        } else {
-          referenceImages.push({
+          const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
+
+          const descParts: string[] = [];
+          if (entity.description) descParts.push(entity.description);
+          if (entity.subLocation) descParts.push(`Sub-location: ${entity.subLocation}`);
+          if (entity.architectureStyle) descParts.push(`Architecture: ${entity.architectureStyle}`);
+          if (entity.mood) descParts.push(`Mood: ${entity.mood}`);
+          if (entity.lighting) descParts.push(`Lighting: ${entity.lighting}`);
+          if (entity.weather) descParts.push(`Weather: ${entity.weather}`);
+          if (entity.timeOfDay) descParts.push(`Time of day: ${entity.timeOfDay}`);
+          if (entity.dominantColors && entity.dominantColors.length > 0) descParts.push(`Color palette: ${entity.dominantColors.join(', ')}`);
+          if (entity.keyFeatures && entity.keyFeatures.length > 0) descParts.push(`Key features: ${entity.keyFeatures.join(', ')}`);
+          if (entity.atmosphereKeywords && entity.atmosphereKeywords.length > 0) descParts.push(`Atmosphere: ${entity.atmosphereKeywords.join(', ')}`);
+          const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
+
+          const finalPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0
+            ? args.prompt
+            : `Environment concept art reference. Location: ${entity.name}. ${typeLabel}. `
+              + `${richDesc}`
+              + `${slotDesc}. `
+              + `No characters, no people, no figures, empty scene, environment only. `
+              + `Consistent architectural style, detailed textures, professional environment concept art, cinematic quality.`;
+          const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : 1536;
+          const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : 1024;
+          const providerId = typeof args.providerId === 'string' ? args.providerId : undefined;
+          const result = await deps.generateImage(finalPrompt, { width: reqWidth, height: reqHeight, providerId });
+          const referenceImages = [...(entity.referenceImages ?? [])];
+          const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
+          if (existingIndex >= 0) {
+            const existing = referenceImages[existingIndex];
+            const prevVariants = existing.variants ?? [];
+            if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
+              prevVariants.push(existing.assetHash);
+            }
+            referenceImages[existingIndex] = {
+              ...existing,
+              assetHash: result.assetHash,
+              variants: prevVariants,
+            };
+          } else {
+            referenceImages.push({
+              slot,
+              assetHash: result.assetHash,
+              isStandard: LOCATION_STANDARD_SLOTS.includes(slot as Location['referenceImages'][number]['slot'] & (typeof LOCATION_STANDARD_SLOTS)[number]),
+            });
+          }
+
+          entity.referenceImages = referenceImages;
+          entity.updatedAt = Date.now();
+          await deps.saveLocation(entity);
+
+          return { success: true, data: { assetHash: result.assetHash, slot } };
+        }
+
+        if (action === 'set') {
+          const locations = await deps.listLocations();
+          const entity = locations.find((location) => location.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Location not found: ${args.id}` };
+          }
+
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=set');
+          if (typeof args.assetHash !== 'string' || !args.assetHash.trim()) throw new Error('assetHash is required for action=set');
+          const slot = args.slot;
+          const assetHash = args.assetHash;
+          const referenceImages = [...(entity.referenceImages ?? [])];
+          const referenceImage = {
             slot,
-            assetHash: result.assetHash,
+            assetHash,
             isStandard: LOCATION_STANDARD_SLOTS.includes(slot as Location['referenceImages'][number]['slot'] & (typeof LOCATION_STANDARD_SLOTS)[number]),
+          };
+          const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
+          if (existingIndex >= 0) {
+            referenceImages[existingIndex] = referenceImage;
+          } else {
+            referenceImages.push(referenceImage);
+          }
+
+          entity.referenceImages = referenceImages;
+          entity.updatedAt = Date.now();
+          await deps.saveLocation(entity);
+
+          return { success: true, data: { assetHash, slot } };
+        }
+
+        if (action === 'delete') {
+          const locations = await deps.listLocations();
+          const entity = locations.find((location) => location.id === args.id);
+          if (!entity) {
+            return { success: false, error: `Location not found: ${args.id}` };
+          }
+
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=delete');
+          const slot = args.slot;
+          entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
+          entity.updatedAt = Date.now();
+          await deps.saveLocation(entity);
+
+          return { success: true, data: { id: entity.id, slot } };
+        }
+
+        if (action === 'setFromNode') {
+          if (!deps.getCanvas) return { success: false, error: 'getCanvas not available' };
+          if (typeof args.canvasId !== 'string' || !args.canvasId.trim()) throw new Error('canvasId is required for action=setFromNode');
+          if (typeof args.nodeId !== 'string' || !args.nodeId.trim()) throw new Error('nodeId is required for action=setFromNode');
+          if (typeof args.slot !== 'string' || !args.slot.trim()) throw new Error('slot is required for action=setFromNode');
+          const canvas = await deps.getCanvas(args.canvasId);
+          const node = canvas.nodes.find((n) => n.id === args.nodeId);
+          if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
+          if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
+            return { success: false, error: `Node type does not support reference images: ${node.type}` };
+          }
+          const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
+          const variants = Array.isArray(data.variants) ? data.variants : [];
+          const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
+          const assetHash = variants[idx] ?? data.assetHash;
+          if (typeof assetHash !== 'string' || !assetHash) return { success: false, error: 'No generated asset on node' };
+          const locations = await deps.listLocations();
+          const entity = locations.find((l) => l.id === args.id);
+          if (!entity) return { success: false, error: `Location not found: ${args.id}` };
+          const slot = args.slot as string;
+          entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
+          entity.referenceImages.push({
+            slot,
+            assetHash,
+            isStandard: LOCATION_STANDARD_SLOTS.includes(
+              slot as Location['referenceImages'][number]['slot'] & (typeof LOCATION_STANDARD_SLOTS)[number],
+            ),
           });
+          entity.updatedAt = Date.now();
+          await deps.saveLocation(entity);
+          return { success: true, data: { id: entity.id, slot, assetHash } };
         }
 
-        entity.referenceImages = referenceImages;
-        entity.updatedAt = Date.now();
-        await deps.saveLocation(entity);
-
-        return { success: true, data: { assetHash: result.assetHash, slot } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  const locationSetReferenceImage: AgentTool = {
-    name: 'location.setReferenceImage',
-    description: 'Set a reference image asset for a location slot.',
-    tags: ['location', 'mutate'],
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The location ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
-        assetHash: { type: 'string', description: 'The CAS asset hash to assign.' },
-      },
-      required: ['id', 'slot', 'assetHash'],
-    },
-    async execute(args) {
-      try {
-        const locations = await deps.listLocations();
-        const entity = locations.find((location) => location.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Location not found: ${args.id}` };
-        }
-
-        const slot = args.slot as string;
-        const assetHash = args.assetHash as string;
-        const referenceImages = [...(entity.referenceImages ?? [])];
-        const referenceImage = {
-          slot,
-          assetHash,
-          isStandard: LOCATION_STANDARD_SLOTS.includes(slot as Location['referenceImages'][number]['slot'] & (typeof LOCATION_STANDARD_SLOTS)[number]),
-        };
-        const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
-        if (existingIndex >= 0) {
-          referenceImages[existingIndex] = referenceImage;
-        } else {
-          referenceImages.push(referenceImage);
-        }
-
-        entity.referenceImages = referenceImages;
-        entity.updatedAt = Date.now();
-        await deps.saveLocation(entity);
-
-        return { success: true, data: { assetHash, slot } };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
-  const locationDeleteReferenceImage: AgentTool = {
-    name: 'location.deleteReferenceImage',
-    description: 'Remove a reference image from a location slot.',
-    tags: ['location', 'mutate'],
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The location ID.' },
-        slot: { type: 'string', description: 'The reference image slot or angle.' },
-      },
-      required: ['id', 'slot'],
-    },
-    async execute(args) {
-      try {
-        const locations = await deps.listLocations();
-        const entity = locations.find((location) => location.id === args.id);
-        if (!entity) {
-          return { success: false, error: `Location not found: ${args.id}` };
-        }
-
-        const slot = args.slot as string;
-        entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
-        entity.updatedAt = Date.now();
-        await deps.saveLocation(entity);
-
-        return { success: true, data: { id: entity.id, slot } };
+        return { success: false, error: `Unknown action: ${action}` };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -398,8 +409,6 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     locationCreate,
     locationUpdate,
     locationDelete,
-    locationGenerateReferenceImage,
-    locationSetReferenceImage,
-    locationDeleteReferenceImage,
+    locationRefImage,
   ];
 }

@@ -165,10 +165,10 @@ export function requirePosition(args: Record<string, unknown>): { x: number; y: 
 
 export function requireCanvasNodeType(args: Record<string, unknown>): CanvasNode['type'] {
   const value = args.type;
-  if (value === 'text' || value === 'image' || value === 'video' || value === 'audio') {
+  if (value === 'text' || value === 'image' || value === 'video' || value === 'audio' || value === 'backdrop') {
     return value;
   }
-  throw new Error('type must be one of text, image, video, or audio');
+  throw new Error('type must be one of text, image, video, audio, or backdrop');
 }
 
 export function requirePresetCategory(args: Record<string, unknown>): PresetCategory {
@@ -425,6 +425,16 @@ export function buildDefaultNodeData(type: CanvasNode['type']): CanvasNode['data
       variantCount: 1,
       seedLocked: false,
       presetTracks: createEmptyPresetTrackSet(),
+    };
+  }
+  if (type === 'backdrop') {
+    return {
+      opacity: 1,
+      color: '#1a1a2e',
+      borderStyle: 'solid',
+      titleSize: 'md',
+      lockChildren: false,
+      collapsed: false,
     };
   }
   return {

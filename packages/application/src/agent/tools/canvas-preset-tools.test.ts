@@ -137,16 +137,10 @@ describe('createCanvasPresetTools', () => {
     expect(createCanvasPresetTools(deps).map((tool) => tool.name)).toEqual([
       'canvas.readNodePresetTracks',
       'canvas.writeNodePresetTracks',
-      'canvas.addPresetTrackEntry',
-      'canvas.removePresetTrackEntry',
-      'canvas.updatePresetTrackEntry',
-      'canvas.movePresetTrackEntry',
+      'canvas.presetEntry',
       'canvas.applyShotTemplate',
-      'canvas.autoFillEmptyTracks',
-      'canvas.createCustomPreset',
       'shotTemplate.list',
-      'shotTemplate.create',
-      'shotTemplate.update',
+      'shotTemplate.save',
       'shotTemplate.delete',
     ]);
   });
@@ -193,11 +187,80 @@ describe('createCanvasPresetTools', () => {
     });
   });
 
+  it('writes multiple categories in one call via tracks object', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    const result = await getTool('canvas.writeNodePresetTracks', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      tracks: {
+        camera: {
+          intensity: 80,
+          entries: [{ presetId: 'camera-push-in' }],
+        },
+        look: {
+          intensity: 50,
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        nodeId: 'image-1',
+        tracks: [
+          {
+            category: 'camera',
+            track: expect.objectContaining({
+              intensity: 80,
+              entries: [expect.objectContaining({ presetId: 'camera-push-in' })],
+            }),
+          },
+          {
+            category: 'look',
+            track: expect.objectContaining({
+              intensity: 50,
+            }),
+          },
+        ],
+      },
+    });
+    expect(deps.setNodePresets).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects mixing category and tracks modes', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.writeNodePresetTracks', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      category: 'camera',
+      tracks: { look: { intensity: 50 } },
+    })).resolves.toEqual({
+      success: false,
+      error: 'Provide either "category" (single) or "tracks" (multi), not both.',
+    });
+  });
+
+  it('rejects writeNodePresetTracks with neither category nor tracks', async () => {
+    const deps = createDeps();
+
+    await expect(getTool('canvas.writeNodePresetTracks', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+    })).resolves.toEqual({
+      success: false,
+      error: 'Provide "category" for single-category mode or "tracks" for multi-category mode.',
+    });
+  });
+
   it('adds, updates, moves, and removes single preset entries', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    const addResult = await getTool('canvas.addPresetTrackEntry', deps).execute({
+    const addResult = await getTool('canvas.presetEntry', deps).execute({
+      action: 'add',
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
@@ -216,16 +279,18 @@ describe('createCanvasPresetTools', () => {
       }),
     });
 
-    await getTool('canvas.addPresetTrackEntry', deps).execute({
+    await getTool('canvas.presetEntry', deps).execute({
+      action: 'add',
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       presetId: 'camera-crane',
     });
     const track = ((canvas.nodes[0].data as { presetTracks: PresetTrackSet }).presetTracks.camera);
-    const [firstEntry, secondEntry] = track.entries;
+    const [firstEntry, _secondEntry] = track.entries;
 
-    await expect(getTool('canvas.updatePresetTrackEntry', deps).execute({
+    await expect(getTool('canvas.presetEntry', deps).execute({
+      action: 'update',
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
@@ -236,27 +301,8 @@ describe('createCanvasPresetTools', () => {
       data: { nodeId: 'image-1', category: 'camera', entryId: firstEntry.id },
     });
 
-    await expect(getTool('canvas.movePresetTrackEntry', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entryId: secondEntry.id,
-      direction: 'up',
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'image-1', category: 'camera', entryId: secondEntry.id, direction: 'up' },
-    });
-    const movedTrack = ((canvas.nodes[0].data as { presetTracks: PresetTrackSet }).presetTracks.camera);
-    expect(movedTrack.entries[0]?.id).toBe(secondEntry.id);
-    expect(movedTrack.entries[1]).toEqual(expect.objectContaining({
-      id: firstEntry.id,
-      presetId: 'camera-dolly',
-      intensity: 10,
-      direction: 'right',
-      order: 1,
-    }));
-
-    await expect(getTool('canvas.removePresetTrackEntry', deps).execute({
+    await expect(getTool('canvas.presetEntry', deps).execute({
+      action: 'remove',
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
@@ -289,37 +335,6 @@ describe('createCanvasPresetTools', () => {
       },
     });
     expect((canvas.nodes[0].data as Record<string, unknown>).appliedShotTemplateId).toBe('tmpl-1');
-
-    await expect(getTool('canvas.autoFillEmptyTracks', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        nodeId: 'image-1',
-        nodeType: 'image',
-        prompt: 'A lone samurai at dusk',
-        characterRefs: [{ characterId: 'char-1', loadoutId: 'look-1' }],
-        locationRefs: [{ locationId: 'loc-1' }],
-        filledCategories: ['camera'],
-      }),
-    });
-
-    await expect(getTool('canvas.createCustomPreset', deps).execute({
-      name: 'Dreamy Blur',
-      category: 'look',
-      description: 'Soft dreamlike atmosphere',
-      prompt: 'dreamy blur and glow',
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        id: 'custom-uuid-1',
-        category: 'look',
-        name: 'Dreamy Blur',
-        createdAt: 123,
-        updatedAt: 123,
-      }),
-    });
   });
 
   it('rejects invalid preset inputs and unsupported nodes', async () => {
@@ -332,9 +347,10 @@ describe('createCanvasPresetTools', () => {
       entries: [{ presetId: '' }],
     })).resolves.toEqual({
       success: false,
-      error: 'entries[0].presetId is required',
+      error: 'camera.entries[0].presetId is required',
     });
-    await expect(getTool('canvas.updatePresetTrackEntry', deps).execute({
+    await expect(getTool('canvas.presetEntry', deps).execute({
+      action: 'update',
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
@@ -380,10 +396,10 @@ describe('shotTemplate.list', () => {
   });
 });
 
-describe('shotTemplate.create', () => {
-  it('creates a custom shot template', async () => {
+describe('shotTemplate.save', () => {
+  it('creates a custom shot template when no templateId provided', async () => {
     const deps = createDeps();
-    const result = await getTool('shotTemplate.create', deps).execute({
+    const result = await getTool('shotTemplate.save', deps).execute({
       name: 'test-template',
       description: 'A test template',
       entries: [
@@ -399,21 +415,19 @@ describe('shotTemplate.create', () => {
     expect(deps.saveShotTemplate).toHaveBeenCalled();
   });
 
-  it('rejects empty entries', async () => {
+  it('rejects empty entries in create mode', async () => {
     const deps = createDeps();
-    const result = await getTool('shotTemplate.create', deps).execute({
+    const result = await getTool('shotTemplate.save', deps).execute({
       name: 'test-template',
       description: 'A test template',
       entries: [],
     });
     expect((result as { success: boolean }).success).toBe(false);
   });
-});
 
-describe('shotTemplate.update', () => {
-  it('rejects built-in templates', async () => {
+  it('rejects built-in templates in update mode', async () => {
     const deps = createDeps();
-    const result = await getTool('shotTemplate.update', deps).execute({ templateId: 'tmpl-1' });
+    const result = await getTool('shotTemplate.save', deps).execute({ templateId: 'tmpl-1' });
     expect((result as { success: boolean }).success).toBe(false);
     expect((result as { success: false; error: string }).error).toBe('Cannot modify built-in templates.');
   });

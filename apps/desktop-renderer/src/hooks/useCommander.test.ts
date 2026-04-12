@@ -107,6 +107,7 @@ describe('useCommander stream completion', () => {
         onCanvasUpdated: () => () => {},
         onEntitiesUpdated: () => () => {},
         onSettingsDispatch: () => () => {},
+        onUndoDispatch: () => () => {},
       },
     } as never);
 
@@ -156,6 +157,7 @@ describe('useCommander stream completion', () => {
         onCanvasUpdated: () => () => {},
         onEntitiesUpdated: () => () => {},
         onSettingsDispatch: () => () => {},
+        onUndoDispatch: () => () => {},
       },
     } as never);
 

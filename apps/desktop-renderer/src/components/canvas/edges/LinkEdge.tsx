@@ -1,17 +1,15 @@
-import { useState, useCallback } from 'react';
+import { memo, useState, useCallback } from 'react';
 import { getSmoothStepPath, BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { ArrowLeftRight, FileText, Image, LayoutTemplate, Trash2, Video, Volume2, X } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
 import type { CanvasNodeType, EdgeStatus } from '@lucid-fin/contracts';
+import { useEdgeCallbacks } from '../edge-callbacks-context.js';
 
 export interface LinkEdgeData {
   label?: string;
   status: EdgeStatus;
-  onDelete?: (id: string) => void;
-  onSwapDirection?: (id: string) => void;
-  onInsertNode?: (id: string, type: CanvasNodeType, position: { x: number; y: number }) => void;
   dependencyRole?: 'upstream' | 'downstream' | 'focus' | null;
   dimmed?: boolean;
 }
@@ -25,7 +23,15 @@ const EDGE_COLORS: Record<EdgeStatus, string> = {
 
 const DEFAULT_EDGE_DATA: LinkEdgeData = { status: 'idle' };
 
-export function LinkEdge({
+const INSERT_ACTIONS: Array<{ type: CanvasNodeType; labelKey: string; icon: typeof FileText }> = [
+  { type: 'text', labelKey: 'contextMenu.insertText', icon: FileText },
+  { type: 'image', labelKey: 'contextMenu.insertImage', icon: Image },
+  { type: 'video', labelKey: 'contextMenu.insertVideo', icon: Video },
+  { type: 'audio', labelKey: 'contextMenu.insertAudio', icon: Volume2 },
+  { type: 'backdrop', labelKey: 'contextMenu.insertFrame', icon: LayoutTemplate },
+];
+
+function LinkEdgeComponent({
   id,
   sourceX,
   sourceY,
@@ -39,6 +45,7 @@ export function LinkEdge({
   selected,
 }: EdgeProps) {
   const edgeData = (data as LinkEdgeData | undefined) ?? DEFAULT_EDGE_DATA;
+  const cb = useEdgeCallbacks();
   const [hovered, setHovered] = useState(false);
 
   const [edgePath, labelX, labelY] = getSmoothStepPath({
@@ -62,30 +69,24 @@ export function LinkEdge({
           : EDGE_COLORS[edgeData.status] ?? EDGE_COLORS.idle;
 
   const handleDelete = useCallback(() => {
-    edgeData.onDelete?.(id);
-  }, [edgeData, id]);
+    cb.onDelete(id);
+  }, [cb, id]);
 
   const handleSwap = useCallback(() => {
-    edgeData.onSwapDirection?.(id);
-  }, [edgeData, id]);
+    cb.onSwapDirection(id);
+  }, [cb, id]);
 
   const handleInsertNode = useCallback(
     (type: CanvasNodeType) => {
-      edgeData.onInsertNode?.(id, type, {
+      cb.onInsertNode(id, type, {
         x: (sourceX + targetX) / 2,
         y: (sourceY + targetY) / 2,
       });
     },
-    [edgeData, id, sourceX, sourceY, targetX, targetY],
+    [cb, id, sourceX, sourceY, targetX, targetY],
   );
 
-  const insertActions: Array<{ type: CanvasNodeType; labelKey: string; icon: typeof FileText }> = [
-    { type: 'text', labelKey: 'contextMenu.insertText', icon: FileText },
-    { type: 'image', labelKey: 'contextMenu.insertImage', icon: Image },
-    { type: 'video', labelKey: 'contextMenu.insertVideo', icon: Video },
-    { type: 'audio', labelKey: 'contextMenu.insertAudio', icon: Volume2 },
-    { type: 'backdrop', labelKey: 'contextMenu.insertFrame', icon: LayoutTemplate },
-  ];
+  const insertActions = INSERT_ACTIONS;
 
   return (
     <>
@@ -224,3 +225,5 @@ export function LinkEdge({
     </>
   );
 }
+
+export const LinkEdge = memo(LinkEdgeComponent);

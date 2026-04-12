@@ -147,12 +147,13 @@ export const {
 const selectAssetsState = (state: { assets: AssetsState }) => state.assets;
 const selectAssetItems = (state: { assets: AssetsState }) => state.assets.items;
 
+export const selectImageAssets = createSelector([selectAssetItems], (items) =>
+  items.filter((asset) => asset.type === 'image'),
+);
+
 /** Selector: filtered + sorted assets */
 export const selectFilteredAssets = createSelector(
-  [
-    selectAssetItems,
-    selectAssetsState,
-  ],
+  [selectAssetItems, selectAssetsState],
   (items, assetsState) => {
     const { searchQuery, filterType, filterTags, sortBy, sortOrder } = assetsState;
     let filteredItems = [...items];
@@ -171,8 +172,8 @@ export const selectFilteredAssets = createSelector(
       const query = searchQuery.toLowerCase();
       filteredItems = filteredItems.filter(
         (asset) =>
-          asset.name.toLowerCase().includes(query)
-          || asset.tags.some((tag) => tag.toLowerCase().includes(query)),
+          asset.name.toLowerCase().includes(query) ||
+          asset.tags.some((tag) => tag.toLowerCase().includes(query)),
       );
     }
 

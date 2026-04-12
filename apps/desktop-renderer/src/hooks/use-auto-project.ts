@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store/index.js';
 import { setProject } from '../store/slices/project.js';
-import { restore as restoreSettings } from '../store/slices/settings.js';
+import { restore as restoreSettings, setAvailableUpdate } from '../store/slices/settings.js';
 import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import type { SettingsState } from '../store/slices/settings.js';
@@ -30,25 +30,27 @@ export function useAutoProject() {
 
     const unsubscribeUpdater = api.updater.onProgress((status) => {
       const version = status.info?.version;
-      if (status.state !== 'available' || !version || toastedVersion.current === version) return;
-      toastedVersion.current = version;
-      dispatch(enqueueToast({
-        variant: 'info',
-        title: t('settings.update.toastTitle'),
-        message: t('settings.update.toastMessage').replace('{version}', version),
-        durationMs: 8000,
-      }));
+      if (status.state === 'available' && version) {
+        dispatch(setAvailableUpdate(version));
+        if (toastedVersion.current !== version) {
+          toastedVersion.current = version;
+          dispatch(enqueueToast({
+            variant: 'info',
+            title: t('settings.update.toastTitle'),
+            message: t('settings.update.toastMessage').replace('{version}', version),
+            durationMs: 8000,
+          }));
+        }
+      }
     });
 
     const unsub = api.onReady(async () => {
       if (bootstrapRan) return;
       bootstrapRan = true;
       try {
-        // Restore app-level settings
+        // Restore app-level settings (always dispatch to signal persist middleware)
         const savedSettings = await api.settings.load() as SettingsState | null;
-        if (savedSettings) {
-          dispatch(restoreSettings(savedSettings));
-        }
+        dispatch(restoreSettings(savedSettings ?? ({} as SettingsState)));
 
         const list = await api.project.list();
         if (list.length > 0) {

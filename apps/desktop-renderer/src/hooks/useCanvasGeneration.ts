@@ -10,6 +10,7 @@ import {
 } from '../store/slices/canvas.js';
 import { addLog } from '../store/slices/logger.js';
 import { setAssets, type Asset } from '../store/slices/assets.js';
+import { recordGeneration, recordError } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
 
 function serializeGenerationDetail(detail: Record<string, unknown>, error?: unknown): string {
@@ -55,6 +56,7 @@ export function useCanvasGeneration(): {
           generationTimeMs: data.generationTimeMs,
         }),
       );
+      dispatch(recordGeneration({ type: 'image', success: true, durationMs: data.generationTimeMs ?? 0 }));
       dispatch(
         addLog({
           level: 'info',
@@ -99,6 +101,8 @@ export function useCanvasGeneration(): {
     const unsubFailed = api.canvasGeneration.onFailed((data) => {
       if (data.canvasId !== activeCanvasId) return;
       dispatch(setNodeGenerationFailed({ id: data.nodeId, error: data.error }));
+      dispatch(recordGeneration({ type: 'image', success: false, durationMs: 0 }));
+      dispatch(recordError());
       dispatch(
         addLog({
           level: 'error',

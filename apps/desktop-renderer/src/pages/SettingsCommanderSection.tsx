@@ -1,13 +1,12 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { Bot, Cog, Database, RotateCcw, Shield, ShieldAlert, Zap } from 'lucide-react';
+import { Bot, Cog, Database, RotateCcw } from 'lucide-react';
 import type { RootState } from '../store/index.js';
+import { CommitSlider } from '../components/ui/CommitSlider.js';
 import {
-  setPermissionMode,
   setMaxSteps,
   setTemperature,
   setMaxTokens,
   setLlmRetries,
-  setHistoryTokenBudget,
   setMaxSessions,
   setMaxMessagesPerSession,
   setUndoStackDepth,
@@ -17,10 +16,8 @@ import {
   setClipboardWatchIntervalMs,
   setClipboardMinLength,
   setGenerationConcurrency,
-  type PermissionMode,
 } from '../store/slices/commander.js';
 import { t } from '../i18n.js';
-import { cn } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,13 +105,12 @@ function SliderInput({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <input
-        type="range"
+      <CommitSlider
         min={min}
         max={max}
         step={step}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onCommit={onChange}
         className="h-1.5 w-28 cursor-pointer accent-primary"
       />
       <span className="w-14 text-right text-xs font-mono text-muted-foreground">
@@ -123,44 +119,6 @@ function SliderInput({
     </div>
   );
 }
-
-const PERMISSION_MODES: Array<{
-  value: PermissionMode;
-  icon: typeof Zap;
-  colorClass: string;
-  labelKey: string;
-  labelFallback: string;
-  descKey: string;
-  descFallback: string;
-}> = [
-  {
-    value: 'auto',
-    icon: Zap,
-    colorClass: 'text-green-500',
-    labelKey: 'commander.permissionMode.auto',
-    labelFallback: 'Auto',
-    descKey: 'commander.permissionMode.autoDesc',
-    descFallback: 'Only confirm destructive operations. Maximum autonomy.',
-  },
-  {
-    value: 'normal',
-    icon: Shield,
-    colorClass: 'text-amber-500',
-    labelKey: 'commander.permissionMode.normal',
-    labelFallback: 'Normal',
-    descKey: 'commander.permissionMode.normalDesc',
-    descFallback: 'Confirm tier-3 and tier-4 operations. Balanced safety.',
-  },
-  {
-    value: 'strict',
-    icon: ShieldAlert,
-    colorClass: 'text-red-500',
-    labelKey: 'commander.permissionMode.strict',
-    labelFallback: 'Strict',
-    descKey: 'commander.permissionMode.strictDesc',
-    descFallback: 'Confirm all tool operations. Maximum safety.',
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Main section
@@ -174,9 +132,7 @@ export function SettingsCommanderSection() {
     dispatch(setMaxSteps(50));
     dispatch(setTemperature(0.7));
     dispatch(setMaxTokens(200000));
-    dispatch(setPermissionMode('normal'));
     dispatch(setLlmRetries(2));
-    dispatch(setHistoryTokenBudget(200000));
   };
 
   const handleResetData = () => {
@@ -196,40 +152,6 @@ export function SettingsCommanderSection() {
 
   return (
     <div className="space-y-6">
-      {/* Permission Mode */}
-      <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
-        <div className="mb-2 text-xs font-medium">
-          {tr('settings.commander.permissionMode', 'Permission Mode')}
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {PERMISSION_MODES.map((mode) => {
-            const Icon = mode.icon;
-            const isActive = state.permissionMode === mode.value;
-            return (
-              <button
-                key={mode.value}
-                type="button"
-                onClick={() => dispatch(setPermissionMode(mode.value))}
-                className={cn(
-                  'flex flex-col items-center gap-1 rounded-md border p-2.5 text-center transition-all',
-                  isActive
-                    ? 'border-primary bg-primary/10 shadow-sm'
-                    : 'border-border/60 hover:bg-muted/40',
-                )}
-              >
-                <Icon className={cn('h-4 w-4', isActive ? mode.colorClass : 'text-muted-foreground')} />
-                <span className="text-[11px] font-medium">
-                  {tr(mode.labelKey, mode.labelFallback)}
-                </span>
-                <span className="text-[10px] text-muted-foreground leading-tight">
-                  {tr(mode.descKey, mode.descFallback)}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Agent Parameters */}
       <SectionCard icon={Bot} title={tr('settings.commander.agentParams', 'Agent Parameters')} onReset={handleResetAgent}>
         <SettingRow label={tr('settings.commander.maxSteps', 'Max Steps')} description={tr('settings.commander.maxStepsDesc', 'Maximum tool call iterations per request.')}>
@@ -238,14 +160,11 @@ export function SettingsCommanderSection() {
         <SettingRow label={tr('settings.commander.temperature', 'Temperature')} description={tr('settings.commander.temperatureDesc', 'Controls creativity vs determinism.')}>
           <SliderInput value={state.temperature} min={0} max={1} step={0.1} onChange={(v) => dispatch(setTemperature(v))} formatValue={(v) => v.toFixed(1)} />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.maxTokens', 'Max Tokens')} description={tr('settings.commander.maxTokensDesc', 'Maximum tokens per LLM response.')}>
+        <SettingRow label={tr('settings.commander.contextWindow', 'Context Window')} description={tr('settings.commander.contextWindowDesc', 'Token budget for LLM context — controls both input history and output limits.')}>
           <SliderInput value={state.maxTokens} min={1024} max={1000000} step={1024} onChange={(v) => dispatch(setMaxTokens(v))} formatValue={(v) => `${(v / 1000).toFixed(0)}K`} />
         </SettingRow>
         <SettingRow label={tr('settings.commander.llmRetries', 'LLM Retries')} description={tr('settings.commander.llmRetriesDesc', 'Retry count on rate-limit or service errors.')}>
           <SliderInput value={state.llmRetries} min={0} max={10} step={1} onChange={(v) => dispatch(setLlmRetries(v))} />
-        </SettingRow>
-        <SettingRow label={tr('settings.commander.historyBudget', 'History Budget')} description={tr('settings.commander.historyBudgetDesc', 'Token budget for conversation history sent to LLM.')}>
-          <SliderInput value={state.historyTokenBudget} min={1000} max={1000000} step={1000} onChange={(v) => dispatch(setHistoryTokenBudget(v))} formatValue={(v) => `${(v / 1000).toFixed(0)}K`} />
         </SettingRow>
       </SectionCard>
 

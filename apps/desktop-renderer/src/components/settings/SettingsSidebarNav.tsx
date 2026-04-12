@@ -1,8 +1,15 @@
 import { BarChart3, Bot, Cpu, FileText, HardDrive, Info, Sun, Workflow } from 'lucide-react';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../store/index.js';
 import { t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 
-export type SettingsTab = 'providers' | 'commander' | 'appearance' | 'storage' | 'promptTemplates' | 'workflows' | 'about' | 'usage';
+export type SettingsTab = 'commander' | 'providers' | 'promptTemplates' | 'workflows' | 'appearance' | 'storage' | 'usage' | 'about';
+
+const TAB_ORDER: SettingsTab[] = [
+  'commander', 'providers', 'promptTemplates', 'workflows',
+  'appearance', 'storage', 'usage', 'about',
+];
 
 export const SETTINGS_TAB_META: Record<
   SettingsTab,
@@ -12,18 +19,18 @@ export const SETTINGS_TAB_META: Record<
     icon: React.ComponentType<{ className?: string }>;
   }
 > = {
-  providers: { labelKey: 'settings.nav.providers', fallbackLabel: 'Providers', icon: Cpu },
   commander: { labelKey: 'settings.nav.commander', fallbackLabel: 'Commander AI', icon: Bot },
-  appearance: { labelKey: 'settings.nav.appearance', fallbackLabel: 'Appearance', icon: Sun },
-  storage: { labelKey: 'settings.nav.storage', fallbackLabel: 'Storage', icon: HardDrive },
+  providers: { labelKey: 'settings.nav.providers', fallbackLabel: 'Providers', icon: Cpu },
   promptTemplates: {
     labelKey: 'settings.nav.promptTemplates',
     fallbackLabel: 'Prompt Templates',
     icon: FileText,
   },
   workflows: { labelKey: 'settings.nav.workflows', fallbackLabel: 'Workflows', icon: Workflow },
-  about: { labelKey: 'settings.nav.about', fallbackLabel: 'About', icon: Info },
+  appearance: { labelKey: 'settings.nav.appearance', fallbackLabel: 'Appearance', icon: Sun },
+  storage: { labelKey: 'settings.nav.storage', fallbackLabel: 'Storage', icon: HardDrive },
   usage: { labelKey: 'settings.nav.usage', fallbackLabel: 'Usage', icon: BarChart3 },
+  about: { labelKey: 'settings.nav.about', fallbackLabel: 'About', icon: Info },
 };
 
 export function translateOrFallback(key: string, fallback: string): string {
@@ -37,6 +44,8 @@ interface SettingsSidebarNavProps {
 }
 
 export function SettingsSidebarNav({ activeTab, onTabChange }: SettingsSidebarNavProps) {
+  const availableUpdate = useSelector((s: RootState) => s.settings.availableUpdate);
+
   return (
     <nav
       aria-label={translateOrFallback('settings.nav.title', 'Settings sections')}
@@ -44,9 +53,8 @@ export function SettingsSidebarNav({ activeTab, onTabChange }: SettingsSidebarNa
     >
       <div className="rounded-lg border border-border/60 bg-card p-1.5">
         <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
-          {(Object.entries(SETTINGS_TAB_META) as Array<
-            [SettingsTab, (typeof SETTINGS_TAB_META)[SettingsTab]]
-          >).map(([tab, meta]) => {
+          {TAB_ORDER.map((tab) => {
+            const meta = SETTINGS_TAB_META[tab];
             const Icon = meta.icon;
             const isActive = activeTab === tab;
 
@@ -67,6 +75,9 @@ export function SettingsSidebarNav({ activeTab, onTabChange }: SettingsSidebarNa
                 <span className="truncate">
                   {translateOrFallback(meta.labelKey, meta.fallbackLabel)}
                 </span>
+                {tab === 'about' && availableUpdate && !isActive && (
+                  <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary animate-pulse" />
+                )}
               </button>
             );
           })}

@@ -65,7 +65,8 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
-        const content = args.content as string;
+        const content = typeof args.content === 'string' ? args.content : '';
+        if (!content) throw new Error('content is required');
         await deps.saveScript(content);
         const parsedScenes = deps.parseScript(content);
         return ok({ parsedScenes });
@@ -75,48 +76,40 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
     },
   };
 
-  const scriptLoad: AgentTool = {
-    name: 'script.load',
-    description: 'Load a script file from disk into the current project.',
+  const scriptImport: AgentTool = {
+    name: 'script.import',
+    description:
+      'Import a script into the current project. Provide either `path` to load from disk, or `content` to import raw text.',
     context: ['canvas', 'script-editor', 'storyboard', 'orchestrator'],
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Absolute or project-safe path to the script file.' },
-      },
-      required: ['path'],
-    },
-    async execute(args) {
-      try {
-        const path = requireString(args, 'path');
-        await deps.loadScript(path);
-        return ok({ path });
-      } catch (err) {
-        return fail(err);
-      }
-    },
-  };
-
-  const scriptImport: AgentTool = {
-    name: 'script.import',
-    description: 'Import raw script content into the current project and parse its scenes.',
-    context: ['canvas', 'script-editor', 'storyboard', 'orchestrator'],
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
         content: { type: 'string', description: 'Raw script content to import.' },
         format: {
           type: 'string',
-          description: 'Optional script format hint.',
+          description: 'Optional script format hint (only used when importing raw content).',
           enum: ['fountain', 'fdx', 'plaintext'],
         },
       },
-      required: ['content'],
+      required: [],
     },
     async execute(args) {
       try {
+        const pathProvided = 'path' in args && args.path !== undefined && args.path !== null;
+
+        if (pathProvided) {
+          const path = requireString(args, 'path');
+          await deps.loadScript(path);
+          return ok({ path });
+        }
+
+        const hasContent = typeof args.content === 'string' && (args.content as string).trim().length > 0;
+        if (!hasContent) {
+          throw new Error('Either path or content must be provided');
+        }
+
         const content = requireString(args, 'content');
         const format = typeof args.format === 'string' ? args.format : undefined;
         const imported = await deps.importScript(content, format);
@@ -127,5 +120,5 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
     },
   };
 
-  return [scriptRead, scriptWrite, scriptLoad, scriptImport];
+  return [scriptRead, scriptWrite, scriptImport];
 }

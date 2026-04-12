@@ -66,7 +66,6 @@ export interface CommanderState {
   maxTokens: number;
   // AI / network
   llmRetries: number;
-  historyTokenBudget: number;
   // Storage / data
   maxSessions: number;
   maxMessagesPerSession: number;
@@ -96,7 +95,6 @@ const DEFAULT_MAX_STEPS = 50;
 const DEFAULT_TEMPERATURE = 0.7;
 const DEFAULT_MAX_TOKENS = 200000;
 const DEFAULT_LLM_RETRIES = 2;
-const DEFAULT_HISTORY_TOKEN_BUDGET = 200000;
 const DEFAULT_MAX_SESSIONS = 50;
 const DEFAULT_MAX_MESSAGES_PER_SESSION = 200;
 const DEFAULT_UNDO_STACK_DEPTH = 100;
@@ -121,7 +119,6 @@ interface PersistedSettings {
   temperature?: number;
   maxTokens?: number;
   llmRetries?: number;
-  historyTokenBudget?: number;
   maxSessions?: number;
   maxMessagesPerSession?: number;
   undoStackDepth?: number;
@@ -157,7 +154,6 @@ function persistSettingsFromState(state: CommanderState): void {
     temperature: state.temperature,
     maxTokens: state.maxTokens,
     llmRetries: state.llmRetries,
-    historyTokenBudget: state.historyTokenBudget,
     maxSessions: state.maxSessions,
     maxMessagesPerSession: state.maxMessagesPerSession,
     undoStackDepth: state.undoStackDepth,
@@ -242,7 +238,6 @@ const initialState: CommanderState = {
   temperature: persistedSettings.temperature ?? DEFAULT_TEMPERATURE,
   maxTokens: persistedSettings.maxTokens ?? DEFAULT_MAX_TOKENS,
   llmRetries: persistedSettings.llmRetries ?? DEFAULT_LLM_RETRIES,
-  historyTokenBudget: persistedSettings.historyTokenBudget ?? DEFAULT_HISTORY_TOKEN_BUDGET,
   maxSessions: persistedSettings.maxSessions ?? DEFAULT_MAX_SESSIONS,
   maxMessagesPerSession: persistedSettings.maxMessagesPerSession ?? DEFAULT_MAX_MESSAGES_PER_SESSION,
   undoStackDepth: persistedSettings.undoStackDepth ?? DEFAULT_UNDO_STACK_DEPTH,
@@ -553,10 +548,6 @@ export const commanderSlice = createSlice({
       state.llmRetries = Math.max(0, Math.min(10, Math.round(action.payload)));
       persistSettingsFromState(state);
     },
-    setHistoryTokenBudget(state, action: PayloadAction<number>) {
-      state.historyTokenBudget = Math.max(1000, Math.min(1_000_000, Math.round(action.payload / 1000) * 1000));
-      persistSettingsFromState(state);
-    },
     setMaxSessions(state, action: PayloadAction<number>) {
       state.maxSessions = Math.max(5, Math.min(200, Math.round(action.payload)));
       persistSettingsFromState(state);
@@ -583,6 +574,26 @@ export const commanderSlice = createSlice({
       state.pendingQuestion = action.payload;
     },
     clearPendingQuestion(state) {
+      state.pendingQuestion = null;
+    },
+    resolveQuestion(state, action: PayloadAction<{ answer: string }>) {
+      if (!state.pendingQuestion) return;
+      const { question, options } = state.pendingQuestion;
+      // Record the question as an assistant message
+      const optionList = options.map((o) => `  • ${o.label}${o.description ? ` — ${o.description}` : ''}`).join('\n');
+      state.messages.push({
+        id: createMessageId('assistant'),
+        role: 'assistant',
+        content: `**Question:** ${question}\n${optionList}`,
+        timestamp: Date.now(),
+      });
+      // Record the user's answer
+      state.messages.push({
+        id: createMessageId('user'),
+        role: 'user',
+        content: action.payload.answer,
+        timestamp: Date.now(),
+      });
       state.pendingQuestion = null;
     },
     enqueueMessage(state, action: PayloadAction<string>) {
@@ -685,7 +696,6 @@ export const {
   setTemperature,
   setMaxTokens,
   setLlmRetries,
-  setHistoryTokenBudget,
   setMaxSessions,
   setMaxMessagesPerSession,
   setUndoStackDepth,
@@ -699,6 +709,7 @@ export const {
   clearPendingConfirmation,
   setPendingQuestion,
   clearPendingQuestion,
+  resolveQuestion,
   enqueueMessage,
   dequeueMessage,
   removeQueuedMessage,

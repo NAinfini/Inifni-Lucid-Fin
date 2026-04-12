@@ -97,6 +97,23 @@ export function moveNode(
   }
 }
 
+export function moveNodes(
+  state: CanvasSliceState,
+  action: PayloadAction<Array<{ id: string; position: { x: number; y: number } }>>,
+): void {
+  const canvas = findActiveCanvas(state);
+  if (!canvas) return;
+  const now = Date.now();
+  for (const { id, position } of action.payload) {
+    const node = canvas.nodes.find((n) => n.id === id);
+    if (node && !node.locked) {
+      node.position = position;
+      node.updatedAt = now;
+    }
+  }
+  canvas.updatedAt = now;
+}
+
 export function renameNode(
   state: CanvasSliceState,
   action: PayloadAction<{ id: string; title: string }>,

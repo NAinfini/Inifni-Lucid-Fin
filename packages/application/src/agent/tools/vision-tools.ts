@@ -1,12 +1,5 @@
 import type { AgentTool } from '../tool-registry.js';
 
-export interface VisionProviderInfo {
-  id: string;
-  name: string;
-  model: string;
-  hasKey: boolean;
-}
-
 export interface VisionToolDeps {
   describeImage: (
     assetHash: string,
@@ -14,7 +7,6 @@ export interface VisionToolDeps {
     style?: string,
     providerId?: string,
   ) => Promise<{ prompt: string }>;
-  listVisionProviders?: () => Promise<VisionProviderInfo[]>;
   getNodeAssetHash?: (nodeId: string) => Promise<string | null>;
   writeNodeField?: (nodeId: string, field: string, value: string) => Promise<void>;
 }
@@ -31,36 +23,18 @@ function fail(error: unknown): { success: false; error: string } {
 }
 
 export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
-  const listProviders: AgentTool = {
-    name: 'vision.listProviders',
-    description:
-      'List all configured vision providers with their IDs, names, models, and whether an API key is set.',
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {},
-    },
-    async execute() {
-      try {
-        if (!deps.listVisionProviders) {
-          return ok({ providers: [], message: 'Vision provider listing not available.' });
-        }
-        const providers = await deps.listVisionProviders();
-        return ok({ providers });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
   const describeImage: AgentTool = {
     name: 'vision.describeImage',
     description:
-      'Analyze a node\'s current image asset using a vision AI model and return a detailed text prompt describing its style, content, and cinematic qualities. Optionally write the result to a node field. Use vision.listProviders to see available providers.',
+      'Analyze a node\'s current image asset using a vision AI model and return a detailed text prompt describing its style, content, and cinematic qualities. Optionally write the result to a node field. Use provider.list(group=\'vision\') to see available providers.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
+        canvasId: {
+          type: 'string',
+          description: 'The canvas ID containing the node (for consistency — asset resolution is global).',
+        },
         nodeId: {
           type: 'string',
           description: 'The canvas node ID whose asset should be analyzed.',
@@ -74,7 +48,7 @@ export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
         providerId: {
           type: 'string',
           description:
-            'Optional: vision provider ID to use (e.g. "openai-vision", "gemini-vision"). Defaults to the first configured provider. Use vision.listProviders to see available options.',
+            'Optional: vision provider ID to use (e.g. "openai-vision", "gemini-vision"). Defaults to the first configured provider. Use provider.list(group=\'vision\') to see available options.',
         },
         writeField: {
           type: 'string',
@@ -120,5 +94,5 @@ export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
     },
   };
 
-  return [listProviders, describeImage];
+  return [describeImage];
 }

@@ -77,13 +77,13 @@ describe('entityMutatingToolNames', () => {
     expect(entityMutatingToolNames.has('equipment.create')).toBe(true);
     expect(entityMutatingToolNames.has('equipment.update')).toBe(true);
     expect(entityMutatingToolNames.has('equipment.delete')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.deleteReferenceImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.refImage')).toBe(true);
   });
 
-  it('includes reference image delete tools for all entity types', () => {
-    expect(entityMutatingToolNames.has('character.deleteReferenceImage')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.deleteReferenceImage')).toBe(true);
-    expect(entityMutatingToolNames.has('location.deleteReferenceImage')).toBe(true);
+  it('includes reference image tools for all entity types', () => {
+    expect(entityMutatingToolNames.has('character.refImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.refImage')).toBe(true);
+    expect(entityMutatingToolNames.has('location.refImage')).toBe(true);
   });
 });
 

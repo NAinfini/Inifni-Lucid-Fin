@@ -80,6 +80,12 @@ const internalCanvasSlice = createSlice({
         state.selectedNodeIds = [];
         state.selectedEdgeIds = [];
       }
+      // Sync viewport from the (possibly new) active canvas so the top-level
+      // state.viewport reflects the persisted value on project load.
+      const active = findActiveCanvas(state);
+      if (active) {
+        state.viewport = active.viewport;
+      }
     },
 
     addCanvas(state, action: PayloadAction<Canvas>) {
@@ -94,9 +100,17 @@ const internalCanvasSlice = createSlice({
     },
 
     setActiveCanvas(state, action: PayloadAction<string | null>) {
+      // Persist the current viewport into the outgoing canvas before switching.
+      const outgoing = findActiveCanvas(state);
+      if (outgoing) {
+        outgoing.viewport = state.viewport;
+      }
+
       state.activeCanvasId = action.payload;
       state.selectedNodeIds = [];
       state.selectedEdgeIds = [];
+
+      // Load the incoming canvas's saved viewport.
       const canvas = findActiveCanvas(state);
       if (canvas) {
         state.viewport = canvas.viewport;
@@ -118,6 +132,7 @@ const internalCanvasSlice = createSlice({
     updateNode: nodeReducers.updateNode,
     updateNodeData: nodeReducers.updateNodeData,
     moveNode: nodeReducers.moveNode,
+    moveNodes: nodeReducers.moveNodes,
     renameNode: nodeReducers.renameNode,
     setNodeStatus: nodeReducers.setNodeStatus,
     toggleBypass: nodeReducers.toggleBypass,
@@ -237,11 +252,13 @@ const internalCanvasSlice = createSlice({
     // --- Viewport ----------------------------------------------------------
 
     updateViewport(state, action: PayloadAction<CanvasViewport>) {
+      // Only update the top-level viewport — NOT canvas.viewport.
+      // Writing canvas.viewport here causes Immer to produce a new canvas ref,
+      // which invalidates selectActiveCanvas and triggers a full flowNodes
+      // recompute on every pan gesture.  canvas.viewport is synced lazily:
+      //   • setActiveCanvas saves state.viewport to the outgoing canvas.
+      //   • Persist middleware snapshots state.viewport into the canvas before save.
       state.viewport = action.payload;
-      const canvas = findActiveCanvas(state);
-      if (canvas) {
-        canvas.viewport = action.payload;
-      }
     },
 
     updateContainerSize(state, action: PayloadAction<{ width: number; height: number }>) {
@@ -321,6 +338,7 @@ export const {
   updateNode,
   updateNodeData,
   moveNode,
+  moveNodes,
   renameNode,
   setNodeStatus,
   setNodeGenerating,

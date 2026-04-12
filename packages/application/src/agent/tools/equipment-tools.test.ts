@@ -15,6 +15,19 @@ describe('createEquipmentTools', () => {
 
     expect(tools.find((tool) => tool.name === 'equipment.list')?.tags).toEqual(['equipment', 'read', 'search']);
     expect(tools.find((tool) => tool.name === 'equipment.create')?.tags).toEqual(['equipment', 'mutate']);
+    expect(tools.find((tool) => tool.name === 'equipment.refImage')?.tags).toEqual(['equipment', 'generation', 'mutate']);
+    expect(tools.find((tool) => tool.name === 'equipment.refImage')?.tier).toBe(3);
+  });
+
+  it('tool name list contains equipment.refImage and not old ref image tool names', () => {
+    const tools = createEquipmentTools(createDeps());
+    const names = tools.map((t) => t.name);
+
+    expect(names).toContain('equipment.refImage');
+    expect(names).not.toContain('equipment.generateReferenceImage');
+    expect(names).not.toContain('equipment.setReferenceImage');
+    expect(names).not.toContain('equipment.deleteReferenceImage');
+    expect(names).not.toContain('equipment.setReferenceImageFromNode');
   });
 
   describe('equipment.list query filter', () => {

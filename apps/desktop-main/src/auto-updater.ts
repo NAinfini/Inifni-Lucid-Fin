@@ -43,7 +43,11 @@ export async function initAutoUpdater(win: BrowserWindow): Promise<void> {
   try {
     // Dynamic import — electron-updater may not be available in dev
     const mod = await import('electron-updater');
-    autoUpdater = mod.autoUpdater as unknown as AppUpdater;
+    autoUpdater = (mod.autoUpdater ?? mod.default?.autoUpdater) as unknown as AppUpdater;
+    if (!autoUpdater) {
+      log('info', 'electron-updater loaded but autoUpdater is undefined, skipping');
+      return;
+    }
   } catch { /* electron-updater not available in dev or unsupported environment — skip */
     log('info', 'electron-updater not available, skipping auto-update init');
     return;
@@ -97,7 +101,12 @@ export async function initAutoUpdater(win: BrowserWindow): Promise<void> {
 }
 
 export async function checkForUpdates(): Promise<void> {
-  if (!autoUpdater) return;
+  if (!autoUpdater) {
+    // No updater available (dev mode) — notify renderer so it doesn't stay stuck
+    currentStatus = { state: 'idle' };
+    notifyRenderer();
+    return;
+  }
   await autoUpdater.checkForUpdates();
 }
 

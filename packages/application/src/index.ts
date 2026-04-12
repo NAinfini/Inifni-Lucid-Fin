@@ -60,11 +60,6 @@ export { createSceneTools, type SceneToolDeps } from './agent/tools/scene-tools.
 export { createLocationTools, type LocationToolDeps } from './agent/tools/location-tools.js';
 export { createScriptTools, type ScriptToolDeps } from './agent/tools/script-tools.js';
 export { createJobTools, type JobToolDeps } from './agent/tools/job-tools.js';
-export {
-  createOrchestrationTools,
-  type OrchestrationToolDeps,
-  type OrchestrationListEntry,
-} from './agent/tools/orchestration-tools.js';
 export { createSeriesTools, type SeriesToolDeps, type SeriesEpisode } from './agent/tools/series-tools.js';
 export { createColorStyleTools, type ColorStyleToolDeps } from './agent/tools/color-style-tools.js';
 export { createProviderTools, type ProviderToolDeps, type ProviderInfo } from './agent/tools/provider-tools.js';
@@ -82,4 +77,4 @@ export { createWorkflowTools, createUtilityWorkflowTools, type WorkflowToolDeps 
 export { createEquipmentTools, type EquipmentToolDeps } from './agent/tools/equipment-tools.js';
 export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';
 export { createCopywritingTools, type CopywritingToolDeps } from './agent/tools/copywriting-tools.js';
-export { createVisionTools, type VisionToolDeps, type VisionProviderInfo } from './agent/tools/vision-tools.js';
+export { createVisionTools, type VisionToolDeps } from './agent/tools/vision-tools.js';

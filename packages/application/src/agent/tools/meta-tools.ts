@@ -21,39 +21,9 @@ function fail(error: unknown): ToolResult {
 export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps): AgentTool[] {
   const promptGuides = deps.promptGuides ?? [];
 
-  const toolList: AgentTool = {
-    name: 'tool.list',
-    description: 'List ALL available tools grouped by domain. Returns the complete tool catalog — use tool.get to load full schema for specific tools.',
-    tags: ['meta', 'read'],
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-    async execute() {
-      const allTools = deps.context
-        ? registry.forContext(deps.context)
-        : registry.list();
-
-      const grouped: Record<string, Array<{ name: string; desc: string }>> = {};
-      for (const tool of allTools) {
-        const domain = tool.name.includes('.') ? tool.name.split('.')[0] : tool.name;
-        if (!grouped[domain]) {
-          grouped[domain] = [];
-        }
-        const rawDesc = tool.description ?? '';
-        const desc = rawDesc.length > 80 ? rawDesc.slice(0, 80) + '...' : rawDesc;
-        grouped[domain].push({ name: tool.name, desc });
-      }
-
-      return ok(grouped);
-    },
-  };
-
   const toolGet: AgentTool = {
     name: 'tool.get',
-    description: 'Load the full schema (description and parameters) for one or more tools by name.',
+    description: 'If names is provided: load full schema for specific tools. If names is omitted: list ALL available tools grouped by domain.',
     tags: ['meta', 'read'],
     tier: 1,
     parameters: {
@@ -62,14 +32,34 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         names: {
           type: 'array',
           items: { type: 'string', description: 'Tool name.' },
-          description: 'Tool name or array of tool names to load.',
+          description: 'Tool name or array of tool names to load. Omit to list all tools grouped by domain.',
         },
       },
-      required: ['names'],
+      required: [],
     },
     async execute(args) {
       try {
         const rawNames = args.names;
+
+        // No names provided — list all tools grouped by domain
+        if (rawNames === undefined || rawNames === null) {
+          const allTools = deps.context
+            ? registry.forContext(deps.context)
+            : registry.list();
+
+          const grouped: Record<string, Array<{ name: string; desc: string }>> = {};
+          for (const tool of allTools) {
+            const domain = tool.name.includes('.') ? tool.name.split('.')[0] : tool.name;
+            if (!grouped[domain]) {
+              grouped[domain] = [];
+            }
+            const rawDesc = tool.description ?? '';
+            const desc = rawDesc.length > 80 ? rawDesc.slice(0, 80) + '...' : rawDesc;
+            grouped[domain].push({ name: tool.name, desc });
+          }
+          return ok(grouped);
+        }
+
         if (typeof rawNames === 'string') {
           const name = rawNames.trim();
           const tool = registry.get(name);
@@ -99,30 +89,9 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     },
   };
 
-  const guideList: AgentTool = {
-    name: 'guide.list',
-    description: 'List available prompt guides without loading their contents.',
-    tags: ['meta', 'guide', 'read', 'search'],
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
-        limit: { type: 'number', description: 'Max items to return. Default 50.' },
-      },
-      required: [],
-    },
-    async execute(args) {
-      const guides = promptGuides.map(({ id, name }) => ({ id, name }));
-      const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-      const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-      return ok({ total: guides.length, offset, limit, guides: guides.slice(offset, offset + limit) });
-    },
-  };
-
   const guideGet: AgentTool = {
     name: 'guide.get',
-    description: 'Fetch prompt guide content by id. Accepts a single id or array of ids.',
+    description: 'If ids is provided: fetch prompt guide content by id. If ids is omitted: list all available guides (id and name only, with offset/limit pagination).',
     tags: ['meta', 'guide', 'read'],
     tier: 1,
     parameters: {
@@ -131,14 +100,25 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         ids: {
           type: 'array',
           items: { type: 'string', description: 'Guide id.' },
-          description: 'Guide id or array of guide ids to fetch.',
+          description: 'Guide id or array of guide ids to fetch. Omit to list all guides.',
         },
+        offset: { type: 'number', description: 'Start index for listing (0-based). Default 0. Only used when ids is omitted.' },
+        limit: { type: 'number', description: 'Max items to return for listing. Default 50. Only used when ids is omitted.' },
       },
-      required: ['ids'],
+      required: [],
     },
     async execute(args) {
       try {
         const rawIds = args.ids;
+
+        // No ids provided — list all guides
+        if (rawIds === undefined || rawIds === null) {
+          const guides = promptGuides.map(({ id, name }) => ({ id, name }));
+          const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+          const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+          return ok({ total: guides.length, offset, limit, guides: guides.slice(offset, offset + limit) });
+        }
+
         if (typeof rawIds === 'string') {
           const id = rawIds.trim();
           if (!id) {
@@ -200,5 +180,5 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     },
   };
 
-  return [toolList, toolGet, toolCompact, guideList, guideGet];
+  return [toolGet, toolCompact, guideGet];
 }

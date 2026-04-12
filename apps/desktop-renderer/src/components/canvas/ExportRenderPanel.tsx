@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { Download, Film, FileText } from 'lucide-react';
 import { getAPI } from '../../utils/api.js';
 import type { RootState } from '../../store/index.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { recordExport } from '../../store/slices/settings.js';
 
 type ExportFormat = 'fcpxml' | 'edl';
 
 export function ExportRenderPanel() {
   const { t } = useI18n();
+  const dispatch = useDispatch();
   const { canvases, activeCanvasId } = useSelector((state: RootState) => state.canvas);
   const [format, setFormat] = useState<ExportFormat>('fcpxml');
   const [exporting, setExporting] = useState(false);
@@ -45,6 +47,7 @@ export function ExportRenderPanel() {
       // Backend handles save dialog
       const result = await (api.export.nle as unknown as (args: { format: ExportFormat; project: unknown }) => Promise<{ outputPath: string } | null>)({ format, project });
       if (result) setLastResult(result.outputPath);
+      dispatch(recordExport({ format }));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('exportRender.exportFailed'));
     } finally {

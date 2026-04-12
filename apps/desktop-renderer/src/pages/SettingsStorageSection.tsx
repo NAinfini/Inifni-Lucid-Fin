@@ -58,7 +58,7 @@ function StorageBar({ items }: { items: Array<{ label: string; size: number; col
           return (
             <div
               key={item.label}
-              className={cn('h-full transition-all', item.color)}
+              className={cn('h-full transition-[width] duration-200', item.color)}
               style={{ width: `${pct}%` }}
               title={`${item.label}: ${formatBytes(item.size)}`}
             />

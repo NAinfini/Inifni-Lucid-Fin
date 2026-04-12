@@ -29,7 +29,7 @@ function StepIndicator({ current }: { current: number }) {
         <div
           key={i}
           className={[
-            'h-1.5 rounded-full transition-all duration-200',
+            'h-1.5 rounded-full transition-[width,background-color] duration-200',
             i === current
               ? 'w-6 bg-primary'
               : i < current

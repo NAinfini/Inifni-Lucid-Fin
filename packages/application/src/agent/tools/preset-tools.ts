@@ -52,14 +52,6 @@ function parseOptionalResetScope(args: Record<string, unknown>): PresetResetScop
   throw new Error('scope must be one of all, prompt, or params');
 }
 
-function requirePreset(args: Record<string, unknown>): PresetDefinition {
-  const value = args.preset;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('preset is required');
-  }
-  return value as PresetDefinition;
-}
-
 export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
   const list: AgentTool = {
     name: 'preset.list',
@@ -148,21 +140,57 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
 
   const save: AgentTool = {
     name: 'preset.save',
-    description: 'Save a preset definition to the current project library.',
+    description:
+      'Save a preset definition to the project library. Two modes: ' +
+      '(1) Pass a raw "preset" object for advanced control. ' +
+      '(2) Pass individual fields (name, category, description, prompt) to create a new custom preset with auto-generated ID and timestamps.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         preset: {
           type: 'object',
-          description: 'The preset definition to save.',
+          description: 'Advanced mode: a full preset definition object to save.',
         },
+        name: { type: 'string', description: 'Custom mode: display name (e.g., "Shaky Handheld").' },
+        category: {
+          type: 'string',
+          description: 'Custom mode: preset category.',
+          enum: [...PRESET_CATEGORIES],
+        },
+        description: { type: 'string', description: 'Custom mode: short description of the visual effect.' },
+        prompt: { type: 'string', description: 'Custom mode: the prompt fragment for AI generation.' },
       },
-      required: ['preset'],
+      required: [],
     },
     async execute(args) {
       try {
-        return ok(await deps.savePreset(requirePreset(args)));
+        let preset: PresetDefinition;
+        if (args.preset && typeof args.preset === 'object' && !Array.isArray(args.preset)) {
+          preset = args.preset as PresetDefinition;
+        } else if (typeof args.name === 'string') {
+          const name = requireString(args, 'name');
+          const category = parseOptionalCategory(args);
+          if (!category) throw new Error('category is required for custom preset creation');
+          const description = requireString(args, 'description');
+          const prompt = requireString(args, 'prompt');
+          preset = {
+            id: `custom-${crypto.randomUUID()}`,
+            category,
+            name,
+            description,
+            prompt,
+            builtIn: false,
+            modified: false,
+            params: [],
+            defaults: {},
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          };
+        } else {
+          throw new Error('Provide either a "preset" object or individual fields (name, category, description, prompt)');
+        }
+        return ok(await deps.savePreset(preset));
       } catch (error) {
         return fail(error);
       }

@@ -102,6 +102,9 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
+        if (!args.series && typeof args.title !== 'string' && typeof args.description !== 'string') {
+          throw new Error('Provide series object or at least one of title, description');
+        }
         if (args.series !== undefined) {
           return ok(await deps.saveSeries(requireSeries(args) as unknown as Record<string, unknown>));
         }

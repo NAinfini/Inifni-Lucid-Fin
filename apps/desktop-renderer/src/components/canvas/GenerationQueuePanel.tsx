@@ -307,7 +307,7 @@ function TaskItem({
           aria-label={t('generation.progressLabel')}
           className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted"
         >
-          <div className="h-full bg-blue-500 transition-all" style={{ width: `${node.progress}%` }} />
+          <div className="h-full bg-blue-500 transition-[width] duration-200" style={{ width: `${node.progress}%` }} />
         </div>
       )}
 

@@ -16,6 +16,7 @@ import { getLocale, t } from '../../i18n.js';
 import { addLog } from '../../store/slices/logger.js';
 import { useToast } from '../../hooks/use-toast.js';
 import { cn } from '../../lib/utils.js';
+import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 import {
   Dialog,
   DialogContent,
@@ -145,6 +146,12 @@ export function AssetBrowserPanel() {
   const dispatch = useDispatch();
   const { error: showErrorToast } = useToast();
   const { filterType, searchQuery } = useSelector((state: RootState) => state.assets);
+  const [localSearch, setLocalSearch] = useDebouncedDispatch(
+    searchQuery,
+    useCallback((v: string) => dispatch(setSearchQuery(v)), [dispatch]),
+    200,
+  );
+  const semanticSearchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const allAssets = useSelector((state: RootState) => state.assets.items);
   const filteredAssets = useSelector(selectFilteredAssets);
   const [loading, setLoading] = useState(false);
@@ -159,7 +166,9 @@ export function AssetBrowserPanel() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [batchRenaming, setBatchRenaming] = useState(false);
   const [batchPrefix, setBatchPrefix] = useState('');
-  const [dragSelect, setDragSelect] = useState<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
+  const [dragSelect, setDragSelect] = useState<{ startX: number; startY: number } | null>(null);
+  const dragSelectRef = useRef<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
+  const rubberBandRef = useRef<HTMLDivElement>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteHashes, setPendingDeleteHashes] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -594,23 +603,45 @@ export function AssetBrowserPanel() {
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setDragSelect({ startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY });
+    setDragSelect({ startX: e.clientX, startY: e.clientY });
+    dragSelectRef.current = { startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY };
     if (!selectMode) setSelectedHashes(new Set());
   }, [selectMode]);
 
   useEffect(() => {
     if (!dragSelect) return;
     const onMove = (e: MouseEvent) => {
-      setDragSelect((prev) => prev ? { ...prev, currentX: e.clientX, currentY: e.clientY } : null);
+      const ds = dragSelectRef.current;
+      if (!ds) return;
+      ds.currentX = e.clientX;
+      ds.currentY = e.clientY;
+      // Direct DOM update — no React re-render during drag
+      const el = rubberBandRef.current;
+      if (el) {
+        const left = Math.min(ds.startX, ds.currentX);
+        const top = Math.min(ds.startY, ds.currentY);
+        const width = Math.abs(ds.currentX - ds.startX);
+        const height = Math.abs(ds.currentY - ds.startY);
+        if (width > 3 && height > 3) {
+          el.style.display = 'block';
+          el.style.left = `${left}px`;
+          el.style.top = `${top}px`;
+          el.style.width = `${width}px`;
+          el.style.height = `${height}px`;
+        } else {
+          el.style.display = 'none';
+        }
+      }
     };
     const onUp = () => {
       // Determine which asset cards intersect the rubber band
-      if (gridRef.current && dragSelect) {
+      const ds = dragSelectRef.current;
+      if (gridRef.current && ds) {
         const rect = {
-          left: Math.min(dragSelect.startX, dragSelect.currentX),
-          right: Math.max(dragSelect.startX, dragSelect.currentX),
-          top: Math.min(dragSelect.startY, dragSelect.currentY),
-          bottom: Math.max(dragSelect.startY, dragSelect.currentY),
+          left: Math.min(ds.startX, ds.currentX),
+          right: Math.max(ds.startX, ds.currentX),
+          top: Math.min(ds.startY, ds.currentY),
+          bottom: Math.max(ds.startY, ds.currentY),
         };
         const cards = gridRef.current.querySelectorAll<HTMLElement>('[data-asset-hash]');
         const hits = new Set<string>();
@@ -625,6 +656,8 @@ export function AssetBrowserPanel() {
           setSelectedHashes((prev) => new Set([...prev, ...hits]));
         }
       }
+      dragSelectRef.current = null;
+      if (rubberBandRef.current) rubberBandRef.current.style.display = 'none';
       setDragSelect(null);
     };
     window.addEventListener('mousemove', onMove);
@@ -632,12 +665,6 @@ export function AssetBrowserPanel() {
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, [dragSelect]);
 
-  const dragRect = dragSelect ? {
-    left: Math.min(dragSelect.startX, dragSelect.currentX),
-    top: Math.min(dragSelect.startY, dragSelect.currentY),
-    width: Math.abs(dragSelect.currentX - dragSelect.startX),
-    height: Math.abs(dragSelect.currentY - dragSelect.startY),
-  } : null;
 
   return (
     <div ref={panelRef} className="flex h-full flex-col bg-card" tabIndex={-1}>
@@ -661,10 +688,13 @@ export function AssetBrowserPanel() {
               <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-muted-foreground" />
             )}
             <input
-              value={searchQuery}
+              value={localSearch}
               onChange={(event) => {
-                dispatch(setSearchQuery(event.target.value));
-                if (semanticMode) void handleSemanticSearch(event.target.value);
+                setLocalSearch(event.target.value);
+                if (semanticMode) {
+                  clearTimeout(semanticSearchTimerRef.current);
+                  semanticSearchTimerRef.current = setTimeout(() => void handleSemanticSearch(event.target.value), 350);
+                }
               }}
               placeholder={semanticMode ? t('assetBrowser.semantic.toggle') + '...' : t('assetBrowser.searchPlaceholder')}
               className={cn(
@@ -1048,13 +1078,12 @@ export function AssetBrowserPanel() {
           </div>
         )}
 
-        {/* Rubber band overlay */}
-        {dragRect && dragRect.width > 3 && dragRect.height > 3 && (
-          <div
-            className="pointer-events-none fixed z-50 border border-primary/60 bg-primary/10"
-            style={{ left: dragRect.left, top: dragRect.top, width: dragRect.width, height: dragRect.height }}
-          />
-        )}
+        {/* Rubber band overlay — positioned via direct DOM in mousemove handler */}
+        <div
+          ref={rubberBandRef}
+          className="pointer-events-none fixed z-50 border border-primary/60 bg-primary/10"
+          style={{ display: 'none' }}
+        />
       </div>
 
       {/* Context Menu */}

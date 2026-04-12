@@ -214,7 +214,7 @@ export function ExportEngine() {
             {progress > 0 && progress < 100 && (
               <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
-                  className="h-full bg-primary transition-all"
+                  className="h-full bg-primary transition-[width] duration-200"
                   style={{ width: `${progress}%` }}
                 />
               </div>

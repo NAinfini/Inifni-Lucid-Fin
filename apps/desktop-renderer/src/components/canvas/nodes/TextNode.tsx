@@ -8,6 +8,7 @@ import { NodeContextMenu } from '../NodeContextMenu.js';
 import type { NodeStatus } from '@lucid-fin/contracts';
 import { NodeBorderHandles } from './node-border-handles.js';
 import { NodeResizeControls } from './node-resize-controls.js';
+import { useCanvasLodFromContext } from '../use-canvas-lod.js';
 
 export interface TextNodeFlowData {
   nodeId: string;
@@ -17,47 +18,28 @@ export interface TextNodeFlowData {
   bypassed: boolean;
   locked: boolean;
   colorTag?: string;
-  onTitleChange?: (id: string, title: string) => void;
-  onDelete?: (id: string) => void;
-  onDuplicate?: (id: string) => void;
-  onDisconnect?: (id: string) => void;
-  onConnectTo?: (id: string) => void;
-  onRename?: (id: string) => void;
-  onCut?: (id: string) => void;
-  onCopy?: (id: string) => void;
-  onPaste?: (id: string) => void;
-  onLock?: (id: string) => void;
-  onColorTag?: (id: string, color: string | undefined) => void;
 }
 
 function TextNodeComponent({ data, selected }: NodeProps) {
   const d = data as unknown as TextNodeFlowData;
+  const lod = useCanvasLodFromContext();
   return (
     <NodeContextMenu
       nodeId={d.nodeId}
       nodeType="text"
       locked={d.locked}
       colorTag={d.colorTag}
-      onRename={d.onRename ?? (() => {})}
-      onDelete={d.onDelete ?? (() => {})}
-      onDuplicate={d.onDuplicate ?? (() => {})}
-      onCut={d.onCut ?? (() => {})}
-      onCopy={d.onCopy ?? (() => {})}
-      onPaste={d.onPaste ?? (() => {})}
-      onDisconnect={d.onDisconnect ?? (() => {})}
-      onConnectTo={d.onConnectTo}
-      onLock={d.onLock ?? (() => {})}
-      onGenerate={() => {}}
-      onColorTag={d.onColorTag ?? (() => {})}
     >
       <div className="relative h-full min-h-[120px] min-w-[200px] w-full">
         <NodeBorderHandles colorClassName="!bg-primary" />
-        <NodeResizeControls
-          minWidth={200}
-          minHeight={120}
-          isVisible={selected}
-          className="!h-2.5 !w-2.5 !border-background !bg-blue-400"
-        />
+        {lod === 'full' && (
+          <NodeResizeControls
+            minWidth={200}
+            minHeight={120}
+            isVisible={selected}
+            className="!h-2.5 !w-2.5 !border-background !bg-blue-400"
+          />
+        )}
         <div
           className={cn(
             'relative flex flex-col rounded-md border bg-card shadow-sm h-full w-full min-w-[200px] min-h-[120px]',
@@ -76,9 +58,11 @@ function TextNodeComponent({ data, selected }: NodeProps) {
             </span>
           </div>
 
-          <div className="flex-1 overflow-auto px-3 py-2 text-xs text-muted-foreground">
-            {d.content || t('node.emptyText')}
-          </div>
+          {lod !== 'minimal' && (
+            <div className="flex-1 overflow-auto px-3 py-2 text-xs text-muted-foreground">
+              {d.content || t('node.emptyText')}
+            </div>
+          )}
         </div>
       </div>
     </NodeContextMenu>

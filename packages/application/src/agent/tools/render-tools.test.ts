@@ -20,21 +20,22 @@ describe('createRenderTools', () => {
     const deps = createDeps();
     const tools = createRenderTools(deps);
 
-    expect(tools.map((tool) => tool.name)).toEqual(['render.start', 'render.cancel', 'render.exportBundle']);
+    expect(tools.map((tool) => tool.name)).toEqual(['render.control', 'render.exportBundle']);
     expect(tools.every((tool) => tool.context?.includes('canvas'))).toBe(true);
   });
 
   it('starts, cancels, and exports renders', async () => {
     const deps = createDeps();
 
-    await expect(getTool('render.start', deps).execute({
+    await expect(getTool('render.control', deps).execute({
+      action: 'start',
       canvasId: 'canvas-1',
       format: 'mp4',
       outputPath: ' C:/tmp/out.mp4 ',
     })).resolves.toEqual({ success: true, data: { renderId: 'render-1' } });
     expect(deps.startRender).toHaveBeenCalledWith('canvas-1', 'mp4', 'C:/tmp/out.mp4');
 
-    await expect(getTool('render.cancel', deps).execute({ canvasId: 'canvas-1' })).resolves.toEqual({
+    await expect(getTool('render.control', deps).execute({ action: 'cancel', canvasId: 'canvas-1' })).resolves.toEqual({
       success: true,
       data: { canvasId: 'canvas-1' },
     });
@@ -53,7 +54,7 @@ describe('createRenderTools', () => {
     const deps = createDeps();
     vi.mocked(deps.cancelRender).mockRejectedValueOnce(new Error('cancel failed'));
 
-    await expect(getTool('render.start', deps).execute({ canvasId: '', format: 'mp4' })).resolves.toEqual({
+    await expect(getTool('render.control', deps).execute({ action: 'start', canvasId: '', format: 'mp4' })).resolves.toEqual({
       success: false,
       error: 'canvasId is required',
     });
@@ -65,7 +66,7 @@ describe('createRenderTools', () => {
       success: false,
       error: 'format must be "fcpxml" or "edl"',
     });
-    await expect(getTool('render.cancel', deps).execute({ canvasId: 'canvas-1' })).resolves.toEqual({
+    await expect(getTool('render.control', deps).execute({ action: 'cancel', canvasId: 'canvas-1' })).resolves.toEqual({
       success: false,
       error: 'cancel failed',
     });

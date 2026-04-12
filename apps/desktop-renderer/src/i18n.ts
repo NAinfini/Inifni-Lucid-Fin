@@ -1,6 +1,8 @@
 export {
   getAvailableLocales,
   getLocale,
+  localizeParamLabel,
+  localizeParamValue,
   localizePresetDescription,
   localizePresetName,
   localizePromptTemplateName,

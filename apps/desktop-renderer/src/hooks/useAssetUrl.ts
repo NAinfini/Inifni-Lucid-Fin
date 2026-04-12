@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 const cache = new Map<string, string>();
+const failedKeys = new Set<string>();
 
 const DEFAULT_EXT: Record<string, string> = {
   image: 'png',
@@ -19,27 +20,43 @@ export function useAssetUrl(
   hash: string | undefined,
   type: 'image' | 'video' | 'audio',
   ext?: string,
-): { url: string | null; loading: boolean } {
+): { url: string | null; loading: boolean; markFailed: () => void } {
   const resolvedExt = ext || DEFAULT_EXT[type] || 'bin';
+  const cacheKey = hash ? `${hash}:${type}:${resolvedExt}` : null;
 
   const [url, setUrl] = useState<string | null>(() => {
-    if (!hash) return null;
-    const cacheKey = `${hash}:${type}:${resolvedExt}`;
+    if (!hash || !cacheKey || failedKeys.has(cacheKey)) return null;
     if (cache.has(cacheKey)) return cache.get(cacheKey)!;
     const assetUrl = `lucid-asset://${hash}/${type}/${resolvedExt}`;
     cache.set(cacheKey, assetUrl);
     return assetUrl;
   });
 
+  const markFailed = useCallback(() => {
+    if (!cacheKey) return;
+    failedKeys.add(cacheKey);
+    cache.delete(cacheKey);
+    setUrl(null);
+  }, [cacheKey]);
+
   useEffect(() => {
-    if (!hash) {
+    if (!hash || !cacheKey) {
+      setUrl(null);
+      return;
+    }
+    if (failedKeys.has(cacheKey)) {
       setUrl(null);
       return;
     }
     const assetUrl = `lucid-asset://${hash}/${type}/${resolvedExt}`;
-    cache.set(`${hash}:${type}:${resolvedExt}`, assetUrl);
+    cache.set(cacheKey, assetUrl);
     setUrl(assetUrl);
-  }, [hash, type, resolvedExt]);
+  }, [cacheKey, hash, resolvedExt, type]);
 
-  return { url, loading: false };
+  return { url, loading: false, markFailed };
+}
+
+export function resetAssetUrlCacheForTests() {
+  cache.clear();
+  failedKeys.clear();
 }

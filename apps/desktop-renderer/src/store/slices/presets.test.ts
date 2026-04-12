@@ -4,6 +4,7 @@ import {
   presetsSlice,
   removePreset,
   selectManagerPreset,
+  selectPresetList,
   setPresets,
   setPresetsCategoryFilter,
   setPresetsSearch,
@@ -19,17 +20,16 @@ function makePreset(overrides: Partial<PresetDefinition>): PresetDefinition {
     prompt: overrides.prompt ?? 'cinematic style',
     builtIn: overrides.builtIn ?? true,
     modified: overrides.modified ?? false,
-    params:
-      overrides.params ?? [
-        {
-          key: 'stylization',
-          label: 'Stylization',
-          type: 'number',
-          min: 0,
-          max: 100,
-          defaultValue: 65,
-        },
-      ],
+    params: overrides.params ?? [
+      {
+        key: 'stylization',
+        label: 'Stylization',
+        type: 'number',
+        min: 0,
+        max: 100,
+        defaultValue: 65,
+      },
+    ],
     defaults: overrides.defaults ?? { stylization: 65 },
     ...overrides,
   };
@@ -67,5 +67,17 @@ describe('presetsSlice', () => {
     expect(state.managerSelectedPresetId).toBe('preset-a');
     expect(state.search).toBe('camera');
     expect(state.selectedCategory).toBe('camera');
+  });
+
+  it('selects preset definitions with a stable reference when preset state is unchanged', () => {
+    const presetA = makePreset({ id: 'preset-a' });
+    const presetB = makePreset({ id: 'preset-b', category: 'camera' });
+    const state = presetsSlice.reducer(undefined, setPresets([presetA, presetB]));
+
+    const first = selectPresetList({ presets: state });
+    const second = selectPresetList({ presets: state });
+
+    expect(first).toEqual([presetA, presetB]);
+    expect(second).toBe(first);
   });
 });

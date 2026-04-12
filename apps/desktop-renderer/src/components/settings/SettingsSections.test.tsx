@@ -2,13 +2,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React, { useState } from 'react';
+import { Provider } from 'react-redux';
+import { configureStore } from '@reduxjs/toolkit';
 import type { Locale } from '../../i18n.js';
 import { setLocale, t } from '../../i18n.js';
 import type { PromptTemplate } from '../../store/slices/promptTemplates.js';
 import type { Theme } from '../../store/slices/ui.js';
+import { settingsSlice } from '../../store/slices/settings.js';
 import { SettingsSidebarNav, type SettingsTab } from './SettingsSidebarNav.js';
 import { SettingsAppearanceSection } from './SettingsAppearanceSection.js';
 import { SettingsPromptTemplatesSection } from './SettingsPromptTemplatesSection.js';
+
+function createMinimalStore() {
+  return configureStore({
+    reducer: { settings: settingsSlice.reducer },
+  });
+}
 
 describe('settings extracted sections', () => {
   afterEach(() => {
@@ -20,7 +29,11 @@ describe('settings extracted sections', () => {
   it('renders sidebar tabs and reports the requested tab change', () => {
     const onTabChange = vi.fn();
 
-    render(<SettingsSidebarNav activeTab="providers" onTabChange={onTabChange} />);
+    render(
+      <Provider store={createMinimalStore()}>
+        <SettingsSidebarNav activeTab="providers" onTabChange={onTabChange} />
+      </Provider>,
+    );
 
     expect(
       screen.getByRole('button', { current: 'page', name: 'Providers' }),

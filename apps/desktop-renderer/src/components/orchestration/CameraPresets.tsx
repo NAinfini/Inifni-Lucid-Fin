@@ -4,6 +4,7 @@ import { Camera } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
 import { updateCamera } from '../../store/slices/orchestration.js';
 import { t } from '../../i18n.js';
+import { CommitSlider } from '../ui/CommitSlider.js';
 
 const PRESETS = [
   { id: 'wide', labelKey: 'cameraPresets.preset.wide', focal: 24, dof: 0.3 },
@@ -104,17 +105,16 @@ export function CameraPresets() {
           <span className="text-muted-foreground">{t('cameraPresets.focalLength')}</span>
           <span>{segment.focalLength ?? 50}mm</span>
         </div>
-        <input
-          type="range"
+        <CommitSlider
           min={12}
           max={200}
           step={1}
           value={segment.focalLength ?? 50}
-          onChange={(e) =>
+          onCommit={(v) =>
             dispatch(
               updateCamera({
                 segmentId: selectedId,
-                camera: { focalLength: Number(e.target.value) },
+                camera: { focalLength: v },
               }),
             )
           }
@@ -128,17 +128,16 @@ export function CameraPresets() {
           <span className="text-muted-foreground">{t('cameraPresets.depthOfField')}</span>
           <span>{((segment.depthOfField ?? 0.5) * 100).toFixed(0)}%</span>
         </div>
-        <input
-          type="range"
+        <CommitSlider
           min={0}
           max={100}
           step={1}
           value={(segment.depthOfField ?? 0.5) * 100}
-          onChange={(e) =>
+          onCommit={(v) =>
             dispatch(
               updateCamera({
                 segmentId: selectedId,
-                camera: { depthOfField: Number(e.target.value) / 100 },
+                camera: { depthOfField: v / 100 },
               }),
             )
           }

@@ -31,7 +31,7 @@ import {
   setSize,
   setPermissionMode,
   clearPendingConfirmation,
-  clearPendingQuestion,
+  resolveQuestion,
   enqueueMessage,
   dequeueMessage,
   removeQueuedMessage,
@@ -599,7 +599,7 @@ export function CommanderPanel() {
     pendingConfirmation,
     pendingQuestion,
     messageQueue,
-    historyTokenBudget,
+    maxTokens,
   } = useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -744,7 +744,7 @@ export function CommanderPanel() {
           }
           const tok = (c: number) => Math.round(c / 4);
           const totalTok = tok(uChars + aChars + tcChars + trChars);
-          const budget = store.getState().commander.historyTokenBudget;
+          const budget = store.getState().commander.maxTokens;
           const pctVal = Math.min(100, Math.round((totalTok / budget) * 100));
           const fK = (n: number) => {
             if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; }
@@ -874,6 +874,8 @@ export function CommanderPanel() {
     }
   }, [currentStreamContent, currentToolCalls, messages, open]);
 
+  const sectionRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -886,17 +888,24 @@ export function CommanderPanel() {
       }
       const offsetX = Number(target.dataset.dragOffsetX ?? '0');
       const offsetY = Number(target.dataset.dragOffsetY ?? '0');
-      dispatch(
-        setPosition({
-          x: Math.max(8, event.clientX - offsetX),
-          y: Math.max(SAFE_Y, event.clientY - offsetY),
-        }),
-      );
+      const x = Math.max(8, event.clientX - offsetX);
+      const y = Math.max(SAFE_Y, event.clientY - offsetY);
+      // Direct DOM update — skip Redux during drag
+      const el = sectionRef.current;
+      if (el) {
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+      }
     };
 
     const handleMouseUp = () => {
       const dragOrigin = document.querySelector<HTMLElement>('[data-drag-origin="true"]');
       if (dragOrigin) {
+        // Commit final position to Redux
+        const el = sectionRef.current;
+        if (el) {
+          dispatch(setPosition({ x: parseInt(el.style.left), y: parseInt(el.style.top) }));
+        }
         delete dragOrigin.dataset.dragOrigin;
         delete dragOrigin.dataset.dragOffsetX;
         delete dragOrigin.dataset.dragOffsetY;
@@ -925,17 +934,24 @@ export function CommanderPanel() {
       const startY = Number(target.dataset.resizeStartY ?? '0');
       const startWidth = Number(target.dataset.resizeStartWidth ?? String(size.width));
       const startHeight = Number(target.dataset.resizeStartHeight ?? String(size.height));
-      dispatch(
-        setSize({
-          width: Math.max(MIN_WIDTH, startWidth + (event.clientX - startX)),
-          height: Math.max(MIN_HEIGHT, startHeight + (event.clientY - startY)),
-        }),
-      );
+      const w = Math.max(MIN_WIDTH, startWidth + (event.clientX - startX));
+      const h = Math.max(MIN_HEIGHT, startHeight + (event.clientY - startY));
+      // Direct DOM update — skip Redux during drag
+      const el = sectionRef.current;
+      if (el) {
+        el.style.width = `${w}px`;
+        el.style.height = `${h}px`;
+      }
     };
 
     const handleMouseUp = () => {
       const resizeOrigin = document.querySelector<HTMLElement>('[data-resize-origin="true"]');
       if (resizeOrigin) {
+        // Commit final size to Redux
+        const el = sectionRef.current;
+        if (el) {
+          dispatch(setSize({ width: parseInt(el.style.width), height: parseInt(el.style.height) }));
+        }
         delete resizeOrigin.dataset.resizeOrigin;
         delete resizeOrigin.dataset.resizeStartX;
         delete resizeOrigin.dataset.resizeStartY;
@@ -983,7 +999,7 @@ export function CommanderPanel() {
     // Token estimate: ~4 chars per token (matches backend ESTIMATED_CHARS_PER_TOKEN)
     const toTokens = (c: number) => Math.round(c / 4);
     const estimatedTokens = toTokens(totalChars);
-    const ctxWindow = historyTokenBudget;
+    const ctxWindow = maxTokens;
     const pct = Math.min(100, Math.round((estimatedTokens / ctxWindow) * 100));
     return {
       pct,
@@ -997,7 +1013,7 @@ export function CommanderPanel() {
       },
       counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
     };
-  }, [historyTokenBudget, messages, currentStreamContent]);
+  }, [maxTokens, messages, currentStreamContent]);
 
   // Auto-compact when context reaches 95%, with 10s cooldown
   const autoCompactedRef = useRef(false);
@@ -1065,15 +1081,17 @@ export function CommanderPanel() {
 
             const offsetX = Number(target.dataset.dragOffsetX);
             const offsetY = Number(target.dataset.dragOffsetY);
-            dispatch(
-              setPosition({ x: e.clientX - offsetX, y: Math.max(SAFE_Y, e.clientY - offsetY) }),
-            );
+            // Direct DOM update — skip Redux during drag
+            target.style.left = `${e.clientX - offsetX}px`;
+            target.style.top = `${Math.max(SAFE_Y, e.clientY - offsetY)}px`;
           };
 
           const handleMouseUp = () => {
             delete target.dataset.dragOrigin;
             delete target.dataset.dragOffsetX;
             delete target.dataset.dragOffsetY;
+            // Commit final position to Redux
+            dispatch(setPosition({ x: parseInt(target.style.left), y: parseInt(target.style.top) }));
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
           };
@@ -1167,6 +1185,7 @@ export function CommanderPanel() {
 
   return (
     <section
+      ref={sectionRef}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl backdrop-blur-sm"
       style={{
         left: position.x,
@@ -1381,7 +1400,7 @@ export function CommanderPanel() {
             if (api?.commander && canvasId) {
               void api.commander.answerQuestion(canvasId, pendingQuestion.toolCallId, answer);
             }
-            dispatch(clearPendingQuestion());
+            dispatch(resolveQuestion({ answer }));
           }}
           t={t}
         />

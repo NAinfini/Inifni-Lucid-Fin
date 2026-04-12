@@ -41,44 +41,28 @@ function requireString(args: Record<string, unknown>, key: string): string {
 }
 
 export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
-  const list: AgentTool = {
-    name: 'prompt.list',
-    description: 'List AI prompt templates available in the application.',
+  const get: AgentTool = {
+    name: 'prompt.get',
+    description: 'Get prompt templates. If ids is provided, fetch specific prompt(s) by code. If ids is omitted, return a paginated list of all prompts.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
-        limit: { type: 'number', description: 'Max items to return. Default 50.' },
+        ids: { type: 'array', items: { type: 'string', description: 'Prompt ID.' }, description: 'Prompt ID or array of prompt IDs to fetch. Omit to list all prompts.' },
+        offset: { type: 'number', description: 'Start index (0-based). Default 0. Used when ids is omitted.' },
+        limit: { type: 'number', description: 'Max items to return. Default 50. Used when ids is omitted.' },
       },
       required: [],
     },
     async execute(args) {
       try {
-        const prompts = await deps.listPrompts();
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        return ok({ total: prompts.length, offset, limit, prompts: prompts.slice(offset, offset + limit) });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const get: AgentTool = {
-    name: 'prompt.get',
-    description: 'Get one or more prompt templates by code. Pass a single code string or an array of codes.',
-    tier: 1,
-    parameters: {
-      type: 'object',
-      properties: {
-        ids: { type: 'array', items: { type: 'string', description: 'Prompt ID.' }, description: 'Prompt ID or array of prompt IDs to fetch.' },
-      },
-      required: ['ids'],
-    },
-    async execute(args) {
-      try {
         const rawIds = args.ids;
+        if (rawIds === undefined || rawIds === null) {
+          const prompts = await deps.listPrompts();
+          const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+          const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+          return ok({ total: prompts.length, offset, limit, prompts: prompts.slice(offset, offset + limit) });
+        }
         if (typeof rawIds === 'string') {
           const id = rawIds.trim();
           const prompt = await deps.getPrompt(id);
@@ -108,19 +92,27 @@ export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
 
   const setCustom: AgentTool = {
     name: 'prompt.setCustom',
-    description: 'Set a custom override value for a prompt template.',
+    description: 'Set or clear a custom override for a prompt template. If value is provided, set the custom override. If value is omitted or null, clear the override and restore the default.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         code: { type: 'string', description: 'Prompt template code.' },
-        value: { type: 'string', description: 'Custom prompt value.' },
+        value: { type: 'string', description: 'Custom prompt value. Omit or set null to clear the override.' },
       },
-      required: ['code', 'value'],
+      required: ['code'],
     },
     async execute(args) {
       try {
         const code = requireString(args, 'code');
+        const exists = await deps.getPrompt(code);
+        if (!exists) {
+          return fail(new Error(`Prompt not found: ${code}`));
+        }
+        if (args.value === undefined || args.value === null) {
+          await deps.clearCustomPrompt(code);
+          return ok({ code });
+        }
         const value = requireString(args, 'value');
         await deps.setCustomPrompt(code, value);
         return ok({ code });
@@ -130,27 +122,5 @@ export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
     },
   };
 
-  const clearCustom: AgentTool = {
-    name: 'prompt.clearCustom',
-    description: 'Clear a custom prompt override and fall back to the default value.',
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        code: { type: 'string', description: 'Prompt template code.' },
-      },
-      required: ['code'],
-    },
-    async execute(args) {
-      try {
-        const code = requireString(args, 'code');
-        await deps.clearCustomPrompt(code);
-        return ok({ code });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  return [list, get, setCustom, clearCustom];
+  return [get, setCustom];
 }

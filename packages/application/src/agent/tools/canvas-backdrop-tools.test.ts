@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Canvas } from '@lucid-fin/contracts';
-import { createCanvasBackdropTools } from './canvas-backdrop-tools.js';
+import { createCanvasGenerationTools } from './canvas-generation-tools.js';
 import type { CanvasToolDeps } from './canvas-tool-utils.js';
 
 function createCanvas(): Canvas {
@@ -97,71 +97,45 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
 }
 
 function getTool(name: string, deps: CanvasToolDeps) {
-  const tool = createCanvasBackdropTools(deps).find((entry) => entry.name === name);
+  const tool = createCanvasGenerationTools(deps).find((entry) => entry.name === name);
   if (!tool) throw new Error(`Missing tool: ${name}`);
   return tool;
 }
 
-describe('createCanvasBackdropTools', () => {
-  it('defines backdrop styling tools', () => {
-    const deps = createDeps();
-    expect(createCanvasBackdropTools(deps).map((tool) => tool.name)).toEqual([
-      'canvas.setBackdropOpacity',
-      'canvas.setBackdropColor',
-      'canvas.setBackdropBorderStyle',
-      'canvas.setBackdropTitleSize',
-      'canvas.setBackdropLockChildren',
-      'canvas.toggleBackdropCollapse',
-    ]);
-  });
-
-  it('updates backdrop style properties through updateNodeData', async () => {
+describe('canvas.updateBackdrop', () => {
+  it('updates multiple backdrop properties in one call', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setBackdropOpacity', deps).execute({
+    await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'backdrop-1',
       opacity: 75,
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', opacity: 75 },
-    });
-    await expect(getTool('canvas.setBackdropColor', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
       color: '#ffaa00',
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', color: '#ffaa00' },
-    });
-    await expect(getTool('canvas.setBackdropBorderStyle', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
       borderStyle: 'dotted',
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', borderStyle: 'dotted' },
-    });
-    await expect(getTool('canvas.setBackdropTitleSize', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
       titleSize: 'lg',
+      lockChildren: true,
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'backdrop-1', titleSize: 'lg' },
+      data: {
+        nodeId: 'backdrop-1',
+        opacity: 75,
+        color: '#ffaa00',
+        borderStyle: 'dotted',
+        titleSize: 'lg',
+        lockChildren: true,
+      },
     });
-    await expect(getTool('canvas.setBackdropLockChildren', deps).execute({
+  });
+
+  it('toggles collapse state', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'backdrop-1',
-      locked: true,
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', locked: true },
-    });
-    await expect(getTool('canvas.toggleBackdropCollapse', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
+      toggleCollapse: true,
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'backdrop-1', collapsed: true },
@@ -171,7 +145,7 @@ describe('createCanvasBackdropTools', () => {
   it('validates backdrop-specific parameters and node types', async () => {
     const deps = createDeps();
 
-    await expect(getTool('canvas.setBackdropOpacity', deps).execute({
+    await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'backdrop-1',
       opacity: Number.NaN,
@@ -179,7 +153,7 @@ describe('createCanvasBackdropTools', () => {
       success: false,
       error: 'opacity must be a finite number',
     });
-    await expect(getTool('canvas.setBackdropBorderStyle', deps).execute({
+    await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'backdrop-1',
       borderStyle: 'double',
@@ -187,7 +161,7 @@ describe('createCanvasBackdropTools', () => {
       success: false,
       error: 'borderStyle must be one of dashed, solid, or dotted',
     });
-    await expect(getTool('canvas.setBackdropColor', deps).execute({
+    await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       color: '#fff',
@@ -201,7 +175,7 @@ describe('createCanvasBackdropTools', () => {
     const deps = createDeps();
     vi.mocked(deps.updateNodeData).mockRejectedValueOnce(new Error('update failed'));
 
-    await expect(getTool('canvas.setBackdropOpacity', deps).execute({
+    await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'backdrop-1',
       opacity: 25,

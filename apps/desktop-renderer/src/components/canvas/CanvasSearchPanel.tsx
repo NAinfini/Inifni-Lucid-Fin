@@ -12,6 +12,7 @@ import {
   toggleCanvasTypeFilter,
 } from '../../store/slices/ui.js';
 import { cn } from '../../lib/utils.js';
+import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 
 const NODE_FILTERS: CanvasNodeType[] = ['text', 'image', 'video', 'audio', 'backdrop'];
 const STATUS_FILTERS: NodeStatus[] = ['idle', 'generating', 'done', 'failed'];
@@ -33,6 +34,11 @@ export function CanvasSearchPanel({
   const { canvasSearchQuery, canvasStatusFilters, canvasTypeFilters } = useSelector(
     (state: RootState) => state.ui,
   );
+  const [localQuery, setLocalQuery] = useDebouncedDispatch(
+    canvasSearchQuery,
+    useCallback((v: string) => dispatch(setCanvasSearchQuery(v)), [dispatch]),
+    200,
+  );
   const [currentIndex, setCurrentIndex] = useState(-1);
 
   // Reset index when matches change
@@ -52,15 +58,16 @@ export function CanvasSearchPanel({
   );
 
   return (
-    <div className="absolute left-3 top-3 z-30 w-72 rounded-md border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-sm">
+    <div role="search" aria-label={t('canvas.searchPlaceholder')} className="absolute left-3 top-3 z-30 w-72 rounded-md border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-sm">
       <div className="flex items-center gap-1.5">
         <div className="flex h-7 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
           <input
             autoFocus
-            value={canvasSearchQuery}
-            onChange={(event) => dispatch(setCanvasSearchQuery(event.target.value))}
+            value={localQuery}
+            onChange={(event) => setLocalQuery(event.target.value)}
             placeholder={t('canvas.searchPlaceholder')}
+            aria-label={t('canvas.searchPlaceholder')}
             className="h-full w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {

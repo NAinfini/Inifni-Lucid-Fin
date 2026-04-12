@@ -145,6 +145,124 @@ export function computeInverseAction(
       } as UnknownAction;
     }
 
+    // -----------------------------------------------------------------------
+    // canvas/moveNodes  →  canvas/moveNodes(previousPositions)
+    // -----------------------------------------------------------------------
+    case 'canvas/moveNodes': {
+      const entries = payload as Array<{ id: string; position: { x: number; y: number } }>;
+      if (!prevCanvas || !Array.isArray(entries)) return null;
+      const prevEntries: Array<{ id: string; position: { x: number; y: number } }> = [];
+      for (const entry of entries) {
+        const prevNode = prevCanvas.nodes.find((n) => n.id === entry.id);
+        if (!prevNode) return null;
+        prevEntries.push({ id: entry.id, position: prevNode.position });
+      }
+      return { type: 'canvas/moveNodes', payload: prevEntries } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/toggleBypass  →  canvas/toggleBypass (self-inverse)
+    // -----------------------------------------------------------------------
+    case 'canvas/toggleBypass': {
+      return { type: 'canvas/toggleBypass', payload } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/toggleLock  →  canvas/toggleLock (self-inverse)
+    // -----------------------------------------------------------------------
+    case 'canvas/toggleLock': {
+      return { type: 'canvas/toggleLock', payload } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/toggleBackdropCollapse  →  self-inverse
+    // -----------------------------------------------------------------------
+    case 'canvas/toggleBackdropCollapse': {
+      return { type: 'canvas/toggleBackdropCollapse', payload } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/setNodeColorTag  →  canvas/setNodeColorTag(prevColorTag)
+    // -----------------------------------------------------------------------
+    case 'canvas/setNodeColorTag': {
+      const p = payload as { id: string; colorTag: string | undefined };
+      if (!prevCanvas || !p?.id) return null;
+      const prevNode = prevCanvas.nodes.find((n) => n.id === p.id);
+      if (!prevNode) return null;
+      return {
+        type: 'canvas/setNodeColorTag',
+        payload: { id: p.id, colorTag: prevNode.colorTag },
+      } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/swapEdgeDirection  →  canvas/swapEdgeDirection (self-inverse)
+    // -----------------------------------------------------------------------
+    case 'canvas/swapEdgeDirection': {
+      return { type: 'canvas/swapEdgeDirection', payload } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/updateEdge  →  canvas/updateEdge(prevChangedFields)
+    // -----------------------------------------------------------------------
+    case 'canvas/updateEdge': {
+      const p = payload as { id: string; changes: Record<string, unknown> };
+      if (!prevCanvas || !p?.id || !p.changes) return null;
+      const prevEdge = prevCanvas.edges.find((e) => e.id === p.id);
+      if (!prevEdge) return null;
+      const prevChanges: Record<string, unknown> = {};
+      for (const key of Object.keys(p.changes)) {
+        prevChanges[key] = (prevEdge as unknown as Record<string, unknown>)[key];
+      }
+      return {
+        type: 'canvas/updateEdge',
+        payload: { id: p.id, changes: prevChanges },
+      } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/disconnectNode  →  canvas/restoreEdges(removedEdges)
+    // -----------------------------------------------------------------------
+    case 'canvas/disconnectNode': {
+      const nodeId = payload as string;
+      if (!prevCanvas || !nodeId) return null;
+      const edges = prevCanvas.edges.filter(
+        (e) => e.source === nodeId || e.target === nodeId,
+      );
+      if (edges.length === 0) return null;
+      return { type: 'canvas/restoreEdges', payload: edges } as UnknownAction;
+    }
+
+    // -----------------------------------------------------------------------
+    // canvas/duplicateNodes  →  canvas/removeNodes(createdNodeIds)
+    // We can't know the new IDs ahead of time, so we fall back to snapshot
+    // for this action. The inverse captures the FULL previous state.
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // canvas/addCanvasNote  →  canvas/deleteCanvasNote({ id })
+    // Note: we need the new note ID, which we don't have before dispatch.
+    // Fall back to snapshot for this action.
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // canvas/deleteCanvasNote  →  canvas/addCanvasNote restored from prev
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // canvas/updateCanvasNote  →  canvas/updateCanvasNote(prevContent)
+    // -----------------------------------------------------------------------
+    case 'canvas/updateCanvasNote': {
+      const p = payload as { id: string; content: string };
+      if (!prevCanvas || !p?.id) return null;
+      const prevNote = prevCanvas.notes.find((n) => n.id === p.id);
+      if (!prevNote) return null;
+      return {
+        type: 'canvas/updateCanvasNote',
+        payload: { id: p.id, content: prevNote.content },
+      } as UnknownAction;
+    }
+
     default:
       return null;
   }

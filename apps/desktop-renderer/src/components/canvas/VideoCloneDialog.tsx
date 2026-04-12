@@ -136,7 +136,7 @@ export function VideoCloneDialog({
               {progress.total > 1 && (
                 <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-primary transition-all"
+                    className="h-full rounded-full bg-primary transition-[width] duration-200"
                     style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
                   />
                 </div>

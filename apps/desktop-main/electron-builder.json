@@ -12,6 +12,10 @@
       "from": "../desktop-renderer/dist",
       "to": "renderer",
       "filter": ["**/*"]
+    },
+    {
+      "from": "build/icon.png",
+      "to": "icon.png"
     }
   ],
   "asar": true,

@@ -49,6 +49,8 @@ vi.mock('@xyflow/react', () => ({
     Bottom: 'bottom',
     Left: 'left',
   },
+  useStore: (selector: (s: { transform: [number, number, number] }) => unknown) =>
+    selector({ transform: [0, 0, 1] }),
 }));
 
 vi.mock('../CanvasNodeTooltip.js', () => ({

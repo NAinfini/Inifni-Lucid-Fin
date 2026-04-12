@@ -24,6 +24,18 @@ const baseScene: Omit<Scene, 'id' | 'title' | 'description'> = {
 };
 
 describe('createSceneTools', () => {
+  it('returns expected tool names', () => {
+    const tools = createSceneTools(createDeps([]));
+    const names = tools.map((t) => t.name);
+    expect(names).toEqual([
+      'scene.list',
+      'scene.create',
+      'scene.update',
+      'scene.delete',
+      'scene.refImage',
+    ]);
+  });
+
   it('assigns expected tags to scene tools', () => {
     const tools = createSceneTools(createDeps([]));
 
@@ -31,6 +43,7 @@ describe('createSceneTools', () => {
     expect(tools.find((tool) => tool.name === 'scene.create')?.tags).toEqual(['scene', 'mutate']);
     expect(tools.find((tool) => tool.name === 'scene.update')?.tags).toEqual(['scene', 'mutate']);
     expect(tools.find((tool) => tool.name === 'scene.delete')?.tags).toEqual(['scene', 'mutate']);
+    expect(tools.find((tool) => tool.name === 'scene.refImage')?.tags).toEqual(['scene', 'mutate']);
   });
 
   describe('scene.list query filter', () => {

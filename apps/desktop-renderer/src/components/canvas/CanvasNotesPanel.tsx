@@ -1,8 +1,26 @@
+import { useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Plus, StickyNote, Trash2 } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
 import { addCanvasNote, updateCanvasNote, deleteCanvasNote } from '../../store/slices/canvas.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
+
+function NoteTextarea({ noteId, content, dispatch, t }: { noteId: string; content: string; dispatch: ReturnType<typeof useDispatch>; t: (key: string) => string }) {
+  const [local, setLocal] = useDebouncedDispatch(
+    content,
+    useCallback((v: string) => dispatch(updateCanvasNote({ id: noteId, content: v })), [dispatch, noteId]),
+    300,
+  );
+  return (
+    <textarea
+      className="w-full resize-none bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 leading-relaxed min-h-[72px]"
+      placeholder={t('canvasNotes.placeholder')}
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+    />
+  );
+}
 
 export function CanvasNotesPanel() {
   const { t } = useI18n();
@@ -36,12 +54,7 @@ export function CanvasNotesPanel() {
         ) : (
           notes.map((note) => (
             <div key={note.id} className="bg-background rounded-md border border-border/60 p-2.5 space-y-1.5">
-              <textarea
-                className="w-full resize-none bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 leading-relaxed min-h-[72px]"
-                placeholder={t('canvasNotes.placeholder')}
-                value={note.content}
-                onChange={(e) => dispatch(updateCanvasNote({ id: note.id, content: e.target.value }))}
-              />
+              <NoteTextarea noteId={note.id} content={note.content} dispatch={dispatch} t={t} />
               <div className="flex items-center justify-between">
                 <div className="text-[10px] text-muted-foreground">
                   {note.content.length} {t('canvasNotes.chars')}

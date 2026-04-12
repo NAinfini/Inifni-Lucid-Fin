@@ -18,9 +18,18 @@ describe('createCharacterTools', () => {
     expect(tools.find((tool) => tool.name === 'character.create')?.tags).toEqual(['character', 'mutate']);
     expect(tools.find((tool) => tool.name === 'character.update')?.tags).toEqual(['character', 'mutate']);
     expect(tools.find((tool) => tool.name === 'character.delete')?.tags).toEqual(['character', 'mutate']);
-    expect(tools.find((tool) => tool.name === 'character.generateReferenceImage')?.tags).toEqual(['character', 'generation']);
-    expect(tools.find((tool) => tool.name === 'character.setReferenceImage')?.tags).toEqual(['character', 'mutate']);
-    expect(tools.find((tool) => tool.name === 'character.deleteReferenceImage')?.tags).toEqual(['character', 'mutate']);
+    expect(tools.find((tool) => tool.name === 'character.refImage')?.tags).toEqual(['character', 'generation']);
+  });
+
+  it('returns tool names including character.refImage', () => {
+    const deps = createDeps();
+    const tools = createCharacterTools(deps);
+    const names = tools.map((t) => t.name);
+    expect(names).toContain('character.refImage');
+    expect(names).not.toContain('character.generateReferenceImage');
+    expect(names).not.toContain('character.setReferenceImage');
+    expect(names).not.toContain('character.deleteReferenceImage');
+    expect(names).not.toContain('character.setReferenceImageFromNode');
   });
 
   describe('character.list query filter', () => {

@@ -26,18 +26,23 @@ import type {
   ImageNodeData,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { ChevronDown, Plus, Search, Trash2, Save, Upload, User, Image, X } from 'lucide-react';
+import {
+  ChevronDown,
+  Plus,
+  Search,
+  Trash2,
+  Save,
+  Upload,
+  User,
+  Image,
+  ImageOff,
+  X,
+} from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { t as translate } from '../../i18n.js';
-import type { Asset } from '../../store/slices/assets.js';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/Dialog.js';
+import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 import { useConfirm } from '../../components/ui/ConfirmDialog.js';
-
 
 const ROLE_OPTIONS: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
 const GENDER_OPTIONS: CharacterGender[] = ['male', 'female', 'non-binary', 'other'];
@@ -94,28 +99,28 @@ export function CharacterManagerPanel() {
   const [assetPickerOpen, setAssetPickerOpen] = useState(false);
   const [structuredOpen, setStructuredOpen] = useState(false);
 
-  const reportError = useCallback((reason: unknown, detail: string) => {
-    const message = reason instanceof Error ? reason.message : String(reason);
-    setError(message);
-    dispatch(
-      addLog({
-        level: 'error',
-        category: 'character',
-        message,
-        detail,
-      }),
-    );
-  }, [dispatch]);
+  const reportError = useCallback(
+    (reason: unknown, detail: string) => {
+      const message = reason instanceof Error ? reason.message : String(reason);
+      setError(message);
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'character',
+          message,
+          detail,
+        }),
+      );
+    },
+    [dispatch],
+  );
 
   const isDirty = useMemo(() => {
     if (!draft || !originalDraft) return false;
     return JSON.stringify(draft) !== JSON.stringify(originalDraft);
   }, [draft, originalDraft]);
 
-  const selectedChar = useMemo(
-    () => items.find((c) => c.id === selectedId),
-    [items, selectedId],
-  );
+  const selectedChar = useMemo(() => items.find((c) => c.id === selectedId), [items, selectedId]);
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -242,7 +247,10 @@ export function CharacterManagerPanel() {
         skinTone: draft.skinTone || undefined,
         body: Object.values(draft.body).some(Boolean) ? draft.body : undefined,
         distinctTraits: draft.distinctTraits
-          ? draft.distinctTraits.split(',').map((s) => s.trim()).filter(Boolean)
+          ? draft.distinctTraits
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
           : undefined,
         vocalTraits: Object.values(draft.vocalTraits).some(Boolean) ? draft.vocalTraits : undefined,
       };
@@ -345,7 +353,9 @@ export function CharacterManagerPanel() {
       if (!selectedChar) return;
       setError(null);
       try {
-        const mainRef = selectedChar.referenceImages.find((r) => r.slot === 'main') ?? selectedChar.referenceImages[0];
+        const mainRef =
+          selectedChar.referenceImages.find((r) => r.slot === 'main') ??
+          selectedChar.referenceImages[0];
         if (!mainRef) return;
 
         // Swap: current active goes into variants, selected variant becomes active
@@ -368,7 +378,10 @@ export function CharacterManagerPanel() {
         );
         const api = getAPI();
         if (api?.character) {
-          await api.character.save({ id: selectedChar.id, referenceImages: updatedRefs } as Record<string, unknown>);
+          await api.character.save({ id: selectedChar.id, referenceImages: updatedRefs } as Record<
+            string,
+            unknown
+          >);
         }
         dispatch(setCharacterRefImage({ characterId: selectedChar.id, refImage: updatedRef }));
       } catch (reason) {
@@ -377,7 +390,6 @@ export function CharacterManagerPanel() {
     },
     [dispatch, reportError, selectedChar],
   );
-
 
   return (
     <div className="h-full border-r border-border/60 bg-card flex flex-col">
@@ -448,10 +460,17 @@ export function CharacterManagerPanel() {
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    <ListThumb hash={char.referenceImages?.find((r) => r.slot === 'main')?.assetHash ?? char.referenceImages?.[0]?.assetHash} />
+                    <ListThumb
+                      hash={
+                        char.referenceImages?.find((r) => r.slot === 'main')?.assetHash ??
+                        char.referenceImages?.[0]?.assetHash
+                      }
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1">
-                        <span className="font-medium truncate">{char.name || t('characterManager.untitled')}</span>
+                        <span className="font-medium truncate">
+                          {char.name || t('characterManager.untitled')}
+                        </span>
                         <span className="shrink-0 inline-block text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary">
                           {t('characterManager.roles.' + char.role)}
                         </span>
@@ -463,7 +482,10 @@ export function CharacterManagerPanel() {
                       </div>
                       {(usageCountById[char.id] ?? 0) > 0 && (
                         <div className="text-[9px] text-muted-foreground mt-0.5">
-                          {t('characterManager.usedInNodes').replace('{count}', String(usageCountById[char.id]))}
+                          {t('characterManager.usedInNodes').replace(
+                            '{count}',
+                            String(usageCountById[char.id]),
+                          )}
                         </div>
                       )}
                     </div>
@@ -481,7 +503,9 @@ export function CharacterManagerPanel() {
 
         <div className="min-h-0 overflow-auto p-2 space-y-2">
           {!draft ? (
-            <div className="text-xs text-muted-foreground">{t('characterManager.selectOrCreate')}</div>
+            <div className="text-xs text-muted-foreground">
+              {t('characterManager.selectOrCreate')}
+            </div>
           ) : (
             <>
               <div className="space-y-1">
@@ -503,9 +527,7 @@ export function CharacterManagerPanel() {
                   <select
                     value={draft.role}
                     onChange={(e) =>
-                      setDraft((p) =>
-                        p ? { ...p, role: e.target.value as Character['role'] } : p,
-                      )
+                      setDraft((p) => (p ? { ...p, role: e.target.value as Character['role'] } : p))
                     }
                     className="w-full rounded bg-muted px-2 py-1 text-xs"
                   >
@@ -571,9 +593,7 @@ export function CharacterManagerPanel() {
                 </label>
                 <textarea
                   value={draft.description}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, description: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, description: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[50px]"
                 />
               </div>
@@ -584,9 +604,7 @@ export function CharacterManagerPanel() {
                 </label>
                 <textarea
                   value={draft.appearance}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, appearance: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, appearance: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[50px]"
                 />
               </div>
@@ -599,59 +617,181 @@ export function CharacterManagerPanel() {
                   className="flex w-full items-center justify-between px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted/40 transition-colors"
                 >
                   {t('characterManager.structuredAppearance')}
-                  <ChevronDown className={cn('h-3 w-3 transition-transform', structuredOpen && 'rotate-180')} />
+                  <ChevronDown
+                    className={cn('h-3 w-3 transition-transform', structuredOpen && 'rotate-180')}
+                  />
                 </button>
                 {structuredOpen && (
                   <div className="space-y-2 border-t border-border/40 p-2.5">
                     {/* Face */}
                     <fieldset className="space-y-1">
-                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.face')}</legend>
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">
+                        {t('characterManager.structured.face')}
+                      </legend>
                       <div className="grid grid-cols-2 gap-1.5">
-                        <StructField label={t('characterManager.structured.eyeShape')} value={draft.face.eyeShape ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, eyeShape: v } } : p)} />
-                        <StructField label={t('characterManager.structured.eyeColor')} value={draft.face.eyeColor ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, eyeColor: v } } : p)} />
-                        <StructField label={t('characterManager.structured.noseType')} value={draft.face.noseType ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, noseType: v } } : p)} />
-                        <StructField label={t('characterManager.structured.lipShape')} value={draft.face.lipShape ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, lipShape: v } } : p)} />
-                        <StructField label={t('characterManager.structured.jawline')} value={draft.face.jawline ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, jawline: v } } : p)} />
+                        <StructField
+                          label={t('characterManager.structured.eyeShape')}
+                          value={draft.face.eyeShape ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, face: { ...p.face, eyeShape: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.eyeColor')}
+                          value={draft.face.eyeColor ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, face: { ...p.face, eyeColor: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.noseType')}
+                          value={draft.face.noseType ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, face: { ...p.face, noseType: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.lipShape')}
+                          value={draft.face.lipShape ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, face: { ...p.face, lipShape: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.jawline')}
+                          value={draft.face.jawline ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, face: { ...p.face, jawline: v } } : p))
+                          }
+                        />
                       </div>
-                      <StructField label={t('characterManager.structured.definingFeatures')} value={draft.face.definingFeatures ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, face: { ...p.face, definingFeatures: v } } : p)} />
+                      <StructField
+                        label={t('characterManager.structured.definingFeatures')}
+                        value={draft.face.definingFeatures ?? ''}
+                        onChange={(v) =>
+                          setDraft((p) =>
+                            p ? { ...p, face: { ...p.face, definingFeatures: v } } : p,
+                          )
+                        }
+                      />
                     </fieldset>
                     {/* Hair */}
                     <fieldset className="space-y-1">
-                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.hair')}</legend>
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">
+                        {t('characterManager.structured.hair')}
+                      </legend>
                       <div className="grid grid-cols-2 gap-1.5">
-                        <StructField label={t('characterManager.structured.hairColor')} value={draft.hair.color ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, color: v } } : p)} />
-                        <StructField label={t('characterManager.structured.hairStyle')} value={draft.hair.style ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, style: v } } : p)} />
-                        <StructField label={t('characterManager.structured.hairLength')} value={draft.hair.length ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, length: v } } : p)} />
-                        <StructField label={t('characterManager.structured.hairTexture')} value={draft.hair.texture ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, hair: { ...p.hair, texture: v } } : p)} />
+                        <StructField
+                          label={t('characterManager.structured.hairColor')}
+                          value={draft.hair.color ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, hair: { ...p.hair, color: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.hairStyle')}
+                          value={draft.hair.style ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, hair: { ...p.hair, style: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.hairLength')}
+                          value={draft.hair.length ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, hair: { ...p.hair, length: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.hairTexture')}
+                          value={draft.hair.texture ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, hair: { ...p.hair, texture: v } } : p))
+                          }
+                        />
                       </div>
                     </fieldset>
                     {/* Body + Skin */}
                     <fieldset className="space-y-1">
-                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.body')}</legend>
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">
+                        {t('characterManager.structured.body')}
+                      </legend>
                       <div className="grid grid-cols-2 gap-1.5">
-                        <StructField label={t('characterManager.structured.skinTone')} value={draft.skinTone} onChange={(v) => setDraft((p) => p ? { ...p, skinTone: v } : p)} />
-                        <StructField label={t('characterManager.structured.height')} value={draft.body.height ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, body: { ...p.body, height: v } } : p)} />
-                        <StructField label={t('characterManager.structured.build')} value={draft.body.build ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, body: { ...p.body, build: v } } : p)} />
-                        <StructField label={t('characterManager.structured.proportions')} value={draft.body.proportions ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, body: { ...p.body, proportions: v } } : p)} />
+                        <StructField
+                          label={t('characterManager.structured.skinTone')}
+                          value={draft.skinTone}
+                          onChange={(v) => setDraft((p) => (p ? { ...p, skinTone: v } : p))}
+                        />
+                        <StructField
+                          label={t('characterManager.structured.height')}
+                          value={draft.body.height ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, body: { ...p.body, height: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.build')}
+                          value={draft.body.build ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, body: { ...p.body, build: v } } : p))
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.proportions')}
+                          value={draft.body.proportions ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) => (p ? { ...p, body: { ...p.body, proportions: v } } : p))
+                          }
+                        />
                       </div>
                     </fieldset>
                     {/* Distinct Traits */}
                     <div className="space-y-1">
-                      <label className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.distinctTraits')}</label>
+                      <label className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">
+                        {t('characterManager.structured.distinctTraits')}
+                      </label>
                       <input
                         value={draft.distinctTraits}
-                        onChange={(e) => setDraft((p) => (p ? { ...p, distinctTraits: e.target.value } : p))}
+                        onChange={(e) =>
+                          setDraft((p) => (p ? { ...p, distinctTraits: e.target.value } : p))
+                        }
                         className="w-full rounded bg-muted px-2 py-1 text-[10px]"
                         placeholder={t('characterManager.structured.distinctTraitsHint')}
                       />
                     </div>
                     {/* Vocal Traits */}
                     <fieldset className="space-y-1">
-                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">{t('characterManager.structured.vocalTraits')}</legend>
+                      <legend className="text-[9px] uppercase text-muted-foreground tracking-wider font-semibold">
+                        {t('characterManager.structured.vocalTraits')}
+                      </legend>
                       <div className="grid grid-cols-3 gap-1.5">
-                        <StructField label={t('characterManager.structured.pitch')} value={draft.vocalTraits.pitch ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, vocalTraits: { ...p.vocalTraits, pitch: v } } : p)} />
-                        <StructField label={t('characterManager.structured.accent')} value={draft.vocalTraits.accent ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, vocalTraits: { ...p.vocalTraits, accent: v } } : p)} />
-                        <StructField label={t('characterManager.structured.cadence')} value={draft.vocalTraits.cadence ?? ''} onChange={(v) => setDraft((p) => p ? { ...p, vocalTraits: { ...p.vocalTraits, cadence: v } } : p)} />
+                        <StructField
+                          label={t('characterManager.structured.pitch')}
+                          value={draft.vocalTraits.pitch ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) =>
+                              p ? { ...p, vocalTraits: { ...p.vocalTraits, pitch: v } } : p,
+                            )
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.accent')}
+                          value={draft.vocalTraits.accent ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) =>
+                              p ? { ...p, vocalTraits: { ...p.vocalTraits, accent: v } } : p,
+                            )
+                          }
+                        />
+                        <StructField
+                          label={t('characterManager.structured.cadence')}
+                          value={draft.vocalTraits.cadence ?? ''}
+                          onChange={(v) =>
+                            setDraft((p) =>
+                              p ? { ...p, vocalTraits: { ...p.vocalTraits, cadence: v } } : p,
+                            )
+                          }
+                        />
                       </div>
                     </fieldset>
                   </div>
@@ -664,9 +804,7 @@ export function CharacterManagerPanel() {
                 </label>
                 <textarea
                   value={draft.personality}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, personality: e.target.value } : p))
-                  }
+                  onChange={(e) => setDraft((p) => (p ? { ...p, personality: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[50px]"
                 />
               </div>
@@ -709,7 +847,6 @@ export function CharacterManagerPanel() {
                 onClose={() => setAssetPickerOpen(false)}
                 onSelect={(hash) => void handleRefImageFromAsset(hash)}
               />
-
             </>
           )}
 
@@ -745,11 +882,15 @@ function SingleReferenceImage({
   const { t } = useI18n();
   const [isDragOver, setIsDragOver] = useState(false);
   const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
-  const { url } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
+  const { url, markFailed } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
 
   const handleDragOver = (e: React.DragEvent) => {
     const types = e.dataTransfer.types;
-    if (types.includes('Files') || types.includes('application/x-lucid-asset') || types.includes('application/x-lucid-ref-image')) {
+    if (
+      types.includes('Files') ||
+      types.includes('application/x-lucid-asset') ||
+      types.includes('application/x-lucid-ref-image')
+    ) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       setIsDragOver(true);
@@ -773,7 +914,9 @@ function SingleReferenceImage({
       try {
         const payload = JSON.parse(assetRaw) as { hash: string; type: string };
         if (payload.hash && payload.type === 'image') onDropHash(payload.hash);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -782,7 +925,9 @@ function SingleReferenceImage({
       try {
         const payload = JSON.parse(refRaw) as { assetHash: string };
         if (payload.assetHash) onDropHash(payload.assetHash);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
@@ -793,10 +938,15 @@ function SingleReferenceImage({
         const filePath = (file as { path?: string }).path ?? '';
         if (filePath) {
           const api = getAPI();
-          void api?.asset.import(filePath, 'image').then((ref) => {
-            const r = ref as { hash: string } | null;
-            if (r?.hash) onDropHash(r.hash);
-          }).catch(() => { /* image import failure is non-critical */ });
+          void api?.asset
+            .import(filePath, 'image')
+            .then((ref) => {
+              const r = ref as { hash: string } | null;
+              if (r?.hash) onDropHash(r.hash);
+            })
+            .catch(() => {
+              /* image import failure is non-critical */
+            });
         }
       }
     }
@@ -804,110 +954,135 @@ function SingleReferenceImage({
 
   return (
     <div className="space-y-1.5">
-    <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      className={cn(
-        'rounded border w-full',
-        mainRef?.assetHash
-          ? 'border-primary/50 bg-primary/5'
-          : 'border-dashed border-border/70',
-        isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
-      )}
-    >
-      {url ? (
-        <div className="relative w-full aspect-[3/2] bg-muted rounded overflow-hidden">
-          <img
-            src={url}
-            alt="Reference"
-            className="h-full w-full object-contain"
-            draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
-            onDragStart={mainRef?.assetHash && entityType && entityId && slot ? (e) => {
-              e.stopPropagation();
-              e.dataTransfer.setData(
-                'application/x-lucid-ref-image',
-                JSON.stringify({ assetHash: mainRef.assetHash, entityType, entityId, slot }),
-              );
-              e.dataTransfer.effectAllowed = 'copy';
-            } : undefined}
-          />
-          {isDragOver && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
-              <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">{t('entity.dropHere')}</span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center aspect-[3/2] gap-2">
-          {isDragOver ? (
-            <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
-          ) : (
-            <Image className="w-8 h-8 text-muted-foreground/40" />
-          )}
-          {!isDragOver && <span className="text-xs text-muted-foreground">{translate('characterManager.upload')}</span>}
-        </div>
-      )}
-      <div className="flex items-center gap-1 p-1.5">
-        <button
-          type="button"
-          onClick={onUpload}
-          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-          aria-label={translate('characterManager.upload')}
-        >
-          <Upload className="w-3 h-3" aria-hidden="true" />
-          {translate('characterManager.upload')}
-        </button>
-        <button
-          type="button"
-          onClick={onFromAssets}
-          className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-          aria-label={t('entity.fromAssets')}
-        >
-          <Image className="w-3 h-3" aria-hidden="true" />
-          {t('entity.fromAssets')}
-        </button>
-        {mainRef?.assetHash && (
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={cn(
+          'rounded border w-full',
+          mainRef?.assetHash ? 'border-primary/50 bg-primary/5' : 'border-dashed border-border/70',
+          isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
+        )}
+      >
+        {url ? (
+          <div className="relative w-full aspect-[3/2] bg-muted rounded overflow-hidden">
+            <img
+              src={url}
+              alt="Reference"
+              className="h-full w-full object-contain"
+              onError={markFailed}
+              draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
+              onDragStart={
+                mainRef?.assetHash && entityType && entityId && slot
+                  ? (e) => {
+                      e.stopPropagation();
+                      e.dataTransfer.setData(
+                        'application/x-lucid-ref-image',
+                        JSON.stringify({
+                          assetHash: mainRef.assetHash,
+                          entityType,
+                          entityId,
+                          slot,
+                        }),
+                      );
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }
+                  : undefined
+              }
+            />
+            {isDragOver && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
+                <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
+                  {t('entity.dropHere')}
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center aspect-[3/2] gap-2">
+            {isDragOver ? (
+              <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
+            ) : mainRef?.assetHash ? (
+              <>
+                <ImageOff className="w-8 h-8 text-destructive/40" />
+                <span className="text-[10px] text-destructive/60">{t('entity.brokenImage')}</span>
+              </>
+            ) : (
+              <Image className="w-8 h-8 text-muted-foreground/40" />
+            )}
+            {!isDragOver && !mainRef?.assetHash && (
+              <span className="text-xs text-muted-foreground">
+                {translate('characterManager.upload')}
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex items-center gap-1 p-1.5">
           <button
             type="button"
-            onClick={onRemove}
-            className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
-            aria-label={t('entity.removeImage')}
+            onClick={onUpload}
+            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+            aria-label={translate('characterManager.upload')}
           >
-            <X className="w-3 h-3" aria-hidden="true" />
-            {t('entity.removeImage')}
+            <Upload className="w-3 h-3" aria-hidden="true" />
+            {translate('characterManager.upload')}
           </button>
-        )}
-      </div>
-    </div>
-    {url && mainRef?.variants && mainRef.variants.length > 0 && (
-      <div className="flex items-center gap-1">
-        <span className="text-[9px] text-muted-foreground/70 shrink-0">{t('characterManager.variants')}:</span>
-        <div className="flex gap-1 overflow-x-auto">
-          {mainRef.assetHash && (
-            <VariantThumb
-              key={mainRef.assetHash}
-              hash={mainRef.assetHash}
-              isActive
-            />
+          <button
+            type="button"
+            onClick={onFromAssets}
+            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
+            aria-label={t('entity.fromAssets')}
+          >
+            <Image className="w-3 h-3" aria-hidden="true" />
+            {t('entity.fromAssets')}
+          </button>
+          {mainRef?.assetHash && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
+              aria-label={t('entity.removeImage')}
+            >
+              <X className="w-3 h-3" aria-hidden="true" />
+              {t('entity.removeImage')}
+            </button>
           )}
-          {mainRef.variants.map((variantHash) => (
-            <VariantThumb
-              key={variantHash}
-              hash={variantHash}
-              isActive={false}
-              onClick={() => onSelectVariant?.(variantHash)}
-            />
-          ))}
         </div>
       </div>
-    )}
+      {url && mainRef?.variants && mainRef.variants.length > 0 && (
+        <div className="flex items-center gap-1">
+          <span className="text-[9px] text-muted-foreground/70 shrink-0">
+            {t('characterManager.variants')}:
+          </span>
+          <div className="flex gap-1 overflow-x-auto">
+            {mainRef.assetHash && (
+              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
+            )}
+            {mainRef.variants.map((variantHash) => (
+              <VariantThumb
+                key={variantHash}
+                hash={variantHash}
+                isActive={false}
+                onClick={() => onSelectVariant?.(variantHash)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boolean; onClick?: () => void }) {
-  const { url } = useAssetUrl(hash, 'image', 'png');
+function VariantThumb({
+  hash,
+  isActive,
+  onClick,
+}: {
+  hash: string;
+  isActive: boolean;
+  onClick?: () => void;
+}) {
+  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return null;
   return (
     <button
@@ -915,18 +1090,22 @@ function VariantThumb({ hash, isActive, onClick }: { hash: string; isActive: boo
       onClick={onClick}
       className={cn(
         'shrink-0 h-8 w-12 rounded border overflow-hidden transition-colors',
-        isActive ? 'border-primary ring-1 ring-primary/40' : 'border-border/60 hover:border-primary/50',
+        isActive
+          ? 'border-primary ring-1 ring-primary/40'
+          : 'border-border/60 hover:border-primary/50',
       )}
     >
-      <img src={url} alt="variant" className="h-full w-full object-cover" />
+      <img src={url} alt="variant" className="h-full w-full object-cover" onError={markFailed} />
     </button>
   );
 }
 
 function ListThumb({ hash }: { hash?: string }) {
-  const { url } = useAssetUrl(hash, 'image', 'png');
+  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return <div className="shrink-0 w-8 h-8 rounded bg-muted/50" />;
-  return <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" />;
+  return (
+    <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" onError={markFailed} />
+  );
 }
 
 function StructField({
@@ -961,18 +1140,23 @@ function AssetPickerDialog({
   onSelect: (hash: string) => void;
 }) {
   const { t } = useI18n();
-  const imageAssets = useSelector((s: RootState) =>
-    s.assets.items.filter((a) => a.type === 'image'),
-  );
+  const imageAssets = useSelector(selectImageAssets);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
         </DialogHeader>
         {imageAssets.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-4 text-center">{t('entity.noImageAssetsFound')}</div>
+          <div className="text-sm text-muted-foreground py-4 text-center">
+            {t('entity.noImageAssetsFound')}
+          </div>
         ) : (
           <div className="grid grid-cols-4 gap-2 max-h-96 overflow-y-auto p-1">
             {imageAssets.map((asset) => (
@@ -986,7 +1170,7 @@ function AssetPickerDialog({
 }
 
 function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string) => void }) {
-  const { url } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
+  const { url, markFailed } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
   return (
     <button
       type="button"
@@ -995,7 +1179,12 @@ function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string
       title={asset.name}
     >
       {url ? (
-        <img src={url} alt={asset.name} className="w-full aspect-square object-cover" />
+        <img
+          src={url}
+          alt={asset.name}
+          className="w-full aspect-square object-cover"
+          onError={markFailed}
+        />
       ) : (
         <div className="w-full aspect-square bg-muted flex items-center justify-center">
           <Image className="w-6 h-6 text-muted-foreground/40" />

@@ -34,6 +34,12 @@ import {
   setProviderName,
   addCustomProvider,
   removeCustomProvider,
+  recordToolCall,
+  recordPrompt,
+  recordError,
+  recordProjectActivity,
+  recordShotCreate,
+  recordEntityCreate,
 } from '../store/slices/settings.js';
 import { selectActiveTemplates } from '../store/slices/promptTemplates.js';
 import { addLog } from '../store/slices/logger.js';
@@ -146,6 +152,7 @@ export function useCommander(): {
 
       dispatch(addUserMessage(trimmed));
       dispatch(startStreaming());
+      dispatch(recordPrompt({ wordCount: trimmed.split(/\s+/).length }));
 
       const llmProviders = llmSettings?.providers ?? [];
       const activeProvider =
@@ -186,6 +193,9 @@ export function useCommander(): {
     const api = getAPI();
     if (!api?.commander) return;
 
+    // Track tool call IDs to tool names for usage tracking
+    const toolCallNames = new Map<string, string>();
+
     const unsubStream = api.commander.onStream((data) => {
       if (data.type === 'chunk' && data.content) {
         dispatch(appendStreamChunk(data.content));
@@ -193,6 +203,7 @@ export function useCommander(): {
       }
 
       if (data.type === 'tool_call' && data.toolName && data.toolCallId) {
+        toolCallNames.set(data.toolCallId, data.toolName);
         dispatch(
           addToolCall({
             name: data.toolName,
@@ -209,12 +220,13 @@ export function useCommander(): {
           typeof data.result === 'object' && data.result !== null
             ? (data.result as { success?: unknown; error?: unknown })
             : undefined;
+        const isError = resultRecord?.success === false;
         dispatch(
           resolveToolCall({
             id: data.toolCallId,
             result: data.result,
               error:
-              resultRecord?.success === false
+              isError
                 ? typeof resultRecord.error === 'string'
                   ? resultRecord.error
                   : t('commander.toolExecutionFailed')
@@ -222,6 +234,29 @@ export function useCommander(): {
             completedAt: data.completedAt,
           }),
         );
+        // Track individual tool usage
+        const toolName = data.toolName ?? toolCallNames.get(data.toolCallId);
+        if (toolName) {
+          dispatch(recordToolCall({ toolName, error: isError }));
+          toolCallNames.delete(data.toolCallId);
+        }
+        // Track node/edge/entity creation from tool results
+        if (toolName && !isError) {
+          if (toolName === 'node.create' || toolName === 'shot.create') {
+            dispatch(recordShotCreate());
+            dispatch(recordProjectActivity({ nodesCreated: 1 }));
+          } else if (data.toolName === 'edge.create') {
+            dispatch(recordProjectActivity({ edgesCreated: 1 }));
+          } else if (data.toolName === 'character.create') {
+            dispatch(recordEntityCreate({ entityType: 'character' }));
+          } else if (data.toolName === 'location.create') {
+            dispatch(recordEntityCreate({ entityType: 'location' }));
+          } else if (data.toolName === 'equipment.create') {
+            dispatch(recordEntityCreate({ entityType: 'equipment' }));
+          } else if (data.toolName === 'prop.create') {
+            dispatch(recordEntityCreate({ entityType: 'prop' }));
+          }
+        }
         return;
       }
 
@@ -250,6 +285,7 @@ export function useCommander(): {
 
       if (data.type === 'error') {
         const errMsg = data.error ?? t('commander.unknownError');
+        dispatch(recordError());
         dispatch(
           addLog({
             level: 'error',
@@ -314,11 +350,14 @@ export function useCommander(): {
         dispatch(removeNodes(removedNodeIds));
       }
 
-      // Updated nodes (compare updatedAt timestamp)
+      // Updated nodes — compare fields individually to apply granular diffs.
+      // No updatedAt gate: the per-field checks below prevent unnecessary dispatches,
+      // while an updatedAt gate would silently skip legitimate updates when the renderer
+      // has a newer timestamp from a concurrent user edit on a different field.
       for (const inNode of incoming.nodes) {
         if (!currentNodeIds.has(inNode.id)) continue;
         const curNode = currentCanvas.nodes.find((n) => n.id === inNode.id);
-        if (!curNode || curNode.updatedAt >= inNode.updatedAt) continue;
+        if (!curNode) continue;
 
         // Position changed
         if (curNode.position.x !== inNode.position.x || curNode.position.y !== inNode.position.y) {
@@ -394,11 +433,20 @@ export function useCommander(): {
       }
     });
 
+    const unsubUndo = api.commander.onUndoDispatch?.((data) => {
+      if (data.action === 'undo') {
+        dispatch({ type: 'undo/undo' });
+      } else if (data.action === 'redo') {
+        dispatch({ type: 'undo/redo' });
+      }
+    });
+
     return () => {
       unsubStream();
       unsubCanvas();
       unsubEntities?.();
       unsubSettings?.();
+      unsubUndo?.();
     };
   }, [dispatch]);
 

@@ -231,32 +231,32 @@ describe('createCanvasTools', () => {
     );
   });
 
-  it('moveNode updates position', async () => {
+  it('updateNodes moves node position via position field', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    const result = await getTool('canvas.moveNode', deps).execute({
+    const result = await getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       position: { x: 220, y: 330 },
     });
 
-    expect(result).toEqual({ success: true, data: { nodeId: 'text-1', position: { x: 220, y: 330 } } });
-    expect(canvas.nodes[0].position).toEqual({ x: 220, y: 330 });
+    expect(result).toEqual({ success: true, data: { nodeId: 'text-1', updated: { position: { x: 220, y: 330 } } } });
+    expect(deps.moveNode).toHaveBeenCalledWith('canvas-1', 'text-1', { x: 220, y: 330 });
   });
 
-  it('renameNode updates title', async () => {
+  it('updateNodes renames node via title field', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    const result = await getTool('canvas.renameNode', deps).execute({
+    const result = await getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       title: 'Narration',
     });
 
-    expect(result).toEqual({ success: true, data: { nodeId: 'text-1', title: 'Narration' } });
-    expect(canvas.nodes[0].title).toBe('Narration');
+    expect(result).toEqual({ success: true, data: { nodeId: 'text-1', updated: { title: 'Narration' } } });
+    expect(deps.renameNode).toHaveBeenCalledWith('canvas-1', 'text-1', 'Narration');
   });
 
   it('deleteCanvas removes the canvas by ID', async () => {
@@ -368,7 +368,7 @@ describe('createCanvasTools', () => {
   it('returns error for missing node', async () => {
     const deps = createDeps(createCanvas());
 
-    const result = await getTool('canvas.moveNode', deps).execute({
+    const result = await getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'missing-node',
       position: { x: 1, y: 2 },
@@ -377,56 +377,30 @@ describe('createCanvasTools', () => {
     expect(result).toEqual({ success: false, error: 'Node not found: missing-node' });
   });
 
-  it('updates backdrop style fields through updateNodeData', async () => {
+  it('updates backdrop style fields through updateBackdrop', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setBackdropOpacity', deps).execute({
+    await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'backdrop-1',
       opacity: 72,
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', opacity: 72 },
-    });
-    await expect(getTool('canvas.setBackdropColor', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
       color: '#ff00aa',
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', color: '#ff00aa' },
-    });
-    await expect(getTool('canvas.setBackdropBorderStyle', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
       borderStyle: 'dotted',
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', borderStyle: 'dotted' },
-    });
-    await expect(getTool('canvas.setBackdropTitleSize', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
       titleSize: 'lg',
+      lockChildren: true,
+      toggleCollapse: true,
     })).resolves.toEqual({
       success: true,
-      data: { nodeId: 'backdrop-1', titleSize: 'lg' },
-    });
-    await expect(getTool('canvas.setBackdropLockChildren', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
-      locked: true,
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', locked: true },
-    });
-    await expect(getTool('canvas.toggleBackdropCollapse', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
-    })).resolves.toEqual({
-      success: true,
-      data: { nodeId: 'backdrop-1', collapsed: true },
+      data: {
+        nodeId: 'backdrop-1',
+        opacity: 72,
+        color: '#ff00aa',
+        borderStyle: 'dotted',
+        titleSize: 'lg',
+        lockChildren: true,
+        collapsed: true,
+      },
     });
 
     expect(canvas.nodes[2].data).toEqual(
@@ -445,12 +419,13 @@ describe('createCanvasTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    const addResult = await getTool('canvas.addPresetTrackEntry', deps).execute({
+    const addResult = await getTool('canvas.presetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       presetId: 'builtin-camera-push-in',
       intensity: 88,
+      action: 'add',
     });
 
     expect(addResult.success).toBe(true);
@@ -458,12 +433,13 @@ describe('createCanvasTools', () => {
     expect(tracksAfterAdd.camera.entries).toHaveLength(1);
     const entryId = tracksAfterAdd.camera.entries[0].id;
 
-    await expect(getTool('canvas.updatePresetTrackEntry', deps).execute({
+    await expect(getTool('canvas.presetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       entryId,
       changes: { intensity: 60, direction: 'left' },
+      action: 'update',
     })).resolves.toEqual({
       success: true,
       data: {
@@ -473,47 +449,22 @@ describe('createCanvasTools', () => {
       },
     });
 
-    await getTool('canvas.addPresetTrackEntry', deps).execute({
+    await getTool('canvas.presetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       presetId: 'builtin-camera-crane-up',
+      action: 'add',
     });
     const tracksAfterSecondAdd = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
     const secondEntryId = tracksAfterSecondAdd.camera.entries[1].id;
 
-    await expect(getTool('canvas.movePresetTrackEntry', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entryId: secondEntryId,
-      direction: 'up',
-    })).resolves.toEqual({
-      success: true,
-      data: {
-        nodeId: 'image-1',
-        category: 'camera',
-        entryId: secondEntryId,
-        direction: 'up',
-      },
-    });
-
-    const tracksAfterMove = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
-    expect(tracksAfterMove.camera.entries[0].id).toBe(secondEntryId);
-    expect(tracksAfterMove.camera.entries[1]).toEqual(
-      expect.objectContaining({
-        id: entryId,
-        intensity: 60,
-        direction: 'left',
-        order: 1,
-      }),
-    );
-
-    await expect(getTool('canvas.removePresetTrackEntry', deps).execute({
+    await expect(getTool('canvas.presetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       entryId,
+      action: 'remove',
     })).resolves.toEqual({
       success: true,
       data: {

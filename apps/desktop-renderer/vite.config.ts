@@ -5,10 +5,27 @@ import tailwindcss from '@tailwindcss/vite';
 export function desktopRendererManualChunks(id: string) {
   const normalizedId = id.replaceAll('\\', '/');
 
-  if (normalizedId.includes('@xyflow/react') || normalizedId.includes('reactflow')) {
+  // ---- Vendor splits (must come before the generic node_modules catch-all) ----
+
+  // ReactFlow + xyflow system — ~200KB combined, used only on canvas page
+  if (normalizedId.includes('@xyflow/') || normalizedId.includes('reactflow')) {
     return 'vendor-reactflow';
   }
-  if (normalizedId.includes('/components/canvas/CommanderPanel.')) {
+
+  // Contracts package — includes the large built-in preset library (~80KB minified)
+  if (normalizedId.includes('@lucid-fin/contracts')) {
+    return 'vendor-contracts';
+  }
+
+  // Radix UI primitives — shared across panels, split to deduplicate
+  if (normalizedId.includes('@radix-ui/')) {
+    return 'vendor-radix';
+  }
+
+  // ---- Panel-level code splitting ----
+
+  if (normalizedId.includes('/components/canvas/CommanderPanel.')
+    || normalizedId.includes('/hooks/useCommander.')) {
     return 'panel-commander';
   }
   if (normalizedId.includes('/components/canvas/AssetBrowserPanel.')) {
@@ -23,22 +40,27 @@ export function desktopRendererManualChunks(id: string) {
   if (normalizedId.includes('/components/canvas/')) {
     return 'panels';
   }
+
+  // ---- Generic vendor catch-all ----
   if (normalizedId.includes('node_modules')) {
     return 'vendor';
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: './',
   plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
     strictPort: true,
   },
+  define: mode === 'development' ? {
+    'process.env.NODE_ENV': '"development"',
+  } : undefined,
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    minify: false,
+    minify: mode !== 'development',
     rollupOptions: {
       output: {
         entryFileNames: 'assets/[name].js',
@@ -48,4 +70,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

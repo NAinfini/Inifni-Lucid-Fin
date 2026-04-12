@@ -1,29 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { enqueueToast } from '../../store/slices/toast.js';
+import { selectActiveCanvas, selectSingleSelectedNode, selectNodesById } from '../../store/slices/canvas-selectors.js';
 import { useInspectorEntityRefs } from './useInspectorEntityRefs.js';
 import {
   renameNode,
   updateNodeData,
-  selectVariant,
-  deleteVariant,
-  setNodeAudio,
-  setNodeQuality,
-  setNodeEstimatedCost,
-  setNodeGenerating,
-  setNodeGenerationFailed,
-  setNodeProvider,
-  setNodeResolution,
-  setNodeSeed,
-  setVideoFrameNode,
-  setVideoFrameAsset,
-  setNodeVariantCount,
-  setNodeDuration,
-  setNodeFps,
-  setNodeUploadedAsset,
-  clearNodeAsset,
-  toggleSeedLock,
   // M7: Annotation
   setNodeAnnotation,
   // M9: Tags & grouping
@@ -31,7 +13,6 @@ import {
   removeNodeTag,
   // L17: Advanced params
   setNodeAdvancedParams,
-  // Entity ref actions are handled by useInspectorEntityRefs hook
   applyNodeShotTemplate,
   setBackdropOpacity,
   setBackdropColor,
@@ -52,31 +33,18 @@ import {
   localizeShotTemplateName,
   localizeShotTemplateDescription,
 } from '../../i18n.js';
-import { getProviderMetadata } from '../../store/slices/settings.js';
+import { selectPresetList } from '../../store/slices/presets.js';
 import { InspectorCreativeTab } from './InspectorCreativeTab.js';
 import { InspectorContextTab } from './InspectorContextTab.js';
 import { InspectorFrameThumb } from './InspectorFrameThumb.js';
 import { InspectorPanelEmptyState } from './InspectorPanelEmptyState.js';
 import { InspectorPanelHeader } from './InspectorPanelHeader.js';
 import { InspectorPanelTabBar, type InspectorPanelTab } from './InspectorPanelTabBar.js';
-import { InspectorGenerationBar } from './InspectorGenerationBar.js';
 import { InspectorPanelIdentitySection } from './InspectorPanelIdentitySection.js';
 import { InspectorTrackGridCell } from './InspectorTrackGridCell.js';
-import { InspectorVariantThumb } from './InspectorVariantThumb.js';
-import {
-  CUSTOM_RESOLUTION_VALUE,
-  DURATION_PRESETS,
-  FPS_PRESETS,
-  RESOLUTION_PRESETS,
-  createRandomSeed,
-  getDefaultResolution,
-  getResolutionPresetDimensions,
-  getResolutionPresetValue,
-  resolveSeedRequest,
-  type VisualGenerationNodeType,
-  type ResolutionPreset,
-  type ResolutionPresetValue,
-} from './inspector-generation-utils.js';
+import { LazyDetails } from './LazyDetails.js';
+import { InspectorGenerationState, type GenerationRenderProps } from './InspectorGenerationState.js';
+import { CommitSlider } from '../ui/CommitSlider.js';
 import type {
   CanvasNode,
   CanvasNodeType,
@@ -111,19 +79,6 @@ const CATEGORY_FALLBACK: PresetCategory[] = [
   'technical',
 ];
 
-const VARIANT_OPTIONS = [1, 2, 4, 9];
-const RESOLUTION_PRESET_GROUPS = RESOLUTION_PRESETS.reduce<
-  Array<{ label: ResolutionPreset['groupLabel']; options: ResolutionPreset[] }>
->((groups, preset) => {
-  const existing = groups.find((group) => group.label === preset.groupLabel);
-  if (existing) {
-    existing.options.push(preset);
-    return groups;
-  }
-  groups.push({ label: preset.groupLabel, options: [preset] });
-  return groups;
-}, []);
-
 function hasTracks(node: CanvasNode | undefined): node is CanvasNode & {
   data: {
     presetTracks: PresetTrackSet;
@@ -140,22 +95,12 @@ function isGenerationNode(node: CanvasNode | undefined): node is CanvasNode & {
   return Boolean(node && (node.type === 'image' || node.type === 'video' || node.type === 'audio'));
 }
 
-function isVisualGenerationNode(node: CanvasNode | undefined): node is CanvasNode & {
-  type: VisualGenerationNodeType;
-  data: ImageNodeData | VideoNodeData;
-} {
-  return Boolean(node && (node.type === 'image' || node.type === 'video'));
-}
-
 export function InspectorPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
-  const selectedNodeIds = useSelector((s: RootState) => s.canvas.selectedNodeIds);
-  const activeCanvasId = useSelector((s: RootState) => s.canvas.activeCanvasId);
-  const canvas = useSelector((s: RootState) =>
-    s.canvas.canvases.find((c) => c.id === activeCanvasId),
-  );
-  const presets = useSelector((s: RootState) => s.presets.allIds.map((id) => s.presets.byId[id]));
+  const canvas = useSelector(selectActiveCanvas);
+  const nodesById = useSelector(selectNodesById);
+  const presets = useSelector(selectPresetList);
   const hiddenPresetIds = useSelector((s: RootState) => s.presets.hiddenIds);
   const builtInTemplates = useSelector((s: RootState) => s.shotTemplates.builtIn);
   const customTemplates = useSelector((s: RootState) => s.shotTemplates.custom);
@@ -163,30 +108,42 @@ export function InspectorPanel() {
   const characters = useSelector((s: RootState) => s.characters.items);
   const equipmentItems = useSelector((s: RootState) => s.equipment.items);
   const locationItems = useSelector((s: RootState) => s.locations.items);
-  const imageProviders = useSelector((s: RootState) => s.settings.image.providers);
-  const videoProviders = useSelector((s: RootState) => s.settings.video.providers);
-  const audioProviders = useSelector((s: RootState) => s.settings.audio.providers);
 
   useEffect(() => {
     const api = getAPI();
     if (!api) return;
     if (characters.length === 0) {
-      void api.character.list().then((list) => {
-        if (Array.isArray(list))
-          dispatch(setCharacters(list as import('@lucid-fin/contracts').Character[]));
-      }).catch(() => { /* entity list fetch is best-effort */ });
+      void api.character
+        .list()
+        .then((list) => {
+          if (Array.isArray(list))
+            dispatch(setCharacters(list as import('@lucid-fin/contracts').Character[]));
+        })
+        .catch(() => {
+          /* entity list fetch is best-effort */
+        });
     }
     if (equipmentItems.length === 0) {
-      void api.equipment.list().then((list) => {
-        if (Array.isArray(list))
-          dispatch(setEquipment(list as import('@lucid-fin/contracts').Equipment[]));
-      }).catch(() => { /* entity list fetch is best-effort */ });
+      void api.equipment
+        .list()
+        .then((list) => {
+          if (Array.isArray(list))
+            dispatch(setEquipment(list as import('@lucid-fin/contracts').Equipment[]));
+        })
+        .catch(() => {
+          /* entity list fetch is best-effort */
+        });
     }
     if (locationItems.length === 0) {
-      void api.location.list().then((list) => {
-        if (Array.isArray(list))
-          dispatch(setLocations(list as import('@lucid-fin/contracts').Location[]));
-      }).catch(() => { /* entity list fetch is best-effort */ });
+      void api.location
+        .list()
+        .then((list) => {
+          if (Array.isArray(list))
+            dispatch(setLocations(list as import('@lucid-fin/contracts').Location[]));
+        })
+        .catch(() => {
+          /* entity list fetch is best-effort */
+        });
     }
   }, [dispatch, characters.length, equipmentItems.length, locationItems.length]);
 
@@ -204,80 +161,12 @@ export function InspectorPanel() {
   }, [presets]);
 
   const [inspectorTab, setInspectorTab] = useState<InspectorPanelTab>('creative');
-  const [configuredProviders, setConfiguredProviders] = useState<
-    import('../../store/slices/settings.js').ProviderConfig[]
-  >([]);
-  const [providerLoading, setProviderLoading] = useState(false);
   const [templateDropdownOpen, setTemplateDropdownOpen] = useState(false);
-  const [resolutionSelectValue, setResolutionSelectValue] = useState<ResolutionPresetValue | null>(
-    null,
-  );
-  const [durationSelectValue, setDurationSelectValue] = useState<string | null>(null);
-  const pendingRandomSeedByNodeId = useRef<Record<string, number>>({});
 
-  const selectedNode: CanvasNode | undefined =
-    selectedNodeIds.length === 1
-      ? canvas?.nodes.find((n) => n.id === selectedNodeIds[0])
-      : undefined;
+  const selectedNode = useSelector(selectSingleSelectedNode);
 
   const generationData: ImageNodeData | VideoNodeData | AudioNodeData | undefined =
     isGenerationNode(selectedNode) ? selectedNode.data : undefined;
-  const activeProviderId = generationData?.providerId;
-  const activeProviderConfig = useMemo(() => {
-    if (!activeProviderId) return undefined;
-    const all = [...imageProviders, ...videoProviders, ...audioProviders];
-    const p = all.find((x) => x.id === activeProviderId);
-    if (!p) return undefined;
-    return { baseUrl: p.baseUrl, model: p.model };
-  }, [activeProviderId, imageProviders, videoProviders, audioProviders]);
-  const activeVideoProviderMetadata = useMemo(() => {
-    if (selectedNode?.type !== 'video' || !activeProviderId) {
-      return undefined;
-    }
-    return getProviderMetadata('video', activeProviderId);
-  }, [activeProviderId, selectedNode?.type]);
-  const activeVariantCount = generationData?.variantCount ?? 1;
-  const activeSeed = generationData?.seed;
-  const activeSeedLocked = generationData?.seedLocked ?? false;
-  const activeVariants = generationData?.variants ?? [];
-  const selectedVariantIndex = generationData?.selectedVariantIndex ?? 0;
-  const visualGenerationNode = isVisualGenerationNode(selectedNode) ? selectedNode : undefined;
-  const defaultResolution = visualGenerationNode
-    ? getDefaultResolution(visualGenerationNode.type)
-    : undefined;
-  const activeWidth = visualGenerationNode
-    ? (visualGenerationNode.data.width ?? defaultResolution?.width)
-    : undefined;
-  const activeHeight = visualGenerationNode
-    ? (visualGenerationNode.data.height ?? defaultResolution?.height)
-    : undefined;
-  const activeResolutionPreset = visualGenerationNode
-    ? getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight)
-    : CUSTOM_RESOLUTION_VALUE;
-  const activeDuration =
-    selectedNode?.type === 'video'
-      ? ((selectedNode.data as VideoNodeData).duration ?? 5)
-      : undefined;
-  const activeDurationPreset =
-    selectedNode?.type === 'video' &&
-    activeDuration != null &&
-    DURATION_PRESETS.some((preset) => preset === activeDuration)
-      ? String(activeDuration)
-      : CUSTOM_RESOLUTION_VALUE;
-  const activeFps =
-    selectedNode?.type === 'video' ? ((selectedNode.data as VideoNodeData).fps ?? 24) : undefined;
-  const visibleVariantCount = Math.max(activeVariantCount, activeVariants.length);
-  const shouldShowVariantGrid = visibleVariantCount > 0 && generationData?.status !== 'empty';
-  const selectedVariantMediaType: 'image' | 'video' | 'audio' =
-    selectedNode?.type === 'video' ? 'video' : selectedNode?.type === 'audio' ? 'audio' : 'image';
-  const resolutionControlValue = resolutionSelectValue ?? activeResolutionPreset;
-  const durationControlValue = durationSelectValue ?? activeDurationPreset;
-  const providerCandidates = useMemo(() => {
-    if (!isGenerationNode(selectedNode)) return [];
-    if (selectedNode.type === 'audio') return audioProviders;
-    if (selectedNode.type === 'video') return videoProviders;
-    return imageProviders;
-  }, [audioProviders, imageProviders, selectedNode, videoProviders]);
 
   // Entity refs — delegated to extracted hook
   const entityRefs = useInspectorEntityRefs({
@@ -312,43 +201,6 @@ export function InspectorPanel() {
     handleAddLocationRef,
     handleRemoveLocationRef,
   } = entityRefs;
-
-  useEffect(() => {
-    if (!visualGenerationNode) {
-      setResolutionSelectValue(null);
-      return;
-    }
-    setResolutionSelectValue(
-      getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight),
-    );
-  }, [activeHeight, activeWidth, visualGenerationNode]);
-
-  useEffect(() => {
-    if (selectedNode?.type !== 'video') {
-      setDurationSelectValue(null);
-      return;
-    }
-    setDurationSelectValue(
-      DURATION_PRESETS.some((preset) => preset === activeDuration)
-        ? String(activeDuration)
-        : CUSTOM_RESOLUTION_VALUE,
-    );
-  }, [activeDuration, selectedNode?.id, selectedNode?.type]);
-
-  useEffect(() => {
-    if (!canvas) return;
-    for (const node of canvas.nodes) {
-      const pendingSeed = pendingRandomSeedByNodeId.current[node.id];
-      if (typeof pendingSeed !== 'number' || !isGenerationNode(node)) {
-        continue;
-      }
-      if (node.data.status === 'generating' || node.data.status === 'empty') {
-        continue;
-      }
-      delete pendingRandomSeedByNodeId.current[node.id];
-      dispatch(setNodeSeed({ id: node.id, seed: pendingSeed }));
-    }
-  }, [canvas, dispatch]);
 
   const handleTitleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -479,416 +331,6 @@ export function InspectorPanel() {
     });
   }, [canvas, dispatch, selectedNode]);
 
-  useEffect(() => {
-    if (!isGenerationNode(selectedNode)) {
-      setConfiguredProviders([]);
-      setProviderLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setProviderLoading(true);
-
-    const loadProviders = async () => {
-      const api = getAPI();
-      if (!api) {
-        setConfiguredProviders([]);
-        setProviderLoading(false);
-        return;
-      }
-      if (cancelled) return;
-      setConfiguredProviders(providerCandidates);
-      setProviderLoading(false);
-      if (!activeProviderId && providerCandidates.length > 0) {
-        dispatch(setNodeProvider({ id: selectedNode.id, providerId: providerCandidates[0].id }));
-      }
-    };
-
-    void loadProviders();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProviderId, dispatch, providerCandidates, selectedNode]);
-
-  const selectedNodeId = isGenerationNode(selectedNode) ? selectedNode.id : undefined;
-
-  useEffect(() => {
-    if (!selectedNodeId || !activeProviderId || !activeCanvasId) return;
-    const api = getAPI();
-    if (!api?.canvasGeneration) return;
-    let cancelled = false;
-    void api.canvasGeneration
-      .estimateCost(activeCanvasId, selectedNodeId, activeProviderId, activeProviderConfig)
-      .then((result) => {
-        if (!cancelled)
-          dispatch(
-            setNodeEstimatedCost({ id: selectedNodeId, estimatedCost: result.estimatedCost }),
-          );
-      })
-      .catch(() => {
-        if (!cancelled) dispatch(setNodeEstimatedCost({ id: selectedNodeId, estimatedCost: 0 }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeCanvasId,
-    activeProviderId,
-    activeProviderConfig,
-    activeVariantCount,
-    dispatch,
-    selectedNodeId,
-  ]);
-
-  const handleProviderChange = useCallback(
-    (providerId: string) => {
-      if (!isGenerationNode(selectedNode)) return;
-      dispatch(setNodeProvider({ id: selectedNode.id, providerId }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleProviderSelectChange = useCallback(
-    (event: React.ChangeEvent<HTMLSelectElement>) => {
-      handleProviderChange(event.target.value);
-    },
-    [handleProviderChange],
-  );
-
-  const handleVariantCountChange = useCallback(
-    (count: number) => {
-      if (!isGenerationNode(selectedNode)) return;
-      dispatch(setNodeVariantCount({ id: selectedNode.id, count }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleSeedChange = useCallback(
-    (seed: number | undefined) => {
-      if (!isGenerationNode(selectedNode)) return;
-      dispatch(setNodeSeed({ id: selectedNode.id, seed }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleResolutionChange = useCallback(
-    (value: ResolutionPresetValue) => {
-      if (!visualGenerationNode) return;
-      setResolutionSelectValue(value);
-      if (value === CUSTOM_RESOLUTION_VALUE) {
-        if (typeof activeWidth === 'number' && typeof activeHeight === 'number') {
-          dispatch(
-            setNodeResolution({
-              id: visualGenerationNode.id,
-              width: activeWidth,
-              height: activeHeight,
-            }),
-          );
-        }
-        return;
-      }
-      const preset = getResolutionPresetDimensions(value);
-      if (!preset) return;
-      dispatch(
-        setNodeResolution({
-          id: visualGenerationNode.id,
-          width: preset.width,
-          height: preset.height,
-        }),
-      );
-    },
-    [activeHeight, activeWidth, dispatch, visualGenerationNode],
-  );
-
-  const handleResolutionSelectChange = useCallback(
-    (event: React.ChangeEvent<HTMLSelectElement>) => {
-      handleResolutionChange(event.target.value as ResolutionPresetValue);
-    },
-    [handleResolutionChange],
-  );
-
-  const handleResolutionWidthChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      if (!visualGenerationNode) return;
-      const nextWidth = event.target.valueAsNumber;
-      if (!Number.isFinite(nextWidth) || nextWidth < 1) return;
-      dispatch(
-        setNodeResolution({
-          id: visualGenerationNode.id,
-          width: Math.round(nextWidth),
-          height: activeHeight ?? defaultResolution?.height ?? 1024,
-        }),
-      );
-    },
-    [activeHeight, defaultResolution?.height, dispatch, visualGenerationNode],
-  );
-
-  const handleResolutionHeightChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      if (!visualGenerationNode) return;
-      const nextHeight = event.target.valueAsNumber;
-      if (!Number.isFinite(nextHeight) || nextHeight < 1) return;
-      dispatch(
-        setNodeResolution({
-          id: visualGenerationNode.id,
-          width: activeWidth ?? defaultResolution?.width ?? 1024,
-          height: Math.round(nextHeight),
-        }),
-      );
-    },
-    [activeWidth, defaultResolution?.width, dispatch, visualGenerationNode],
-  );
-
-  const handleDurationChange = useCallback(
-    (duration: number) => {
-      if (selectedNode?.type !== 'video') return;
-      dispatch(setNodeDuration({ id: selectedNode.id, duration }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleDurationSelectChange = useCallback(
-    (event: React.ChangeEvent<HTMLSelectElement>) => {
-      if (event.target.value === CUSTOM_RESOLUTION_VALUE) {
-        setDurationSelectValue(CUSTOM_RESOLUTION_VALUE);
-        return;
-      }
-      setDurationSelectValue(event.target.value);
-      handleDurationChange(Number(event.target.value));
-    },
-    [handleDurationChange],
-  );
-
-  const handleDurationInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const nextDuration = event.target.valueAsNumber;
-      if (!Number.isFinite(nextDuration) || nextDuration < 1 || nextDuration > 60) {
-        return;
-      }
-      handleDurationChange(Math.round(nextDuration));
-    },
-    [handleDurationChange],
-  );
-
-  const handleFpsChange = useCallback(
-    (fps: number) => {
-      if (selectedNode?.type !== 'video') return;
-      dispatch(setNodeFps({ id: selectedNode.id, fps }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleFpsSelectChange = useCallback(
-    (event: React.ChangeEvent<HTMLSelectElement>) => {
-      handleFpsChange(Number(event.target.value));
-    },
-    [handleFpsChange],
-  );
-
-  const handleSeedInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      if (event.target.value === '') {
-        handleSeedChange(undefined);
-        return;
-      }
-      const nextSeed = event.target.valueAsNumber;
-      if (!Number.isFinite(nextSeed)) return;
-      handleSeedChange(Math.round(nextSeed));
-    },
-    [handleSeedChange],
-  );
-
-  const handleRandomizeSeed = useCallback(() => {
-    if (!isGenerationNode(selectedNode)) return;
-    handleSeedChange(createRandomSeed());
-  }, [handleSeedChange, selectedNode]);
-
-  const handleToggleSeedLock = useCallback(() => {
-    if (!isGenerationNode(selectedNode)) return;
-    if (!activeSeedLocked && activeSeed == null) {
-      handleSeedChange(createRandomSeed());
-    }
-    dispatch(toggleSeedLock({ id: selectedNode.id }));
-  }, [activeSeed, activeSeedLocked, dispatch, handleSeedChange, selectedNode]);
-
-  const handleGenerate = useCallback(async () => {
-    if (!isGenerationNode(selectedNode)) return;
-    if (!activeCanvasId) return;
-    const api = getAPI();
-    if (!api?.canvasGeneration) return;
-    const randomSeed = createRandomSeed();
-    const seedRequest = resolveSeedRequest({
-      seed: activeSeed,
-      seedLocked: activeSeedLocked,
-      randomSeed,
-    });
-
-    if (typeof seedRequest.persistImmediately === 'number') {
-      dispatch(setNodeSeed({ id: selectedNode.id, seed: seedRequest.persistImmediately }));
-    }
-    if (typeof seedRequest.persistAfterCompletion === 'number') {
-      pendingRandomSeedByNodeId.current[selectedNode.id] = seedRequest.persistAfterCompletion;
-    } else {
-      delete pendingRandomSeedByNodeId.current[selectedNode.id];
-    }
-
-    dispatch(setNodeGenerating({ id: selectedNode.id, jobId: `pending-${Date.now()}` }));
-    try {
-      const result = await api.canvasGeneration.generate(
-        activeCanvasId,
-        selectedNode.id,
-        activeProviderId,
-        activeVariantCount,
-        seedRequest.requestSeed,
-        activeProviderConfig,
-      );
-      dispatch(setNodeGenerating({ id: selectedNode.id, jobId: result.jobId }));
-    } catch (error) {
-      delete pendingRandomSeedByNodeId.current[selectedNode.id];
-      const msg = error instanceof Error ? error.message : String(error);
-      dispatch(setNodeGenerationFailed({ id: selectedNode.id, error: msg }));
-      const isProviderError = /no configured adapter|api.?key|provider.*not.*found/i.test(msg);
-      dispatch(enqueueToast({
-        title: t('generation.failed'),
-        message: isProviderError ? t('generation.noProviderHint') : msg,
-        variant: 'error',
-        ...(isProviderError && {
-          actionLabel: t('generation.openProviders'),
-          onAction: () => { window.location.hash = '#/settings'; },
-        }),
-      }));
-    }
-  }, [
-    activeCanvasId,
-    activeProviderConfig,
-    activeProviderId,
-    activeSeed,
-    activeSeedLocked,
-    activeVariantCount,
-    dispatch,
-    selectedNode,
-    t,
-  ]);
-
-  const handleCancelGeneration = useCallback(async () => {
-    if (!isGenerationNode(selectedNode)) return;
-    if (!activeCanvasId) return;
-    const api = getAPI();
-    if (!api?.canvasGeneration) return;
-    await api.canvasGeneration.cancel(activeCanvasId, selectedNode.id);
-  }, [activeCanvasId, selectedNode]);
-
-  const handleFrameSelect = useCallback(
-    (role: 'first' | 'last', value: string | undefined) => {
-      if (selectedNode?.type !== 'video') return;
-      if (!value) {
-        // Deselect: clear both node and asset
-        dispatch(setVideoFrameNode({ id: selectedNode.id, role, frameNodeId: undefined }));
-        return;
-      }
-      if (value.startsWith('asset:')) {
-        // Asset store or uploaded image
-        const hash = value.slice(6);
-        dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: hash }));
-      } else {
-        // Connected node id
-        dispatch(setVideoFrameNode({ id: selectedNode.id, role, frameNodeId: value }));
-      }
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleFrameDropAsset = useCallback(
-    (role: 'first' | 'last', assetHash: string) => {
-      if (selectedNode?.type !== 'video') return;
-      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleUploadVideoFrame = useCallback(
-    async (role: 'first' | 'last') => {
-      if (selectedNode?.type !== 'video') return;
-      const api = getAPI();
-      if (!api) return;
-      const ref = (await api.asset.pickFile('image')) as { hash: string } | null;
-      if (!ref) return;
-      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleDropFileVideoFrame = useCallback(
-    async (role: 'first' | 'last', file: File) => {
-      if (selectedNode?.type !== 'video') return;
-      const api = getAPI();
-      if (!api) return;
-      const filePath = (file as { path?: string }).path ?? '';
-      const ref = filePath
-        ? ((await api.asset.import(filePath, 'image')) as { hash: string } | null)
-        : ((await api.asset.importBuffer(await file.arrayBuffer(), file.name, 'image')) as { hash: string } | null);
-      if (!ref?.hash) return;
-      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleClearVideoFrame = useCallback(
-    (role: 'first' | 'last') => {
-      if (selectedNode?.type !== 'video') return;
-      // setVideoFrameNode with undefined clears both nodeId and assetHash
-      dispatch(setVideoFrameNode({ id: selectedNode.id, role, frameNodeId: undefined }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleUploadAsset = useCallback(async () => {
-    if (selectedNode?.type !== 'image' && selectedNode?.type !== 'video') return;
-    const api = getAPI();
-    if (!api) return;
-    const ref = (await api.asset.pickFile(selectedNode.type)) as { hash: string } | null;
-    if (!ref) return;
-    dispatch(setNodeUploadedAsset({ id: selectedNode.id, assetHash: ref.hash }));
-  }, [dispatch, selectedNode]);
-
-  const handleClearUploadedAsset = useCallback(() => {
-    if (selectedNode?.type !== 'image' && selectedNode?.type !== 'video') return;
-    dispatch(clearNodeAsset({ id: selectedNode.id }));
-  }, [dispatch, selectedNode]);
-
-  const handleSelectVariant = useCallback(
-    (index: number) => {
-      if (!isGenerationNode(selectedNode)) return;
-      dispatch(selectVariant({ id: selectedNode.id, index }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleDeleteVariant = useCallback(
-    (index: number) => {
-      if (!isGenerationNode(selectedNode)) return;
-      dispatch(deleteVariant({ id: selectedNode.id, index }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleAudioChange = useCallback(
-    (enabled: boolean) => {
-      if (selectedNode?.type !== 'video') return;
-      dispatch(setNodeAudio({ id: selectedNode.id, audio: enabled }));
-    },
-    [dispatch, selectedNode],
-  );
-
-  const handleQualityChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      if (selectedNode?.type !== 'video') return;
-      const val = e.target.value as 'standard' | 'pro' | '';
-      dispatch(setNodeQuality({ id: selectedNode.id, quality: val || undefined }));
-    },
-    [dispatch, selectedNode],
-  );
-
   if (!selectedNode) {
     return <InspectorPanelEmptyState text={t('inspector.selectNode')} />;
   }
@@ -994,7 +436,7 @@ export function InspectorPanel() {
           const seenFirst = new Set<string>();
           const firstCandidates = (canvas?.edges ?? [])
             .filter((edge) => edge.target === selectedNode.id)
-            .map((edge) => canvas?.nodes.find((node) => node.id === edge.source))
+            .map((edge) => nodesById.get(edge.source))
             .filter((node): node is CanvasNode & { data: ImageNodeData } => {
               if (!node || node.type !== 'image' || seenFirst.has(node.id)) return false;
               seenFirst.add(node.id);
@@ -1003,7 +445,7 @@ export function InspectorPanel() {
           const seenLast = new Set<string>();
           const lastCandidates = (canvas?.edges ?? [])
             .filter((edge) => edge.source === selectedNode.id)
-            .map((edge) => canvas?.nodes.find((node) => node.id === edge.target))
+            .map((edge) => nodesById.get(edge.target))
             .filter((node): node is CanvasNode & { data: ImageNodeData } => {
               if (!node || node.type !== 'image' || seenLast.has(node.id)) return false;
               seenLast.add(node.id);
@@ -1013,27 +455,28 @@ export function InspectorPanel() {
             (node) => node.id === videoData.firstFrameNodeId,
           );
           const selectedLast = lastCandidates.find((node) => node.id === videoData.lastFrameNodeId);
-          const firstFrameHash =
-            videoData.firstFrameAssetHash ?? selectedFirst?.data.assetHash;
-          const lastFrameHash =
-            videoData.lastFrameAssetHash ?? selectedLast?.data.assetHash;
+          const firstFrameHash = videoData.firstFrameAssetHash ?? selectedFirst?.data.assetHash;
+          const lastFrameHash = videoData.lastFrameAssetHash ?? selectedLast?.data.assetHash;
 
           // Determine selected value for the unified dropdown
           const firstSelectedValue = videoData.firstFrameAssetHash
             ? `asset:${videoData.firstFrameAssetHash}`
-            : videoData.firstFrameNodeId ?? undefined;
+            : (videoData.firstFrameNodeId ?? undefined);
           const lastSelectedValue = videoData.lastFrameAssetHash
             ? `asset:${videoData.lastFrameAssetHash}`
-            : videoData.lastFrameNodeId ?? undefined;
+            : (videoData.lastFrameNodeId ?? undefined);
 
-          return {
+          return (gen: GenerationRenderProps) => ({
             first: {
               connectedOptions: firstCandidates.map((node) => ({
                 value: node.id,
                 label: node.title || node.id.slice(0, 8),
               })),
               assetOption: videoData.firstFrameAssetHash
-                ? { value: `asset:${videoData.firstFrameAssetHash}`, label: t('inspector.uploadedImage') }
+                ? {
+                    value: `asset:${videoData.firstFrameAssetHash}`,
+                    label: t('inspector.uploadedImage'),
+                  }
                 : undefined,
               selectedValue: firstSelectedValue,
               preview: firstFrameHash ? (
@@ -1043,11 +486,11 @@ export function InspectorPanel() {
                 />
               ) : undefined,
               hasValue: Boolean(firstFrameHash),
-              onSelect: (value: string | undefined) => handleFrameSelect('first', value),
-              onUpload: () => handleUploadVideoFrame('first'),
-              onDropAsset: (hash: string) => handleFrameDropAsset('first', hash),
-              onDropFile: (file: File) => handleDropFileVideoFrame('first', file),
-              onClear: () => handleClearVideoFrame('first'),
+              onSelect: (value: string | undefined) => gen.handleFrameSelect('first', value),
+              onUpload: () => gen.handleUploadVideoFrame('first'),
+              onDropAsset: (hash: string) => gen.handleFrameDropAsset('first', hash),
+              onDropFile: (file: File) => gen.handleDropFileVideoFrame('first', file),
+              onClear: () => gen.handleClearVideoFrame('first'),
             },
             last: {
               connectedOptions: lastCandidates.map((node) => ({
@@ -1055,7 +498,10 @@ export function InspectorPanel() {
                 label: node.title || node.id.slice(0, 8),
               })),
               assetOption: videoData.lastFrameAssetHash
-                ? { value: `asset:${videoData.lastFrameAssetHash}`, label: t('inspector.uploadedImage') }
+                ? {
+                    value: `asset:${videoData.lastFrameAssetHash}`,
+                    label: t('inspector.uploadedImage'),
+                  }
                 : undefined,
               selectedValue: lastSelectedValue,
               preview: lastFrameHash ? (
@@ -1065,33 +511,17 @@ export function InspectorPanel() {
                 />
               ) : undefined,
               hasValue: Boolean(lastFrameHash),
-              onSelect: (value: string | undefined) => handleFrameSelect('last', value),
-              onUpload: () => handleUploadVideoFrame('last'),
-              onDropAsset: (hash: string) => handleFrameDropAsset('last', hash),
-              onDropFile: (file: File) => handleDropFileVideoFrame('last', file),
-              onClear: () => handleClearVideoFrame('last'),
+              onSelect: (value: string | undefined) => gen.handleFrameSelect('last', value),
+              onUpload: () => gen.handleUploadVideoFrame('last'),
+              onDropAsset: (hash: string) => gen.handleFrameDropAsset('last', hash),
+              onDropFile: (file: File) => gen.handleDropFileVideoFrame('last', file),
+              onClear: () => gen.handleClearVideoFrame('last'),
             },
-          };
+          });
         })()
       : undefined;
-  const variantGrid = shouldShowVariantGrid
-    ? Array.from({ length: visibleVariantCount }, (_, index) => {
-        const hash = activeVariants[index];
-        return (
-          <InspectorVariantThumb
-            key={hash ?? `variant-placeholder-${index}`}
-            hash={hash}
-            index={index}
-            selected={selectedVariantIndex === index}
-            mediaType={selectedVariantMediaType}
-            onClick={() => handleSelectVariant(index)}
-            onDelete={() => handleDeleteVariant(index)}
-            canDelete={visibleVariantCount > 1}
-          />
-        );
-      })
-    : null;
-  return (
+
+  const renderContent = (gen?: GenerationRenderProps) => (
     <div className="h-full flex flex-col bg-card border-l border-border/60 overflow-auto">
       <InspectorPanelHeader
         icon={Icon}
@@ -1238,44 +668,54 @@ export function InspectorPanel() {
             onRemoveCharacter={handleRemoveCharacterRef}
             onRemoveEquipment={handleRemoveEquipmentRef}
             onRemoveLocation={handleRemoveLocationRef}
-            videoFramesSection={videoFramesSection}
+            videoFramesSection={gen && videoFramesSection ? videoFramesSection(gen) : undefined}
           />
         )}
 
         {/* ===== Annotation Section (M7) ===== */}
         {isGenerationNode(selectedNode) && (
           <div className="px-3 py-2 border-b border-border/60">
-            <details className="group">
-              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-                <span className="transition-transform group-open:rotate-90">&#9654;</span>
-                {t('inspector.annotation')}
-              </summary>
+            <LazyDetails className="group"
+              summary={
+                <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+                  <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                  {t('inspector.annotation')}
+                </summary>
+              }
+            >
               <div className="mt-1.5 space-y-1">
                 <input
                   type="text"
                   className="w-full rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring"
                   placeholder={t('inspector.annotationPlaceholder')}
-                  value={(generationData as { annotation?: { text?: string } })?.annotation?.text ?? ''}
+                  value={
+                    (generationData as { annotation?: { text?: string } })?.annotation?.text ?? ''
+                  }
                   onChange={(e) => {
                     const text = e.target.value;
-                    dispatch(setNodeAnnotation({
-                      id: selectedNode.id,
-                      annotation: text ? { text, position: 'bottom' } : undefined,
-                    }));
+                    dispatch(
+                      setNodeAnnotation({
+                        id: selectedNode.id,
+                        annotation: text ? { text, position: 'bottom' } : undefined,
+                      }),
+                    );
                   }}
                 />
               </div>
-            </details>
+            </LazyDetails>
           </div>
         )}
 
         {/* ===== Tags & Group Section (M9) ===== */}
         <div className="px-3 py-2 border-b border-border/60">
-          <details className="group">
-            <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-              <span className="transition-transform group-open:rotate-90">&#9654;</span>
-              {t('inspector.tagsAndGroups')}
-            </summary>
+          <LazyDetails className="group"
+            summary={
+              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+                <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                {t('inspector.tagsAndGroups')}
+              </summary>
+            }
+          >
             <div className="mt-1.5 space-y-1.5">
               <div className="flex items-center gap-1">
                 <input
@@ -1296,7 +736,10 @@ export function InspectorPanel() {
               {(selectedNode.tags ?? []).length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {(selectedNode.tags ?? []).map((tag) => (
-                    <span key={tag} className="inline-flex items-center gap-0.5 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-0.5 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
+                    >
                       {tag}
                       <button
                         type="button"
@@ -1310,41 +753,64 @@ export function InspectorPanel() {
                 </div>
               )}
             </div>
-          </details>
+          </LazyDetails>
         </div>
 
         {/* ===== Advanced Generation Params (L17) ===== */}
         {isGenerationNode(selectedNode) && selectedNode.type !== 'audio' && (
           <div className="px-3 py-2 border-b border-border/60">
-            <details className="group">
-              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-                <span className="transition-transform group-open:rotate-90">&#9654;</span>
-                {t('inspector.advancedParams')}
-              </summary>
+            <LazyDetails className="group"
+              summary={
+                <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+                  <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                  {t('inspector.advancedParams')}
+                </summary>
+              }
+            >
               <div className="mt-1.5 space-y-1.5">
                 <div>
-                  <label className="text-[10px] text-muted-foreground">{t('inspector.negativePrompt')}</label>
+                  <label className="text-[10px] text-muted-foreground">
+                    {t('inspector.negativePrompt')}
+                  </label>
                   <textarea
                     className="w-full rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring min-h-[40px] resize-y"
                     placeholder={t('inspector.negativePromptPlaceholder')}
                     value={(generationData as { negativePrompt?: string })?.negativePrompt ?? ''}
-                    onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, negativePrompt: e.target.value }))}
+                    onChange={(e) =>
+                      dispatch(
+                        setNodeAdvancedParams({
+                          id: selectedNode.id,
+                          negativePrompt: e.target.value,
+                        }),
+                      )
+                    }
                   />
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   <div>
-                    <label className="text-[10px] text-muted-foreground">{t('inspector.steps')}</label>
+                    <label className="text-[10px] text-muted-foreground">
+                      {t('inspector.steps')}
+                    </label>
                     <input
                       type="number"
                       min={1}
                       max={150}
                       className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
                       value={(generationData as { steps?: number })?.steps ?? ''}
-                      onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, steps: e.target.value ? Number(e.target.value) : undefined }))}
+                      onChange={(e) =>
+                        dispatch(
+                          setNodeAdvancedParams({
+                            id: selectedNode.id,
+                            steps: e.target.value ? Number(e.target.value) : undefined,
+                          }),
+                        )
+                      }
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] text-muted-foreground">{t('inspector.cfgScale')}</label>
+                    <label className="text-[10px] text-muted-foreground">
+                      {t('inspector.cfgScale')}
+                    </label>
                     <input
                       type="number"
                       min={1}
@@ -1352,150 +818,153 @@ export function InspectorPanel() {
                       step={0.5}
                       className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
                       value={(generationData as { cfgScale?: number })?.cfgScale ?? ''}
-                      onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, cfgScale: e.target.value ? Number(e.target.value) : undefined }))}
+                      onChange={(e) =>
+                        dispatch(
+                          setNodeAdvancedParams({
+                            id: selectedNode.id,
+                            cfgScale: e.target.value ? Number(e.target.value) : undefined,
+                          }),
+                        )
+                      }
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] text-muted-foreground">{t('inspector.scheduler')}</label>
+                    <label className="text-[10px] text-muted-foreground">
+                      {t('inspector.scheduler')}
+                    </label>
                     <input
                       type="text"
                       className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
                       placeholder="euler_a"
                       value={(generationData as { scheduler?: string })?.scheduler ?? ''}
-                      onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, scheduler: e.target.value || undefined }))}
+                      onChange={(e) =>
+                        dispatch(
+                          setNodeAdvancedParams({
+                            id: selectedNode.id,
+                            scheduler: e.target.value || undefined,
+                          }),
+                        )
+                      }
                     />
                   </div>
                 </div>
                 {/* Image-to-image strength */}
                 {(generationData as { sourceImageHash?: string })?.sourceImageHash && (
                   <div>
-                    <label className="text-[10px] text-muted-foreground">{t('inspector.img2imgStrength')}</label>
+                    <label className="text-[10px] text-muted-foreground">
+                      {t('inspector.img2imgStrength')}
+                    </label>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="range"
+                      <CommitSlider
                         min={0}
                         max={100}
-                        value={Math.round(((generationData as { img2imgStrength?: number })?.img2imgStrength ?? 0.75) * 100)}
-                        onChange={(e) => dispatch(setNodeAdvancedParams({ id: selectedNode.id, img2imgStrength: Number(e.target.value) / 100 }))}
+                        value={Math.round(
+                          ((generationData as { img2imgStrength?: number })?.img2imgStrength ??
+                            0.75) * 100,
+                        )}
+                        onCommit={(v) =>
+                          dispatch(
+                            setNodeAdvancedParams({
+                              id: selectedNode.id,
+                              img2imgStrength: v / 100,
+                            }),
+                          )
+                        }
                         className="flex-1 h-1.5 accent-primary"
                       />
                       <span className="text-[10px] text-muted-foreground w-8 text-right">
-                        {Math.round(((generationData as { img2imgStrength?: number })?.img2imgStrength ?? 0.75) * 100)}%
+                        {Math.round(
+                          ((generationData as { img2imgStrength?: number })?.img2imgStrength ??
+                            0.75) * 100,
+                        )}
+                        %
                       </span>
                     </div>
                   </div>
                 )}
               </div>
-            </details>
+            </LazyDetails>
           </div>
         )}
 
         {/* ===== Generation History (M10) ===== */}
-        {isGenerationNode(selectedNode) && (generationData as { generationHistory?: unknown[] })?.generationHistory?.length ? (
+        {isGenerationNode(selectedNode) &&
+        (generationData as { generationHistory?: unknown[] })?.generationHistory?.length ? (
           <div className="px-3 py-2 border-b border-border/60">
-            <details className="group">
-              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-                <span className="transition-transform group-open:rotate-90">&#9654;</span>
-                {t('inspector.generationHistory')} ({((generationData as { generationHistory?: unknown[] })?.generationHistory ?? []).length})
-              </summary>
+            <LazyDetails className="group"
+              summary={
+                <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
+                  <span className="transition-transform group-open:rotate-90">&#9654;</span>
+                  {t('inspector.generationHistory')} (
+                  {
+                    ((generationData as { generationHistory?: unknown[] })?.generationHistory ?? [])
+                      .length
+                  }
+                  )
+                </summary>
+              }
+            >
               <div className="mt-1.5 max-h-[160px] overflow-auto space-y-1">
-                {((generationData as { generationHistory?: Array<{ assetHash: string; prompt: string; providerId: string; seed?: number; cost?: number; createdAt: number }> })?.generationHistory ?? [])
+                {(
+                  (
+                    generationData as {
+                      generationHistory?: Array<{
+                        assetHash: string;
+                        prompt: string;
+                        providerId: string;
+                        seed?: number;
+                        cost?: number;
+                        createdAt: number;
+                      }>;
+                    }
+                  )?.generationHistory ?? []
+                )
                   .slice()
                   .reverse()
                   .slice(0, 20)
                   .map((entry, i) => (
-                    <div key={`${entry.assetHash}-${i}`} className="rounded-md border border-border/40 bg-muted/20 px-2 py-1 text-[10px]">
+                    <div
+                      key={`${entry.assetHash}-${i}`}
+                      className="rounded-md border border-border/40 bg-muted/20 px-2 py-1 text-[10px]"
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-foreground truncate">{entry.providerId}</span>
-                        <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleTimeString()}</span>
+                        <span className="font-medium text-foreground truncate">
+                          {entry.providerId}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {new Date(entry.createdAt).toLocaleTimeString()}
+                        </span>
                       </div>
-                      <div className="text-muted-foreground truncate">{entry.prompt.slice(0, 80)}{entry.prompt.length > 80 ? '...' : ''}</div>
-                      {entry.cost != null && <span className="text-muted-foreground">${entry.cost.toFixed(3)}</span>}
+                      <div className="text-muted-foreground truncate">
+                        {entry.prompt.slice(0, 80)}
+                        {entry.prompt.length > 80 ? '...' : ''}
+                      </div>
+                      {entry.cost != null && (
+                        <span className="text-muted-foreground">${entry.cost.toFixed(3)}</span>
+                      )}
                     </div>
                   ))}
               </div>
-            </details>
+            </LazyDetails>
           </div>
         ) : null}
       </div>
 
       {/* Generation bar — always visible at bottom for generation nodes */}
-      {isGenerationNode(selectedNode) && (
-        <InspectorGenerationBar
-          t={t}
-          providerOptions={configuredProviders.map((p) => {
-            const localized = t(`providerNames.${p.id}`);
-            return { id: p.id, name: localized !== `providerNames.${p.id}` ? localized : p.name };
-          })}
-          activeProviderId={activeProviderId}
-          providerLoading={providerLoading}
-          onProviderChange={handleProviderSelectChange}
-          variantOptions={VARIANT_OPTIONS}
-          activeVariantCount={activeVariantCount}
-          onVariantCountChange={handleVariantCountChange}
-          isGenerating={generationData?.status === 'generating'}
-          hasVariants={activeVariants.length > 0}
-          estimatedCost={
-            typeof generationData?.estimatedCost === 'number'
-              ? `${t('inspector.estimated')}: $${generationData.estimatedCost.toFixed(2)}`
-              : undefined
-          }
-          onGenerate={handleGenerate}
-          onCancel={handleCancelGeneration}
-          seedValue={activeSeed}
-          seedLocked={activeSeedLocked}
-          onSeedChange={handleSeedInputChange}
-          onRandomizeSeed={handleRandomizeSeed}
-          onToggleSeedLock={handleToggleSeedLock}
-          nodeType={selectedNode.type}
-          resolutionGroups={visualGenerationNode
-            ? RESOLUTION_PRESET_GROUPS.map((group) => ({
-                label: t(`resolutionPresetGroups.${group.label.toLowerCase()}`),
-                options: group.options.map((preset) => ({
-                  value: preset.value,
-                  label: preset.label,
-                })),
-              }))
-            : undefined}
-          resolutionValue={visualGenerationNode ? resolutionControlValue : undefined}
-          customResolutionValue={CUSTOM_RESOLUTION_VALUE}
-          widthValue={activeWidth}
-          heightValue={activeHeight}
-          onResolutionChange={visualGenerationNode ? handleResolutionSelectChange : undefined}
-          onWidthChange={visualGenerationNode ? handleResolutionWidthChange : undefined}
-          onHeightChange={visualGenerationNode ? handleResolutionHeightChange : undefined}
-          durationOptions={selectedNode.type === 'video' ? DURATION_PRESETS : undefined}
-          durationValue={selectedNode.type === 'video' ? durationControlValue : undefined}
-          onDurationChange={selectedNode.type === 'video' ? handleDurationSelectChange : undefined}
-          durationInputValue={activeDuration}
-          onDurationInputChange={selectedNode.type === 'video' ? handleDurationInputChange : undefined}
-          fpsOptions={selectedNode.type === 'video' ? FPS_PRESETS : undefined}
-          fpsValue={activeFps}
-          onFpsChange={selectedNode.type === 'video' ? handleFpsSelectChange : undefined}
-          showAudioToggle={selectedNode.type === 'video'}
-          audioEnabled={selectedNode.type === 'video' ? (selectedNode.data as VideoNodeData).audio ?? false : false}
-          onAudioChange={handleAudioChange}
-          audioLabel={t('node.generateAudio')}
-          audioWarning={selectedNode.type === 'video' && (selectedNode.data as VideoNodeData).audio && !activeVideoProviderMetadata?.supportsAudio ? t('node.audioUnsupported') : undefined}
-          qualityOptions={((activeVideoProviderMetadata?.qualityTiers?.length ?? 0) > 0 ? activeVideoProviderMetadata?.qualityTiers : ['standard'])?.map((v) => ({ value: v, label: t(`node.quality_${v}` as 'node.quality') || v }))}
-          qualityValue={selectedNode.type === 'video' ? (selectedNode.data as VideoNodeData).quality ?? (activeVideoProviderMetadata?.qualityTiers?.[0] ?? 'standard') : undefined}
-          onQualityChange={handleQualityChange}
-          qualityLabel={t('node.quality')}
-          showQualitySelector={selectedNode.type === 'video'}
-          variantGrid={variantGrid}
-          variantLabel={visibleVariantCount > 0 ? `${selectedVariantIndex + 1} / ${visibleVariantCount}` : undefined}
-          uploadHasAsset={(selectedNode.type === 'image' || selectedNode.type === 'video') ? Boolean(generationData?.assetHash) : undefined}
-          onUpload={(selectedNode.type === 'image' || selectedNode.type === 'video') ? handleUploadAsset : undefined}
-          onClear={(selectedNode.type === 'image' || selectedNode.type === 'video') ? handleClearUploadedAsset : undefined}
-          noKeyWarning={
-            !providerLoading && configuredProviders.length > 0 && !configuredProviders.some((p) => p.hasKey)
-              ? t('generation.noKeyWarning')
-              : undefined
-          }
-          noKeyActionLabel={t('generation.openProviders')}
-          onNoKeyAction={() => { window.location.hash = '#/settings'; }}
-        />
-      )}
+      {gen?.generationBar}
     </div>
   );
+
+  if (isGenerationNode(selectedNode)) {
+    return (
+      <InspectorGenerationState
+        selectedNode={selectedNode}
+        t={t}
+      >
+        {(gen) => renderContent(gen)}
+      </InspectorGenerationState>
+    );
+  }
+
+  return renderContent();
 }

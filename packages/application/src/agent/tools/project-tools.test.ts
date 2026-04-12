@@ -36,8 +36,6 @@ describe('createProjectTools', () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       'project.list',
       'project.snapshot',
-      'project.snapshotList',
-      'project.snapshotRestore',
     ]);
     expect(tools.every((tool) => tool.tier === 4)).toBe(true);
   });
@@ -54,17 +52,17 @@ describe('createProjectTools', () => {
         projects: [{ id: 'project-2', title: 'Two', path: 'C:/two', updatedAt: 2 }],
       },
     });
-    await expect(getTool('project.snapshot', deps).execute({ name: '  Initial  ' })).resolves.toEqual({
+    await expect(getTool('project.snapshot', deps).execute({ action: 'create', name: '  Initial  ' })).resolves.toEqual({
       success: true,
       data: snapshot,
     });
     expect(deps.createSnapshot).toHaveBeenCalledWith('Initial');
 
-    await expect(getTool('project.snapshotList', deps).execute({})).resolves.toEqual({
+    await expect(getTool('project.snapshot', deps).execute({ action: 'list' })).resolves.toEqual({
       success: true,
       data: { total: 1, offset: 0, limit: 50, snapshots: [snapshot] },
     });
-    await expect(getTool('project.snapshotRestore', deps).execute({ snapshotId: 'snapshot-1' })).resolves.toEqual({
+    await expect(getTool('project.snapshot', deps).execute({ action: 'restore', snapshotId: 'snapshot-1' })).resolves.toEqual({
       success: true,
       data: { snapshotId: 'snapshot-1' },
     });
@@ -74,11 +72,11 @@ describe('createProjectTools', () => {
     const deps = createDeps();
     vi.mocked(deps.restoreSnapshot).mockRejectedValueOnce(new Error('restore failed'));
 
-    await expect(getTool('project.snapshot', deps).execute({ name: '   ' })).resolves.toEqual({
+    await expect(getTool('project.snapshot', deps).execute({ action: 'create', name: '   ' })).resolves.toEqual({
       success: false,
       error: 'name is required',
     });
-    await expect(getTool('project.snapshotRestore', deps).execute({ snapshotId: 'snapshot-1' })).resolves.toEqual({
+    await expect(getTool('project.snapshot', deps).execute({ action: 'restore', snapshotId: 'snapshot-1' })).resolves.toEqual({
       success: false,
       error: 'restore failed',
     });

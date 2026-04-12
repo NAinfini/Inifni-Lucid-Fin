@@ -13,6 +13,7 @@ import {
   type SettingsTab,
 } from '../components/settings/SettingsSidebarNav.js';
 import type { APIGroup } from '../store/slices/settings.js';
+import { recordFeatureUsed } from '../store/slices/settings.js';
 import {
   addCustomTemplate,
   removeCustomTemplate,
@@ -39,7 +40,7 @@ export function Settings() {
   const theme = useSelector((state: RootState) => state.ui.theme);
   const templates = useSelector((state: RootState) => state.promptTemplates.templates);
   const [locale, setLocaleState] = useState<Locale>(getLocale());
-  const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('commander');
   const [providerSubTab, setProviderSubTab] = useState<APIGroup>('llm');
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
   const [templateDrafts, setTemplateDrafts] = useState<Record<string, TemplateDraft>>({});
@@ -50,7 +51,8 @@ export function Settings() {
 
   const handleTabChange = useCallback((tab: SettingsTab) => {
     setActiveTab(tab);
-  }, []);
+    dispatch(recordFeatureUsed({ feature: `settings.${tab}` }));
+  }, [dispatch]);
 
   const handleThemeChange = useCallback(
     (nextTheme: Theme) => {

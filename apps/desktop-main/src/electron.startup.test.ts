@@ -118,10 +118,10 @@ describe('electron startup observability', () => {
 
     expect(ipcHandleMock).toHaveBeenCalledWith('logger:getRecent', expect.any(Function));
     expect(logger.debug).toHaveBeenCalledWith(
-      'Registered early IPC handler',
+      'Registered early IPC handlers',
       expect.objectContaining({
         category: 'ipc',
-        channel: 'logger:getRecent',
+        channels: ['logger:getRecent', 'updater:*', 'app:version'],
       }),
     );
   });

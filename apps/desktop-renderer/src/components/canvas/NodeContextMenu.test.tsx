@@ -4,6 +4,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NodeContextMenu } from './NodeContextMenu.js';
+import { NodeCallbacksContext, type NodeCallbacks } from './node-callbacks-context.js';
 
 const TRIGGER_LABEL = 'Node trigger';
 
@@ -12,16 +13,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function createProps(
-  overrides: Partial<React.ComponentProps<typeof NodeContextMenu>> = {},
-): React.ComponentProps<typeof NodeContextMenu> {
+function createCallbacks(
+  overrides: Partial<NodeCallbacks> = {},
+): NodeCallbacks {
   return {
-    children: <button type="button">{TRIGGER_LABEL}</button>,
-    nodeId: 'node-1',
-    nodeType: 'image',
-    locked: false,
-    colorTag: undefined,
-    onRename: vi.fn(),
+    onTitleChange: vi.fn(),
     onDelete: vi.fn(),
     onDuplicate: vi.fn(),
     onCut: vi.fn(),
@@ -29,23 +25,42 @@ function createProps(
     onPaste: vi.fn(),
     onDisconnect: vi.fn(),
     onConnectTo: vi.fn(),
-    onLock: vi.fn(),
+    onRename: vi.fn(),
     onGenerate: vi.fn(),
+    onLock: vi.fn(),
     onColorTag: vi.fn(),
+    onCopyPromptForAI: vi.fn(),
+    onUpload: vi.fn(),
+    onSelectVariant: vi.fn(),
+    onToggleSeedLock: vi.fn(),
+    onToggleCollapse: vi.fn(),
+    onOpacityChange: vi.fn(),
     ...overrides,
   };
 }
 
 async function openMenu(
-  overrides: Partial<React.ComponentProps<typeof NodeContextMenu>> = {},
+  overrides: { nodeType?: 'text' | 'image' | 'video' | 'audio' | 'backdrop'; locked?: boolean; colorTag?: string } = {},
+  cbOverrides: Partial<NodeCallbacks> = {},
 ) {
-  const props = createProps(overrides);
-  const view = render(<NodeContextMenu {...props} />);
+  const callbacks = createCallbacks(cbOverrides);
+  const view = render(
+    <NodeCallbacksContext.Provider value={callbacks}>
+      <NodeContextMenu
+        nodeId="node-1"
+        nodeType={overrides.nodeType ?? 'image'}
+        locked={overrides.locked ?? false}
+        colorTag={overrides.colorTag}
+      >
+        <button type="button">{TRIGGER_LABEL}</button>
+      </NodeContextMenu>
+    </NodeCallbacksContext.Provider>,
+  );
 
   fireEvent.contextMenu(screen.getByRole('button', { name: TRIGGER_LABEL }));
   await screen.findByText('Rename');
 
-  return { ...view, props };
+  return { ...view, callbacks };
 }
 
 describe('NodeContextMenu', () => {
@@ -79,21 +94,21 @@ describe('NodeContextMenu', () => {
   });
 
   it('Cut callback fires with correct nodeId', async () => {
-    const { props } = await openMenu();
+    const { callbacks } = await openMenu();
     fireEvent.click(screen.getByText('Cut'));
-    expect(props.onCut).toHaveBeenCalledWith('node-1');
+    expect(callbacks.onCut).toHaveBeenCalledWith('node-1');
   });
 
   it('Copy callback fires with correct nodeId', async () => {
-    const { props } = await openMenu();
+    const { callbacks } = await openMenu();
     fireEvent.click(screen.getByText('Copy'));
-    expect(props.onCopy).toHaveBeenCalledWith('node-1');
+    expect(callbacks.onCopy).toHaveBeenCalledWith('node-1');
   });
 
   it('Paste callback fires with correct nodeId', async () => {
-    const { props } = await openMenu();
+    const { callbacks } = await openMenu();
     fireEvent.click(screen.getByText('Paste'));
-    expect(props.onPaste).toHaveBeenCalledWith('node-1');
+    expect(callbacks.onPaste).toHaveBeenCalledWith('node-1');
   });
 
   it('Lock label toggles based on locked prop', async () => {

@@ -7,15 +7,12 @@ import {
   requireString,
   requireText,
   requireStringArray,
-  requireBoolean,
   requirePosition,
   requireDirection,
   requireCanvasNodeType,
   requireCanvas,
-  requireNode,
   requireCanvasNodeById,
   selectEdgeHandles,
-  replaceNodePreservingEdges,
   buildDefaultNodeData,
   buildDuplicatedNodes,
   layoutCanvasNodes,
@@ -37,7 +34,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         type: {
           type: 'string',
           description: 'The node type to create.',
-          enum: ['text', 'image', 'video', 'audio'],
+          enum: ['text', 'image', 'video', 'audio', 'backdrop'],
         },
         title: { type: 'string', description: 'The display title for the node.' },
         content: { type: 'string', description: 'Text content (text nodes only).' },
@@ -78,6 +75,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           image: { width: 280, height: 280 },
           video: { width: 280, height: 220 },
           audio: { width: 260, height: 140 },
+          backdrop: { width: 600, height: 400 },
         };
         const dims = defaultDimensions[type];
         const node: CanvasNode = {
@@ -115,69 +113,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
         await deps.addNode(canvasId, node);
         return ok(node);
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const moveNode: AgentTool = {
-    name: 'canvas.moveNode',
-    description: 'Move an existing node to a new position on the canvas.',
-    context: CANVAS_CONTEXT,
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to move.' },
-        position: {
-          type: 'object',
-          description: 'The node position on the canvas.',
-          properties: {
-            x: { type: 'number', description: 'Horizontal coordinate.' },
-            y: { type: 'number', description: 'Vertical coordinate.' },
-          },
-        },
-      },
-      required: ['canvasId', 'nodeId', 'position'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const position = requirePosition(args);
-        await requireNode(deps, canvasId, nodeId);
-        await deps.moveNode(canvasId, nodeId, position);
-        return ok({ nodeId, position });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const renameNode: AgentTool = {
-    name: 'canvas.renameNode',
-    description: 'Rename an existing node.',
-    context: CANVAS_CONTEXT,
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeId: { type: 'string', description: 'The node ID to rename.' },
-        title: { type: 'string', description: 'The new node title.' },
-      },
-      required: ['canvasId', 'nodeId', 'title'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        const title = requireString(args, 'title');
-        await requireNode(deps, canvasId, nodeId);
-        await deps.renameNode(canvasId, nodeId, title);
-        return ok({ nodeId, title });
       } catch (error) {
         return fail(error);
       }
@@ -388,80 +323,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         await requireCanvas(deps, canvasId);
         await deps.deleteCanvas(canvasId);
         return ok({ canvasId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const toggleBypass: AgentTool = {
-    name: 'canvas.toggleBypass',
-    description: 'Set the bypassed flag on one or more nodes.',
-    context: CANVAS_CONTEXT,
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeIds: {
-          type: 'array',
-          description: 'The node IDs to update.',
-          items: { type: 'string', description: 'A node ID.' },
-        },
-        bypassed: { type: 'boolean', description: 'Whether the nodes should be bypassed.' },
-      },
-      required: ['canvasId', 'nodeIds', 'bypassed'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeIds = requireStringArray(args, 'nodeIds');
-        const bypassed = requireBoolean(args, 'bypassed');
-        const updatedNodes: CanvasNode[] = [];
-
-        for (const nodeId of nodeIds) {
-          const { node } = await requireNode(deps, canvasId, nodeId);
-          updatedNodes.push(await replaceNodePreservingEdges(deps, canvasId, node, { bypassed }));
-        }
-
-        return ok({ nodeIds, bypassed, nodes: updatedNodes });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const toggleLock: AgentTool = {
-    name: 'canvas.toggleLock',
-    description: 'Set the locked flag on one or more nodes.',
-    context: CANVAS_CONTEXT,
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeIds: {
-          type: 'array',
-          description: 'The node IDs to update.',
-          items: { type: 'string', description: 'A node ID.' },
-        },
-        locked: { type: 'boolean', description: 'Whether the nodes should be locked.' },
-      },
-      required: ['canvasId', 'nodeIds', 'locked'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        const nodeIds = requireStringArray(args, 'nodeIds');
-        const locked = requireBoolean(args, 'locked');
-        const updatedNodes: CanvasNode[] = [];
-
-        for (const nodeId of nodeIds) {
-          const { node } = await requireNode(deps, canvasId, nodeId);
-          updatedNodes.push(await replaceNodePreservingEdges(deps, canvasId, node, { locked }));
-        }
-
-        return ok({ nodeIds, locked, nodes: updatedNodes });
       } catch (error) {
         return fail(error);
       }
@@ -916,7 +777,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   return {
     tools: [
-      addNode, moveNode, renameNode, renameCanvas, loadCanvas, saveCanvas, deleteCanvas, connectNodes, duplicateNodes, toggleBypass, toggleLock,
+      addNode, renameCanvas, loadCanvas, saveCanvas, deleteCanvas, connectNodes, duplicateNodes,
       importWorkflow, exportWorkflow, getState, listNodes, listEdges, getNode, layout, batchCreate,
     ],
     clipboardRef,

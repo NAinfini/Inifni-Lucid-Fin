@@ -21,10 +21,19 @@ const TRACKED_PREFIXES = [
   'canvas/',
   'presets/',
 ];
-const MAX_STACK = 100;
+const DEFAULT_MAX_STACK = 100;
 /** Maximum total undo stack memory before oldest entries are evicted (10 MB) */
 const MAX_UNDO_MEMORY = 10 * 1024 * 1024;
-const GROUP_WINDOW_MS = 300;
+const DEFAULT_GROUP_WINDOW_MS = 300;
+
+/** Read settings from store, falling back to defaults if unavailable */
+function getUndoSettings(state: Record<string, unknown>): { maxStack: number; groupWindowMs: number } {
+  const commander = state.commander as { undoStackDepth?: number; undoGroupWindowMs?: number } | undefined;
+  return {
+    maxStack: commander?.undoStackDepth ?? DEFAULT_MAX_STACK,
+    groupWindowMs: commander?.undoGroupWindowMs ?? DEFAULT_GROUP_WINDOW_MS,
+  };
+}
 
 const undoStack: UndoCommand[] = [];
 const redoStack: UndoCommand[] = [];
@@ -95,7 +104,9 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
 
   if (shouldTrack(typed.type)) {
     const sliceName = typed.type.split('/')[0];
-    const prevSliceState = (store.getState() as Record<string, unknown>)[sliceName];
+    const currentState = store.getState() as Record<string, unknown>;
+    const prevSliceState = currentState[sliceName];
+    const { maxStack, groupWindowMs } = getUndoSettings(currentState);
     const now = Date.now();
     const label = actionLabel(typed.type);
 
@@ -117,7 +128,7 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
     if (
       lastEntry &&
       lastEntry.execute.type === typed.type &&
-      now - lastEntry.timestamp < GROUP_WINDOW_MS
+      now - lastEntry.timestamp < groupWindowMs
     ) {
       // Update the grouped command's execute to latest, keep original undo
       // Adjust byte accounting: remove old size, add new size
@@ -138,7 +149,7 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
       undoStackBytes += byteSize;
 
       // Evict oldest entries when over MAX_STACK count
-      if (undoStack.length > MAX_STACK) {
+      if (undoStack.length > maxStack) {
         evictOldest();
       }
 

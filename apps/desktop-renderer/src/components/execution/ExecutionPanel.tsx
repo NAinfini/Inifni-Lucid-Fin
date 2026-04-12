@@ -178,7 +178,7 @@ export function ExecutionPanel() {
                     <div className="mt-2">
                       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                         <div
-                          className={`h-full rounded-full transition-all ${
+                          className={`h-full rounded-full transition-[width] duration-200 ${
                             workflow.status === 'failed'
                               ? 'bg-red-400'
                               : workflow.status === 'paused'

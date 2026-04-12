@@ -71,7 +71,10 @@ export function formatErrorDetail(error: unknown): string {
       extra.code = extended.code;
     }
     if (extended.details !== undefined) {
-      extra.details = extended.details;
+      // Strip bulky fields that bloat logs (raw HTML error pages, full request bodies)
+      const details = extended.details as Record<string, unknown>;
+      const { responseText: _responseText, requestBody: _requestBody, responseBody: _responseBody, ...compactDetails } = details;
+      extra.details = compactDetails;
     }
     if (extended.cause !== undefined) {
       extra.cause = extended.cause;

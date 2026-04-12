@@ -5,13 +5,14 @@ import { cn } from '../../../lib/utils.js';
 type BorderSide = 'top' | 'right' | 'bottom' | 'left';
 type HandlePosition = typeof Position.Top | typeof Position.Right | typeof Position.Bottom | typeof Position.Left;
 
-/** 3 anchors per side: 25%, 50%, 75% */
-export const BORDER_HANDLE_OFFSETS = [25, 50, 75] as const;
+/** Single anchor per side at 50% — reduced from 3 (25/50/75%) to cut DOM
+ *  element count by 16 per node (from 24 handles to 8). */
+export const BORDER_HANDLE_OFFSETS = [50] as const;
 
 const BORDER_SIDES: BorderSide[] = ['top', 'right', 'bottom', 'left'];
 
 const HANDLE_CLASS =
-  'lucid-anchor !h-2 !w-2 !rounded-full !border-0 pointer-events-auto transition-all duration-150';
+  'lucid-anchor !h-2 !w-2 !rounded-full !border-0 pointer-events-auto transition-opacity duration-150';
 
 export interface BorderHandleDescriptor {
   id: string;
@@ -61,6 +62,9 @@ export function createBorderHandleDescriptors(
   );
 }
 
+// Pre-computed once at module load — no allocations during render.
+const DEFAULT_DESCRIPTORS = createBorderHandleDescriptors();
+
 interface NodeBorderHandlesProps {
   colorClassName: string;
 }
@@ -68,7 +72,7 @@ interface NodeBorderHandlesProps {
 export function NodeBorderHandles({
   colorClassName,
 }: NodeBorderHandlesProps) {
-  const descriptors = createBorderHandleDescriptors();
+  const descriptors = DEFAULT_DESCRIPTORS;
   return (
     <>
       {descriptors.map((descriptor) => (
