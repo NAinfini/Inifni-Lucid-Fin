@@ -1040,7 +1040,7 @@ function parseJsonRecord(value: unknown): Record<string, unknown> {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : {};
-  } catch {
+  } catch { /* malformed JSON column value — return empty record */
     return {};
   }
 }

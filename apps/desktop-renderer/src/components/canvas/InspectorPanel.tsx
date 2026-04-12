@@ -174,19 +174,19 @@ export function InspectorPanel() {
       void api.character.list().then((list) => {
         if (Array.isArray(list))
           dispatch(setCharacters(list as import('@lucid-fin/contracts').Character[]));
-      });
+      }).catch(() => { /* entity list fetch is best-effort */ });
     }
     if (equipmentItems.length === 0) {
       void api.equipment.list().then((list) => {
         if (Array.isArray(list))
           dispatch(setEquipment(list as import('@lucid-fin/contracts').Equipment[]));
-      });
+      }).catch(() => { /* entity list fetch is best-effort */ });
     }
     if (locationItems.length === 0) {
       void api.location.list().then((list) => {
         if (Array.isArray(list))
           dispatch(setLocations(list as import('@lucid-fin/contracts').Location[]));
-      });
+      }).catch(() => { /* entity list fetch is best-effort */ });
     }
   }, [dispatch, characters.length, equipmentItems.length, locationItems.length]);
 

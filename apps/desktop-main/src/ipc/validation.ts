@@ -9,12 +9,12 @@ export function assertWithinRoot(root: string, target: string): string {
   return resolved;
 }
 
-/** Sanitize a filename component — strip path separators and traversal */
+/** Sanitize a filename component — strip path separators, traversal, and control characters */
 export function sanitizeFilename(name: string): string {
   return (
     name
-      // eslint-disable-next-line no-control-regex
-      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+      .replace(/[<>:"/\\|?*]/g, '_')
+      .replace(/[^\x20-\x7E\x80-\uFFFF]/g, '_')
       .replace(/\.\./g, '_')
       .trim() || 'untitled'
   );

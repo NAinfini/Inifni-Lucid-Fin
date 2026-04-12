@@ -12,21 +12,19 @@ export function lazyPage<T extends ComponentType<unknown>>(
 }
 
 /** Debounce a function */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
+export function debounce<A extends unknown[], R>(fn: (...args: A) => R, ms: number): (...args: A) => void {
   let timer: ReturnType<typeof setTimeout>;
-  return ((...args: Parameters<T>) => {
+  return (...args: A) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
-  }) as unknown as T;
+  };
 }
 
 /** Throttle a function to at most once per `ms` */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function throttle<T extends (...args: any[]) => void>(fn: T, ms: number): T {
+export function throttle<A extends unknown[], R>(fn: (...args: A) => R, ms: number): (...args: A) => void {
   let last = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  return ((...args: Parameters<T>) => {
+  return (...args: A) => {
     const now = Date.now();
     const remaining = ms - (now - last);
     if (remaining <= 0) {
@@ -43,7 +41,7 @@ export function throttle<T extends (...args: any[]) => void>(fn: T, ms: number):
         fn(...args);
       }, remaining);
     }
-  }) as unknown as T;
+  };
 }
 
 /** Request idle callback polyfill */

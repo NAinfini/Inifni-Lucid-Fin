@@ -354,7 +354,21 @@ export function registerAllTools(
     listPresets: listCommanderPresets,
     savePreset: persistCommanderPreset,
     listShotTemplates: async (): Promise<ShotTemplate[]> => {
-      return [...BUILT_IN_SHOT_TEMPLATES];
+      const custom = deps.db.listCustomShotTemplates?.(getCurrentProjectId() ?? '') ?? [];
+      return [...BUILT_IN_SHOT_TEMPLATES, ...custom];
+    },
+    saveShotTemplate: async (template: ShotTemplate): Promise<ShotTemplate> => {
+      const projectId = getCurrentProjectId();
+      if (projectId && deps.db.upsertCustomShotTemplate) {
+        deps.db.upsertCustomShotTemplate(projectId, template);
+      }
+      return template;
+    },
+    deleteShotTemplate: async (templateId: string): Promise<void> => {
+      const projectId = getCurrentProjectId();
+      if (projectId && deps.db.deleteCustomShotTemplate) {
+        deps.db.deleteCustomShotTemplate(projectId, templateId);
+      }
     },
     removeCharacterRef: async (canvasId: string, nodeId: string, characterId: string) => {
       const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
@@ -439,7 +453,7 @@ export function registerAllTools(
       try {
         const key = await deps.keychain.getKey(providerId);
         return key != null && key.length > 0;
-      } catch {
+      } catch { /* keychain read failed — report key as absent */
         return false;
       }
     },
@@ -1040,7 +1054,7 @@ export function registerAllTools(
             await extractFrameAtTime(filePath, scenes[i].time, framePath);
             const { ref } = await deps.cas.importAsset(framePath, 'image');
             keyframeHashes.push(ref.hash);
-          } catch {
+          } catch { /* keyframe extraction failed for this scene — use empty placeholder */
             keyframeHashes.push('');
           }
         }
@@ -1096,7 +1110,7 @@ export function registerAllTools(
       } finally {
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true });
-        } catch {
+        } catch { /* temp dir cleanup failed — not fatal, OS will reclaim on reboot */
           // ignore
         }
       }

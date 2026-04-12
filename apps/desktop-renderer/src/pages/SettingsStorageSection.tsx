@@ -157,7 +157,7 @@ export function SettingsStorageSection() {
       const pp = await window.lucidAPI.storage.getProjectsPath();
       setProjectsPath(pp);
     } catch (err) {
-      console.error('Failed to load storage overview', err);
+      void console.error('[SettingsStorage] Failed to load storage overview:', err);
     } finally {
       setLoading(false);
     }
@@ -182,7 +182,7 @@ export function SettingsStorageSection() {
       const result = await window.lucidAPI.storage.clearLogs();
       showMessage('success', t('settings.storage.logsCleared').replace('{count}', String(result.cleared)));
       void refresh();
-    } catch {
+    } catch { /* IPC call failed — show generic error message */
       showMessage('error', t('settings.storage.actionFailed'));
     } finally {
       setActionLoading(null);
@@ -195,7 +195,7 @@ export function SettingsStorageSection() {
       await window.lucidAPI.storage.clearEmbeddings();
       showMessage('success', t('settings.storage.embeddingsCleared'));
       void refresh();
-    } catch {
+    } catch { /* IPC call failed — show generic error message */
       showMessage('error', t('settings.storage.actionFailed'));
     } finally {
       setActionLoading(null);
@@ -208,7 +208,7 @@ export function SettingsStorageSection() {
       await window.lucidAPI.storage.vacuumDatabase();
       showMessage('success', t('settings.storage.vacuumDone'));
       void refresh();
-    } catch {
+    } catch { /* IPC call failed — show generic error message */
       showMessage('error', t('settings.storage.actionFailed'));
     } finally {
       setActionLoading(null);

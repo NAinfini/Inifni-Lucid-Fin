@@ -48,7 +48,7 @@ export class KlingAdapter implements AIProviderAdapter {
         headers: { Authorization: await this.authHeader() },
       });
       return res.ok || res.status === 405;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

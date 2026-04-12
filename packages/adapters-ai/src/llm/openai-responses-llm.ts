@@ -74,7 +74,7 @@ function normalizeResponsesBaseUrl(baseUrl: string): string {
     const parsed = new URL(normalized);
     parsed.pathname = parsed.pathname.replace(/\/responses$/i, '') || '/';
     return stringifyUrl(parsed);
-  } catch {
+  } catch { /* malformed URL — fall back to string-based /responses stripping */
     return normalized.replace(/\/responses$/i, '');
   }
 }
@@ -122,7 +122,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
         }),
       });
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -295,7 +295,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
           try {
             const parsed = JSON.parse(rawArguments) as unknown;
             parsedArguments = isRecord(parsed) ? parsed : {};
-          } catch {
+          } catch { /* malformed JSON tool arguments — pass raw string for caller to handle */
             parsedArguments = { raw: rawArguments };
           }
         } else if (isRecord(rawArguments)) {

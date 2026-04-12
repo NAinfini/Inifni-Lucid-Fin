@@ -18,6 +18,8 @@ export function registerFfmpegHandlers(ipcMain: IpcMain): void {
     const filePath = requireFilePath(args, 'ffmpeg:probe');
     log.info('ffmpeg:probe', filePath);
 
+    const ffmpegMod = (await import('fluent-ffmpeg')).default as typeof import('fluent-ffmpeg');
+
     return new Promise<{
       duration: number;
       width: number;
@@ -25,8 +27,7 @@ export function registerFfmpegHandlers(ipcMain: IpcMain): void {
       codec: string;
       fps: number;
     }>((resolve, reject) => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const ffmpeg = require('fluent-ffmpeg') as typeof import('fluent-ffmpeg');
+      const ffmpeg = ffmpegMod;
       const ffmpegPath = detectFfmpeg();
       ffmpeg.setFfprobePath(ffmpegPath.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1'));
 

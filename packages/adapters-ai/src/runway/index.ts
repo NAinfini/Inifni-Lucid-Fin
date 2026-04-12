@@ -52,7 +52,7 @@ export class RunwayAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok || res.status === 404;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

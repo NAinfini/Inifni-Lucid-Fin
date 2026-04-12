@@ -42,10 +42,9 @@ export async function initAutoUpdater(win: BrowserWindow): Promise<void> {
 
   try {
     // Dynamic import — electron-updater may not be available in dev
-    // @ts-expect-error electron-updater is an optional runtime dependency
     const mod = await import('electron-updater');
     autoUpdater = mod.autoUpdater as unknown as AppUpdater;
-  } catch {
+  } catch { /* electron-updater not available in dev or unsupported environment — skip */
     log('info', 'electron-updater not available, skipping auto-update init');
     return;
   }

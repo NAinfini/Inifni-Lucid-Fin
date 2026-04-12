@@ -1,11 +1,13 @@
 # Dependencies
 node_modules/
 
-# Build
+# Build output
 dist/
 out/
-build/
 *.tsbuildinfo
+
+# Electron-builder build assets (icons, notarize, entitlements) — tracked
+!apps/desktop-main/build/
 
 # Electron packager output
 release/
@@ -14,12 +16,16 @@ release/
 *.AppImage
 *.snap
 *.deb
+*.rpm
 
 # Native module build artifacts
 **/*.node
 
-# Coverage
+# Coverage & test artifacts
 coverage/
+playwright-report/
+test-results/
+blob-report/
 
 # IDE
 .vscode/
@@ -31,13 +37,6 @@ coverage/
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# AI agent config (local only)
-.agents
-.claude
-.trellis
-*.rpm
-AGENTS.md
 
 # Environment
 .env
@@ -52,12 +51,12 @@ npm-debug.log*
 .npm-cache/
 .vite/
 .turbo/
-*.tsbuildinfo
 
-# Test artifacts
-playwright-report/
-test-results/
-blob-report/
+# AI agent config (local only)
+.agents
+.claude
+.trellis
+AGENTS.md
 
 # Misc
 *.orig

@@ -14,6 +14,9 @@
     "@lucid-fin/storage": "*",
     "@lucid-fin/adapters-ai": "*"
   },
+  "optionalDependencies": {
+    "js-tiktoken": "^1.0.18"
+  },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "typescript": "^6.0.2"

@@ -37,7 +37,7 @@ export class MiniMaxAdapter implements AIProviderAdapter {
       });
       // 401/403 = bad key, anything else (including 400) = key is valid
       return res.status !== 401 && res.status !== 403;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

@@ -27,7 +27,7 @@ export class ComfyUIAdapter implements AIProviderAdapter {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/system_stats`, { timeoutMs: 5000 });
       return res.ok;
-    } catch {
+    } catch { /* network error — ComfyUI server unreachable, report as invalid */
       return false;
     }
   }

@@ -38,6 +38,8 @@ export interface CanvasToolDeps {
   listPresets: (category?: PresetCategory) => Promise<import('@lucid-fin/contracts').PresetDefinition[]>;
   savePreset: (preset: import('@lucid-fin/contracts').PresetDefinition) => Promise<import('@lucid-fin/contracts').PresetDefinition>;
   listShotTemplates: () => Promise<import('@lucid-fin/contracts').ShotTemplate[]>;
+  saveShotTemplate: (template: import('@lucid-fin/contracts').ShotTemplate) => Promise<import('@lucid-fin/contracts').ShotTemplate>;
+  deleteShotTemplate: (templateId: string) => Promise<void>;
   removeCharacterRef: (canvasId: string, nodeId: string, characterId: string) => Promise<void>;
   removeEquipmentRef: (canvasId: string, nodeId: string, equipmentId: string) => Promise<void>;
   removeLocationRef: (canvasId: string, nodeId: string, locationId: string) => Promise<void>;
@@ -441,7 +443,7 @@ export function createTrackSetWithPreset(
   presetId: string,
 ): PresetTrackSet {
   const next = structuredClone(existing ?? createEmptyPresetTrackSet()) as TrackMap;
-  const track = next[category];
+  const _track = next[category];
   next[category] = {
     category,
     entries: [

@@ -13,6 +13,7 @@ import type {
   ScriptDocument,
   ColorStyle,
   Series,
+  ShotTemplate,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
@@ -531,12 +532,12 @@ export class SqliteIndex {
             for (const row of rows) insert.run(...cols.map((c) => row[c]));
           });
           tx();
-        } catch {
+        } catch { /* insert failed for this table during migration seed — skip unrecoverable tables */
           /* skip unrecoverable tables */
         }
       }
       old.close();
-    } catch {
+    } catch { /* backup DB unreadable — fresh DB is still valid */
       /* backup unreadable -- fresh DB is still valid */
     }
   }
@@ -774,6 +775,37 @@ export class SqliteIndex {
         }
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Custom shot templates
+  // ---------------------------------------------------------------------------
+
+  listCustomShotTemplates(projectId: string): ShotTemplate[] {
+    const rows = this.db.prepare(
+      'SELECT id, name, description, tracks_json, created_at FROM custom_shot_templates WHERE project_id = ?'
+    ).all(projectId) as Array<{ id: string; name: string; description: string; tracks_json: string; created_at: number }>;
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      builtIn: false,
+      tracks: JSON.parse(row.tracks_json),
+      createdAt: row.created_at,
+    }));
+  }
+
+  upsertCustomShotTemplate(projectId: string, template: ShotTemplate): void {
+    this.db.prepare(`
+      INSERT INTO custom_shot_templates (id, project_id, name, description, tracks_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
+        tracks_json = excluded.tracks_json, updated_at = excluded.updated_at
+    `).run(template.id, projectId, template.name, template.description, JSON.stringify(template.tracks), template.createdAt ?? Date.now(), Date.now());
+  }
+
+  deleteCustomShotTemplate(projectId: string, templateId: string): void {
+    this.db.prepare('DELETE FROM custom_shot_templates WHERE id = ? AND project_id = ?').run(templateId, projectId);
   }
 
   // ---------------------------------------------------------------------------

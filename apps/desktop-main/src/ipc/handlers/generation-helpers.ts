@@ -197,7 +197,7 @@ export function extensionFromUrl(url: string): string | undefined {
     const pathname = new URL(url).pathname;
     const ext = path.extname(pathname).slice(1).toLowerCase();
     return ext.length > 0 ? ext : undefined;
-  } catch {
+  } catch { /* malformed URL — extension cannot be determined */
     return undefined;
   }
 }

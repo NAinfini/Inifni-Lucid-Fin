@@ -35,7 +35,7 @@ export class ElevenLabsAdapter implements AIProviderAdapter {
         headers: { 'xi-api-key': this.apiKey },
       });
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

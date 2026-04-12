@@ -28,7 +28,7 @@ export class OllamaAdapter implements AIProviderAdapter {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/api/tags`, { timeoutMs: 5000 });
       return res.ok;
-    } catch {
+    } catch { /* network error — Ollama server unreachable, report as invalid */
       return false;
     }
   }

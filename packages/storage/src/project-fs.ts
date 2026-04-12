@@ -31,9 +31,8 @@ export class ProjectFS {
   }): { manifest: ProjectManifest; projectPath: string } {
     const id = randomUUID();
     const now = Date.now();
-    // Sanitize title for filesystem safety
-    // eslint-disable-next-line no-control-regex
-    const safeTitle = config.title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim() || 'untitled';
+    // Sanitize title for filesystem safety — strip path separators and non-printable chars
+    const safeTitle = config.title.replace(/[<>:"/\\|?*]/g, '_').replace(/[^\x20-\x7E\x80-\uFFFF]/g, '_').trim() || 'untitled';
     const projectDir = path.join(
       config.basePath ?? path.join(APP_DIR, 'projects'),
       `${safeTitle}.lucid`,

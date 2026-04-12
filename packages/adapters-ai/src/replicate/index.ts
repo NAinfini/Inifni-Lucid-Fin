@@ -42,7 +42,7 @@ export class ReplicateAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -121,7 +121,7 @@ export class ReplicateAdapter implements AIProviderAdapter {
     try {
       const prediction = await getPrediction(this.apiKey, jobId, this.name, this.baseUrl);
       return toJobStatus(prediction.status);
-    } catch {
+    } catch { /* network error — assume job status is unknown, report as failed */
       return JobStatus.Failed;
     }
   }

@@ -32,7 +32,7 @@ export class IdeogramAdapter implements AIProviderAdapter {
         body: JSON.stringify({ image_request: { image_url: 'https://example.com/test.png' } }),
       });
       return res.status !== 401;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

@@ -56,7 +56,7 @@ describe('CAS', () => {
   it('assetExists returns true for imported assets', async () => {
     const { ref } = await cas.importAsset(srcFile, 'image');
     expect(cas.assetExists(ref.hash, 'image', 'png')).toBe(true);
-    expect(cas.assetExists('nonexistent', 'image', 'png')).toBe(false);
+    expect(cas.assetExists('deadbeef00000000', 'image', 'png')).toBe(false);
   });
 
   it('uses project root when set', async () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AiMessage, AiState } from './ai.js';
+import type { AiMessage } from './ai.js';
 import {
   addBatchOp,
   addMessage,

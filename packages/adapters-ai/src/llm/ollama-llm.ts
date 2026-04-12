@@ -31,7 +31,7 @@ export class OllamaLLMAdapter implements LLMAdapter {
     try {
       const res = await fetch(`${this.baseUrl}/api/tags`);
       return res.ok;
-    } catch {
+    } catch { /* network error — Ollama server unreachable, report as invalid */
       return false;
     }
   }
@@ -91,7 +91,7 @@ export class OllamaLLMAdapter implements LLMAdapter {
         try {
           const json = JSON.parse(line) as { message?: { content?: string }; done?: boolean };
           if (json.message?.content) yield json.message.content;
-        } catch {
+        } catch { /* malformed NDJSON line from Ollama stream — skip and continue */
           /* skip */
         }
       }

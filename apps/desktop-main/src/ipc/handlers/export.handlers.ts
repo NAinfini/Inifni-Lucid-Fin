@@ -1,12 +1,12 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import _path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IpcMain } from 'electron';
 import { dialog } from 'electron';
 import archiver from 'archiver';
 import PDFDocument from 'pdfkit';
 import type { CAS } from '@lucid-fin/storage';
-import type { AssetType, CanvasNode, ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
+import type { AssetType, CanvasNode, VideoNodeData } from '@lucid-fin/contracts';
 import log from '../../logger.js';
 import {
   exportFCPXML,
@@ -291,7 +291,7 @@ export function registerExportHandlers(ipcMain: IpcMain, cas?: CAS, canvasStore?
           if (assetPath) {
             try {
               doc.image(assetPath, x, y, { width: cellWidth, height: thumbHeight, fit: [cellWidth, thumbHeight], align: 'center', valign: 'center' });
-            } catch {
+            } catch { /* pdfkit failed to embed image — render placeholder rect */
               doc.rect(x, y, cellWidth, thumbHeight).fill('#2a2a2a');
               doc.fillColor('#666666').fontSize(8).text('Image unavailable', x, y + thumbHeight / 2 - 5, { width: cellWidth, align: 'center' });
             }

@@ -49,7 +49,7 @@ function normalizeClaudeBaseUrl(baseUrl: string): string {
 
     parsed.pathname = normalizedPath || '/';
     return stringifyUrl(parsed);
-  } catch {
+  } catch { /* malformed URL — fall back to string-based path stripping */
     return trimmed.replace(/\/+$/, '').replace(/\/messages$/i, '');
   }
 }
@@ -67,7 +67,7 @@ function buildClaudeMessagesEndpoint(baseUrl: string): string {
       ? `${pathname}/messages`
       : `${pathname || ''}/v1/messages`;
     return stringifyUrl(parsed);
-  } catch {
+  } catch { /* malformed URL — fall back to string-based endpoint construction */
     return /\/v1$/i.test(normalized) ? `${normalized}/messages` : `${normalized}/v1/messages`;
   }
 }
@@ -113,7 +113,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         }),
       });
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -178,7 +178,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
           if (json.type === 'content_block_delta' && json.delta?.text) {
             yield json.delta.text;
           }
-        } catch {
+        } catch { /* malformed SSE line — skip and continue streaming */
           /* skip */
         }
       }
@@ -520,7 +520,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
 
     try {
       return JSON.parse(value) as unknown;
-    } catch {
+    } catch { /* malformed JSON tool argument — return undefined so caller uses empty record */
       return undefined;
     }
   }

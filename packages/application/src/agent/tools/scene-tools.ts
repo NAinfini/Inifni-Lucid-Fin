@@ -19,7 +19,7 @@ export interface SceneToolDeps {
 
 type SceneWithReferenceImages = Scene & { referenceImages?: ReferenceImage[] };
 
-function deriveSceneStatus(scene: Scene): KeyframeStatus {
+function _deriveSceneStatus(scene: Scene): KeyframeStatus {
   if (scene.keyframes.some((keyframe) => keyframe.status === 'generating')) {
     return 'generating';
   }

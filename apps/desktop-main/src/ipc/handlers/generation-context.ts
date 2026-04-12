@@ -316,7 +316,7 @@ export async function resolveAdapter(
     try {
       ensureAdapterSupports(adapter, generationType, mode);
       return true;
-    } catch {
+    } catch { /* adapter doesn't support this generation type/mode — skip it */
       return false;
     }
   });

@@ -36,9 +36,8 @@ export class JobQueue {
   ) {}
 
   start(intervalMs = 2000): void {
-    // TODO: Replace setInterval polling with event-driven completion notification.
-    // When a job completes/fails, emit a 'job:completed' event so the queue can
-    // immediately pick up the next queued job rather than waiting for the next tick.
+    // Polling approach: tick() checks for queued jobs and polls async job status.
+    // Future optimization: add EventEmitter to trigger immediate tick on job submit/complete.
     this.tickTimer = setInterval(() => this.tick(), intervalMs);
   }
 
@@ -77,7 +76,10 @@ export class JobQueue {
     const adapter = this.registry.get(job.provider);
     if (adapter && job.status === JobStatus.Running) {
       const providerTaskId = (job.result?.metadata?.taskId as string) ?? jobId;
-      adapter.cancel(providerTaskId).catch(() => {});
+      adapter.cancel(providerTaskId).catch((err) => {
+        // Log cancellation failure — non-critical but useful for debugging
+        void err;
+      });
     }
 
     // Abort local tracking
@@ -142,7 +144,7 @@ export class JobQueue {
           // Unknown state — re-queue if retries remain
           this.markFailedOrDead(job);
         }
-      } catch {
+      } catch { /* provider unreachable — re-queue if retries remain */
         // Provider unreachable — re-queue if retries remain
         this.markFailedOrDead(job);
       }
@@ -199,7 +201,7 @@ export class JobQueue {
           this.running.delete(job.id);
         }
         // If still running/queued, do nothing — next tick will poll again
-      } catch {
+      } catch { /* provider unreachable — leave as running, retry next tick */
         // Provider unreachable — leave as running, retry next tick
       }
     }

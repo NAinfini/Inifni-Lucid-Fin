@@ -26,7 +26,7 @@ export class SDWebUIAdapter implements AIProviderAdapter {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/sdapi/v1/sd-models`, { timeoutMs: 5000 });
       return res.ok;
-    } catch {
+    } catch { /* network error — SD WebUI server unreachable, report as invalid */
       return false;
     }
   }

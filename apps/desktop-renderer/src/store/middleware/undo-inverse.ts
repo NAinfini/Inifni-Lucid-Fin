@@ -157,7 +157,7 @@ export function computeInverseAction(
 export function estimateActionBytes(action: UnknownAction): number {
   try {
     return JSON.stringify(action).length;
-  } catch {
+  } catch { /* circular reference in action — return conservative fallback */
     return 512; // Conservative fallback
   }
 }

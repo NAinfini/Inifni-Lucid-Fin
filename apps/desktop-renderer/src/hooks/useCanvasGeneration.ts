@@ -94,7 +94,7 @@ export function useCanvasGeneration(): {
             })),
           ),
         );
-      });
+      }).catch(() => { /* asset refresh is best-effort */ });
     });
     const unsubFailed = api.canvasGeneration.onFailed((data) => {
       if (data.canvasId !== activeCanvasId) return;

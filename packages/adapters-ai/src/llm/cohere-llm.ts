@@ -55,7 +55,7 @@ export class CohereLLMAdapter implements LLMAdapter {
         }),
       });
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

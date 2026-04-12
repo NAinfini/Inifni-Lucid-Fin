@@ -33,7 +33,7 @@ export class VeoAdapter implements AIProviderAdapter {
         headers: { 'x-goog-api-key': this.apiKey },
       });
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

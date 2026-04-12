@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { dialog, shell } from 'electron';
+import { app, dialog, shell } from 'electron';
 import type { IpcMain } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
@@ -31,7 +31,7 @@ function dirSize(dirPath: string): number {
 function fileSize(filePath: string): number {
   try {
     return fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
-  } catch {
+  } catch { /* stat failed — treat as zero size */
     return 0;
   }
 }
@@ -64,9 +64,8 @@ export function registerStorageHandlers(
     const logsPath = path.join(APP_ROOT, 'logs');
     const userDataLogs = (() => {
       try {
-        const { app } = require('electron');
         return path.join(app.getPath('userData'), 'logs');
-      } catch {
+      } catch { /* app.getPath failed in test/dev environment — fall back to local logs path */
         return logsPath;
       }
     })();
@@ -135,7 +134,6 @@ export function registerStorageHandlers(
       path.join(APP_ROOT, 'logs'),
     ];
     try {
-      const { app } = require('electron');
       logDirs.push(path.join(app.getPath('userData'), 'logs'));
     } catch { /* no-op */ }
 

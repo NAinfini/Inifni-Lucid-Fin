@@ -642,7 +642,7 @@ function SingleReferenceImage({
           void api?.asset.import(filePath, 'image').then((ref) => {
             const r = ref as { hash: string } | null;
             if (r?.hash) onDropHash(r.hash);
-          });
+          }).catch(() => { /* image import failure is non-critical */ });
         }
       }
     }

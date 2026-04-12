@@ -96,7 +96,7 @@ export function normalizeOpenAICompatibleBaseUrl(baseUrl: string): string {
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
-  } catch {
+  } catch { /* malformed URL — return stripped string as-is */
     return trimmed.replace(/\/+$/, '');
   }
 
@@ -123,7 +123,7 @@ function buildOpenAICompatibleBaseUrlCandidates(baseUrl: string): string[] {
       parsed.pathname = '/v1';
       candidates.add(stringifyUrl(parsed));
     }
-  } catch {
+  } catch { /* malformed URL — return the single non-parsed candidate */
     return [normalized];
   }
 
@@ -191,7 +191,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         });
         if (res.ok) {
           this.baseUrl = candidate;
-          this.tryExtractContextWindow(res).catch(() => {});
+          this.tryExtractContextWindow(res).catch(() => { /* best-effort context window detection */ });
           return true;
         }
 
@@ -220,7 +220,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           this.baseUrl = candidate;
           return true;
         }
-      } catch {
+      } catch { /* network error — continue to the next candidate base URL before declaring failure */
         // Continue to the next candidate base URL before declaring failure.
       }
     }
@@ -250,7 +250,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         }
         break;
       }
-    } catch {
+    } catch { /* models response unreadable — context window discovery is best-effort */
       // Non-critical — context window discovery is best-effort
     }
   }
@@ -283,7 +283,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           };
           const chunk = json.choices[0]?.delta?.content;
           if (chunk) yield chunk;
-        } catch {
+        } catch { /* malformed SSE line — skip and continue streaming */
           /* skip malformed */
         }
       }
@@ -317,7 +317,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           try {
             const parsedCandidate = JSON.parse(rawArguments) as unknown;
             parsedArguments = isRecord(parsedCandidate) ? parsedCandidate : {};
-          } catch {
+          } catch { /* malformed JSON tool arguments — pass raw string for caller to handle */
             parsedArguments = { raw: rawArguments };
           }
         } else if (isRecord(rawArguments)) {
@@ -745,7 +745,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
     try {
       return JSON.parse(value) as unknown;
-    } catch {
+    } catch { /* malformed JSON optional param — return undefined so caller uses empty record */
       return undefined;
     }
   }

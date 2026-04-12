@@ -144,7 +144,7 @@ function loadStorage(): PromptTemplateStorage {
     }
 
     return { builtInCustoms: {}, builtInNames: {}, customTemplates: [] };
-  } catch {
+  } catch { /* malformed JSON or localStorage unavailable — use empty storage */
     return { builtInCustoms: {}, builtInNames: {}, customTemplates: [] };
   }
 }
@@ -183,8 +183,7 @@ function saveTemplates(templates: PromptTemplate[]): void {
         customTemplates,
       } satisfies PromptTemplateStorage),
     );
-  } catch {
-    // localStorage unavailable
+  } catch { /* localStorage unavailable — changes to prompt templates will not persist */
   }
 }
 

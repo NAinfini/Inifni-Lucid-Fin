@@ -37,7 +37,7 @@ export class GoogleImagen3Adapter implements AIProviderAdapter {
       const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`;
       const res = await fetch(url);
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

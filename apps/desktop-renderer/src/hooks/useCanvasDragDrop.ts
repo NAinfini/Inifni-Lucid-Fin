@@ -165,7 +165,7 @@ export function useCanvasDragDrop(
                   position: pos,
                 }),
               );
-            });
+            }).catch(() => { /* text read failure is non-critical */ });
             offsetY += 180;
             handledAny = true;
           } else if (file.type.startsWith('image/')) {
@@ -192,7 +192,7 @@ export function useCanvasDragDrop(
                     position: pos,
                   }),
                 );
-              });
+              }).catch(() => { /* image import failure is non-critical */ });
             }
             offsetY += 220;
             handledAny = true;
@@ -220,7 +220,7 @@ export function useCanvasDragDrop(
                     position: pos,
                   }),
                 );
-              });
+              }).catch(() => { /* video import failure is non-critical */ });
             }
             offsetY += 220;
             handledAny = true;

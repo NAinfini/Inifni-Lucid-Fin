@@ -86,7 +86,7 @@ export function log(level: LogLevel, message: string, data?: Record<string, unkn
     try {
       rotateIfNeeded();
       appendFileSync(logFile, line, 'utf8');
-    } catch {
+    } catch { /* log write failed (disk full, permissions) — don't crash on log failure */
       /* don't crash on log failure */
     }
   }
@@ -111,7 +111,7 @@ function rotateIfNeeded(): void {
       if (existsSync(from)) renameSync(from, to);
     }
     renameSync(logFile, `${logFile}.1`);
-  } catch {
+  } catch { /* log rotation failed (permissions, race condition) — leave current log file as-is */
     /* ignore rotation errors */
   }
 }
@@ -160,7 +160,7 @@ function buildDetail(data?: Record<string, unknown>): string | undefined {
 function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
-  } catch {
+  } catch { /* circular reference or non-serializable value — fall back to String() */
     return String(value);
   }
 }

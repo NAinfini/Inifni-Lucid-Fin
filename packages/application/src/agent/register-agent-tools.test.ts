@@ -47,6 +47,8 @@ function createMockDeps(): AllToolDeps {
     listPresets: vi.fn(async () => []),
     savePreset: vi.fn(async (preset: PresetDefinition) => preset),
     listShotTemplates: vi.fn(async () => []),
+    saveShotTemplate: vi.fn(async (t) => t),
+    deleteShotTemplate: vi.fn(async () => {}),
     getCanvasState: vi.fn(async () => ({
       id: 'canvas-1',
       projectId: 'project-1',

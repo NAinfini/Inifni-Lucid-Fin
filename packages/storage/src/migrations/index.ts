@@ -10,7 +10,9 @@
  */
 import type { Migration } from './runner.js';
 import { migration001 } from './001-baseline-columns.js';
+import { migration002 } from './002-custom-shot-templates.js';
 
 export const migrations: Migration[] = [
   migration001,
+  migration002,
 ];

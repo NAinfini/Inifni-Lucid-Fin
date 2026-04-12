@@ -70,15 +70,20 @@ function renderMarkdown(raw: string): string {
   let html = raw.replace(
     codeBlockRe,
     (_m: string, lang: string, code: string) =>
-      `<pre class="commander-codeblock" data-lang="${lang}"><code>${escapeHtml(code.trimEnd())}</code></pre>`,
+      `<pre class="commander-codeblock" data-lang="${escapeHtml(lang)}"><code>${escapeHtml(code.trimEnd())}</code></pre>`,
   );
-  html = html.replace(inlineCodeRe, '<code class="commander-inline-code">$1</code>');
+  html = html.replace(inlineCodeRe, (_m: string, code: string) =>
+    `<code class="commander-inline-code">${escapeHtml(code)}</code>`,
+  );
   html = html.replace(boldRe, '<strong>$1</strong>');
   html = html.replace(italicRe, '<em>$1</em>');
-  html = html.replace(
-    linkRe,
-    '<a href="$2" target="_blank" rel="noopener" class="text-primary underline">$1</a>',
-  );
+  html = html.replace(linkRe, (_m: string, text: string, url: string) => {
+    const trimmed = url.trim().toLowerCase();
+    if (trimmed.startsWith('javascript:') || trimmed.startsWith('data:') || trimmed.startsWith('vbscript:')) {
+      return escapeHtml(text);
+    }
+    return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-primary underline">${escapeHtml(text)}</a>`;
+  });
   html = html.replace(listItemRe, '<li class="ml-4 list-disc">$1</li>');
   html = html.replace(ulWrapRe, '<ul class="my-1">$1</ul>');
   html = html.replace(newlineRe, '<br/>');
@@ -374,7 +379,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }).catch(() => { /* clipboard write failure is non-critical */ });
   }, [text]);
 
   return (
@@ -685,7 +690,7 @@ export function CommanderPanel() {
         } else {
           dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
         }
-      } catch {
+      } catch { /* compact IPC call failed — show noop message as fallback */
         dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
       }
     }
@@ -789,7 +794,7 @@ export function CommanderPanel() {
           break;
       }
     },
-    [sendMessage, dispatch, t, SLASH_COMMANDS],
+    [dispatch, t, SLASH_COMMANDS, triggerCompact],
   );
 
   // Auto-expanding textarea height
@@ -947,6 +952,76 @@ export function CommanderPanel() {
     };
   }, [dispatch, open, size.height, size.width]);
 
+  // Estimate context usage with per-category breakdown
+  const contextUsage = useMemo(() => {
+    let userChars = 0;
+    let assistantChars = 0;
+    let toolCallChars = 0;
+    let toolResultChars = 0;
+    let userCount = 0;
+    let assistantCount = 0;
+    let toolCallCount = 0;
+    for (const msg of messages) {
+      const contentLen = msg.content?.length ?? 0;
+      if (msg.role === 'user') {
+        userChars += contentLen;
+        userCount++;
+      } else {
+        assistantChars += contentLen;
+        assistantCount++;
+      }
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          toolCallChars += JSON.stringify(tc.arguments).length;
+          toolCallCount++;
+          if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
+        }
+      }
+    }
+    assistantChars += currentStreamContent?.length ?? 0;
+    const totalChars = userChars + assistantChars + toolCallChars + toolResultChars;
+    // Token estimate: ~4 chars per token (matches backend ESTIMATED_CHARS_PER_TOKEN)
+    const toTokens = (c: number) => Math.round(c / 4);
+    const estimatedTokens = toTokens(totalChars);
+    const ctxWindow = historyTokenBudget;
+    const pct = Math.min(100, Math.round((estimatedTokens / ctxWindow) * 100));
+    return {
+      pct,
+      estimatedTokens,
+      ctxWindow,
+      breakdown: {
+        user: toTokens(userChars),
+        assistant: toTokens(assistantChars),
+        toolCalls: toTokens(toolCallChars),
+        toolResults: toTokens(toolResultChars),
+      },
+      counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
+    };
+  }, [historyTokenBudget, messages, currentStreamContent]);
+
+  // Auto-compact when context reaches 95%, with 10s cooldown
+  const autoCompactedRef = useRef(false);
+  const lastCompactTimeRef = useRef(0);
+  useEffect(() => {
+    const now = Date.now();
+    const cooldownMs = 10_000;
+    if (
+      contextUsage?.pct != null
+      && contextUsage.pct >= 95
+      && !autoCompactedRef.current
+      && !isStreaming
+      && now - lastCompactTimeRef.current > cooldownMs
+    ) {
+      autoCompactedRef.current = true;
+      lastCompactTimeRef.current = now;
+      void triggerCompact();
+    }
+    // Reset the flag when usage drops below 70% (after successful compact)
+    if (contextUsage?.pct != null && contextUsage.pct < 70) {
+      autoCompactedRef.current = false;
+    }
+  }, [contextUsage?.pct, isStreaming, triggerCompact]);
+
   if (!open) {
     return null;
   }
@@ -1089,76 +1164,6 @@ export function CommanderPanel() {
 
   const providers = llmSettings?.providers ?? [];
   const activeProvider = providers.find((p) => p.id === providerId) ?? providers[0];
-
-  // Estimate context usage with per-category breakdown
-  const contextUsage = useMemo(() => {
-    let userChars = 0;
-    let assistantChars = 0;
-    let toolCallChars = 0;
-    let toolResultChars = 0;
-    let userCount = 0;
-    let assistantCount = 0;
-    let toolCallCount = 0;
-    for (const msg of messages) {
-      const contentLen = msg.content?.length ?? 0;
-      if (msg.role === 'user') {
-        userChars += contentLen;
-        userCount++;
-      } else {
-        assistantChars += contentLen;
-        assistantCount++;
-      }
-      if (msg.toolCalls) {
-        for (const tc of msg.toolCalls) {
-          toolCallChars += JSON.stringify(tc.arguments).length;
-          toolCallCount++;
-          if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
-        }
-      }
-    }
-    assistantChars += currentStreamContent?.length ?? 0;
-    const totalChars = userChars + assistantChars + toolCallChars + toolResultChars;
-    // Token estimate: ~4 chars per token (matches backend ESTIMATED_CHARS_PER_TOKEN)
-    const toTokens = (c: number) => Math.round(c / 4);
-    const estimatedTokens = toTokens(totalChars);
-    const ctxWindow = historyTokenBudget;
-    const pct = Math.min(100, Math.round((estimatedTokens / ctxWindow) * 100));
-    return {
-      pct,
-      estimatedTokens,
-      ctxWindow,
-      breakdown: {
-        user: toTokens(userChars),
-        assistant: toTokens(assistantChars),
-        toolCalls: toTokens(toolCallChars),
-        toolResults: toTokens(toolResultChars),
-      },
-      counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
-    };
-  }, [historyTokenBudget, messages, currentStreamContent]);
-
-  // Auto-compact when context reaches 95%, with 10s cooldown
-  const autoCompactedRef = useRef(false);
-  const lastCompactTimeRef = useRef(0);
-  useEffect(() => {
-    const now = Date.now();
-    const cooldownMs = 10_000;
-    if (
-      contextUsage?.pct != null
-      && contextUsage.pct >= 95
-      && !autoCompactedRef.current
-      && !isStreaming
-      && now - lastCompactTimeRef.current > cooldownMs
-    ) {
-      autoCompactedRef.current = true;
-      lastCompactTimeRef.current = now;
-      void triggerCompact();
-    }
-    // Reset the flag when usage drops below 70% (after successful compact)
-    if (contextUsage?.pct != null && contextUsage.pct < 70) {
-      autoCompactedRef.current = false;
-    }
-  }, [contextUsage?.pct, isStreaming, triggerCompact]);
 
   return (
     <section

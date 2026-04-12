@@ -42,7 +42,7 @@ function updateIntensityInDefaults(defaultsText: string, intensity: number): str
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       parsed = {};
     }
-  } catch {
+  } catch { /* invalid JSON in defaults text — reset to empty object */
     parsed = {};
   }
   parsed.intensity = intensity;

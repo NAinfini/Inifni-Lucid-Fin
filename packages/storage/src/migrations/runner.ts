@@ -76,7 +76,7 @@ export function getCurrentVersion(db: BetterSqlite3.Database): number {
       'SELECT MAX(version) as v FROM schema_migrations',
     ).get() as { v: number | null } | undefined;
     return row?.v ?? 0;
-  } catch {
+  } catch { /* schema_migrations table not yet created — treat as version 0 */
     return 0;
   }
 }

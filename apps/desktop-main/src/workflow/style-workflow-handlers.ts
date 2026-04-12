@@ -275,7 +275,7 @@ function parseExtractionJson(jsonText: string): Record<string, unknown> {
 
   try {
     return JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-  } catch {
+  } catch { /* JSON.parse failed on AI response — propagate a descriptive error */
     throw new Error('AI returned malformed JSON');
   }
 }

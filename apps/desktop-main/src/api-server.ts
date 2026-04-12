@@ -48,7 +48,7 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
       try {
         const raw = Buffer.concat(chunks).toString('utf-8');
         resolve(raw ? JSON.parse(raw) : {});
-      } catch {
+      } catch { /* JSON.parse failed — reject with descriptive error */
         reject(new Error('Invalid JSON body'));
       }
     });
@@ -88,7 +88,7 @@ async function handleExportMetadata(
   let body: unknown;
   try {
     body = await readBody(req);
-  } catch {
+  } catch { /* readBody rejected (invalid JSON) — return 400 */
     sendError(res, 400, 'Invalid JSON body');
     return;
   }

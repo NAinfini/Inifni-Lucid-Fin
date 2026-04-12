@@ -58,14 +58,14 @@ export function LoggerPanel() {
     void navigator.clipboard.writeText(text).then(() => {
       setCopiedId(entry.id);
       setTimeout(() => setCopiedId(null), 1500);
-    });
+    }).catch(() => { /* clipboard write failure is non-critical */ });
   }, []);
 
   const handleCopyAll = useCallback(() => {
     const text = filteredEntries.map((e) =>
       `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] [${e.category}] ${e.message}${e.detail ? '\n' + e.detail : ''}`
     ).join('\n');
-    void navigator.clipboard.writeText(text);
+    void navigator.clipboard.writeText(text).catch(() => { /* clipboard write failure is non-critical */ });
   }, [filteredEntries]);
 
   // Only auto-scroll when NEW entries arrive, not on expand/copy/filter changes

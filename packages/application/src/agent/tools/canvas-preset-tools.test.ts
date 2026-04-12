@@ -84,6 +84,8 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
       {
         id: 'tmpl-1',
         name: 'Cinematic Sweep',
+        description: 'A cinematic sweep template',
+        builtIn: true,
         tracks: {
           camera: {
             category: 'camera',
@@ -101,6 +103,8 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
         },
       },
     ]),
+    saveShotTemplate: vi.fn(async (t) => t),
+    deleteShotTemplate: vi.fn(async () => {}),
     removeCharacterRef: vi.fn(async () => undefined),
     removeEquipmentRef: vi.fn(async () => undefined),
     removeLocationRef: vi.fn(async () => undefined),
@@ -140,6 +144,10 @@ describe('createCanvasPresetTools', () => {
       'canvas.applyShotTemplate',
       'canvas.autoFillEmptyTracks',
       'canvas.createCustomPreset',
+      'shotTemplate.list',
+      'shotTemplate.create',
+      'shotTemplate.update',
+      'shotTemplate.delete',
     ]);
   });
 
@@ -351,5 +359,81 @@ describe('createCanvasPresetTools', () => {
       success: false,
       error: 'Shot template "missing" not found. Available: Cinematic Sweep',
     });
+  });
+});
+
+describe('shotTemplate.list', () => {
+  it('lists all shot templates', async () => {
+    const deps = createDeps();
+    const result = await getTool('shotTemplate.list', deps).execute({});
+    expect((result as { success: boolean }).success).toBe(true);
+    const data = (result as { success: true; data: { total: number; templates: unknown[] } }).data;
+    expect(data.total).toBeGreaterThan(0);
+  });
+
+  it('filters by query', async () => {
+    const deps = createDeps();
+    const result = await getTool('shotTemplate.list', deps).execute({ query: 'dramatic' });
+    expect((result as { success: boolean }).success).toBe(true);
+    const data = (result as { success: true; data: { total: number } }).data;
+    expect(data.total).toBe(0);
+  });
+});
+
+describe('shotTemplate.create', () => {
+  it('creates a custom shot template', async () => {
+    const deps = createDeps();
+    const result = await getTool('shotTemplate.create', deps).execute({
+      name: 'test-template',
+      description: 'A test template',
+      entries: [
+        { category: 'camera', presetId: 'builtin-camera-dolly-in', intensity: 80 },
+        { category: 'scene', presetId: 'builtin-scene-low-key', intensity: 70 },
+      ],
+    });
+    expect((result as { success: boolean }).success).toBe(true);
+    const data = (result as { success: true; data: { name: string; categories: string[] } }).data;
+    expect(data.name).toBe('test-template');
+    expect(data.categories).toContain('camera');
+    expect(data.categories).toContain('scene');
+    expect(deps.saveShotTemplate).toHaveBeenCalled();
+  });
+
+  it('rejects empty entries', async () => {
+    const deps = createDeps();
+    const result = await getTool('shotTemplate.create', deps).execute({
+      name: 'test-template',
+      description: 'A test template',
+      entries: [],
+    });
+    expect((result as { success: boolean }).success).toBe(false);
+  });
+});
+
+describe('shotTemplate.update', () => {
+  it('rejects built-in templates', async () => {
+    const deps = createDeps();
+    const result = await getTool('shotTemplate.update', deps).execute({ templateId: 'tmpl-1' });
+    expect((result as { success: boolean }).success).toBe(false);
+    expect((result as { success: false; error: string }).error).toBe('Cannot modify built-in templates.');
+  });
+});
+
+describe('shotTemplate.delete', () => {
+  it('rejects deletion of built-in templates', async () => {
+    const deps = createDeps();
+    const result = await getTool('shotTemplate.delete', deps).execute({ templateId: 'tmpl-1' });
+    expect((result as { success: boolean }).success).toBe(false);
+    expect((result as { success: false; error: string }).error).toBe('Cannot delete built-in templates.');
+  });
+
+  it('calls deleteShotTemplate for custom templates', async () => {
+    const deps = createDeps();
+    vi.mocked(deps.listShotTemplates).mockResolvedValueOnce([
+      { id: 'custom-tmpl-1', name: 'My Custom', description: 'custom', builtIn: false, tracks: {} },
+    ]);
+    const result = await getTool('shotTemplate.delete', deps).execute({ templateId: 'custom-tmpl-1' });
+    expect((result as { success: boolean }).success).toBe(true);
+    expect(deps.deleteShotTemplate).toHaveBeenCalledWith('custom-tmpl-1');
   });
 });

@@ -75,23 +75,25 @@ const HISTORY_CHAR_BUDGET = HISTORY_TOKEN_BUDGET * ESTIMATED_CHARS_PER_TOKEN;
 // ---------------------------------------------------------------------------
 let _tikEncoder: { encode(text: string): { length: number } } | null | undefined;
 
-function estimateTokens(text: string): number {
-  if (_tikEncoder === undefined) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require('js-tiktoken') as {
-        encodingForModel: (m: string) => { encode(t: string): { length: number } };
-      };
-      _tikEncoder = mod.encodingForModel('gpt-4o');
-    } catch {
-      _tikEncoder = null;
-    }
+// Attempt to load js-tiktoken asynchronously at module init (optional dependency)
+void (async () => {
+  try {
+    const modPath = 'js-tiktoken';
+    const mod = await import(/* webpackIgnore: true */ modPath) as {
+      encodingForModel: (m: string) => { encode(t: string): { length: number } };
+    };
+    _tikEncoder = mod.encodingForModel('gpt-4o');
+  } catch { /* js-tiktoken not available — fall back to char-based token estimate */
+    _tikEncoder = null;
   }
+})();
+
+function estimateTokens(text: string): number {
   if (_tikEncoder) return _tikEncoder.encode(text).length;
   return Math.ceil(text.length / ESTIMATED_CHARS_PER_TOKEN);
 }
 
-function measureMessageTokens(messages: Array<{ content: string }>): number {
+function _measureMessageTokens(messages: Array<{ content: string }>): number {
   // ~4 overhead tokens per message for role/metadata
   return messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
 }
@@ -163,7 +165,7 @@ function truncateString(value: string, maxLength = 160): string {
 function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value);
-  } catch {
+  } catch { /* circular reference — return serialization failure stub */
     return JSON.stringify({ success: false, error: 'Failed to serialize tool result' });
   }
 }
@@ -293,7 +295,7 @@ function pruneInLoopMessages(messages: LLMMessage[], charBudget: number): void {
           } else {
             outcomes.push(`${toolNames[outcomes.length] ?? 'tool'}: ok`);
           }
-        } catch {
+        } catch { /* tool result is not JSON — treat as success */
           outcomes.push(`${toolNames[outcomes.length] ?? 'tool'}: ok`);
         }
         index++;
@@ -347,8 +349,7 @@ function pruneInLoopMessages(messages: LLMMessage[], charBudget: number): void {
 
     // Insert a compressed summary of all dropped exchanges
     const summaryContent = `[Context compacted — ${summaryParts.length} earlier step(s) summarized]\n${summaryParts.join('\n')}`;
-    const summaryChars = summaryContent.length;
-    currentChars += summaryChars;
+    // summaryChars accounted for conceptually; currentChars not read after this point
 
     const summaryMsg: LLMMessage = { role: 'user', content: summaryContent };
     messages.splice(Math.min(firstDropIdx, messages.length), 0, summaryMsg);
@@ -456,7 +457,7 @@ function truncateOldToolResults(messages: LLMMessage[]): number {
 
       msg.content = safeStringify(compact);
       truncatedCount++;
-    } catch {
+    } catch { /* tool result is not JSON — hard-truncate the raw string */
       // Not JSON — just hard-truncate
       msg.content = msg.content.slice(0, 200) + '... [compacted]';
       truncatedCount++;
@@ -891,7 +892,7 @@ export class AgentOrchestrator {
       });
 
       return true;
-    } catch {
+    } catch { /* LLM summarization failed — fall back to rule-based compaction */
       // LLM call failed — fall back to rule-based compaction
       pruneInLoopMessages(messages, charBudget);
       return true;

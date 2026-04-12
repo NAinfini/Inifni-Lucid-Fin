@@ -322,6 +322,10 @@ describe('Settings updater UI', () => {
       onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        test: vi.fn().mockResolvedValue({ ok: false }),
       },
       updater: {
         status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
@@ -731,6 +735,10 @@ describe('Settings updater UI', () => {
       onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        test: vi.fn().mockResolvedValue({ ok: false }),
       },
       updater: {
         status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),

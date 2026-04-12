@@ -76,6 +76,8 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     listPresets: vi.fn(async () => []),
     savePreset: vi.fn(async (preset: PresetDefinition) => preset),
     listShotTemplates: vi.fn(async () => []),
+    saveShotTemplate: vi.fn(async (t) => t),
+    deleteShotTemplate: vi.fn(async () => {}),
     removeCharacterRef: vi.fn(async (_canvasId: string, _nodeId: string, characterId: string) => {
       const node = canvas.nodes[0];
       const current = (node.data as { characterRefs?: Array<{ characterId: string }> }).characterRefs ?? [];

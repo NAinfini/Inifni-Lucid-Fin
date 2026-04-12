@@ -265,7 +265,7 @@ describe('createStoryboardWorkflowHandlers', () => {
       now: () => 2000,
     });
 
-    const workflowRunId = workflowEngine.start({
+    const _workflowRunId = workflowEngine.start({
       workflowType: 'storyboard.generate',
       projectId: 'project-1',
       entityType: 'scene',

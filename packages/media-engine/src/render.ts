@@ -56,8 +56,7 @@ function validatePath(inputPath: string, assetRoot?: string): string {
     }
   }
   // Strip newlines and control chars that could break concat format
-  // eslint-disable-next-line no-control-regex
-  const sanitized = resolved.replace(/[\r\n\x00-\x1f]/g, '');
+  const sanitized = resolved.replace(/[\r\n]/g, '').replace(/[^\x20-\x7E\x80-\uFFFF]/g, '');
   if (sanitized !== resolved) throw new Error(`Path contains invalid characters: ${inputPath}`);
   return sanitized;
 }
@@ -110,7 +109,7 @@ export function renderTimeline(
   return runCommand(cmd).finally(() => {
     try {
       unlinkSync(listPath);
-    } catch {
+    } catch { /* temp concat list cleanup failed — non-fatal, file will be cleaned up eventually */
       /* ignore */
     }
   });

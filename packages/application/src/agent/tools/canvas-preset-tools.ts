@@ -3,6 +3,7 @@ import {
   createEmptyPresetTrackSet,
   type PresetCategory,
   type PresetDefinition,
+  type PresetTrack,
   type PresetTrackEntry,
   type PresetTrackSet,
 } from '@lucid-fin/contracts';
@@ -557,9 +558,220 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
     },
   };
 
+  const listShotTemplates: AgentTool = {
+    name: 'shotTemplate.list',
+    description: 'List all available shot templates (built-in + custom).',
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Optional search query to filter templates by name (case-insensitive).' },
+      },
+    },
+    async execute(args) {
+      try {
+        const templates = await deps.listShotTemplates();
+        const query = typeof args.query === 'string' ? args.query.toLowerCase() : '';
+        const filtered = query ? templates.filter((t) => t.name.toLowerCase().includes(query)) : templates;
+        return ok({
+          total: filtered.length,
+          templates: filtered.map((t) => ({
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            builtIn: t.builtIn,
+            categories: Object.keys(t.tracks),
+            entryCount: Object.values(t.tracks).reduce((sum, track) => sum + (track?.entries.length ?? 0), 0),
+          })),
+        });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const createShotTemplate: AgentTool = {
+    name: 'shotTemplate.create',
+    description:
+      'Create a custom shot template — a reusable bundle of preset entries across categories. ' +
+      'Use this when you find a combination of presets that works well for a specific shot type ' +
+      '(e.g., noir interrogation, romantic golden hour, horror POV).',
+    tier: 2,
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Display name for the template.' },
+        description: { type: 'string', description: 'Short description of the shot type.' },
+        entries: {
+          type: 'array',
+          items: {
+            type: 'object',
+            description: 'A preset entry in the template.',
+            properties: {
+              category: { type: 'string', description: 'Preset category.', enum: ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'] },
+              presetId: { type: 'string', description: 'The preset ID to include.' },
+              intensity: { type: 'number', description: 'Intensity 0-100. Default 75.' },
+            },
+            required: true,
+          },
+          description: 'Array of preset entries to bundle into this template.',
+        },
+      },
+      required: ['name', 'description', 'entries'],
+    },
+    async execute(args) {
+      try {
+        const name = requireString(args, 'name');
+        const description = requireString(args, 'description');
+        const entries = args.entries as Array<{ category: string; presetId: string; intensity?: number }>;
+        if (!Array.isArray(entries) || entries.length === 0) {
+          throw new Error('entries must be a non-empty array of { category, presetId, intensity? }');
+        }
+
+        const tracks: Partial<Record<PresetCategory, PresetTrack>> = {};
+        for (const entry of entries) {
+          const cat = entry.category as PresetCategory;
+          if (!PRESET_CATEGORIES.includes(cat)) {
+            throw new Error(`Invalid category "${entry.category}". Valid: ${PRESET_CATEGORIES.join(', ')}`);
+          }
+          const intensity = typeof entry.intensity === 'number' ? Math.max(0, Math.min(100, entry.intensity)) : 75;
+          if (!tracks[cat]) {
+            tracks[cat] = { category: cat, entries: [], intensity };
+          }
+          tracks[cat]!.entries.push({
+            id: `tmpl-${cat}-${crypto.randomUUID().slice(0, 8)}`,
+            category: cat,
+            presetId: entry.presetId,
+            params: {},
+            order: tracks[cat]!.entries.length,
+            intensity,
+          });
+        }
+
+        const template: import('@lucid-fin/contracts').ShotTemplate = {
+          id: `custom-tmpl-${crypto.randomUUID()}`,
+          name,
+          description,
+          builtIn: false,
+          tracks,
+          createdAt: Date.now(),
+        };
+
+        const saved = await deps.saveShotTemplate(template);
+        return ok({
+          id: saved.id,
+          name: saved.name,
+          description: saved.description,
+          categories: Object.keys(saved.tracks),
+          entryCount: Object.values(saved.tracks).reduce((sum, track) => sum + (track?.entries.length ?? 0), 0),
+        });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const updateShotTemplate: AgentTool = {
+    name: 'shotTemplate.update',
+    description: 'Update a custom shot template. Cannot modify built-in templates.',
+    tier: 2,
+    parameters: {
+      type: 'object',
+      properties: {
+        templateId: { type: 'string', description: 'The template ID to update.' },
+        name: { type: 'string', description: 'New display name.' },
+        description: { type: 'string', description: 'New description.' },
+        entries: {
+          type: 'array',
+          items: {
+            type: 'object',
+            description: 'A preset entry to apply.',
+            properties: {
+              category: { type: 'string', description: 'Preset category.', enum: ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'] },
+              presetId: { type: 'string', description: 'The preset ID.' },
+              intensity: { type: 'number', description: 'Intensity 0-100.' },
+            },
+            required: true,
+          },
+          description: 'Replace all entries with this new set. Omit to keep existing entries.',
+        },
+      },
+      required: ['templateId'],
+    },
+    async execute(args) {
+      try {
+        const templateId = requireString(args, 'templateId');
+        const templates = await deps.listShotTemplates();
+        const existing = templates.find((t) => t.id === templateId);
+        if (!existing) throw new Error(`Template "${templateId}" not found.`);
+        if (existing.builtIn) throw new Error('Cannot modify built-in templates.');
+
+        const updated = structuredClone(existing);
+        if (typeof args.name === 'string') updated.name = args.name;
+        if (typeof args.description === 'string') updated.description = args.description;
+
+        if (Array.isArray(args.entries) && args.entries.length > 0) {
+          const entries = args.entries as Array<{ category: string; presetId: string; intensity?: number }>;
+          const tracks: Partial<Record<PresetCategory, PresetTrack>> = {};
+          for (const entry of entries) {
+            const cat = entry.category as PresetCategory;
+            if (!PRESET_CATEGORIES.includes(cat)) {
+              throw new Error(`Invalid category "${entry.category}".`);
+            }
+            const intensity = typeof entry.intensity === 'number' ? Math.max(0, Math.min(100, entry.intensity)) : 75;
+            if (!tracks[cat]) {
+              tracks[cat] = { category: cat, entries: [], intensity };
+            }
+            tracks[cat]!.entries.push({
+              id: `tmpl-${cat}-${crypto.randomUUID().slice(0, 8)}`,
+              category: cat,
+              presetId: entry.presetId,
+              params: {},
+              order: tracks[cat]!.entries.length,
+              intensity,
+            });
+          }
+          updated.tracks = tracks;
+        }
+
+        const saved = await deps.saveShotTemplate(updated);
+        return ok({ id: saved.id, name: saved.name, description: saved.description });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const deleteShotTemplate: AgentTool = {
+    name: 'shotTemplate.delete',
+    description: 'Delete a custom shot template. Cannot delete built-in templates.',
+    tier: 3,
+    parameters: {
+      type: 'object',
+      properties: {
+        templateId: { type: 'string', description: 'The template ID to delete.' },
+      },
+      required: ['templateId'],
+    },
+    async execute(args) {
+      try {
+        const templateId = requireString(args, 'templateId');
+        const templates = await deps.listShotTemplates();
+        const existing = templates.find((t) => t.id === templateId);
+        if (!existing) throw new Error(`Template "${templateId}" not found.`);
+        if (existing.builtIn) throw new Error('Cannot delete built-in templates.');
+        await deps.deleteShotTemplate(templateId);
+        return ok({ deleted: templateId });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
   return [
     readNodePresetTracks, writeNodePresetTracks,
     addPresetTrackEntry, removePresetTrackEntry, updatePresetTrackEntry, movePresetTrackEntry,
     applyShotTemplate, autoFillEmptyTracks, createCustomPreset,
+    listShotTemplates, createShotTemplate, updateShotTemplate, deleteShotTemplate,
   ];
 }

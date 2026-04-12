@@ -47,7 +47,7 @@ export function emitToWindow(
 export function safeStringifyForLog(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
-  } catch {
+  } catch { /* circular reference or non-serializable value — fall back to String() */
     return String(value);
   }
 }

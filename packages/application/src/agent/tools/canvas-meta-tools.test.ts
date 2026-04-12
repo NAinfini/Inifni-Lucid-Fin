@@ -28,6 +28,8 @@ function createDeps(): CanvasToolDeps {
     listPresets: vi.fn(async () => []),
     savePreset: vi.fn(async (preset) => preset),
     listShotTemplates: vi.fn(async () => []),
+    saveShotTemplate: vi.fn(async (t) => t),
+    deleteShotTemplate: vi.fn(async () => {}),
     removeCharacterRef: vi.fn(async () => undefined),
     removeEquipmentRef: vi.fn(async () => undefined),
     removeLocationRef: vi.fn(async () => undefined),

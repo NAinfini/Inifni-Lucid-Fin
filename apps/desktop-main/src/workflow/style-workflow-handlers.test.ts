@@ -218,7 +218,7 @@ describe('createStyleWorkflowHandlers', () => {
       now: () => 1000,
     });
 
-    const workflowRunId = workflowEngine.start({
+    const _workflowRunId = workflowEngine.start({
       workflowType: 'style.extract',
       projectId: 'project-1',
       entityType: 'asset',

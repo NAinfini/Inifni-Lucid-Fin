@@ -19,7 +19,7 @@ import {
   Volume2,
   Zap,
 } from 'lucide-react';
-import type { LLMProviderAuthStyle, LLMProviderProtocol } from '@lucid-fin/contracts';
+import type { LLMProviderProtocol } from '@lucid-fin/contracts';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import type { RootState } from '../store/index.js';
@@ -424,7 +424,7 @@ function ProviderCard({
                     if (storedKey && !provider.hasKey) {
                       dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
                     }
-                  });
+                  }).catch(() => { /* keychain read failure — user can retry */ });
                 }
               }
             }}

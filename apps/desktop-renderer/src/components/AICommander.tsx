@@ -138,7 +138,7 @@ export function AICommander() {
       try {
         await api.ai.chat(text, context);
         dispatch(flushStream());
-      } catch {
+      } catch { /* AI request failed — error message dispatched to UI below */
         dispatch(
           addMessage({
             id: `err-${Date.now()}`,

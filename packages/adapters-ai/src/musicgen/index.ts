@@ -26,7 +26,7 @@ export class MusicGenAdapter implements AIProviderAdapter {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/api/health`, { timeoutMs: 5000 });
       return res.ok;
-    } catch {
+    } catch { /* network error — local MusicGen server unreachable, report as invalid */
       return false;
     }
   }

@@ -110,7 +110,7 @@ const DEFAULT_GENERATION_CONCURRENCY = 1;
 function loadPersistedProviderId(): string | null {
   try {
     return localStorage.getItem(COMMANDER_PROVIDER_KEY);
-  } catch {
+  } catch { /* localStorage unavailable — no persisted provider */
     return null;
   }
 }
@@ -138,7 +138,7 @@ function loadPersistedSettings(): PersistedSettings {
     const raw = localStorage.getItem(COMMANDER_SETTINGS_KEY);
     if (!raw) return {};
     return JSON.parse(raw) as PersistedSettings;
-  } catch {
+  } catch { /* malformed JSON or localStorage unavailable — use defaults */
     return {};
   }
 }
@@ -146,8 +146,7 @@ function loadPersistedSettings(): PersistedSettings {
 function persistSettings(settings: PersistedSettings): void {
   try {
     localStorage.setItem(COMMANDER_SETTINGS_KEY, JSON.stringify(settings));
-  } catch {
-    // localStorage unavailable
+  } catch { /* localStorage unavailable */
   }
 }
 
@@ -176,7 +175,7 @@ function loadPersistedSessions(): CommanderSession[] {
     const raw = localStorage.getItem(COMMANDER_SESSIONS_KEY);
     if (!raw) return [];
     return JSON.parse(raw) as CommanderSession[];
-  } catch {
+  } catch { /* malformed JSON or localStorage unavailable — start with empty sessions */
     return [];
   }
 }
@@ -203,12 +202,12 @@ function persistSessions(sessions: CommanderSession[]): void {
       return;
     }
     localStorage.setItem(COMMANDER_SESSIONS_KEY, json);
-  } catch {
+  } catch { /* QuotaExceededError — evict oldest half and retry once */
     // QuotaExceededError — evict oldest half and retry once
     try {
       const halved = trimmed.slice(0, Math.max(1, Math.floor(trimmed.length / 2)));
       localStorage.setItem(COMMANDER_SESSIONS_KEY, JSON.stringify(halved));
-    } catch {
+    } catch { /* localStorage completely full — clear sessions to prevent data loss elsewhere */
       // Completely full — clear sessions to prevent data loss elsewhere
       try { localStorage.removeItem(COMMANDER_SESSIONS_KEY); } catch { /* noop */ }
     }
@@ -290,8 +289,7 @@ export const commanderSlice = createSlice({
         } else {
           localStorage.removeItem(COMMANDER_PROVIDER_KEY);
         }
-      } catch {
-        // localStorage unavailable
+      } catch { /* localStorage unavailable */
       }
     },
     addUserMessage(state, action: PayloadAction<string>) {

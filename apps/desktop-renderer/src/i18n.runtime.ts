@@ -11,7 +11,7 @@ function loadLocale(): Locale {
     const sys = navigator.language;
     if (sys.startsWith('zh')) return 'zh-CN';
     return 'en-US';
-  } catch {
+  } catch { /* localStorage unavailable (e.g. SSR or restricted context) — use default locale */
     return 'zh-CN';
   }
 }
@@ -26,7 +26,7 @@ export function setLocale(locale: Locale): void {
 
   try {
     localStorage.setItem('lucid-fin:locale', locale);
-  } catch {
+  } catch { /* localStorage unavailable — locale preference will not persist */
     // localStorage unavailable
   }
 

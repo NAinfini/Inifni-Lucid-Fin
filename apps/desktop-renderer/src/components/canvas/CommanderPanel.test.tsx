@@ -137,7 +137,7 @@ describe('CommanderPanel', () => {
       [createCanvas([createCanvasNode({ id: 'node-1', title: 'Opening Shot' })])],
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /canvas\.set node provider/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Set Node Provider/i }));
 
     expect(screen.getAllByText(/Opening Shot \(node-1\)/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/providerId/)).toBeTruthy();

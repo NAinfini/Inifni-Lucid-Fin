@@ -20,7 +20,7 @@ function formatRelativeDate(iso: string): string {
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 30) return `${diffDays}d ago`;
     return date.toLocaleDateString();
-  } catch {
+  } catch { /* invalid date string — return raw ISO value as fallback */
     return iso;
   }
 }

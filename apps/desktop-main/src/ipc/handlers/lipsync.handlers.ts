@@ -31,7 +31,7 @@ function getLipSyncSettings(): LipSyncSettings | null {
       cloudEndpoint: typeof obj['cloudEndpoint'] === 'string' ? obj['cloudEndpoint'] : undefined,
       localModelPath: typeof obj['localModelPath'] === 'string' ? obj['localModelPath'] : undefined,
     };
-  } catch {
+  } catch { /* malformed lipsync config JSON — return null to use defaults */
     return null;
   }
 }

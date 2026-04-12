@@ -99,6 +99,8 @@ export class CAS {
   }
 
   getAssetPath(hash: string, type: AssetType, ext: string): string {
+    if (!/^[a-f0-9]+$/i.test(hash)) throw new Error(`Invalid asset hash: ${hash}`);
+    if (!/^[a-zA-Z0-9]+$/.test(ext)) throw new Error(`Invalid file extension: ${ext}`);
     const prefix = hash.slice(0, 2);
     return path.join(this.assetsRoot, type, prefix, `${hash}.${ext}`);
   }

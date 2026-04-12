@@ -32,7 +32,7 @@ export function ExportEngine() {
   const [nleFormat, setNleFormat] = useState<NLEFormat>('fcpxml');
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const { title } = useSelector((s: RootState) => s.project);
+  const { title: _title } = useSelector((s: RootState) => s.project);
 
   const NLE_FORMATS: Array<{ id: NLEFormat; labelKey: string; ext: string }> = [
     { id: 'fcpxml', labelKey: 'export.fcpxml', ext: '.fcpxml' },
@@ -120,7 +120,7 @@ export function ExportEngine() {
     } finally {
       setExporting(false);
     }
-  }, [dispatch, title]);
+  }, [dispatch]);
 
   const tabs = [
     { key: 'render' as const, icon: Film, label: t('export.render') },

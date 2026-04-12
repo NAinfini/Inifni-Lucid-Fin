@@ -136,7 +136,7 @@ describe("registerProjectHandlers", () => {
 
     await expect(create?.({}, { title: "" })).rejects.toThrow("title is required");
     await expect(
-      create?.({}, { title: "Pilot", basePath: "C:\\outside-home" }),
+      create?.({}, { title: "Pilot", basePath: path.resolve(os.homedir(), "..", "outside-home") }),
     ).rejects.toThrow("basePath must be within user home directory");
   });
 
@@ -167,7 +167,7 @@ describe("registerProjectHandlers", () => {
     const handlers = registerHandlers(projectFS, db, cas);
     const open = handlers.get("project:open");
 
-    await expect(open?.({}, { path: "C:\\outside-home" })).rejects.toThrow(
+    await expect(open?.({}, { path: path.resolve(os.homedir(), "..", "outside-home") })).rejects.toThrow(
       "path must be within user home directory",
     );
 
@@ -202,19 +202,19 @@ describe("registerProjectHandlers", () => {
 
     await expect(save?.({})).rejects.toThrow("No project open");
 
-    getCurrentProjectPath.mockReturnValue("C:\\Users\\nainf\\Projects\\current");
+    getCurrentProjectPath.mockReturnValue(path.join(os.homedir(), "Projects", "current"));
     await expect(save?.({})).resolves.toBeUndefined();
 
-    expect(projectFS.openProject).toHaveBeenCalledWith("C:\\Users\\nainf\\Projects\\current");
+    expect(projectFS.openProject).toHaveBeenCalledWith(path.join(os.homedir(), "Projects", "current"));
     expect(projectFS.saveProject).toHaveBeenCalledWith(
-      "C:\\Users\\nainf\\Projects\\current",
+      path.join(os.homedir(), "Projects", "current"),
       expect.objectContaining({ id: "project-3" }),
     );
   });
 
   it("lists projects and manages snapshots with path and id validation", async () => {
     resetCommon();
-    getCurrentProjectPath.mockReturnValue("C:\\Users\\nainf\\Projects\\current");
+    getCurrentProjectPath.mockReturnValue(path.join(os.homedir(), "Projects", "current"));
     const projectFS = {
       createProject: vi.fn(),
       openProject: vi.fn(),
@@ -243,12 +243,12 @@ describe("registerProjectHandlers", () => {
     ).resolves.toBeUndefined();
 
     expect(projectFS.createSnapshot).toHaveBeenCalledWith(
-      "C:\\Users\\nainf\\Projects\\current",
+      path.join(os.homedir(), "Projects", "current"),
       "checkpoint",
       db,
     );
     expect(projectFS.restoreSnapshot).toHaveBeenCalledWith(
-      "C:\\Users\\nainf\\Projects\\current",
+      path.join(os.homedir(), "Projects", "current"),
       "snapshot-1",
       db,
     );

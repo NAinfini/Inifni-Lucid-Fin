@@ -139,6 +139,5 @@ function escapeXml(s: string): string {
 }
 /** Strip control chars and newlines that would break EDL format */
 function sanitizeEDL(s: string): string {
-  // eslint-disable-next-line no-control-regex -- intentionally stripping control characters
-  return s.replace(/[\r\n\x00-\x1f]/g, '');
+  return s.replace(/[\r\n]/g, '').replace(/[^\x20-\x7E\x80-\uFFFF]/g, '');
 }

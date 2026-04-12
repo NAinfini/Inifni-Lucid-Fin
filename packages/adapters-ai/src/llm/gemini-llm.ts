@@ -47,7 +47,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
     try {
       const res = await fetch(`${this.baseUrl}/models?key=${this.apiKey}`);
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -100,7 +100,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
           };
           const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
           if (text) yield text;
-        } catch {
+        } catch { /* malformed SSE line — skip and continue streaming */
           /* skip */
         }
       }

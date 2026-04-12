@@ -2,8 +2,12 @@
   "name": "@lucid-fin/desktop-main",
   "version": "0.0.1",
   "description": "Lucid Fin – Electron main process",
-  "author": "Lucid Fin Team",
+  "author": {
+    "name": "NAinfini",
+    "email": "na.infini@gmail.com"
+  },
   "private": true,
+  "repository": "github:NAinfini/Inifni-Lucid-Fin",
   "type": "module",
   "main": "dist/electron.js",
   "scripts": {
@@ -20,11 +24,13 @@
     "@lucid-fin/adapters-ai": "*",
     "@lucid-fin/application": "*",
     "@lucid-fin/contracts": "*",
+    "@lucid-fin/domain": "*",
     "@lucid-fin/media-engine": "*",
     "@lucid-fin/storage": "*",
     "archiver": "^7.0.1",
     "better-sqlite3": "^12.8.0",
     "electron-log": "^5.4.3",
+    "fluent-ffmpeg": "^2.1.3",
     "keytar": "^7.9.0",
     "pdfkit": "^0.18.0",
     "uuid": "^13.0.0",
@@ -34,9 +40,10 @@
     "@electron/rebuild": "^4.0.1",
     "@types/archiver": "^7.0.0",
     "@types/pdfkit": "^0.17.5",
-    "electron": "^41.2.0",
+    "electron": "41.2.0",
     "electron-builder": "^26.8.1",
     "electron-devtools-installer": "^4.0.0",
+    "electron-updater": "^6.6.2",
     "typescript": "^6.0.2"
   }
 }

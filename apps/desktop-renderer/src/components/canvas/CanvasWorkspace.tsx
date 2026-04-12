@@ -89,7 +89,7 @@ import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard.js';
 import { useCanvasDragDrop } from '../../hooks/useCanvasDragDrop.js';
 import { debounce } from '../../utils/performance.js';
 import { getAPI } from '../../utils/api.js';
-import { cn } from '../../lib/utils.js';
+import { cn as _cn } from '../../lib/utils.js';
 import { downloadWorkflowDocument } from '../../utils/workflowExport.js';
 import { materializeImportedCanvas, readWorkflowDocument } from '../../utils/workflowImport.js';
 import { buildExternalAIPrompt } from '../../utils/prompt-export.js';
@@ -201,7 +201,7 @@ function parseClipboardPayload(raw: string): CanvasClipboardPayload | null {
     if (parsed.type === 'lucid-canvas-selection' && parsed.payload?.version === 1) {
       return parsed.payload;
     }
-  } catch {
+  } catch { /* malformed or non-lucid clipboard JSON — return null to skip paste */
     return null;
   }
   return null;

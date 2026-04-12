@@ -15,7 +15,7 @@ function loadCustomEntries(): WorkflowDefEntry[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as WorkflowDefEntry[]) : [];
-  } catch {
+  } catch { /* malformed JSON or localStorage unavailable — return empty list */
     return [];
   }
 }
@@ -23,7 +23,7 @@ function loadCustomEntries(): WorkflowDefEntry[] {
 function saveCustomEntries(entries: WorkflowDefEntry[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch {
+  } catch { /* localStorage unavailable — workflow definitions will not persist */
     /* localStorage unavailable */
   }
 }

@@ -32,7 +32,7 @@ export class FluxAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok;
-    } catch {
+    } catch { /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

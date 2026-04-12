@@ -56,7 +56,7 @@ export function detectScenes(videoPath: string, threshold?: number): Promise<Sce
             score: parseFloat(scoreMatch[1]),
           });
         }
-      } catch {
+      } catch { /* malformed ffmpeg output line — skip and continue parsing scene cuts */
         // Ignore parse errors on individual lines
       }
     });

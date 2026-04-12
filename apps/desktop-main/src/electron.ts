@@ -177,7 +177,7 @@ app.whenReady().then(async () => {
           const metaPath = cas.getAssetPath(hash, assetType, 'meta.json');
           const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { format?: string };
           if (meta.format) ext = meta.format;
-        } catch {
+        } catch { /* meta.json not found or unreadable — use the originally requested extension */
           // meta.json not found — use requested ext
         }
 
@@ -233,7 +233,7 @@ app.whenReady().then(async () => {
     let llmAdapter: import('@lucid-fin/contracts').LLMAdapter | null = null;
     try {
       llmAdapter = await selectConfiguredLLMAdapter(llmRegistry.list());
-    } catch {
+    } catch { /* no configured LLM adapter — AI features degrade gracefully until a key is set */
       log.warn(
         'No configured LLM adapter — AI features will be unavailable until an API key is set',
       );

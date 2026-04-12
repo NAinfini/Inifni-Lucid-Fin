@@ -1,6 +1,7 @@
 import { createCommand, runCommand } from './ffmpeg-utils.js';
 
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+// Reserved for future extension (e.g. custom bitrate override)
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional placeholder interface
 export interface ProxyOptions {
   // reserved for future extension (e.g. custom bitrate override)
 }
