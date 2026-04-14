@@ -406,6 +406,14 @@ export const commanderSlice = createSlice({
     streamError(state, action: PayloadAction<string>) {
       state.error = action.payload;
       state.streaming = false;
+      // Persist the error as a visible message so it survives the next
+      // addUserMessage clearing state.error.
+      state.messages.push({
+        id: createMessageId('error'),
+        role: 'assistant',
+        content: `⚠️ ${action.payload}`,
+        timestamp: Date.now(),
+      });
       state.currentStreamContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
@@ -501,6 +509,14 @@ export const commanderSlice = createSlice({
         state.activeSessionId = null;
         state.messages = [];
       }
+    },
+    /** Rename a saved session */
+    renameSession(state, action: PayloadAction<{ id: string; title: string }>) {
+      const session = state.sessions.find((s) => s.id === action.payload.id);
+      if (!session) return;
+      session.title = action.payload.title;
+      session.updatedAt = Date.now();
+      persistSessions(state.sessions);
     },
     setPosition(state, action: PayloadAction<{ x: number; y: number }>) {
       state.position = action.payload;
@@ -670,6 +686,16 @@ export const commanderSlice = createSlice({
         messageQueue: [],
       };
     },
+    /** Merge sessions loaded from SQLite into in-memory list. DB wins on conflict. */
+    loadSessionsFromDB(state, action: PayloadAction<CommanderSession[]>) {
+      const dbMap = new Map(action.payload.map((s) => [s.id, s]));
+      const merged: CommanderSession[] = [...dbMap.values()];
+      for (const s of state.sessions) {
+        if (!dbMap.has(s.id)) merged.push(s);
+      }
+      merged.sort((a, b) => b.updatedAt - a.updatedAt);
+      state.sessions = merged.slice(0, MAX_SESSIONS);
+    },
   },
 });
 
@@ -689,6 +715,7 @@ export const {
   newSession,
   loadSession,
   deleteSession,
+  renameSession,
   setPosition,
   setSize,
   setPermissionMode,
@@ -717,4 +744,5 @@ export const {
   clearQueue,
   addSystemNotice,
   compactLocalContext,
+  loadSessionsFromDB,
 } = commanderSlice.actions;

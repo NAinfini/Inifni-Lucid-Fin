@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SqliteIndex } from '@lucid-fin/storage';
-import { clearCurrentProject, setCurrentProject } from '../project-context.js';
 import { registerColorStyleHandlers } from './color-style.handlers.js';
 
 function tmpDir() {
@@ -19,7 +18,6 @@ describe('registerColorStyleHandlers', () => {
     base = tmpDir();
     db = new SqliteIndex(path.join(base, 'test.db'));
     handlers = new Map();
-    setCurrentProject('project-1', path.join(base, 'project'));
 
     db.insertAsset({
       hash: 'asset-hash',
@@ -29,12 +27,10 @@ describe('registerColorStyleHandlers', () => {
       fileSize: 42,
       tags: [],
       createdAt: 100,
-      projectId: 'project-1',
     });
   });
 
   afterEach(() => {
-    clearCurrentProject();
     db.close();
     fs.rmSync(base, { recursive: true, force: true });
   });
@@ -71,7 +67,6 @@ describe('registerColorStyleHandlers', () => {
     expect(workflowEngine.start).toHaveBeenCalledWith(
       expect.objectContaining({
         workflowType: 'style.extract',
-        projectId: 'project-1',
         entityType: 'asset',
         entityId: 'asset-hash',
         triggerSource: 'colorStyle:extract',

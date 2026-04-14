@@ -27,7 +27,6 @@ describe('workflow aggregate recomputation', () => {
     db.insertWorkflowRun({
       id: 'wf-agg',
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       triggerSource: 'user',

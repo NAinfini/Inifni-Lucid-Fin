@@ -35,6 +35,7 @@ function ctsPlugin(): Plugin {
 export default defineConfig({
   plugins: [ctsPlugin()],
   test: {
+    pool: 'vmForks',
     exclude: ['**/dist/**', '**/node_modules/**'],
     coverage: {
       provider: 'v8',

@@ -1,6 +1,8 @@
 import {
   createSlice,
+  createEntityAdapter,
   type ActionCreatorWithPayload,
+  type EntityState,
   type PayloadAction,
   type Reducer,
 } from '@reduxjs/toolkit';
@@ -19,12 +21,18 @@ import * as generationReducers from './canvas-generation-reducers.js';
 import * as presetReducers from './canvas-preset-reducers.js';
 
 // ---------------------------------------------------------------------------
+// Entity adapter for normalized canvas storage
+// ---------------------------------------------------------------------------
+
+export const canvasAdapter = createEntityAdapter<Canvas>();
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
 export interface CanvasSliceState {
-  /** All canvases loaded for the current project */
-  canvases: Canvas[];
+  /** Normalized canvases (entity adapter: ids[] + entities{}) */
+  canvases: EntityState<Canvas, string>;
   /** ID of the canvas currently visible on screen */
   activeCanvasId: string | null;
   /** Currently selected node IDs */
@@ -51,7 +59,7 @@ export interface CanvasClipboardPayload {
 }
 
 const initialState: CanvasSliceState = {
-  canvases: [],
+  canvases: canvasAdapter.getInitialState(),
   activeCanvasId: null,
   selectedNodeIds: [],
   selectedEdgeIds: [],
@@ -73,10 +81,11 @@ const internalCanvasSlice = createSlice({
     // --- Canvas-level actions -----------------------------------------------
 
     setCanvases(state, action: PayloadAction<Canvas[]>) {
-      state.canvases = action.payload.map((canvas) => normalizeCanvasNodeFrames(canvas));
-      const stillValid = action.payload.some((c) => c.id === state.activeCanvasId);
+      const normalized = action.payload.map((canvas) => normalizeCanvasNodeFrames(canvas));
+      canvasAdapter.setAll(state.canvases, normalized);
+      const stillValid = state.canvases.ids.includes(state.activeCanvasId ?? '');
       if (!stillValid) {
-        state.activeCanvasId = action.payload[0]?.id ?? null;
+        state.activeCanvasId = (state.canvases.ids[0] as string) ?? null;
         state.selectedNodeIds = [];
         state.selectedEdgeIds = [];
       }
@@ -89,13 +98,13 @@ const internalCanvasSlice = createSlice({
     },
 
     addCanvas(state, action: PayloadAction<Canvas>) {
-      state.canvases.push(normalizeCanvasNodeFrames(action.payload));
+      canvasAdapter.addOne(state.canvases, normalizeCanvasNodeFrames(action.payload));
     },
 
     removeCanvas(state, action: PayloadAction<string>) {
-      state.canvases = state.canvases.filter((c) => c.id !== action.payload);
+      canvasAdapter.removeOne(state.canvases, action.payload);
       if (state.activeCanvasId === action.payload) {
-        state.activeCanvasId = state.canvases[0]?.id ?? null;
+        state.activeCanvasId = (state.canvases.ids[0] as string) ?? null;
       }
     },
 
@@ -118,7 +127,7 @@ const internalCanvasSlice = createSlice({
     },
 
     renameCanvas(state, action: PayloadAction<{ id: string; name: string }>) {
-      const canvas = state.canvases.find((c) => c.id === action.payload.id);
+      const canvas = state.canvases.entities[action.payload.id];
       if (canvas) {
         canvas.name = action.payload.name;
         canvas.updatedAt = Date.now();

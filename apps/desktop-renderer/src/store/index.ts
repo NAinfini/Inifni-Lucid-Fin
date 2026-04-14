@@ -1,5 +1,4 @@
 import { configureStore } from '@reduxjs/toolkit';
-import { projectSlice } from './slices/project.js';
 import { seriesSlice } from './slices/series.js';
 import { scriptSlice } from './slices/script.js';
 import { charactersSlice } from './slices/characters.js';
@@ -30,7 +29,6 @@ import { undoMiddleware } from './middleware/undo.js';
 
 export const store = configureStore({
   reducer: {
-    project: projectSlice.reducer,
     series: seriesSlice.reducer,
     script: scriptSlice.reducer,
     characters: charactersSlice.reducer,

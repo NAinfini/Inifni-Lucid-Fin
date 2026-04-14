@@ -28,7 +28,6 @@ describe('workflow activity projections', () => {
     db.insertWorkflowRun({
       id: 'wf-1',
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       triggerSource: 'user',
@@ -57,7 +56,6 @@ describe('workflow activity projections', () => {
     db.insertWorkflowRun({
       id: 'wf-2',
       workflowType: 'style.extract',
-      projectId: 'project-2',
       entityType: 'asset',
       entityId: 'asset-1',
       triggerSource: 'system',
@@ -192,7 +190,6 @@ describe('workflow activity projections', () => {
 
     const helpers = db as SqliteIndex & {
       listWorkflowTaskSummaries: (filter?: {
-        projectId?: string;
         workflowRunId?: string;
         status?: string;
         limit?: number;
@@ -200,7 +197,7 @@ describe('workflow activity projections', () => {
       }) => WorkflowTaskSummary[];
     };
 
-    expect(helpers.listWorkflowTaskSummaries({ projectId: 'project-1' })).toEqual([
+    expect(helpers.listWorkflowTaskSummaries({ workflowRunId: 'wf-1' })).toEqual([
       {
         id: 'task-newer',
         workflowRunId: 'wf-1',
@@ -266,7 +263,7 @@ describe('workflow activity projections', () => {
 
     expect(
       helpers.listWorkflowTaskSummaries({
-        projectId: 'project-1',
+        workflowRunId: 'wf-1',
         status: TaskRunStatus.Running,
         limit: 1,
       }),

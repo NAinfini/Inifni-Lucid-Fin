@@ -5,7 +5,7 @@ import log from '../../logger.js';
 export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: WorkflowEngine): void {
   ipcMain.handle(
     'workflow:list',
-    async (_event, args?: { projectId?: string; status?: string }) => {
+    async (_event, args?: { status?: string }) => {
       return workflowEngine.list(args);
     },
   );
@@ -36,7 +36,6 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
       _event,
       args: {
         workflowType: string;
-        projectId: string;
         entityType: string;
         entityId?: string;
         triggerSource?: string;
@@ -47,7 +46,6 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
       log.info('Workflow start requested', {
         category: 'workflow',
         workflowType: args.workflowType,
-        projectId: args.projectId,
         entityType: args.entityType,
         entityId: args.entityId,
         triggerSource: args.triggerSource,
@@ -57,7 +55,6 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
         category: 'workflow',
         workflowRunId,
         workflowType: args.workflowType,
-        projectId: args.projectId,
       });
       return { workflowRunId };
     },

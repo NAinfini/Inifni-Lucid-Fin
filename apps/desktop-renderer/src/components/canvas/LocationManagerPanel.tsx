@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
+import { selectAllCanvases } from '../../store/slices/canvas-selectors.js';
 import {
   setLocations,
   addLocation,
@@ -24,9 +25,9 @@ import type {
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { MapPin, Plus, Search, Trash2, Save, Upload, Image, ImageOff, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { useEntityManager } from '../../hooks/useEntityManager.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
-import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 const TYPE_OPTIONS: LocationType[] = ['interior', 'exterior', 'int-ext'];
 const TIME_OF_DAY_OPTIONS = ['day', 'night', 'dawn', 'dusk', 'continuous'];
@@ -74,20 +75,24 @@ function createDraft(loc: Location): LocationDraft {
 
 export function LocationManagerPanel() {
   const { t } = useI18n();
-  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { items, selectedId, filterType, loading } = useSelector((s: RootState) => s.locations);
 
-  const [draft, setDraft] = useState<LocationDraft | null>(null);
-  const [originalDraft, setOriginalDraft] = useState<LocationDraft | null>(null);
-  const [search, setSearch] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
-
-  const isDirty = useMemo(() => {
-    if (!draft || !originalDraft) return false;
-    return JSON.stringify(draft) !== JSON.stringify(originalDraft);
-  }, [draft, originalDraft]);
+  const {
+    draft, setDraft,
+    setOriginalDraft,
+    search, setSearch,
+    error, setError,
+    assetPickerOpen, setAssetPickerOpen,
+    isDirty,
+    reportError,
+    confirmDiscardIfDirty,
+    confirm,
+    ConfirmDialog,
+  } = useEntityManager<LocationDraft>({
+    entityType: 'location',
+    unsavedChangesKey: 'locationManager.unsavedChanges',
+  });
 
   const selectedLoc = useMemo(() => items.find((l) => l.id === selectedId), [items, selectedId]);
 
@@ -101,7 +106,7 @@ export function LocationManagerPanel() {
     });
   }, [items, search, filterType]);
 
-  const canvases = useSelector((s: RootState) => s.canvas.canvases);
+  const canvases = useSelector(selectAllCanvases);
 
   const usageCountById = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -128,17 +133,7 @@ export function LocationManagerPanel() {
     const d = createDraft(selectedLoc);
     setDraft(d);
     setOriginalDraft(d);
-  }, [selectedLoc]);
-
-  const confirmDiscardIfDirty = useCallback(async (): Promise<boolean> => {
-    if (!isDirty) return true;
-    return confirm({
-      title: t('locationManager.unsavedChanges'),
-      destructive: true,
-      confirmLabel: t('action.confirm'),
-      cancelLabel: t('action.cancel'),
-    });
-  }, [confirm, isDirty, t]);
+  }, [selectedLoc, setDraft, setOriginalDraft]);
 
   const handleSelectLocation = useCallback(
     async (id: string) => {
@@ -158,11 +153,11 @@ export function LocationManagerPanel() {
         dispatch(setLocations(list));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'loadLocations');
     } finally {
       dispatch(setLocationsLoading(false));
     }
-  }, [dispatch]);
+  }, [dispatch, reportError]);
 
   useEffect(() => {
     void loadLocations();
@@ -186,9 +181,9 @@ export function LocationManagerPanel() {
         dispatch(selectLocation(saved.id));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'createNewLocation');
     }
-  }, [dispatch, confirmDiscardIfDirty, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t]);
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedLoc) return;
@@ -215,9 +210,9 @@ export function LocationManagerPanel() {
         dispatch(updateLocation({ id: saved.id, data: saved }));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'saveDraft');
     }
-  }, [dispatch, draft, selectedLoc]);
+  }, [dispatch, draft, reportError, selectedLoc, setError]);
 
   const deleteSelected = useCallback(async () => {
     if (!selectedLoc) return;
@@ -236,9 +231,9 @@ export function LocationManagerPanel() {
       }
       dispatch(removeLocation(selectedLoc.id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'deleteSelected');
     }
-  }, [confirm, dispatch, selectedLoc, t]);
+  }, [confirm, dispatch, reportError, selectedLoc, setError, t]);
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -257,10 +252,10 @@ export function LocationManagerPanel() {
         )) as ReferenceImage;
         dispatch(setLocationRefImage({ locationId: selectedLoc.id, refImage }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageUpload');
       }
     },
-    [dispatch, selectedLoc],
+    [dispatch, reportError, selectedLoc, setError],
   );
 
   const handleRefImageRemove = useCallback(
@@ -274,10 +269,10 @@ export function LocationManagerPanel() {
         }
         dispatch(removeLocationRefImage({ locationId: selectedLoc.id, slot }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageRemove');
       }
     },
-    [dispatch, selectedLoc],
+    [dispatch, reportError, selectedLoc, setError],
   );
 
   const handleSelectVariant = useCallback(
@@ -315,10 +310,10 @@ export function LocationManagerPanel() {
         }
         dispatch(setLocationRefImage({ locationId: selectedLoc.id, refImage: updatedRef }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleSelectVariant');
       }
     },
-    [dispatch, selectedLoc],
+    [dispatch, reportError, selectedLoc, setError],
   );
 
   const handleRefImageFromAsset = useCallback(
@@ -337,10 +332,10 @@ export function LocationManagerPanel() {
         )) as ReferenceImage;
         dispatch(setLocationRefImage({ locationId: selectedLoc.id, refImage }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageFromAsset');
       }
     },
-    [dispatch, selectedLoc],
+    [dispatch, reportError, selectedLoc, setAssetPickerOpen, setError],
   );
 
   return (

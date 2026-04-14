@@ -5,7 +5,7 @@ import { Activity } from 'lucide-react';
 import { t } from '../../i18n.js';
 
 export function StatusBar() {
-  const { path } = useSelector((s: RootState) => s.project);
+  const { title } = useSelector((s: RootState) => s.settings.production);
   const { activeCount } = useSelector((s: RootState) => s.jobs);
 
   return (
@@ -14,7 +14,7 @@ export function StatusBar() {
       role="contentinfo"
       aria-label={t('statusBar.label')}
     >
-      <span>{path || t('statusBar.noProjectOpen')}</span>
+      <span>{title || 'Lucid Fin'}</span>
       <div className="flex items-center gap-3">
         {activeCount > 0 && (
           <span className="flex items-center gap-1">

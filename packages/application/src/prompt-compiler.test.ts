@@ -268,7 +268,6 @@ describe('compilePrompt', () => {
     };
     const equipment: Equipment = {
       id: 'eq-1',
-      projectId: 'p1',
       name: 'handgun',
       type: 'weapon',
       description: 'A standard issue pistol.',
@@ -312,7 +311,6 @@ describe('compilePrompt', () => {
   it('injects rich location description', () => {
     const location: Location = {
       id: 'loc-1',
-      projectId: 'p1',
       name: 'The Blue Moon Bar',
       type: 'interior',
       timeOfDay: 'night',
@@ -343,7 +341,6 @@ describe('compilePrompt', () => {
   it('injects standalone equipment as props', () => {
     const eq: Equipment = {
       id: 'eq-2',
-      projectId: 'p1',
       name: 'antique clock',
       type: 'furniture',
       description: 'An ornate grandfather clock ticking loudly.',
@@ -626,12 +623,12 @@ describe('compilePrompt', () => {
       presetLibrary: [],
       sfxPlacement: 'close',
       locations: [{
-        id: 'loc1', projectId: 'p1', name: 'Dungeon', type: 'interior',
+        id: 'loc1', name: 'Dungeon', type: 'interior',
         description: '', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0,
         atmosphereKeywords: ['echoing', 'damp'],
       }],
       equipmentItems: [{
-        id: 'eq1', projectId: 'p1', name: 'Broadsword', type: 'weapon',
+        id: 'eq1', name: 'Broadsword', type: 'weapon',
         description: '', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0,
         material: 'forged steel',
       }],

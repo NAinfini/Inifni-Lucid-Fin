@@ -49,8 +49,6 @@ describe('characters entity storage', () => {
     expect(char.age).toBeUndefined();
     expect(char.gender).toBeUndefined();
     expect(char.voice).toBeUndefined();
-    // ref_image is stored as NULL in SQLite; rowToCharacter casts but does not coerce null → undefined
-    expect(char.referenceImage == null).toBe(true);
     expect(typeof char.createdAt).toBe('number');
     expect(typeof char.updatedAt).toBe('number');
   });
@@ -60,12 +58,10 @@ describe('characters entity storage', () => {
     db.upsertCharacter({
       id: 'c2',
       name: 'Bob',
-      projectId: 'proj-1',
       role: 'protagonist',
       description: 'A brave hero',
       appearance: 'Tall',
       personality: 'Kind',
-      refImage: 'hash-abc',
       costumes: [{ id: 'cos-1', name: 'Armour', description: 'Battle armour' }],
       tags: ['hero', 'main'],
       age: 30,
@@ -79,12 +75,10 @@ describe('characters entity storage', () => {
     });
 
     const char = db.getCharacter('c2')!;
-    expect(char.projectId).toBe('proj-1');
     expect(char.role).toBe('protagonist');
     expect(char.description).toBe('A brave hero');
     expect(char.appearance).toBe('Tall');
     expect(char.personality).toBe('Kind');
-    expect(char.referenceImage).toBe('hash-abc');
     expect(char.costumes).toHaveLength(1);
     expect(char.tags).toEqual(['hero', 'main']);
     expect(char.age).toBe(30);
@@ -123,9 +117,9 @@ describe('characters entity storage', () => {
     expect(() => db.deleteCharacter('ghost')).not.toThrow();
   });
 
-  it('lists all characters when no projectId given', () => {
-    db.upsertCharacter({ id: 'c1', name: 'Zelda', projectId: 'p1' });
-    db.upsertCharacter({ id: 'c2', name: 'Alice', projectId: 'p2' });
+  it('lists all characters ordered by name', () => {
+    db.upsertCharacter({ id: 'c1', name: 'Zelda' });
+    db.upsertCharacter({ id: 'c2', name: 'Alice' });
     const all = db.listCharacters();
     expect(all.length).toBe(2);
     // Ordered by name ascending
@@ -133,22 +127,8 @@ describe('characters entity storage', () => {
     expect(all[1].name).toBe('Zelda');
   });
 
-  it('lists characters filtered by projectId', () => {
-    db.upsertCharacter({ id: 'c1', name: 'Alice', projectId: 'p1' });
-    db.upsertCharacter({ id: 'c2', name: 'Bob', projectId: 'p2' });
-    db.upsertCharacter({ id: 'c3', name: 'Carol', projectId: 'p1' });
-
-    const p1 = db.listCharacters('p1');
-    expect(p1.length).toBe(2);
-    expect(p1.map((c) => c.id).sort()).toEqual(['c1', 'c3']);
-
-    const p2 = db.listCharacters('p2');
-    expect(p2.length).toBe(1);
-    expect(p2[0].id).toBe('c2');
-  });
-
-  it('returns empty array when project has no characters', () => {
-    expect(db.listCharacters('non-existent-project')).toEqual([]);
+  it('returns empty array when no characters exist', () => {
+    expect(db.listCharacters()).toEqual([]);
   });
 
   it('parses JSON arrays correctly after round-trip', () => {
@@ -180,16 +160,15 @@ describe('equipment entity storage', () => {
   });
 
   it('inserts and retrieves a minimal equipment item', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Sword' });
+    db.upsertEquipment({ id: 'e1', name: 'Sword' });
     const equip = db.getEquipment('e1');
     expect(equip).toBeDefined();
     expect(equip!.id).toBe('e1');
     expect(equip!.name).toBe('Sword');
-    expect(equip!.projectId).toBe('p1');
   });
 
   it('applies default values for optional fields', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Sword' });
+    db.upsertEquipment({ id: 'e1', name: 'Sword' });
     const equip = db.getEquipment('e1')!;
     expect(equip.type).toBe('other');
     expect(equip.description).toBe('');
@@ -205,7 +184,6 @@ describe('equipment entity storage', () => {
     const now = Date.now();
     db.upsertEquipment({
       id: 'e1',
-      projectId: 'p1',
       name: 'Longsword',
       type: 'weapon',
       subtype: 'melee',
@@ -229,8 +207,8 @@ describe('equipment entity storage', () => {
   });
 
   it('updates (upserts) an existing equipment item', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Sword' });
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Upgraded Sword', type: 'weapon' });
+    db.upsertEquipment({ id: 'e1', name: 'Sword' });
+    db.upsertEquipment({ id: 'e1', name: 'Upgraded Sword', type: 'weapon' });
 
     const equip = db.getEquipment('e1')!;
     expect(equip.name).toBe('Upgraded Sword');
@@ -242,7 +220,7 @@ describe('equipment entity storage', () => {
   });
 
   it('deletes an equipment item by id', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Shield' });
+    db.upsertEquipment({ id: 'e1', name: 'Shield' });
     db.deleteEquipment('e1');
     expect(db.getEquipment('e1')).toBeUndefined();
   });
@@ -251,45 +229,41 @@ describe('equipment entity storage', () => {
     expect(() => db.deleteEquipment('ghost')).not.toThrow();
   });
 
-  it('lists all equipment for a project ordered by name', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Sword' });
-    db.upsertEquipment({ id: 'e2', projectId: 'p1', name: 'Armour' });
-    db.upsertEquipment({ id: 'e3', projectId: 'p2', name: 'Bow' });
+  it('lists all equipment ordered by name', () => {
+    db.upsertEquipment({ id: 'e1', name: 'Sword' });
+    db.upsertEquipment({ id: 'e2', name: 'Armour' });
+    db.upsertEquipment({ id: 'e3', name: 'Bow' });
 
-    const p1 = db.listEquipment('p1');
-    expect(p1.length).toBe(2);
-    expect(p1[0].name).toBe('Armour');
-    expect(p1[1].name).toBe('Sword');
+    const all = db.listEquipment();
+    expect(all.length).toBe(3);
+    expect(all[0].name).toBe('Armour');
+    expect(all[1].name).toBe('Bow');
+    expect(all[2].name).toBe('Sword');
   });
 
   it('lists equipment filtered by type', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Sword', type: 'weapon' });
-    db.upsertEquipment({ id: 'e2', projectId: 'p1', name: 'Shield', type: 'armor' });
-    db.upsertEquipment({ id: 'e3', projectId: 'p1', name: 'Dagger', type: 'weapon' });
+    db.upsertEquipment({ id: 'e1', name: 'Sword', type: 'weapon' });
+    db.upsertEquipment({ id: 'e2', name: 'Shield', type: 'armor' });
+    db.upsertEquipment({ id: 'e3', name: 'Dagger', type: 'weapon' });
 
-    const weapons = db.listEquipment('p1', 'weapon');
+    const weapons = db.listEquipment('weapon');
     expect(weapons.length).toBe(2);
     expect(weapons.map((e) => e.id).sort()).toEqual(['e1', 'e3']);
 
-    const armors = db.listEquipment('p1', 'armor');
+    const armors = db.listEquipment('armor');
     expect(armors.length).toBe(1);
     expect(armors[0].id).toBe('e2');
   });
 
-  it('does not return equipment from a different project', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Sword' });
-    expect(db.listEquipment('p2')).toEqual([]);
-  });
-
   it('type filter returns empty array when no match', () => {
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Sword', type: 'weapon' });
-    expect(db.listEquipment('p1', 'vehicle')).toEqual([]);
+    db.upsertEquipment({ id: 'e1', name: 'Sword', type: 'weapon' });
+    expect(db.listEquipment('vehicle')).toEqual([]);
   });
 
   it('parses JSON arrays correctly after round-trip', () => {
     const tags = ['x', 'y'];
     const referenceImages = [{ slot: 'front', isStandard: false }];
-    db.upsertEquipment({ id: 'e1', projectId: 'p1', name: 'Item', tags, referenceImages });
+    db.upsertEquipment({ id: 'e1', name: 'Item', tags, referenceImages });
     const equip = db.getEquipment('e1')!;
     expect(equip.tags).toEqual(tags);
     expect(equip.referenceImages).toEqual(referenceImages);
@@ -315,16 +289,15 @@ describe('locations entity storage', () => {
   });
 
   it('inserts and retrieves a minimal location', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Forest' });
+    db.upsertLocation({ id: 'l1', name: 'Forest' });
     const loc = db.getLocation('l1');
     expect(loc).toBeDefined();
     expect(loc!.id).toBe('l1');
     expect(loc!.name).toBe('Forest');
-    expect(loc!.projectId).toBe('p1');
   });
 
   it('applies default values for optional fields', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Forest' });
+    db.upsertLocation({ id: 'l1', name: 'Forest' });
     const loc = db.getLocation('l1')!;
     expect(loc.type).toBe('interior');
     expect(loc.description).toBe('');
@@ -343,7 +316,6 @@ describe('locations entity storage', () => {
     const now = Date.now();
     db.upsertLocation({
       id: 'l1',
-      projectId: 'p1',
       name: 'Castle Hall',
       type: 'interior',
       subLocation: 'Throne Room',
@@ -373,8 +345,8 @@ describe('locations entity storage', () => {
   });
 
   it('updates (upserts) an existing location', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Forest' });
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Dark Forest', type: 'exterior' });
+    db.upsertLocation({ id: 'l1', name: 'Forest' });
+    db.upsertLocation({ id: 'l1', name: 'Dark Forest', type: 'exterior' });
 
     const loc = db.getLocation('l1')!;
     expect(loc.name).toBe('Dark Forest');
@@ -386,7 +358,7 @@ describe('locations entity storage', () => {
   });
 
   it('deletes a location by id', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Forest' });
+    db.upsertLocation({ id: 'l1', name: 'Forest' });
     db.deleteLocation('l1');
     expect(db.getLocation('l1')).toBeUndefined();
   });
@@ -395,50 +367,46 @@ describe('locations entity storage', () => {
     expect(() => db.deleteLocation('ghost')).not.toThrow();
   });
 
-  it('lists all locations for a project ordered by name', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Village' });
-    db.upsertLocation({ id: 'l2', projectId: 'p1', name: 'Castle' });
-    db.upsertLocation({ id: 'l3', projectId: 'p2', name: 'Cave' });
+  it('lists all locations ordered by name', () => {
+    db.upsertLocation({ id: 'l1', name: 'Village' });
+    db.upsertLocation({ id: 'l2', name: 'Castle' });
+    db.upsertLocation({ id: 'l3', name: 'Cave' });
 
-    const p1 = db.listLocations('p1');
-    expect(p1.length).toBe(2);
-    expect(p1[0].name).toBe('Castle');
-    expect(p1[1].name).toBe('Village');
+    const all = db.listLocations();
+    expect(all.length).toBe(3);
+    expect(all[0].name).toBe('Castle');
+    expect(all[1].name).toBe('Cave');
+    expect(all[2].name).toBe('Village');
   });
 
   it('lists locations filtered by type', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Bedroom', type: 'interior' });
-    db.upsertLocation({ id: 'l2', projectId: 'p1', name: 'Street', type: 'exterior' });
-    db.upsertLocation({ id: 'l3', projectId: 'p1', name: 'Patio', type: 'int-ext' });
-    db.upsertLocation({ id: 'l4', projectId: 'p1', name: 'Kitchen', type: 'interior' });
+    db.upsertLocation({ id: 'l1', name: 'Bedroom', type: 'interior' });
+    db.upsertLocation({ id: 'l2', name: 'Street', type: 'exterior' });
+    db.upsertLocation({ id: 'l3', name: 'Patio', type: 'int-ext' });
+    db.upsertLocation({ id: 'l4', name: 'Kitchen', type: 'interior' });
 
-    const interiors = db.listLocations('p1', 'interior');
+    const interiors = db.listLocations('interior');
     expect(interiors.length).toBe(2);
     expect(interiors.map((l) => l.id).sort()).toEqual(['l1', 'l4']);
 
-    const exteriors = db.listLocations('p1', 'exterior');
+    const exteriors = db.listLocations('exterior');
     expect(exteriors.length).toBe(1);
     expect(exteriors[0].id).toBe('l2');
 
-    const mixed = db.listLocations('p1', 'int-ext');
+    const mixed = db.listLocations('int-ext');
     expect(mixed.length).toBe(1);
     expect(mixed[0].id).toBe('l3');
   });
 
-  it('does not return locations from a different project', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Forest' });
-    expect(db.listLocations('p2')).toEqual([]);
-  });
-
   it('type filter returns empty array when no match', () => {
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Forest', type: 'exterior' });
-    expect(db.listLocations('p1', 'interior')).toEqual([]);
+    db.upsertLocation({ id: 'l1', name: 'Forest', type: 'exterior' });
+    expect(db.listLocations('interior')).toEqual([]);
   });
 
   it('parses JSON arrays correctly after round-trip', () => {
     const tags = ['foggy', 'vast'];
     const referenceImages = [{ slot: 'atmosphere', isStandard: false, assetHash: 'abc123' }];
-    db.upsertLocation({ id: 'l1', projectId: 'p1', name: 'Moor', tags, referenceImages });
+    db.upsertLocation({ id: 'l1', name: 'Moor', tags, referenceImages });
     const loc = db.getLocation('l1')!;
     expect(loc.tags).toEqual(tags);
     expect(loc.referenceImages).toEqual(referenceImages);
@@ -466,8 +434,8 @@ describe('entity type isolation', () => {
   it('characters, equipment and locations use independent id spaces', () => {
     // Insert entities with the same id across different tables
     db.upsertCharacter({ id: 'shared-id', name: 'Character' });
-    db.upsertEquipment({ id: 'shared-id', projectId: 'p1', name: 'Equipment' });
-    db.upsertLocation({ id: 'shared-id', projectId: 'p1', name: 'Location' });
+    db.upsertEquipment({ id: 'shared-id', name: 'Equipment' });
+    db.upsertLocation({ id: 'shared-id', name: 'Location' });
 
     expect(db.getCharacter('shared-id')!.name).toBe('Character');
     expect(db.getEquipment('shared-id')!.name).toBe('Equipment');
@@ -476,8 +444,8 @@ describe('entity type isolation', () => {
 
   it('deleting a character does not affect equipment or locations with the same id', () => {
     db.upsertCharacter({ id: 'shared-id', name: 'Character' });
-    db.upsertEquipment({ id: 'shared-id', projectId: 'p1', name: 'Equipment' });
-    db.upsertLocation({ id: 'shared-id', projectId: 'p1', name: 'Location' });
+    db.upsertEquipment({ id: 'shared-id', name: 'Equipment' });
+    db.upsertLocation({ id: 'shared-id', name: 'Location' });
 
     db.deleteCharacter('shared-id');
 

@@ -36,10 +36,9 @@ describe('SqliteIndex', () => {
       expect(fs.existsSync(dbPath)).toBe(true);
     });
 
-    it('creates all 5 tables + FTS5', () => {
+    it('creates all tables + FTS5', () => {
       // If schema failed, constructor would throw
       // Verify by inserting into each table
-      db.upsertProject({ id: 'p1', title: 'Test', path: '/tmp', updatedAt: Date.now() });
       db.insertAsset({
         hash: 'abc',
         type: 'image',
@@ -58,7 +57,6 @@ describe('SqliteIndex', () => {
   describe('jobs CRUD', () => {
     const makeJob = (overrides?: Partial<Job>): Job => ({
       id: 'j1',
-      projectId: 'p1',
       type: 'image',
       provider: 'openai-dalle',
       status: JobStatus.Queued,
@@ -91,13 +89,13 @@ describe('SqliteIndex', () => {
     it('lists jobs with filters', () => {
       db.insertJob(makeJob({ id: 'j1', status: JobStatus.Queued }));
       db.insertJob(makeJob({ id: 'j2', status: JobStatus.Running }));
-      db.insertJob(makeJob({ id: 'j3', status: JobStatus.Queued, projectId: 'p2' }));
+      db.insertJob(makeJob({ id: 'j3', status: JobStatus.Queued }));
 
       const queued = db.listJobs({ status: JobStatus.Queued });
       expect(queued.length).toBe(2);
 
-      const p1Jobs = db.listJobs({ projectId: 'p1' });
-      expect(p1Jobs.length).toBe(2);
+      const all = db.listJobs();
+      expect(all.length).toBe(3);
     });
 
     it('query performance < 50ms for 100 jobs', () => {
@@ -105,7 +103,7 @@ describe('SqliteIndex', () => {
         db.insertJob(makeJob({ id: `j${i}`, priority: i % 5 }));
       }
       const start = performance.now();
-      const jobs = db.listJobs({ projectId: 'p1' });
+      const jobs = db.listJobs();
       const elapsed = performance.now() - start;
       expect(jobs.length).toBe(100);
       expect(elapsed).toBeLessThan(50);
@@ -117,7 +115,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-1',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         entityId: 's1',
         triggerSource: 'user',
@@ -139,7 +136,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-2',
         workflowType: 'style.extract',
-        projectId: 'p1',
         entityType: 'asset',
         triggerSource: 'system',
         status: 'running',
@@ -160,7 +156,6 @@ describe('SqliteIndex', () => {
       expect(fetched).toEqual({
         id: 'wf-1',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         entityId: 's1',
         triggerSource: 'user',
@@ -181,7 +176,6 @@ describe('SqliteIndex', () => {
       });
 
       const listed = db.listWorkflowRuns({
-        projectId: 'p1',
         workflowType: 'style.extract',
         entityType: 'asset',
         status: 'running',
@@ -578,7 +572,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-agg-stage',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         triggerSource: 'user',
         status: 'queued',
@@ -689,7 +682,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-agg-stage-errors',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         triggerSource: 'user',
         status: 'queued',
@@ -755,7 +747,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-agg-workflow-errors',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         triggerSource: 'user',
         status: 'queued',
@@ -858,7 +849,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-stage-updated-at',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         triggerSource: 'user',
         status: 'queued',
@@ -910,7 +900,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-workflow-updated-at',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         triggerSource: 'user',
         status: 'queued',
@@ -1016,7 +1005,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id: 'wf-agg-workflow',
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         triggerSource: 'user',
         status: 'queued',
@@ -1162,7 +1150,6 @@ describe('SqliteIndex', () => {
       db.insertWorkflowRun({
         id,
         workflowType: 'storyboard.generate',
-        projectId: 'p1',
         entityType: 'scene',
         triggerSource: 'user',
         status: 'running',
@@ -1402,43 +1389,6 @@ describe('SqliteIndex', () => {
       expect(images[0].hash).toBe('h1');
     });
 
-    it('normalizes legacy asset metadata size during project sync', () => {
-      const projectDir = path.join(base, 'project-sync');
-      const assetDir = path.join(projectDir, 'assets', 'image', 'ab');
-      fs.mkdirSync(assetDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(projectDir, 'project.json'),
-        JSON.stringify({
-          id: 'project-1',
-          title: 'Sync Test',
-          updatedAt: 1,
-        }),
-      );
-      fs.writeFileSync(
-        path.join(assetDir, 'abcdef.meta.json'),
-        JSON.stringify({
-          hash: 'abcdef',
-          type: 'image',
-          format: 'png',
-          originalName: 'legacy.png',
-          size: 4096,
-          tags: ['legacy'],
-          createdAt: 123,
-        }),
-      );
-
-      db.syncFromJson(projectDir);
-
-      expect(db.queryAssets({ type: 'image' })).toEqual([
-        expect.objectContaining({
-          hash: 'abcdef',
-          format: 'png',
-          fileSize: 4096,
-          createdAt: 123,
-        }),
-      ]);
-    });
-
     it('searches assets via FTS5', () => {
       db.insertAsset({
         hash: 'h1',
@@ -1465,5 +1415,45 @@ describe('SqliteIndex', () => {
       expect(results.length).toBe(1);
       expect(results[0].hash).toBe('h1');
     });
+  });
+});
+
+describe('migration 004 — commander_sessions and snapshots tables exist', () => {
+  let db: SqliteIndex;
+  let base: string;
+
+  beforeEach(() => {
+    base = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-m004-'));
+    db = new SqliteIndex(path.join(base, 'test.db'));
+  });
+
+  afterEach(() => {
+    db.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  it('commander_sessions table exists with correct columns', () => {
+    const cols = (db as unknown as { db: import('better-sqlite3').Database }).db
+      .prepare("PRAGMA table_info(commander_sessions)").all() as Array<{ name: string }>;
+    const names = cols.map(c => c.name);
+    expect(names).toContain('id');
+    expect(names).toContain('canvas_id');
+    expect(names).toContain('title');
+    expect(names).toContain('messages');
+    expect(names).toContain('created_at');
+    expect(names).toContain('updated_at');
+  });
+
+  it('snapshots table exists with correct columns', () => {
+    const cols = (db as unknown as { db: import('better-sqlite3').Database }).db
+      .prepare("PRAGMA table_info(snapshots)").all() as Array<{ name: string }>;
+    const names = cols.map(c => c.name);
+    expect(names).toContain('id');
+    expect(names).toContain('session_id');
+    expect(names).toContain('label');
+    expect(names).toContain('trigger');
+    expect(names).toContain('schema_version');
+    expect(names).toContain('data');
+    expect(names).toContain('created_at');
   });
 });

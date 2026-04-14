@@ -32,9 +32,9 @@ describe('createLocationTools', () => {
 
   describe('location.list query filter', () => {
     const locations = [
-      { id: '1', projectId: '', name: 'City Hall', type: 'exterior', description: 'a grand civic building', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '2', projectId: '', name: 'Warehouse', type: 'interior', description: 'dark storage space', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '3', projectId: '', name: 'Rooftop', type: 'int-ext', description: 'open air terrace', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      { id: '1', name: 'City Hall', type: 'exterior', description: 'a grand civic building', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      { id: '2', name: 'Warehouse', type: 'interior', description: 'dark storage space', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      { id: '3', name: 'Rooftop', type: 'int-ext', description: 'open air terrace', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
     ];
 
     function createDepsWithData() {
@@ -82,7 +82,6 @@ describe('createLocationTools', () => {
   describe('location.refImage', () => {
     const baseLocation = {
       id: 'loc-1',
-      projectId: '',
       name: 'Old Library',
       type: 'interior',
       description: 'dusty shelves and dim lanterns',
@@ -138,7 +137,6 @@ describe('createLocationTools', () => {
     it('action=setFromNode: pulls assetHash from canvas image node', async () => {
       const mockCanvas: Canvas = {
         id: 'canvas-1',
-        projectId: '',
         name: 'Canvas',
         nodes: [
           {

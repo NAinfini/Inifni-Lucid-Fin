@@ -9,6 +9,8 @@ import type { LocationRef } from './location.js';
 
 export type CanvasNodeType = 'text' | 'image' | 'video' | 'audio' | 'backdrop';
 
+export type MediaNodeStatus = 'empty' | 'generating' | 'done' | 'failed';
+
 export type NodeStatus =
   | 'idle'
   | 'queued'
@@ -51,7 +53,7 @@ export interface TextNodeData {
 
 export interface ImageNodeData {
   assetHash?: string;
-  status: 'empty' | 'generating' | 'done' | 'failed';
+  status: MediaNodeStatus;
   prompt?: string;
   imagePrompt?: string;
   videoPrompt?: string;
@@ -93,7 +95,7 @@ export interface ImageNodeData {
 
 export interface VideoNodeData {
   assetHash?: string;
-  status: 'empty' | 'generating' | 'done' | 'failed';
+  status: MediaNodeStatus;
   width?: number;
   height?: number;
   duration?: number;
@@ -157,7 +159,7 @@ export interface EmotionVector {
 
 export interface AudioNodeData {
   assetHash?: string;
-  status: 'empty' | 'generating' | 'done' | 'failed';
+  status: MediaNodeStatus;
   audioType: 'voice' | 'music' | 'sfx';
   duration?: number;
   provider?: string;
@@ -257,7 +259,6 @@ export interface CanvasNote {
 
 export interface Canvas {
   id: string;
-  projectId: string;
   name: string;
   nodes: CanvasNode[];
   edges: CanvasEdge[];

@@ -63,7 +63,6 @@ function createCharacterVariant(
 function createEquipment(): Equipment {
   return {
     id: 'equipment-1',
-    projectId: 'project-1',
     name: 'Pulse Rifle',
     type: 'weapon',
     description: 'Compact energy rifle',
@@ -90,7 +89,6 @@ function createEquipmentVariant(
 function createLocation(): Location {
   return {
     id: 'location-1',
-    projectId: 'project-1',
     name: 'Hangar Bay',
     type: 'interior',
     description: 'Industrial launch bay',

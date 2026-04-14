@@ -49,3 +49,14 @@ export {
   getBuiltinLLMProviderPreset,
   listBuiltinLLMProviderPresets,
 } from './llm/provider-runtime.js';
+
+// LLM shared utilities
+export { parseSseStream } from './llm/sse-parser.js';
+export {
+  tryParseJson,
+  serializeError,
+  measureRequestDiagnostics,
+  truncateForDiagnostics,
+  resolveErrorCode,
+} from './llm/llm-error-builder.js';
+export { withRetry, type RetryOptions } from './llm/llm-retry.js';

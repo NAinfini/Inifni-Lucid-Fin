@@ -54,6 +54,16 @@ describe('createMetaTools', () => {
         });
       });
 
+      it('treats empty names array as list-all mode', async () => {
+        const registry = makeRegistry();
+        const tools = createMetaTools(registry, { context: 'canvas' });
+        const toolGet = tools.find((t) => t.name === 'tool.get')!;
+
+        const result = await toolGet.execute({ names: [] });
+        expect(result.success).toBe(true);
+        expect(Object.keys(result.data as Record<string, unknown>)).toEqual(['canvas', 'character']);
+      });
+
       it('ignores unknown arguments when names is omitted (no query filtering)', async () => {
         const registry = makeRegistry();
         const tools = createMetaTools(registry, { context: 'canvas' });

@@ -4,13 +4,13 @@ import type {
   WorkflowTaskRun,
   WorkflowRun,
 } from '@lucid-fin/contracts';
-import type { SqliteIndex } from '@lucid-fin/storage';
+import type { IStorageLayer } from '@lucid-fin/storage';
 
 export interface WorkflowTaskExecutionContext {
   workflowRun: WorkflowRun;
   stageRun: WorkflowStageRun;
   taskRun: WorkflowTaskRun;
-  db: SqliteIndex;
+  db: IStorageLayer;
   signal?: AbortSignal;
 }
 

@@ -8,7 +8,6 @@ const parsedScenes: ParsedScene[] = [
 
 const script: ScriptDocument = {
   id: 'script-1',
-  projectId: 'project-1',
   content: 'INT. ROOM - DAY',
   format: 'fountain',
   parsedScenes,

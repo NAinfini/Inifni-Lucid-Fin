@@ -3,7 +3,7 @@ import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
 import type { WorkflowEngine } from '@lucid-fin/application';
 import type { ColorStyle, ExposureProfile, ColorSwatch, GradientDef } from '@lucid-fin/contracts';
-import { getCurrentProjectId } from '../project-context.js';
+import { safeHandle } from '../ipc-error-handler.js';
 
 const DEFAULT_EXPOSURE: ExposureProfile = {
   brightness: 0,
@@ -77,11 +77,11 @@ export function registerColorStyleHandlers(
   _cas: CAS,
   workflowEngine: WorkflowEngine,
 ): void {
-  ipcMain.handle('colorStyle:list', () => {
+  safeHandle(ipcMain, 'colorStyle:list', () => {
     return db.listColorStyles();
   });
 
-  ipcMain.handle('colorStyle:save', (_e, data: ColorStyle) => {
+  safeHandle(ipcMain, 'colorStyle:save', (_e, data: ColorStyle) => {
     if (!data?.id || !data?.name) throw new Error('id and name are required');
     const now = Date.now();
     const cs: ColorStyle = {
@@ -96,20 +96,17 @@ export function registerColorStyleHandlers(
     return cs;
   });
 
-  ipcMain.handle('colorStyle:delete', (_e, args: { id: string }) => {
+  safeHandle(ipcMain, 'colorStyle:delete', (_e, args: { id: string }) => {
     if (!args?.id) throw new Error('id is required');
     db.deleteColorStyle(args.id);
   });
 
-  ipcMain.handle(
+  safeHandle(ipcMain,
     'colorStyle:extract',
     async (_e, args: { assetHash: string; assetType: 'image' | 'video' }) => {
       if (!args?.assetHash) throw new Error('assetHash is required');
-      const projectId = getCurrentProjectId();
-      if (!projectId) throw new Error('No project open');
 
       const assets = db.queryAssets({
-        projectId,
         type: args.assetType,
         limit: 10000,
       });
@@ -117,7 +114,6 @@ export function registerColorStyleHandlers(
       if (!asset) throw new Error(`Asset not found in DB: ${args.assetHash}`);
       const workflowRunId = workflowEngine.start({
         workflowType: 'style.extract',
-        projectId,
         entityType: 'asset',
         entityId: asset.hash,
         triggerSource: 'colorStyle:extract',

@@ -214,7 +214,7 @@ export function LoggerPanel() {
               </div>
               {expandable && expanded ? (
                 <pre className={cn(
-                  'mx-2 mb-2 overflow-x-auto rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap',
+                  'mx-2 mb-2 max-h-60 overflow-auto rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap',
                   entry.level === 'error' && 'text-red-300/80',
                 )}>
                   {entry.detail}

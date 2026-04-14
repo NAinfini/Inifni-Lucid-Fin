@@ -9,8 +9,6 @@ const logger = vi.hoisted(() => ({
   fatal: vi.fn(),
 }));
 
-const getCurrentProjectId = vi.hoisted(() => vi.fn(() => "preset-project-default"));
-
 vi.mock("../../logger.js", () => ({
   default: logger,
   debug: logger.debug,
@@ -18,10 +16,6 @@ vi.mock("../../logger.js", () => ({
   warn: logger.warn,
   error: logger.error,
   fatal: logger.fatal,
-}));
-
-vi.mock("../project-context.js", () => ({
-  getCurrentProjectId,
 }));
 
 import { registerPresetHandlers } from "./preset.handlers.js";
@@ -33,10 +27,8 @@ const alternateBuiltInPreset =
   BUILT_IN_PRESET_LIBRARY.find((preset) => preset.category !== builtInPreset.category) ??
   BUILT_IN_PRESET_LIBRARY[1];
 
-function resetCommon(projectId: string) {
+function resetCommon() {
   vi.clearAllMocks();
-  getCurrentProjectId.mockReset();
-  getCurrentProjectId.mockReturnValue(projectId);
 }
 
 function makeUserPreset(id: string, category = "look") {
@@ -78,7 +70,7 @@ function registerHandlers(db: Record<string, unknown>) {
 
 describe("registerPresetHandlers", () => {
   it("registers all preset IPC handlers", () => {
-    resetCommon("preset-project-register");
+    resetCommon();
     const handlers = registerHandlers(makeDb());
 
     expect([...handlers.keys()].sort()).toEqual([
@@ -91,17 +83,16 @@ describe("registerPresetHandlers", () => {
     ]);
   });
 
-  it("requires an open project before listing presets", async () => {
-    resetCommon("preset-project-list");
-    getCurrentProjectId.mockReturnValue(null);
+  it("lists presets without requiring a project", async () => {
+    resetCommon();
     const handlers = registerHandlers(makeDb());
 
-    await expect(handlers.get("preset:list")?.({})).rejects.toThrow("No project open");
+    const presets = await handlers.get("preset:list")?.({});
+    expect(Array.isArray(presets)).toBe(true);
   });
 
   it("saves a built-in preset override, persists it as a non-user override, and logs the save", async () => {
-    const projectId = "preset-project-override";
-    resetCommon(projectId);
+    resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
     const save = handlers.get("preset:save");
@@ -119,15 +110,13 @@ describe("registerPresetHandlers", () => {
         id: builtInPreset.id,
         builtIn: true,
         modified: true,
-        projectId,
         defaultPrompt: builtInPreset.defaultPrompt ?? builtInPreset.prompt,
         defaultParams: builtInPreset.defaultParams ?? builtInPreset.defaults,
       }),
     );
     expect(db.upsertPresetOverride).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: `override:${projectId}:${builtInPreset.id}`,
-        projectId,
+        id: `override:${builtInPreset.id}`,
         presetId: builtInPreset.id,
         isUser: false,
       }),
@@ -143,8 +132,7 @@ describe("registerPresetHandlers", () => {
   });
 
   it("saves and deletes a user preset via sqlite user override records", async () => {
-    const projectId = "preset-project-user";
-    resetCommon(projectId);
+    resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
     const save = handlers.get("preset:save");
@@ -159,13 +147,11 @@ describe("registerPresetHandlers", () => {
         id: "user-preset-1",
         builtIn: false,
         modified: false,
-        projectId,
       }),
     );
     expect(db.upsertPresetOverride).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "user-preset-1",
-        projectId,
         presetId: "user-preset-1",
         isUser: true,
       }),
@@ -174,8 +160,7 @@ describe("registerPresetHandlers", () => {
   });
 
   it("resets prompt-only built-in overrides without deleting the whole override", async () => {
-    const projectId = "preset-project-reset-prompt";
-    resetCommon(projectId);
+    resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
     const save = handlers.get("preset:save");
@@ -209,12 +194,10 @@ describe("registerPresetHandlers", () => {
   });
 
   it("hydrates existing built-in overrides and user presets from sqlite and filters preset lists", async () => {
-    const projectId = "preset-project-hydrate";
-    resetCommon(projectId);
+    resetCommon();
     const db = makeDb([
       {
-        id: `override:${projectId}:${builtInPreset.id}`,
-        projectId,
+        id: `override:${builtInPreset.id}`,
         presetId: builtInPreset.id,
         category: builtInPreset.category,
         name: `${builtInPreset.name} Override`,
@@ -226,7 +209,6 @@ describe("registerPresetHandlers", () => {
       },
       {
         id: "user-hydrated-1",
-        projectId,
         presetId: "user-hydrated-1",
         category: alternateBuiltInPreset.category,
         name: "Hydrated User",
@@ -267,8 +249,7 @@ describe("registerPresetHandlers", () => {
   });
 
   it("imports preset payloads and exports filtered libraries", async () => {
-    const projectId = "preset-project-import-export";
-    resetCommon(projectId);
+    resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
     const importPresets = handlers.get("preset:import");
@@ -307,8 +288,7 @@ describe("registerPresetHandlers", () => {
   });
 
   it("rejects invalid delete, reset, import, and export payloads", async () => {
-    const projectId = "preset-project-errors";
-    resetCommon(projectId);
+    resetCommon();
     const handlers = registerHandlers(makeDb());
 
     await expect(handlers.get("preset:delete")?.({}, { id: "" })).rejects.toThrow(

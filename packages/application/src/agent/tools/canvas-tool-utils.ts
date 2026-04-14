@@ -11,6 +11,7 @@ import {
   type PresetTrackSet,
 } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
+export { ok, fail, requireString, requireText, requireNumber, requireStringArray, requireBoolean } from './tool-result-helpers.js';
 
 export interface CanvasToolDeps {
   getCanvas: (canvasId: string) => Promise<Canvas>;
@@ -19,8 +20,6 @@ export interface CanvasToolDeps {
   moveNode: (canvasId: string, nodeId: string, position: { x: number; y: number }) => Promise<void>;
   renameNode: (canvasId: string, nodeId: string, title: string) => Promise<void>;
   renameCanvas: (canvasId: string, name: string) => Promise<void>;
-  loadCanvas: (canvasId: string) => Promise<void>;
-  saveCanvas: (canvasId: string) => Promise<void>;
   connectNodes: (canvasId: string, edge: CanvasEdge) => Promise<void>;
   setNodePresets: (canvasId: string, nodeId: string, presetTracks: PresetTrackSet) => Promise<void>;
   getCanvasState: (canvasId: string) => Promise<Canvas>;
@@ -81,66 +80,6 @@ export type CanvasToolResult =
 
 export const CANVAS_CONTEXT = ['canvas'];
 export type TrackMap = Record<PresetCategory, PresetTrack>;
-
-export function ok(data?: unknown): CanvasToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-export function fail(error: unknown): CanvasToolResult {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
-export function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
-}
-
-export function requireText(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string') {
-    throw new Error(`${key} is required`);
-  }
-  return value;
-}
-
-export function requireStringArray(args: Record<string, unknown>, key: string): string[] {
-  const value = args[key];
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${key} must be a non-empty array`);
-  }
-  return Array.from(
-    new Set(
-      value.map((entry, index) => {
-        if (typeof entry !== 'string' || entry.trim().length === 0) {
-          throw new Error(`${key}[${index}] must be a non-empty string`);
-        }
-        return entry.trim();
-      }),
-    ),
-  );
-}
-
-export function requireBoolean(args: Record<string, unknown>, key: string): boolean {
-  const value = args[key];
-  if (typeof value !== 'boolean') {
-    throw new Error(`${key} must be a boolean`);
-  }
-  return value;
-}
-
-export function requireNumber(args: Record<string, unknown>, key: string): number {
-  const value = args[key];
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${key} must be a finite number`);
-  }
-  return value;
-}
 
 export function requireDirection(args: Record<string, unknown>): 'horizontal' | 'vertical' | 'auto' {
   const value = args.direction;

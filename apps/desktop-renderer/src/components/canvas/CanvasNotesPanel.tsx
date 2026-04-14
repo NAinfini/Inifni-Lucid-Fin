@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Plus, StickyNote, Trash2 } from 'lucide-react';
-import type { RootState } from '../../store/index.js';
+import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
 import { addCanvasNote, updateCanvasNote, deleteCanvasNote } from '../../store/slices/canvas.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
@@ -25,8 +25,7 @@ function NoteTextarea({ noteId, content, dispatch, t }: { noteId: string; conten
 export function CanvasNotesPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
-  const { canvases, activeCanvasId } = useSelector((state: RootState) => state.canvas);
-  const activeCanvas = canvases.find((c) => c.id === activeCanvasId);
+  const activeCanvas = useSelector(selectActiveCanvas);
   const notes = activeCanvas?.notes ?? [];
 
   return (

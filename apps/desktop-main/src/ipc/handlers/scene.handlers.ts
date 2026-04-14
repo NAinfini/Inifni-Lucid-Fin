@@ -2,30 +2,20 @@ import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { Scene } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId, getCurrentProjectPath } from '../project-context.js';
-
-function requireProject(): { projectId: string; projectPath: string } {
-  const projectId = getCurrentProjectId();
-  const projectPath = getCurrentProjectPath();
-  if (!projectId || !projectPath) throw new Error('No project open');
-  return { projectId, projectPath };
-}
+import { safeHandle } from '../ipc-error-handler.js';
 
 export function registerSceneHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
-  ipcMain.handle('scene:list', async () => {
-    const { projectId } = requireProject();
-    return db.listScenes(projectId);
+  safeHandle(ipcMain, 'scene:list', async () => {
+    return db.listScenes();
   });
 
-  ipcMain.handle('scene:create', async (_e, args: Partial<Scene>) => {
-    const { projectId } = requireProject();
+  safeHandle(ipcMain, 'scene:create', async (_e, args: Partial<Scene>) => {
     const now = Date.now();
-    const existing = db.listScenes(projectId);
+    const existing = db.listScenes();
     const idx = typeof args?.index === 'number' ? args.index : existing.length;
 
     const scene: Scene = {
       id: randomUUID(),
-      projectId,
       index: idx,
       title: typeof args?.title === 'string' && args.title.trim() ? args.title : `Scene ${idx + 1}`,
       description: typeof args?.description === 'string' ? args.description : '',
@@ -45,7 +35,7 @@ export function registerSceneHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
     return scene;
   });
 
-  ipcMain.handle('scene:update', async (_e, args: { id: string; data: Partial<Scene> }) => {
+  safeHandle(ipcMain, 'scene:update', async (_e, args: { id: string; data: Partial<Scene> }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
     const current = db.getScene(args.id);
     if (!current) throw new Error(`Scene not found: ${args.id}`);
@@ -55,7 +45,6 @@ export function registerSceneHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
       ...current,
       ...data,
       id: current.id,
-      projectId: current.projectId,
       createdAt: current.createdAt,
       updatedAt: Date.now(),
       characters: Array.isArray(data.characters)
@@ -69,7 +58,7 @@ export function registerSceneHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
     return updated;
   });
 
-  ipcMain.handle('scene:delete', async (_e, args: { id: string }) => {
+  safeHandle(ipcMain, 'scene:delete', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
     const existing = db.getScene(args.id);
     if (!existing) throw new Error(`Scene not found: ${args.id}`);

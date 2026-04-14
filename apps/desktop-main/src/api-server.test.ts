@@ -6,14 +6,12 @@ const {
   randomUUIDMock,
   writeFileSyncMock,
   tmpdirMock,
-  getCurrentProjectIdMock,
   logger,
 } = vi.hoisted(() => ({
   createServerMock: vi.fn(),
   randomUUIDMock: vi.fn(() => 'test-token'),
   writeFileSyncMock: vi.fn(),
   tmpdirMock: vi.fn(() => 'C:/temp'),
-  getCurrentProjectIdMock: vi.fn(() => 'project-1'),
   logger: {
     debug: vi.fn(),
     info: vi.fn(),
@@ -46,10 +44,6 @@ vi.mock('node:os', () => ({
     tmpdir: tmpdirMock,
   },
   tmpdir: tmpdirMock,
-}));
-
-vi.mock('./ipc/project-context.js', () => ({
-  getCurrentProjectId: getCurrentProjectIdMock,
 }));
 
 vi.mock('./logger.js', () => ({
@@ -158,7 +152,6 @@ beforeEach(() => {
   delete process.env['LUCID_API_PORT'];
   randomUUIDMock.mockReturnValue('test-token');
   tmpdirMock.mockReturnValue('C:/temp');
-  getCurrentProjectIdMock.mockReturnValue('project-1');
 });
 
 describe('api server', () => {
@@ -211,7 +204,7 @@ describe('api server', () => {
     expect(parseJson(res)).toEqual({ status: 'ok', version: '0.0.1' });
   });
 
-  it('lists canvases for the active project and returns a clear error when none is open', async () => {
+  it('lists all canvases', async () => {
     const { handler, startApiServer } = await loadModule();
     const db = {
       listCanvases: vi.fn(() => [{ id: 'canvas-1' }]),
@@ -222,21 +215,12 @@ describe('api server', () => {
       authorization: 'Bearer test-token',
     };
 
-    getCurrentProjectIdMock.mockReturnValueOnce(null);
-    const missingProject = await dispatch(handler(), {
-      method: 'GET',
-      url: '/api/canvases',
-      headers: authHeaders,
-    });
-    expect(missingProject.statusCode).toBe(400);
-    expect(parseJson(missingProject)).toEqual({ error: 'No project open' });
-
     const success = await dispatch(handler(), {
       method: 'GET',
       url: '/api/canvases',
       headers: authHeaders,
     });
-    expect(db.listCanvases).toHaveBeenCalledWith('project-1');
+    expect(db.listCanvases).toHaveBeenCalledWith();
     expect(success.statusCode).toBe(200);
     expect(parseJson(success)).toEqual([{ id: 'canvas-1' }]);
   });

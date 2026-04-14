@@ -91,7 +91,6 @@ describe('WorkflowEngine', () => {
   it('starts workflows and exposes persisted list/get state', () => {
     const workflowRunId = engine.start({
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       input: { sceneId: 'scene-1' },
@@ -103,7 +102,6 @@ describe('WorkflowEngine', () => {
       expect.objectContaining({
         id: 'wf-1',
         workflowType: 'storyboard.generate',
-        projectId: 'project-1',
         entityType: 'scene',
         entityId: 'scene-1',
         status: WorkflowRunStatus.Ready,

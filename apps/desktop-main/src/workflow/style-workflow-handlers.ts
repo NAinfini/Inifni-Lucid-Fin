@@ -79,7 +79,6 @@ export function createStyleWorkflowHandlers(
         const assetType = requireAssetType(context.taskRun.input.assetType);
         const asset = context.db
           .queryAssets({
-            projectId: context.workflowRun.projectId,
             type: assetType,
             limit: 10_000,
           })

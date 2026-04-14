@@ -1,4 +1,4 @@
-import type { ProjectManifest, StyleGuide, Snapshot } from './dto/project.js';
+import type { StyleGuide } from './dto/project.js';
 import type { AssetRef, AssetMeta, AssetType } from './dto/asset.js';
 import type { Job, GenerationRequest } from './dto/job.js';
 import type { Scene } from './dto/scene.js';
@@ -26,6 +26,25 @@ import type {
 } from './dto/presets.js';
 import type { LLMProviderRuntimeConfig, LLMProviderRuntimeInput } from './llm-provider.js';
 
+/** Session stored in SQLite — lightweight chat-history record. */
+export interface IpcStoredSession {
+  id: string;
+  canvasId: string | null;
+  title: string;
+  messages: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Snapshot metadata (data blob excluded for list responses). */
+export interface IpcSnapshotMeta {
+  id: string;
+  sessionId: string;
+  label: string;
+  trigger: 'auto' | 'manual';
+  createdAt: number;
+}
+
 export interface IpcChannelMap {
   // --- Settings ---
   'settings:load': {
@@ -34,48 +53,6 @@ export interface IpcChannelMap {
   };
   'settings:save': {
     request: Record<string, unknown>;
-    response: void;
-  };
-
-  // --- Project ---
-  'project:create': {
-    request: {
-      title: string;
-      description?: string;
-      genre?: string;
-      resolution?: [number, number];
-      fps?: number;
-    };
-    response: ProjectManifest;
-  };
-  'project:open': {
-    request: { path: string };
-    response: ProjectManifest;
-  };
-  'project:save': {
-    request: void;
-    response: void;
-  };
-  'project:list': {
-    request: void;
-    response: Array<{
-      id: string;
-      title: string;
-      path: string;
-      updatedAt: number;
-      thumbnail?: string;
-    }>;
-  };
-  'project:snapshot': {
-    request: { name: string };
-    response: { id: string };
-  };
-  'project:snapshot:list': {
-    request: void;
-    response: Snapshot[];
-  };
-  'project:snapshot:restore': {
-    request: { snapshotId: string };
     response: void;
   };
 
@@ -214,11 +191,11 @@ export interface IpcChannelMap {
 
   // --- Job ---
   'job:submit': {
-    request: GenerationRequest & { projectId: string; segmentId?: string };
+    request: GenerationRequest & { segmentId?: string };
     response: { jobId: string };
   };
   'job:list': {
-    request: { projectId?: string; status?: string };
+    request: { status?: string } | void;
     response: Job[];
   };
   'job:cancel': {
@@ -236,7 +213,7 @@ export interface IpcChannelMap {
 
   // --- Workflow ---
   'workflow:list': {
-    request: { projectId?: string; status?: string } | void;
+    request: { status?: string } | void;
     response: WorkflowActivitySummary[];
   };
   'workflow:get': {
@@ -254,7 +231,6 @@ export interface IpcChannelMap {
   'workflow:start': {
     request: {
       workflowType: string;
-      projectId: string;
       entityType: string;
       entityId?: string;
       triggerSource?: string;
@@ -445,7 +421,6 @@ export interface IpcChannelMap {
       | {
           includeBuiltIn?: boolean;
           category?: PresetCategory;
-          projectId?: string;
         }
       | void;
     response: PresetDefinition[];
@@ -551,5 +526,41 @@ export interface IpcChannelMap {
       };
     };
     response: void;
+  };
+
+  // --- Session ---
+  'session:upsert': {
+    request: IpcStoredSession;
+    response: void;
+  };
+  'session:get': {
+    request: { id: string };
+    response: IpcStoredSession;
+  };
+  'session:list': {
+    request: { limit?: number } | void;
+    response: Array<Omit<IpcStoredSession, 'messages'>>;
+  };
+  'session:delete': {
+    request: { id: string };
+    response: { success: true };
+  };
+
+  // --- Snapshot ---
+  'snapshot:capture': {
+    request: { sessionId: string; label: string; trigger?: 'auto' | 'manual' };
+    response: IpcSnapshotMeta;
+  };
+  'snapshot:list': {
+    request: { sessionId: string };
+    response: IpcSnapshotMeta[];
+  };
+  'snapshot:restore': {
+    request: { snapshotId: string };
+    response: { success: true };
+  };
+  'snapshot:delete': {
+    request: { snapshotId: string };
+    response: { success: true };
   };
 }

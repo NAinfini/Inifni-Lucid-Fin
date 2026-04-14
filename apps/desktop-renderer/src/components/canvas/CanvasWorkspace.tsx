@@ -138,7 +138,7 @@ export function CanvasWorkspace() {
   const activeCanvasId = useSelector((s: RootState) => s.canvas.activeCanvasId);
   const canvas = useSelector(selectActiveCanvas);
   const canvasViewport = useSelector((s: RootState) => s.canvas.viewport);
-  const projectStyleGuide = useSelector((s: RootState) => s.project.styleGuide);
+  const projectStyleGuide = useSelector((s: RootState) => s.settings.styleGuide);
   const selectedNodeIds = useSelector((s: RootState) => s.canvas.selectedNodeIds);
   const selectedEdgeIds = useSelector((s: RootState) => s.canvas.selectedEdgeIds);
   const clipboard = useSelector((s: RootState) => s.canvas.clipboard, shallowEqual);
@@ -212,6 +212,15 @@ export function CanvasWorkspace() {
     },
     [canvas?.nodes, dispatch, reactFlow],
   );
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const nodeId = (e as CustomEvent).detail?.nodeId;
+      if (typeof nodeId === 'string') handleNavigateToNode(nodeId);
+    };
+    window.addEventListener('commander:navigate-to-node', handler);
+    return () => window.removeEventListener('commander:navigate-to-node', handler);
+  }, [handleNavigateToNode]);
 
   // ---- React Flow event handlers -------------------------------------------
 
@@ -628,7 +637,6 @@ export function CanvasWorkspace() {
         const importedCanvas = materializeImportedCanvas({
           document,
           canvasId: replacingActiveCanvas ? canvas.id : crypto.randomUUID(),
-          projectId: canvas.projectId,
           name: replacingActiveCanvas ? canvas.name : `${document.canvas.name} Imported`,
         });
 
@@ -800,7 +808,6 @@ export function CanvasWorkspace() {
     </CanvasContextMenu>
     <VideoCloneDialog
       open={videoCloneOpen}
-      projectId={canvas?.projectId ?? null}
       onClose={() => setVideoCloneOpen(false)}
       onCanvasCreated={(canvasId) => dispatch(setActiveCanvas(canvasId))}
     />

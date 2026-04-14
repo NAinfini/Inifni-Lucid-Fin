@@ -10,7 +10,6 @@ import type { CanvasToolDeps } from './canvas-tool-utils.js';
 function createCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [
       {
@@ -59,8 +58,6 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     moveNode: vi.fn(async () => undefined),
     renameNode: vi.fn(async () => undefined),
     renameCanvas: vi.fn(async () => undefined),
-    loadCanvas: vi.fn(async () => undefined),
-    saveCanvas: vi.fn(async () => undefined),
     connectNodes: vi.fn(async () => undefined),
     setNodePresets: vi.fn(async (_canvasId, nodeId, presetTracks) => {
       const node = canvas.nodes.find((entry) => entry.id === nodeId);

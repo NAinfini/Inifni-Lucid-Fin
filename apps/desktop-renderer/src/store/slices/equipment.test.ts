@@ -16,7 +16,6 @@ import {
 function makeEquipment(overrides?: Partial<Equipment>): Equipment {
   return {
     id: 'eq-1',
-    projectId: 'project-1',
     name: 'Sword',
     type: 'weapon',
     description: 'A steel sword',

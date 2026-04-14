@@ -58,7 +58,6 @@ describe('JobQueue', () => {
   describe('submit', () => {
     it('creates a queued job', () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'a cat',
@@ -72,7 +71,6 @@ describe('JobQueue', () => {
 
     it('stores provider from providerId', () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'provider mapping',
@@ -85,7 +83,6 @@ describe('JobQueue', () => {
   describe('cancel', () => {
     it('cancels a queued job', () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'test',
@@ -97,7 +94,6 @@ describe('JobQueue', () => {
 
     it('throws on invalid transition', () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'test',
@@ -110,7 +106,6 @@ describe('JobQueue', () => {
   describe('pause / resume', () => {
     it('pauses a running job and resumes it', () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'test',
@@ -129,7 +124,6 @@ describe('JobQueue', () => {
   describe('recover', () => {
     it('recovers completed jobs from provider', async () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'test',
@@ -143,7 +137,6 @@ describe('JobQueue', () => {
 
     it('marks jobs as dead when adapter not found', async () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'unknown',
         prompt: 'test',
@@ -154,12 +147,38 @@ describe('JobQueue', () => {
       const job = db.getJob(id);
       expect(job!.status).toBe(JobStatus.Dead);
     });
+
+    it('skips jobs already tracked in the running map', async () => {
+      const adapter = mockAdapter({
+        checkStatus: vi.fn().mockResolvedValue(JobStatus.Completed),
+      });
+      registry.unregister('mock');
+      registry.register(adapter);
+
+      const id = queue.submit({
+        type: 'image',
+        providerId: 'mock',
+        prompt: 'test',
+      });
+      db.updateJob(id, { status: JobStatus.Running, startedAt: Date.now() });
+
+      // Simulate that the job is already being executed locally
+      const runningMap = (queue as unknown as { running: Map<string, AbortController> }).running;
+      runningMap.set(id, new AbortController());
+
+      await queue.recover();
+
+      // checkStatus should NOT have been called for this job
+      expect(adapter.checkStatus).not.toHaveBeenCalled();
+      // Job should remain Running (not overwritten to Completed)
+      const job = db.getJob(id);
+      expect(job!.status).toBe(JobStatus.Running);
+    });
   });
 
   describe('state machine transitions', () => {
     it('rejects invalid transitions', () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'test',
@@ -172,7 +191,6 @@ describe('JobQueue', () => {
   describe('subscribe support', () => {
     it('prefers adapter.subscribe and persists callback progress before completion', async () => {
       const id = queue.submit({
-        projectId: 'p1',
         type: 'image',
         providerId: 'mock',
         prompt: 'subscribe flow',

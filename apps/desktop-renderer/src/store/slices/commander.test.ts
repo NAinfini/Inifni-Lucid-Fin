@@ -107,13 +107,17 @@ describe('commander slice', () => {
     nowSpy.mockRestore();
   });
 
-  it('streamError clears streaming state and clearHistory resets messages', () => {
+  it('streamError clears streaming state and persists error as message', () => {
     let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
     state = commanderSlice.reducer(state, startStreaming());
     state = commanderSlice.reducer(state, streamError('boom'));
 
     expect(state.error).toBe('boom');
     expect(state.streaming).toBe(false);
+    // Error is persisted as an assistant message
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[1].role).toBe('assistant');
+    expect(state.messages[1].content).toContain('boom');
 
     state = commanderSlice.reducer(state, clearHistory());
     expect(state.messages).toEqual([]);

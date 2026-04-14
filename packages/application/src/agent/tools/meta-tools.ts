@@ -1,4 +1,5 @@
-import type { AgentTool, AgentToolRegistry, ToolResult } from '../tool-registry.js';
+import type { AgentTool, AgentToolRegistry } from '../tool-registry.js';
+import { ok, fail } from './tool-result-helpers.js';
 
 export interface MetaToolDeps {
   promptGuides?: Array<{ id: string; name: string; content: string }>;
@@ -7,23 +8,12 @@ export interface MetaToolDeps {
   compactContext?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
 }
 
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
 export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps): AgentTool[] {
   const promptGuides = deps.promptGuides ?? [];
 
   const toolGet: AgentTool = {
     name: 'tool.get',
-    description: 'If names is provided: load full schema for specific tools. If names is omitted: list ALL available tools grouped by domain.',
+    description: 'Two modes: (1) Omit "names" to list all available tools grouped by domain (name + short description only). (2) Provide "names" array to load full parameter schemas for specific tools. Use mode 1 first to discover tools, then mode 2 to get schemas before calling them.',
     tags: ['meta', 'read'],
     tier: 1,
     parameters: {
@@ -41,8 +31,8 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
       try {
         const rawNames = args.names;
 
-        // No names provided — list all tools grouped by domain
-        if (rawNames === undefined || rawNames === null) {
+        // No names provided or empty array — list all tools grouped by domain
+        if (rawNames === undefined || rawNames === null || (Array.isArray(rawNames) && rawNames.length === 0)) {
           const allTools = deps.context
             ? registry.forContext(deps.context)
             : registry.list();
@@ -111,8 +101,8 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
       try {
         const rawIds = args.ids;
 
-        // No ids provided — list all guides
-        if (rawIds === undefined || rawIds === null) {
+        // No ids provided or empty array — list all guides
+        if (rawIds === undefined || rawIds === null || (Array.isArray(rawIds) && rawIds.length === 0)) {
           const guides = promptGuides.map(({ id, name }) => ({ id, name }));
           const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
           const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;

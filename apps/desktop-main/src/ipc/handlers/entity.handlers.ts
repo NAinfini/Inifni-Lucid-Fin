@@ -48,15 +48,15 @@ export function registerEntityHandlers(ipcMain: IpcMain, deps: EntityGenerationD
     if (entityType === 'character') {
       const entity = deps.db.getCharacter(entityId);
       if (!entity) throw new Error(`Character not found: ${entityId}`);
-      deps.db.upsertCharacter({ id: entity.id, name: entity.name, projectId: entity.projectId, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.upsertCharacter({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
     } else if (entityType === 'equipment') {
       const entity = deps.db.getEquipment(entityId);
       if (!entity) throw new Error(`Equipment not found: ${entityId}`);
-      deps.db.upsertEquipment({ id: entity.id, name: entity.name, projectId: entity.projectId, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.upsertEquipment({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
     } else {
       const entity = deps.db.getLocation(entityId);
       if (!entity) throw new Error(`Location not found: ${entityId}`);
-      deps.db.upsertLocation({ id: entity.id, name: entity.name, projectId: entity.projectId, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.upsertLocation({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
     }
 
     return { variants: hashes };

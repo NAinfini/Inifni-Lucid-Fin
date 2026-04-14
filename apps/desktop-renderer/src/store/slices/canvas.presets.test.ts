@@ -15,7 +15,6 @@ import {
 function makeCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Main',
     nodes: [],
     edges: [],
@@ -102,7 +101,7 @@ describe('canvas preset tracks', () => {
       }),
     );
 
-    const canvas = state.canvases[0];
+    const canvas = state.canvases.entities['canvas-1']!;
     const imageNode = canvas.nodes[0] as {
       data: {
         presetTracks: Record<
@@ -149,7 +148,7 @@ describe('canvas preset tracks', () => {
       }),
     );
 
-    const imageNode = state.canvases[0]?.nodes[0] as {
+    const imageNode = state.canvases.entities['canvas-1']?.nodes[0] as {
       data: {
         appliedShotTemplateId?: string;
         appliedShotTemplateName?: string;
@@ -176,7 +175,7 @@ describe('canvas preset tracks', () => {
       }),
     );
 
-    const nodeData = state.canvases[0]?.nodes[0]?.data as unknown as Record<string, unknown>;
+    const nodeData = state.canvases.entities['canvas-1']?.nodes[0]?.data as unknown as Record<string, unknown>;
 
     expect(nodeData.appliedShotTemplateId).toBeUndefined();
     expect(nodeData.appliedShotTemplateName).toBeUndefined();

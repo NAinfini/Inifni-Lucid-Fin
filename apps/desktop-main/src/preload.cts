@@ -17,15 +17,103 @@ import type {
 
 type Callback = (...args: unknown[]) => void;
 
+/* ---------- IPC timeout ---------- */
+
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/** Channels that need longer timeouts (generation, AI, export, etc.) */
+const LONG_TIMEOUT_CHANNELS = new Set([
+  'ai:complete', 'ai:stream', 'ai:completeWithTools',
+  'ai:chat',
+  'commander:chat', 'commander:sendStreaming',
+  'canvas:generate', 'canvasGeneration:start',
+  'video:clone', 'lipsync:process',
+  'render:start', 'render:segment',
+  'export:render', 'export:nle', 'export:assetBundle',
+  'export:storyboard', 'export:metadata', 'export:capcut',
+  'asset:reindexEmbeddings',
+  'entity:generateReferenceImage',
+  'vision:describeImage',
+  'colorStyle:extract',
+]);
+const LONG_TIMEOUT_MS = 300_000; // 5 minutes
+
+/* ---------- IPC rate limiting ---------- */
+
+const RATE_LIMITED_CHANNELS: Record<string, { maxPerSecond: number }> = {
+  'canvas:generate': { maxPerSecond: 2 },
+  'canvasGeneration:start': { maxPerSecond: 2 },
+  'ai:complete': { maxPerSecond: 5 },
+  'ai:completeWithTools': { maxPerSecond: 5 },
+  'entity:generateReferenceImage': { maxPerSecond: 2 },
+};
+
+const rateLimitState = new Map<string, number[]>();
+
+function checkRateLimit(channel: string): void {
+  const config = RATE_LIMITED_CHANNELS[channel];
+  if (!config) return;
+
+  const now = Date.now();
+  const window = 1000; // 1-second sliding window
+  let timestamps = rateLimitState.get(channel) ?? [];
+  timestamps = timestamps.filter((t) => now - t < window);
+
+  if (timestamps.length >= config.maxPerSecond) {
+    throw new Error(`IPC rate limited: ${channel} exceeds ${config.maxPerSecond} calls/sec`);
+  }
+
+  timestamps.push(now);
+  rateLimitState.set(channel, timestamps);
+}
+
+/* ---------- invoke with timeout + rate limiting ---------- */
+
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
-  return ipcRenderer.invoke(channel, ...args);
+  checkRateLimit(channel);
+
+  const timeoutMs = LONG_TIMEOUT_CHANNELS.has(channel) ? LONG_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`IPC timeout: ${channel} did not respond within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    ipcRenderer.invoke(channel, ...args)
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result as T);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }
 
 function typedInvoke<C extends IpcChannel>(
   channel: C,
   request: IpcRequest<C>,
 ): Promise<IpcResponse<C>> {
-  return ipcRenderer.invoke(channel, request) as Promise<IpcResponse<C>>;
+  checkRateLimit(channel);
+
+  const timeoutMs = LONG_TIMEOUT_CHANNELS.has(channel) ? LONG_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+
+  return new Promise<IpcResponse<C>>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`IPC timeout: ${channel} did not respond within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    (ipcRenderer.invoke(channel, request) as Promise<IpcResponse<C>>)
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }
 
 function subscribe(channel: string, cb: Callback): () => void {
@@ -57,17 +145,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       detail?: string;
     }>>('logger:getRecent'),
     onEntry: (cb: Callback) => subscribe('logger:entry', cb),
-  },
-
-  // Project
-  project: {
-    create: (config: IpcRequest<'project:create'>) => typedInvoke('project:create', config),
-    open: (path: string) => typedInvoke('project:open', { path }),
-    save: () => invoke('project:save'),
-    list: () => invoke('project:list'),
-    snapshot: (name: string) => invoke('project:snapshot', { name }),
-    snapshotList: () => invoke('project:snapshot:list'),
-    snapshotRestore: (snapshotId: string) => invoke('project:snapshot:restore', { snapshotId }),
   },
 
   // Script
@@ -286,6 +363,44 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       subscribe('commander:undo:dispatch', cb as Callback),
   },
 
+  // Session history
+  session: {
+    upsert: (s: {
+      id: string;
+      canvasId: string | null;
+      title: string;
+      messages: string;
+      createdAt: number;
+      updatedAt: number;
+    }) => invoke<void>('session:upsert', s),
+    list: (limit?: number) =>
+      invoke<Array<{ id: string; canvasId: string | null; title: string; createdAt: number; updatedAt: number }>>(
+        'session:list', { limit },
+      ),
+    get: (id: string) =>
+      invoke<{ id: string; canvasId: string | null; title: string; messages: string; createdAt: number; updatedAt: number }>(
+        'session:get', { id },
+      ),
+    delete: (id: string) =>
+      invoke<{ success: true }>('session:delete', { id }),
+  },
+
+  // Snapshots
+  snapshot: {
+    capture: (sessionId: string, label: string, trigger?: 'auto' | 'manual') =>
+      invoke<{ id: string; sessionId: string; label: string; trigger: string; createdAt: number }>(
+        'snapshot:capture', { sessionId, label, trigger: trigger ?? 'auto' },
+      ),
+    list: (sessionId: string) =>
+      invoke<Array<{ id: string; sessionId: string; label: string; trigger: string; createdAt: number }>>(
+        'snapshot:list', { sessionId },
+      ),
+    restore: (snapshotId: string) =>
+      invoke<{ success: true }>('snapshot:restore', { snapshotId }),
+    delete: (snapshotId: string) =>
+      invoke<{ success: true }>('snapshot:delete', { snapshotId }),
+  },
+
   // Clipboard watcher
   clipboard: {
     onAIDetected: (cb: (data: { text: string }) => void) =>
@@ -449,7 +564,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
 
   // Presets
   preset: {
-    list: (filter?: { includeBuiltIn?: boolean; category?: PresetCategory; projectId?: string }) =>
+    list: (filter?: { includeBuiltIn?: boolean; category?: PresetCategory }) =>
       invoke<PresetDefinition[]>('preset:list', filter ?? {}),
     save: (data: PresetDefinition) => invoke<PresetDefinition>('preset:save', data),
     delete: (id: string) => invoke('preset:delete', { id }),
@@ -477,8 +592,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Video Clone (F1)
   video: {
     pickFile: () => invoke<string | null>('video:pickFile'),
-    clone: (filePath: string, projectId: string, threshold?: number) =>
-      invoke<{ canvasId: string; nodeCount: number }>('video:clone', { filePath, projectId, threshold }),
+    clone: (filePath: string, threshold?: number) =>
+      invoke<{ canvasId: string; nodeCount: number }>('video:clone', { filePath, threshold }),
     onCloneProgress: (cb: (data: { step: string; current: number; total: number; message: string }) => void) => {
       const handler = (_event: IpcRendererEvent, data: { step: string; current: number; total: number; message: string }) => cb(data);
       ipcRenderer.on('video:clone:progress', handler);
@@ -531,5 +646,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
         ipcRenderer.invoke('storage:pickOpenFile', { extensions }).then(resolve).catch(() => resolve(null));
       });
     },
+  },
+
+  // IPC health check
+  ipc: {
+    ping: () => invoke<'pong'>('ipc:ping'),
   },
 });

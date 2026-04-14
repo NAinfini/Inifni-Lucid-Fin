@@ -21,7 +21,6 @@ export interface LocationRef {
 
 export interface Location {
   id: string;
-  projectId: string;
   name: string;
   type: LocationType;
   subLocation?: string;

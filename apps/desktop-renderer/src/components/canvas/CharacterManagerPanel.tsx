@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
+import { selectAllCanvases } from '../../store/slices/canvas-selectors.js';
 import {
   setCharacters,
   addCharacter,
@@ -11,18 +12,12 @@ import {
   setCharacterRefImage,
   removeCharacterRefImage,
 } from '../../store/slices/characters.js';
-import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import { addLog } from '../../store/slices/logger.js';
 import type {
   Character,
   ReferenceImage,
   CharacterGender,
-  CharacterFace,
-  CharacterHair,
-  CharacterBody,
-  VocalTraits,
   ImageNodeData,
   VideoNodeData,
 } from '@lucid-fin/contracts';
@@ -32,93 +27,40 @@ import {
   Search,
   Trash2,
   Save,
-  Upload,
   User,
-  Image,
-  ImageOff,
-  X,
 } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { t as translate } from '../../i18n.js';
-import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
-import { useConfirm } from '../../components/ui/ConfirmDialog.js';
+import { useEntityManager } from '../../hooks/useEntityManager.js';
+import { createDraft, type CharacterDraft } from './character-manager/utils.js';
+import { SingleReferenceImage } from './character-manager/SingleReferenceImage.js';
+import { ListThumb, StructField } from './character-manager/StructField.js';
+import { AssetPickerDialog } from './character-manager/AssetPickerDialog.js';
 
 const ROLE_OPTIONS: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
 const GENDER_OPTIONS: CharacterGender[] = ['male', 'female', 'non-binary', 'other'];
 
-interface CharacterDraft {
-  id: string;
-  name: string;
-  role: Character['role'];
-  description: string;
-  appearance: string;
-  personality: string;
-  tags: string;
-  age: string;
-  gender: CharacterGender | '';
-  voice: string;
-  face: CharacterFace;
-  hair: CharacterHair;
-  skinTone: string;
-  body: CharacterBody;
-  distinctTraits: string;
-  vocalTraits: VocalTraits;
-}
-
-function createDraft(char: Character): CharacterDraft {
-  return {
-    id: char.id,
-    name: char.name,
-    role: char.role,
-    description: char.description,
-    appearance: char.appearance,
-    personality: char.personality,
-    tags: char.tags.join(', '),
-    age: char.age != null ? String(char.age) : '',
-    gender: char.gender ?? '',
-    voice: char.voice ?? '',
-    face: char.face ?? {},
-    hair: char.hair ?? {},
-    skinTone: char.skinTone ?? '',
-    body: char.body ?? {},
-    distinctTraits: (char.distinctTraits ?? []).join(', '),
-    vocalTraits: char.vocalTraits ?? {},
-  };
-}
-
 export function CharacterManagerPanel() {
   const { t } = useI18n();
-  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { items, selectedId, loading } = useSelector((s: RootState) => s.characters);
-  const [draft, setDraft] = useState<CharacterDraft | null>(null);
-  const [originalDraft, setOriginalDraft] = useState<CharacterDraft | null>(null);
-  const [search, setSearch] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
+
+  const {
+    draft, setDraft,
+    setOriginalDraft,
+    search, setSearch,
+    error, setError,
+    assetPickerOpen, setAssetPickerOpen,
+    isDirty,
+    reportError,
+    confirmDiscardIfDirty,
+    confirm,
+    ConfirmDialog,
+  } = useEntityManager<CharacterDraft>({
+    entityType: 'character',
+    unsavedChangesKey: 'characterManager.unsavedChanges',
+  });
+
   const [structuredOpen, setStructuredOpen] = useState(false);
-
-  const reportError = useCallback(
-    (reason: unknown, detail: string) => {
-      const message = reason instanceof Error ? reason.message : String(reason);
-      setError(message);
-      dispatch(
-        addLog({
-          level: 'error',
-          category: 'character',
-          message,
-          detail,
-        }),
-      );
-    },
-    [dispatch],
-  );
-
-  const isDirty = useMemo(() => {
-    if (!draft || !originalDraft) return false;
-    return JSON.stringify(draft) !== JSON.stringify(originalDraft);
-  }, [draft, originalDraft]);
 
   const selectedChar = useMemo(() => items.find((c) => c.id === selectedId), [items, selectedId]);
 
@@ -131,7 +73,7 @@ export function CharacterManagerPanel() {
     });
   }, [items, search]);
 
-  const canvases = useSelector((s: RootState) => s.canvas.canvases);
+  const canvases = useSelector(selectAllCanvases);
 
   const usageCountById = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -158,17 +100,7 @@ export function CharacterManagerPanel() {
     const d = createDraft(selectedChar);
     setDraft(d);
     setOriginalDraft(d);
-  }, [selectedChar]);
-
-  const confirmDiscardIfDirty = useCallback(async (): Promise<boolean> => {
-    if (!isDirty) return true;
-    return confirm({
-      title: t('characterManager.unsavedChanges'),
-      destructive: true,
-      confirmLabel: t('action.confirm'),
-      cancelLabel: t('action.cancel'),
-    });
-  }, [confirm, isDirty, t]);
+  }, [selectedChar, setDraft, setOriginalDraft]);
 
   const handleSelectCharacter = useCallback(
     async (id: string) => {
@@ -222,7 +154,7 @@ export function CharacterManagerPanel() {
     } catch (reason) {
       reportError(reason, 'createNewCharacter');
     }
-  }, [dispatch, confirmDiscardIfDirty, reportError, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t]);
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedChar) return;
@@ -262,7 +194,7 @@ export function CharacterManagerPanel() {
     } catch (reason) {
       reportError(reason, 'saveDraft');
     }
-  }, [dispatch, draft, reportError, selectedChar]);
+  }, [dispatch, draft, reportError, selectedChar, setError]);
 
   const deleteSelected = useCallback(async () => {
     if (!selectedChar) return;
@@ -284,7 +216,7 @@ export function CharacterManagerPanel() {
     } catch (reason) {
       reportError(reason, 'deleteSelected');
     }
-  }, [confirm, dispatch, reportError, selectedChar, t]);
+  }, [confirm, dispatch, reportError, selectedChar, setError, t]);
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -306,7 +238,7 @@ export function CharacterManagerPanel() {
         reportError(reason, 'handleRefImageUpload');
       }
     },
-    [dispatch, reportError, selectedChar],
+    [dispatch, reportError, selectedChar, setError],
   );
 
   const handleRefImageRemove = useCallback(
@@ -323,7 +255,7 @@ export function CharacterManagerPanel() {
         reportError(reason, 'handleRefImageRemove');
       }
     },
-    [dispatch, reportError, selectedChar],
+    [dispatch, reportError, selectedChar, setError],
   );
 
   const handleRefImageFromAsset = useCallback(
@@ -345,7 +277,7 @@ export function CharacterManagerPanel() {
         reportError(reason, 'handleRefImageFromAsset');
       }
     },
-    [dispatch, reportError, selectedChar],
+    [dispatch, reportError, selectedChar, setAssetPickerOpen, setError],
   );
 
   const handleSelectVariant = useCallback(
@@ -388,7 +320,7 @@ export function CharacterManagerPanel() {
         reportError(reason, 'handleSelectVariant');
       }
     },
-    [dispatch, reportError, selectedChar],
+    [dispatch, reportError, selectedChar, setError],
   );
 
   return (
@@ -858,339 +790,3 @@ export function CharacterManagerPanel() {
   );
 }
 
-function SingleReferenceImage({
-  referenceImages,
-  onUpload,
-  onRemove,
-  onFromAssets,
-  onDropHash,
-  onSelectVariant,
-  entityType,
-  entityId,
-  slot,
-}: {
-  referenceImages: ReferenceImage[];
-  onUpload: () => void;
-  onRemove: () => void;
-  onFromAssets: () => void;
-  onDropHash?: (hash: string) => void;
-  onSelectVariant?: (hash: string) => void;
-  entityType?: string;
-  entityId?: string;
-  slot?: string;
-}) {
-  const { t } = useI18n();
-  const [isDragOver, setIsDragOver] = useState(false);
-  const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
-  const { url, markFailed } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
-
-  const handleDragOver = (e: React.DragEvent) => {
-    const types = e.dataTransfer.types;
-    if (
-      types.includes('Files') ||
-      types.includes('application/x-lucid-asset') ||
-      types.includes('application/x-lucid-ref-image')
-    ) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      setIsDragOver(true);
-    }
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-      setIsDragOver(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    if (!onDropHash) return;
-
-    const assetRaw = e.dataTransfer.getData('application/x-lucid-asset');
-    if (assetRaw) {
-      try {
-        const payload = JSON.parse(assetRaw) as { hash: string; type: string };
-        if (payload.hash && payload.type === 'image') onDropHash(payload.hash);
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-
-    const refRaw = e.dataTransfer.getData('application/x-lucid-ref-image');
-    if (refRaw) {
-      try {
-        const payload = JSON.parse(refRaw) as { assetHash: string };
-        if (payload.assetHash) onDropHash(payload.assetHash);
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      const file = files[0];
-      if (file && file.type.startsWith('image/')) {
-        const filePath = (file as { path?: string }).path ?? '';
-        if (filePath) {
-          const api = getAPI();
-          void api?.asset
-            .import(filePath, 'image')
-            .then((ref) => {
-              const r = ref as { hash: string } | null;
-              if (r?.hash) onDropHash(r.hash);
-            })
-            .catch(() => {
-              /* image import failure is non-critical */
-            });
-        }
-      }
-    }
-  };
-
-  return (
-    <div className="space-y-1.5">
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={cn(
-          'rounded border w-full',
-          mainRef?.assetHash ? 'border-primary/50 bg-primary/5' : 'border-dashed border-border/70',
-          isDragOver && 'border-blue-400/70 bg-blue-500/5 ring-2 ring-blue-400/40',
-        )}
-      >
-        {url ? (
-          <div className="relative w-full aspect-[3/2] bg-muted rounded overflow-hidden">
-            <img
-              src={url}
-              alt="Reference"
-              className="h-full w-full object-contain"
-              onError={markFailed}
-              draggable={Boolean(mainRef?.assetHash && entityType && entityId && slot)}
-              onDragStart={
-                mainRef?.assetHash && entityType && entityId && slot
-                  ? (e) => {
-                      e.stopPropagation();
-                      e.dataTransfer.setData(
-                        'application/x-lucid-ref-image',
-                        JSON.stringify({
-                          assetHash: mainRef.assetHash,
-                          entityType,
-                          entityId,
-                          slot,
-                        }),
-                      );
-                      e.dataTransfer.effectAllowed = 'copy';
-                    }
-                  : undefined
-              }
-            />
-            {isDragOver && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-blue-500/10">
-                <span className="rounded border border-dashed border-blue-400/70 bg-blue-500/10 px-3 py-1 text-xs text-blue-400">
-                  {t('entity.dropHere')}
-                </span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center aspect-[3/2] gap-2">
-            {isDragOver ? (
-              <span className="text-xs text-blue-400">{t('entity.dropImageHere')}</span>
-            ) : mainRef?.assetHash ? (
-              <>
-                <ImageOff className="w-8 h-8 text-destructive/40" />
-                <span className="text-[10px] text-destructive/60">{t('entity.brokenImage')}</span>
-              </>
-            ) : (
-              <Image className="w-8 h-8 text-muted-foreground/40" />
-            )}
-            {!isDragOver && !mainRef?.assetHash && (
-              <span className="text-xs text-muted-foreground">
-                {translate('characterManager.upload')}
-              </span>
-            )}
-          </div>
-        )}
-        <div className="flex items-center gap-1 p-1.5">
-          <button
-            type="button"
-            onClick={onUpload}
-            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-            aria-label={translate('characterManager.upload')}
-          >
-            <Upload className="w-3 h-3" aria-hidden="true" />
-            {translate('characterManager.upload')}
-          </button>
-          <button
-            type="button"
-            onClick={onFromAssets}
-            className="flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-muted/80 transition-colors"
-            aria-label={t('entity.fromAssets')}
-          >
-            <Image className="w-3 h-3" aria-hidden="true" />
-            {t('entity.fromAssets')}
-          </button>
-          {mainRef?.assetHash && (
-            <button
-              type="button"
-              onClick={onRemove}
-              className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
-              aria-label={t('entity.removeImage')}
-            >
-              <X className="w-3 h-3" aria-hidden="true" />
-              {t('entity.removeImage')}
-            </button>
-          )}
-        </div>
-      </div>
-      {url && mainRef?.variants && mainRef.variants.length > 0 && (
-        <div className="flex items-center gap-1">
-          <span className="text-[9px] text-muted-foreground/70 shrink-0">
-            {t('characterManager.variants')}:
-          </span>
-          <div className="flex gap-1 overflow-x-auto">
-            {mainRef.assetHash && (
-              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
-            )}
-            {mainRef.variants.map((variantHash) => (
-              <VariantThumb
-                key={variantHash}
-                hash={variantHash}
-                isActive={false}
-                onClick={() => onSelectVariant?.(variantHash)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VariantThumb({
-  hash,
-  isActive,
-  onClick,
-}: {
-  hash: string;
-  isActive: boolean;
-  onClick?: () => void;
-}) {
-  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
-  if (!url) return null;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'shrink-0 h-8 w-12 rounded border overflow-hidden transition-colors',
-        isActive
-          ? 'border-primary ring-1 ring-primary/40'
-          : 'border-border/60 hover:border-primary/50',
-      )}
-    >
-      <img src={url} alt="variant" className="h-full w-full object-cover" onError={markFailed} />
-    </button>
-  );
-}
-
-function ListThumb({ hash }: { hash?: string }) {
-  const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
-  if (!url) return <div className="shrink-0 w-8 h-8 rounded bg-muted/50" />;
-  return (
-    <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" onError={markFailed} />
-  );
-}
-
-function StructField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-0.5">
-      <span className="text-[9px] text-muted-foreground">{label}</span>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded bg-muted px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-primary"
-        placeholder={label}
-      />
-    </div>
-  );
-}
-
-function AssetPickerDialog({
-  open,
-  onClose,
-  onSelect,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSelect: (hash: string) => void;
-}) {
-  const { t } = useI18n();
-  const imageAssets = useSelector(selectImageAssets);
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) onClose();
-      }}
-    >
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{t('entity.selectImage')}</DialogTitle>
-        </DialogHeader>
-        {imageAssets.length === 0 ? (
-          <div className="text-sm text-muted-foreground py-4 text-center">
-            {t('entity.noImageAssetsFound')}
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 gap-2 max-h-96 overflow-y-auto p-1">
-            {imageAssets.map((asset) => (
-              <AssetThumb key={asset.id} asset={asset} onSelect={onSelect} />
-            ))}
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AssetThumb({ asset, onSelect }: { asset: Asset; onSelect: (hash: string) => void }) {
-  const { url, markFailed } = useAssetUrl(asset.hash, 'image', asset.format ?? 'jpg');
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(asset.hash)}
-      className="rounded border border-border/60 overflow-hidden hover:border-primary transition-colors"
-      title={asset.name}
-    >
-      {url ? (
-        <img
-          src={url}
-          alt={asset.name}
-          className="w-full aspect-square object-cover"
-          onError={markFailed}
-        />
-      ) : (
-        <div className="w-full aspect-square bg-muted flex items-center justify-center">
-          <Image className="w-6 h-6 text-muted-foreground/40" />
-        </div>
-      )}
-      <div className="text-[9px] text-muted-foreground truncate px-1 py-0.5">{asset.name}</div>
-    </button>
-  );
-}

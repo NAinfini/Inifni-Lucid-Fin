@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import type {
   Job,
   GenerationRequest,
@@ -7,7 +7,7 @@ import type {
   QueueUpdate,
 } from '@lucid-fin/contracts';
 import { JobStatus, LucidError, ErrorCode } from '@lucid-fin/contracts';
-import type { SqliteIndex } from '@lucid-fin/storage';
+import type { IJobStore } from '@lucid-fin/storage';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -25,34 +25,51 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   [JobStatus.Dead]: [],
 };
 
-export class JobQueue {
+export class JobQueue extends EventEmitter {
   private running = new Map<string, AbortController>();
-  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private asyncPollTimer: ReturnType<typeof setInterval> | null = null;
+  private tickTimer: ReturnType<typeof setTimeout> | null = null;
+  private tickQueued = false;
 
   constructor(
-    private readonly db: SqliteIndex,
+    private readonly db: IJobStore,
     private readonly registry: AdapterRegistry,
     private readonly maxConcurrent = 3,
-  ) {}
+  ) {
+    super();
+  }
 
-  start(intervalMs = 2000): void {
-    // Polling approach: tick() checks for queued jobs and polls async job status.
-    // Future optimization: add EventEmitter to trigger immediate tick on job submit/complete.
-    this.tickTimer = setInterval(() => this.tick(), intervalMs);
+  start(asyncPollIntervalMs = 5000): void {
+    // Only poll for async provider job status (Runway, Kling, etc.)
+    // Local job scheduling is event-driven via requestTick()
+    this.asyncPollTimer = setInterval(() => void this.pollAsyncJobs(), asyncPollIntervalMs);
   }
 
   stop(): void {
+    if (this.asyncPollTimer) {
+      clearInterval(this.asyncPollTimer);
+      this.asyncPollTimer = null;
+    }
     if (this.tickTimer) {
-      clearInterval(this.tickTimer);
+      clearTimeout(this.tickTimer);
       this.tickTimer = null;
     }
   }
 
-  submit(request: GenerationRequest & { projectId: string; segmentId?: string }): string {
-    const id = randomUUID();
+  /** Schedule a tick on next microtask. Coalesces rapid-fire submits. */
+  private requestTick(): void {
+    if (this.tickQueued) return;
+    this.tickQueued = true;
+    queueMicrotask(() => {
+      this.tickQueued = false;
+      void this.tick();
+    });
+  }
+
+  submit(request: GenerationRequest & { segmentId?: string }): string {
+    const id = crypto.randomUUID();
     const job: Job = {
       id,
-      projectId: request.projectId,
       segmentId: request.segmentId,
       type: request.type,
       provider: request.providerId,
@@ -65,6 +82,8 @@ export class JobQueue {
       createdAt: Date.now(),
     };
     this.db.insertJob(job);
+    this.emit('job:submitted', { id, status: 'queued' });
+    this.requestTick();
     return id;
   }
 
@@ -87,6 +106,7 @@ export class JobQueue {
     this.running.delete(jobId);
 
     this.db.updateJob(jobId, { status: JobStatus.Cancelled, completedAt: Date.now() });
+    this.emit('job:cancelled', { id: jobId, status: 'cancelled' });
   }
 
   pause(jobId: string): void {
@@ -98,18 +118,24 @@ export class JobQueue {
     this.running.delete(jobId);
 
     this.db.updateJob(jobId, { status: JobStatus.Paused });
+    this.emit('job:paused', { id: jobId, status: 'paused' });
   }
 
   resume(jobId: string): void {
     const job = this.getJobOrThrow(jobId);
     this.assertTransition(job.status, JobStatus.Queued);
     this.db.updateJob(jobId, { status: JobStatus.Queued });
+    this.emit('job:resumed', { id: jobId, status: 'queued' });
+    this.requestTick();
   }
 
   async recover(): Promise<void> {
     const runningJobs = this.db.listJobs({ status: JobStatus.Running });
 
     for (const job of runningJobs) {
+      // Skip jobs already tracked locally — they are actively executing
+      if (this.running.has(job.id)) continue;
+
       const adapter = this.registry.get(job.provider);
       if (!adapter) {
         this.markFailedOrDead(job);
@@ -155,14 +181,11 @@ export class JobQueue {
   }
 
   private async tick(): Promise<void> {
-    // Poll async running jobs for completion
-    await this.pollAsyncJobs();
-
     if (this.running.size >= this.maxConcurrent) return;
 
     const slots = this.maxConcurrent - this.running.size;
     const queued = this.db.listJobs({ status: JobStatus.Queued });
-    const toRun = queued.slice(0, slots);
+    const toRun = queued.filter((j) => !this.running.has(j.id)).slice(0, slots);
 
     for (const job of toRun) {
       this.executeJob(job);
@@ -190,15 +213,18 @@ export class JobQueue {
             completedAt: Date.now(),
           });
           this.running.delete(job.id);
+          this.emit('job:completed', { id: job.id, status: 'completed' });
         } else if (status === JobStatus.Failed) {
           this.markFailedOrDead({ ...job, error: 'Provider reported failure' });
           this.running.delete(job.id);
+          this.emit('job:failed', { id: job.id, status: 'failed' });
         } else if (status === JobStatus.Cancelled) {
           this.db.updateJob(job.id, {
             status: JobStatus.Cancelled,
             completedAt: Date.now(),
           });
           this.running.delete(job.id);
+          this.emit('job:cancelled', { id: job.id, status: 'cancelled' });
         }
         // If still running/queued, do nothing — next tick will poll again
       } catch { /* provider unreachable — leave as running, retry next tick */
@@ -248,6 +274,15 @@ export class JobQueue {
             onProgress: (update) => {
               const current = this.db.getJob(job.id) ?? job;
               this.db.updateJob(job.id, buildProgressUpdatePatch(current, update));
+              const updated = this.db.getJob(job.id) ?? current;
+              this.emit('job:progress', {
+                jobId: job.id,
+                progress: Math.max(0, Math.min(100, Math.round(update.percentage))),
+                completedSteps: updated.completedSteps,
+                totalSteps: updated.totalSteps,
+                currentStep: update.currentStep,
+                message: update.currentStep ?? `Running on ${job.provider}`,
+              });
             },
             onLog: (log) => {
               this.db.updateJob(job.id, { currentStep: log });
@@ -276,6 +311,8 @@ export class JobQueue {
         currentStep: 'Completed',
         completedAt: Date.now(),
       });
+      this.emit('job:completed', { id: job.id, status: 'completed' });
+      this.requestTick();
     } catch (err) {
       if (controller.signal.aborted) return;
 
@@ -284,6 +321,8 @@ export class JobQueue {
       if (updatedJob) {
         this.markFailedOrDead({ ...updatedJob, error: message });
       }
+      this.emit('job:failed', { id: job.id, status: 'failed', error: message });
+      this.requestTick();
     } finally {
       if (!keepInRunning) {
         this.running.delete(job.id);

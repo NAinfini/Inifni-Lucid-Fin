@@ -110,7 +110,6 @@ describe('WorkflowRecovery', () => {
   it('recovers running and awaiting_provider tasks back into terminal workflow state', async () => {
     const awaitingWorkflowId = engine.start({
       workflowType: 'style.extract',
-      projectId: 'project-1',
       entityType: 'asset',
       entityId: 'asset-1',
     });
@@ -118,7 +117,6 @@ describe('WorkflowRecovery', () => {
 
     const runningWorkflowId = engine.start({
       workflowType: 'style.extract',
-      projectId: 'project-2',
       entityType: 'asset',
       entityId: 'asset-2',
     });

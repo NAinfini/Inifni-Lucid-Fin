@@ -21,14 +21,14 @@ export function computeInverseAction(
   if (!actionType.startsWith('canvas/')) return null;
 
   const canvasState = prevState as unknown as CanvasSliceState;
-  if (!Array.isArray(canvasState.canvases)) {
+  if (!canvasState.canvases || !canvasState.canvases.entities) {
     return null;
   }
 
-  // Helper: find active canvas in previous state
-  const prevCanvas = canvasState.canvases.find(
-    (c) => c.id === canvasState.activeCanvasId,
-  );
+  // Helper: find active canvas in previous state (O(1) entity lookup)
+  const prevCanvas = canvasState.activeCanvasId
+    ? canvasState.canvases.entities[canvasState.activeCanvasId]
+    : undefined;
 
   const payload = (action as UnknownAction & { payload?: unknown }).payload;
 
@@ -137,7 +137,7 @@ export function computeInverseAction(
     case 'canvas/renameCanvas': {
       const p = payload as { id: string; name: string };
       if (!p?.id) return null;
-      const prevCvs = canvasState.canvases.find((c) => c.id === p.id);
+      const prevCvs = canvasState.canvases.entities[p.id];
       if (!prevCvs) return null;
       return {
         type: 'canvas/renameCanvas',

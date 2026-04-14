@@ -13,7 +13,6 @@ import { createCanvasTools, type CanvasToolDeps } from './canvas-tools.js';
 function createCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [
       {
@@ -125,15 +124,6 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
       current.name = name;
       current.updatedAt = Date.now();
     }),
-    loadCanvas: vi.fn(async (canvasId: string) => {
-      const current = store.get(canvasId);
-      if (!current) throw new Error(`Canvas not found: ${canvasId}`);
-    }),
-    saveCanvas: vi.fn(async (canvasId: string) => {
-      const current = store.get(canvasId);
-      if (!current) throw new Error(`Canvas not found: ${canvasId}`);
-      current.updatedAt = Date.now();
-    }),
     getCanvasState: vi.fn(async (canvasId: string) => {
       const item = store.get(canvasId);
       if (!item) throw new Error(`Canvas not found: ${canvasId}`);
@@ -238,7 +228,7 @@ describe('createCanvasTools', () => {
     const result = await getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
-      position: { x: 220, y: 330 },
+      set: { position: { x: 220, y: 330 } },
     });
 
     expect(result).toEqual({ success: true, data: { nodeId: 'text-1', updated: { position: { x: 220, y: 330 } } } });
@@ -252,7 +242,7 @@ describe('createCanvasTools', () => {
     const result = await getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
-      title: 'Narration',
+      set: { title: 'Narration' },
     });
 
     expect(result).toEqual({ success: true, data: { nodeId: 'text-1', updated: { title: 'Narration' } } });
@@ -349,6 +339,7 @@ describe('createCanvasTools', () => {
       nodeId: 'image-1',
       providerId: 'runway',
       variantCount: 4,
+      wait: true,
     });
 
     expect(result.success).toBe(true);
@@ -371,7 +362,7 @@ describe('createCanvasTools', () => {
     const result = await getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'missing-node',
-      position: { x: 1, y: 2 },
+      set: { position: { x: 1, y: 2 } },
     });
 
     expect(result).toEqual({ success: false, error: 'Node not found: missing-node' });
@@ -384,12 +375,14 @@ describe('createCanvasTools', () => {
     await expect(getTool('canvas.updateBackdrop', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'backdrop-1',
-      opacity: 72,
-      color: '#ff00aa',
-      borderStyle: 'dotted',
-      titleSize: 'lg',
-      lockChildren: true,
-      toggleCollapse: true,
+      set: {
+        opacity: 72,
+        color: '#ff00aa',
+        borderStyle: 'dotted',
+        titleSize: 'lg',
+        lockChildren: true,
+        toggleCollapse: true,
+      },
     })).resolves.toEqual({
       success: true,
       data: {
@@ -551,7 +544,6 @@ describe('createCanvasTools', () => {
     function createCanvasWithNodes(): Canvas {
       return {
         id: 'canvas-1',
-        projectId: 'project-1',
         name: 'Canvas',
         nodes: [
           {

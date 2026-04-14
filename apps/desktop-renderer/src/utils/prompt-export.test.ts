@@ -5,7 +5,6 @@ import { buildExternalAIPrompt } from './prompt-export.js';
 function createCanvasWithImageNode(data: ImageNodeData): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [
       {

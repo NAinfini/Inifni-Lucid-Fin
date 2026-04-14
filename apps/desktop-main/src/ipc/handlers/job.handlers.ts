@@ -12,12 +12,11 @@ export function registerJobHandlers(
 ): void {
   ipcMain.handle(
     'job:submit',
-    async (_e, args: GenerationRequest & { projectId: string; segmentId?: string }) => {
+    async (_e, args: GenerationRequest & { segmentId?: string }) => {
       const jobId = queue.submit(args);
       log.info('Job submitted', {
         category: 'job',
         jobId,
-        projectId: args.projectId,
         providerId: args.providerId,
         generationType: args.type,
         segmentId: args.segmentId,
@@ -26,7 +25,7 @@ export function registerJobHandlers(
     },
   );
 
-  ipcMain.handle('job:list', async (_e, args: { projectId?: string; status?: string }) => {
+  ipcMain.handle('job:list', async (_e, args: { status?: string }) => {
     return db.listJobs(args);
   });
 
@@ -56,39 +55,60 @@ export function registerJobHandlers(
 
   const notifiedJobs = new Set<string>();
 
-  const pollTimer = setInterval(() => {
+  // Event-driven IPC notifications — replaces 2s poll loop
+  queue.on('job:submitted', (data: { id: string; status: string }) => {
     const win = getWindow();
     if (!win || win.isDestroyed()) return;
+    win.webContents.send('job:submitted', data);
+  });
 
-    const running = db.listJobs({ status: 'running' });
-    for (const job of running) {
-      win.webContents.send('job:progress', {
-        jobId: job.id,
-        progress: job.progress ?? 0,
-        completedSteps: job.completedSteps,
-        totalSteps: job.totalSteps,
-        currentStep: job.currentStep,
-        message: job.currentStep ?? `Running on ${job.provider}`,
-      });
-    }
+  queue.on('job:progress', (data: { jobId: string; progress: number; completedSteps?: number; totalSteps?: number; currentStep?: string; message?: string }) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('job:progress', data);
+  });
 
-    for (const status of ['completed', 'failed'] as const) {
-      const jobs = db.listJobs({ status });
-      for (const job of jobs) {
-        if (notifiedJobs.has(job.id)) continue;
-        if (job.completedAt && Date.now() - job.completedAt < 10000) {
-          notifiedJobs.add(job.id);
-          win.webContents.send('job:complete', {
-            jobId: job.id,
-            success: status === 'completed',
-            result: status === 'completed' ? job.result : undefined,
-            error: status === 'failed' ? job.error : undefined,
-          });
-        }
-      }
-    }
-  }, 2000);
+  queue.on('job:completed', (data: { id: string; status: string }) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    if (notifiedJobs.has(data.id)) return;
+    notifiedJobs.add(data.id);
+    const job = db.listJobs({ status: 'completed' }).find((j) => j.id === data.id);
+    win.webContents.send('job:complete', {
+      jobId: data.id,
+      success: true,
+      result: job?.result,
+    });
+  });
 
-  // Cleanup when app quits
-  process.on('exit', () => clearInterval(pollTimer));
+  queue.on('job:failed', (data: { id: string; status: string; error?: string }) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    if (notifiedJobs.has(data.id)) return;
+    notifiedJobs.add(data.id);
+    win.webContents.send('job:complete', {
+      jobId: data.id,
+      success: false,
+      error: data.error,
+    });
+    win.webContents.send('job:failed', data);
+  });
+
+  queue.on('job:cancelled', (data: { id: string; status: string }) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('job:cancelled', data);
+  });
+
+  queue.on('job:paused', (data: { id: string; status: string }) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('job:paused', data);
+  });
+
+  queue.on('job:resumed', (data: { id: string; status: string }) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return;
+    win.webContents.send('job:resumed', data);
+  });
 }

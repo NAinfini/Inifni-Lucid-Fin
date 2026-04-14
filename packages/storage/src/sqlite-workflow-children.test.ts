@@ -21,7 +21,6 @@ describe('workflow child storage helpers', () => {
     db.insertWorkflowRun({
       id: 'wf-1',
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       triggerSource: 'user',

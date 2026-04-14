@@ -11,7 +11,7 @@
 import type { BrowserWindow, IpcMain } from 'electron';
 import log from '../../logger.js';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
-import { runningSessions, setLastToolRegistry, type RunningCommanderSession } from './commander-registry.js';
+import { runningSessions, setLastToolRegistry, touchSession, type RunningCommanderSession } from './commander-registry.js';
 import { registerCommanderMetaHandlers } from './commander-meta.handlers.js';
 import {
   AgentOrchestrator,
@@ -26,7 +26,7 @@ import type {
   Canvas,
   PresetDefinition,
 } from '@lucid-fin/contracts';
-import type { CAS, SqliteIndex, ProjectFS } from '@lucid-fin/storage';
+import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
 import {
   createConfiguredLLMAdapter,
@@ -199,7 +199,6 @@ export function registerCommanderHandlers(
     workflowEngine: WorkflowEngine;
     db: SqliteIndex;
     cas: CAS;
-    projectFS: ProjectFS;
     keychain: import('@lucid-fin/storage').Keychain;
     resolvePrompt: (code: string) => string;
   },
@@ -273,7 +272,6 @@ export function registerCommanderHandlers(
           workflowEngine: deps.workflowEngine,
           db: deps.db,
           cas: deps.cas,
-          projectFS: deps.projectFS,
           keychain: deps.keychain,
         };
         registerAllTools(registry, toolDeps, getWindow, args.promptGuides ?? [], compactRef);
@@ -286,7 +284,7 @@ export function registerCommanderHandlers(
           maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
         });
         compactRef.compact = (instructions?: string) => orchestrator.compactNow(instructions);
-        session = { aborted: false, canvasId: args.canvasId, orchestrator };
+        session = { aborted: false, canvasId: args.canvasId, orchestrator, lastActivity: Date.now() };
         runningSessions.set(args.canvasId, session);
 
         const context = buildContext(canvas, deps.presetLibrary, args.selectedNodeIds, deps.db, args.promptGuides);
@@ -325,6 +323,7 @@ export function registerCommanderHandlers(
             systemPromptChars: number;
             promptGuideChars: number;
           }) => {
+            touchSession(args.canvasId);
             log.debug('Commander LLM request prepared', {
               category: 'commander',
               canvasId: args.canvasId,

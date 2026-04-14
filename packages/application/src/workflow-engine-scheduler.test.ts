@@ -133,7 +133,6 @@ describe('WorkflowEngine scheduling', () => {
   it('runs ready tasks in deterministic order and unlocks dependent stages', async () => {
     const workflowRunId = engine.start({
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
     });
 

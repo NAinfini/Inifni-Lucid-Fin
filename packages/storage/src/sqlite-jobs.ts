@@ -4,12 +4,11 @@ import type BetterSqlite3 from 'better-sqlite3';
 export function insertJob(db: BetterSqlite3.Database, job: Job): void {
   db.prepare(
     `
-    INSERT INTO jobs (id, project_id, segment_id, type, provider, status, priority, prompt, params, result, cost, attempts, max_retries, progress, completed_steps, total_steps, current_step, batch_id, batch_index, created_at, started_at, completed_at, error)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO jobs (id, segment_id, type, provider, status, priority, prompt, params, result, cost, attempts, max_retries, progress, completed_steps, total_steps, current_step, batch_id, batch_index, created_at, started_at, completed_at, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     job.id,
-    job.projectId,
     job.segmentId ?? null,
     job.type,
     job.provider,
@@ -117,15 +116,11 @@ export function getJob(db: BetterSqlite3.Database, jobId: string): Job | undefin
 
 export function listJobs(
   db: BetterSqlite3.Database,
-  filter?: { projectId?: string; status?: string },
+  filter?: { status?: string },
 ): Job[] {
   const conditions: string[] = [];
   const params: unknown[] = [];
 
-  if (filter?.projectId) {
-    conditions.push('project_id = ?');
-    params.push(filter.projectId);
-  }
   if (filter?.status) {
     conditions.push('status = ?');
     params.push(filter.status);
@@ -141,7 +136,6 @@ export function listJobs(
 export function rowToJob(row: Record<string, unknown>): Job {
   return {
     id: row.id as string,
-    projectId: row.project_id as string,
     segmentId: row.segment_id as string | undefined,
     type: row.type as Job['type'],
     provider: row.provider as string,

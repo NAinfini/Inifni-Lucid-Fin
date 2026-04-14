@@ -37,7 +37,6 @@ function createDeps(): SeriesToolDeps {
       seriesId: 'series-1',
       title: id,
       order: index,
-      projectId: null,
       status: 'draft',
       createdAt: 1,
       updatedAt: 1,
@@ -69,8 +68,7 @@ describe('createSeriesTools', () => {
 
     await expect(getTool('series.get', deps).execute({})).resolves.toEqual({ success: true, data: series });
     await expect(getTool('series.save', deps).execute({
-      title: 'Updated',
-      description: 'Updated desc',
+      set: { title: 'Updated', description: 'Updated desc' },
     })).resolves.toEqual({
       success: true,
       data: { ...series, title: 'Updated', description: 'Updated desc' },
@@ -118,6 +116,23 @@ describe('createSeriesTools', () => {
       success: false,
       error: 'series is required',
     });
+
+    // No args at all → extractSet error
+    await expect(getTool('series.save', deps).execute({})).resolves.toEqual({
+      success: false,
+      error: '"set" object is required — wrap the fields you want to change inside set: { ... }',
+    });
+
+    // Extra keys placed outside set are warned
+    await expect(getTool('series.save', deps).execute({
+      set: { title: 'Warned' },
+      title: 'Stray',
+    })).resolves.toEqual({
+      success: true,
+      data: { ...series, title: 'Warned' },
+      warnings: ['Fields outside "set" were ignored: title'],
+    });
+
     await expect(getTool('series.addEpisode', deps).execute({ title: ' ' })).resolves.toEqual({
       success: false,
       error: 'title is required',

@@ -80,6 +80,22 @@ export interface WorkflowStageDefinition {
   tasks: WorkflowTaskDefinition[];
 }
 
+export interface RetryPolicy {
+  maxRetries: number;
+  backoffMs?: number;
+  retryableStatuses?: string[];
+}
+
+export interface CancellationPolicy {
+  allowCancellation: boolean;
+  gracePeriodMs?: number;
+}
+
+export interface ResumePolicy {
+  allowResume: boolean;
+  maxResumeAttempts?: number;
+}
+
 export interface WorkflowDefinition {
   id: string;
   name: string;
@@ -87,15 +103,14 @@ export interface WorkflowDefinition {
   kind: string;
   description: string;
   stages: WorkflowStageDefinition[];
-  retryPolicy?: Record<string, unknown>;
-  cancellationPolicy?: Record<string, unknown>;
-  resumePolicy?: Record<string, unknown>;
+  retryPolicy?: RetryPolicy;
+  cancellationPolicy?: CancellationPolicy;
+  resumePolicy?: ResumePolicy;
 }
 
 export interface WorkflowRun {
   id: string;
   workflowType: string;
-  projectId: string;
   entityType: string;
   entityId?: string;
   triggerSource: string;
@@ -185,7 +200,6 @@ export interface WorkflowArtifactSummary {
 export interface WorkflowActivitySummary {
   id: string;
   workflowType: string;
-  projectId: string;
   entityType: string;
   entityId?: string;
   triggerSource: string;

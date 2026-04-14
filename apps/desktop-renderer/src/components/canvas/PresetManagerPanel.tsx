@@ -249,7 +249,6 @@ export function PresetManagerPanel() {
         defaultParams: existing?.defaultParams,
         params: cloneParamDefinitions(draft.params),
         defaults,
-        projectId: existing?.projectId,
         createdAt: existing?.createdAt,
         updatedAt: existing?.updatedAt,
       };

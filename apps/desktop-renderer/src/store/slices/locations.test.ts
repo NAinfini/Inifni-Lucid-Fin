@@ -27,7 +27,6 @@ function makeReferenceImage(overrides: Partial<ReferenceImage> = {}): ReferenceI
 function makeLocation(overrides: Partial<Location> = {}): Location {
   return {
     id: 'location-1',
-    projectId: 'project-1',
     name: 'Warehouse',
     type: 'interior',
     description: 'Abandoned warehouse',

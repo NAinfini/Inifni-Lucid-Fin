@@ -1,15 +1,39 @@
 import { createSelector } from '@reduxjs/toolkit';
+import type { Canvas } from '@lucid-fin/contracts';
 import type { RootState } from '../index.js';
+import { canvasAdapter } from './canvas.js';
+
+// Adapter selectors scoped to the `state.canvas.canvases` entity sub-state
+const adapterSelectors = canvasAdapter.getSelectors();
+
+/**
+ * Select all canvases as a plain array.
+ * Consumers that need to iterate (CanvasNavigatorPanel, manager panels, etc.)
+ * should use this instead of accessing the entity state directly.
+ */
+export const selectAllCanvases = createSelector(
+  [(s: RootState) => s.canvas.canvases],
+  (canvasEntity) => adapterSelectors.selectAll(canvasEntity),
+);
 
 /**
  * Memoized selector for the active canvas.
- * Only recomputes when `canvases` array ref or `activeCanvasId` change.
- * Shared across CanvasWorkspace, InspectorPanel, and any other consumer.
+ * O(1) lookup via entity dictionary instead of O(N) .find().
  */
 export const selectActiveCanvas = createSelector(
-  [(s: RootState) => s.canvas.canvases, (s: RootState) => s.canvas.activeCanvasId],
-  (canvases, activeId) => canvases.find((c) => c.id === activeId),
+  [(s: RootState) => s.canvas.canvases.entities, (s: RootState) => s.canvas.activeCanvasId],
+  (entities, activeId) => {
+    if (!activeId) return undefined;
+    return entities[activeId];
+  },
 );
+
+/**
+ * Select a canvas by ID. O(1) lookup.
+ */
+export function selectCanvasById(state: RootState, id: string): Canvas | undefined {
+  return state.canvas.canvases.entities[id];
+}
 
 /** Memoized selector for the active canvas's nodes array. */
 export const selectActiveCanvasNodes = createSelector(

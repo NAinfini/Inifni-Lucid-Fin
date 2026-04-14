@@ -9,6 +9,14 @@ import type {
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
+import { parseSseStream } from './sse-parser.js';
+import {
+  tryParseJson,
+  serializeError,
+  measureRequestDiagnostics,
+  truncateForDiagnostics,
+  resolveErrorCode,
+} from './llm-error-builder.js';
 
 type ClaudeAdapterConfig = {
   id?: string;
@@ -160,27 +168,10 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       },
     );
 
-    const reader = result.response.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const json = JSON.parse(line.slice(6)) as { type: string; delta?: { text?: string } };
-          if (json.type === 'content_block_delta' && json.delta?.text) {
-            yield json.delta.text;
-          }
-        } catch { /* malformed SSE line — skip and continue streaming */
-          /* skip */
-        }
+    for await (const json of parseSseStream(result.response)) {
+      const event = json as { type: string; delta?: { text?: string } };
+      if (event.type === 'content_block_delta' && event.delta?.text) {
+        yield event.delta.text;
       }
     }
   }
@@ -257,7 +248,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
 
   private async parseJsonResponse<T>(result: ClaudeRequestResult): Promise<T> {
     const responseText = await result.response.text();
-    const parsed = this.tryParseJson(responseText);
+    const parsed = tryParseJson(responseText);
     if (parsed !== undefined) {
       return parsed as T;
     }
@@ -355,7 +346,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     options: { hasTools: boolean; streaming: boolean },
   ): Promise<LucidError> {
     const responseText = await response.text();
-    const responseBody = this.tryParseJson(responseText);
+    const responseBody = tryParseJson(responseText);
     const normalized = parseAdapterError({
       provider: this.name,
       status: response.status,
@@ -363,7 +354,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     });
     const lucid = adapterErrorToLucidError(normalized);
 
-    return new LucidError(this.resolveErrorCode(response.status, lucid.code), this.resolveErrorMessage(normalized.message, response.status), {
+    return new LucidError(resolveErrorCode(response.status, lucid.code), this.resolveErrorMessage(normalized.message, response.status), {
       retryable: normalized.retryable,
       retryAfter: normalized.retryAfter,
       providerCode: normalized.providerCode,
@@ -381,7 +372,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       model: this.model,
       streaming: options.streaming,
       hasTools: options.hasTools,
-      ...this.measureRequestDiagnostics(requestBody),
+      ...measureRequestDiagnostics(requestBody),
       requestBody,
       responseText: responseText || undefined,
       responseBody,
@@ -411,9 +402,9 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       model: this.model,
       streaming: options.streaming,
       hasTools: options.hasTools,
-      ...this.measureRequestDiagnostics(requestBody),
+      ...measureRequestDiagnostics(requestBody),
       requestBody,
-      transportError: this.serializeError(error),
+      transportError: serializeError(error),
     });
   }
 
@@ -438,10 +429,10 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       hasTools: result.hasTools,
       contentType: result.response.headers.get('content-type') ?? undefined,
       responseBytes: Buffer.byteLength(responseText, 'utf8'),
-      ...this.measureRequestDiagnostics(result.requestBody),
+      ...measureRequestDiagnostics(result.requestBody),
       requestBody: result.requestBody,
       responseText: responseText || undefined,
-      responseTextSnippet: this.truncateForDiagnostics(responseText),
+      responseTextSnippet: truncateForDiagnostics(responseText),
     });
   }
 
@@ -480,17 +471,10 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         responseKeys: Object.keys(responseBody),
         messageContentTypes,
         responseBody,
-        ...this.measureRequestDiagnostics(result.requestBody),
+        ...measureRequestDiagnostics(result.requestBody),
         requestBody: result.requestBody,
       },
     );
-  }
-
-  private resolveErrorCode(status: number, fallback: ErrorCode): ErrorCode {
-    if (status === 404) {
-      return ErrorCode.NotFound;
-    }
-    return fallback;
   }
 
   private resolveErrorMessage(message: string, status: number | undefined): string {
@@ -511,54 +495,5 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       return 'Claude invalid request';
     }
     return `Claude error: ${status ?? 'request failed'}`;
-  }
-
-  private tryParseJson(value: string): unknown {
-    if (!value.trim()) {
-      return undefined;
-    }
-
-    try {
-      return JSON.parse(value) as unknown;
-    } catch { /* malformed JSON tool argument — return undefined so caller uses empty record */
-      return undefined;
-    }
-  }
-
-  private serializeError(error: unknown): Record<string, unknown> | string {
-    if (error instanceof Error) {
-      const serialized: Record<string, unknown> = {
-        name: error.name,
-        message: error.message,
-      };
-      if (error.stack) {
-        serialized.stack = error.stack;
-      }
-      return serialized;
-    }
-    return typeof error === 'string' ? error : JSON.stringify(error);
-  }
-
-  private measureRequestDiagnostics(requestBody: Record<string, unknown>): Record<string, unknown> {
-    const messages = Array.isArray(requestBody.messages)
-      ? requestBody.messages as Array<Record<string, unknown>>
-      : [];
-    const tools = Array.isArray(requestBody.tools)
-      ? requestBody.tools as Array<Record<string, unknown>>
-      : [];
-
-    return {
-      requestBytes: Buffer.byteLength(JSON.stringify(requestBody), 'utf8'),
-      messageCount: messages.length,
-      toolCount: tools.length,
-      systemPromptChars: typeof requestBody.system === 'string' ? requestBody.system.length : 0,
-    };
-  }
-
-  private truncateForDiagnostics(value: string, maxChars = 4000): string {
-    if (value.length <= maxChars) {
-      return value;
-    }
-    return `${value.slice(0, maxChars)}...`;
   }
 }

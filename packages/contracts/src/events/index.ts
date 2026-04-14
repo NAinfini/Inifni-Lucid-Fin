@@ -12,9 +12,3 @@ export interface JobCompleteEvent {
   result?: GenerationResult;
   error?: string;
 }
-
-export interface ProjectChangedEvent {
-  projectId: string;
-  field: string;
-  timestamp: number;
-}

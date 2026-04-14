@@ -47,7 +47,6 @@ describe('TaskCenter', () => {
         {
           id: 'wf-running',
           workflowType: 'style.extract',
-          projectId: 'project-1',
           entityType: 'asset',
           entityId: 'asset-1',
           triggerSource: 'user',
@@ -69,7 +68,6 @@ describe('TaskCenter', () => {
         {
           id: 'wf-failed',
           workflowType: 'storyboard.generate',
-          projectId: 'project-1',
           entityType: 'scene',
           entityId: 'scene-1',
           triggerSource: 'user',

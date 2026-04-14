@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -178,7 +179,7 @@ describe("registerExportHandlers", () => {
 
   it("exports NLE timelines to the requested output path and logs file size", async () => {
     resetCommon();
-    vi.spyOn(fs, "writeFileSync").mockImplementation(() => undefined);
+    vi.spyOn(fsp, "writeFile").mockImplementation(async () => undefined);
     vi.spyOn(fs, "statSync").mockReturnValue({ size: 321 } as fs.Stats);
     const handlers = registerHandlers();
     const exportNle = handlers.get("export:nle");
@@ -195,7 +196,7 @@ describe("registerExportHandlers", () => {
       fileSize: 321,
     });
     expect(exportFCPXML).toHaveBeenCalledWith({ metadata: { title: "Pilot" }, tracks: [] });
-    expect(fs.writeFileSync).toHaveBeenCalledWith(
+    expect(fsp.writeFile).toHaveBeenCalledWith(
       "C:\\exports\\timeline.fcpxml",
       "<fcpxml />",
       "utf8",
@@ -304,7 +305,7 @@ describe("registerExportHandlers", () => {
 
   it("exports subtitles in srt and ass formats and validates subtitle requests", async () => {
     resetCommon();
-    vi.spyOn(fs, "writeFileSync").mockImplementation(() => undefined);
+    vi.spyOn(fsp, "writeFile").mockImplementation(async () => undefined);
     const handlers = registerHandlers();
     const exportSubtitles = handlers.get("export:subtitles");
     const cues = [{ id: "cue-1", startTime: 0, endTime: 1, text: "hello" }];
@@ -334,13 +335,13 @@ describe("registerExportHandlers", () => {
 
     expect(exportSRT).toHaveBeenCalledWith(cues);
     expect(exportASS).toHaveBeenCalledWith(cues, 1920, 1080);
-    expect(fs.writeFileSync).toHaveBeenNthCalledWith(
+    expect(fsp.writeFile).toHaveBeenNthCalledWith(
       1,
       "C:\\exports\\captions.srt",
       "1\n00:00:00,000 --> 00:00:01,000\nhello",
       "utf8",
     );
-    expect(fs.writeFileSync).toHaveBeenNthCalledWith(
+    expect(fsp.writeFile).toHaveBeenNthCalledWith(
       2,
       "C:\\exports\\captions.ass",
       "[Script Info]",
@@ -415,7 +416,7 @@ describe("registerExportHandlers", () => {
 
   it("exports metadata as JSON and CSV with proper field escaping and dialog cancellation", async () => {
     resetCommon();
-    vi.spyOn(fs, "writeFileSync").mockImplementation(() => undefined);
+    vi.spyOn(fsp, "writeFile").mockImplementation(async () => undefined);
     vi.spyOn(fs, "statSync").mockReturnValue({ size: 333 } as fs.Stats);
     showSaveDialog.mockResolvedValueOnce({ canceled: true, filePath: undefined });
     const handlers = registerHandlers();
@@ -465,13 +466,13 @@ describe("registerExportHandlers", () => {
       fileSize: 333,
     });
 
-    expect(fs.writeFileSync).toHaveBeenNthCalledWith(
+    expect(fsp.writeFile).toHaveBeenNthCalledWith(
       1,
       "C:\\exports\\metadata.json",
       expect.stringContaining('"project": "Pilot"'),
       "utf8",
     );
-    expect(fs.writeFileSync).toHaveBeenNthCalledWith(
+    expect(fsp.writeFile).toHaveBeenNthCalledWith(
       2,
       "C:\\exports\\metadata.csv",
       expect.stringContaining('"Quote, Test","He said ""hello"""'),

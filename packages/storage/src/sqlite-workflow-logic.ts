@@ -21,7 +21,6 @@ import {
 export function listWorkflowTaskSummaries(
   db: BetterSqlite3.Database,
   filter?: {
-    projectId?: string;
     workflowRunId?: string;
     stageRunId?: string;
     status?: WorkflowTaskRun['status'];
@@ -33,10 +32,6 @@ export function listWorkflowTaskSummaries(
   const conditions: string[] = [];
   const params: unknown[] = [];
 
-  if (filter?.projectId) {
-    conditions.push('w.project_id = ?');
-    params.push(filter.projectId);
-  }
   if (filter?.workflowRunId) {
     conditions.push('t.workflow_run_id = ?');
     params.push(filter.workflowRunId);

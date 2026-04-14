@@ -60,7 +60,6 @@ describe('registerWorkflowHandlers', () => {
 
     await expect(start?.({}, {
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       triggerSource: 'user',
@@ -78,7 +77,6 @@ describe('registerWorkflowHandlers', () => {
       expect.objectContaining({
         category: 'workflow',
         workflowType: 'storyboard.generate',
-        projectId: 'project-1',
         entityType: 'scene',
         entityId: 'scene-1',
       }),

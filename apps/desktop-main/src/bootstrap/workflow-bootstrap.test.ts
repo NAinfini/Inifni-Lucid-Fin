@@ -16,7 +16,6 @@ describe('initIpc workflow bootstrap', () => {
     const promptStore = {} as PromptStore;
     const deps = {
       db: {} as never,
-      projectFS: {} as never,
       cas: {} as never,
       keychain: {} as never,
       registry: {} as never,

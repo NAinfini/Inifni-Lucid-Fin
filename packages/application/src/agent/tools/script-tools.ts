@@ -1,5 +1,6 @@
 import type { ScriptDocument, ParsedScene } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
+import { ok, fail, requireString } from './tool-result-helpers.js';
 
 export interface ScriptToolDeps {
   loadScript: (path?: string) => Promise<ScriptDocument | null>;
@@ -12,22 +13,6 @@ export interface ScriptToolDeps {
 }
 
 export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
-  function ok(data?: unknown) {
-    return data === undefined ? { success: true } : { success: true, data };
-  }
-
-  function fail(err: unknown) {
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-
-  function requireString(args: Record<string, unknown>, key: string): string {
-    const value = args[key];
-    if (typeof value !== 'string' || value.trim().length === 0) {
-      throw new Error(`${key} is required`);
-    }
-    return value.trim();
-  }
-
   const scriptRead: AgentTool = {
     name: 'script.read',
     description: 'Read the current script content and its parsed scenes.',

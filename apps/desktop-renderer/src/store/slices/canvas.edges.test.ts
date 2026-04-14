@@ -13,7 +13,6 @@ import {
 function makeCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Main',
     nodes: [],
     edges: [],
@@ -74,7 +73,7 @@ describe('canvas edge reconnect reducers', () => {
       }),
     );
 
-    const edge = state.canvases[0].edges.find((item) => item.id === 'edge-1');
+    const edge = state.canvases.entities['canvas-1']!.edges.find((item) => item.id === 'edge-1');
     expect(edge).toEqual(
       expect.objectContaining({
         source: 'image-1',
@@ -113,7 +112,7 @@ describe('canvas edge reconnect reducers', () => {
       }),
     );
 
-    const edge = state.canvases[0].edges.find((item) => item.id === 'edge-2');
+    const edge = state.canvases.entities['canvas-1']!.edges.find((item) => item.id === 'edge-2');
     expect(edge).toEqual(
       expect.objectContaining({
         source: 'text-1',

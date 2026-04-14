@@ -10,7 +10,6 @@ import {
   type PresetResetRequest,
 } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId } from '../project-context.js';
 
 interface ProjectPresetState {
   builtInOverrides: Map<string, PresetDefinition>;
@@ -20,25 +19,18 @@ interface ProjectPresetState {
 const builtInMap = new Map<string, Readonly<PresetDefinition>>(
   BUILT_IN_PRESET_LIBRARY.map((preset) => [preset.id, Object.freeze(structuredClone(preset))]),
 );
-const projectCache = new Map<string, ProjectPresetState>();
+let globalPresetState: ProjectPresetState | null = null;
 let _db: SqliteIndex | null = null;
 
-function requireProjectId(): string {
-  const projectId = getCurrentProjectId();
-  if (!projectId) throw new Error('No project open');
-  return projectId;
-}
-
-function getProjectState(projectId: string): ProjectPresetState {
-  const existing = projectCache.get(projectId);
-  if (existing) return existing;
+function getPresetState(): ProjectPresetState {
+  if (globalPresetState) return globalPresetState;
   const created: ProjectPresetState = {
     builtInOverrides: new Map(),
     userPresets: new Map(),
   };
   // Hydrate from SQLite
   if (_db) {
-    const overrides = _db.listPresetOverrides(projectId);
+    const overrides = _db.listPresetOverrides();
     for (const row of overrides) {
       const preset: PresetDefinition = {
         id: row.isUser ? row.id : row.presetId,
@@ -50,7 +42,6 @@ function getProjectState(projectId: string): ProjectPresetState {
         modified: !row.isUser,
         params: row.params as PresetDefinition['params'],
         defaults: row.defaults as Record<string, number | string>,
-        projectId,
       };
       if (row.isUser) {
         created.userPresets.set(preset.id, preset);
@@ -59,16 +50,15 @@ function getProjectState(projectId: string): ProjectPresetState {
       }
     }
   }
-  projectCache.set(projectId, created);
-  return created;
+  globalPresetState = created;
+  return globalPresetState;
 }
 
-function persistOverride(projectId: string, preset: PresetDefinition, isUser: boolean): void {
+function persistOverride(preset: PresetDefinition, isUser: boolean): void {
   if (!_db) return;
   const now = Date.now();
   _db.upsertPresetOverride({
-    id: isUser ? preset.id : `override:${projectId}:${preset.id}`,
-    projectId,
+    id: isUser ? preset.id : `override:${preset.id}`,
     presetId: preset.id,
     category: preset.category,
     name: preset.name,
@@ -82,9 +72,9 @@ function persistOverride(projectId: string, preset: PresetDefinition, isUser: bo
   });
 }
 
-function removePersistedOverride(projectId: string, presetId: string, isUser: boolean): void {
+function removePersistedOverride(presetId: string, isUser: boolean): void {
   if (!_db) return;
-  const id = isUser ? presetId : `override:${projectId}:${presetId}`;
+  const id = isUser ? presetId : `override:${presetId}`;
   _db.deletePresetOverride(id);
 }
 
@@ -118,9 +108,8 @@ function ensurePresetDefinition(input: unknown, opName: string): PresetDefinitio
   return clonePreset(candidate as PresetDefinition);
 }
 
-function resolvePresetForProject(
+function resolvePreset(
   state: ProjectPresetState,
-  projectId: string,
   id: string,
 ): PresetDefinition | undefined {
   const builtIn = builtInMap.get(id);
@@ -130,7 +119,6 @@ function resolvePresetForProject(
     if (!override) {
       return {
         ...base,
-        projectId,
         modified: false,
       };
     }
@@ -140,7 +128,6 @@ function resolvePresetForProject(
       id: builtIn.id,
       category: builtIn.category,
       builtIn: true,
-      projectId,
       modified: true,
       defaultPrompt: builtIn.defaultPrompt ?? builtIn.prompt,
       defaultParams: builtIn.defaultParams ?? builtIn.defaults,
@@ -153,7 +140,6 @@ function resolvePresetForProject(
 
 function listPresets(
   state: ProjectPresetState,
-  projectId: string,
   filter?: {
     includeBuiltIn?: boolean;
     category?: PresetCategory;
@@ -165,7 +151,7 @@ function listPresets(
 
   if (includeBuiltIn) {
     for (const preset of BUILT_IN_PRESET_LIBRARY) {
-      const resolved = resolvePresetForProject(state, projectId, preset.id);
+      const resolved = resolvePreset(state, preset.id);
       if (!resolved) continue;
       if (category && resolved.category !== category) continue;
       result.push(resolved);
@@ -187,7 +173,7 @@ function listPresets(
   return result;
 }
 
-function savePreset(projectId: string, state: ProjectPresetState, input: PresetDefinition): PresetDefinition {
+function savePreset(state: ProjectPresetState, input: PresetDefinition): PresetDefinition {
   const builtIn = builtInMap.get(input.id);
   if (builtIn) {
     const override: PresetDefinition = {
@@ -195,13 +181,12 @@ function savePreset(projectId: string, state: ProjectPresetState, input: PresetD
       id: builtIn.id,
       category: builtIn.category,
       builtIn: true,
-      projectId,
       modified: true,
       defaultPrompt: builtIn.defaultPrompt ?? builtIn.prompt,
       defaultParams: builtIn.defaultParams ?? builtIn.defaults,
     };
     state.builtInOverrides.set(override.id, override);
-    persistOverride(projectId, override, false);
+    persistOverride(override, false);
     return clonePreset(override);
   }
 
@@ -209,10 +194,9 @@ function savePreset(projectId: string, state: ProjectPresetState, input: PresetD
     ...clonePreset(input),
     builtIn: false,
     modified: false,
-    projectId,
   };
   state.userPresets.set(userPreset.id, userPreset);
-  persistOverride(projectId, userPreset, true);
+  persistOverride(userPreset, true);
   return clonePreset(userPreset);
 }
 
@@ -237,7 +221,6 @@ function ensureResetRequest(input: unknown): PresetResetRequest {
 
 function resetPreset(
   state: ProjectPresetState,
-  projectId: string,
   request: PresetResetRequest,
 ): PresetDefinition {
   const base = builtInMap.get(request.id);
@@ -247,10 +230,9 @@ function resetPreset(
   const override = state.builtInOverrides.get(request.id);
   if (!override || request.scope === 'all' || !request.scope) {
     state.builtInOverrides.delete(request.id);
-    removePersistedOverride(projectId, request.id, false);
+    removePersistedOverride(request.id, false);
     return {
       ...clonePreset(base as PresetDefinition),
-      projectId,
       modified: false,
     };
   }
@@ -268,8 +250,8 @@ function resetPreset(
   }
 
   state.builtInOverrides.set(request.id, override);
-  persistOverride(projectId, override, false);
-  return resolvePresetForProject(state, projectId, request.id) as PresetDefinition;
+  persistOverride(override, false);
+  return resolvePreset(state, request.id) as PresetDefinition;
 }
 
 function ensureImportPayload(input: unknown): PresetLibraryImportPayload {
@@ -307,12 +289,11 @@ function ensureExportRequest(input: unknown): PresetLibraryExportRequest | undef
 
 function exportPayload(
   state: ProjectPresetState,
-  projectId: string,
   request?: PresetLibraryExportRequest,
 ): PresetLibraryExportPayload {
   const includeBuiltIn = request?.includeBuiltIn ?? true;
   const categories = request?.categories;
-  const all = listPresets(state, projectId, { includeBuiltIn });
+  const all = listPresets(state, { includeBuiltIn });
 
   const filtered =
     categories && categories.length > 0
@@ -328,30 +309,28 @@ function exportPayload(
 
 export function registerPresetHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   _db = db;
+  globalPresetState = null; // reset to force re-hydration from new db
   ipcMain.handle('preset:list', async (_event, args?: unknown) => {
-    const projectId = requireProjectId();
-    const state = getProjectState(projectId);
+    const state = getPresetState();
     const request = (args ?? {}) as Partial<PresetLibraryExportRequest> & {
       category?: PresetCategory;
     };
-    return listPresets(state, projectId, {
+    return listPresets(state, {
       includeBuiltIn: request.includeBuiltIn,
       category: request.category,
     });
   });
 
   ipcMain.handle('preset:save', async (_event, args: unknown) => {
-    const projectId = requireProjectId();
-    const state = getProjectState(projectId);
+    const state = getPresetState();
     const preset = ensurePresetDefinition(args, 'preset:save');
-    const saved = savePreset(projectId, state, preset);
+    const saved = savePreset(state, preset);
     log.info('[preset] saved', { id: saved.id, category: saved.category, builtIn: saved.builtIn });
     return saved;
   });
 
   ipcMain.handle('preset:delete', async (_event, args: unknown) => {
-    const projectId = requireProjectId();
-    const state = getProjectState(projectId);
+    const state = getPresetState();
     if (!args || typeof args !== 'object' || typeof (args as { id?: unknown }).id !== 'string') {
       throw new Error('preset:delete id is required');
     }
@@ -360,41 +339,38 @@ export function registerPresetHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
 
     if (builtInMap.has(id)) {
       state.builtInOverrides.delete(id);
-      removePersistedOverride(projectId, id, false);
+      removePersistedOverride(id, false);
       return;
     }
     if (!state.userPresets.has(id)) {
       throw new Error(`preset:delete preset not found: ${id}`);
     }
     state.userPresets.delete(id);
-    removePersistedOverride(projectId, id, true);
+    removePersistedOverride(id, true);
   });
 
   ipcMain.handle('preset:reset', async (_event, args: unknown) => {
-    const projectId = requireProjectId();
-    const state = getProjectState(projectId);
+    const state = getPresetState();
     const request = ensureResetRequest(args);
-    const reset = resetPreset(state, projectId, request);
+    const reset = resetPreset(state, request);
     log.info('[preset] reset', { id: reset.id, scope: request.scope ?? 'all' });
     return reset;
   });
 
   ipcMain.handle('preset:import', async (_event, args: unknown) => {
-    const projectId = requireProjectId();
-    const state = getProjectState(projectId);
+    const state = getPresetState();
     const payload = ensureImportPayload(args);
     for (const preset of payload.presets) {
-      savePreset(projectId, state, preset);
+      savePreset(state, preset);
     }
-    return exportPayload(state, projectId, {
+    return exportPayload(state, {
       includeBuiltIn: payload.includeBuiltIn ?? true,
     });
   });
 
   ipcMain.handle('preset:export', async (_event, args?: unknown) => {
-    const projectId = requireProjectId();
-    const state = getProjectState(projectId);
+    const state = getPresetState();
     const request = ensureExportRequest(args);
-    return exportPayload(state, projectId, request);
+    return exportPayload(state, request);
   });
 }

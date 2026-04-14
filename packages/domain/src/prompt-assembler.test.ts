@@ -9,7 +9,6 @@ import type { Scene, Character, StyleGuide, Keyframe, SceneSegment } from '@luci
 function makeScene(overrides?: Partial<Scene>): Scene {
   return {
     id: 's1',
-    projectId: 'p1',
     index: 0,
     title: 'Test Scene',
     description: 'A dark alley',

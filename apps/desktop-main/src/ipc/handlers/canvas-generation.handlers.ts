@@ -14,7 +14,6 @@ import type {
   SubscribeCallbacks,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { getCurrentProjectId } from '../project-context.js';
 
 import type {
   CanvasGenerationDeps,
@@ -289,11 +288,8 @@ async function executeGeneration(args: {
           metaFileSize: meta.fileSize,
           metaOriginalName: meta.originalName,
         });
-        const projectId = getCurrentProjectId();
-
         deps.db.insertAsset({
           ...meta,
-          projectId: projectId ?? undefined,
           prompt: requestBase.prompt,
           provider: adapter.id,
           tags: [

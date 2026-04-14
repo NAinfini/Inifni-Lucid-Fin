@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@tailwindcss/vite', () => ({ default: () => ({}) }));
+
 import viteConfigFn, { desktopRendererManualChunks } from './vite.config.js';
 
 describe('desktop renderer vite config', () => {

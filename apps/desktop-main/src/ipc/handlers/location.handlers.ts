@@ -2,38 +2,30 @@ import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { Location, LocationType, ReferenceImage } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId } from '../project-context.js';
+import { safeHandle } from '../ipc-error-handler.js';
 
 const VALID_TYPES: LocationType[] = ['interior', 'exterior', 'int-ext'];
 
-function requireProject(): { projectId: string } {
-  const projectId = getCurrentProjectId();
-  if (!projectId) throw new Error('No project open');
-  return { projectId };
-}
-
 export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
-  ipcMain.handle('location:list', async (_e, args?: { type?: string } | void) => {
-    const { projectId } = requireProject();
+  safeHandle(ipcMain, 'location:list', async (_e, args?: { type?: string } | void) => {
     const typeFilter =
       args && typeof args === 'object' && typeof args.type === 'string'
         ? args.type
         : undefined;
-    return db.listLocations(projectId, typeFilter);
+    return db.listLocations(typeFilter);
   });
 
-  ipcMain.handle('location:get', async (_e, args: { id: string }) => {
+  safeHandle(ipcMain, 'location:get', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
     const loc = db.getLocation(args.id);
     if (!loc) throw new Error(`Location not found: ${args.id}`);
     return loc;
   });
 
-  ipcMain.handle('location:save', async (_e, args: Partial<Location>) => {
+  safeHandle(ipcMain, 'location:save', async (_e, args: Partial<Location>) => {
     if (!args || (typeof args.name !== 'string' && typeof args.id !== 'string')) {
       throw new Error('name or id is required');
     }
-    const { projectId } = requireProject();
     const existing = typeof args.id === 'string' ? db.getLocation(args.id) : undefined;
     const now = Date.now();
 
@@ -47,7 +39,6 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
 
     const loc: Location = {
       id: existing?.id ?? (typeof args.id === 'string' && args.id ? args.id : randomUUID()),
-      projectId,
       name,
       type,
       subLocation: typeof args.subLocation === 'string' ? args.subLocation : existing?.subLocation,
@@ -69,7 +60,6 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
 
     db.upsertLocation({
       id: loc.id,
-      projectId: loc.projectId,
       name: loc.name,
       type: loc.type,
       subLocation: loc.subLocation,
@@ -86,12 +76,12 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     return loc;
   });
 
-  ipcMain.handle('location:delete', async (_e, args: { id: string }) => {
+  safeHandle(ipcMain, 'location:delete', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
     db.deleteLocation(args.id);
   });
 
-  ipcMain.handle(
+  safeHandle(ipcMain,
     'location:setRefImage',
     async (
       _e,
@@ -118,7 +108,6 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
 
       db.upsertLocation({
         id: loc.id,
-        projectId: loc.projectId,
         name: loc.name,
         referenceImages: refs,
         updatedAt: Date.now(),
@@ -128,7 +117,7 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     },
   );
 
-  ipcMain.handle(
+  safeHandle(ipcMain,
     'location:removeRefImage',
     async (_e, args: { locationId: string; slot: string }) => {
       if (!args || typeof args.locationId !== 'string')
@@ -142,7 +131,6 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
 
       db.upsertLocation({
         id: loc.id,
-        projectId: loc.projectId,
         name: loc.name,
         referenceImages: refs,
         updatedAt: Date.now(),

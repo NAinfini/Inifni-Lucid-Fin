@@ -28,6 +28,7 @@ import {
   installUpdate,
   getUpdateStatus,
 } from './auto-updater.js';
+import { startSessionCleanup, stopSessionCleanup } from './ipc/handlers/commander-registry.js';
 
 // Explicitly pin Electron userData to %APPDATA%\Lucid Fin and migrate legacy Electron data.
 configureUserDataPath(app);
@@ -62,9 +63,12 @@ function registerEarlyIpcHandlers(): void {
     }
   });
 
+  // IPC health check — lightweight ping/pong for connection monitoring
+  ipcMain.handle('ipc:ping', () => 'pong' as const);
+
   log.debug('Registered early IPC handlers', {
     category: 'ipc',
-    channels: ['logger:getRecent', 'updater:*', 'app:version'],
+    channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping'],
   });
 }
 
@@ -171,7 +175,6 @@ app.whenReady().then(async () => {
   try {
     const {
       db,
-      projectFS,
       cas,
       keychain,
       adapterRegistry,
@@ -288,7 +291,6 @@ app.whenReady().then(async () => {
 
     initIpc(() => mainWindow, {
       db,
-      projectFS,
       cas,
       keychain,
       registry: adapterRegistry,
@@ -298,6 +300,8 @@ app.whenReady().then(async () => {
       agent,
       promptStore,
     });
+
+    startSessionCleanup();
 
     startApiServer({ db });
 
@@ -352,6 +356,7 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   stopClipboardWatcher();
   stopApiServer();
+  stopSessionCleanup();
   if (process.platform !== 'darwin') app.quit();
 });
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createUtilityWorkflowTools, createWorkflowTools, type WorkflowToolDeps } from './workflow-tools.js';
+import { createWorkflowTools, type WorkflowToolDeps } from './workflow-tools.js';
+import { WORKFLOW_GUIDES } from './workflow-guides.js';
 
 function createDeps(): WorkflowToolDeps {
   return {
@@ -110,75 +111,28 @@ describe('createWorkflowTools', () => {
   });
 });
 
-describe('createUtilityWorkflowTools', () => {
-  it('returns structured workflow guidance tools', async () => {
-    const tools = createUtilityWorkflowTools();
+describe('WORKFLOW_GUIDES', () => {
+  it('exports 10 workflow prompt guides with required fields', () => {
+    expect(WORKFLOW_GUIDES.length).toBe(10);
+    for (const guide of WORKFLOW_GUIDES) {
+      expect(guide.id).toBeTruthy();
+      expect(guide.name).toBeTruthy();
+      expect(guide.content).toBeTruthy();
+      expect(guide.id).toMatch(/^workflow-/);
+    }
+  });
 
-    await expect(getTool(tools, 'workflow.styleTransfer').execute({
-      canvasId: 'canvas-1',
-      referenceNodeId: 'node-1',
-      targetNodeIds: ['node-2', 'node-3'],
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        instructions: expect.stringContaining('node-1'),
-      }),
-    });
-
-    await expect(getTool(tools, 'workflow.shotList').execute({
-      canvasId: 'canvas-1',
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        instructions: expect.stringContaining('canvas.listNodes'),
-        shotSchema: expect.objectContaining({ shotType: 'ECU|CU|MS|LS|ELS' }),
-      }),
-    });
-
-    await expect(getTool(tools, 'workflow.batchRePrompt').execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['node-1'],
-      styleTarget: 'neo-noir',
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        instructions: expect.stringContaining('neo-noir'),
-      }),
-    });
-
-    await expect(getTool(tools, 'workflow.continuityCheck').execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['node-1'],
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        severityLevels: {
-          critical: 'must fix',
-          major: 'should fix',
-          minor: 'flag only',
-        },
-      }),
-    });
-
-    await expect(getTool(tools, 'workflow.storyboardExport').execute({
-      canvasId: 'canvas-1',
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        instructions: expect.stringContaining('canvas.listNodes(canvasId="canvas-1", type="image")'),
-      }),
-    });
-
-    await expect(getTool(tools, 'workflow.imageAnalyze').execute({
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-    })).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        extractionSchema: expect.objectContaining({
-          characters: [expect.objectContaining({ name: '' })],
-        }),
-      }),
-    });
+  it('includes key workflow guides', () => {
+    const ids = WORKFLOW_GUIDES.map((g) => g.id);
+    expect(ids).toContain('workflow-style-transfer');
+    expect(ids).toContain('workflow-shot-list');
+    expect(ids).toContain('workflow-batch-reprompt');
+    expect(ids).toContain('workflow-continuity-check');
+    expect(ids).toContain('workflow-storyboard-export');
+    expect(ids).toContain('workflow-image-analyze');
+    expect(ids).toContain('workflow-video-clone');
+    expect(ids).toContain('workflow-lip-sync');
+    expect(ids).toContain('workflow-emotion-voice');
+    expect(ids).toContain('workflow-dual-prompt');
   });
 });

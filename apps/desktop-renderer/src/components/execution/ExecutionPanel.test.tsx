@@ -51,7 +51,6 @@ describe('ExecutionPanel', () => {
         {
           id: 'wf-running',
           workflowType: 'style.extract',
-          projectId: 'project-1',
           entityType: 'asset',
           entityId: 'asset-1',
           triggerSource: 'user',
@@ -73,7 +72,6 @@ describe('ExecutionPanel', () => {
         {
           id: 'wf-paused',
           workflowType: 'storyboard.generate',
-          projectId: 'project-1',
           entityType: 'scene',
           entityId: 'scene-1',
           triggerSource: 'user',
@@ -94,7 +92,6 @@ describe('ExecutionPanel', () => {
         {
           id: 'wf-failed',
           workflowType: 'style.extract',
-          projectId: 'project-1',
           entityType: 'asset',
           entityId: 'asset-2',
           triggerSource: 'user',

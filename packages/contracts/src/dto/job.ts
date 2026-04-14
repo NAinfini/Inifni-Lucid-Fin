@@ -1,12 +1,14 @@
-export enum JobStatus {
-  Queued = 'queued',
-  Running = 'running',
-  Completed = 'completed',
-  Failed = 'failed',
-  Cancelled = 'cancelled',
-  Paused = 'paused',
-  Dead = 'dead',
-}
+export const JobStatus = {
+  Queued: 'queued',
+  Running: 'running',
+  Completed: 'completed',
+  Failed: 'failed',
+  Cancelled: 'cancelled',
+  Paused: 'paused',
+  Dead: 'dead',
+} as const;
+
+export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
 
 export type GenerationType = 'text' | 'image' | 'video' | 'voice' | 'music' | 'sfx';
 
@@ -77,7 +79,6 @@ export interface CostEstimate {
 
 export interface Job {
   id: string;
-  projectId: string;
   segmentId?: string;
   type: GenerationType;
   provider: string;

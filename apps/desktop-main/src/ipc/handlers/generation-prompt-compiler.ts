@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
 import type {
   Canvas,
   CanvasNode,
@@ -18,8 +17,6 @@ import type {
 import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 import type { ResolvedCharacter } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectPath } from '../project-context.js';
-import { assertWithinRoot } from '../validation.js';
 import {
   DEFAULT_STYLE_GUIDE,
   STYLE_GUIDE_LIGHTING_PRESETS,
@@ -32,39 +29,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export function loadCurrentProjectStyleGuide(): StyleGuide {
-  const projectPath = getCurrentProjectPath();
-  if (!projectPath) {
-    return DEFAULT_STYLE_GUIDE;
-  }
-
-  const stylePath = assertWithinRoot(projectPath, 'style-guide.json');
-  if (fs.existsSync(stylePath)) {
-    const raw = JSON.parse(fs.readFileSync(stylePath, 'utf-8')) as unknown;
-    if (isStyleGuide(raw)) {
-      return raw;
-    }
-  }
-
-  const manifestPath = assertWithinRoot(projectPath, 'project.json');
-  if (fs.existsSync(manifestPath)) {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as { styleGuide?: unknown };
-    if (isStyleGuide(manifest.styleGuide)) {
-      return manifest.styleGuide;
-    }
-  }
-
   return DEFAULT_STYLE_GUIDE;
-}
-
-function isStyleGuide(value: unknown): value is StyleGuide {
-  if (!value || typeof value !== 'object') return false;
-  const guide = value as Record<string, unknown>;
-  return (
-    typeof guide.global === 'object' &&
-    guide.global !== null &&
-    typeof guide.sceneOverrides === 'object' &&
-    guide.sceneOverrides !== null
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -190,9 +155,6 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
     if (slotHash) {
       hashes.add(slotHash);
       continue;
-    }
-    if (normalizeOptionalString(character.referenceImage)) {
-      hashes.add(character.referenceImage as string);
     }
     for (const image of character.referenceImages ?? []) {
       if (normalizeOptionalString(image.assetHash)) {

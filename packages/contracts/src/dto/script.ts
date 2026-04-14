@@ -18,7 +18,6 @@ export interface ParsedScene {
 
 export interface ScriptDocument {
   id: string;
-  projectId: string;
   content: string;
   format: 'fountain' | 'fdx' | 'plaintext';
   parsedScenes: ParsedScene[];

@@ -76,10 +76,8 @@ export interface Character {
   description: string;
   appearance: string;
   personality: string;
-  referenceImage?: string;
   costumes: Costume[];
   tags: string[];
-  projectId?: string;
   age?: number;
   gender?: CharacterGender;
   voice?: string;

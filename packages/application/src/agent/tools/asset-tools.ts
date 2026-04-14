@@ -1,28 +1,10 @@
 import type { AssetMeta, AssetRef, AssetType } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
+import { ok, fail, requireString } from './tool-result-helpers.js';
 
 export interface AssetToolDeps {
   importAsset: (filePath: string, type: AssetType) => Promise<AssetRef>;
   listAssets: (type?: AssetType, limit?: number) => Promise<AssetMeta[]>;
-}
-
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
 }
 
 function parseAssetType(value: unknown): AssetType | undefined {
@@ -76,6 +58,7 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
           description: 'Optional asset type filter.',
           enum: ['image', 'video', 'audio'],
         },
+        query: { type: 'string', description: 'Optional search query. Matches against asset file name or hash (case-insensitive).' },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
@@ -87,7 +70,19 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
         const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
         const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
         const assets = await deps.listAssets(type);
-        return ok({ total: assets.length, offset, limit, assets: assets.slice(offset, offset + limit) });
+        const query = typeof args.query === 'string' && args.query.length > 0
+          ? args.query.toLowerCase()
+          : undefined;
+        let filtered = assets;
+        if (query) {
+          filtered = assets.filter((a) => {
+            const meta = a as unknown as Record<string, unknown>;
+            const name = typeof meta.name === 'string' ? meta.name.toLowerCase() : '';
+            const hash = typeof meta.hash === 'string' ? meta.hash.toLowerCase() : '';
+            return name.includes(query) || hash.includes(query);
+          });
+        }
+        return ok({ total: filtered.length, offset, limit, assets: filtered.slice(offset, offset + limit) });
       } catch (error) {
         return fail(error);
       }

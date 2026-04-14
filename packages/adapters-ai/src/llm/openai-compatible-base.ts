@@ -11,6 +11,14 @@ import type {
 import { ErrorCategory, ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
 import { fetchWithTimeout } from '../fetch-utils.js';
+import { parseSseStream } from './sse-parser.js';
+import {
+  tryParseJson,
+  serializeError,
+  measureRequestDiagnostics,
+  truncateForDiagnostics,
+  resolveErrorCode,
+} from './llm-error-builder.js';
 
 export interface OpenAICompatibleConfig {
   id: string;
@@ -264,29 +272,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
   async *stream(messages: LLMMessage[], opts?: LLMRequestOptions): AsyncIterable<string> {
     const result = await this.request(messages, opts, true);
-    const reader = result.response.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-        try {
-          const json = JSON.parse(line.slice(6)) as {
-            choices: Array<{ delta: { content?: string } }>;
-          };
-          const chunk = json.choices[0]?.delta?.content;
-          if (chunk) yield chunk;
-        } catch { /* malformed SSE line — skip and continue streaming */
-          /* skip malformed */
-        }
-      }
+    for await (const json of parseSseStream(result.response)) {
+      const chunk = (json as { choices: Array<{ delta: { content?: string } }> })
+        .choices?.[0]?.delta?.content;
+      if (chunk) yield chunk;
     }
   }
 
@@ -482,7 +471,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       authStyle: this.authStyle,
       streaming,
       hasTools,
-      ...this.measureRequestDiagnostics(body),
+      ...measureRequestDiagnostics(body),
       requestBody: body,
     });
   }
@@ -512,10 +501,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     requestId: string,
   ): Promise<LucidError> {
     const responseText = await res.text();
-    const responseBody = this.tryParseJson(responseText);
-    const requestDiagnostics = this.measureRequestDiagnostics(requestBody);
+    const responseBody = tryParseJson(responseText);
+    const requestDiagnostics = measureRequestDiagnostics(requestBody);
     // When the response is HTML (e.g. Cloudflare error pages), don't use it as the
-    // error message — it produces unreadable log spam and broken UI. Fall through to
+    // error message -- it produces unreadable log spam and broken UI. Fall through to
     // the defaultStatusMessage instead.
     const isHtml = responseText.trimStart().startsWith('<!') || responseText.trimStart().startsWith('<html');
     const errorInput = isHtml ? undefined : (responseBody ?? responseText);
@@ -526,7 +515,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     });
     const lucid = adapterErrorToLucidError(normalized);
 
-    return new LucidError(this.resolveErrorCode(res.status, lucid.code), this.resolveErrorMessage(normalized.message, res.status), {
+    return new LucidError(resolveErrorCode(res.status, lucid.code), this.resolveErrorMessage(normalized.message, res.status), {
       retryable: normalized.retryable,
       retryAfter: normalized.retryAfter,
       providerCode: normalized.providerCode,
@@ -544,15 +533,15 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       streaming,
       hasTools,
       ...requestDiagnostics,
-      // Never store raw HTML in error details — truncate to a short snippet for diagnostics
-      responseText: isHtml ? responseText.slice(0, 200) + '… (HTML truncated)' : (responseText || undefined),
+      // Never store raw HTML in error details -- truncate to a short snippet for diagnostics
+      responseText: isHtml ? responseText.slice(0, 200) + '... (HTML truncated)' : (responseText || undefined),
       responseBody,
     });
   }
 
   private async parseJsonResponse<T>(result: OpenAIRequestResult): Promise<T> {
     const responseText = await result.response.text();
-    const parsed = this.tryParseJson(responseText);
+    const parsed = tryParseJson(responseText);
     if (parsed !== undefined) {
       return parsed as T;
     }
@@ -574,8 +563,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       fallbackCategory: this.isAbortError(error) ? ErrorCategory.Timeout : ErrorCategory.ServiceError,
     });
     const lucid = adapterErrorToLucidError(normalized);
-    const transportError = this.serializeError(error);
-    const requestDiagnostics = this.measureRequestDiagnostics(requestBody);
+    const transportError = serializeError(error);
+    const requestDiagnostics = measureRequestDiagnostics(requestBody);
 
     return new LucidError(lucid.code, this.resolveErrorMessage(normalized.message, undefined), {
       retryable: normalized.retryable,
@@ -601,7 +590,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     responseText: string,
   ): LucidError {
     const contentType = result.response.headers.get('content-type') ?? undefined;
-    const requestDiagnostics = this.measureRequestDiagnostics(result.requestBody);
+    const requestDiagnostics = measureRequestDiagnostics(result.requestBody);
 
     return new LucidError(ErrorCode.ServiceUnavailable, `${this.name} returned a non-JSON response`, {
       status: result.response.status,
@@ -623,7 +612,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       ...requestDiagnostics,
       requestBody: result.requestBody,
       responseText: responseText || undefined,
-      responseTextSnippet: this.truncateForDiagnostics(responseText),
+      responseTextSnippet: truncateForDiagnostics(responseText),
     });
   }
 
@@ -696,17 +685,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         messageKeys: message ? Object.keys(message) : [],
         messageContentTypes,
         responseBody,
-        ...this.measureRequestDiagnostics(result.requestBody),
+        ...measureRequestDiagnostics(result.requestBody),
         requestBody: result.requestBody,
       },
     );
-  }
-
-  private resolveErrorCode(status: number, fallback: ErrorCode): ErrorCode {
-    if (status === 404) {
-      return ErrorCode.NotFound;
-    }
-    return fallback;
   }
 
   private resolveErrorMessage(message: string, status: number | undefined): string {
@@ -743,59 +725,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     return `${this.name} error: ${status ?? 'request failed'}`;
   }
 
-  private tryParseJson(value: string): unknown {
-    if (!value.trim()) {
-      return undefined;
-    }
-
-    try {
-      return JSON.parse(value) as unknown;
-    } catch { /* malformed JSON optional param — return undefined so caller uses empty record */
-      return undefined;
-    }
-  }
-
   private isAbortError(error: unknown): boolean {
     return error instanceof Error && error.name === 'AbortError';
-  }
-
-  private serializeError(error: unknown): Record<string, unknown> | string {
-    if (error instanceof Error) {
-      const serialized: Record<string, unknown> = {
-        name: error.name,
-        message: error.message,
-      };
-      if (error.stack) {
-        serialized.stack = error.stack;
-      }
-      return serialized;
-    }
-    return typeof error === 'string' ? error : JSON.stringify(error);
-  }
-
-  private measureRequestDiagnostics(requestBody: Record<string, unknown>): Record<string, unknown> {
-    const messages = Array.isArray(requestBody.messages)
-      ? requestBody.messages as Array<Record<string, unknown>>
-      : [];
-    const tools = Array.isArray(requestBody.tools)
-      ? requestBody.tools as Array<Record<string, unknown>>
-      : [];
-    const systemPromptChars = messages
-      .filter((message) => message.role === 'system' && typeof message.content === 'string')
-      .reduce((sum, message) => sum + String(message.content).length, 0);
-
-    return {
-      requestBytes: Buffer.byteLength(JSON.stringify(requestBody), 'utf8'),
-      messageCount: messages.length,
-      toolCount: tools.length,
-      systemPromptChars,
-    };
-  }
-
-  private truncateForDiagnostics(value: string, maxChars = 4000): string {
-    if (value.length <= maxChars) {
-      return value;
-    }
-    return `${value.slice(0, maxChars)}...`;
   }
 }

@@ -5,14 +5,6 @@ import { randomUUID } from 'node:crypto';
 import type { ScriptDocument, ParsedScene } from '@lucid-fin/contracts';
 import { parseScript } from '@lucid-fin/domain';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId, getCurrentProjectPath } from '../project-context.js';
-
-function requireProject(): { projectId: string; projectPath: string } {
-  const projectId = getCurrentProjectId();
-  const projectPath = getCurrentProjectPath();
-  if (!projectId || !projectPath) throw new Error('No project open');
-  return { projectId, projectPath };
-}
 
 export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   ipcMain.handle('script:parse', async (_e, args: { content: string; format?: string }) => {
@@ -28,7 +20,6 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
     'script:save',
     async (_e, args: { content: string; format: string; parsedScenes: unknown[] }) => {
       if (!args || typeof args.content !== 'string') throw new Error('content is required');
-      const { projectId } = requireProject();
       const format =
         args.format === 'fountain' || args.format === 'fdx' || args.format === 'plaintext'
           ? args.format
@@ -36,11 +27,10 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
       const parsedScenes = Array.isArray(args.parsedScenes)
         ? (args.parsedScenes as ParsedScene[])
         : parseScript(args.content, format);
-      const existing = db.getScript(projectId);
+      const existing = db.getScript();
       const now = Date.now();
       const doc: ScriptDocument = {
         id: existing?.id ?? randomUUID(),
-        projectId,
         content: args.content,
         format,
         parsedScenes,
@@ -52,8 +42,7 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
   );
 
   ipcMain.handle('script:load', async () => {
-    const { projectId } = requireProject();
-    return db.getScript(projectId);
+    return db.getScript();
   });
 
   ipcMain.handle('script:import', async (_e, args: { filePath: string }) => {
@@ -64,7 +53,6 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
     if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
       throw new Error(`Script file not found: ${resolved}`);
     }
-    const { projectId } = requireProject();
     const content = fs.readFileSync(resolved, 'utf-8');
     const ext = path.extname(resolved).toLowerCase();
     const format =
@@ -74,11 +62,10 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
           ? ('fdx' as const)
           : ('plaintext' as const);
     const parsedScenes = parseScript(content, format);
-    const existing = db.getScript(projectId);
+    const existing = db.getScript();
     const now = Date.now();
     const doc: ScriptDocument = {
       id: existing?.id ?? randomUUID(),
-      projectId,
       content,
       format,
       parsedScenes,

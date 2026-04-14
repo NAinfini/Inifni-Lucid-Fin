@@ -42,10 +42,7 @@ vi.mock('@lucid-fin/application', () => ({
   compilePrompt: compilePromptMock,
 }));
 
-// Mock the project-context so loadCurrentProjectStyleGuide returns a predictable default
-vi.mock('../project-context.js', () => ({
-  getCurrentProjectPath: vi.fn(() => undefined),
-}));
+// project-context has been removed — loadCurrentProjectStyleGuide now returns DEFAULT_STYLE_GUIDE directly
 
 // Mock bootstrap/init-app to avoid filesystem / keychain reads in resolveProviderApiKey
 vi.mock('../../bootstrap/init-app.js', () => ({
@@ -204,7 +201,6 @@ function makeCanvas(nodes: CanvasNode[] = [], edges: Canvas['edges'] = []): Canv
   const now = makeNow();
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Test Canvas',
     nodes,
     edges,

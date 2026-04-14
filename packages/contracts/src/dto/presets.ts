@@ -82,7 +82,6 @@ export interface PresetDefinition {
   defaultParams?: PresetParamMap;
   params: PresetParamDefinition[];
   defaults: PresetParamMap;
-  projectId?: string;
   sphericalPositions?: SphericalPosition[];
   /** Parameterized prompt template with {key} placeholders. Falls back to prompt/promptFragment if absent. */
   promptTemplate?: string;
@@ -144,7 +143,6 @@ export interface PresetLibraryImportPayload {
 
 export interface PresetLibraryExportRequest {
   includeBuiltIn?: boolean;
-  projectId?: string;
   categories?: PresetCategory[];
 }
 
@@ -2387,7 +2385,6 @@ export interface ShotTemplate {
   description: string;
   builtIn: boolean;
   tracks: Partial<Record<PresetCategory, PresetTrack>>;
-  projectId?: string;
   createdAt?: number;
 }
 

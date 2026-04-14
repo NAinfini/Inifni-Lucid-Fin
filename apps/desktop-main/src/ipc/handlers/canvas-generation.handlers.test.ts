@@ -154,7 +154,6 @@ function makeCanvas(nodeType: 'image' | 'video' | 'audio' = 'image'): Canvas {
   const now = Date.now();
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Test Canvas',
     nodes: [
       {
@@ -496,7 +495,6 @@ describe('startCanvasGeneration progress events', () => {
     const now = Date.now();
     const canvas: Canvas = {
       id: 'canvas-1',
-      projectId: 'project-1',
       name: 'Test Canvas',
       nodes: [
         {

@@ -1,10 +1,24 @@
 import path from 'node:path';
+import fs from 'node:fs';
 
 /** Ensure resolved path stays within the allowed root directory */
 export function assertWithinRoot(root: string, target: string): string {
   const resolved = path.resolve(root, target);
-  if (!resolved.startsWith(path.resolve(root) + path.sep) && resolved !== path.resolve(root)) {
+  const resolvedRoot = path.resolve(root);
+  if (!resolved.startsWith(resolvedRoot + path.sep) && resolved !== resolvedRoot) {
     throw new Error(`Path traversal detected: ${target}`);
+  }
+  // Defense-in-depth: verify canonical path after symlink resolution
+  // Only check if both paths actually exist on disk
+  try {
+    const realTarget = fs.realpathSync(resolved);
+    const realRoot = fs.realpathSync(resolvedRoot);
+    if (!realTarget.startsWith(realRoot + path.sep) && realTarget !== realRoot) {
+      throw new Error(`Path traversal via symlink detected: ${target}`);
+    }
+  } catch (e) {
+    // If paths don't exist yet (pre-creation validation), the string check above is sufficient
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
   }
   return resolved;
 }

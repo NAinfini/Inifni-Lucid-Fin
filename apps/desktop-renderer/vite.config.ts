@@ -25,10 +25,12 @@ export function desktopRendererManualChunks(id: string) {
   // ---- Panel-level code splitting ----
 
   if (normalizedId.includes('/components/canvas/CommanderPanel.')
-    || normalizedId.includes('/hooks/useCommander.')) {
+    || normalizedId.includes('/hooks/useCommander.')
+    || normalizedId.includes('/components/canvas/commander/')) {
     return 'panel-commander';
   }
-  if (normalizedId.includes('/components/canvas/AssetBrowserPanel.')) {
+  if (normalizedId.includes('/components/canvas/AssetBrowserPanel.')
+    || normalizedId.includes('/components/canvas/asset-browser/')) {
     return 'panel-assets';
   }
   if (
@@ -61,6 +63,8 @@ export default defineConfig(({ mode }) => ({
     outDir: 'dist',
     emptyOutDir: true,
     minify: mode !== 'development',
+    // Electron loads from local disk — chunk size doesn't affect load time.
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         entryFileNames: 'assets/[name].js',

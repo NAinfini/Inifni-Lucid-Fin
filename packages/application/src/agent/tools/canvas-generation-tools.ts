@@ -19,6 +19,7 @@ import {
   requireBackdropNode,
   replaceNodePreservingEdges,
 } from './canvas-tool-utils.js';
+import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
 
 const AUDIO_CAPABLE_VIDEO_PROVIDER_IDS = listBuiltinVideoProvidersWithAudio().join(', ');
 const KLING_QUALITY_TIERS =
@@ -31,7 +32,7 @@ const KLING_QUALITY_DESCRIPTION =
 export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
   /** Resolve nodeId (string) or nodeIds (string[]) from tool args. */
   function resolveNodeIds(args: Record<string, unknown>): string[] {
-    if (Array.isArray(args.nodeIds)) {
+    if (Array.isArray(args.nodeIds) && args.nodeIds.length > 0) {
       return args.nodeIds.map((id: unknown) => (typeof id === 'string' ? id.trim() : String(id)));
     }
     return [requireString(args, 'nodeId')];
@@ -39,7 +40,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const generate: AgentTool = {
     name: 'canvas.generate',
-    description: 'Trigger media generation for an image, video, or audio node. By default waits for completion (up to 5 min). Set wait=false to fire-and-forget — check status later via canvas.updateNodes or getNode.',
+    description: 'Trigger media generation for an image, video, or audio node. Returns immediately (fire-and-forget) — check status later via canvas.getNode. Set wait=true to block until completion (up to 5 min).',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -49,7 +50,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
         nodeId: { type: 'string', description: 'The node ID to generate.' },
         providerId: { type: 'string', description: 'Optional provider override.' },
         variantCount: { type: 'number', description: 'Optional number of variants to generate.' },
-        wait: { type: 'boolean', description: 'If false, return immediately after triggering generation without waiting for completion. Default: true.' },
+        wait: { type: 'boolean', description: 'If true, block until generation completes (up to 5 min). Default: false (fire-and-forget).' },
       },
       required: ['canvasId', 'nodeId'],
     },
@@ -66,7 +67,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           typeof args.variantCount === 'number' ? Math.round(args.variantCount) : undefined;
         await deps.triggerGeneration(canvasId, nodeId, providerId, variantCount);
 
-        const shouldWait = args.wait !== false;
+        const shouldWait = args.wait === true;
         if (!shouldWait) {
           return ok({ nodeId, status: 'generating' });
         }
@@ -143,7 +144,8 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const updateNodes: AgentTool = {
     name: 'canvas.updateNodes',
-    description: `Batch-update properties on one or more nodes. Accepts a single nodeId or nodeIds array. Supported fields depend on node type:
+    description: `Batch-update properties on one or more nodes. Accepts a single nodeId or nodeIds array. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To intentionally clear a field, include it in set with an empty value (e.g. set: { prompt: "" }).
+Supported fields for set (depend on node type):
 - All nodes: title (string), position ({x,y}), colorTag (string), bypassed (boolean), locked (boolean).
 - Text nodes: content (string).
 - Media nodes (image/video/audio): prompt, negativePrompt, providerId, seed (number), seedLock (toggle — pass true to toggle current state).
@@ -161,63 +163,71 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to update.' },
         nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs to update (batch).' },
-        title: { type: 'string', description: 'New display title (all node types).' },
-        position: {
+        set: {
           type: 'object',
-          description: 'New position on canvas (all node types).',
+          description: 'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
           properties: {
-            x: { type: 'number', description: 'Horizontal coordinate.' },
-            y: { type: 'number', description: 'Vertical coordinate.' },
+            title: { type: 'string', description: 'New display title (all node types).' },
+            position: {
+              type: 'object',
+              description: 'New position on canvas (all node types).',
+              properties: {
+                x: { type: 'number', description: 'Horizontal coordinate.' },
+                y: { type: 'number', description: 'Vertical coordinate.' },
+              },
+            },
+            content: { type: 'string', description: 'Text content (text nodes only).' },
+            prompt: { type: 'string', description: 'Prompt text (image/video/audio nodes).' },
+            negativePrompt: { type: 'string', description: 'Negative prompt: elements to avoid in output (image/video/audio).' },
+            providerId: { type: 'string', description: 'AI provider to assign (image/video/audio only).' },
+            seed: { type: 'number', description: 'Seed value (image/video/audio only).' },
+            seedLock: { type: 'boolean', description: 'Pass true to toggle seed lock state (image/video/audio only).' },
+            variantCount: { type: 'number', description: 'Variant count: 1, 2, 4, 9, or 25 (image/video only).' },
+            colorTag: { type: 'string', description: 'Color tag string (all node types).' },
+            bypassed: { type: 'boolean', description: 'Set bypass state (all node types).' },
+            locked: { type: 'boolean', description: 'Set lock state (all node types).' },
+            width: { type: 'number', description: 'Width in pixels (image/video only).' },
+            height: { type: 'number', description: 'Height in pixels (image/video only).' },
+            duration: { type: 'number', description: 'Duration in seconds (video only).' },
+            audio: { type: 'boolean', description: `Enable audio generation (video only). Supported providers: ${AUDIO_CAPABLE_VIDEO_PROVIDER_IDS}.` },
+            quality: { type: 'string', description: `Quality tier (video only). ${KLING_QUALITY_DESCRIPTION}. Other providers: "standard".` },
+            steps: { type: 'number', description: 'Inference steps, typically 20-50 (image/video only).' },
+            cfgScale: { type: 'number', description: 'CFG scale / guidance, typically 3-15 (image/video only).' },
+            scheduler: { type: 'string', description: 'Sampling scheduler (e.g. "euler_a", "dpm++_2m") (image/video only).' },
+            img2imgStrength: { type: 'number', description: 'Image-to-image strength 0-1 (image/video only).' },
+            imagePrompt: { type: 'string', description: 'Override prompt for image generation only (image/video nodes).' },
+            videoPrompt: { type: 'string', description: 'Override prompt for video generation only (image/video nodes).' },
+            audioType: { type: 'string', enum: ['voice', 'sfx', 'music'], description: 'Audio node type: voice, sfx, or music (audio nodes only).' },
+            emotionVector: {
+              type: 'object',
+              description: 'Emotion vector for TTS (audio nodes only). Each key is 0-1.',
+              properties: {
+                happy: { type: 'number', description: 'Happy intensity 0-1.' },
+                sad: { type: 'number', description: 'Sad intensity 0-1.' },
+                angry: { type: 'number', description: 'Angry intensity 0-1.' },
+                fearful: { type: 'number', description: 'Fearful intensity 0-1.' },
+                surprised: { type: 'number', description: 'Surprised intensity 0-1.' },
+                disgusted: { type: 'number', description: 'Disgusted intensity 0-1.' },
+                contemptuous: { type: 'number', description: 'Contemptuous intensity 0-1.' },
+                neutral: { type: 'number', description: 'Neutral intensity 0-1.' },
+              },
+            },
+            lipSyncEnabled: { type: 'boolean', description: 'Enable lip sync post-processing (video nodes only).' },
           },
         },
-        content: { type: 'string', description: 'Text content (text nodes only).' },
-        prompt: { type: 'string', description: 'Prompt text (image/video/audio nodes).' },
-        negativePrompt: { type: 'string', description: 'Negative prompt: elements to avoid in output (image/video/audio).' },
-        providerId: { type: 'string', description: 'AI provider to assign (image/video/audio only).' },
-        seed: { type: 'number', description: 'Seed value (image/video/audio only).' },
-        seedLock: { type: 'boolean', description: 'Pass true to toggle seed lock state (image/video/audio only).' },
-        variantCount: { type: 'number', description: 'Variant count: 1, 2, 4, 9, or 25 (image/video only).' },
-        colorTag: { type: 'string', description: 'Color tag string (all node types).' },
-        bypassed: { type: 'boolean', description: 'Set bypass state (all node types).' },
-        locked: { type: 'boolean', description: 'Set lock state (all node types).' },
-        width: { type: 'number', description: 'Width in pixels (image/video only).' },
-        height: { type: 'number', description: 'Height in pixels (image/video only).' },
-        duration: { type: 'number', description: 'Duration in seconds (video only).' },
-        audio: { type: 'boolean', description: `Enable audio generation (video only). Supported providers: ${AUDIO_CAPABLE_VIDEO_PROVIDER_IDS}.` },
-        quality: { type: 'string', description: `Quality tier (video only). ${KLING_QUALITY_DESCRIPTION}. Other providers: "standard".` },
-        steps: { type: 'number', description: 'Inference steps, typically 20-50 (image/video only).' },
-        cfgScale: { type: 'number', description: 'CFG scale / guidance, typically 3-15 (image/video only).' },
-        scheduler: { type: 'string', description: 'Sampling scheduler (e.g. "euler_a", "dpm++_2m") (image/video only).' },
-        img2imgStrength: { type: 'number', description: 'Image-to-image strength 0-1 (image/video only).' },
-        imagePrompt: { type: 'string', description: 'Override prompt for image generation only (image/video nodes).' },
-        videoPrompt: { type: 'string', description: 'Override prompt for video generation only (image/video nodes).' },
-        audioType: { type: 'string', enum: ['voice', 'sfx', 'music'], description: 'Audio node type: voice, sfx, or music (audio nodes only).' },
-        emotionVector: {
-          type: 'object',
-          description: 'Emotion vector for TTS (audio nodes only). Each key is 0-1.',
-          properties: {
-            happy: { type: 'number', description: 'Happy intensity 0-1.' },
-            sad: { type: 'number', description: 'Sad intensity 0-1.' },
-            angry: { type: 'number', description: 'Angry intensity 0-1.' },
-            fearful: { type: 'number', description: 'Fearful intensity 0-1.' },
-            surprised: { type: 'number', description: 'Surprised intensity 0-1.' },
-            disgusted: { type: 'number', description: 'Disgusted intensity 0-1.' },
-            contemptuous: { type: 'number', description: 'Contemptuous intensity 0-1.' },
-            neutral: { type: 'number', description: 'Neutral intensity 0-1.' },
-          },
-        },
-        lipSyncEnabled: { type: 'boolean', description: 'Enable lip sync post-processing (video nodes only).' },
       },
-      required: ['canvasId'],
+      required: ['canvasId', 'set'],
     },
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
         const ids = resolveNodeIds(args);
+        const set = extractSet(args);
+        const warnings = warnExtraKeys(args);
 
         // Validate variantCount upfront
-        if (typeof args.variantCount === 'number') {
-          const count = Math.round(args.variantCount as number);
+        if (typeof set.variantCount === 'number') {
+          const count = Math.round(set.variantCount as number);
           if (![1, 2, 4, 9, 25].includes(count)) {
             throw new Error('variantCount must be one of 1, 2, 4, 9, or 25');
           }
@@ -225,10 +235,10 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
 
         // Validate providerId key upfront
         let keyWarning: string | undefined;
-        if (typeof args.providerId === 'string' && deps.isProviderKeyConfigured) {
-          const hasKey = await deps.isProviderKeyConfigured(args.providerId as string);
+        if (typeof set.providerId === 'string' && deps.isProviderKeyConfigured) {
+          const hasKey = await deps.isProviderKeyConfigured(set.providerId as string);
           if (!hasKey) {
-            keyWarning = `Warning: Provider "${args.providerId}" does not have an API key configured. Generation will fail. Use provider.list to find providers with hasKey=true.`;
+            keyWarning = `Warning: Provider "${set.providerId}" does not have an API key configured. Generation will fail. Use provider.list to find providers with hasKey=true.`;
           }
         }
 
@@ -240,122 +250,99 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
           const isVisual = node.type === 'image' || node.type === 'video';
 
           // colorTag — all node types
-          if (typeof args.colorTag === 'string') {
-            await deps.setNodeColorTag(canvasId, nodeId, args.colorTag as string);
+          if (typeof set.colorTag === 'string') {
+            await deps.setNodeColorTag(canvasId, nodeId, set.colorTag as string);
           }
 
           // title — all node types (top-level property)
-          if (typeof args.title === 'string') {
-            const title = (args.title as string).trim();
+          if (typeof set.title === 'string') {
+            const title = (set.title as string).trim();
             if (title.length > 0) {
               await deps.renameNode(canvasId, nodeId, title);
             }
           }
 
           // position — all node types (top-level property)
-          if (args.position && typeof args.position === 'object') {
-            const pos = args.position as Record<string, unknown>;
+          if (set.position && typeof set.position === 'object') {
+            const pos = set.position as Record<string, unknown>;
             if (typeof pos.x === 'number' && typeof pos.y === 'number') {
               await deps.moveNode(canvasId, nodeId, { x: pos.x, y: pos.y });
             }
           }
 
-          // content — text nodes only
-          if (typeof args.content === 'string') {
-            if (node.type !== 'text') throw new Error(`Node "${nodeId}" type "${node.type}" does not support content (use prompt for media nodes)`);
-            data.content = args.content;
+          // content — text nodes only (silently skip for other types)
+          if (node.type === 'text' && typeof set.content === 'string') {
+            data.content = set.content;
           }
 
-          // prompt — media nodes only
-          if (typeof args.prompt === 'string') {
-            if (!isMedia) throw new Error(`Node "${nodeId}" type "${node.type}" does not support prompt (use content for text nodes)`);
-            data.prompt = args.prompt;
+          // prompt — media nodes only (silently skip for text/backdrop)
+          if (isMedia && typeof set.prompt === 'string') {
+            data.prompt = set.prompt;
           }
 
           // negativePrompt — media nodes
-          if (typeof args.negativePrompt === 'string') {
-            if (!isMedia) throw new Error(`Node "${nodeId}" type "${node.type}" does not support negativePrompt`);
-            data.negativePrompt = args.negativePrompt;
+          if (isMedia && typeof set.negativePrompt === 'string') {
+            data.negativePrompt = set.negativePrompt;
           }
 
           // providerId — media only
-          if (typeof args.providerId === 'string') {
-            if (!isMedia) throw new Error(`Node "${nodeId}" type "${node.type}" does not support providers`);
-            data.providerId = (args.providerId as string).trim();
+          if (isMedia && typeof set.providerId === 'string') {
+            data.providerId = (set.providerId as string).trim();
           }
 
           // seed — media only
-          if (typeof args.seed === 'number') {
-            if (!isMedia) throw new Error(`Node "${nodeId}" type "${node.type}" does not support seed`);
-            data.seed = Math.round(args.seed as number);
+          if (isMedia && typeof set.seed === 'number') {
+            data.seed = Math.round(set.seed as number);
           }
 
           // seedLock toggle — media only
-          if (args.seedLock === true) {
-            if (!isMedia) throw new Error(`Node "${nodeId}" type "${node.type}" does not support seed lock`);
+          if (isMedia && set.seedLock === true) {
             await deps.toggleSeedLock(canvasId, nodeId);
           }
 
           // variantCount — image/video only
-          if (typeof args.variantCount === 'number') {
-            if (!isVisual) throw new Error(`Node "${nodeId}" type "${node.type}" does not support variantCount`);
-            data.variantCount = Math.round(args.variantCount as number);
+          if (isVisual && typeof set.variantCount === 'number') {
+            data.variantCount = Math.round(set.variantCount as number);
           }
 
           // width/height — image/video only
-          if (typeof args.width === 'number') {
-            if (!isVisual) throw new Error(`Node "${nodeId}" type "${node.type}" does not support width`);
-            data.width = args.width;
+          if (isVisual && typeof set.width === 'number') {
+            data.width = set.width;
           }
-          if (typeof args.height === 'number') {
-            if (!isVisual) throw new Error(`Node "${nodeId}" type "${node.type}" does not support height`);
-            data.height = args.height;
+          if (isVisual && typeof set.height === 'number') {
+            data.height = set.height;
           }
 
           // video-only fields
           if (node.type === 'video') {
-            if (typeof args.duration === 'number') data.duration = args.duration;
-            if (typeof args.audio === 'boolean') data.audio = args.audio;
-            if (typeof args.quality === 'string') data.quality = args.quality;
-          } else {
-            if (typeof args.duration === 'number') throw new Error(`Node "${nodeId}" type "${node.type}" does not support duration`);
-            if (typeof args.audio === 'boolean') throw new Error(`Node "${nodeId}" type "${node.type}" does not support audio`);
-            if (typeof args.quality === 'string') throw new Error(`Node "${nodeId}" type "${node.type}" does not support quality`);
+            if (typeof set.duration === 'number') data.duration = set.duration;
+            if (typeof set.audio === 'boolean') data.audio = set.audio;
+            if (typeof set.quality === 'string') data.quality = set.quality;
           }
 
           // Advanced generation params — image/video only
           if (isVisual) {
-            if (typeof args.steps === 'number') data.steps = Math.round(args.steps as number);
-            if (typeof args.cfgScale === 'number') data.cfgScale = args.cfgScale;
-            if (typeof args.scheduler === 'string') data.scheduler = args.scheduler;
-            if (typeof args.img2imgStrength === 'number') data.img2imgStrength = Math.max(0, Math.min(1, args.img2imgStrength as number));
-            if (typeof args.imagePrompt === 'string') data.imagePrompt = args.imagePrompt;
-            if (typeof args.videoPrompt === 'string') data.videoPrompt = args.videoPrompt;
-          } else {
-            if (typeof args.steps === 'number') throw new Error(`Node "${nodeId}" type "${node.type}" does not support steps`);
-            if (typeof args.cfgScale === 'number') throw new Error(`Node "${nodeId}" type "${node.type}" does not support cfgScale`);
-            if (typeof args.scheduler === 'string') throw new Error(`Node "${nodeId}" type "${node.type}" does not support scheduler`);
-            if (typeof args.img2imgStrength === 'number') throw new Error(`Node "${nodeId}" type "${node.type}" does not support img2imgStrength`);
-            if (typeof args.imagePrompt === 'string') throw new Error(`Node "${nodeId}" type "${node.type}" does not support imagePrompt`);
-            if (typeof args.videoPrompt === 'string') throw new Error(`Node "${nodeId}" type "${node.type}" does not support videoPrompt`);
+            if (typeof set.steps === 'number') data.steps = Math.round(set.steps as number);
+            if (typeof set.cfgScale === 'number') data.cfgScale = set.cfgScale;
+            if (typeof set.scheduler === 'string') data.scheduler = set.scheduler;
+            if (typeof set.img2imgStrength === 'number') data.img2imgStrength = Math.max(0, Math.min(1, set.img2imgStrength as number));
+            if (typeof set.imagePrompt === 'string') data.imagePrompt = set.imagePrompt;
+            if (typeof set.videoPrompt === 'string') data.videoPrompt = set.videoPrompt;
           }
 
           // audioType / emotionVector — audio nodes only
-          if (typeof args.audioType === 'string') {
-            if (node.type !== 'audio') throw new Error(`Node "${nodeId}" type "${node.type}" does not support audioType`);
+          if (node.type === 'audio' && typeof set.audioType === 'string') {
             const validAudioTypes = ['voice', 'sfx', 'music'];
-            if (!validAudioTypes.includes(args.audioType as string)) throw new Error(`audioType must be one of: ${validAudioTypes.join(', ')}`);
-            data.audioType = args.audioType;
+            if (!validAudioTypes.includes(set.audioType as string)) throw new Error(`audioType must be one of: ${validAudioTypes.join(', ')}`);
+            data.audioType = set.audioType;
           }
-          if (args.emotionVector !== undefined && args.emotionVector !== null) {
-            if (node.type !== 'audio') throw new Error(`Node "${nodeId}" type "${node.type}" does not support emotionVector`);
-            data.emotionVector = args.emotionVector;
+          if (node.type === 'audio' && set.emotionVector !== undefined && set.emotionVector !== null) {
+            data.emotionVector = set.emotionVector;
           }
 
           // lipSyncEnabled — video nodes only
-          if (typeof args.lipSyncEnabled === 'boolean') {
-            if (node.type !== 'video') throw new Error(`Node "${nodeId}" type "${node.type}" does not support lipSyncEnabled`);
-            data.lipSyncEnabled = args.lipSyncEnabled;
+          if (node.type === 'video' && typeof set.lipSyncEnabled === 'boolean') {
+            data.lipSyncEnabled = set.lipSyncEnabled;
           }
 
           if (Object.keys(data).length > 0) {
@@ -364,18 +351,26 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
 
           // bypassed / locked — top-level node flags, use replaceNodePreservingEdges
           const nodeFlags: Partial<{ bypassed: boolean; locked: boolean }> = {};
-          if (typeof args.bypassed === 'boolean') nodeFlags.bypassed = args.bypassed as boolean;
-          if (typeof args.locked === 'boolean') nodeFlags.locked = args.locked as boolean;
+          if (typeof set.bypassed === 'boolean') nodeFlags.bypassed = set.bypassed as boolean;
+          if (typeof set.locked === 'boolean') nodeFlags.locked = set.locked as boolean;
           if (Object.keys(nodeFlags).length > 0) {
             // Re-fetch node since updateNodeData may have changed it
             const { node: freshNode } = await requireNode(deps, canvasId, nodeId);
             await replaceNodePreservingEdges(deps, canvasId, freshNode, nodeFlags);
           }
 
-          results.push({ nodeId, updated: { ...data, ...(typeof args.title === 'string' ? { title: (args.title as string).trim() } : {}), ...(args.position ? { position: args.position } : {}), ...(typeof args.colorTag === 'string' ? { colorTag: args.colorTag } : {}), ...(args.seedLock === true ? { seedLockToggled: true } : {}), ...nodeFlags } });
+          results.push({ nodeId, updated: { ...data, ...(typeof set.title === 'string' ? { title: (set.title as string).trim() } : {}), ...(set.position ? { position: set.position } : {}), ...(typeof set.colorTag === 'string' ? { colorTag: set.colorTag } : {}), ...(set.seedLock === true ? { seedLockToggled: true } : {}), ...nodeFlags } });
         }
-        const payload = results.length === 1 ? results[0] : results;
-        return keyWarning ? ok({ ...(Array.isArray(payload) ? { nodes: payload } : payload), _warning: keyWarning }) : ok(payload);
+        const warningObj = keyWarning ? { _warning: keyWarning } : {};
+        if (results.length === 1) {
+          const singleResult = results[0];
+          return ok({ nodeId: singleResult.nodeId, updated: singleResult.updated, ...warningObj, ...(warnings.length > 0 && { warnings }) });
+        }
+        // batch: preserve array shape; attach meta if needed
+        if (Object.keys(warningObj).length > 0 || warnings.length > 0) {
+          return ok({ nodes: results, ...warningObj, ...(warnings.length > 0 && { warnings }) });
+        }
+        return ok(results);
       } catch (error) {
         return fail(error);
       }
@@ -687,7 +682,7 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
 
   const updateBackdrop: AgentTool = {
     name: 'canvas.updateBackdrop',
-    description: 'Update one or more properties of a backdrop node in a single call. Supported fields: opacity (number), color (string), borderStyle ("dashed"|"solid"|"dotted"), titleSize ("sm"|"md"|"lg"), lockChildren (boolean), toggleCollapse (pass true to toggle).',
+    description: 'Update one or more properties of a backdrop node in a single call. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. Supported fields: opacity (number), color (string), borderStyle ("dashed"|"solid"|"dotted"), titleSize ("sm"|"md"|"lg"), lockChildren (boolean), toggleCollapse (pass true to toggle).',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -695,14 +690,20 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'The backdrop node ID to update.' },
-        opacity: { type: 'number', description: 'Backdrop opacity value.' },
-        color: { type: 'string', description: 'Backdrop background color.' },
-        borderStyle: { type: 'string', description: 'Border style.', enum: ['dashed', 'solid', 'dotted'] },
-        titleSize: { type: 'string', description: 'Title size.', enum: ['sm', 'md', 'lg'] },
-        lockChildren: { type: 'boolean', description: 'Whether child nodes are locked inside the backdrop.' },
-        toggleCollapse: { type: 'boolean', description: 'Pass true to toggle the collapsed state.' },
+        set: {
+          type: 'object',
+          description: 'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
+          properties: {
+            opacity: { type: 'number', description: 'Backdrop opacity value.' },
+            color: { type: 'string', description: 'Backdrop background color.' },
+            borderStyle: { type: 'string', description: 'Border style.', enum: ['dashed', 'solid', 'dotted'] },
+            titleSize: { type: 'string', description: 'Title size.', enum: ['sm', 'md', 'lg'] },
+            lockChildren: { type: 'boolean', description: 'Whether child nodes are locked inside the backdrop.' },
+            toggleCollapse: { type: 'boolean', description: 'Pass true to toggle the collapsed state.' },
+          },
+        },
       },
-      required: ['canvasId', 'nodeId'],
+      required: ['canvasId', 'nodeId', 'set'],
     },
     async execute(args) {
       try {
@@ -711,33 +712,36 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
         const { node } = await requireNode(deps, canvasId, nodeId);
         requireBackdropNode(node);
 
+        const set = extractSet(args);
+        const warnings = warnExtraKeys(args);
+
         const data: Record<string, unknown> = {};
-        if (typeof args.opacity === 'number') {
-          if (!Number.isFinite(args.opacity as number)) throw new Error('opacity must be a finite number');
-          data.opacity = args.opacity;
+        if (typeof set.opacity === 'number') {
+          if (!Number.isFinite(set.opacity as number)) throw new Error('opacity must be a finite number');
+          data.opacity = set.opacity;
         }
-        if (typeof args.color === 'string') data.color = args.color;
-        if (typeof args.borderStyle === 'string') {
-          if (args.borderStyle !== 'dashed' && args.borderStyle !== 'solid' && args.borderStyle !== 'dotted') {
+        if (typeof set.color === 'string') data.color = set.color;
+        if (typeof set.borderStyle === 'string') {
+          if (set.borderStyle !== 'dashed' && set.borderStyle !== 'solid' && set.borderStyle !== 'dotted') {
             throw new Error('borderStyle must be one of dashed, solid, or dotted');
           }
-          data.borderStyle = args.borderStyle;
+          data.borderStyle = set.borderStyle;
         }
-        if (typeof args.titleSize === 'string') {
-          if (args.titleSize !== 'sm' && args.titleSize !== 'md' && args.titleSize !== 'lg') {
+        if (typeof set.titleSize === 'string') {
+          if (set.titleSize !== 'sm' && set.titleSize !== 'md' && set.titleSize !== 'lg') {
             throw new Error('titleSize must be one of sm, md, or lg');
           }
-          data.titleSize = args.titleSize;
+          data.titleSize = set.titleSize;
         }
-        if (typeof args.lockChildren === 'boolean') data.lockChildren = args.lockChildren;
-        if (args.toggleCollapse === true) {
+        if (typeof set.lockChildren === 'boolean') data.lockChildren = set.lockChildren;
+        if (set.toggleCollapse === true) {
           data.collapsed = !((node.data as { collapsed?: boolean }).collapsed ?? false);
         }
 
         if (Object.keys(data).length > 0) {
           await deps.updateNodeData(canvasId, nodeId, data);
         }
-        return ok({ nodeId, ...data });
+        return ok({ nodeId, ...data, ...(warnings.length > 0 && { warnings }) });
       } catch (error) {
         return fail(error);
       }

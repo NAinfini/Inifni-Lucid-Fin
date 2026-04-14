@@ -12,7 +12,6 @@ function createDeps(scenes: Scene[]): SceneToolDeps {
 }
 
 const baseScene: Omit<Scene, 'id' | 'title' | 'description'> = {
-  projectId: 'p1',
   index: 0,
   location: 'somewhere',
   timeOfDay: 'day',

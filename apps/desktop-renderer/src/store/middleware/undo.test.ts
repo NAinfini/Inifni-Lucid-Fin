@@ -10,6 +10,7 @@ import {
   getUndoStackSize,
 } from './undo.js';
 import type { CanvasSliceState } from '../slices/canvas.js';
+import { canvasAdapter } from '../slices/canvas.js';
 
 function createMockStore(initialState: Record<string, unknown> = {}) {
   let state = initialState;
@@ -29,33 +30,31 @@ function createMockStore(initialState: Record<string, unknown> = {}) {
 }
 
 function createCanvasState(): CanvasSliceState {
-  return {
-    canvases: [
+  const canvas = {
+    id: 'canvas-1',
+    name: 'Canvas 1',
+    nodes: [
       {
-        id: 'canvas-1',
-        projectId: 'project-1',
-        name: 'Canvas 1',
-        nodes: [
-          {
-            id: 'node-1',
-            type: 'text',
-            position: { x: 10, y: 20 },
-            data: { content: 'hello' },
-            title: 'Node 1',
-            status: 'idle',
-            bypassed: false,
-            locked: false,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        ],
-        edges: [],
-        viewport: { x: 0, y: 0, zoom: 1 },
-        notes: [],
+        id: 'node-1',
+        type: 'text' as const,
+        position: { x: 10, y: 20 },
+        data: { content: 'hello' },
+        title: 'Node 1',
+        status: 'idle' as const,
+        bypassed: false,
+        locked: false,
         createdAt: 1,
         updatedAt: 1,
       },
     ],
+    edges: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    notes: [],
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  return {
+    canvases: canvasAdapter.addOne(canvasAdapter.getInitialState(), canvas),
     activeCanvasId: 'canvas-1',
     selectedNodeIds: [],
     selectedEdgeIds: [],

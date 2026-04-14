@@ -22,7 +22,6 @@ function createMockDeps(): AllToolDeps {
     // CanvasToolDeps
     getCanvas: vi.fn(async () => ({
       id: 'canvas-1',
-      projectId: 'project-1',
       name: 'Canvas',
       nodes: [],
       edges: [],
@@ -44,7 +43,6 @@ function createMockDeps(): AllToolDeps {
     deleteShotTemplate: vi.fn(async () => {}),
     getCanvasState: vi.fn(async () => ({
       id: 'canvas-1',
-      projectId: 'project-1',
       name: 'Canvas',
       nodes: [],
       edges: [],
@@ -68,7 +66,6 @@ function createMockDeps(): AllToolDeps {
     clearSelection: vi.fn(async () => undefined),
     importWorkflow: vi.fn(async () => ({
       id: 'canvas-1',
-      projectId: 'project-1',
       name: 'Canvas',
       nodes: [],
       edges: [],
@@ -112,7 +109,6 @@ function createMockDeps(): AllToolDeps {
       seriesId: 'series-1',
       title: 'Episode 1',
       order: 0,
-      projectId: 'project-1',
       status: 'draft',
       createdAt: 1,
       updatedAt: 1,
@@ -140,9 +136,6 @@ function createMockDeps(): AllToolDeps {
     getPrompt: vi.fn(async () => null),
     setCustomPrompt: vi.fn(async () => undefined),
     clearCustomPrompt: vi.fn(async () => undefined),
-    // ProjectToolDeps
-    saveProject: vi.fn(async () => undefined),
-    openProject: vi.fn(async () => undefined),
     // RenderToolDeps
     startRender: vi.fn(async () => ({ renderId: 'render-1' })),
     cancelRender: vi.fn(async () => undefined),

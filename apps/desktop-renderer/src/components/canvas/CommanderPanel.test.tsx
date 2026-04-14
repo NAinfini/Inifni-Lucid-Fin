@@ -50,7 +50,6 @@ function createCanvasNode(overrides: Partial<CanvasNode> = {}): CanvasNode {
 function createCanvas(nodes: CanvasNode[] = []): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Commander Test Canvas',
     nodes,
     edges: [],

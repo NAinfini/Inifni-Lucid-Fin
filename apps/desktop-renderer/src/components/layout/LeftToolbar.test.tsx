@@ -10,7 +10,6 @@ import { t } from '../../i18n.js';
 import { canvasSlice } from '../../store/slices/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
-import { projectSlice } from '../../store/slices/project.js';
 import { uiSlice } from '../../store/slices/ui.js';
 import { workflowsSlice } from '../../store/slices/workflows.js';
 import { LeftToolbar } from './LeftToolbar.js';
@@ -26,7 +25,6 @@ function renderToolbar(pathname = '/') {
       ui: uiSlice.reducer,
       canvas: canvasSlice.reducer,
       commander: commanderSlice.reducer,
-      project: projectSlice.reducer,
       jobs: jobsSlice.reducer,
       workflows: workflowsSlice.reducer,
     },

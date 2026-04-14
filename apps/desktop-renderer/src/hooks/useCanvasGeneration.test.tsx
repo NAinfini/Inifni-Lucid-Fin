@@ -41,7 +41,6 @@ function createCanvasNode(overrides: Partial<CanvasNode> = {}): CanvasNode {
 function createCanvas(nodes: CanvasNode[] = []): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Opening Shot',
     nodes,
     edges: [],
@@ -150,7 +149,7 @@ describe('useCanvasGeneration', () => {
     });
 
     await waitFor(() => {
-      const node = store.getState().canvas.canvases[0]?.nodes[0];
+      const node = store.getState().canvas.canvases.entities['canvas-1']?.nodes[0];
       expect(node?.data).toEqual(
         expect.objectContaining({
           progress: 64,
@@ -176,7 +175,7 @@ describe('useCanvasGeneration', () => {
 
     await expect(getHook().generate('node-1', 'openai-image', 2, 42)).rejects.toThrow('provider down');
 
-    const node = store.getState().canvas.canvases[0]?.nodes[0];
+    const node = store.getState().canvas.canvases.entities['canvas-1']?.nodes[0];
     expect(node?.data).toEqual(
       expect.objectContaining({
         status: 'failed',
@@ -212,7 +211,7 @@ describe('useCanvasGeneration', () => {
       await getHook().generate('node-1', 'openai-image', 3, 7);
     });
 
-    const node = store.getState().canvas.canvases[0]?.nodes[0];
+    const node = store.getState().canvas.canvases.entities['canvas-1']?.nodes[0];
     expect(node?.data).toEqual(
       expect.objectContaining({
         status: 'generating',

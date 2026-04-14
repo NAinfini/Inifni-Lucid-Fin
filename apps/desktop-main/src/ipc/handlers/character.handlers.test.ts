@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-const getCurrentProjectId = vi.hoisted(() => vi.fn(() => "project-1"));
 const randomUUID = vi.hoisted(() => vi.fn(() => "char-generated"));
-
-vi.mock("../project-context.js", () => ({
-  getCurrentProjectId,
-}));
 
 vi.mock("node:crypto", () => ({
   randomUUID,
@@ -15,8 +10,6 @@ import { registerCharacterHandlers } from "./character.handlers.js";
 
 function resetCommon() {
   vi.clearAllMocks();
-  getCurrentProjectId.mockReset();
-  getCurrentProjectId.mockReturnValue("project-1");
   randomUUID.mockReset();
   randomUUID.mockReturnValue("char-generated");
 }
@@ -24,13 +17,11 @@ function resetCommon() {
 function makeCharacter(overrides?: Record<string, unknown>) {
   return {
     id: "char-1",
-    projectId: "project-1",
     name: "Hero",
     role: "protagonist",
     description: "desc",
     appearance: "appearance",
     personality: "personality",
-    referenceImage: "hash-ref",
     costumes: [],
     tags: ["hero"],
     age: 28,
@@ -82,11 +73,10 @@ describe("registerCharacterHandlers", () => {
     ]);
   });
 
-  it("requires an open project to list characters", async () => {
+  it("lists all characters", async () => {
     resetCommon();
-    getCurrentProjectId.mockReturnValue(null);
     const db = {
-      listCharacters: vi.fn(),
+      listCharacters: vi.fn(() => [makeCharacter()]),
       getCharacter: vi.fn(),
       upsertCharacter: vi.fn(),
       deleteCharacter: vi.fn(),
@@ -94,8 +84,8 @@ describe("registerCharacterHandlers", () => {
     const handlers = registerHandlers(db);
     const list = handlers.get("character:list");
 
-    await expect(list?.({})).rejects.toThrow("No project open");
-    expect(db.listCharacters).not.toHaveBeenCalled();
+    await expect(list?.({})).resolves.toEqual([makeCharacter()]);
+    expect(db.listCharacters).toHaveBeenCalledWith();
   });
 
   it("loads a character by id and rejects missing records", async () => {
@@ -130,7 +120,6 @@ describe("registerCharacterHandlers", () => {
       description: "updated description",
       appearance: "silver armor",
       personality: "calm",
-      referenceImage: "hash-main",
       costumes: [{ id: "costume-1", name: "Armor", description: "heavy" }],
       tags: ["lead", 1, "pilot"],
       age: 32,
@@ -144,7 +133,6 @@ describe("registerCharacterHandlers", () => {
     expect(result).toEqual(
       expect.objectContaining({
         id: "char-generated",
-        projectId: "project-1",
         name: "New Hero",
         role: "supporting",
         gender: "male",
@@ -155,10 +143,8 @@ describe("registerCharacterHandlers", () => {
     expect(db.upsertCharacter).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "char-generated",
-        projectId: "project-1",
         name: "New Hero",
         role: "supporting",
-        refImage: "hash-main",
         tags: ["lead", "pilot"],
       }),
     );

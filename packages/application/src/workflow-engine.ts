@@ -4,14 +4,13 @@ import {
   type WorkflowStageRun,
   type WorkflowTaskRun,
 } from '@lucid-fin/contracts';
-import type { SqliteIndex } from '@lucid-fin/storage';
+import type { IStorageLayer } from '@lucid-fin/storage';
 import type { WorkflowTaskExecutionResult, WorkflowTaskHandler } from './task-handler.js';
 import { WorkflowPlanner } from './workflow-planner.js';
 import type { WorkflowRegistry } from './workflow-registry.js';
 
 export interface WorkflowStartRequest {
   workflowType: string;
-  projectId: string;
   entityType: string;
   entityId?: string;
   triggerSource?: string;
@@ -20,12 +19,13 @@ export interface WorkflowStartRequest {
 }
 
 export interface WorkflowEngineOptions {
-  db: SqliteIndex;
+  db: IStorageLayer;
   registry: WorkflowRegistry;
   handlers: WorkflowTaskHandler[];
   planner?: WorkflowPlanner;
   idFactory?: () => string;
   now?: () => number;
+  maxConcurrentTasks?: number;
 }
 
 type WorkflowStateRecord = {
@@ -54,6 +54,8 @@ export class WorkflowEngine {
   private readonly idFactory?: () => string;
   private autoPump: Promise<number> | undefined;
   private tick = 0;
+  private readonly maxConcurrentTasks: number;
+  private activeTasks = 0;
 
   constructor(private readonly options: WorkflowEngineOptions) {
     this.planner = options.planner ?? new WorkflowPlanner();
@@ -63,6 +65,8 @@ export class WorkflowEngine {
     for (const handler of options.handlers) {
       this.handlers.set(handler.id, handler);
     }
+
+    this.maxConcurrentTasks = options.maxConcurrentTasks ?? 5;
   }
 
   start(request: WorkflowStartRequest): string {
@@ -73,7 +77,6 @@ export class WorkflowEngine {
 
     const planned = this.planner.plan({
       definition,
-      projectId: request.projectId,
       entityType: request.entityType,
       entityId: request.entityId,
       triggerSource: request.triggerSource,
@@ -99,7 +102,6 @@ export class WorkflowEngine {
   }
 
   list(filter?: {
-    projectId?: string;
     status?: string;
     workflowType?: string;
     entityType?: string;
@@ -209,13 +211,19 @@ export class WorkflowEngine {
     await this.refreshAvailability(workflowRunId);
 
     for (;;) {
+      if (this.activeTasks >= this.maxConcurrentTasks) return executed;
       const readyTasks = this.options.db.listReadyWorkflowTasks(workflowRunId);
       const task = readyTasks[0];
       if (!task) {
         return executed;
       }
 
-      await this.executeTask(task.id);
+      this.activeTasks++;
+      try {
+        await this.executeTask(task.id);
+      } finally {
+        this.activeTasks--;
+      }
       executed += 1;
     }
   }

@@ -21,7 +21,6 @@ export interface TimelineTrack {
 }
 
 export interface Timeline {
-  projectId: string;
   tracks: TimelineTrack[];
   totalDuration: number;
   fps: number;

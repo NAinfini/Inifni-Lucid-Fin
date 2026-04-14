@@ -223,17 +223,14 @@ describe('OpenAIResponsesLLM', () => {
       });
       adapter.configure('sk-responses');
 
-      await expect(
-        adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
-      ).rejects.toMatchObject<Partial<LucidError>>({
-        code: ErrorCode.ServiceUnavailable,
-        message: 'OpenAI Responses returned a response without extractable content',
-        details: expect.objectContaining({
-          responseBody: expect.objectContaining({
-            output: expect.any(Array),
-          }),
-        }),
-      });
+      const promise = adapter.completeWithTools([{ role: 'user', content: 'hello' }]);
+      await expect(promise).rejects.toThrow(LucidError);
+      const error = await promise.catch((e: LucidError) => e);
+      expect(error.code).toBe(ErrorCode.ServiceUnavailable);
+      expect(error.message).toBe('OpenAI Responses returned a response without extractable content');
+      const details = error.details as Record<string, unknown>;
+      expect(details).toBeDefined();
+      expect(Array.isArray((details.responseBody as Record<string, unknown>)?.output)).toBe(true);
     } finally {
       vi.unstubAllGlobals();
       vi.restoreAllMocks();

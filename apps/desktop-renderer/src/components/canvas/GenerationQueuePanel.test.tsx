@@ -43,7 +43,6 @@ function createCanvasNode(overrides: Partial<CanvasNode> = {}): CanvasNode {
 function createCanvas(nodes: CanvasNode[] = []): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Opening Shot',
     nodes,
     edges: [],
@@ -157,7 +156,7 @@ describe('GenerationQueuePanel', () => {
     });
 
     await waitFor(() => {
-      const node = store.getState().canvas.canvases[0]?.nodes[0];
+      const node = store.getState().canvas.canvases.entities['canvas-1']?.nodes[0];
       expect(node?.data).toEqual(
         expect.objectContaining({
           progress: 48,
@@ -234,7 +233,7 @@ describe('GenerationQueuePanel', () => {
     });
 
     await waitFor(() => {
-      const canvas = store.getState().canvas.canvases.find((entry) => entry.id === 'canvas-2');
+      const canvas = store.getState().canvas.canvases.entities['canvas-2'];
       expect(canvas?.nodes[0]?.data).toEqual(
         expect.objectContaining({
           progress: 88,
@@ -297,7 +296,7 @@ describe('GenerationQueuePanel', () => {
     fireEvent.click(screen.getByLabelText(t('generation.remove')));
 
     await waitFor(() => {
-      const node = store.getState().canvas.canvases[0]?.nodes[0];
+      const node = store.getState().canvas.canvases.entities['canvas-1']?.nodes[0];
       expect(node?.data).toEqual(
         expect.objectContaining({
           status: 'empty',

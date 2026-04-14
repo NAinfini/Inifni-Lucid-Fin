@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import type { LipSyncAdapter, LipSyncOptions } from './lipsync-registry.js';
 
 export class CloudLipSyncAdapter implements LipSyncAdapter {
@@ -13,8 +13,8 @@ export class CloudLipSyncAdapter implements LipSyncAdapter {
     outputPath: string,
     _options?: LipSyncOptions,
   ): Promise<void> {
-    const videoBuffer = fs.readFileSync(videoPath);
-    const audioBuffer = fs.readFileSync(audioPath);
+    const videoBuffer = await fsp.readFile(videoPath);
+    const audioBuffer = await fsp.readFile(audioPath);
 
     const formData = new FormData();
     formData.append('video', new Blob([videoBuffer]), 'video.mp4');
@@ -32,6 +32,6 @@ export class CloudLipSyncAdapter implements LipSyncAdapter {
     }
 
     const resultBuffer = await response.arrayBuffer();
-    fs.writeFileSync(outputPath, Buffer.from(resultBuffer));
+    await fsp.writeFile(outputPath, Buffer.from(resultBuffer));
   }
 }

@@ -7,7 +7,6 @@ import type { Canvas, CanvasNode, VideoNodeData, AudioNodeData } from '@lucid-fi
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import { getLipSyncAdapter, type LipSyncSettings } from './lipsync-registry.js';
-import { getCurrentProjectId } from '../project-context.js';
 import type { CanvasStore } from './canvas.handlers.js';
 
 export interface LipSyncHandlerDeps {
@@ -130,10 +129,8 @@ export async function runLipSyncPostProcess(
     const { ref, meta } = await cas.importAsset(tmpOutput, 'video');
     const lipSyncHash = ref.hash;
 
-    const projectId = getCurrentProjectId();
     db.insertAsset({
       ...meta,
-      projectId: projectId ?? undefined,
       tags: [
         'canvas',
         `canvas:${canvas.id}`,

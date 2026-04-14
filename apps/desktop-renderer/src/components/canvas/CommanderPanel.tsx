@@ -3,11 +3,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import {
   Check,
   ChevronDown,
-  Copy,
   Image as ImageIcon,
-  Loader2,
   MapPin,
-  MessageCircleQuestion,
   Minus,
   Paperclip,
   Pencil,
@@ -28,7 +25,6 @@ import {
   setCommanderOpen,
   setProviderId,
   setPosition,
-  setSize,
   setPermissionMode,
   clearPendingConfirmation,
   resolveQuestion,
@@ -37,208 +33,19 @@ import {
   removeQueuedMessage,
   editQueuedMessage,
   clearQueue,
-  addSystemNotice,
-  compactLocalContext,
 } from '../../store/slices/commander.js';
 import { useCommander } from '../../hooks/useCommander.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { cn } from '../../lib/utils.js';
 import { getAPI } from '../../utils/api.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip.js';
+import { ToolConfirmCard } from './commander/ToolConfirmCard.js';
+import { QuestionCard } from './commander/QuestionCard.js';
+import { useSlashCommands } from './commander/useSlashCommands.js';
+import { usePanelDrag } from './commander/usePanelDrag.js';
+import { MessageList } from './commander/MessageList.js';
 
-const MIN_WIDTH = 320;
-const MIN_HEIGHT = 400;
 const SAFE_Y = 56;
-// ---------------------------------------------------------------------------
-// Inline markdown renderer
-// ---------------------------------------------------------------------------
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function renderMarkdown(raw: string): string {
-  const codeBlockRe = new RegExp('```(\\w*)\\n([\\s\\S]*?)```', 'g');
-  const inlineCodeRe = new RegExp('`([^`\\n]+)`', 'g');
-  const boldRe = new RegExp('\\*\\*(.+?)\\*\\*', 'g');
-  const italicRe = new RegExp('(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)', 'g');
-  const linkRe = new RegExp('\\[([^\\]]+)\\]\\(([^)]+)\\)', 'g');
-  const listItemRe = new RegExp('^- (.+)$', 'gm');
-  const ulWrapRe = new RegExp('((?:<li[^>]*>.*?</li>\\n?)+)', 'g');
-  const newlineRe = new RegExp('\\n', 'g');
-
-  let html = raw.replace(
-    codeBlockRe,
-    (_m: string, lang: string, code: string) =>
-      `<pre class="commander-codeblock" data-lang="${escapeHtml(lang)}"><code>${escapeHtml(code.trimEnd())}</code></pre>`,
-  );
-  html = html.replace(inlineCodeRe, (_m: string, code: string) =>
-    `<code class="commander-inline-code">${escapeHtml(code)}</code>`,
-  );
-  html = html.replace(boldRe, '<strong>$1</strong>');
-  html = html.replace(italicRe, '<em>$1</em>');
-  html = html.replace(linkRe, (_m: string, text: string, url: string) => {
-    const trimmed = url.trim().toLowerCase();
-    if (trimmed.startsWith('javascript:') || trimmed.startsWith('data:') || trimmed.startsWith('vbscript:')) {
-      return escapeHtml(text);
-    }
-    return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="text-primary underline">${escapeHtml(text)}</a>`;
-  });
-  html = html.replace(listItemRe, '<li class="ml-4 list-disc">$1</li>');
-  html = html.replace(ulWrapRe, '<ul class="my-1">$1</ul>');
-  html = html.replace(newlineRe, '<br/>');
-  return html;
-}
-
-/** Format camelCase action name to human-readable. e.g. "generateReferenceImage" → "Generate Reference Image" */
-function formatAction(action: string, t?: (key: string) => string): string {
-  // Try localized action name first
-  if (t) {
-    const localized = t(`commander.toolAction.${action}`);
-    if (!localized.startsWith('commander.toolAction.')) return localized;
-  }
-  return action
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (c) => c.toUpperCase())
-    .trim();
-}
-
-/** Format full tool name for display. e.g. "character.list" → "角色: 列表" (localized) */
-function formatToolName(name: string, t?: (key: string) => string): string {
-  const parts = name.split('.');
-  const domain = parts[0] ?? '';
-  const action = parts[parts.length - 1] ?? name;
-  if (parts.length > 1) {
-    const localizedDomain = t?.(`commander.toolDomain.${domain}`);
-    const domainLabel = localizedDomain && !localizedDomain.startsWith('commander.toolDomain.')
-      ? localizedDomain
-      : domain.replace(/^./, (c) => c.toUpperCase());
-    return `${domainLabel}: ${formatAction(action, t)}`;
-  }
-  return formatAction(action, t);
-}
-
-/** Build a human-readable one-line summary of what a tool call will do. */
-function summarizeToolAction(
-  toolName: string,
-  args: Record<string, unknown>,
-  t: (key: string) => string,
-): { action: string; detail: string } {
-  const parts = toolName.split('.');
-  const domain = parts[0] ?? '';
-  const method = parts[parts.length - 1] ?? '';
-
-  // Count nodeIds if present (batch operations)
-  const nodeIds = Array.isArray(args.nodeIds) ? args.nodeIds : [];
-  const nodeCount = nodeIds.length || (args.nodeId ? 1 : 0);
-
-  // Identify the target entity
-  const name = typeof args.name === 'string' ? args.name : undefined;
-  const id = typeof args.id === 'string' ? args.id.slice(0, 8) : undefined;
-  const canvasId = typeof args.canvasId === 'string' ? args.canvasId.slice(0, 8) : undefined;
-
-  // Domain labels
-  const domainLabels: Record<string, string> = {
-    canvas: t('commander.toolDomain.canvas'),
-    character: t('commander.toolDomain.character'),
-    equipment: t('commander.toolDomain.equipment'),
-    location: t('commander.toolDomain.location'),
-    scene: t('commander.toolDomain.scene'),
-    preset: t('commander.toolDomain.preset'),
-    provider: t('commander.toolDomain.provider'),
-    workflow: t('commander.toolDomain.workflow'),
-    script: t('commander.toolDomain.script'),
-    render: t('commander.toolDomain.render'),
-    project: t('commander.toolDomain.project'),
-    series: t('commander.toolDomain.series'),
-    settings: t('commander.toolDomain.settings'),
-    asset: t('commander.toolDomain.asset'),
-    vision: t('commander.toolDomain.vision'),
-    tool: t('commander.toolDomain.tool'),
-    guide: t('commander.toolDomain.guide'),
-    commander: t('commander.toolDomain.commander'),
-    logger: t('commander.toolDomain.logger'),
-  };
-  const domainLabel = domainLabels[domain] ?? domain;
-
-  // Action-specific summaries
-  const action = formatAction(method, t);
-
-  // Build detail string
-  const detailParts: string[] = [];
-  if (nodeCount > 1) detailParts.push(`${nodeCount} ${t('commander.toolSummary.nodes')}`);
-  else if (nodeCount === 1) detailParts.push(`1 ${t('commander.toolSummary.node')}`);
-  if (name) detailParts.push(`"${name}"`);
-  else if (id) detailParts.push(`#${id}…`);
-  if (canvasId && !name) detailParts.push(`${t('commander.toolSummary.canvas')} #${canvasId}…`);
-
-  // Slot info
-  if (typeof args.slot === 'string') detailParts.push(`slot: ${args.slot}`);
-
-  // Provider info
-  if (typeof args.providerId === 'string') detailParts.push(args.providerId as string);
-
-  // Prompt snippet — only if non-empty
-  if (typeof args.prompt === 'string' && (args.prompt as string).trim().length > 0) {
-    const prompt = (args.prompt as string).trim();
-    detailParts.push(`"${prompt.length > 40 ? prompt.slice(0, 40) + '…' : prompt}"`);
-  }
-
-  return {
-    action: `${domainLabel} — ${action}`,
-    detail: detailParts.join(' · ') || method,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isNodeReferenceKey(key: string): boolean {
-  return key === 'nodeId' || key.endsWith('NodeId') || key === 'source' || key === 'target';
-}
-
-function isNodeReferenceListKey(key: string): boolean {
-  return key === 'nodeIds' || key.endsWith('NodeIds');
-}
-
-function formatNodeReference(nodeId: string, nodeTitlesById: Record<string, string>): string {
-  const title = nodeTitlesById[nodeId]?.trim();
-  if (!title || title === nodeId) {
-    return nodeId;
-  }
-  return `${title} (${nodeId})`;
-}
-
-function annotateToolPayload(
-  value: unknown,
-  nodeTitlesById: Record<string, string>,
-  parentKey?: string,
-): unknown {
-  if (typeof value === 'string' && parentKey && isNodeReferenceKey(parentKey)) {
-    return formatNodeReference(value, nodeTitlesById);
-  }
-
-  if (Array.isArray(value)) {
-    if (parentKey && isNodeReferenceListKey(parentKey)) {
-      return value.map((entry) =>
-        typeof entry === 'string' ? formatNodeReference(entry, nodeTitlesById) : entry,
-      );
-    }
-    return value.map((entry) => annotateToolPayload(entry, nodeTitlesById));
-  }
-
-  if (!isRecord(value)) {
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
-      key,
-      annotateToolPayload(entry, nodeTitlesById, key),
-    ]),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Attachment types
@@ -255,326 +62,6 @@ interface NodeAttachment {
   title: string;
 }
 type Attachment = FileAttachment | NodeAttachment;
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function ToolCallCard({
-  toolCall,
-  nodeTitlesById,
-  t,
-}: {
-  toolCall: {
-    name: string;
-    id: string;
-    arguments: Record<string, unknown>;
-    startedAt?: number;
-    completedAt?: number;
-    result?: unknown;
-    status: string;
-  };
-  nodeTitlesById: Record<string, string>;
-  t: (key: string) => string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const formattedArguments = useMemo(
-    () => JSON.stringify(annotateToolPayload(toolCall.arguments, nodeTitlesById), null, 2),
-    [nodeTitlesById, toolCall.arguments],
-  );
-  const formattedResult = useMemo(
-    () =>
-      toolCall.result === undefined
-        ? undefined
-        : JSON.stringify(annotateToolPayload(toolCall.result, nodeTitlesById), null, 2),
-    [nodeTitlesById, toolCall.result],
-  );
-  const elapsed =
-    toolCall.completedAt && toolCall.startedAt
-      ? (() => {
-          const ms = toolCall.completedAt! - toolCall.startedAt;
-          if (ms < 1) return '<1ms';
-          if (ms < 1000) return `${Math.round(ms)}ms`;
-          return `${(ms / 1000).toFixed(1)}s`;
-        })()
-      : null;
-
-  return (
-    <div
-      className={cn(
-        'mt-2 mb-2 overflow-hidden rounded-lg border bg-background/50',
-        toolCall.status === 'pending' && 'border-amber-500/40 animate-pulse',
-        toolCall.status === 'done' && 'border-emerald-500/30',
-        toolCall.status === 'error' && 'border-destructive/40',
-        toolCall.status !== 'pending' &&
-          toolCall.status !== 'done' &&
-          toolCall.status !== 'error' &&
-          'border-border/60',
-      )}
-    >
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-muted/50"
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        {toolCall.status === 'pending' && (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-amber-400" />
-        )}
-        {toolCall.status === 'done' && <Check className="h-3.5 w-3.5 text-emerald-400" />}
-        {toolCall.status === 'error' && <X className="h-3.5 w-3.5 text-destructive" />}
-        <span className="flex-1 text-left">{formatToolName(toolCall.name, t)}</span>
-        {elapsed && (
-          <span className="text-[10px] text-muted-foreground">
-            {t('commander.elapsed')} {elapsed}
-          </span>
-        )}
-        <ChevronDown
-          className={cn(
-            'h-3 w-3 text-muted-foreground transition-transform',
-            expanded && 'rotate-180',
-          )}
-        />
-      </button>
-      {expanded && (
-        <div className="border-t border-border/40 text-[11px]">
-          <div className="max-h-60 overflow-y-auto px-2.5 py-2">
-            <pre className="overflow-x-auto whitespace-pre-wrap text-muted-foreground">
-              {formattedArguments}
-            </pre>
-            {toolCall.result !== undefined && (
-              <>
-                <div className="mt-2 font-medium">
-                  {t('commander.toolResult')}:{' '}
-                  <span
-                    className={cn(
-                      toolCall.status === 'error' ? 'text-destructive' : 'text-emerald-400',
-                    )}
-                  >
-                    {toolCall.status}
-                  </span>
-                </div>
-                <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-muted-foreground">
-                  {formattedResult}
-                </pre>
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-1 border-t border-border/40 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-            onClick={() => setExpanded(false)}
-          >
-            <ChevronDown className="h-3 w-3 rotate-180" />
-            <span>{t('commander.minimize')}</span>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }).catch(() => { /* clipboard write failure is non-critical */ });
-  }, [text]);
-
-  return (
-    <button
-      type="button"
-      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      onClick={handleCopy}
-      title={label}
-      aria-label={label}
-    >
-      {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-    </button>
-  );
-}
-
-function MessageActionStrip({
-  messageId,
-  children,
-}: {
-  messageId: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      data-testid={`commander-message-actions-${messageId}`}
-      className="flex h-5 items-center justify-end border-b border-border/40 bg-background/10 px-2"
-    >
-      {children}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Tool confirmation card
-// ---------------------------------------------------------------------------
-
-function ToolConfirmCard({
-  toolName,
-  args,
-  tier,
-  onExecute,
-  onSkip,
-  t,
-}: {
-  toolName: string;
-  args: Record<string, unknown>;
-  tier: number;
-  onExecute: () => void;
-  onSkip: () => void;
-  t: (key: string) => string;
-}) {
-  const tierLabels: Record<number, string> = {
-    1: t('commander.tierLabels.safe'),
-    2: t('commander.tierLabels.mutation'),
-    3: t('commander.tierLabels.generation'),
-    4: t('commander.tierLabels.system'),
-  };
-  const tierColors: Record<number, string> = {
-    1: 'bg-emerald-500/15 text-emerald-400',
-    2: 'bg-amber-500/15 text-amber-400',
-    3: 'bg-blue-500/15 text-blue-400',
-    4: 'bg-red-500/15 text-red-400',
-  };
-
-  const { action, detail } = summarizeToolAction(toolName, args, t);
-  const [showRaw, setShowRaw] = useState(false);
-
-  return (
-    <div className="mx-3 my-2 rounded-lg border border-amber-500/50 bg-amber-500/5 p-3">
-      <div className="flex items-center gap-2 text-xs font-medium">
-        <Shield className="h-4 w-4 text-amber-400" />
-        <span>{t('commander.toolConfirm.title')}</span>
-        <span
-          className={cn(
-            'ml-auto rounded px-1.5 py-0.5 text-[10px]',
-            tierColors[tier] ?? 'bg-amber-500/15 text-amber-400',
-          )}
-        >
-          {tierLabels[tier] ?? `Tier ${tier}`}
-        </span>
-      </div>
-      <div className="mt-2 text-xs font-medium">{action}</div>
-      {detail && (
-        <div className="mt-0.5 text-[11px] text-muted-foreground">{detail}</div>
-      )}
-      <button
-        type="button"
-        className="mt-1.5 text-[9px] text-muted-foreground/60 hover:text-muted-foreground underline"
-        onClick={() => setShowRaw((v) => !v)}
-      >
-        {showRaw ? t('commander.toolConfirm.hideRaw') : t('commander.toolConfirm.showRaw')}
-      </button>
-      {showRaw && (
-        <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-muted/30 p-1.5 text-[10px] text-muted-foreground">
-          {JSON.stringify(args, null, 2)}
-        </pre>
-      )}
-      <div className="mt-3 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          className="rounded border border-border px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-          onClick={onSkip}
-        >
-          {t('commander.toolConfirm.skip')}
-        </button>
-        <button
-          type="button"
-          className="rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
-          onClick={onExecute}
-        >
-          {t('commander.toolConfirm.execute')}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Question card (askUser tool)
-// ---------------------------------------------------------------------------
-
-function QuestionCard({
-  question,
-  options,
-  onAnswer,
-  t,
-}: {
-  question: string;
-  options: Array<{ label: string; description?: string }>;
-  onAnswer: (answer: string) => void;
-  t: (key: string) => string;
-}) {
-  const [customText, setCustomText] = useState('');
-  const [showCustom, setShowCustom] = useState(false);
-
-  return (
-    <div className="mx-3 my-2 rounded-lg border border-blue-500/50 bg-blue-500/5 p-3">
-      <div className="flex items-center gap-2 text-xs font-medium">
-        <MessageCircleQuestion className="h-4 w-4 text-blue-400" />
-        <span>{t('commander.question.title')}</span>
-      </div>
-      <p className="mt-2 text-sm text-foreground">{question}</p>
-      <div className="mt-3 flex flex-col gap-1.5">
-        {options.map((opt) => (
-          <button
-            key={opt.label}
-            type="button"
-            className="flex flex-col items-start rounded-md border border-border/60 px-3 py-2 text-left text-xs transition-colors hover:border-blue-500/50 hover:bg-blue-500/10"
-            onClick={() => onAnswer(opt.label)}
-          >
-            <span className="font-medium text-foreground">{opt.label}</span>
-            {opt.description && (
-              <span className="mt-0.5 text-muted-foreground">{opt.description}</span>
-            )}
-          </button>
-        ))}
-      </div>
-      {showCustom ? (
-        <div className="mt-2 flex gap-1.5">
-          <input
-            type="text"
-            className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs outline-none focus:border-blue-500/50"
-            placeholder={t('commander.question.otherAnswer')}
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && customText.trim()) {
-                onAnswer(customText.trim());
-              }
-            }}
-            autoFocus
-          />
-          <button
-            type="button"
-            className="rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            disabled={!customText.trim()}
-            onClick={() => {
-              if (customText.trim()) onAnswer(customText.trim());
-            }}
-          >
-            {t('commander.question.submit')}
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          className="mt-2 text-xs text-muted-foreground underline hover:text-foreground"
-          onClick={() => setShowCustom(true)}
-        >
-          {t('commander.question.otherAnswer')}
-        </button>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -602,6 +89,7 @@ export function CommanderPanel() {
     maxTokens,
   } = useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
+  const inputHasText = input.trim().length > 0;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
@@ -614,7 +102,8 @@ export function CommanderPanel() {
   const llmSettings = useSelector((state: RootState) => state.settings.llm);
   const canvasNodes = useSelector((state: RootState) => {
     const activeId = state.canvas.activeCanvasId;
-    return state.canvas.canvases.find((c) => c.id === activeId)?.nodes;
+    if (!activeId) return undefined;
+    return state.canvas.canvases.entities[activeId]?.nodes;
   });
   const nodeTitlesById = useMemo(
     () =>
@@ -627,40 +116,18 @@ export function CommanderPanel() {
   const [permPickerOpen, setPermPickerOpen] = useState(false);
   const [nodePickerOpen, setNodePickerOpen] = useState(false);
 
-  // Slash command system — Claude Code style: / shows commands, typing filters
-  const [slashMenuIndex, setSlashMenuIndex] = useState(0);
+  // Slash command system
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
-
-  const SLASH_COMMANDS = useMemo(
-    () => [
-      { name: 'compact', desc: t('commander.slashCommand.compactDesc') },
-      { name: 'clear', desc: t('commander.slashCommand.clearDesc') },
-      { name: 'context', desc: t('commander.slashCommand.contextDesc') },
-      { name: 'status', desc: t('commander.slashCommand.statusDesc') },
-      { name: 'help', desc: t('commander.slashCommand.helpDesc') },
-    ],
-    [t],
-  );
-
-  const slashQuery = useMemo(() => {
-    if (!input.startsWith('/')) return null;
-    return input.slice(1).toLowerCase();
-  }, [input]);
-
-  const filteredSlashItems = useMemo(() => {
-    if (slashQuery === null) return [];
-    if (slashQuery === '') return SLASH_COMMANDS;
-    return SLASH_COMMANDS.filter(
-      (cmd) => cmd.name.includes(slashQuery) || cmd.desc.toLowerCase().includes(slashQuery),
-    );
-  }, [slashQuery, SLASH_COMMANDS]);
-
-  const slashMenuOpen = slashQuery !== null && filteredSlashItems.length > 0;
-
-  // Reset menu index when filtered list changes
-  useEffect(() => {
-    setSlashMenuIndex(0);
-  }, [slashQuery]);
+  const {
+    slashQuery: _slashQuery,
+    slashMenuIndex,
+    setSlashMenuIndex,
+    showSlashMenu: slashMenuOpen,
+    filteredCommands: filteredSlashItems,
+    slashCommands: SLASH_COMMANDS,
+    executeSlashCommand,
+    triggerCompact,
+  } = useSlashCommands({ t, input, setInput });
 
   // Scroll selected item into view
   useEffect(() => {
@@ -670,139 +137,17 @@ export function CommanderPanel() {
     if (selected) selected.scrollIntoView({ block: 'nearest' });
   }, [slashMenuIndex, slashMenuOpen]);
 
-  const triggerCompact = useCallback(async () => {
-    dispatch(addSystemNotice(t('commander.slashCommand.compacting')));
-    // Phase 1: compact local Redux store (truncate old tool results + assistant text)
-    dispatch(compactLocalContext());
-    // Phase 2: compact backend activeMessages via IPC
-    const api = getAPI();
-    const canvasId = store.getState().canvas.activeCanvasId;
-    if (api?.commander && canvasId) {
-      try {
-        const result = await api.commander.compact(canvasId) as { freedChars: number; messageCount: number; toolCount: number };
-        if (result.freedChars > 0) {
-          dispatch(addSystemNotice(
-            t('commander.slashCommand.compactResult')
-              .replace('{chars}', result.freedChars.toLocaleString())
-              .replace('{messages}', String(result.messageCount))
-              .replace('{tools}', String(result.toolCount)),
-          ));
-        } else {
-          dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
-        }
-      } catch { /* compact IPC call failed — show noop message as fallback */
-        dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
-      }
-    }
-  }, [dispatch, t]);
-
-  const executeSlashCommand = useCallback(
-    async (cmdName: string) => {
-      setInput('');
-      switch (cmdName) {
-        case 'compact': {
-          await triggerCompact();
-          break;
-        }
-        case 'clear':
-          dispatch(newSession());
-          break;
-        case 'status': {
-          const msgs = store.getState().commander.messages;
-          const totalChars = msgs.reduce((sum, m) => sum + m.content.length, 0);
-          dispatch(addSystemNotice(
-            t('commander.slashCommand.statusResult')
-              .replace('{messages}', String(msgs.length))
-              .replace('{chars}', totalChars.toLocaleString()),
-          ));
-          break;
-        }
-        case 'context': {
-          const msgs = store.getState().commander.messages;
-          let uChars = 0, aChars = 0, tcChars = 0, trChars = 0;
-          let uCount = 0, aCount = 0, tcCount = 0;
-          const toolFreq: Record<string, number> = {};
-          // Per-tool token breakdown: args + results
-          const toolArgChars: Record<string, number> = {};
-          const toolResultChars: Record<string, number> = {};
-          for (const m of msgs) {
-            const cl = m.content?.length ?? 0;
-            if (m.role === 'user') { uChars += cl; uCount++; }
-            else { aChars += cl; aCount++; }
-            if (m.toolCalls) {
-              for (const tc of m.toolCalls) {
-                const argLen = JSON.stringify(tc.arguments).length;
-                const resLen = tc.result !== undefined ? JSON.stringify(tc.result).length : 0;
-                tcChars += argLen;
-                trChars += resLen;
-                tcCount++;
-                toolFreq[tc.name] = (toolFreq[tc.name] ?? 0) + 1;
-                toolArgChars[tc.name] = (toolArgChars[tc.name] ?? 0) + argLen;
-                toolResultChars[tc.name] = (toolResultChars[tc.name] ?? 0) + resLen;
-              }
-            }
-          }
-          const tok = (c: number) => Math.round(c / 4);
-          const totalTok = tok(uChars + aChars + tcChars + trChars);
-          const budget = store.getState().commander.maxTokens;
-          const pctVal = Math.min(100, Math.round((totalTok / budget) * 100));
-          const fK = (n: number) => {
-            if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; }
-            return String(n);
-          };
-          const pctOf = (part: number, whole: number) => whole > 0 ? `${Math.round(part / whole * 100)}%` : '0%';
-
-          const totalCharsAll = uChars + aChars + tcChars + trChars;
-
-          // Top 10 tools by total token usage (args + results)
-          const toolTotalChars: Record<string, number> = {};
-          for (const name of Object.keys(toolFreq)) {
-            toolTotalChars[name] = (toolArgChars[name] ?? 0) + (toolResultChars[name] ?? 0);
-          }
-          const topBySize = Object.entries(toolTotalChars)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([name, chars]) => {
-              const calls = toolFreq[name];
-              const argTok = tok(toolArgChars[name] ?? 0);
-              const resTok = tok(toolResultChars[name] ?? 0);
-              return `  ${name}: ${fK(tok(chars))} ${t('commander.contextBreakdown.tokens')} (${calls}x) — ${t('commander.contextBreakdown.args')} ${fK(argTok)}, ${t('commander.contextBreakdown.resultsLabel')} ${fK(resTok)}`;
-            })
-            .join('\n');
-
-          const detail = [
-            `${t('commander.contextBreakdown.context')}: ${fK(totalTok)} / ${fK(budget)} ${t('commander.contextBreakdown.tokens')} (${pctVal}%)`,
-            ``,
-            `${t('commander.contextBreakdown.user')}: ${fK(tok(uChars))} ${t('commander.contextBreakdown.tokens')} (${uCount} ${t('commander.contextBreakdown.msgs')}) — ${pctOf(uChars, totalCharsAll)}`,
-            `${t('commander.contextBreakdown.assistant')}: ${fK(tok(aChars))} ${t('commander.contextBreakdown.tokens')} (${aCount} ${t('commander.contextBreakdown.msgs')}) — ${pctOf(aChars, totalCharsAll)}`,
-            `${t('commander.contextBreakdown.toolCalls')}: ${fK(tok(tcChars))} ${t('commander.contextBreakdown.tokens')} (${tcCount} ${t('commander.contextBreakdown.calls')}) — ${pctOf(tcChars, totalCharsAll)}`,
-            `${t('commander.contextBreakdown.toolResults')}: ${fK(tok(trChars))} ${t('commander.contextBreakdown.tokens')} — ${pctOf(trChars, totalCharsAll)}`,
-            ``,
-            `${t('commander.contextBreakdown.topToolsBySize')}:`,
-            topBySize || `  (${t('commander.contextBreakdown.none')})`,
-          ].join('\n');
-
-          dispatch(addSystemNotice(detail));
-          break;
-        }
-        case 'help': {
-          const helpLines = SLASH_COMMANDS.map((cmd) => `/${cmd.name} — ${cmd.desc}`).join('\n');
-          dispatch(addSystemNotice(`${t('commander.slashCommand.helpTitle')}:\n${helpLines}`));
-          break;
-        }
-        default:
-          break;
-      }
-    },
-    [dispatch, t, SLASH_COMMANDS, triggerCompact],
-  );
-
-  // Auto-expanding textarea height
+  // Auto-expanding textarea height — batched into a single rAF to avoid layout thrash
+  const rafId = useRef(0);
   useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 400)}px`;
+    cancelAnimationFrame(rafId.current);
+    rafId.current = requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 400)}px`;
+    });
+    return () => cancelAnimationFrame(rafId.current);
   }, [input]);
 
   const liveMessage = useMemo(() => {
@@ -876,97 +221,7 @@ export function CommanderPanel() {
 
   const sectionRef = useRef<HTMLElement>(null);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const target = document.querySelector<HTMLElement>('[data-drag-origin="true"]');
-      if (!target) {
-        return;
-      }
-      const offsetX = Number(target.dataset.dragOffsetX ?? '0');
-      const offsetY = Number(target.dataset.dragOffsetY ?? '0');
-      const x = Math.max(8, event.clientX - offsetX);
-      const y = Math.max(SAFE_Y, event.clientY - offsetY);
-      // Direct DOM update — skip Redux during drag
-      const el = sectionRef.current;
-      if (el) {
-        el.style.left = `${x}px`;
-        el.style.top = `${y}px`;
-      }
-    };
-
-    const handleMouseUp = () => {
-      const dragOrigin = document.querySelector<HTMLElement>('[data-drag-origin="true"]');
-      if (dragOrigin) {
-        // Commit final position to Redux
-        const el = sectionRef.current;
-        if (el) {
-          dispatch(setPosition({ x: parseInt(el.style.left), y: parseInt(el.style.top) }));
-        }
-        delete dragOrigin.dataset.dragOrigin;
-        delete dragOrigin.dataset.dragOffsetX;
-        delete dragOrigin.dataset.dragOffsetY;
-      }
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dispatch, open]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const target = document.querySelector<HTMLElement>('[data-resize-origin="true"]');
-      if (!target) {
-        return;
-      }
-      const startX = Number(target.dataset.resizeStartX ?? '0');
-      const startY = Number(target.dataset.resizeStartY ?? '0');
-      const startWidth = Number(target.dataset.resizeStartWidth ?? String(size.width));
-      const startHeight = Number(target.dataset.resizeStartHeight ?? String(size.height));
-      const w = Math.max(MIN_WIDTH, startWidth + (event.clientX - startX));
-      const h = Math.max(MIN_HEIGHT, startHeight + (event.clientY - startY));
-      // Direct DOM update — skip Redux during drag
-      const el = sectionRef.current;
-      if (el) {
-        el.style.width = `${w}px`;
-        el.style.height = `${h}px`;
-      }
-    };
-
-    const handleMouseUp = () => {
-      const resizeOrigin = document.querySelector<HTMLElement>('[data-resize-origin="true"]');
-      if (resizeOrigin) {
-        // Commit final size to Redux
-        const el = sectionRef.current;
-        if (el) {
-          dispatch(setSize({ width: parseInt(el.style.width), height: parseInt(el.style.height) }));
-        }
-        delete resizeOrigin.dataset.resizeOrigin;
-        delete resizeOrigin.dataset.resizeStartX;
-        delete resizeOrigin.dataset.resizeStartY;
-        delete resizeOrigin.dataset.resizeStartWidth;
-        delete resizeOrigin.dataset.resizeStartHeight;
-      }
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dispatch, open, size.height, size.width]);
+  usePanelDrag({ panelRef: sectionRef, open, size });
 
   // Estimate context usage with per-category breakdown
   const contextUsage = useMemo(() => {
@@ -994,7 +249,13 @@ export function CommanderPanel() {
         }
       }
     }
+    // Include in-flight streaming content and tool calls (not yet in messages)
     assistantChars += currentStreamContent?.length ?? 0;
+    for (const tc of currentToolCalls) {
+      toolCallChars += JSON.stringify(tc.arguments).length;
+      toolCallCount++;
+      if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
+    }
     const totalChars = userChars + assistantChars + toolCallChars + toolResultChars;
     // Token estimate: ~4 chars per token (matches backend ESTIMATED_CHARS_PER_TOKEN)
     const toTokens = (c: number) => Math.round(c / 4);
@@ -1013,7 +274,7 @@ export function CommanderPanel() {
       },
       counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
     };
-  }, [maxTokens, messages, currentStreamContent]);
+  }, [maxTokens, messages, currentStreamContent, currentToolCalls]);
 
   // Auto-compact when context reaches 95%, with 10s cooldown
   const autoCompactedRef = useRef(false);
@@ -1037,6 +298,10 @@ export function CommanderPanel() {
       autoCompactedRef.current = false;
     }
   }, [contextUsage?.pct, isStreaming, triggerCompact]);
+
+  const handleNodeClick = useCallback((nodeId: string) => {
+    window.dispatchEvent(new CustomEvent('commander:navigate-to-node', { detail: { nodeId } }));
+  }, []);
 
   if (!open) {
     return null;
@@ -1069,6 +334,8 @@ export function CommanderPanel() {
 
           wasDraggingRef.current = false;
 
+          const ac = new AbortController();
+
           const handleMouseMove = (e: MouseEvent) => {
             if (!target.dataset.dragOrigin) return;
 
@@ -1092,12 +359,11 @@ export function CommanderPanel() {
             delete target.dataset.dragOffsetY;
             // Commit final position to Redux
             dispatch(setPosition({ x: parseInt(target.style.left), y: parseInt(target.style.top) }));
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
+            ac.abort();
           };
 
-          document.addEventListener('mousemove', handleMouseMove);
-          document.addEventListener('mouseup', handleMouseUp);
+          document.addEventListener('mousemove', handleMouseMove, { signal: ac.signal });
+          document.addEventListener('mouseup', handleMouseUp, { signal: ac.signal });
         }}
       >
         <Zap className="h-4 w-4 text-amber-400" />
@@ -1239,128 +505,18 @@ export function CommanderPanel() {
       </header>
 
       <div ref={scrollRef} className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-2 pb-3">
-        {messages.length === 0 && !liveMessage ? (
-          <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
-            {t('commander.thinking')}
-          </div>
-        ) : null}
-
-        {messages.map((message) => (
-          <article
-            key={message.id}
-            className={cn(
-              'w-full text-sm',
-              message.role === 'user'
-                ? 'border-l-2 border-primary/40 pl-3 py-1.5'
-                : 'py-1.5',
-            )}
-          >
-            {message.role === 'user' ? (
-              <div className="whitespace-pre-wrap">{message.content}</div>
-            ) : message.segments && message.segments.length > 0 ? (
-              <>
-                {message.content ? (
-                  <MessageActionStrip messageId={message.id}>
-                    <CopyButton text={message.content} label={t('commander.copy')} />
-                  </MessageActionStrip>
-                ) : null}
-                <div className="px-3 py-2">
-                  {message.segments.map((seg, i) =>
-                    seg.type === 'text' ? (
-                      <div
-                        key={i}
-                        className="commander-markdown"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }}
-                      />
-                    ) : (
-                      <ToolCallCard
-                        key={seg.toolCall.id}
-                        toolCall={seg.toolCall}
-                        nodeTitlesById={nodeTitlesById}
-                        t={t}
-                      />
-                    ),
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
-                {message.content ? (
-                  <>
-                    <MessageActionStrip messageId={message.id}>
-                      <CopyButton text={message.content} label={t('commander.copy')} />
-                    </MessageActionStrip>
-                    <div className="px-3 py-2">
-                      <div
-                        className="commander-markdown"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-                      />
-                    </div>
-                  </>
-                ) : null}
-                {message.toolCalls?.length ? (
-                  <div className={cn('px-3', message.content ? 'pb-2' : 'py-2')}>
-                    {message.toolCalls.map((toolCall) => (
-                      <ToolCallCard
-                        key={toolCall.id}
-                        toolCall={toolCall}
-                        nodeTitlesById={nodeTitlesById}
-                        t={t}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </article>
-        ))}
-
-        {liveMessage ? (
-          <article className="w-full py-1.5 text-xs">
-            {currentSegments.length > 0 ? (
-              <>
-                {currentSegments.map((seg, i) =>
-                  seg.type === 'text' ? (
-                    <div key={i}>
-                      <div
-                        className="commander-markdown"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(seg.content) }}
-                      />
-                      {isStreaming && i === currentSegments.length - 1 ? (
-                        <span className="inline-block animate-pulse text-primary">▌</span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <ToolCallCard
-                      key={seg.toolCall.id}
-                      toolCall={seg.toolCall}
-                      nodeTitlesById={nodeTitlesById}
-                      t={t}
-                    />
-                  ),
-                )}
-              </>
-            ) : null}
-          </article>
-        ) : null}
-
-        {/* Persistent streaming indicator — always visible when AI is working */}
-        {isStreaming && (
-          <div className="flex items-center gap-2 py-2 text-muted-foreground">
-            <div className="flex gap-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }} />
-            </div>
-            <span className="text-[10px]">{t('commander.streaming')}</span>
-          </div>
-        )}
-
-        {error ? (
-          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
-            {error}
-          </div>
-        ) : null}
+        <MessageList
+          messages={messages}
+          liveMessage={liveMessage}
+          currentSegments={currentSegments}
+          isStreaming={isStreaming}
+          error={error}
+          nodeTitlesById={nodeTitlesById}
+          t={t}
+          emptyLabel={t('commander.thinking')}
+          streamingLabel={t('commander.streaming')}
+          onNodeClick={handleNodeClick}
+        />
       </div>
 
       {/* Tool confirmation card */}
@@ -1832,7 +988,7 @@ export function CommanderPanel() {
             </div>
 
             {/* Single smart button: Send / Queue / Cancel */}
-            {isStreaming && input.trim().length > 0 ? (
+            {isStreaming && inputHasText ? (
               /* AI running + text in box → Queue message */
               <button
                 className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90"
@@ -1856,7 +1012,7 @@ export function CommanderPanel() {
               <button
                 className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
                 onClick={() => void handleSendNow()}
-                disabled={input.trim().length === 0 && messageQueue.length === 0}
+                disabled={!inputHasText && messageQueue.length === 0}
                 title={t('commander.sendNow')}
               >
                 <Play className="h-3 w-3" />

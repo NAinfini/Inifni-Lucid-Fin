@@ -209,8 +209,8 @@ describe('renderTimeline', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('throws when the output path is not absolute', () => {
-    expect(() =>
+  it('throws when the output path is not absolute', async () => {
+    await expect(
       renderTimeline(
         [{ inputPath: 'C:\\assets\\clip.mp4', startTime: 0, duration: 5, speed: 1 }],
         'timeline.mp4',
@@ -222,13 +222,13 @@ describe('renderTimeline', () => {
           fps: 24,
         },
       ),
-    ).toThrow('Output path must be absolute: timeline.mp4');
+    ).rejects.toThrow('Output path must be absolute: timeline.mp4');
   });
 
-  it('throws when the output directory does not exist', () => {
+  it('throws when the output directory does not exist', async () => {
     existsSyncMock.mockReturnValue(false);
 
-    expect(() =>
+    await expect(
       renderTimeline(
         [{ inputPath: 'C:\\assets\\clip.mp4', startTime: 0, duration: 5, speed: 1 }],
         'C:\\missing\\timeline.mp4',
@@ -240,11 +240,11 @@ describe('renderTimeline', () => {
           fps: 24,
         },
       ),
-    ).toThrow('Output directory does not exist: C:\\missing');
+    ).rejects.toThrow('Output directory does not exist: C:\\missing');
   });
 
-  it('throws when an input path escapes the configured assetRoot', () => {
-    expect(() =>
+  it('throws when an input path escapes the configured assetRoot', async () => {
+    await expect(
       renderTimeline(
         [{ inputPath: 'C:\\outside\\clip.mp4', startTime: 0, duration: 5, speed: 1 }],
         'C:\\exports\\timeline.mp4',
@@ -257,11 +257,11 @@ describe('renderTimeline', () => {
           assetRoot: 'C:\\assets',
         },
       ),
-    ).toThrow('Path traversal blocked: C:\\outside\\clip.mp4 is outside C:\\assets');
+    ).rejects.toThrow('Path traversal blocked: C:\\outside\\clip.mp4 is outside C:\\assets');
   });
 
-  it('throws when an input path contains control characters', () => {
-    expect(() =>
+  it('throws when an input path contains control characters', async () => {
+    await expect(
       renderTimeline(
         [{ inputPath: 'C:\\assets\\bad\nclip.mp4', startTime: 0, duration: 5, speed: 1 }],
         'C:\\exports\\timeline.mp4',
@@ -274,7 +274,7 @@ describe('renderTimeline', () => {
           assetRoot: 'C:\\assets',
         },
       ),
-    ).toThrow('Path contains invalid characters: C:\\assets\\bad\nclip.mp4');
+    ).rejects.toThrow('Path contains invalid characters: C:\\assets\\bad\nclip.mp4');
   });
 });
 
@@ -320,8 +320,8 @@ describe('renderSingleSegment', () => {
     expect(runCommandMock).toHaveBeenCalledWith(cmd);
   });
 
-  it('throws when the input path is outside the assetRoot', () => {
-    expect(() =>
+  it('throws when the input path is outside the assetRoot', async () => {
+    await expect(
       renderSingleSegment('C:\\outside\\clip.mp4', 'C:\\exports\\shot.mp4', {
         codec: 'h264',
         preset: 'draft',
@@ -333,13 +333,13 @@ describe('renderSingleSegment', () => {
         speed: 1,
         assetRoot: 'C:\\assets',
       }),
-    ).toThrow('Path traversal blocked: C:\\outside\\clip.mp4 is outside C:\\assets');
+    ).rejects.toThrow('Path traversal blocked: C:\\outside\\clip.mp4 is outside C:\\assets');
   });
 
-  it('throws when the output directory does not exist', () => {
+  it('throws when the output directory does not exist', async () => {
     existsSyncMock.mockReturnValue(false);
 
-    expect(() =>
+    await expect(
       renderSingleSegment('C:\\assets\\clip.mp4', 'C:\\missing\\shot.mp4', {
         codec: 'h264',
         preset: 'draft',
@@ -350,6 +350,6 @@ describe('renderSingleSegment', () => {
         outPoint: 4,
         speed: 1,
       }),
-    ).toThrow('Output directory does not exist: C:\\missing');
+    ).rejects.toThrow('Output directory does not exist: C:\\missing');
   });
 });

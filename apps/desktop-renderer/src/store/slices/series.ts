@@ -13,7 +13,6 @@ export interface Episode {
   id: string;
   title: string;
   order: number;
-  projectId: string;
   status: 'draft' | 'in_progress' | 'review' | 'final';
   createdAt: number;
   updatedAt: number;
@@ -51,13 +50,12 @@ export const seriesSlice = createSlice({
       if (description !== undefined) state.description = description;
     },
 
-    addEpisode(state, action: PayloadAction<{ id: string; title: string; projectId: string }>) {
-      const { id, title, projectId } = action.payload;
+    addEpisode(state, action: PayloadAction<{ id: string; title: string }>) {
+      const { id, title } = action.payload;
       if (state.episodes.some((e) => e.id === id)) return;
       state.episodes.push({
         id,
         title,
-        projectId,
         order: state.episodes.length,
         status: 'draft',
         createdAt: Date.now(),

@@ -52,7 +52,7 @@ describe('ipcMiddleware', () => {
       middleware: (getDefault) => getDefault().concat(ipcMiddleware),
     });
 
-    store.dispatch(submitJob({ projectId: 'project-1', providerId: 'openai-image' }));
+    store.dispatch(submitJob({ providerId: 'openai-image' }));
     store.dispatch({ type: 'jobs/cancelJob', payload: 'job-1' });
     store.dispatch({ type: 'jobs/pauseJob', payload: 'job-1' });
     store.dispatch({ type: 'jobs/resumeJob', payload: 'job-1' });
@@ -60,7 +60,6 @@ describe('ipcMiddleware', () => {
     await flushPromises();
 
     expect(api.job.submit).toHaveBeenCalledWith({
-      projectId: 'project-1',
       providerId: 'openai-image',
     });
     expect(api.job.cancel).toHaveBeenCalledWith('job-1');
@@ -104,7 +103,7 @@ describe('ipcMiddleware', () => {
       middleware: (getDefault) => getDefault().concat(ipcMiddleware),
     });
 
-    store.dispatch(submitJob({ projectId: 'project-1' }));
+    store.dispatch(submitJob({}));
     await flushPromises();
     await flushPromises();
 
@@ -164,7 +163,6 @@ describe('ipcMiddleware', () => {
     store.dispatch(
       startWorkflow({
         workflowType: 'storyboard.generate',
-        projectId: 'project-1',
         entityType: 'scene',
       }),
     );

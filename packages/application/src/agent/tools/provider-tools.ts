@@ -1,5 +1,6 @@
 import { getBuiltinProviderCapabilityProfile } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
+import { ok, fail, extractSet, warnExtraKeys } from './tool-result-helpers.js';
 
 export interface ProviderInfo {
   id: string;
@@ -20,14 +21,6 @@ export interface ProviderToolDeps {
   addCustomProvider: (group: string, id: string, name: string, baseUrl?: string, model?: string) => Promise<void>;
   removeCustomProvider: (group: string, providerId: string) => Promise<void>;
   setProviderApiKey?: (providerId: string, apiKey: string) => Promise<void>;
-}
-
-function ok(data: unknown): ToolResult {
-  return { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return { success: false, error: error instanceof Error ? error.message : String(error) };
 }
 
 export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
@@ -104,40 +97,48 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
 
   const update: AgentTool = {
     name: 'provider.update',
-    description: 'Update provider configuration: base URL, model name, and/or display name. Only provided fields are changed.',
+    description: 'Update provider configuration. Wrap fields to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         group: { type: 'string', description: 'Provider group.', enum: ['llm', 'image', 'video', 'audio', 'vision'] },
         providerId: { type: 'string', description: 'The provider ID.' },
-        baseUrl: { type: 'string', description: 'New base URL / API endpoint.' },
-        model: { type: 'string', description: 'New model name.' },
-        name: { type: 'string', description: 'New display name.' },
+        set: {
+          type: 'object',
+          description: 'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
+          properties: {
+            baseUrl: { type: 'string', description: 'New base URL / API endpoint.' },
+            model: { type: 'string', description: 'New model name.' },
+            name: { type: 'string', description: 'New display name.' },
+          },
+        },
       },
-      required: ['group', 'providerId'],
+      required: ['group', 'providerId', 'set'],
     },
     async execute(args) {
       try {
         const group = args.group as string;
         const providerId = args.providerId as string;
+        const set = extractSet(args);
+        const warnings = warnExtraKeys(args);
         const updated: Record<string, unknown> = {};
-        if (typeof args.baseUrl === 'string') {
-          await deps.setProviderBaseUrl(group, providerId, args.baseUrl);
-          updated.baseUrl = args.baseUrl;
+        if (typeof set.baseUrl === 'string') {
+          await deps.setProviderBaseUrl(group, providerId, set.baseUrl as string);
+          updated.baseUrl = set.baseUrl;
         }
-        if (typeof args.model === 'string') {
-          await deps.setProviderModel(group, providerId, args.model);
-          updated.model = args.model;
+        if (typeof set.model === 'string') {
+          await deps.setProviderModel(group, providerId, set.model as string);
+          updated.model = set.model;
         }
-        if (typeof args.name === 'string') {
-          await deps.setProviderName(group, providerId, args.name);
-          updated.name = args.name;
+        if (typeof set.name === 'string') {
+          await deps.setProviderName(group, providerId, set.name as string);
+          updated.name = set.name;
         }
         if (Object.keys(updated).length === 0) {
-          throw new Error('At least one of baseUrl, model, or name must be provided');
+          throw new Error('At least one of baseUrl, model, or name must be provided in set');
         }
-        return ok({ providerId, ...updated });
+        return ok({ providerId, ...updated, ...(warnings.length > 0 && { warnings }) });
       } catch (error) {
         return fail(error);
       }

@@ -24,5 +24,5 @@ export * from './errors/index.js';
 export * from './error.js';
 
 // IPC
-export type { IpcChannelMap } from './ipc.js';
+export type { IpcChannelMap, IpcStoredSession, IpcSnapshotMeta } from './ipc.js';
 export type { IpcChannel, IpcRequest, IpcResponse } from './ipc-helpers.js';

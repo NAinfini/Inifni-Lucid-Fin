@@ -8,7 +8,6 @@ export interface Asset {
   path: string;
   thumbnailPath?: string;
   tags: string[];
-  projectId?: string;
   /** Global = shared across projects */
   global: boolean;
   size: number;

@@ -1,79 +1,59 @@
-import React, { Component, type ReactNode } from 'react';
-import { t } from '../i18n.js';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-interface Props {
+interface ErrorBoundaryProps {
   children: ReactNode;
-  fallback?: ReactNode;
+  name?: string;
+  fallback?: (error: Error, reset: () => void) => ReactNode;
+  onError?: (error: Error, info: ErrorInfo) => void;
 }
 
-interface State {
-  hasError: boolean;
+interface ErrorBoundaryState {
   error: Error | null;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false, error: null };
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // Send to main process for structured logging
-    const api = (window as unknown as Record<string, unknown>).electronAPI as
-      | { log?: (level: string, data: Record<string, unknown>) => void }
-      | undefined;
-    api?.log?.('error', {
-      message: error.message,
-      stack: error.stack,
-      componentStack: info.componentStack,
-      timestamp: Date.now(),
-    });
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    this.props.onError?.(error, info);
+    console.error(`[ErrorBoundary:${this.props.name ?? 'App'}]`, error, info.componentStack);
   }
 
-  handleReload = () => {
-    this.setState({ hasError: false, error: null });
+  reset = (): void => {
+    this.setState({ error: null });
   };
 
-  render() {
-    if (this.state.hasError) {
-      if (this.props.fallback) return this.props.fallback;
-
+  render(): ReactNode {
+    if (this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, this.reset);
+      }
       return (
-        <div
-          className="flex flex-col items-center justify-center h-screen bg-background text-foreground p-8"
-          role="alert"
-        >
-          <div className="max-w-md text-center space-y-4">
-            <h1 className="text-xl font-semibold">{t('error.title')}</h1>
-            <p className="text-sm text-muted-foreground">
-              {this.state.error?.message ?? t('error.unknown')}
-            </p>
-            <details className="text-left text-xs bg-muted p-3 rounded max-h-40 overflow-auto">
-              <summary className="cursor-pointer text-muted-foreground mb-1">
-                {t('error.details')}
-              </summary>
-              <pre className="whitespace-pre-wrap break-all">{this.state.error?.stack}</pre>
-            </details>
-            <div className="flex gap-2 justify-center">
-              <button
-                onClick={this.handleReload}
-                className="px-4 py-2 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {t('action.retry')}
-              </button>
-              <button
-                onClick={() => window.location.reload()}
-                className="px-4 py-2 text-sm rounded bg-secondary text-secondary-foreground hover:bg-muted"
-              >
-                {t('error.reload')}
-              </button>
-            </div>
-          </div>
+        <div style={{ padding: 16, color: '#ef4444', fontSize: 13 }}>
+          <p style={{ fontWeight: 600 }}>{this.props.name ?? 'App'} encountered an error</p>
+          <p style={{ opacity: 0.7, fontSize: 12 }}>{this.state.error.message}</p>
+          <button
+            onClick={this.reset}
+            style={{
+              marginTop: 8,
+              padding: '4px 12px',
+              fontSize: 12,
+              cursor: 'pointer',
+              border: '1px solid currentColor',
+              borderRadius: 4,
+              background: 'transparent',
+              color: 'inherit',
+            }}
+          >
+            Retry
+          </button>
         </div>
       );
     }
-
     return this.props.children;
   }
 }

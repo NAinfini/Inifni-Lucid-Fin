@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import _path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IpcMain } from 'electron';
@@ -78,7 +79,7 @@ export function registerExportHandlers(ipcMain: IpcMain, cas?: CAS, canvasStore?
         ? exportFCPXML(args.project)
         : exportEDL(args.project);
 
-      fs.writeFileSync(outputPath, content, 'utf8');
+      await fsp.writeFile(outputPath, content, 'utf8');
       const stat = fs.statSync(outputPath);
 
       log.info('NLE export completed', {
@@ -192,7 +193,7 @@ export function registerExportHandlers(ipcMain: IpcMain, cas?: CAS, canvasStore?
         ? exportSRT(args.cues)
         : exportASS(args.cues, args.videoWidth, args.videoHeight);
 
-      fs.writeFileSync(args.outputPath, content, 'utf8');
+      await fsp.writeFile(args.outputPath, content, 'utf8');
       log.info('Subtitle export completed', {
         category: 'export',
         format: args.format,
@@ -419,7 +420,7 @@ export function registerExportHandlers(ipcMain: IpcMain, cas?: CAS, canvasStore?
         content = [headers.join(','), ...rows].join('\n');
       }
 
-      fs.writeFileSync(outputPath, content, 'utf8');
+      await fsp.writeFile(outputPath, content, 'utf8');
       const stat = fs.statSync(outputPath);
 
       log.info('Metadata export completed', {
@@ -448,7 +449,7 @@ export function registerExportHandlers(ipcMain: IpcMain, cas?: CAS, canvasStore?
         throw new Error('import:srt: canvasId and filePath are required');
       }
 
-      const raw = fs.readFileSync(args.filePath, 'utf8');
+      const raw = await fsp.readFile(args.filePath, 'utf8');
       const cues = parseSRT(raw);
 
       if (cues.length === 0) {

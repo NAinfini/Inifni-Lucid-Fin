@@ -22,33 +22,24 @@ describe('registerJobHandlers', () => {
   let handlers: Map<string, (...args: unknown[]) => unknown>;
 
   beforeEach(() => {
-    vi.useFakeTimers();
     handlers = new Map();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
-  it('logs job queue control actions and emits progress/completion only once per completed job', async () => {
+  it('logs job queue control actions and emits progress/completion via events', async () => {
     const send = vi.fn();
+    const eventHandlers = new Map<string, (...args: unknown[]) => void>();
     const queue = {
       submit: vi.fn(() => 'job-1'),
       cancel: vi.fn(),
       pause: vi.fn(),
       resume: vi.fn(),
-    };
-    const runningJob = {
-      id: 'job-1',
-      progress: 45,
-      completedSteps: 2,
-      totalSteps: 5,
-      currentStep: 'rendering',
-      provider: 'mock-provider',
-      completedAt: undefined,
-      result: undefined,
-      error: undefined,
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        eventHandlers.set(event, handler);
+      }),
     };
     const completedJob = {
       id: 'job-2',
@@ -63,10 +54,8 @@ describe('registerJobHandlers', () => {
     };
     const db = {
       listJobs: vi.fn((args?: { status?: string }) => {
-        if (args?.status === 'running') return [runningJob];
         if (args?.status === 'completed') return [completedJob];
-        if (args?.status === 'failed') return [];
-        return [runningJob, completedJob];
+        return [completedJob];
       }),
     };
 
@@ -84,14 +73,15 @@ describe('registerJobHandlers', () => {
       queue as never,
     );
 
+    // Verify IPC handlers were registered
     const submit = handlers.get('job:submit');
     const cancel = handlers.get('job:cancel');
     const pause = handlers.get('job:pause');
     const resume = handlers.get('job:resume');
 
+    // Execute IPC calls
     await expect(
       submit?.({}, {
-        projectId: 'project-1',
         providerId: 'mock-provider',
         type: 'image',
         prompt: 'hero shot',
@@ -101,39 +91,37 @@ describe('registerJobHandlers', () => {
     await pause?.({}, { jobId: 'job-1' });
     await resume?.({}, { jobId: 'job-1' });
 
-    await vi.advanceTimersByTimeAsync(2000);
-    await vi.advanceTimersByTimeAsync(2000);
-
+    // Verify logging
     expect(logger.info).toHaveBeenCalledWith(
       'Job submitted',
       expect.objectContaining({
         category: 'job',
         jobId: 'job-1',
-        projectId: 'project-1',
         providerId: 'mock-provider',
       }),
     );
     expect(logger.info).toHaveBeenCalledWith(
       'Job cancel requested',
-      expect.objectContaining({
-        category: 'job',
-        jobId: 'job-1',
-      }),
+      expect.objectContaining({ category: 'job', jobId: 'job-1' }),
     );
     expect(logger.info).toHaveBeenCalledWith(
       'Job pause requested',
-      expect.objectContaining({
-        category: 'job',
-        jobId: 'job-1',
-      }),
+      expect.objectContaining({ category: 'job', jobId: 'job-1' }),
     );
     expect(logger.info).toHaveBeenCalledWith(
       'Job resume requested',
-      expect.objectContaining({
-        category: 'job',
-        jobId: 'job-1',
-      }),
+      expect.objectContaining({ category: 'job', jobId: 'job-1' }),
     );
+
+    // Verify event handlers were registered
+    expect(eventHandlers.has('job:progress')).toBe(true);
+    expect(eventHandlers.has('job:completed')).toBe(true);
+    expect(eventHandlers.has('job:failed')).toBe(true);
+
+    // Simulate progress event
+    const progressHandler = eventHandlers.get('job:progress')!;
+    progressHandler({ jobId: 'job-1', progress: 45, currentStep: 'rendering' });
+
     expect(send).toHaveBeenCalledWith(
       'job:progress',
       expect.objectContaining({
@@ -142,7 +130,11 @@ describe('registerJobHandlers', () => {
         currentStep: 'rendering',
       }),
     );
-    expect(send).toHaveBeenCalledTimes(3);
+
+    // Simulate completion event
+    const completedHandler = eventHandlers.get('job:completed')!;
+    completedHandler({ id: 'job-2', status: 'completed' });
+
     expect(send).toHaveBeenCalledWith(
       'job:complete',
       expect.objectContaining({
@@ -151,5 +143,12 @@ describe('registerJobHandlers', () => {
         result: { assetHash: 'hash-1' },
       }),
     );
+
+    // Verify completion dedup: calling again should NOT send another event
+    completedHandler({ id: 'job-2', status: 'completed' });
+    const completeCalls = send.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'job:complete',
+    );
+    expect(completeCalls).toHaveLength(1);
   });
 });

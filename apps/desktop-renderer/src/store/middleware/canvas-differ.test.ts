@@ -33,7 +33,6 @@ function createEdge(overrides: Partial<CanvasEdge> = {}): CanvasEdge {
 function createCanvas(overrides: Partial<Canvas> = {}): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [createNode()],
     edges: [createEdge()],
@@ -77,6 +76,7 @@ describe('diffCanvas', () => {
     expect(diffCanvas(prev, next)).toEqual({
       canvasId: 'canvas-1',
       timestamp: 1234,
+      operations: ['renameCanvas', 'addNode', 'updateNode', 'addEdge', 'removeEdge'],
       nameChange: 'Updated canvas',
       addedNodes: [expect.objectContaining({ id: 'node-2' })],
       updatedNodes: [
@@ -105,14 +105,14 @@ describe('shouldUsePatch', () => {
 
     expect(
       shouldUsePatch(
-        { canvasId: canvas.id, timestamp: 1, removedNodeIds: ['node-1'] },
+        { canvasId: canvas.id, timestamp: 1, operations: ['removeNode'], removedNodeIds: ['node-1'] },
         canvas,
       ),
     ).toBe(true);
 
     expect(
       shouldUsePatch(
-        { canvasId: canvas.id, timestamp: 1, addedNodes: canvas.nodes, addedEdges: canvas.edges },
+        { canvasId: canvas.id, timestamp: 1, operations: ['addNode', 'addEdge'], addedNodes: canvas.nodes, addedEdges: canvas.edges },
         canvas,
       ),
     ).toBe(false);

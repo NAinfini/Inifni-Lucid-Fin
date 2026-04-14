@@ -46,7 +46,6 @@ describe("registerEntityHandlers", () => {
       getCharacter: vi.fn(() => ({
         id: "char-1",
         name: "Hero",
-        projectId: "project-1",
         referenceImages: [{ slot: "front", assetHash: "existing", isStandard: true }],
       })),
       getEquipment: vi.fn(),
@@ -106,7 +105,6 @@ describe("registerEntityHandlers", () => {
       expect.objectContaining({
         id: "char-1",
         name: "Hero",
-        projectId: "project-1",
         referenceImages: expect.arrayContaining([
           { slot: "front", assetHash: "existing", isStandard: true },
           expect.objectContaining({ assetHash: "hash-7", isStandard: false }),
@@ -124,7 +122,6 @@ describe("registerEntityHandlers", () => {
       getEquipment: vi.fn(() => ({
         id: "equip-1",
         name: "Helmet",
-        projectId: "project-1",
         referenceImages: [],
       })),
       getLocation: vi.fn(),
@@ -164,7 +161,6 @@ describe("registerEntityHandlers", () => {
       getLocation: vi.fn(() => ({
         id: "loc-1",
         name: "Warehouse",
-        projectId: "project-1",
         referenceImages: [],
       })),
       upsertCharacter: vi.fn(),

@@ -1,28 +1,11 @@
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
+import { defineToolModule } from '../tool-module.js';
+import { ok, fail, requireString } from './tool-result-helpers.js';
 
 export interface ColorStyleToolDeps {
   listColorStyles: () => Promise<unknown[]>;
   saveColorStyle: (style: Record<string, unknown>) => Promise<void>;
   deleteColorStyle: (id: string) => Promise<void>;
-}
-
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
 }
 
 function requireStyle(args: Record<string, unknown>): Record<string, unknown> {
@@ -107,3 +90,8 @@ export function createColorStyleTools(deps: ColorStyleToolDeps): AgentTool[] {
 
   return [list, save, remove];
 }
+
+export const colorStyleToolModule = defineToolModule({
+  name: 'colorStyle',
+  createTools: createColorStyleTools,
+});

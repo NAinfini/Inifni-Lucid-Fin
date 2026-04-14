@@ -5,6 +5,7 @@
  * IPC registration and orchestration wiring.
  */
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import log from '../../logger.js';
@@ -54,7 +55,6 @@ export function makeGenerateImage(deps: {
   adapterRegistry: AdapterRegistry;
   cas: CAS;
   db?: SqliteIndex;
-  getProjectId?: () => string | undefined;
 }): (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => Promise<{ assetHash: string }> {
   return async (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => {
     const providerId = options?.providerId;
@@ -94,7 +94,6 @@ export function makeGenerateImage(deps: {
               provider: actualProviderId,
               width: clamped.width,
               height: clamped.height,
-              projectId: deps.getProjectId?.(),
             });
           } catch (dbErr) {
             // Non-fatal — CAS already has the file
@@ -115,7 +114,7 @@ export function makeGenerateImage(deps: {
         return { assetHash: ref.hash };
       } finally {
         if (materialized.cleanupPath) {
-          fs.rmSync(materialized.cleanupPath, { recursive: true, force: true });
+          await fsp.rm(materialized.cleanupPath, { recursive: true, force: true });
         }
       }
     }
@@ -165,7 +164,7 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-commander-'));
   const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
   const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(filePath, buffer);
+  await fsp.writeFile(filePath, buffer);
 
   return {
     filePath,

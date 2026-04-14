@@ -1,4 +1,5 @@
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
+import { ok, fail, requireString } from './tool-result-helpers.js';
 
 export interface PromptListEntry {
   code: string;
@@ -21,25 +22,6 @@ export interface PromptToolDeps {
   clearCustomPrompt: (code: string) => Promise<void>;
 }
 
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
-}
-
 export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
   const get: AgentTool = {
     name: 'prompt.get',
@@ -57,7 +39,7 @@ export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const rawIds = args.ids;
-        if (rawIds === undefined || rawIds === null) {
+        if (rawIds === undefined || rawIds === null || (Array.isArray(rawIds) && rawIds.length === 0)) {
           const prompts = await deps.listPrompts();
           const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
           const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;

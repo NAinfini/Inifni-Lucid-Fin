@@ -19,7 +19,6 @@ import { useCanvasKeyboard } from './useCanvasKeyboard.js';
 function createCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [
       {

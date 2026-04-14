@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { selectActiveCanvas, selectSingleSelectedNode, selectNodesById } from '../../store/slices/canvas-selectors.js';
@@ -6,13 +6,6 @@ import { useInspectorEntityRefs } from './useInspectorEntityRefs.js';
 import {
   renameNode,
   updateNodeData,
-  // M7: Annotation
-  setNodeAnnotation,
-  // M9: Tags & grouping
-  addNodeTag,
-  removeNodeTag,
-  // L17: Advanced params
-  setNodeAdvancedParams,
   applyNodeShotTemplate,
   setBackdropOpacity,
   setBackdropColor,
@@ -21,6 +14,9 @@ import {
   setBackdropLockChildren,
   moveNode,
 } from '../../store/slices/canvas.js';
+import { inspectorRegistry } from './inspector/inspector-registry.js';
+// Side-effect import: registers all default inspector section plugins
+import './inspector/default-sections.js';
 import { getAPI } from '../../utils/api.js';
 import { setRightPanel } from '../../store/slices/ui.js';
 import { setCharacters } from '../../store/slices/characters.js';
@@ -42,15 +38,13 @@ import { InspectorPanelHeader } from './InspectorPanelHeader.js';
 import { InspectorPanelTabBar, type InspectorPanelTab } from './InspectorPanelTabBar.js';
 import { InspectorPanelIdentitySection } from './InspectorPanelIdentitySection.js';
 import { InspectorTrackGridCell } from './InspectorTrackGridCell.js';
-import { LazyDetails } from './LazyDetails.js';
 import { InspectorGenerationState, type GenerationRenderProps } from './InspectorGenerationState.js';
-import { CommitSlider } from '../ui/CommitSlider.js';
+import { hasTracks, isGenerationNode } from './inspector/guardTypes.js';
 import type {
   CanvasNode,
   CanvasNodeType,
   PresetCategory,
   PresetDefinition,
-  PresetTrackSet,
   TextNodeData,
   ImageNodeData,
   VideoNodeData,
@@ -78,22 +72,6 @@ const CATEGORY_FALLBACK: PresetCategory[] = [
   'flow',
   'technical',
 ];
-
-function hasTracks(node: CanvasNode | undefined): node is CanvasNode & {
-  data: {
-    presetTracks: PresetTrackSet;
-  };
-} {
-  if (!node || (node.type !== 'image' && node.type !== 'video')) return false;
-  const candidate = node.data as { presetTracks?: unknown };
-  return Boolean(candidate.presetTracks && typeof candidate.presetTracks === 'object');
-}
-
-function isGenerationNode(node: CanvasNode | undefined): node is CanvasNode & {
-  data: ImageNodeData | VideoNodeData | AudioNodeData;
-} {
-  return Boolean(node && (node.type === 'image' || node.type === 'video' || node.type === 'audio'));
-}
 
 export function InspectorPanel() {
   const { t } = useI18n();
@@ -672,285 +650,24 @@ export function InspectorPanel() {
           />
         )}
 
-        {/* ===== Annotation Section (M7) ===== */}
-        {isGenerationNode(selectedNode) && (
-          <div className="px-3 py-2 border-b border-border/60">
-            <LazyDetails className="group"
-              summary={
-                <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-                  <span className="transition-transform group-open:rotate-90">&#9654;</span>
-                  {t('inspector.annotation')}
-                </summary>
-              }
-            >
-              <div className="mt-1.5 space-y-1">
-                <input
-                  type="text"
-                  className="w-full rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring"
-                  placeholder={t('inspector.annotationPlaceholder')}
-                  value={
-                    (generationData as { annotation?: { text?: string } })?.annotation?.text ?? ''
-                  }
-                  onChange={(e) => {
-                    const text = e.target.value;
-                    dispatch(
-                      setNodeAnnotation({
-                        id: selectedNode.id,
-                        annotation: text ? { text, position: 'bottom' } : undefined,
-                      }),
-                    );
-                  }}
-                />
-              </div>
-            </LazyDetails>
-          </div>
-        )}
-
-        {/* ===== Tags & Group Section (M9) ===== */}
-        <div className="px-3 py-2 border-b border-border/60">
-          <LazyDetails className="group"
-            summary={
-              <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-                <span className="transition-transform group-open:rotate-90">&#9654;</span>
-                {t('inspector.tagsAndGroups')}
-              </summary>
-            }
-          >
-            <div className="mt-1.5 space-y-1.5">
-              <div className="flex items-center gap-1">
-                <input
-                  type="text"
-                  className="flex-1 rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring"
-                  placeholder={t('inspector.addTagPlaceholder')}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const val = (e.target as HTMLInputElement).value.trim();
-                      if (val) {
-                        dispatch(addNodeTag({ id: selectedNode.id, tag: val }));
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }
-                  }}
-                />
-              </div>
-              {(selectedNode.tags ?? []).length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {(selectedNode.tags ?? []).map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-0.5 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-                    >
-                      {tag}
-                      <button
-                        type="button"
-                        className="ml-0.5 text-muted-foreground/50 hover:text-destructive"
-                        onClick={() => dispatch(removeNodeTag({ id: selectedNode.id, tag }))}
-                      >
-                        &times;
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </LazyDetails>
-        </div>
-
-        {/* ===== Advanced Generation Params (L17) ===== */}
-        {isGenerationNode(selectedNode) && selectedNode.type !== 'audio' && (
-          <div className="px-3 py-2 border-b border-border/60">
-            <LazyDetails className="group"
-              summary={
-                <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-                  <span className="transition-transform group-open:rotate-90">&#9654;</span>
-                  {t('inspector.advancedParams')}
-                </summary>
-              }
-            >
-              <div className="mt-1.5 space-y-1.5">
-                <div>
-                  <label className="text-[10px] text-muted-foreground">
-                    {t('inspector.negativePrompt')}
-                  </label>
-                  <textarea
-                    className="w-full rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring min-h-[40px] resize-y"
-                    placeholder={t('inspector.negativePromptPlaceholder')}
-                    value={(generationData as { negativePrompt?: string })?.negativePrompt ?? ''}
-                    onChange={(e) =>
-                      dispatch(
-                        setNodeAdvancedParams({
-                          id: selectedNode.id,
-                          negativePrompt: e.target.value,
-                        }),
-                      )
-                    }
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">
-                      {t('inspector.steps')}
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={150}
-                      className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
-                      value={(generationData as { steps?: number })?.steps ?? ''}
-                      onChange={(e) =>
-                        dispatch(
-                          setNodeAdvancedParams({
-                            id: selectedNode.id,
-                            steps: e.target.value ? Number(e.target.value) : undefined,
-                          }),
-                        )
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">
-                      {t('inspector.cfgScale')}
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={30}
-                      step={0.5}
-                      className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
-                      value={(generationData as { cfgScale?: number })?.cfgScale ?? ''}
-                      onChange={(e) =>
-                        dispatch(
-                          setNodeAdvancedParams({
-                            id: selectedNode.id,
-                            cfgScale: e.target.value ? Number(e.target.value) : undefined,
-                          }),
-                        )
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">
-                      {t('inspector.scheduler')}
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
-                      placeholder="euler_a"
-                      value={(generationData as { scheduler?: string })?.scheduler ?? ''}
-                      onChange={(e) =>
-                        dispatch(
-                          setNodeAdvancedParams({
-                            id: selectedNode.id,
-                            scheduler: e.target.value || undefined,
-                          }),
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-                {/* Image-to-image strength */}
-                {(generationData as { sourceImageHash?: string })?.sourceImageHash && (
-                  <div>
-                    <label className="text-[10px] text-muted-foreground">
-                      {t('inspector.img2imgStrength')}
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <CommitSlider
-                        min={0}
-                        max={100}
-                        value={Math.round(
-                          ((generationData as { img2imgStrength?: number })?.img2imgStrength ??
-                            0.75) * 100,
-                        )}
-                        onCommit={(v) =>
-                          dispatch(
-                            setNodeAdvancedParams({
-                              id: selectedNode.id,
-                              img2imgStrength: v / 100,
-                            }),
-                          )
-                        }
-                        className="flex-1 h-1.5 accent-primary"
-                      />
-                      <span className="text-[10px] text-muted-foreground w-8 text-right">
-                        {Math.round(
-                          ((generationData as { img2imgStrength?: number })?.img2imgStrength ??
-                            0.75) * 100,
-                        )}
-                        %
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </LazyDetails>
-          </div>
-        )}
-
-        {/* ===== Generation History (M10) ===== */}
-        {isGenerationNode(selectedNode) &&
-        (generationData as { generationHistory?: unknown[] })?.generationHistory?.length ? (
-          <div className="px-3 py-2 border-b border-border/60">
-            <LazyDetails className="group"
-              summary={
-                <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-                  <span className="transition-transform group-open:rotate-90">&#9654;</span>
-                  {t('inspector.generationHistory')} (
-                  {
-                    ((generationData as { generationHistory?: unknown[] })?.generationHistory ?? [])
-                      .length
-                  }
-                  )
-                </summary>
-              }
-            >
-              <div className="mt-1.5 max-h-[160px] overflow-auto space-y-1">
-                {(
-                  (
-                    generationData as {
-                      generationHistory?: Array<{
-                        assetHash: string;
-                        prompt: string;
-                        providerId: string;
-                        seed?: number;
-                        cost?: number;
-                        createdAt: number;
-                      }>;
-                    }
-                  )?.generationHistory ?? []
-                )
-                  .slice()
-                  .reverse()
-                  .slice(0, 20)
-                  .map((entry, i) => (
-                    <div
-                      key={`${entry.assetHash}-${i}`}
-                      className="rounded-md border border-border/40 bg-muted/20 px-2 py-1 text-[10px]"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-foreground truncate">
-                          {entry.providerId}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {new Date(entry.createdAt).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="text-muted-foreground truncate">
-                        {entry.prompt.slice(0, 80)}
-                        {entry.prompt.length > 80 ? '...' : ''}
-                      </div>
-                      {entry.cost != null && (
-                        <span className="text-muted-foreground">${entry.cost.toFixed(3)}</span>
-                      )}
-                    </div>
-                  ))}
-              </div>
-            </LazyDetails>
-          </div>
-        ) : null}
+        {/* ===== Registry-driven bottom sections ===== */}
+        {canvas &&
+          inspectorRegistry
+            .getSections('bottom', selectedNode, canvas)
+            .map((section) => (
+              <Fragment key={section.id}>
+                {section.render({
+                  node: selectedNode,
+                  canvas,
+                  canvasId: canvas.id,
+                  dispatch,
+                  t,
+                })}
+              </Fragment>
+            ))}
       </div>
 
-      {/* Generation bar — always visible at bottom for generation nodes */}
+      {/* Generation bar -- always visible at bottom for generation nodes */}
       {gen?.generationBar}
     </div>
   );

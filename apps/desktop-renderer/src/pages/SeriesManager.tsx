@@ -131,15 +131,13 @@ export function SeriesManager() {
   const handleAddEpisode = useCallback(async () => {
     if (!newEpisodeTitle.trim()) return;
     const id = crypto.randomUUID();
-    const projectId = crypto.randomUUID();
-    dispatch(addEpisode({ id, title: newEpisodeTitle.trim(), projectId }));
+    dispatch(addEpisode({ id, title: newEpisodeTitle.trim() }));
     const api = getAPI();
     if (api?.series?.episodes) {
       try {
         await api.series.episodes.add({
           id,
           title: newEpisodeTitle.trim(),
-          projectId,
           order: series.episodes.length,
           status: 'draft',
           createdAt: Date.now(),

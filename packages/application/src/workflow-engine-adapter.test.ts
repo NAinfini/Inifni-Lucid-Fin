@@ -91,7 +91,6 @@ describe('WorkflowEngine async execution', () => {
   it('persists awaiting_provider tasks with provider tracking data', async () => {
     const workflowRunId = engine.start({
       workflowType: 'style.extract',
-      projectId: 'project-1',
       entityType: 'asset',
       entityId: 'asset-1',
     });

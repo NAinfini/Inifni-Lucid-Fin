@@ -1,26 +1,8 @@
 import type { AgentTool } from '../tool-registry.js';
+import { ok, fail, requireText } from './tool-result-helpers.js';
 
 export interface CopywritingToolDeps {
   callLLM: (systemPrompt: string, userText: string) => Promise<string>;
-}
-
-function ok(data?: unknown): { success: true; data?: unknown } {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): { success: false; error: string } {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
-function requireText(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value;
 }
 
 const MODES: Record<string, string> = {

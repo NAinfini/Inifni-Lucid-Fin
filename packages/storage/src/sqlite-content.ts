@@ -11,17 +11,16 @@ import type BetterSqlite3 from 'better-sqlite3';
 export function upsertScene(db: BetterSqlite3.Database, scene: Scene): void {
   db.prepare(
     `
-    INSERT INTO scenes (id, project_id, idx, title, description, location, time_of_day, characters, keyframes, segments, style_override, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scenes (id, idx, title, description, location, time_of_day, characters, keyframes, segments, style_override, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      project_id=excluded.project_id, idx=excluded.idx, title=excluded.title,
+      idx=excluded.idx, title=excluded.title,
       description=excluded.description, location=excluded.location, time_of_day=excluded.time_of_day,
       characters=excluded.characters, keyframes=excluded.keyframes, segments=excluded.segments,
       style_override=excluded.style_override, updated_at=excluded.updated_at
   `,
   ).run(
     scene.id,
-    scene.projectId,
     scene.index,
     scene.title,
     scene.description ?? '',
@@ -44,10 +43,10 @@ export function getScene(db: BetterSqlite3.Database, id: string): Scene | undefi
   return rowToScene(row);
 }
 
-export function listScenes(db: BetterSqlite3.Database, projectId: string): Scene[] {
+export function listScenes(db: BetterSqlite3.Database): Scene[] {
   const rows = db
-    .prepare('SELECT * FROM scenes WHERE project_id = ? ORDER BY idx ASC')
-    .all(projectId) as Array<Record<string, unknown>>;
+    .prepare('SELECT * FROM scenes ORDER BY idx ASC')
+    .all() as Array<Record<string, unknown>>;
   return rows.map((r) => rowToScene(r));
 }
 
@@ -58,7 +57,6 @@ export function deleteScene(db: BetterSqlite3.Database, id: string): void {
 function rowToScene(row: Record<string, unknown>): Scene {
   return {
     id: row.id as string,
-    projectId: row.project_id as string,
     index: row.idx as number,
     title: row.title as string,
     description: (row.description as string) ?? '',
@@ -78,15 +76,14 @@ function rowToScene(row: Record<string, unknown>): Scene {
 export function upsertScript(db: BetterSqlite3.Database, doc: ScriptDocument): void {
   db.prepare(
     `
-    INSERT INTO scripts (id, project_id, content, format, parsed_scenes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (id, content, format, parsed_scenes, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      project_id=excluded.project_id, content=excluded.content, format=excluded.format,
+      content=excluded.content, format=excluded.format,
       parsed_scenes=excluded.parsed_scenes, updated_at=excluded.updated_at
   `,
   ).run(
     doc.id,
-    doc.projectId,
     doc.content,
     doc.format,
     JSON.stringify(doc.parsedScenes ?? []),
@@ -97,11 +94,10 @@ export function upsertScript(db: BetterSqlite3.Database, doc: ScriptDocument): v
 
 export function getScript(
   db: BetterSqlite3.Database,
-  projectId: string,
 ): ScriptDocument | null {
   const row = db
-    .prepare('SELECT * FROM scripts WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1')
-    .get(projectId) as Record<string, unknown> | undefined;
+    .prepare('SELECT * FROM scripts ORDER BY updated_at DESC LIMIT 1')
+    .get() as Record<string, unknown> | undefined;
   if (!row) return null;
   return rowToScript(row);
 }
@@ -113,7 +109,6 @@ export function deleteScript(db: BetterSqlite3.Database, id: string): void {
 function rowToScript(row: Record<string, unknown>): ScriptDocument {
   return {
     id: row.id as string,
-    projectId: row.project_id as string,
     content: row.content as string,
     format: row.format as ScriptDocument['format'],
     parsedScenes: JSON.parse((row.parsed_scenes as string) || '[]'),
@@ -254,7 +249,6 @@ export function upsertEpisode(
     seriesId: string;
     title: string;
     order: number;
-    projectId?: string;
     status?: string;
     createdAt: number;
     updatedAt: number;
@@ -262,18 +256,17 @@ export function upsertEpisode(
 ): void {
   db.prepare(
     `
-    INSERT INTO episodes (id, series_id, title, episode_order, project_id, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO episodes (id, series_id, title, episode_order, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       series_id=excluded.series_id, title=excluded.title, episode_order=excluded.episode_order,
-      project_id=excluded.project_id, status=excluded.status, updated_at=excluded.updated_at
+      status=excluded.status, updated_at=excluded.updated_at
   `,
   ).run(
     episode.id,
     episode.seriesId,
     episode.title,
     episode.order,
-    episode.projectId ?? null,
     episode.status ?? 'draft',
     episode.createdAt,
     episode.updatedAt,
@@ -288,7 +281,6 @@ export function listEpisodes(
   seriesId: string;
   title: string;
   order: number;
-  projectId: string | null;
   status: string;
   createdAt: number;
   updatedAt: number;
@@ -301,7 +293,6 @@ export function listEpisodes(
     seriesId: r.series_id as string,
     title: r.title as string,
     order: r.episode_order as number,
-    projectId: (r.project_id as string) ?? null,
     status: (r.status as string) ?? 'draft',
     createdAt: r.created_at as number,
     updatedAt: r.updated_at as number,
@@ -318,7 +309,6 @@ export function upsertPresetOverride(
   db: BetterSqlite3.Database,
   override: {
     id: string;
-    projectId: string;
     presetId: string;
     category: string;
     name: string;
@@ -333,17 +323,16 @@ export function upsertPresetOverride(
 ): void {
   db.prepare(
     `
-    INSERT INTO preset_overrides (id, project_id, preset_id, category, name, description, prompt, params, defaults, is_user, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO preset_overrides (id, preset_id, category, name, description, prompt, params, defaults, is_user, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      project_id=excluded.project_id, preset_id=excluded.preset_id, category=excluded.category,
+      preset_id=excluded.preset_id, category=excluded.category,
       name=excluded.name, description=excluded.description, prompt=excluded.prompt,
       params=excluded.params, defaults=excluded.defaults, is_user=excluded.is_user,
       updated_at=excluded.updated_at
   `,
   ).run(
     override.id,
-    override.projectId,
     override.presetId,
     override.category,
     override.name,
@@ -359,10 +348,8 @@ export function upsertPresetOverride(
 
 export function listPresetOverrides(
   db: BetterSqlite3.Database,
-  projectId: string,
 ): Array<{
   id: string;
-  projectId: string;
   presetId: string;
   category: string;
   name: string;
@@ -375,11 +362,10 @@ export function listPresetOverrides(
   updatedAt: number;
 }> {
   const rows = db
-    .prepare('SELECT * FROM preset_overrides WHERE project_id = ? ORDER BY category, name')
-    .all(projectId) as Array<Record<string, unknown>>;
+    .prepare('SELECT * FROM preset_overrides ORDER BY category, name')
+    .all() as Array<Record<string, unknown>>;
   return rows.map((r) => ({
     id: r.id as string,
-    projectId: r.project_id as string,
     presetId: r.preset_id as string,
     category: r.category as string,
     name: r.name as string,
@@ -395,11 +381,4 @@ export function listPresetOverrides(
 
 export function deletePresetOverride(db: BetterSqlite3.Database, id: string): void {
   db.prepare('DELETE FROM preset_overrides WHERE id = ?').run(id);
-}
-
-export function deletePresetOverridesByProject(
-  db: BetterSqlite3.Database,
-  projectId: string,
-): void {
-  db.prepare('DELETE FROM preset_overrides WHERE project_id = ?').run(projectId);
 }

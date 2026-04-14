@@ -4,7 +4,8 @@ import {
   type PresetDefinition,
   type PresetResetScope,
 } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
+import { ok, fail, requireString } from './tool-result-helpers.js';
 
 export interface PresetToolDeps {
   listPresets: (category?: PresetCategory) => Promise<PresetDefinition[]>;
@@ -12,25 +13,6 @@ export interface PresetToolDeps {
   deletePreset: (presetId: string) => Promise<void>;
   resetPreset: (presetId: string, scope?: PresetResetScope) => Promise<PresetDefinition>;
   getPreset: (presetId: string) => Promise<PresetDefinition | null>;
-}
-
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
 }
 
 function parseOptionalCategory(args: Record<string, unknown>): PresetCategory | undefined {
@@ -260,6 +242,9 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const rawIds = args.ids;
+        if (Array.isArray(rawIds) && rawIds.length === 0) {
+          return fail('ids array must not be empty');
+        }
         if (typeof rawIds === 'string') {
           const id = rawIds.trim();
           const preset = await deps.getPreset(id);

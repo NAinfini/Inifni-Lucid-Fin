@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Download, Film, FileText } from 'lucide-react';
 import { getAPI } from '../../utils/api.js';
-import type { RootState } from '../../store/index.js';
+import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { recordExport } from '../../store/slices/settings.js';
@@ -12,13 +12,11 @@ type ExportFormat = 'fcpxml' | 'edl';
 export function ExportRenderPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
-  const { canvases, activeCanvasId } = useSelector((state: RootState) => state.canvas);
+  const activeCanvas = useSelector(selectActiveCanvas) ?? null;
   const [format, setFormat] = useState<ExportFormat>('fcpxml');
   const [exporting, setExporting] = useState(false);
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const activeCanvas = canvases.find((c) => c.id === activeCanvasId) ?? null;
 
   async function handleExport() {
     const api = getAPI();

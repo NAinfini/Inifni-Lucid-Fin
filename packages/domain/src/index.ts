@@ -1,6 +1,5 @@
 // Domain layer — re-export contracts types + business rules
 export type {
-  ProjectManifest,
   Scene,
   Keyframe,
   SceneSegment,

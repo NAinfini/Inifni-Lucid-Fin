@@ -24,13 +24,11 @@ export async function readWorkflowDocument(file: File): Promise<WorkflowExportDo
 export function materializeImportedCanvas(args: {
   document: WorkflowExportDocument;
   canvasId: string;
-  projectId: string;
   name?: string;
 }): Canvas {
   const now = Date.now();
   return {
     id: args.canvasId,
-    projectId: args.projectId,
     name: args.name ?? args.document.canvas.name,
     nodes: JSON.parse(JSON.stringify(args.document.canvas.nodes)) as Canvas['nodes'],
     edges: JSON.parse(JSON.stringify(args.document.canvas.edges)) as Canvas['edges'],

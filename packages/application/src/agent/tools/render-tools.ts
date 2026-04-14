@@ -1,4 +1,5 @@
 import type { AgentTool } from '../tool-registry.js';
+import { ok, fail, requireString } from './tool-result-helpers.js';
 
 export interface RenderToolDeps {
   startRender: (
@@ -12,24 +13,6 @@ export interface RenderToolDeps {
     format: string,
     outputPath: string,
   ) => Promise<{ path: string }>;
-}
-
-type ToolResult = { success: true; data?: unknown } | { success: false; error: string };
-
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return { success: false, error: error instanceof Error ? error.message : String(error) };
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
 }
 
 export function createRenderTools(deps: RenderToolDeps): AgentTool[] {

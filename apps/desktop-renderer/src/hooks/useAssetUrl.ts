@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { LRUCache } from '@lucid-fin/application/dist/lru-cache.js';
 
-const cache = new Map<string, string>();
-const failedKeys = new Set<string>();
+const cache = new LRUCache<string, string>(5000);
+const failedKeys = new LRUCache<string, true>(2000);
 
 const DEFAULT_EXT: Record<string, string> = {
   image: 'png',
@@ -34,7 +35,7 @@ export function useAssetUrl(
 
   const markFailed = useCallback(() => {
     if (!cacheKey) return;
-    failedKeys.add(cacheKey);
+    failedKeys.set(cacheKey, true);
     cache.delete(cacheKey);
     setUrl(null);
   }, [cacheKey]);

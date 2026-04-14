@@ -14,17 +14,16 @@ export function insertWorkflowRun(db: BetterSqlite3.Database, run: WorkflowRun):
   db.prepare(
     `
     INSERT INTO workflow_runs (
-      id, workflow_type, project_id, entity_type, entity_id, trigger_source,
+      id, workflow_type, entity_type, entity_id, trigger_source,
       status, summary, progress, completed_stages, total_stages,
       completed_tasks, total_tasks, current_stage_id, current_task_id,
       input_json, output_json, error_text, metadata_json,
       created_at, started_at, completed_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     run.id,
     run.workflowType,
-    run.projectId,
     run.entityType,
     run.entityId ?? null,
     run.triggerSource,
@@ -59,7 +58,6 @@ export function getWorkflowRun(db: BetterSqlite3.Database, id: string): Workflow
 export function listWorkflowRuns(
   db: BetterSqlite3.Database,
   filter?: {
-    projectId?: string;
     status?: string;
     workflowType?: string;
     entityType?: string;
@@ -68,10 +66,6 @@ export function listWorkflowRuns(
   const conditions: string[] = [];
   const params: unknown[] = [];
 
-  if (filter?.projectId) {
-    conditions.push('project_id = ?');
-    params.push(filter.projectId);
-  }
   if (filter?.status) {
     conditions.push('status = ?');
     params.push(filter.status);
@@ -663,7 +657,6 @@ export function listWorkflowArtifactsByTaskRun(
 export function listWorkflowTaskSummaries(
   db: BetterSqlite3.Database,
   filter?: {
-    projectId?: string;
     workflowRunId?: string;
     stageRunId?: string;
     status?: WorkflowTaskRun['status'];
@@ -675,10 +668,6 @@ export function listWorkflowTaskSummaries(
   const conditions: string[] = [];
   const params: unknown[] = [];
 
-  if (filter?.projectId) {
-    conditions.push('w.project_id = ?');
-    params.push(filter.projectId);
-  }
   if (filter?.workflowRunId) {
     conditions.push('t.workflow_run_id = ?');
     params.push(filter.workflowRunId);
@@ -929,7 +918,6 @@ export function rowToWorkflowRun(row: Record<string, unknown>): WorkflowRun {
   return {
     id: row.id as string,
     workflowType: row.workflow_type as string,
-    projectId: row.project_id as string,
     entityType: row.entity_type as string,
     entityId: row.entity_id == null ? undefined : String(row.entity_id),
     triggerSource: row.trigger_source as string,

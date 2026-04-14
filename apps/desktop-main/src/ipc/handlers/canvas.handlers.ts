@@ -2,8 +2,8 @@ import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import log from '../../logger.js';
 import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
+import { LRUCache } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId } from '../project-context.js';
 
 interface CanvasPatch {
   canvasId: string;
@@ -50,12 +50,6 @@ function applyPatch(canvas: Canvas, patch: CanvasPatch): void {
   }
 }
 
-function requireProject(): { projectId: string } {
-  const projectId = getCurrentProjectId();
-  if (!projectId) throw new Error('No project open');
-  return { projectId };
-}
-
 /**
  * Thin wrapper around SqliteIndex canvas methods that satisfies
  * the CanvasStore interface used by commander and generation handlers.
@@ -66,11 +60,11 @@ export interface CanvasStore {
   get(id: string): Canvas | undefined;
   save(canvas: Canvas): void;
   delete(id: string): void;
-  listForProject(projectId: string): Array<{ id: string; name: string; updatedAt: number }>;
+  list(): Array<{ id: string; name: string; updatedAt: number }>;
 }
 
 export function createCanvasStore(db: SqliteIndex): CanvasStore {
-  const cache = new Map<string, Canvas>();
+  const cache = new LRUCache<string, Canvas>(50);
 
   return {
     get: (id) => {
@@ -88,14 +82,13 @@ export function createCanvasStore(db: SqliteIndex): CanvasStore {
       cache.delete(id);
       db.deleteCanvas(id);
     },
-    listForProject: (projectId) => db.listCanvases(projectId),
+    list: () => db.listCanvases(),
   };
 }
 
 export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): void {
   ipcMain.handle('canvas:list', async () => {
-    const { projectId } = requireProject();
-    return store.listForProject(projectId);
+    return store.list();
   });
 
   ipcMain.handle('canvas:load', async (_e, args: { id: string }) => {
@@ -107,8 +100,6 @@ export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): vo
 
   ipcMain.handle('canvas:save', async (_e, data: Canvas) => {
     if (!data || typeof data.id !== 'string') throw new Error('canvas data with id is required');
-    const { projectId } = requireProject();
-    data.projectId = projectId;
     data.updatedAt = Date.now();
     store.save(data);
     log.debug('Canvas saved:', data.id);
@@ -118,11 +109,9 @@ export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): vo
     if (!args || typeof args.name !== 'string' || !args.name.trim()) {
       throw new Error('name is required');
     }
-    const { projectId } = requireProject();
     const now = Date.now();
     const canvas: Canvas = {
       id: randomUUID(),
-      projectId,
       name: args.name.trim(),
       nodes: [],
       edges: [],

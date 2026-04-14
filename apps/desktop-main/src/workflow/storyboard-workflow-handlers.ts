@@ -122,7 +122,6 @@ export function createStoryboardWorkflowHandlers(
 
             context.db.insertAsset({
               ...meta,
-              projectId: context.workflowRun.projectId,
               prompt,
               provider: adapter.id,
               tags: [
@@ -280,11 +279,6 @@ function getScene(
 
   if (!scene) {
     throw new Error(`Scene not found: ${sceneId}`);
-  }
-  if (scene.projectId !== context.workflowRun.projectId) {
-    throw new Error(
-      `Scene "${sceneId}" does not belong to project ${context.workflowRun.projectId}`,
-    );
   }
 
   return scene;

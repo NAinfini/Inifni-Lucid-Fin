@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-const getCurrentProjectId = vi.hoisted(() => vi.fn(() => "project-1"));
 const randomUUID = vi.hoisted(() => vi.fn(() => "location-generated"));
-
-vi.mock("../project-context.js", () => ({
-  getCurrentProjectId,
-}));
 
 vi.mock("node:crypto", () => ({
   randomUUID,
@@ -15,8 +10,6 @@ import { registerLocationHandlers } from "./location.handlers.js";
 
 function resetCommon() {
   vi.clearAllMocks();
-  getCurrentProjectId.mockReset();
-  getCurrentProjectId.mockReturnValue("project-1");
   randomUUID.mockReset();
   randomUUID.mockReturnValue("location-generated");
 }
@@ -24,7 +17,6 @@ function resetCommon() {
 function makeLocation(overrides?: Record<string, unknown>) {
   return {
     id: "location-1",
-    projectId: "project-1",
     name: "Warehouse",
     type: "interior",
     subLocation: "Aisle 4",
@@ -88,7 +80,7 @@ describe("registerLocationHandlers", () => {
     const list = handlers.get("location:list");
 
     await expect(list?.({}, { type: "interior" })).resolves.toEqual([makeLocation()]);
-    expect(db.listLocations).toHaveBeenCalledWith("project-1", "interior");
+    expect(db.listLocations).toHaveBeenCalledWith("interior");
   });
 
   it("creates a new location with normalized name and default type fallback", async () => {
@@ -116,7 +108,6 @@ describe("registerLocationHandlers", () => {
     expect(result).toEqual(
       expect.objectContaining({
         id: "location-generated",
-        projectId: "project-1",
         name: "Alley",
         type: "interior",
         tags: ["urban", "night"],
@@ -188,9 +179,8 @@ describe("registerLocationHandlers", () => {
     );
   });
 
-  it("requires a project and rejects missing locations", async () => {
+  it("rejects missing locations", async () => {
     resetCommon();
-    getCurrentProjectId.mockReturnValue(null);
     const db = {
       listLocations: vi.fn(),
       getLocation: vi.fn(() => undefined),
@@ -199,9 +189,6 @@ describe("registerLocationHandlers", () => {
     };
     const handlers = registerHandlers(db);
 
-    await expect(handlers.get("location:list")?.({})).rejects.toThrow("No project open");
-
-    getCurrentProjectId.mockReturnValue("project-1");
     await expect(
       handlers.get("location:get")?.({}, { id: "missing" }),
     ).rejects.toThrow("Location not found: missing");

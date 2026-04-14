@@ -15,7 +15,6 @@ import {
 function makeCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Main',
     nodes: [],
     edges: [],
@@ -70,12 +69,12 @@ describe('canvas clipboard', () => {
     state = canvasSlice.reducer(state, setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }));
     state = canvasSlice.reducer(state, copyNodes(undefined));
 
-    const originalNodeIds = new Set(state.canvases[0]!.nodes.map((n) => n.id));
-    const originalEdgeIds = new Set(state.canvases[0]!.edges.map((e) => e.id));
+    const originalNodeIds = new Set(state.canvases.entities['canvas-1']!.nodes.map((n) => n.id));
+    const originalEdgeIds = new Set(state.canvases.entities['canvas-1']!.edges.map((e) => e.id));
 
     state = canvasSlice.reducer(state, pasteNodes({ offset: { x: 50, y: 75 } }));
 
-    const canvas = state.canvases[0]!;
+    const canvas = state.canvases.entities['canvas-1']!;
     const pastedNodes = canvas.nodes.filter((n) => !originalNodeIds.has(n.id));
     const pastedEdges = canvas.edges.filter((e) => !originalEdgeIds.has(e.id));
 
@@ -96,8 +95,8 @@ describe('canvas clipboard', () => {
     state = canvasSlice.reducer(state, setClipboard(null));
     state = canvasSlice.reducer(state, pasteNodes(undefined));
 
-    expect(state.canvases[0]!.nodes).toHaveLength(3);
-    expect(state.canvases[0]!.edges).toHaveLength(2);
+    expect(state.canvases.entities['canvas-1']!.nodes).toHaveLength(3);
+    expect(state.canvases.entities['canvas-1']!.edges).toHaveLength(2);
     expect(state.selectedNodeIds).toEqual(['node-3']);
     expect(state.selectedEdgeIds).toEqual(['edge-2']);
   });
@@ -107,10 +106,10 @@ describe('canvas clipboard', () => {
     state = canvasSlice.reducer(state, setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }));
     state = canvasSlice.reducer(state, copyNodes(undefined));
 
-    const originalNodeIds = new Set(state.canvases[0]!.nodes.map((n) => n.id));
+    const originalNodeIds = new Set(state.canvases.entities['canvas-1']!.nodes.map((n) => n.id));
     state = canvasSlice.reducer(state, pasteNodes({ offset: { x: 40, y: 40 } }));
 
-    const pastedNodeIds = state.canvases[0]!.nodes
+    const pastedNodeIds = state.canvases.entities['canvas-1']!.nodes
       .filter((n) => !originalNodeIds.has(n.id))
       .map((n) => n.id);
 

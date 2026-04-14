@@ -32,7 +32,6 @@ export interface SceneSegment {
 
 export interface Scene {
   id: string;
-  projectId: string;
   index: number;
   title: string;
   description: string;

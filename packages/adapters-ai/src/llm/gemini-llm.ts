@@ -7,6 +7,7 @@ import type {
   Capability,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
+import { parseSseStream } from './sse-parser.js';
 
 type GeminiAdapterConfig = {
   id?: string;
@@ -81,29 +82,12 @@ export class GeminiLLMAdapter implements LLMAdapter {
     );
     if (!res.ok) this.throwError(res.status);
 
-    const reader = res.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const json = JSON.parse(line.slice(6)) as {
-            candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
-          };
-          const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) yield text;
-        } catch { /* malformed SSE line — skip and continue streaming */
-          /* skip */
-        }
-      }
+    for await (const json of parseSseStream(res)) {
+      const data = json as {
+        candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+      };
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) yield text;
     }
   }
 

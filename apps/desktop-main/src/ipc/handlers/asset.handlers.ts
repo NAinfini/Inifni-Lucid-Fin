@@ -1,11 +1,11 @@
 import type { IpcMain } from 'electron';
 import { dialog } from 'electron';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { CAS, SqliteIndex, Keychain } from '@lucid-fin/storage';
 import type { AssetType } from '@lucid-fin/contracts';
 import log from '../../logger.js';
-import { getCurrentProjectId } from '../project-context.js';
 import { assertValidAssetType } from '../validation.js';
 import { generateEmbeddingForAsset } from './embedding.handlers.js';
 
@@ -68,13 +68,11 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       throw new Error('filePath is required');
     assertValidAssetType(args.type);
     const { ref, meta } = await cas.importAsset(args.filePath, args.type);
-    const projectId = getCurrentProjectId();
-    db.insertAsset({ ...meta, projectId: projectId ?? undefined });
+    db.insertAsset({ ...meta });
     log.info('Asset imported', {
       category: 'asset',
       type: args.type,
       filePath: args.filePath,
-      projectId: projectId ?? undefined,
       hash: ref.hash,
     });
     if (args.type === 'image' && keychain) {
@@ -90,13 +88,11 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     assertValidAssetType(args.type);
     const buf = Buffer.from(args.buffer);
     const { ref, meta } = await cas.importBuffer(buf, args.fileName, args.type);
-    const projectId = getCurrentProjectId();
-    db.insertAsset({ ...meta, projectId: projectId ?? undefined });
+    db.insertAsset({ ...meta });
     log.info('Asset imported from buffer', {
       category: 'asset',
       type: args.type,
       fileName: args.fileName,
-      projectId: projectId ?? undefined,
       hash: ref.hash,
       size: buf.length,
     });
@@ -124,13 +120,11 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     }
     const filePath = result.filePaths[0];
     const { ref, meta } = await cas.importAsset(filePath, args.type);
-    const projectId = getCurrentProjectId();
-    db.insertAsset({ ...meta, projectId: projectId ?? undefined });
+    db.insertAsset({ ...meta });
     log.info('Asset picked and imported', {
       category: 'asset',
       type: args.type,
       filePath,
-      projectId: projectId ?? undefined,
       hash: ref.hash,
     });
     if (args.type === 'image' && keychain) {
@@ -147,13 +141,11 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       _e,
       args: { type?: string; tags?: string[]; search?: string; limit?: number; offset?: number },
     ) => {
-      const projectId = getCurrentProjectId();
       if (args.search) {
-        return db.searchAssets(args.search, args.limit, projectId ?? undefined);
+        return db.searchAssets(args.search, args.limit);
       }
       return db.queryAssets({
         type: args.type,
-        projectId: projectId ?? undefined,
         limit: args.limit,
         offset: args.offset,
       });
@@ -180,7 +172,6 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
         log.info('Asset deleted', {
           category: 'asset',
           hash: args.hash,
-          projectId: getCurrentProjectId() ?? undefined,
         });
         return { success: true };
       } catch (err) {
@@ -218,7 +209,7 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
           });
           return null;
         }
-        fs.copyFileSync(sourcePath, result.filePath);
+        await fsp.copyFile(sourcePath, result.filePath);
         log.info('Asset export completed', {
           category: 'asset',
           hash: args.hash,
@@ -265,7 +256,7 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
         const ext = path.extname(sourcePath).slice(1) || 'bin';
         const fileName = item.name ? `${item.name.replace(/\.[^.]+$/, '')}.${ext}` : `${item.hash.slice(0, 12)}.${ext}`;
         const destPath = path.join(outputDir, fileName);
-        fs.copyFileSync(sourcePath, destPath);
+        await fsp.copyFile(sourcePath, destPath);
         exported.push(destPath);
       }
       log.info('Asset batch export completed', {

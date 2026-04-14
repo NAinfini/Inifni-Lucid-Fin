@@ -17,7 +17,6 @@ type _WorkflowActivitySummaryShape = Assert<
     {
       id: string;
       workflowType: string;
-      projectId: string;
       entityType: string;
       entityId?: string;
       status: string;

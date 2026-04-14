@@ -8,7 +8,6 @@ import type {
 
 type WorkflowStartRequest = {
   workflowType: string;
-  projectId: string;
   entityType: string;
   entityId?: string;
   triggerSource?: string;
@@ -19,7 +18,6 @@ type WorkflowStartRequest = {
 type WorkflowSummaryLike = Partial<WorkflowActivitySummary> & {
   id: string;
   workflowType: string;
-  projectId: string;
   entityType: string;
   triggerSource: string;
   status: WorkflowActivitySummary['status'];
@@ -100,7 +98,6 @@ function normalizeWorkflowSummary(workflow: WorkflowSummaryLike): WorkflowSummar
   return {
     id: workflow.id,
     workflowType: workflow.workflowType,
-    projectId: workflow.projectId,
     entityType: workflow.entityType,
     entityId: workflow.entityId,
     triggerSource: workflow.triggerSource,
@@ -230,7 +227,6 @@ export const workflowsSlice = createSlice({
         state.summariesById[action.payload.placeholderId] = {
           id: action.payload.placeholderId,
           workflowType: action.payload.request.workflowType,
-          projectId: action.payload.request.projectId,
           entityType: action.payload.request.entityType,
           entityId: action.payload.request.entityId,
           triggerSource: action.payload.request.triggerSource ?? 'user',

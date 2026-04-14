@@ -43,9 +43,7 @@ describe('workflow sqlite schema', () => {
       'workflow_artifacts',
     ];
     const indexNames = [
-      'idx_workflow_runs_project_created',
       'idx_workflow_runs_status_updated',
-      'idx_workflow_runs_type_project',
       'idx_workflow_stage_runs_workflow_order',
       'idx_workflow_stage_runs_workflow_status',
       'idx_workflow_task_runs_workflow_status_updated',

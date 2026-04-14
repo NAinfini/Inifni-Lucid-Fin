@@ -5,7 +5,6 @@ import {
   createColorStyleTools,
   createJobTools,
   createPresetTools,
-  createProjectTools,
   createRenderTools,
   createScriptTools,
   createSeriesTools,
@@ -16,7 +15,6 @@ import { createEmptyPresetTrackSet, type Canvas, type PresetDefinition } from '@
 function createCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [
       {
@@ -63,8 +61,6 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     renameCanvas: vi.fn(async (_canvasId: string, name: string) => {
       canvas.name = name;
     }),
-    loadCanvas: vi.fn(async () => undefined),
-    saveCanvas: vi.fn(async () => undefined),
     cancelGeneration: vi.fn(async () => undefined),
     deleteNode: vi.fn(async () => undefined),
     deleteEdge: vi.fn(async () => undefined),
@@ -132,7 +128,7 @@ function getTool<T extends { name: string; execute: (args: Record<string, unknow
 }
 
 describe('new agent tool groups', () => {
-  it('canvas tools support rename/load/save and clearing refs via empty array', async () => {
+  it('canvas tools support rename and clearing refs via empty array', async () => {
     const canvas = createCanvas();
     const deps = createCanvasDeps(canvas);
     const tools = createCanvasTools(deps);
@@ -141,15 +137,6 @@ describe('new agent tool groups', () => {
       canvasId: 'canvas-1',
       name: 'Renamed Canvas',
     })).resolves.toEqual({ success: true, data: { canvasId: 'canvas-1', name: 'Renamed Canvas' } });
-    await expect(getTool(tools, 'canvas.loadCanvas').execute({ canvasId: 'canvas-1' })).resolves.toEqual({
-      success: true,
-      data: { canvasId: 'canvas-1' },
-    });
-    await expect(getTool(tools, 'canvas.saveCanvas').execute({ canvasId: 'canvas-1' })).resolves.toEqual({
-      success: true,
-      data: { canvasId: 'canvas-1' },
-    });
-
     await getTool(tools, 'canvas.setNodeRefs').execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
@@ -168,7 +155,6 @@ describe('new agent tool groups', () => {
     const tools = createScriptTools({
       loadScript: vi.fn(async () => ({
         id: 'script-1',
-        projectId: 'project-1',
         content: 'INT. ROOM - DAY',
         format: 'fountain',
         parsedScenes: [],
@@ -198,18 +184,12 @@ describe('new agent tool groups', () => {
     });
   });
 
-  it('job, project, render, preset, and workflow tools delegate to dependencies', async () => {
+  it('job, render, preset, and workflow tools delegate to dependencies', async () => {
     const jobTools = createJobTools({
       listJobs: vi.fn(async () => []),
       cancelJob: vi.fn(async () => undefined),
       pauseJob: vi.fn(async () => undefined),
       resumeJob: vi.fn(async () => undefined),
-    });
-    const projectTools = createProjectTools({
-      listProjects: vi.fn(async () => [{ id: 'project-1', title: 'Project', path: '/tmp/project', updatedAt: 1 }]),
-      createSnapshot: vi.fn(async () => ({ id: 'snapshot-1' })),
-      listSnapshots: vi.fn(async () => []),
-      restoreSnapshot: vi.fn(async () => undefined),
     });
     const renderTools = createRenderTools({
       startRender: vi.fn(async () => ({ renderId: 'render-1' })),
@@ -243,10 +223,6 @@ describe('new agent tool groups', () => {
     await expect(getTool(jobTools, 'job.control').execute({ jobId: 'job-1', action: 'cancel' })).resolves.toEqual({
       success: true,
       data: { jobId: 'job-1', action: 'cancel' },
-    });
-    await expect(getTool(projectTools, 'project.list').execute({})).resolves.toEqual({
-      success: true,
-      data: { total: 1, offset: 0, limit: 50, projects: [{ id: 'project-1', title: 'Project', path: '/tmp/project', updatedAt: 1 }] },
     });
     await expect(getTool(renderTools, 'render.control').execute({ canvasId: 'canvas-1', format: 'mp4', action: 'start' })).resolves.toEqual({
       success: true,
@@ -390,8 +366,7 @@ describe('new agent tool groups', () => {
     });
 
     await expect(getTool(seriesTools, 'series.save').execute({
-      title: 'Updated Series',
-      description: 'Updated Desc',
+      set: { title: 'Updated Series', description: 'Updated Desc' },
     })).resolves.toEqual({
       success: true,
       data: { ...currentSeries, title: 'Updated Series', description: 'Updated Desc' },

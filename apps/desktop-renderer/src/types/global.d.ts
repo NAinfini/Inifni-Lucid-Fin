@@ -19,7 +19,6 @@ import type {
   PresetLibraryExportRequest,
   PresetLibraryImportPayload,
   PresetResetRequest,
-  ProjectManifest,
   ReferenceImage,
   WorkflowActivitySummary,
   WorkflowStageRun,
@@ -28,14 +27,6 @@ import type {
   WorkflowTaskUpdatedEvent,
   WorkflowUpdatedEvent,
 } from '@lucid-fin/contracts';
-
-/** Minimal project metadata returned by project:list */
-interface ProjectMeta {
-  id: string;
-  title: string;
-  path: string;
-  updatedAt: number;
-}
 
 /** Parsed script structure */
 interface ParsedScript {
@@ -54,7 +45,6 @@ interface SceneData {
   synopsis?: string;
   order: number;
   title?: string;
-  projectId?: string;
   keyframes?: unknown[];
   [key: string]: unknown;
 }
@@ -64,7 +54,6 @@ interface CharacterData {
   id: string;
   name: string;
   description?: string;
-  referenceImage?: string;
 }
 
 /** Style guide */
@@ -120,7 +109,6 @@ interface JobRequest {
   type: string;
   providerId: string;
   prompt: string;
-  projectId: string;
   width?: number;
   height?: number;
   duration?: number;
@@ -213,7 +201,6 @@ interface SeriesData {
 interface EpisodeData {
   id: string;
   title: string;
-  projectId: string;
   order: number;
   status: 'draft' | 'in_progress' | 'review' | 'final';
   createdAt: number;
@@ -261,15 +248,6 @@ declare global {
       settings: {
         load: () => Promise<unknown>;
         save: (data: unknown) => Promise<void>;
-      };
-      project: {
-        create: (config: { title: string; description?: string; genre?: string; resolution?: [number, number]; fps?: number; basePath?: string }) => Promise<ProjectManifest>;
-        open: (path: string) => Promise<ProjectManifest>;
-        save: () => Promise<void>;
-        list: () => Promise<ProjectMeta[]>;
-        snapshot: (name: string) => Promise<SnapshotMeta>;
-        snapshotList: () => Promise<SnapshotMeta[]>;
-        snapshotRestore: (snapshotId: string) => Promise<void>;
       };
       script: {
         parse: (content: string, format?: string) => Promise<unknown>;
@@ -463,6 +441,54 @@ declare global {
         onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) => () => void;
         onUndoDispatch: (cb: (data: { action: 'undo' | 'redo' }) => void) => () => void;
       };
+      session: {
+        upsert: (s: {
+          id: string;
+          canvasId: string | null;
+          title: string;
+          messages: string;
+          createdAt: number;
+          updatedAt: number;
+        }) => Promise<void>;
+        list: (limit?: number) => Promise<Array<{
+          id: string;
+          canvasId: string | null;
+          title: string;
+          createdAt: number;
+          updatedAt: number;
+        }>>;
+        get: (id: string) => Promise<{
+          id: string;
+          canvasId: string | null;
+          title: string;
+          messages: string;
+          createdAt: number;
+          updatedAt: number;
+        }>;
+        delete: (id: string) => Promise<{ success: true }>;
+      };
+      snapshot: {
+        capture: (
+          sessionId: string,
+          label: string,
+          trigger?: 'auto' | 'manual',
+        ) => Promise<{
+          id: string;
+          sessionId: string;
+          label: string;
+          trigger: string;
+          createdAt: number;
+        }>;
+        list: (sessionId: string) => Promise<Array<{
+          id: string;
+          sessionId: string;
+          label: string;
+          trigger: string;
+          createdAt: number;
+        }>>;
+        restore: (snapshotId: string) => Promise<{ success: true }>;
+        delete: (snapshotId: string) => Promise<{ success: true }>;
+      };
       clipboard: {
         onAIDetected: (cb: (data: { text: string }) => void) => () => void;
         setEnabled: (enabled: boolean) => Promise<void>;
@@ -567,7 +593,6 @@ declare global {
         list: (filter?: {
           includeBuiltIn?: boolean;
           category?: PresetCategory;
-          projectId?: string;
         }) => Promise<PresetDefinition[]>;
         save: (data: PresetDefinition) => Promise<PresetDefinition>;
         delete: (id: string) => Promise<void>;
@@ -596,7 +621,7 @@ declare global {
       };
       video: {
         pickFile: () => Promise<string | null>;
-        clone: (filePath: string, projectId: string, threshold?: number) => Promise<{ canvasId: string; nodeCount: number }>;
+        clone: (filePath: string, threshold?: number) => Promise<{ canvasId: string; nodeCount: number }>;
         onCloneProgress: (cb: (data: { step: string; current: number; total: number; message: string }) => void) => () => void;
       };
       storage: {
@@ -623,6 +648,10 @@ declare global {
         pickFolder: () => Promise<string | null>;
         pickSaveFile: (defaultName: string) => Promise<string | null>;
         pickOpenFile: (extensions: string[]) => Promise<string | null>;
+      };
+      /** IPC health check for connection monitoring */
+      ipc: {
+        ping: () => Promise<'pong'>;
       };
     };
   }

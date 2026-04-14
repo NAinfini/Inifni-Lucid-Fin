@@ -19,6 +19,9 @@ interface SettingsCache {
   vision: { providers: ProviderInfo[] };
 }
 
+type APIGroup = keyof SettingsCache;
+const VALID_GROUPS = new Set<string>(['llm', 'image', 'video', 'audio', 'vision']);
+
 let cache: SettingsCache | null = null;
 
 export function updateSettingsCache(settings: Record<string, unknown>): void {
@@ -60,10 +63,14 @@ function extractProviderGroup(settings: Record<string, unknown>, group: string):
 }
 
 export function getCachedProviders(group: string): ProviderInfo[] {
-  if (!cache) return [];
-  return (cache as unknown as Record<string, { providers: ProviderInfo[] }>)[group]?.providers ?? [];
+  if (!cache || !VALID_GROUPS.has(group)) return [];
+  return cache[group as APIGroup].providers;
 }
 
 export function getSettingsCache(): SettingsCache | null {
   return cache;
+}
+
+export function clearSettingsCache(): void {
+  cache = null;
 }

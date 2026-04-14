@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { app, dialog, shell } from 'electron';
@@ -178,12 +179,12 @@ export function registerStorageHandlers(
   ipcMain.handle('storage:backupDatabase', async (_event, args: { destPath: string }) => {
     const dbPath = path.join(APP_ROOT, 'lucid-fin.db');
     try {
-      fs.copyFileSync(dbPath, args.destPath);
+      await fsp.copyFile(dbPath, args.destPath);
       // Also backup prompts.db
       const promptsDb = path.join(APP_ROOT, 'prompts.db');
       if (fs.existsSync(promptsDb)) {
         const promptsDest = args.destPath.replace(/\.db$/, '-prompts.db');
-        fs.copyFileSync(promptsDb, promptsDest);
+        await fsp.copyFile(promptsDb, promptsDest);
       }
       return { success: true };
     } catch (err) {
@@ -198,8 +199,8 @@ export function registerStorageHandlers(
     try {
       // Create backup of current before restoring
       const backupPath = dbPath + '.pre-restore-backup';
-      fs.copyFileSync(dbPath, backupPath);
-      fs.copyFileSync(args.sourcePath, dbPath);
+      await fsp.copyFile(dbPath, backupPath);
+      await fsp.copyFile(args.sourcePath, dbPath);
       return { success: true, backupCreated: backupPath };
     } catch (err) {
       log.warn('[storage] restore failed', { error: String(err) });
@@ -218,10 +219,10 @@ export function registerStorageHandlers(
     try {
       let config: Record<string, unknown> = {};
       if (fs.existsSync(configPath)) {
-        config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        config = JSON.parse(await fsp.readFile(configPath, 'utf-8'));
       }
       config.projectsPath = args.path;
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      await fsp.writeFile(configPath, JSON.stringify(config, null, 2));
       return { success: true };
     } catch (err) {
       return { success: false, error: String(err) };

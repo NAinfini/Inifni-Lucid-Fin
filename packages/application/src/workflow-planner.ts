@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   StageRunStatus,
   TaskRunStatus,
@@ -20,7 +19,6 @@ export interface WorkflowTaskDependencyRow {
 
 export interface WorkflowPlanRequest {
   definition: RegisteredWorkflowDefinition;
-  projectId: string;
   entityType: string;
   entityId?: string;
   triggerSource?: string;
@@ -50,7 +48,7 @@ type PlannedTask = {
 export class WorkflowPlanner {
   plan(request: WorkflowPlanRequest): PlannedWorkflowRows {
     const now = request.now ?? Date.now();
-    const nextId = request.idFactory ?? randomUUID;
+    const nextId = request.idFactory ?? (() => crypto.randomUUID());
     const sortedStages = [...request.definition.stages].sort(
       (left, right) => left.order - right.order,
     );
@@ -77,6 +75,16 @@ export class WorkflowPlanner {
         }
       }
     }
+
+    // Detect circular dependencies in both stage and task graphs
+    this.detectCycles(
+      sortedStages.map((s) => ({ id: s.id, dependsOn: s.dependsOnStageIds ?? [] })),
+      'stage',
+    );
+    this.detectCycles(
+      taskDefinitions.map((t) => ({ id: t.id, dependsOn: t.dependsOnTaskIds ?? [] })),
+      'task',
+    );
 
     const workflowRunId = nextId();
     const plannedStages: PlannedStage[] = [];
@@ -191,7 +199,6 @@ export class WorkflowPlanner {
     const workflowRun: WorkflowRun = {
       id: workflowRunId,
       workflowType: request.definition.id,
-      projectId: request.projectId,
       entityType: request.entityType,
       entityId: request.entityId,
       triggerSource: request.triggerSource ?? 'user',
@@ -227,6 +234,43 @@ export class WorkflowPlanner {
       taskRuns,
       taskDependencies,
     };
+  }
+
+  /**
+   * DFS-based cycle detection on a dependency graph.
+   * Throws with the cycle path if a back edge is found.
+   */
+  private detectCycles(
+    nodes: Array<{ id: string; dependsOn: string[] }>,
+    label: string,
+  ): void {
+    const visited = new Set<string>();
+    const stack = new Set<string>();
+    const adjacency = new Map<string, string[]>();
+    for (const node of nodes) {
+      adjacency.set(node.id, node.dependsOn);
+    }
+
+    const dfs = (id: string, path: string[]): void => {
+      if (stack.has(id)) {
+        const cycleStart = path.indexOf(id);
+        const cycle = path.slice(cycleStart).concat(id);
+        throw new Error(
+          `Circular ${label} dependency: ${cycle.join(' \u2192 ')}`,
+        );
+      }
+      if (visited.has(id)) return;
+      visited.add(id);
+      stack.add(id);
+      for (const dep of adjacency.get(id) ?? []) {
+        dfs(dep, [...path, id]);
+      }
+      stack.delete(id);
+    };
+
+    for (const node of nodes) {
+      if (!visited.has(node.id)) dfs(node.id, []);
+    }
   }
 
   private pickString(record: Record<string, unknown> | undefined, key: string): string | undefined {

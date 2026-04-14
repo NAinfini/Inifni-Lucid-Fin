@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
+import { selectAllCanvases } from '../../store/slices/canvas-selectors.js';
 import {
   setEquipment,
   addEquipment,
@@ -25,9 +26,9 @@ import type {
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { Plus, Search, Trash2, Save, Upload, Package, Image, ImageOff, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { useEntityManager } from '../../hooks/useEntityManager.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
-import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 const TYPE_OPTIONS: EquipmentType[] = [
   'weapon',
@@ -64,20 +65,24 @@ function createDraft(equip: Equipment): EquipmentDraft {
 
 export function EquipmentManagerPanel() {
   const { t } = useI18n();
-  const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
   const { items, selectedId, filterType, loading } = useSelector((s: RootState) => s.equipment);
 
-  const [draft, setDraft] = useState<EquipmentDraft | null>(null);
-  const [originalDraft, setOriginalDraft] = useState<EquipmentDraft | null>(null);
-  const [search, setSearch] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
-
-  const isDirty = useMemo(() => {
-    if (!draft || !originalDraft) return false;
-    return JSON.stringify(draft) !== JSON.stringify(originalDraft);
-  }, [draft, originalDraft]);
+  const {
+    draft, setDraft,
+    setOriginalDraft,
+    search, setSearch,
+    error, setError,
+    assetPickerOpen, setAssetPickerOpen,
+    isDirty,
+    reportError,
+    confirmDiscardIfDirty,
+    confirm,
+    ConfirmDialog,
+  } = useEntityManager<EquipmentDraft>({
+    entityType: 'equipment',
+    unsavedChangesKey: 'equipmentManager.unsavedChanges',
+  });
 
   const selectedEquip = useMemo(() => items.find((e) => e.id === selectedId), [items, selectedId]);
 
@@ -91,7 +96,7 @@ export function EquipmentManagerPanel() {
     });
   }, [items, search, filterType]);
 
-  const canvases = useSelector((s: RootState) => s.canvas.canvases);
+  const canvases = useSelector(selectAllCanvases);
 
   const usageCountById = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -119,17 +124,7 @@ export function EquipmentManagerPanel() {
     const d = createDraft(selectedEquip);
     setDraft(d);
     setOriginalDraft(d);
-  }, [selectedEquip]);
-
-  const confirmDiscardIfDirty = useCallback(async (): Promise<boolean> => {
-    if (!isDirty) return true;
-    return confirm({
-      title: t('equipmentManager.unsavedChanges'),
-      destructive: true,
-      confirmLabel: t('action.confirm'),
-      cancelLabel: t('action.cancel'),
-    });
-  }, [confirm, isDirty, t]);
+  }, [selectedEquip, setDraft, setOriginalDraft]);
 
   const handleSelectEquipment = useCallback(
     async (id: string) => {
@@ -149,11 +144,11 @@ export function EquipmentManagerPanel() {
         dispatch(setEquipment(list));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'loadEquipment');
     } finally {
       dispatch(setLoading(false));
     }
-  }, [dispatch]);
+  }, [dispatch, reportError]);
 
   useEffect(() => {
     void loadEquipment();
@@ -177,9 +172,9 @@ export function EquipmentManagerPanel() {
         dispatch(selectEquipment(saved.id));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'createNewEquipment');
     }
-  }, [dispatch, confirmDiscardIfDirty, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t]);
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedEquip) return;
@@ -203,9 +198,9 @@ export function EquipmentManagerPanel() {
         dispatch(updateEquipment({ id: saved.id, data: saved }));
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'saveDraft');
     }
-  }, [dispatch, draft, selectedEquip]);
+  }, [dispatch, draft, reportError, selectedEquip, setError]);
 
   const deleteSelected = useCallback(async () => {
     if (!selectedEquip) return;
@@ -225,9 +220,9 @@ export function EquipmentManagerPanel() {
       }
       dispatch(removeEquipment(selectedEquip.id));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      reportError(reason, 'deleteSelected');
     }
-  }, [confirm, dispatch, selectedEquip, t]);
+  }, [confirm, dispatch, reportError, selectedEquip, setError, t]);
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -246,10 +241,10 @@ export function EquipmentManagerPanel() {
         )) as ReferenceImage;
         dispatch(setEquipmentRefImage({ equipmentId: selectedEquip.id, refImage }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageUpload');
       }
     },
-    [dispatch, selectedEquip],
+    [dispatch, reportError, selectedEquip, setError],
   );
 
   const handleRefImageRemove = useCallback(
@@ -263,10 +258,10 @@ export function EquipmentManagerPanel() {
         }
         dispatch(removeEquipmentRefImage({ equipmentId: selectedEquip.id, slot }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageRemove');
       }
     },
-    [dispatch, selectedEquip],
+    [dispatch, reportError, selectedEquip, setError],
   );
 
   const handleSelectVariant = useCallback(
@@ -304,10 +299,10 @@ export function EquipmentManagerPanel() {
         }
         dispatch(setEquipmentRefImage({ equipmentId: selectedEquip.id, refImage: updatedRef }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleSelectVariant');
       }
     },
-    [dispatch, selectedEquip],
+    [dispatch, reportError, selectedEquip, setError],
   );
 
   const handleRefImageFromAsset = useCallback(
@@ -326,10 +321,10 @@ export function EquipmentManagerPanel() {
         )) as ReferenceImage;
         dispatch(setEquipmentRefImage({ equipmentId: selectedEquip.id, refImage }));
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        reportError(reason, 'handleRefImageFromAsset');
       }
     },
-    [dispatch, selectedEquip],
+    [dispatch, reportError, selectedEquip, setAssetPickerOpen, setError],
   );
 
   return (

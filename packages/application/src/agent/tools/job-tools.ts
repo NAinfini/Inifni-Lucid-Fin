@@ -1,28 +1,12 @@
 import type { AgentTool } from '../tool-registry.js';
+import { defineToolModule } from '../tool-module.js';
+import { ok, fail, requireString } from './tool-result-helpers.js';
 
 export interface JobToolDeps {
   listJobs: () => Promise<Array<{ id: string; status: string; nodeId?: string }>>;
   cancelJob: (jobId: string) => Promise<void>;
   pauseJob: (jobId: string) => Promise<void>;
   resumeJob: (jobId: string) => Promise<void>;
-}
-
-type ToolResult = { success: true; data?: unknown } | { success: false; error: string };
-
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return { success: false, error: error instanceof Error ? error.message : String(error) };
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
 }
 
 export function createJobTools(deps: JobToolDeps): AgentTool[] {
@@ -91,3 +75,8 @@ export function createJobTools(deps: JobToolDeps): AgentTool[] {
 
   return [list, control];
 }
+
+export const jobToolModule = defineToolModule({
+  name: 'job',
+  createTools: createJobTools,
+});

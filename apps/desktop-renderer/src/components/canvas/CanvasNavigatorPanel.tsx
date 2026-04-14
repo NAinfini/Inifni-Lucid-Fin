@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { Canvas } from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
 import { addCanvas, removeCanvas, renameCanvas, setActiveCanvas } from '../../store/slices/canvas.js';
+import { selectAllCanvases } from '../../store/slices/canvas-selectors.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
@@ -14,7 +15,8 @@ type SortMode = 'recent' | 'name';
 export function CanvasNavigatorPanel() {
   const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
-  const { canvases, activeCanvasId } = useSelector((state: RootState) => state.canvas);
+  const canvases = useSelector(selectAllCanvases);
+  const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');

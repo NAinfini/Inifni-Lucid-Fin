@@ -18,7 +18,6 @@ vi.mock('../utils/api.js', () => ({
 function createCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [],
     edges: [],
@@ -159,7 +158,7 @@ describe('useCanvasDragDrop', () => {
       result.current.handleDrop(event as never);
     });
 
-    expect(store.getState().canvas.canvases[0]?.nodes).toEqual([
+    expect(store.getState().canvas.canvases.entities['canvas-1']?.nodes).toEqual([
       expect.objectContaining({
         type: 'image',
         title: 'Reference Still',
@@ -187,7 +186,7 @@ describe('useCanvasDragDrop', () => {
     });
 
     await waitFor(() => {
-      expect(store.getState().canvas.canvases[0]?.nodes).toEqual([
+      expect(store.getState().canvas.canvases.entities['canvas-1']?.nodes).toEqual([
         expect.objectContaining({
           type: 'text',
           title: 'notes',
@@ -222,7 +221,7 @@ describe('useCanvasDragDrop', () => {
     });
 
     await waitFor(() => {
-      expect(store.getState().canvas.canvases[0]?.nodes).toEqual([
+      expect(store.getState().canvas.canvases.entities['canvas-1']?.nodes).toEqual([
         expect.objectContaining({
           type: 'image',
           title: 'photo',

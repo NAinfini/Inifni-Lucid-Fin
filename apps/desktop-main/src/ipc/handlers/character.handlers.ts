@@ -7,21 +7,13 @@ import type {
   EquipmentLoadout,
 } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId } from '../project-context.js';
 
 const VALID_ROLES: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
 const VALID_GENDERS: CharacterGender[] = ['male', 'female', 'non-binary', 'other'];
 
-function requireProject(): { projectId: string } {
-  const projectId = getCurrentProjectId();
-  if (!projectId) throw new Error('No project open');
-  return { projectId };
-}
-
 export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   ipcMain.handle('character:list', async () => {
-    const { projectId } = requireProject();
-    return db.listCharacters(projectId);
+    return db.listCharacters();
   });
 
   ipcMain.handle('character:get', async (_e, args: { id: string }) => {
@@ -35,7 +27,6 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     if (!args || (typeof args.name !== 'string' && typeof args.id !== 'string')) {
       throw new Error('name or id is required');
     }
-    const { projectId } = requireProject();
     const existing = typeof args.id === 'string' ? db.getCharacter(args.id) : undefined;
     const now = Date.now();
 
@@ -55,7 +46,6 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     const char: Character = {
       id: existing?.id ?? (typeof args.id === 'string' && args.id ? args.id : randomUUID()),
       name,
-      projectId,
       role,
       description:
         typeof args.description === 'string' ? args.description : (existing?.description ?? ''),
@@ -63,8 +53,6 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
         typeof args.appearance === 'string' ? args.appearance : (existing?.appearance ?? ''),
       personality:
         typeof args.personality === 'string' ? args.personality : (existing?.personality ?? ''),
-      referenceImage:
-        typeof args.referenceImage === 'string' ? args.referenceImage : existing?.referenceImage,
       costumes: Array.isArray(args.costumes) ? args.costumes : (existing?.costumes ?? []),
       tags: Array.isArray(args.tags)
         ? args.tags.filter((t): t is string => typeof t === 'string')
@@ -87,12 +75,10 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     db.upsertCharacter({
       id: char.id,
       name: char.name,
-      projectId: char.projectId,
       role: char.role,
       description: char.description,
       appearance: char.appearance,
       personality: char.personality,
-      refImage: char.referenceImage,
       costumes: char.costumes,
       tags: char.tags,
       age: char.age,
@@ -140,7 +126,6 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       db.upsertCharacter({
         id: char.id,
         name: char.name,
-        projectId: char.projectId,
         referenceImages: refs,
         updatedAt: Date.now(),
       });
@@ -163,7 +148,6 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       db.upsertCharacter({
         id: char.id,
         name: char.name,
-        projectId: char.projectId,
         referenceImages: refs,
         updatedAt: Date.now(),
       });
@@ -194,7 +178,6 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       db.upsertCharacter({
         id: char.id,
         name: char.name,
-        projectId: char.projectId,
         loadouts,
         defaultLoadoutId,
         updatedAt: Date.now(),
@@ -222,7 +205,6 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       db.upsertCharacter({
         id: char.id,
         name: char.name,
-        projectId: char.projectId,
         loadouts,
         defaultLoadoutId,
         updatedAt: Date.now(),

@@ -9,7 +9,7 @@ import { CanvasPage } from './CanvasPage.js';
 import { getAPI } from '../utils/api.js';
 import { canvasReducer } from '../store/slices/canvas.js';
 import { uiSlice } from '../store/slices/ui.js';
-import { projectSlice, setProject } from '../store/slices/project.js';
+import { settingsSlice, setBootstrapped } from '../store/slices/settings.js';
 import { presetsSlice } from '../store/slices/presets.js';
 import { loggerSlice } from '../store/slices/logger.js';
 import { commanderSlice } from '../store/slices/commander.js';
@@ -90,40 +90,14 @@ function createStore() {
     reducer: {
       canvas: canvasReducer,
       ui: uiSlice.reducer,
-      project: projectSlice.reducer,
+      settings: settingsSlice.reducer,
       presets: presetsSlice.reducer,
       logger: loggerSlice.reducer,
       commander: commanderSlice.reducer,
     },
   });
 
-  store.dispatch(
-    setProject({
-      id: 'project-1',
-      title: 'Test Project',
-      description: '',
-      genre: '',
-      resolution: [1920, 1080],
-      fps: 24,
-      aspectRatio: '16:9',
-      createdAt: 1,
-      updatedAt: 1,
-      aiProviders: [],
-      snapshots: [],
-      styleGuide: {
-        global: {
-          artStyle: '',
-          colorPalette: { primary: '', secondary: '', forbidden: [] },
-          lighting: 'natural',
-          texture: '',
-          referenceImages: [],
-          freeformDescription: '',
-        },
-        sceneOverrides: {},
-      },
-      path: 'C:/tmp/project',
-    }),
-  );
+  store.dispatch(setBootstrapped());
 
   return store;
 }

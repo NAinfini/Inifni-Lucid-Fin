@@ -1,10 +1,10 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { AIProviderAdapter, GenerationRequest } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import log from './logger.js';
-import { getCurrentProjectId } from './ipc/project-context.js';
 
 type MaterializedAsset = {
   filePath: string;
@@ -30,10 +30,8 @@ export async function generateAndImport(
     const assetType = request.type === 'image' ? 'image' : request.type === 'video' ? 'video' : 'audio';
     const { ref, meta } = await deps.cas.importAsset(materialized.filePath, assetType);
 
-    const projectId = getCurrentProjectId();
     deps.db.insertAsset({
       ...meta,
-      projectId: projectId ?? undefined,
       prompt: options.prompt ?? request.prompt,
       provider: options.provider ?? deps.adapter.id,
       tags: options.tags ?? [],
@@ -45,7 +43,7 @@ export async function generateAndImport(
     };
   } finally {
     if (materialized.cleanupPath) {
-      fs.rmSync(materialized.cleanupPath, { recursive: true, force: true });
+      await fsp.rm(materialized.cleanupPath, { recursive: true, force: true });
     }
   }
 }
@@ -89,7 +87,7 @@ async function decodeBase64DataUrl(dataUrl: string): Promise<MaterializedAsset> 
   const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
   const buffer = Buffer.from(match[2], 'base64');
   const tmpPath = path.join(os.tmpdir(), `lucid-fin-gen-${Date.now()}.${ext}`);
-  fs.writeFileSync(tmpPath, buffer);
+  await fsp.writeFile(tmpPath, buffer);
   return { filePath: tmpPath, cleanupPath: tmpPath };
 }
 
@@ -102,7 +100,7 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-pipeline-'));
   const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
   const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(filePath, buffer);
+  await fsp.writeFile(filePath, buffer);
   log.info('[generation-pipeline] downloaded remote asset', { url, filePath, fileSize: buffer.byteLength });
   return { filePath, cleanupPath: dir, sourceUrl: url };
 }

@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-const getCurrentProjectId = vi.hoisted(() => vi.fn(() => "project-1"));
 const randomUUID = vi.hoisted(() => vi.fn(() => "equipment-generated"));
-
-vi.mock("../project-context.js", () => ({
-  getCurrentProjectId,
-}));
 
 vi.mock("node:crypto", () => ({
   randomUUID,
@@ -15,8 +10,6 @@ import { registerEquipmentHandlers } from "./equipment.handlers.js";
 
 function resetCommon() {
   vi.clearAllMocks();
-  getCurrentProjectId.mockReset();
-  getCurrentProjectId.mockReturnValue("project-1");
   randomUUID.mockReset();
   randomUUID.mockReturnValue("equipment-generated");
 }
@@ -24,7 +17,6 @@ function resetCommon() {
 function makeEquipment(overrides?: Record<string, unknown>) {
   return {
     id: "equipment-1",
-    projectId: "project-1",
     name: "Sword",
     type: "weapon",
     subtype: "longsword",
@@ -85,7 +77,7 @@ describe("registerEquipmentHandlers", () => {
     const list = handlers.get("equipment:list");
 
     await expect(list?.({}, { type: "weapon" })).resolves.toEqual([makeEquipment()]);
-    expect(db.listEquipment).toHaveBeenCalledWith("project-1", "weapon");
+    expect(db.listEquipment).toHaveBeenCalledWith("weapon");
   });
 
   it("creates new equipment with filtered tags and default type fallback", async () => {
@@ -111,7 +103,6 @@ describe("registerEquipmentHandlers", () => {
     expect(result).toEqual(
       expect.objectContaining({
         id: "equipment-generated",
-        projectId: "project-1",
         name: "Utility Belt",
         type: "other",
         tags: ["gear", "belt"],
@@ -182,9 +173,8 @@ describe("registerEquipmentHandlers", () => {
     );
   });
 
-  it("requires an open project and rejects missing equipment records", async () => {
+  it("rejects missing equipment records", async () => {
     resetCommon();
-    getCurrentProjectId.mockReturnValue(null);
     const db = {
       listEquipment: vi.fn(),
       getEquipment: vi.fn(() => undefined),
@@ -193,9 +183,6 @@ describe("registerEquipmentHandlers", () => {
     };
     const handlers = registerHandlers(db);
 
-    await expect(handlers.get("equipment:list")?.({})).rejects.toThrow("No project open");
-
-    getCurrentProjectId.mockReturnValue("project-1");
     await expect(
       handlers.get("equipment:get")?.({}, { id: "missing" }),
     ).rejects.toThrow("Equipment not found: missing");

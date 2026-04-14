@@ -10,7 +10,6 @@ import {
 function makeCanvas(id: string, viewport = { x: 0, y: 0, zoom: 1 }): Canvas {
   return {
     id,
-    projectId: 'project-1',
     name: id,
     nodes: [],
     edges: [],
@@ -29,7 +28,7 @@ describe('canvas viewport isolation', () => {
     );
     state = canvasSlice.reducer(state, setActiveCanvas('c1'));
 
-    const canvasBefore = state.canvases[0];
+    const canvasBefore = state.canvases.entities['c1'];
 
     state = canvasSlice.reducer(state, updateViewport({ x: 100, y: 200, zoom: 1.5 }));
 
@@ -37,10 +36,10 @@ describe('canvas viewport isolation', () => {
     expect(state.viewport).toEqual({ x: 100, y: 200, zoom: 1.5 });
 
     // The canvas object reference is unchanged (Immer did not produce a new draft)
-    expect(state.canvases[0]).toBe(canvasBefore);
+    expect(state.canvases.entities['c1']).toBe(canvasBefore);
 
     // canvas.viewport is NOT updated (stays at load value)
-    expect(state.canvases[0].viewport).toEqual({ x: 10, y: 20, zoom: 0.8 });
+    expect(state.canvases.entities['c1']!.viewport).toEqual({ x: 10, y: 20, zoom: 0.8 });
   });
 
   it('setCanvases loads the active canvas viewport into state.viewport', () => {
@@ -75,7 +74,7 @@ describe('canvas viewport isolation', () => {
     state = canvasSlice.reducer(state, setActiveCanvas('c2'));
 
     // c1's canvas.viewport is updated with the live panned position
-    const c1 = state.canvases.find((c) => c.id === 'c1')!;
+    const c1 = state.canvases.entities['c1']!;
     expect(c1.viewport).toEqual({ x: 111, y: 222, zoom: 1.2 });
 
     // state.viewport is now c2's saved viewport

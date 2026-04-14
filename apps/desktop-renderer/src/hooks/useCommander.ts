@@ -143,9 +143,27 @@ export function useCommander(): {
       const llmSettings = state.settings.llm;
       const selectedNodeIds = state.canvas.selectedNodeIds;
 
+      // Auto-snapshot: capture project state before the first message of a session
+      if (!state.commander.streaming) {
+        const snapshotSessionId = state.commander.activeSessionId ?? currentCanvasId;
+        try {
+          await api.snapshot?.capture(snapshotSessionId, 'Before Commander session', 'auto');
+        } catch (err) {
+          // Non-fatal — log and continue
+          dispatch(
+            addLog({
+              level: 'warn',
+              category: 'snapshot',
+              message: 'Auto-snapshot failed',
+              detail: err instanceof Error ? err.stack ?? err.message : String(err),
+            }),
+          );
+        }
+      }
+
       // Save current canvas to DB before Commander reads it
       const { activeCanvasId: canvasId, canvases } = state.canvas;
-      const activeCanvas = canvases.find((c) => c.id === canvasId);
+      const activeCanvas = canvasId ? canvases.entities[canvasId] : undefined;
       if (activeCanvas && api.canvas?.save) {
         await api.canvas.save(activeCanvas).catch(() => {});
       }
@@ -310,13 +328,30 @@ export function useCommander(): {
 
       if (data.type === 'done') {
         dispatch(finishStreaming(data.content));
+
+        // Persist session to SQLite (fire-and-forget)
+        const freshState = store.getState() as RootState;
+        const sid = freshState.commander.activeSessionId;
+        if (sid && freshState.commander.messages.length > 0) {
+          const sess = freshState.commander.sessions.find((s) => s.id === sid);
+          if (sess) {
+            api.session?.upsert({
+              id: sess.id,
+              canvasId: freshState.canvas.activeCanvasId ?? null,
+              title: sess.title,
+              messages: JSON.stringify(sess.messages),
+              createdAt: sess.createdAt,
+              updatedAt: sess.updatedAt,
+            }).catch(() => {});
+          }
+        }
       }
     });
 
     const unsubCanvas = api.commander.onCanvasUpdated((data) => {
       // Apply granular diffs between incoming canvas and current Redux state
       const currentState = store.getState() as RootState;
-      const currentCanvas = currentState.canvas.canvases.find((c) => c.id === data.canvasId);
+      const currentCanvas = currentState.canvas.canvases.entities[data.canvasId];
       if (!currentCanvas) return;
       const incoming = data.canvas;
 
@@ -453,13 +488,21 @@ export function useCommander(): {
   const cancel = useCallback(async () => {
     const api = getAPI();
     if (!api?.commander) {
-      throw new Error(t('commander.apiUnavailable'));
+      dispatch(finishStreaming(undefined));
+      return;
     }
-    if (!activeCanvasId) {
-      throw new Error(t('commander.noActiveCanvas'));
+    // Always finalize streaming on the renderer side first — the main process
+    // session may already be gone (error/timeout already cleaned it up).
+    dispatch(finishStreaming(undefined));
+
+    if (activeCanvasId) {
+      try {
+        await api.commander.cancel(activeCanvasId);
+      } catch {
+        // Main-process session already gone — safe to ignore
+      }
     }
-    await api.commander.cancel(activeCanvasId);
-  }, [activeCanvasId]);
+  }, [activeCanvasId, dispatch]);
 
   return { sendMessage, cancel, isStreaming };
 }

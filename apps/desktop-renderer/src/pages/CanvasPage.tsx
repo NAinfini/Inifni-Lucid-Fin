@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { Layers, Plus } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { Canvas } from '@lucid-fin/contracts';
@@ -9,11 +9,13 @@ import {
   setCanvases,
   setLoading,
 } from '../store/slices/canvas.js';
+import { selectAllCanvases, selectActiveCanvas } from '../store/slices/canvas-selectors.js';
 import { toggleCommander } from '../store/slices/commander.js';
 import { setPresets, setPresetsLoading } from '../store/slices/presets.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import { CanvasWorkspace } from '../components/canvas/CanvasWorkspace.js';
+import { ErrorBoundary } from '../components/ErrorBoundary.js';
 import { ReactFlowProvider } from '@xyflow/react';
 import { LeftToolbar } from '../components/layout/LeftToolbar.js';
 import { RightToolbar } from '../components/layout/RightToolbar.js';
@@ -94,22 +96,20 @@ export function CanvasPage() {
   const rightWidthRef = useRef(380);
   const leftPanelRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
-  const { canvases, activeCanvasId, loading } = useSelector(
+  const canvases = useSelector(selectAllCanvases);
+  const { activeCanvasId, loading } = useSelector(
     (state: RootState) => state.canvas,
   );
   const { activePanel, rightPanel } = useSelector(
     (state: RootState) => state.ui,
   );
   const commanderOpen = useSelector((state: RootState) => state.commander.open);
-  const projectLoaded = useSelector((state: RootState) => state.project.loaded);
+  const bootstrapped = useSelector((state: RootState) => state.settings.bootstrapped);
 
-  const activeCanvas = useMemo(
-    () => canvases.find((canvas) => canvas.id === activeCanvasId) ?? null,
-    [activeCanvasId, canvases],
-  );
+  const activeCanvas = useSelector(selectActiveCanvas) ?? null;
 
   useEffect(() => {
-    if (!projectLoaded) return;
+    if (!bootstrapped) return;
     if (canvases.length > 0) {
       return;
     }
@@ -146,10 +146,10 @@ export function CanvasPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeCanvasId, canvases.length, dispatch, projectLoaded]);
+  }, [activeCanvasId, canvases.length, dispatch, bootstrapped]);
 
   useEffect(() => {
-    if (!projectLoaded) return;
+    if (!bootstrapped) return;
     const loadPresets = async () => {
       dispatch(setPresetsLoading(true));
       try {
@@ -163,7 +163,7 @@ export function CanvasPage() {
     };
 
     void loadPresets();
-  }, [dispatch, projectLoaded]);
+  }, [dispatch, bootstrapped]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -289,7 +289,11 @@ export function CanvasPage() {
       case 'presets': Panel = PresetManagerPanel; break;
       case 'canvases': Panel = CanvasNavigatorPanel; break;
     }
-    return Panel ? <Suspense fallback={null}><Panel /></Suspense> : null;
+    return Panel ? (
+      <ErrorBoundary name="Asset Browser">
+        <Suspense fallback={null}><Panel /></Suspense>
+      </ErrorBoundary>
+    ) : null;
   };
 
   const renderRightPanel = () => {
@@ -303,7 +307,11 @@ export function CanvasPage() {
       case 'notes': Panel = CanvasNotesPanel; break;
       case 'export': Panel = ExportRenderPanel; break;
     }
-    return Panel ? <Suspense fallback={null}><Panel /></Suspense> : null;
+    return Panel ? (
+      <ErrorBoundary name="Inspector">
+        <Suspense fallback={null}><Panel /></Suspense>
+      </ErrorBoundary>
+    ) : null;
   };
 
   return (
@@ -346,7 +354,9 @@ export function CanvasPage() {
             ) : null}
 
             <div className="flex-1 min-w-0 h-full">
-              <CanvasWorkspace />
+              <ErrorBoundary name="Canvas">
+                <CanvasWorkspace />
+              </ErrorBoundary>
             </div>
 
             {rightPanel !== null ? (
@@ -363,9 +373,11 @@ export function CanvasPage() {
       </div>
 
       {commanderOpen ? (
-        <Suspense fallback={null}>
-          <CommanderPanel />
-        </Suspense>
+        <ErrorBoundary name="Commander">
+          <Suspense fallback={null}>
+            <CommanderPanel />
+          </Suspense>
+        </ErrorBoundary>
       ) : null}
       <RightToolbar />
     </div>

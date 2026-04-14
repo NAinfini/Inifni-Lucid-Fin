@@ -1,25 +1,11 @@
 import type { Middleware } from '@reduxjs/toolkit';
 import { getAPI } from '../../utils/api.js';
-import { t } from '../../i18n.js';
-import { enqueueToast } from '../slices/toast.js';
 import { addLog } from '../slices/logger.js';
 import type { RootState } from '../index.js';
 import type { Canvas } from '@lucid-fin/contracts';
 import { diffCanvas, shouldUsePatch } from './canvas-differ.js';
 import { buildSparseSettings } from '../slices/settings.js';
-
-const PROJECT_PERSIST_SLICES = [
-  'project',
-  'script',
-  'characters',
-  'equipment',
-  'storyboard',
-  'orchestration',
-  'audio',
-  'series',
-  'presets',
-  'shotTemplates',
-];
+import { LRUCache } from '@lucid-fin/application/dist/lru-cache.js';
 
 // Canvas actions that mutate node/edge data and need canvas:save
 const CANVAS_MUTATE_PREFIXES = [
@@ -80,17 +66,15 @@ const CANVAS_MUTATE_PREFIXES = [
 
 const DEBOUNCE_MS = 500;
 
-let projectTimer: ReturnType<typeof setTimeout> | null = null;
 let canvasTimer: ReturnType<typeof setTimeout> | null = null;
 let settingsTimer: ReturnType<typeof setTimeout> | null = null;
-let consecutiveFailures = 0;
 // Guard: don't persist settings until the initial restore from disk has run.
 // Without this, early settings/* actions (usage tracking, daily active, etc.)
 // would save default/empty provider state, overwriting the real settings.json.
 let settingsRestoredFromDisk = false;
 
 // Tracks the last successfully saved canvas state per canvas id for patch diffing
-const savedCanvasSnapshots = new Map<string, Canvas>();
+const savedCanvasSnapshots = new LRUCache<string, Canvas>(30);
 
 export const persistMiddleware: Middleware = (store) => (next) => (action) => {
   const result = next(action);
@@ -100,41 +84,7 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
     const sliceName = actionType.split('/')[0];
     const state = store.getState() as RootState;
 
-    // Project-level save (manifest only)
-    if (PROJECT_PERSIST_SLICES.includes(sliceName) && state.project.loaded) {
-      if (projectTimer) clearTimeout(projectTimer);
-      projectTimer = setTimeout(() => {
-        projectTimer = null;
-        getAPI()
-          ?.project.save()
-          .then(() => {
-            consecutiveFailures = 0;
-          })
-          .catch((error: unknown) => {
-            store.dispatch(
-              addLog({
-                level: 'error',
-                category: 'persistence',
-                message: 'Project autosave failed',
-                detail: error instanceof Error ? error.stack ?? error.message : String(error),
-              }),
-            );
-            consecutiveFailures += 1;
-            store.dispatch(
-              enqueueToast({
-                variant: consecutiveFailures >= 3 ? 'warning' : 'error',
-                title:
-                  consecutiveFailures >= 3
-                    ? t('toast.error.autosaveRepeatedFailed')
-                    : t('toast.error.autosaveFailed'),
-                message:
-                  error instanceof Error ? error.message : t('toast.error.checkProjectState'),
-                durationMs: consecutiveFailures >= 3 ? 8000 : 5000,
-              }),
-            );
-          });
-      }, DEBOUNCE_MS);
-    }
+    // Project-level save removed — project layer no longer exists.
 
     // Prune savedCanvasSnapshots when a canvas is removed to prevent memory leak.
     // Without this, deleted canvas objects accumulate in the Map permanently.
@@ -144,13 +94,13 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
     }
 
     // Canvas-level save: persist the active canvas when nodes/edges change
-    if (CANVAS_MUTATE_PREFIXES.includes(actionType) && state.project.loaded) {
+    if (CANVAS_MUTATE_PREFIXES.includes(actionType) && state.settings.bootstrapped) {
       if (canvasTimer) clearTimeout(canvasTimer);
       canvasTimer = setTimeout(() => {
         canvasTimer = null;
         const currentState = store.getState() as RootState;
         const { activeCanvasId, canvases, viewport } = currentState.canvas;
-        const canvas = canvases.find((c) => c.id === activeCanvasId);
+        const canvas = activeCanvasId ? canvases.entities[activeCanvasId] : undefined;
         if (!canvas) return;
 
         // Snapshot current viewport into canvas for persistence.

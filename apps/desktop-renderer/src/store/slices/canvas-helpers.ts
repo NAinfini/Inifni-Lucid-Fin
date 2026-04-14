@@ -78,12 +78,13 @@ export function normalizeCanvasNodeFrames(canvas: Canvas): Canvas {
 // ---------------------------------------------------------------------------
 
 export function findActiveCanvas(state: CanvasSliceState): Canvas | undefined {
-  return state.canvases.find((c) => c.id === state.activeCanvasId);
+  if (!state.activeCanvasId) return undefined;
+  return state.canvases.entities[state.activeCanvasId];
 }
 
 export function findCanvasById(state: CanvasSliceState, canvasId: string | null | undefined): Canvas | undefined {
   if (!canvasId) return undefined;
-  return state.canvases.find((canvas) => canvas.id === canvasId);
+  return state.canvases.entities[canvasId];
 }
 
 export function createDefaultPresetTracks(): PresetTrackSet {

@@ -9,7 +9,6 @@ import { t } from '../../i18n.js';
 import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
-import { projectSlice } from '../../store/slices/project.js';
 import { uiSlice } from '../../store/slices/ui.js';
 import { workflowsSlice } from '../../store/slices/workflows.js';
 import { CanvasNavigatorPanel } from './CanvasNavigatorPanel.js';
@@ -32,7 +31,6 @@ function renderNavigator() {
       canvas: canvasSlice.reducer,
       ui: uiSlice.reducer,
       commander: commanderSlice.reducer,
-      project: projectSlice.reducer,
       jobs: jobsSlice.reducer,
       workflows: workflowsSlice.reducer,
     },
@@ -42,7 +40,6 @@ function renderNavigator() {
     canvasSlice.actions.setCanvases([
       {
         id: 'canvas-1',
-        projectId: 'project-1',
         name: 'Opening Shot',
         nodes: [],
         edges: [],
@@ -53,7 +50,6 @@ function renderNavigator() {
       },
       {
         id: 'canvas-2',
-        projectId: 'project-1',
         name: 'Battlefield',
         nodes: [],
         edges: [],
@@ -112,7 +108,7 @@ describe('CanvasNavigatorPanel', () => {
     });
     fireEvent.blur(screen.getByDisplayValue('Renamed Canvas'));
     expect(api.canvas.rename).toHaveBeenCalledWith('canvas-2', 'Renamed Canvas');
-    expect(store.getState().canvas.canvases.find((canvas) => canvas.id === 'canvas-2')?.name).toBe(
+    expect(store.getState().canvas.canvases.entities['canvas-2']?.name).toBe(
       'Renamed Canvas',
     );
 
@@ -120,7 +116,7 @@ describe('CanvasNavigatorPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: t('action.confirm') }));
     await waitFor(() => {
       expect(api.canvas.delete).toHaveBeenCalledWith('canvas-2');
-      expect(store.getState().canvas.canvases.map((canvas) => canvas.id)).not.toContain('canvas-2');
+      expect(store.getState().canvas.canvases.entities['canvas-2']).toBeUndefined();
     });
   });
 });

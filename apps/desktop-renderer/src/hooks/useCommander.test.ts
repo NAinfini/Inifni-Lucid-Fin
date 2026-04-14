@@ -113,7 +113,6 @@ describe('useCommander stream completion', () => {
 
     store.dispatch(setCanvases([{
       id: 'canvas-1',
-      projectId: 'project-1',
       name: 'Main',
       nodes: [],
       edges: [],
@@ -163,7 +162,6 @@ describe('useCommander stream completion', () => {
 
     store.dispatch(setCanvases([{
       id: 'canvas-1',
-      projectId: 'project-1',
       name: 'Main',
       nodes: [],
       edges: [],

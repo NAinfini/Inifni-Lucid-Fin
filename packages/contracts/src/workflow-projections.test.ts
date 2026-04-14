@@ -13,7 +13,6 @@ describe('workflow projection contracts', () => {
     expectTypeOf<WorkflowActivitySummary>().toMatchTypeOf<{
       id: string;
       workflowType: string;
-      projectId: string;
       entityType: string;
       entityId?: string;
       status: string;

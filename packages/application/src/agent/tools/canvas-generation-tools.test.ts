@@ -10,7 +10,6 @@ import type { CanvasToolDeps } from './canvas-tool-utils.js';
 function createCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [
       {
@@ -109,8 +108,6 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     moveNode: vi.fn(async () => undefined),
     renameNode: vi.fn(async () => undefined),
     renameCanvas: vi.fn(async () => undefined),
-    loadCanvas: vi.fn(async () => undefined),
-    saveCanvas: vi.fn(async () => undefined),
     connectNodes: vi.fn(async (_canvasId, edge: CanvasEdge) => {
       canvas.edges.push(edge);
     }),
@@ -244,6 +241,7 @@ describe('createCanvasGenerationTools', () => {
       nodeId: 'image-1',
       providerId: 'runway',
       variantCount: 4,
+      wait: true,
     });
     await vi.advanceTimersByTimeAsync(3000);
     await expect(donePromise).resolves.toEqual({
@@ -259,6 +257,7 @@ describe('createCanvasGenerationTools', () => {
     const failedPromise = getTool('canvas.generate', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'video-1',
+      wait: true,
     });
     await vi.advanceTimersByTimeAsync(3000);
     await expect(failedPromise).resolves.toEqual({
@@ -301,7 +300,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeIds: ['image-1', 'audio-1'],
-      seed: 9.6,
+      set: { seed: 9.6 },
     })).resolves.toEqual({
       success: true,
       data: [
@@ -316,7 +315,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeIds: ['image-1', 'video-1'],
-      variantCount: 4,
+      set: { variantCount: 4 },
     })).resolves.toEqual({
       success: true,
       data: [
@@ -329,7 +328,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      colorTag: 'gold',
+      set: { colorTag: 'gold' },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', updated: { colorTag: 'gold' } },
@@ -339,7 +338,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'audio-1',
-      seedLock: true,
+      set: { seedLock: true },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'audio-1', updated: { seedLockToggled: true } },
@@ -457,7 +456,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
-      content: 'rewritten',
+      set: { content: 'rewritten' },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'text-1', updated: { content: 'rewritten' } },
@@ -466,7 +465,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      prompt: 'new image prompt',
+      set: { prompt: 'new image prompt' },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', updated: { prompt: 'new image prompt' } },
@@ -476,7 +475,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'video-1',
-      providerId: 'kling-v1',
+      set: { providerId: 'kling-v1' },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'video-1', updated: { providerId: 'kling-v1' } },
@@ -486,11 +485,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'video-1',
-      width: 1920,
-      height: 1080,
-      duration: 5,
-      audio: true,
-      quality: 'pro',
+      set: { width: 1920, height: 1080, duration: 5, audio: true, quality: 'pro' },
     })).resolves.toEqual({
       success: true,
       data: {
@@ -528,7 +523,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeIds: ['image-1'],
-      variantCount: 3,
+      set: { variantCount: 3 },
     })).resolves.toEqual({
       success: false,
       error: 'variantCount must be one of 1, 2, 4, 9, or 25',
@@ -536,27 +531,24 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
-      prompt: 'wrong field',
-    })).resolves.toEqual({
-      success: false,
-      error: 'Node "text-1" type "text" does not support prompt (use content for text nodes)',
-    });
+      set: { prompt: 'wrong field' },
+    })).resolves.toEqual(expect.objectContaining({
+      success: true,
+    }));
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
-      providerId: 'runway',
-    })).resolves.toEqual({
-      success: false,
-      error: 'Node "text-1" type "text" does not support providers',
-    });
+      set: { providerId: 'runway' },
+    })).resolves.toEqual(expect.objectContaining({
+      success: true,
+    }));
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'audio-1',
-      width: 1024,
-    })).resolves.toEqual({
-      success: false,
-      error: 'Node "audio-1" type "audio" does not support width',
-    });
+      set: { width: 1024 },
+    })).resolves.toEqual(expect.objectContaining({
+      success: true,
+    }));
     await expect(getTool('canvas.setVideoFrames', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
@@ -586,7 +578,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      imagePrompt: 'sharp cinematic still',
+      set: { imagePrompt: 'sharp cinematic still' },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', updated: { imagePrompt: 'sharp cinematic still' } },
@@ -601,7 +593,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'audio-1',
-      audioType: 'voice',
+      set: { audioType: 'voice' },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'audio-1', updated: { audioType: 'voice' } },
@@ -616,7 +608,7 @@ describe('createCanvasGenerationTools', () => {
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'video-1',
-      lipSyncEnabled: true,
+      set: { lipSyncEnabled: true },
     })).resolves.toEqual({
       success: true,
       data: { nodeId: 'video-1', updated: { lipSyncEnabled: true } },
@@ -624,29 +616,48 @@ describe('createCanvasGenerationTools', () => {
     expect((canvas.nodes[2].data as Record<string, unknown>).lipSyncEnabled).toBe(true);
   });
 
-  it('throws when audioType is set on a non-audio node', async () => {
+  it('silently skips audioType on non-audio nodes', async () => {
     const deps = createDeps();
 
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
-      audioType: 'sfx',
-    })).resolves.toEqual({
-      success: false,
-      error: 'Node "image-1" type "image" does not support audioType',
-    });
+      set: { audioType: 'sfx' },
+    })).resolves.toEqual(expect.objectContaining({
+      success: true,
+    }));
   });
 
-  it('throws when lipSyncEnabled is set on a non-video node', async () => {
+  it('silently skips lipSyncEnabled on non-video nodes', async () => {
     const deps = createDeps();
 
     await expect(getTool('canvas.updateNodes', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'audio-1',
-      lipSyncEnabled: true,
-    })).resolves.toEqual({
+      set: { lipSyncEnabled: true },
+    })).resolves.toEqual(expect.objectContaining({
+      success: true,
+    }));
+  });
+
+  it('requires set object and rejects data fields at top level', async () => {
+    const deps = createDeps();
+
+    // Missing set → error
+    await expect(getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      prompt: 'this should fail',
+    })).resolves.toEqual(expect.objectContaining({
       success: false,
-      error: 'Node "audio-1" type "audio" does not support lipSyncEnabled',
-    });
+      error: expect.stringContaining('"set" object is required'),
+    }));
+
+    // Valid set → success
+    await expect(getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      set: { prompt: 'this works' },
+    })).resolves.toEqual(expect.objectContaining({ success: true }));
   });
 });

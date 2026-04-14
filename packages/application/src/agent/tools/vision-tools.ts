@@ -1,4 +1,5 @@
 import type { AgentTool } from '../tool-registry.js';
+import { ok, fail } from './tool-result-helpers.js';
 
 export interface VisionToolDeps {
   describeImage: (
@@ -9,17 +10,6 @@ export interface VisionToolDeps {
   ) => Promise<{ prompt: string }>;
   getNodeAssetHash?: (nodeId: string) => Promise<string | null>;
   writeNodeField?: (nodeId: string, field: string, value: string) => Promise<void>;
-}
-
-function ok(data?: unknown): { success: true; data?: unknown } {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): { success: false; error: string } {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
 }
 
 export function createVisionTools(deps: VisionToolDeps): AgentTool[] {

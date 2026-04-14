@@ -15,7 +15,6 @@ import { t } from '../../i18n.js';
 function makeCanvas(id = 'canvas-1', name = 'Main'): Canvas {
   return {
     id,
-    projectId: 'project-1',
     name,
     nodes: [],
     edges: [],
@@ -49,7 +48,7 @@ describe('canvas polish reducers', () => {
       }),
     );
 
-    const node = state.canvases[0].nodes.find((entry) => entry.id === 'backdrop-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((entry) => entry.id === 'backdrop-1');
     expect(node?.type).toBe('backdrop');
     expect(node?.width).toBeGreaterThan(300);
     expect(node?.height).toBeGreaterThan(180);
@@ -77,10 +76,10 @@ describe('canvas polish reducers', () => {
       }),
     );
 
-    expect(state.canvases[0].edges.find((edge) => edge.id === 'edge-1')?.data.label).toBe(
+    expect(state.canvases.entities['canvas-1']!.edges.find((edge) => edge.id === 'edge-1')?.data.label).toBe(
       t('edge.generateImage'),
     );
-    expect(state.canvases[0].edges.find((edge) => edge.id === 'edge-2')?.data.label).toBe(t('edge.animate'));
+    expect(state.canvases.entities['canvas-1']!.edges.find((edge) => edge.id === 'edge-2')?.data.label).toBe(t('edge.animate'));
   });
 
   it('copies selected nodes and pastes them into another canvas with remapped ids and edges', () => {
@@ -97,7 +96,7 @@ describe('canvas polish reducers', () => {
     state = canvasSlice.reducer(state, copyNodes(['text-1', 'image-1']));
     state = canvasSlice.reducer(state, pasteNodes({ targetCanvasId: 'canvas-2', offset: { x: 50, y: 50 } }));
 
-    const targetCanvas = state.canvases.find((canvas) => canvas.id === 'canvas-2');
+    const targetCanvas = state.canvases.entities['canvas-2'];
     expect(targetCanvas?.nodes).toHaveLength(2);
     expect(targetCanvas?.edges).toHaveLength(1);
     expect(targetCanvas?.nodes.every((node) => !['text-1', 'image-1'].includes(node.id))).toBe(true);
@@ -131,7 +130,7 @@ describe('canvas polish reducers', () => {
       }),
     );
 
-    const canvas = state.canvases[0];
+    const canvas = state.canvases.entities['canvas-1']!;
     expect(canvas.edges).toHaveLength(2);
     expect(canvas.edges.some((edge) => edge.source === 'text-1')).toBe(true);
     expect(canvas.edges.some((edge) => edge.target === 'video-1')).toBe(true);
@@ -162,7 +161,7 @@ describe('canvas polish reducers', () => {
 
     state = canvasSlice.reducer(state, setCanvases([imported]));
 
-    expect(state.canvases.find((canvas) => canvas.id === 'canvas-1')?.name).toBe('Imported Flow');
-    expect(state.canvases.find((canvas) => canvas.id === 'canvas-1')?.nodes).toHaveLength(1);
+    expect(state.canvases.entities['canvas-1']?.name).toBe('Imported Flow');
+    expect(state.canvases.entities['canvas-1']?.nodes).toHaveLength(1);
   });
 });

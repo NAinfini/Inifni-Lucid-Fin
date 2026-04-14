@@ -16,7 +16,6 @@ import {
 function makeCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Main',
     nodes: [],
     edges: [],
@@ -68,7 +67,7 @@ describe('canvas character refs', () => {
       }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
     expect(data.characterRefs).toHaveLength(1);
     expect(data.characterRefs![0].characterId).toBe('char-1');
@@ -92,7 +91,7 @@ describe('canvas character refs', () => {
       }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
     expect(data.characterRefs).toHaveLength(1);
   });
@@ -118,7 +117,7 @@ describe('canvas character refs', () => {
       removeNodeCharacterRef({ id: 'vid-1', characterId: 'char-1' }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'vid-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'vid-1');
     const data = node?.data as VideoNodeData;
     expect(data.characterRefs).toHaveLength(1);
     expect(data.characterRefs![0].characterId).toBe('char-2');
@@ -137,7 +136,7 @@ describe('canvas character refs', () => {
       }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
     expect(data.characterRefs).toHaveLength(2);
   });
@@ -152,7 +151,7 @@ describe('canvas character refs', () => {
       }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'txt-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'txt-1');
     expect((node?.data as unknown as Record<string, unknown>).characterRefs).toBeUndefined();
   });
 });
@@ -165,7 +164,7 @@ describe('canvas equipment refs', () => {
       addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
     expect(data.equipmentRefs).toHaveLength(1);
     expect(data.equipmentRefs![0]).toEqual({ equipmentId: 'eq-1', angleSlot: undefined, referenceImageHash: undefined });
@@ -182,7 +181,7 @@ describe('canvas equipment refs', () => {
       addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
     expect(data.equipmentRefs).toHaveLength(1);
   });
@@ -202,7 +201,7 @@ describe('canvas equipment refs', () => {
       removeNodeEquipmentRef({ id: 'vid-1', equipmentId: 'eq-1' }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'vid-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'vid-1');
     const data = node?.data as VideoNodeData;
     expect(data.equipmentRefs).toHaveLength(1);
     expect(data.equipmentRefs![0]).toEqual({ equipmentId: 'eq-2', angleSlot: undefined, referenceImageHash: undefined });
@@ -218,7 +217,7 @@ describe('canvas equipment refs', () => {
       }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
     expect(data.equipmentRefs).toHaveLength(3);
   });
@@ -230,7 +229,7 @@ describe('canvas equipment refs', () => {
       addNodeEquipmentRef({ id: 'txt-1', equipmentId: 'eq-1' }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'txt-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'txt-1');
     expect((node?.data as unknown as Record<string, unknown>).equipmentRefs).toBeUndefined();
   });
 });

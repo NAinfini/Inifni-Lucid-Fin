@@ -1,12 +1,13 @@
 import type { Series } from '@lucid-fin/contracts';
-import type { AgentTool, ToolResult } from '../tool-registry.js';
+import type { AgentTool } from '../tool-registry.js';
+import { defineToolModule } from '../tool-module.js';
+import { ok, fail, requireString, requireStringArray, extractSet, warnExtraKeys } from './tool-result-helpers.js';
 
 export interface SeriesEpisode {
   id: string;
   seriesId: string;
   title: string;
   order: number;
-  projectId: string | null;
   status: string;
   createdAt: number;
   updatedAt: number;
@@ -21,55 +22,12 @@ export interface SeriesToolDeps {
   reorderEpisodes?: (episodeIds: string[]) => Promise<SeriesEpisode[]>;
 }
 
-function ok(data?: unknown): ToolResult {
-  return data === undefined ? { success: true } : { success: true, data };
-}
-
-function fail(error: unknown): ToolResult {
-  return {
-    success: false,
-    error: error instanceof Error ? error.message : String(error),
-  };
-}
-
-function requireString(args: Record<string, unknown>, key: string): string {
-  const value = args[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
-  }
-  return value.trim();
-}
-
-function requireStringArray(args: Record<string, unknown>, key: string): string[] {
-  const value = args[key];
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${key} must be a non-empty array`);
-  }
-  return value.map((entry, index) => {
-    if (typeof entry !== 'string' || entry.trim().length === 0) {
-      throw new Error(`${key}[${index}] must be a non-empty string`);
-    }
-    return entry.trim();
-  });
-}
-
 function requireSeries(args: Record<string, unknown>): Series {
   const value = args.series;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('series is required');
   }
   return value as Series;
-}
-
-function parseOptionalString(args: Record<string, unknown>, key: string): string | undefined {
-  const value = args[key];
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== 'string') {
-    throw new Error(`${key} must be a string`);
-  }
-  return value;
 }
 
 export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
@@ -89,39 +47,46 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
 
   const save: AgentTool = {
     name: 'series.save',
-    description: 'Save the current project series definition.',
+    description: 'Save the current project series definition. Two modes: (1) Pass a full "series" object to replace. (2) Pass "set": { title, description } to update individual fields — only fields in "set" are applied.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
-        series: { type: 'object', description: 'Optional full series definition to save.' },
-        title: { type: 'string', description: 'Optional series title update.' },
-        description: { type: 'string', description: 'Optional series description update.' },
+        series: { type: 'object', description: 'Advanced mode: a full series definition to save (replaces current). Mutually exclusive with set.' },
+        set: {
+          type: 'object',
+          description: 'Update mode: wrap fields to change inside "set". Only fields present in "set" will be applied — omitted fields are left untouched.',
+          properties: {
+            title: { type: 'string', description: 'Series title.' },
+            description: { type: 'string', description: 'Series description.' },
+          },
+        },
       },
       required: [],
     },
     async execute(args) {
       try {
-        if (!args.series && typeof args.title !== 'string' && typeof args.description !== 'string') {
-          throw new Error('Provide series object or at least one of title, description');
-        }
+        // Mode 1: full series object replace
         if (args.series !== undefined) {
           return ok(await deps.saveSeries(requireSeries(args) as unknown as Record<string, unknown>));
         }
 
+        // Mode 2: partial update via set
+        const set = extractSet(args);
+        const warnings = warnExtraKeys(args);
+
         const current = await deps.getSeries();
-        const title = parseOptionalString(args, 'title');
-        const description = parseOptionalString(args, 'description');
         const next: Record<string, unknown> = current ? { ...current } : {};
 
-        if (title !== undefined) {
-          next.title = title;
+        if (typeof set.title === 'string') {
+          next.title = set.title;
         }
-        if (description !== undefined) {
-          next.description = description;
+        if (typeof set.description === 'string') {
+          next.description = set.description;
         }
 
-        return ok(await deps.saveSeries(next));
+        const saved = await deps.saveSeries(next);
+        return { success: true, data: saved, ...(warnings.length > 0 && { warnings }) };
       } catch (error) {
         return fail(error);
       }
@@ -229,3 +194,8 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
 
   return [get, save, listEpisodes, addEpisode, removeEpisode, reorderEpisodes];
 }
+
+export const seriesToolModule = defineToolModule({
+  name: 'series',
+  createTools: createSeriesTools,
+});

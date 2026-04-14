@@ -35,9 +35,9 @@ describe('series slice', () => {
       type: 'series/setSeries',
       payload: { id: 'series-1', title: 'Anthology' },
     });
-    expect(addEpisode({ id: 'ep-1', title: 'Pilot', projectId: 'project-1' })).toMatchObject({
+    expect(addEpisode({ id: 'ep-1', title: 'Pilot' })).toMatchObject({
       type: 'series/addEpisode',
-      payload: { id: 'ep-1', title: 'Pilot', projectId: 'project-1' },
+      payload: { id: 'ep-1', title: 'Pilot' },
     });
     expect(removeEpisode('ep-1')).toMatchObject({
       type: 'series/removeEpisode',
@@ -114,19 +114,19 @@ describe('series slice', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(50);
     let state = seriesSlice.reducer(
       undefined,
-      addEpisode({ id: 'ep-1', title: 'Pilot', projectId: 'project-1' }),
+      addEpisode({ id: 'ep-1', title: 'Pilot' }),
     );
     state = seriesSlice.reducer(
       state,
-      addEpisode({ id: 'ep-2', title: 'Finale', projectId: 'project-2' }),
+      addEpisode({ id: 'ep-2', title: 'Finale' }),
     );
     state = seriesSlice.reducer(
       state,
-      addEpisode({ id: 'ep-3', title: 'Interlude', projectId: 'project-3' }),
+      addEpisode({ id: 'ep-3', title: 'Interlude' }),
     );
     state = seriesSlice.reducer(
       state,
-      addEpisode({ id: 'ep-2', title: 'Duplicate', projectId: 'project-dup' }),
+      addEpisode({ id: 'ep-2', title: 'Duplicate' }),
     );
     state = seriesSlice.reducer(state, setActiveEpisode('ep-2'));
 
@@ -209,7 +209,7 @@ describe('series slice', () => {
     );
     state = seriesSlice.reducer(
       state,
-      addEpisode({ id: 'ep-1', title: 'Pilot', projectId: 'project-1' }),
+      addEpisode({ id: 'ep-1', title: 'Pilot' }),
     );
     state = seriesSlice.reducer(
       state,

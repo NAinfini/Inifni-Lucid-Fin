@@ -8,8 +8,6 @@ const logger = vi.hoisted(() => ({
   fatal: vi.fn(),
 }));
 
-const getCurrentProjectId = vi.hoisted(() => vi.fn(() => 'project-1'));
-
 vi.mock('../../logger.js', () => ({
   default: logger,
   debug: logger.debug,
@@ -17,10 +15,6 @@ vi.mock('../../logger.js', () => ({
   warn: logger.warn,
   error: logger.error,
   fatal: logger.fatal,
-}));
-
-vi.mock('../project-context.js', () => ({
-  getCurrentProjectId,
 }));
 
 import { registerCanvasHandlers } from './canvas.handlers.js';
@@ -38,7 +32,7 @@ describe('registerCanvasHandlers', () => {
       get: vi.fn(),
       save: vi.fn(),
       delete: vi.fn(),
-      listForProject: vi.fn(() => []),
+      list: vi.fn(() => []),
     };
 
     registerCanvasHandlers(
@@ -55,7 +49,6 @@ describe('registerCanvasHandlers', () => {
 
     await saveCanvas?.({}, {
       id: 'canvas-1',
-      projectId: 'old-project',
       name: 'Storyboard',
       nodes: [],
       edges: [],
@@ -68,7 +61,6 @@ describe('registerCanvasHandlers', () => {
     expect(store.save).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'canvas-1',
-        projectId: 'project-1',
       }),
     );
     expect(logger.debug).toHaveBeenCalledWith('Canvas saved:', 'canvas-1');

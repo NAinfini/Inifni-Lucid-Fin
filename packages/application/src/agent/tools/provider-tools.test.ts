@@ -91,7 +91,7 @@ describe('createProviderTools', () => {
     await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-2',
-      baseUrl: 'https://override.example.com',
+      set: { baseUrl: 'https://override.example.com' },
     })).resolves.toEqual({
       success: true,
       data: { providerId: 'provider-2', baseUrl: 'https://override.example.com' },
@@ -99,7 +99,7 @@ describe('createProviderTools', () => {
     await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-2',
-      model: 'model-3',
+      set: { model: 'model-3' },
     })).resolves.toEqual({
       success: true,
       data: { providerId: 'provider-2', model: 'model-3' },
@@ -107,7 +107,7 @@ describe('createProviderTools', () => {
     await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-2',
-      name: 'Renamed',
+      set: { name: 'Renamed' },
     })).resolves.toEqual({
       success: true,
       data: { providerId: 'provider-2', name: 'Renamed' },
@@ -115,9 +115,7 @@ describe('createProviderTools', () => {
     await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-2',
-      baseUrl: 'https://override.example.com',
-      model: 'model-3',
-      name: 'Renamed',
+      set: { baseUrl: 'https://override.example.com', model: 'model-3', name: 'Renamed' },
     })).resolves.toEqual({
       success: true,
       data: { providerId: 'provider-2', baseUrl: 'https://override.example.com', model: 'model-3', name: 'Renamed' },
@@ -131,15 +129,16 @@ describe('createProviderTools', () => {
     });
   });
 
-  it('provider.update rejects when no fields are provided', async () => {
+  it('provider.update rejects when set is empty', async () => {
     const deps = createDeps();
 
     await expect(getTool('provider.update', deps).execute({
       group: 'llm',
       providerId: 'provider-1',
+      set: {},
     })).resolves.toEqual({
       success: false,
-      error: 'At least one of baseUrl, model, or name must be provided',
+      error: '"set" must contain at least one field to update',
     });
   });
 

@@ -11,7 +11,6 @@ import { insertJob, updateJob, getJob, listJobs, rowToJob } from './sqlite-jobs.
 const JOBS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS jobs (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT NOT NULL,
   segment_id    TEXT,
   type          TEXT NOT NULL,
   provider      TEXT NOT NULL,
@@ -52,7 +51,6 @@ function createTempDb(): BetterSqlite3.Database {
 function makeJob(overrides?: Partial<Job>): Job {
   return {
     id: 'j1',
-    projectId: 'project-1',
     type: 'image',
     provider: 'openai-dalle',
     status: JobStatus.Queued,
@@ -96,7 +94,6 @@ describe('sqlite-jobs', () => {
       const fetched = getJob(db, 'j1');
       expect(fetched).toBeDefined();
       expect(fetched!.id).toBe('j1');
-      expect(fetched!.projectId).toBe('project-1');
       expect(fetched!.type).toBe('image');
       expect(fetched!.provider).toBe('openai-dalle');
       expect(fetched!.status).toBe(JobStatus.Queued);
@@ -305,21 +302,15 @@ describe('sqlite-jobs', () => {
 
   describe('listJobs', () => {
     beforeEach(() => {
-      insertJob(db, makeJob({ id: 'j-a', projectId: 'proj-1', status: JobStatus.Queued, priority: 5 }));
-      insertJob(db, makeJob({ id: 'j-b', projectId: 'proj-1', status: JobStatus.Running, priority: 3 }));
-      insertJob(db, makeJob({ id: 'j-c', projectId: 'proj-2', status: JobStatus.Queued, priority: 1 }));
-      insertJob(db, makeJob({ id: 'j-d', projectId: 'proj-2', status: JobStatus.Completed, priority: 0 }));
+      insertJob(db, makeJob({ id: 'j-a', status: JobStatus.Queued, priority: 5 }));
+      insertJob(db, makeJob({ id: 'j-b', status: JobStatus.Running, priority: 3 }));
+      insertJob(db, makeJob({ id: 'j-c', status: JobStatus.Queued, priority: 1 }));
+      insertJob(db, makeJob({ id: 'j-d', status: JobStatus.Completed, priority: 0 }));
     });
 
     it('returns all jobs when no filter is provided', () => {
       const all = listJobs(db);
       expect(all).toHaveLength(4);
-    });
-
-    it('filters by projectId', () => {
-      const jobs = listJobs(db, { projectId: 'proj-1' });
-      expect(jobs).toHaveLength(2);
-      expect(jobs.every((j) => j.projectId === 'proj-1')).toBe(true);
     });
 
     it('filters by status', () => {
@@ -328,44 +319,34 @@ describe('sqlite-jobs', () => {
       expect(queued.every((j) => j.status === JobStatus.Queued)).toBe(true);
     });
 
-    it('filters by both projectId and status', () => {
-      const jobs = listJobs(db, { projectId: 'proj-2', status: JobStatus.Queued });
-      expect(jobs).toHaveLength(1);
-      expect(jobs[0]!.id).toBe('j-c');
-    });
-
-    it('returns empty array when no jobs match filter', () => {
-      const jobs = listJobs(db, { projectId: 'proj-999' });
-      expect(jobs).toHaveLength(0);
-    });
-
     it('returns empty array when status matches nothing', () => {
       const jobs = listJobs(db, { status: JobStatus.Cancelled });
       expect(jobs).toHaveLength(0);
     });
 
     it('orders by priority DESC then createdAt ASC', () => {
-      // All in proj-1: j-a has priority 5, j-b has priority 3
-      const jobs = listJobs(db, { projectId: 'proj-1' });
+      const jobs = listJobs(db);
+      // j-a priority 5, j-b priority 3, j-c priority 1, j-d priority 0
       expect(jobs[0]!.id).toBe('j-a'); // priority 5
       expect(jobs[1]!.id).toBe('j-b'); // priority 3
     });
 
     it('orders by createdAt ASC when priority is equal', () => {
       // Insert two more jobs with same priority but different createdAt
-      insertJob(db, makeJob({ id: 'j-early', projectId: 'proj-3', priority: 2, createdAt: 100 }));
-      insertJob(db, makeJob({ id: 'j-late', projectId: 'proj-3', priority: 2, createdAt: 200 }));
-      const jobs = listJobs(db, { projectId: 'proj-3' });
-      expect(jobs[0]!.id).toBe('j-early');
-      expect(jobs[1]!.id).toBe('j-late');
+      insertJob(db, makeJob({ id: 'j-early', priority: 2, createdAt: 100 }));
+      insertJob(db, makeJob({ id: 'j-late', priority: 2, createdAt: 200 }));
+      const jobs = listJobs(db, { status: JobStatus.Queued });
+      // Both j-early and j-late are Queued with priority 2
+      const earlyIdx = jobs.findIndex((j) => j.id === 'j-early');
+      const lateIdx = jobs.findIndex((j) => j.id === 'j-late');
+      expect(earlyIdx).toBeLessThan(lateIdx);
     });
 
     it('returns correct job shapes (full round-trip via list)', () => {
-      const jobs = listJobs(db, { projectId: 'proj-1' });
+      const jobs = listJobs(db, { status: JobStatus.Queued });
       for (const job of jobs) {
         expect(job).toMatchObject({
           id: expect.any(String),
-          projectId: 'proj-1',
           type: 'image',
           provider: 'openai-dalle',
           prompt: 'a red fox in a forest',
@@ -385,7 +366,6 @@ describe('sqlite-jobs', () => {
     it('maps all snake_case columns to camelCase Job fields', () => {
       const row: Record<string, unknown> = {
         id: 'j-row',
-        project_id: 'proj-row',
         segment_id: 'seg-row',
         type: 'video',
         provider: 'runway',
@@ -410,7 +390,6 @@ describe('sqlite-jobs', () => {
       };
       const job = rowToJob(row);
       expect(job.id).toBe('j-row');
-      expect(job.projectId).toBe('proj-row');
       expect(job.segmentId).toBe('seg-row');
       expect(job.type).toBe('video');
       expect(job.provider).toBe('runway');
@@ -437,7 +416,6 @@ describe('sqlite-jobs', () => {
     it('returns undefined for null optional numeric fields (progress, completedSteps, totalSteps, batchIndex)', () => {
       const row: Record<string, unknown> = {
         id: 'j-nulls',
-        project_id: 'p',
         segment_id: null,
         type: 'text',
         provider: 'gpt4',
@@ -480,7 +458,6 @@ describe('sqlite-jobs', () => {
       // SQLite may return INTEGER values; ensure Number() coercion works
       const row: Record<string, unknown> = {
         id: 'j-nums',
-        project_id: 'p',
         segment_id: null,
         type: 'image',
         provider: 'p',
@@ -569,16 +546,16 @@ describe('sqlite-jobs', () => {
           db,
           makeJob({
             id: `batch-j${i}`,
-            projectId: 'batch-proj',
             batchId: 'batch-abc',
             batchIndex: i,
           }),
         );
       }
-      const jobs = listJobs(db, { projectId: 'batch-proj' });
-      expect(jobs).toHaveLength(5);
-      expect(jobs.every((j) => j.batchId === 'batch-abc')).toBe(true);
-      const indices = jobs.map((j) => j.batchIndex).sort();
+      const jobs = listJobs(db);
+      // 5 batch jobs total
+      const batchJobs = jobs.filter((j) => j.batchId === 'batch-abc');
+      expect(batchJobs).toHaveLength(5);
+      const indices = batchJobs.map((j) => j.batchIndex).sort();
       expect(indices).toEqual([0, 1, 2, 3, 4]);
     });
   });

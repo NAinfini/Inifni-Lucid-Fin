@@ -33,16 +33,13 @@ export function registerVideoCloneHandlers(
     'video:clone',
     async (
       event,
-      args: { filePath: string; projectId: string; threshold?: number },
+      args: { filePath: string; threshold?: number },
     ) => {
       if (!args?.filePath || typeof args.filePath !== 'string') {
         throw new Error('filePath is required');
       }
-      if (!args?.projectId || typeof args.projectId !== 'string') {
-        throw new Error('projectId is required');
-      }
 
-      const { filePath, projectId, threshold } = args;
+      const { filePath, threshold } = args;
       const sender = event.sender;
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-video-clone-'));
 
@@ -166,7 +163,6 @@ export function registerVideoCloneHandlers(
 
         const canvas: Canvas = {
           id: canvasId,
-          projectId,
           name: `Video Clone ${new Date().toLocaleDateString()}`,
           nodes,
           edges,

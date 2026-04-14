@@ -145,54 +145,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     },
   };
 
-  const loadCanvas: AgentTool = {
-    name: 'canvas.loadCanvas',
-    description: 'Load an existing canvas by ID.',
-    context: CANVAS_CONTEXT,
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The canvas ID to load.' },
-      },
-      required: ['canvasId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        await requireCanvas(deps, canvasId);
-        await deps.loadCanvas(canvasId);
-        return ok({ canvasId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const saveCanvas: AgentTool = {
-    name: 'canvas.saveCanvas',
-    description: 'Save the current state of a canvas by ID.',
-    context: CANVAS_CONTEXT,
-    tier: 2,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The canvas ID to save.' },
-      },
-      required: ['canvasId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        await requireCanvas(deps, canvasId);
-        await deps.saveCanvas(canvasId);
-        return ok({ canvasId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
   const connectNodes: AgentTool = {
     name: 'canvas.connectNodes',
     description: 'Create directional edges between nodes. Single pair: pass sourceId+targetId. Batch: pass "connections" array of {sourceId, targetId, label?} objects.',
@@ -534,6 +486,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         const canvasId = requireString(args, 'canvasId');
         const rawIds = args.nodeIds;
         const canvas = await requireCanvas(deps, canvasId);
+        if (Array.isArray(rawIds) && rawIds.length === 0) {
+          return fail('nodeIds array must not be empty');
+        }
         if (typeof rawIds === 'string') {
           const nodeId = rawIds.trim();
           const node = canvas.nodes.find((n) => n.id === nodeId);
@@ -777,7 +732,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   return {
     tools: [
-      addNode, renameCanvas, loadCanvas, saveCanvas, deleteCanvas, connectNodes, duplicateNodes,
+      addNode, renameCanvas, deleteCanvas, connectNodes, duplicateNodes,
       importWorkflow, exportWorkflow, getState, listNodes, listEdges, getNode, layout, batchCreate,
     ],
     clipboardRef,

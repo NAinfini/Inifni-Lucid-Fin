@@ -8,7 +8,6 @@ const logger = vi.hoisted(() => ({
   fatal: vi.fn(),
 }));
 
-const registerProjectHandlers = vi.hoisted(() => vi.fn());
 const registerAssetHandlers = vi.hoisted(() => vi.fn());
 const registerJobHandlers = vi.hoisted(() => vi.fn());
 const registerKeychainHandlers = vi.hoisted(() => vi.fn());
@@ -46,7 +45,6 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
 }));
 
-vi.mock('./handlers/project.handlers.js', () => ({ registerProjectHandlers }));
 vi.mock('./handlers/asset.handlers.js', () => ({ registerAssetHandlers }));
 vi.mock('./handlers/job.handlers.js', () => ({ registerJobHandlers }));
 vi.mock('./handlers/keychain.handlers.js', () => ({ registerKeychainHandlers }));
@@ -85,7 +83,6 @@ describe('registerAllHandlers', () => {
     const getWindow = () => null;
     const deps = {
       db: { tag: 'db' },
-      projectFS: { tag: 'projectFS' },
       cas: { tag: 'cas' },
       keychain: { tag: 'keychain' },
       registry: { tag: 'registry' },

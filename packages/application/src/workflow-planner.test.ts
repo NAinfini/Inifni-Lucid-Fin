@@ -88,7 +88,6 @@ describe('WorkflowPlanner', () => {
 
     const planned = planner.plan({
       definition,
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       triggerSource: 'user',
@@ -101,7 +100,6 @@ describe('WorkflowPlanner', () => {
     expect(planned.workflowRun).toMatchObject({
       id: 'wf-1',
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       triggerSource: 'user',
@@ -225,5 +223,218 @@ describe('WorkflowPlanner', () => {
     expect(planned.taskDependencies).toEqual([
       { taskRunId: 'task-2', dependsOnTaskRunId: 'task-1' },
     ]);
+  });
+
+  describe('cycle detection', () => {
+    it('throws on a simple stage cycle (A \u2192 B \u2192 A)', () => {
+      const planner = new WorkflowPlanner();
+      const definition: RegisteredWorkflowDefinition = {
+        id: 'cycle-test',
+        name: 'Cycle test',
+        version: 1,
+        kind: 'test',
+        description: 'test',
+        displayCategory: 'Test',
+        displayLabel: 'Cycle test',
+        stages: [
+          {
+            id: 'stage-a',
+            name: 'A',
+            order: 0,
+            dependsOnStageIds: ['stage-b'],
+            tasks: [],
+          },
+          {
+            id: 'stage-b',
+            name: 'B',
+            order: 1,
+            dependsOnStageIds: ['stage-a'],
+            tasks: [],
+          },
+        ],
+      };
+
+      expect(() =>
+        planner.plan({
+          definition,
+          entityType: 'scene',
+          now: 1000,
+          idFactory: makeIdFactory(['wf-1', 's-1', 's-2']),
+        }),
+      ).toThrow(/Circular stage dependency.*stage-a.*stage-b.*stage-a/);
+    });
+
+    it('throws on a longer stage cycle (A \u2192 B \u2192 C \u2192 A)', () => {
+      const planner = new WorkflowPlanner();
+      const definition: RegisteredWorkflowDefinition = {
+        id: 'cycle-test-3',
+        name: 'Cycle test 3',
+        version: 1,
+        kind: 'test',
+        description: 'test',
+        displayCategory: 'Test',
+        displayLabel: 'Cycle test 3',
+        stages: [
+          {
+            id: 'stage-a',
+            name: 'A',
+            order: 0,
+            dependsOnStageIds: ['stage-c'],
+            tasks: [],
+          },
+          {
+            id: 'stage-b',
+            name: 'B',
+            order: 1,
+            dependsOnStageIds: ['stage-a'],
+            tasks: [],
+          },
+          {
+            id: 'stage-c',
+            name: 'C',
+            order: 2,
+            dependsOnStageIds: ['stage-b'],
+            tasks: [],
+          },
+        ],
+      };
+
+      expect(() =>
+        planner.plan({
+          definition,
+          entityType: 'scene',
+          now: 1000,
+          idFactory: makeIdFactory(['wf-1', 's-1', 's-2', 's-3']),
+        }),
+      ).toThrow(/Circular stage dependency/);
+    });
+
+    it('throws on a task cycle (A \u2192 B \u2192 A)', () => {
+      const planner = new WorkflowPlanner();
+      const definition: RegisteredWorkflowDefinition = {
+        id: 'task-cycle',
+        name: 'Task cycle',
+        version: 1,
+        kind: 'test',
+        description: 'test',
+        displayCategory: 'Test',
+        displayLabel: 'Task cycle',
+        stages: [
+          {
+            id: 'stage-1',
+            name: 'Stage 1',
+            order: 0,
+            tasks: [
+              {
+                id: 'task-a',
+                name: 'A',
+                kind: TaskKind.Transform,
+                handlerId: 'test',
+                maxRetries: 0,
+                dependsOnTaskIds: ['task-b'],
+                displayCategory: 'Test',
+                displayLabel: 'A',
+              },
+              {
+                id: 'task-b',
+                name: 'B',
+                kind: TaskKind.Transform,
+                handlerId: 'test',
+                maxRetries: 0,
+                dependsOnTaskIds: ['task-a'],
+                displayCategory: 'Test',
+                displayLabel: 'B',
+              },
+            ],
+          },
+        ],
+      };
+
+      expect(() =>
+        planner.plan({
+          definition,
+          entityType: 'scene',
+          now: 1000,
+          idFactory: makeIdFactory(['wf-1', 's-1', 't-1', 't-2']),
+        }),
+      ).toThrow(/Circular task dependency.*task-a.*task-b.*task-a/);
+    });
+
+    it('accepts valid DAG workflows without throwing', () => {
+      const planner = new WorkflowPlanner();
+      const definition: RegisteredWorkflowDefinition = {
+        id: 'valid-dag',
+        name: 'Valid DAG',
+        version: 1,
+        kind: 'test',
+        description: 'test',
+        displayCategory: 'Test',
+        displayLabel: 'Valid DAG',
+        stages: [
+          {
+            id: 'stage-1',
+            name: 'Stage 1',
+            order: 0,
+            tasks: [
+              {
+                id: 'task-a',
+                name: 'A',
+                kind: TaskKind.Transform,
+                handlerId: 'test',
+                maxRetries: 0,
+                displayCategory: 'Test',
+                displayLabel: 'A',
+              },
+              {
+                id: 'task-b',
+                name: 'B',
+                kind: TaskKind.Transform,
+                handlerId: 'test',
+                maxRetries: 0,
+                dependsOnTaskIds: ['task-a'],
+                displayCategory: 'Test',
+                displayLabel: 'B',
+              },
+              {
+                id: 'task-c',
+                name: 'C',
+                kind: TaskKind.Transform,
+                handlerId: 'test',
+                maxRetries: 0,
+                dependsOnTaskIds: ['task-a'],
+                displayCategory: 'Test',
+                displayLabel: 'C',
+              },
+            ],
+          },
+          {
+            id: 'stage-2',
+            name: 'Stage 2',
+            order: 1,
+            dependsOnStageIds: ['stage-1'],
+            tasks: [
+              {
+                id: 'task-d',
+                name: 'D',
+                kind: TaskKind.Transform,
+                handlerId: 'test',
+                maxRetries: 0,
+                displayCategory: 'Test',
+                displayLabel: 'D',
+              },
+            ],
+          },
+        ],
+      };
+
+      expect(() =>
+        planner.plan({
+          definition,
+          entityType: 'scene',
+          now: 1000,
+          idFactory: makeIdFactory(['wf-1', 's-1', 't-1', 't-2', 't-3', 's-2', 't-4']),
+        }),
+      ).not.toThrow();
+    });
   });
 });

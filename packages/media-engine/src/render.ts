@@ -3,6 +3,27 @@ import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, isAbsolute, dirname, resolve, sep } from 'path';
 
+/** Inline counting semaphore — avoids depending on @lucid-fin/application. */
+class Semaphore {
+  private current = 0;
+  private readonly queue: Array<() => void> = [];
+  constructor(private readonly limit: number) {}
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquire();
+    try { return await fn(); } finally { this.release(); }
+  }
+  private acquire(): Promise<void> {
+    if (this.current < this.limit) { this.current++; return Promise.resolve(); }
+    return new Promise<void>((r) => this.queue.push(r));
+  }
+  private release(): void {
+    const next = this.queue.shift();
+    if (next) next(); else this.current--;
+  }
+}
+
+const renderSemaphore = new Semaphore(3);
+
 export type RenderCodec = 'h264' | 'h265' | 'prores';
 export type RenderPreset = 'draft' | 'standard' | 'high';
 
@@ -67,7 +88,7 @@ function validateOutputPath(outputPath: string): void {
     throw new Error(`Output directory does not exist: ${dirname(outputPath)}`);
 }
 
-export function renderTimeline(
+function renderTimelineInternal(
   segments: RenderSegment[],
   outputPath: string,
   options: RenderOptions,
@@ -115,7 +136,7 @@ export function renderTimeline(
   });
 }
 
-export function renderSingleSegment(
+function renderSingleSegmentInternal(
   inputPath: string,
   outputPath: string,
   options: RenderOptions & { inPoint: number; outPoint: number; speed: number },
@@ -142,4 +163,20 @@ export function renderSingleSegment(
     .output(outputPath);
 
   return runCommand(cmd);
+}
+
+export function renderTimeline(
+  segments: RenderSegment[],
+  outputPath: string,
+  options: RenderOptions,
+): Promise<void> {
+  return renderSemaphore.run(() => renderTimelineInternal(segments, outputPath, options));
+}
+
+export function renderSingleSegment(
+  inputPath: string,
+  outputPath: string,
+  options: RenderOptions & { inPoint: number; outPoint: number; speed: number },
+): Promise<void> {
+  return renderSemaphore.run(() => renderSingleSegmentInternal(inputPath, outputPath, options));
 }

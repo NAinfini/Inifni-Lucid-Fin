@@ -3,7 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import log from '../logger.js';
-import { ProjectFS, CAS, SqliteIndex, Keychain, PromptStore } from '@lucid-fin/storage';
+import { CAS, SqliteIndex, Keychain, PromptStore } from '@lucid-fin/storage';
 import {
   AdapterRegistry,
   // Image adapters
@@ -122,7 +122,6 @@ export function initApp() {
   const assetsRoot = path.join(APP_DIR, 'assets');
 
   const db = new SqliteIndex(dbPath);
-  const projectFS = new ProjectFS();
   const workerPath = path.join(__dirname, '../workers/hash.worker.js');
   const cas = new CAS(assetsRoot, workerPath);
   const keychain = new Keychain();
@@ -136,7 +135,7 @@ export function initApp() {
   // Agent system
   const toolRegistry = new AgentToolRegistry();
 
-  return { db, projectFS, cas, keychain, adapterRegistry, llmRegistry, promptStore, toolRegistry };
+  return { db, cas, keychain, adapterRegistry, llmRegistry, promptStore, toolRegistry };
 }
 
 export async function selectConfiguredLLMAdapter(

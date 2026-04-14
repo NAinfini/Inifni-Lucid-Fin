@@ -136,7 +136,7 @@ export function useCanvasGeneration(): {
       // Flush in-memory canvas to DB before main process reads it,
       // avoiding stale state caused by the persistence debounce.
       const { canvases } = (store.getState() as RootState).canvas;
-      const activeCanvas = canvases.find((c) => c.id === activeCanvasId);
+      const activeCanvas = canvases.entities[activeCanvasId];
       if (activeCanvas && api.canvas?.save) {
         await api.canvas.save(activeCanvas).catch(() => {});
       }

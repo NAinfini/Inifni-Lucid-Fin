@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 import { Download, Film, FileCode, Package, Play, Loader2 } from 'lucide-react';
 import type { AppDispatch, RootState } from '../store/index.js';
 import { addLog } from '../store/slices/logger.js';
@@ -32,7 +32,6 @@ export function ExportEngine() {
   const [nleFormat, setNleFormat] = useState<NLEFormat>('fcpxml');
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const { title: _title } = useSelector((s: RootState) => s.project);
 
   const NLE_FORMATS: Array<{ id: NLEFormat; labelKey: string; ext: string }> = [
     { id: 'fcpxml', labelKey: 'export.fcpxml', ext: '.fcpxml' },
@@ -95,7 +94,9 @@ export function ExportEngine() {
       if (!api) return;
       // Collect all asset hashes from the active canvas
       const state = (await import('../store/index.js')).store.getState() as RootState;
-      const activeCanvas = state.canvas.canvases.find((c) => c.id === state.canvas.activeCanvasId);
+      const activeCanvas = state.canvas.activeCanvasId
+        ? state.canvas.canvases.entities[state.canvas.activeCanvasId]
+        : undefined;
       const hashes: string[] = [];
       for (const node of activeCanvas?.nodes ?? []) {
         const data = node.data as { assetHash?: string; variants?: string[] };

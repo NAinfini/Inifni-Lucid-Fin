@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import log from './logger.js';
-import { getCurrentProjectId } from './ipc/project-context.js';
 
 export interface ApiServerDeps {
   db: SqliteIndex;
@@ -63,12 +62,7 @@ function handleHealth(res: http.ServerResponse): void {
 }
 
 function handleListCanvases(res: http.ServerResponse, db: SqliteIndex): void {
-  const projectId = getCurrentProjectId();
-  if (!projectId) {
-    sendError(res, 400, 'No project open');
-    return;
-  }
-  const canvases = db.listCanvases(projectId);
+  const canvases = db.listCanvases();
   send(res, 200, canvases);
 }
 

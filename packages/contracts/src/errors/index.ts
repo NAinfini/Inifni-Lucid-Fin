@@ -1,22 +1,26 @@
-export enum ErrorCode {
-  AuthFailed = 'AUTH_FAILED',
-  RateLimited = 'RATE_LIMITED',
-  ContentModeration = 'CONTENT_MODERATION',
-  ServiceUnavailable = 'SERVICE_UNAVAILABLE',
-  Timeout = 'TIMEOUT',
-  InvalidRequest = 'INVALID_REQUEST',
-  NotFound = 'NOT_FOUND',
-  Unknown = 'UNKNOWN',
-}
+export const ErrorCode = {
+  AuthFailed: 'AUTH_FAILED',
+  RateLimited: 'RATE_LIMITED',
+  ContentModeration: 'CONTENT_MODERATION',
+  ServiceUnavailable: 'SERVICE_UNAVAILABLE',
+  Timeout: 'TIMEOUT',
+  InvalidRequest: 'INVALID_REQUEST',
+  NotFound: 'NOT_FOUND',
+  Unknown: 'UNKNOWN',
+} as const;
 
-export enum ErrorCategory {
-  Auth = 'auth',
-  RateLimit = 'rate_limit',
-  ContentModeration = 'content_moderation',
-  InvalidInput = 'invalid_input',
-  ServiceError = 'service_error',
-  Timeout = 'timeout',
-}
+export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+
+export const ErrorCategory = {
+  Auth: 'auth',
+  RateLimit: 'rate_limit',
+  ContentModeration: 'content_moderation',
+  InvalidInput: 'invalid_input',
+  ServiceError: 'service_error',
+  Timeout: 'timeout',
+} as const;
+
+export type ErrorCategory = (typeof ErrorCategory)[keyof typeof ErrorCategory];
 
 export interface AdapterError {
   category: ErrorCategory;

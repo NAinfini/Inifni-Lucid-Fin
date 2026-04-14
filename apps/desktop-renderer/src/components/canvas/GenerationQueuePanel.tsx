@@ -36,7 +36,8 @@ export function GenerationQueuePanel() {
   const dispatch = useDispatch();
   const canvas = useSelector((state: RootState) => {
     const id = state.canvas.activeCanvasId;
-    return state.canvas.canvases.find((c) => c.id === id);
+    if (!id) return undefined;
+    return state.canvas.canvases.entities[id];
   });
   const activeCanvasId = canvas?.id;
   const settings = useSelector((state: RootState) => state.settings);

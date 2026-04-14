@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 
 const logger = vi.hoisted(() => ({
@@ -12,7 +13,6 @@ const logger = vi.hoisted(() => ({
 
 const showOpenDialog = vi.hoisted(() => vi.fn());
 const showSaveDialog = vi.hoisted(() => vi.fn());
-const getCurrentProjectId = vi.hoisted(() => vi.fn(() => "project-1"));
 
 vi.mock("../../logger.js", () => ({
   default: logger,
@@ -30,10 +30,6 @@ vi.mock("electron", () => ({
   },
 }));
 
-vi.mock("../project-context.js", () => ({
-  getCurrentProjectId,
-}));
-
 import { registerAssetHandlers } from "./asset.handlers.js";
 
 function resetCommon() {
@@ -41,8 +37,6 @@ function resetCommon() {
   vi.clearAllMocks();
   showOpenDialog.mockReset();
   showSaveDialog.mockReset();
-  getCurrentProjectId.mockReset();
-  getCurrentProjectId.mockReturnValue("project-1");
 }
 
 function registerHandlers(
@@ -118,7 +112,6 @@ describe("registerAssetHandlers", () => {
     expect(db.insertAsset).toHaveBeenCalledWith(
       expect.objectContaining({
         hash: "hash-asset-1",
-        projectId: "project-1",
       }),
     );
     expect(logger.info).toHaveBeenCalledWith(
@@ -127,7 +120,6 @@ describe("registerAssetHandlers", () => {
         category: "asset",
         hash: "hash-asset-1",
         filePath: "C:\\tmp\\hero.png",
-        projectId: "project-1",
       }),
     );
   });
@@ -164,7 +156,6 @@ describe("registerAssetHandlers", () => {
     expect(db.insertAsset).toHaveBeenCalledWith(
       expect.objectContaining({
         hash: "hash-buffer-1",
-        projectId: "project-1",
       }),
     );
     expect(logger.info).toHaveBeenCalledWith(
@@ -246,10 +237,9 @@ describe("registerAssetHandlers", () => {
       query?.({}, { type: "audio", limit: 10, offset: 4 }),
     ).resolves.toEqual([{ hash: "listed" }]);
 
-    expect(db.searchAssets).toHaveBeenCalledWith("hero", 5, "project-1");
+    expect(db.searchAssets).toHaveBeenCalledWith("hero", 5);
     expect(db.queryAssets).toHaveBeenCalledWith({
       type: "audio",
-      projectId: "project-1",
       limit: 10,
       offset: 4,
     });
@@ -319,7 +309,7 @@ describe("registerAssetHandlers", () => {
       throw new Error(`unexpected read: ${String(target)}`);
     });
     vi.spyOn(fs, "existsSync").mockImplementation((target) => String(target).endsWith(".jpg"));
-    vi.spyOn(fs, "copyFileSync").mockImplementation(() => undefined);
+    vi.spyOn(fsp, "copyFile").mockImplementation(async () => undefined);
 
     const cas = {
       importAsset: vi.fn(),
@@ -342,7 +332,7 @@ describe("registerAssetHandlers", () => {
         defaultPath: "hero.jpg",
       }),
     );
-    expect(fs.copyFileSync).toHaveBeenCalledWith(
+    expect(fsp.copyFile).toHaveBeenCalledWith(
       "C:\\cas\\image\\hash-export.jpg",
       "C:\\exports\\hero.jpg",
     );
@@ -402,7 +392,7 @@ describe("registerAssetHandlers", () => {
       throw new Error("meta missing");
     });
     vi.spyOn(fs, "existsSync").mockImplementation((target) => String(target).includes("hash-1.png"));
-    vi.spyOn(fs, "copyFileSync").mockImplementation(() => undefined);
+    vi.spyOn(fsp, "copyFile").mockImplementation(async () => undefined);
 
     const cas = {
       importAsset: vi.fn(),
@@ -426,7 +416,7 @@ describe("registerAssetHandlers", () => {
       directory: "C:\\exports",
     });
 
-    expect(fs.copyFileSync).toHaveBeenCalledWith(
+    expect(fsp.copyFile).toHaveBeenCalledWith(
       "C:\\cas\\image\\hash-1.png",
       path.join("C:\\exports", "hero.png"),
     );

@@ -30,7 +30,6 @@ describe('workflows slice', () => {
     const workflowRun = {
       id: 'wf-1',
       workflowType: 'style.extract',
-      projectId: 'project-1',
       entityType: 'asset',
       entityId: 'asset-1',
       triggerSource: 'user',
@@ -115,7 +114,6 @@ describe('workflows slice', () => {
 
     const started = startWorkflow({
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       metadata: {
@@ -169,7 +167,6 @@ describe('workflow ipc middleware', () => {
     const workflowRun = {
       id: 'wf-200',
       workflowType: 'style.extract',
-      projectId: 'project-1',
       entityType: 'asset',
       entityId: 'asset-1',
       triggerSource: 'colorStyle:extract',
@@ -261,7 +258,6 @@ describe('workflow ipc middleware', () => {
     store.dispatch(
       startWorkflow({
         workflowType: 'style.extract',
-        projectId: 'project-1',
         entityType: 'asset',
         entityId: 'asset-1',
         metadata: {
@@ -270,7 +266,7 @@ describe('workflow ipc middleware', () => {
         },
       }),
     );
-    store.dispatch(loadWorkflows({ projectId: 'project-1' }));
+    store.dispatch(loadWorkflows({}));
     store.dispatch(loadWorkflowStages('wf-200'));
     store.dispatch(loadWorkflowTasks('wf-200'));
     store.dispatch(pauseWorkflow('wf-200'));
@@ -285,7 +281,6 @@ describe('workflow ipc middleware', () => {
 
     expect(api.workflow.start).toHaveBeenCalledWith({
       workflowType: 'style.extract',
-      projectId: 'project-1',
       entityType: 'asset',
       entityId: 'asset-1',
       metadata: {
@@ -293,7 +288,7 @@ describe('workflow ipc middleware', () => {
         displayLabel: 'Extract style',
       },
     });
-    expect(api.workflow.list).toHaveBeenCalledWith({ projectId: 'project-1' });
+    expect(api.workflow.list).toHaveBeenCalledWith({});
     expect(api.workflow.getStages).toHaveBeenCalledWith('wf-200');
     expect(api.workflow.getTasks).toHaveBeenCalledWith('wf-200');
     expect(api.workflow.pause).toHaveBeenCalledWith('wf-200');

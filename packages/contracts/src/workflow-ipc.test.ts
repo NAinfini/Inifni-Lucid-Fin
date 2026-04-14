@@ -29,7 +29,6 @@ describe('workflow ipc contract', () => {
     >();
     expectTypeOf<IpcChannelMap['workflow:start']['request']>().toEqualTypeOf<{
       workflowType: string;
-      projectId: string;
       entityType: string;
       entityId?: string;
       triggerSource?: string;

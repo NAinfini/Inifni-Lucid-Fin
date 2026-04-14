@@ -32,9 +32,9 @@ describe('createEquipmentTools', () => {
 
   describe('equipment.list query filter', () => {
     const items = [
-      { id: '1', projectId: '', name: 'Sword', type: 'weapon', description: 'sharp blade', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '2', projectId: '', name: 'Shield', type: 'armor', description: 'defensive plate', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '3', projectId: '', name: 'Lantern', type: 'tool', description: 'a glowing light source', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      { id: '1', name: 'Sword', type: 'weapon', description: 'sharp blade', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      { id: '2', name: 'Shield', type: 'armor', description: 'defensive plate', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      { id: '3', name: 'Lantern', type: 'tool', description: 'a glowing light source', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
     ];
 
     function createDepsWithData() {

@@ -1,11 +1,8 @@
 import type { IpcMain } from 'electron';
-import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { SceneSegment, StyleGuide } from '@lucid-fin/contracts';
 import { assembleSegmentPrompt } from '@lucid-fin/domain';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId, getCurrentProjectPath } from '../project-context.js';
-import { assertWithinRoot } from '../validation.js';
 
 const DEFAULT_STYLE_GUIDE: StyleGuide = {
   global: {
@@ -18,22 +15,6 @@ const DEFAULT_STYLE_GUIDE: StyleGuide = {
   },
   sceneOverrides: {},
 };
-
-function requireProject(): { projectId: string; projectPath: string } {
-  const projectId = getCurrentProjectId();
-  const projectPath = getCurrentProjectPath();
-  if (!projectId || !projectPath) throw new Error('No project open');
-  return { projectId, projectPath };
-}
-
-function loadStyleGuide(projectPath: string): StyleGuide {
-  const stylePath = assertWithinRoot(projectPath, 'style-guide.json');
-  if (fs.existsSync(stylePath)) {
-    const raw = JSON.parse(fs.readFileSync(stylePath, 'utf-8')) as unknown;
-    if (raw && typeof raw === 'object') return raw as StyleGuide;
-  }
-  return DEFAULT_STYLE_GUIDE;
-}
 
 export function registerOrchestrationHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   ipcMain.handle('orchestration:list', async (_e, args: { sceneId: string }) => {
@@ -88,8 +69,7 @@ export function registerOrchestrationHandlers(ipcMain: IpcMain, db: SqliteIndex)
 
   ipcMain.handle('orchestration:delete', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    const { projectId } = requireProject();
-    const scenes = db.listScenes(projectId);
+    const scenes = db.listScenes();
     const scene = scenes.find((s) => s.segments.some((seg) => seg.id === args.id));
     if (!scene) throw new Error(`Segment not found: ${args.id}`);
 
@@ -120,15 +100,14 @@ export function registerOrchestrationHandlers(ipcMain: IpcMain, db: SqliteIndex)
 
   ipcMain.handle('orchestration:generatePrompt', async (_e, args: { segmentId: string }) => {
     if (!args || typeof args.segmentId !== 'string') throw new Error('segmentId is required');
-    const { projectId, projectPath } = requireProject();
 
-    const scenes = db.listScenes(projectId);
+    const scenes = db.listScenes();
     const scene = scenes.find((s) => s.segments.some((seg) => seg.id === args.segmentId));
     if (!scene) throw new Error(`Segment not found: ${args.segmentId}`);
 
     const segment = scene.segments.find((s) => s.id === args.segmentId) as SceneSegment;
-    const characters = db.listCharacters(projectId);
-    const styleGuide = loadStyleGuide(projectPath);
+    const characters = db.listCharacters();
+    const styleGuide = DEFAULT_STYLE_GUIDE;
 
     return assembleSegmentPrompt(segment, scene, characters, styleGuide);
   });

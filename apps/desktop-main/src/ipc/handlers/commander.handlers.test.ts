@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Canvas } from '@lucid-fin/contracts';
 import { SqliteIndex } from '@lucid-fin/storage';
-import { clearCurrentProject, setCurrentProject } from '../project-context.js';
 
 vi.mock('../../logger.js', () => {
   const logger = {
@@ -37,7 +36,6 @@ function makeCanvas(nodeCount = 12): Canvas {
 
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Storyboard',
     nodes: Array.from({ length: nodeCount }, (_, index) => ({
       id: `node-${index + 1}`,
@@ -94,11 +92,9 @@ describe('buildContext', () => {
   beforeEach(() => {
     base = tmpDir();
     db = new SqliteIndex(path.join(base, 'test.db'));
-    setCurrentProject('project-1', path.join(base, 'project'));
   });
 
   afterEach(() => {
-    clearCurrentProject();
     db.close();
     fs.rmSync(base, { recursive: true, force: true });
   });
@@ -123,14 +119,12 @@ describe('buildContext', () => {
   it('does not inject project entities into commander context', () => {
     db.upsertCharacter({
       id: 'char-1',
-      projectId: 'project-1',
       name: 'Hero',
       role: 'protagonist',
       description: `${'c'.repeat(150)}CHAR-TAIL`,
     });
     db.upsertLocation({
       id: 'loc-1',
-      projectId: 'project-1',
       name: 'Warehouse',
       type: 'interior',
       description: `${'l'.repeat(150)}LOC-TAIL`,

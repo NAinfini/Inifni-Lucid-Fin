@@ -38,7 +38,6 @@ describe('createStyleWorkflowHandlers', () => {
       fileSize: 16,
       tags: [],
       createdAt: 100,
-      projectId: 'project-1',
     });
 
     completeMock = vi.fn(async () =>
@@ -116,7 +115,6 @@ describe('createStyleWorkflowHandlers', () => {
 
     const workflowRunId = workflowEngine.start({
       workflowType: 'style.extract',
-      projectId: 'project-1',
       entityType: 'asset',
       entityId: 'asset-hash',
       input: {
@@ -176,7 +174,6 @@ describe('createStyleWorkflowHandlers', () => {
       fileSize: 42,
       tags: [],
       createdAt: 100,
-      projectId: 'project-1',
     });
 
     const framePath = path.join(base, 'video-frame.png');
@@ -220,7 +217,6 @@ describe('createStyleWorkflowHandlers', () => {
 
     const _workflowRunId = workflowEngine.start({
       workflowType: 'style.extract',
-      projectId: 'project-1',
       entityType: 'asset',
       entityId: 'video-hash',
       input: {

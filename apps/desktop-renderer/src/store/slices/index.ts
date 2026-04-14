@@ -1,12 +1,3 @@
-export {
-  projectSlice,
-  setProject,
-  clearProject,
-  updateProjectTitle,
-  setAiProviders,
-  addSnapshot,
-  removeSnapshot,
-} from './project.js';
 export { seriesSlice, setSeries } from './series.js';
 export { scriptSlice, setScript, updateContent, setParsedScenes, clearScript } from './script.js';
 export {

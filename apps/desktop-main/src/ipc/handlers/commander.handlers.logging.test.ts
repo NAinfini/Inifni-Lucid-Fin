@@ -85,7 +85,6 @@ function makeCanvas() {
   const now = Date.now();
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Storyboard',
     nodes: [],
     edges: [],

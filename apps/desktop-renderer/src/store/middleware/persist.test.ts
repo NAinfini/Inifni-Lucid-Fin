@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 
 import { configureStore } from '@reduxjs/toolkit';
-import type { ProjectManifest } from '@lucid-fin/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { t } from '../../i18n.js';
 import {
   addNode,
   canvasReducer,
@@ -12,15 +10,12 @@ import {
   setCanvases,
 } from '../slices/canvas.js';
 import { loggerSlice } from '../slices/logger.js';
-import { setProject, projectSlice } from '../slices/project.js';
-import { setRenderPreset, settingsSlice, restore as restoreSettings } from '../slices/settings.js';
-import { scriptSlice, updateContent } from '../slices/script.js';
+import { settingsSlice, setRenderPreset, restore as restoreSettings, setBootstrapped } from '../slices/settings.js';
 import { toastSlice } from '../slices/toast.js';
 
 function createCanvas() {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [],
     edges: [],
@@ -69,34 +64,6 @@ function createImageNode(id: string) {
   };
 }
 
-function createProjectPayload(): ProjectManifest & { path: string } {
-  return {
-    id: 'project-1',
-    title: 'Project',
-    description: '',
-    genre: '',
-    resolution: [1920, 1080] as [number, number],
-    fps: 24,
-    aspectRatio: '16:9',
-    createdAt: 1,
-    updatedAt: 1,
-    aiProviders: [],
-    snapshots: [],
-    styleGuide: {
-      global: {
-        artStyle: '',
-        colorPalette: { primary: '', secondary: '', forbidden: [] },
-        lighting: 'natural',
-        texture: '',
-        referenceImages: [],
-        freeformDescription: '',
-      },
-      sceneOverrides: {},
-    },
-    path: 'project-path',
-  };
-}
-
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -120,78 +87,9 @@ describe('persistMiddleware', () => {
     vi.unstubAllGlobals();
   });
 
-  it('debounces project autosaves and escalates repeated failures to warning toasts', async () => {
-    const { persistMiddleware } = await loadPersistModule();
-    const api = {
-      project: {
-        save: vi.fn(async () => {
-          throw new Error('disk full');
-        }),
-      },
-      canvas: {
-        save: vi.fn(),
-        patch: vi.fn(),
-      },
-      settings: {
-        save: vi.fn(),
-      },
-    };
-
-    window.lucidAPI = api as never;
-
-    const store = configureStore({
-      reducer: {
-        project: projectSlice.reducer,
-        script: scriptSlice.reducer,
-        canvas: canvasReducer,
-        settings: settingsSlice.reducer,
-        logger: loggerSlice.reducer,
-        toast: toastSlice.reducer,
-      },
-      middleware: (getDefault) => getDefault().concat(persistMiddleware),
-    });
-
-    store.dispatch(setProject(createProjectPayload()));
-    store.dispatch(updateContent('v1'));
-    store.dispatch(updateContent('v2'));
-    await vi.advanceTimersByTimeAsync(500);
-    await flushPromises();
-
-    expect(api.project.save).toHaveBeenCalledTimes(1);
-
-    store.dispatch(updateContent('v3'));
-    await vi.advanceTimersByTimeAsync(500);
-    await flushPromises();
-
-    store.dispatch(updateContent('v4'));
-    await vi.advanceTimersByTimeAsync(500);
-    await flushPromises();
-
-    expect(store.getState().toast.items).toEqual([
-      expect.objectContaining({
-        variant: 'error',
-        title: t('toast.error.autosaveFailed'),
-        message: 'disk full',
-      }),
-      expect.objectContaining({
-        variant: 'error',
-        title: t('toast.error.autosaveFailed'),
-        message: 'disk full',
-      }),
-      expect.objectContaining({
-        variant: 'warning',
-        title: t('toast.error.autosaveRepeatedFailed'),
-        message: 'disk full',
-      }),
-    ]);
-  });
-
   it('persists settings independently of project state', async () => {
     const { persistMiddleware } = await loadPersistModule();
     const api = {
-      project: {
-        save: vi.fn(async () => undefined),
-      },
       canvas: {
         save: vi.fn(),
         patch: vi.fn(),
@@ -205,8 +103,6 @@ describe('persistMiddleware', () => {
 
     const store = configureStore({
       reducer: {
-        project: projectSlice.reducer,
-        script: scriptSlice.reducer,
         canvas: canvasReducer,
         settings: settingsSlice.reducer,
         logger: loggerSlice.reducer,
@@ -232,9 +128,6 @@ describe('persistMiddleware', () => {
   it('uses canvas patch saves when the patch is preferred', async () => {
     const { persistMiddleware } = await loadPersistModule();
     const api = {
-      project: {
-        save: vi.fn(async () => undefined),
-      },
       canvas: {
         save: vi.fn(async () => undefined),
         patch: vi.fn(async () => undefined),
@@ -248,8 +141,6 @@ describe('persistMiddleware', () => {
 
     const store = configureStore({
       reducer: {
-        project: projectSlice.reducer,
-        script: scriptSlice.reducer,
         canvas: canvasReducer,
         settings: settingsSlice.reducer,
         logger: loggerSlice.reducer,
@@ -258,7 +149,7 @@ describe('persistMiddleware', () => {
       middleware: (getDefault) => getDefault().concat(persistMiddleware),
     });
 
-    store.dispatch(setProject(createProjectPayload()));
+    store.dispatch(setBootstrapped());
     store.dispatch(setCanvases([createCanvas() as never]));
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(addNode(createImageNode('node-1') as never));
@@ -288,9 +179,6 @@ describe('persistMiddleware', () => {
   it('falls back to a full canvas save when patch persistence fails', async () => {
     const { persistMiddleware } = await loadPersistModule();
     const api = {
-      project: {
-        save: vi.fn(async () => undefined),
-      },
       canvas: {
         patch: vi.fn(async () => {
           throw new Error('patch failed');
@@ -306,8 +194,6 @@ describe('persistMiddleware', () => {
 
     const store = configureStore({
       reducer: {
-        project: projectSlice.reducer,
-        script: scriptSlice.reducer,
         canvas: canvasReducer,
         settings: settingsSlice.reducer,
         logger: loggerSlice.reducer,
@@ -316,7 +202,7 @@ describe('persistMiddleware', () => {
       middleware: (getDefault) => getDefault().concat(persistMiddleware),
     });
 
-    store.dispatch(setProject(createProjectPayload()));
+    store.dispatch(setBootstrapped());
     store.dispatch(setCanvases([createCanvas() as never]));
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(addNode(createImageNode('node-1') as never));

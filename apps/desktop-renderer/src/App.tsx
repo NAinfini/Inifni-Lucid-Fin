@@ -6,7 +6,7 @@ import { CommandPalette } from './components/CommandPalette.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { ToastViewport } from './components/ui/ToastViewport.js';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard.js';
-import { useAutoProject } from './hooks/use-auto-project.js';
+import { useBootstrap } from './hooks/use-bootstrap.js';
 import { useDailyActiveTracker } from './hooks/useDailyActiveTracker.js';
 import { lazyPage } from './utils/performance.js';
 import type { RootState } from './store/index.js';
@@ -37,7 +37,7 @@ const SeriesManager = lazyPage(async () => {
 });
 
 export function App() {
-  useAutoProject();
+  useBootstrap();
   useDailyActiveTracker();
   const onboardingComplete = useSelector((s: RootState) => s.ui.onboardingComplete);
 

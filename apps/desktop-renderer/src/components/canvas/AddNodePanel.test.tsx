@@ -10,7 +10,6 @@ import { t } from '../../i18n.js';
 import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
-import { projectSlice } from '../../store/slices/project.js';
 import { uiSlice } from '../../store/slices/ui.js';
 import { workflowsSlice } from '../../store/slices/workflows.js';
 import { AddNodePanel } from './AddNodePanel.js';
@@ -21,7 +20,6 @@ function renderPanel() {
       canvas: canvasSlice.reducer,
       ui: uiSlice.reducer,
       commander: commanderSlice.reducer,
-      project: projectSlice.reducer,
       jobs: jobsSlice.reducer,
       workflows: workflowsSlice.reducer,
     },
@@ -31,7 +29,6 @@ function renderPanel() {
     canvasSlice.actions.setCanvases([
       {
         id: 'canvas-1',
-        projectId: 'project-1',
         name: 'Canvas 1',
         nodes: [],
         edges: [],
@@ -63,8 +60,8 @@ describe('AddNodePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: t('panels.textNode') }));
 
     const state = store.getState();
-    expect(state.canvas.canvases[0]?.nodes).toHaveLength(1);
-    expect(state.canvas.canvases[0]?.nodes[0]?.type).toBe('text');
+    expect(state.canvas.canvases.entities['canvas-1']?.nodes).toHaveLength(1);
+    expect(state.canvas.canvases.entities['canvas-1']?.nodes[0]?.type).toBe('text');
     expect(state.ui.activePanel).toBeNull();
   });
 });

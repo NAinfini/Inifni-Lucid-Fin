@@ -1,11 +1,9 @@
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
-import path from 'node:path';
 import type {
   AssetMeta,
   Canvas,
   Job,
-  ProjectManifest,
   Character,
   Equipment,
   Location,
@@ -35,10 +33,6 @@ import {
   type EmbeddingRecord,
   type SemanticSearchResult,
 } from './sqlite-assets.js';
-import {
-  upsertProject as _upsertProject,
-  listProjects as _listProjects,
-} from './sqlite-projects.js';
 import {
   insertJob as _insertJob,
   updateJob as _updateJob,
@@ -88,8 +82,23 @@ import {
   upsertPresetOverride as _upsertPresetOverride,
   listPresetOverrides as _listPresetOverrides,
   deletePresetOverride as _deletePresetOverride,
-  deletePresetOverridesByProject as _deletePresetOverridesByProject,
 } from './sqlite-content.js';
+import {
+  upsertSession as _upsertSession,
+  getSession as _getSession,
+  listSessions as _listSessions,
+  deleteSession as _deleteSession,
+  insertSnapshot as _insertSnapshot,
+  getSnapshot as _getSnapshot,
+  listSnapshots as _listSnapshots,
+  deleteSnapshot as _deleteSnapshot,
+  pruneSnapshots as _pruneSnapshots,
+  pruneSnapshotsTiered as _pruneSnapshotsTiered,
+  captureSnapshot as _captureSnapshot,
+  restoreSnapshot as _restoreSnapshot,
+  type StoredSession,
+  type StoredSnapshot,
+} from './sqlite-snapshots.js';
 import {
   insertWorkflowRun as _insertWorkflowRun,
   getWorkflowRun as _getWorkflowRun,
@@ -117,7 +126,8 @@ import {
   recomputeStageAggregate as _recomputeStageAggregate,
   recomputeWorkflowAggregate as _recomputeWorkflowAggregate,
 } from './sqlite-workflows.js';
-import { runMigrations } from './migrations/runner.js';
+import type { IStorageLayer } from './storage-interfaces.js';
+import { runMigrations, getCurrentVersion } from './migrations/runner.js';
 import { migrations } from './migrations/index.js';
 
 const require = createRequire(import.meta.url);
@@ -133,24 +143,16 @@ CREATE TABLE IF NOT EXISTS assets (
   provider    TEXT,
   created_at  INTEGER NOT NULL,
   file_size   INTEGER,
-  project_id  TEXT,
   width       INTEGER,
   height      INTEGER,
   duration    REAL
 );
 
-CREATE TABLE IF NOT EXISTS projects (
-  id          TEXT PRIMARY KEY,
-  title       TEXT NOT NULL,
-  path        TEXT NOT NULL,
-  series_id   TEXT,
-  updated_at  INTEGER NOT NULL,
-  thumbnail   TEXT
-);
+CREATE INDEX IF NOT EXISTS idx_assets_type_created
+  ON assets(type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS jobs (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT NOT NULL,
   segment_id    TEXT,
   type          TEXT NOT NULL,
   provider      TEXT NOT NULL,
@@ -174,10 +176,12 @@ CREATE TABLE IF NOT EXISTS jobs (
   error         TEXT
 );
 
+CREATE INDEX IF NOT EXISTS idx_jobs_status_created
+  ON jobs(status, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS characters (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
-  project_id    TEXT,
   role          TEXT DEFAULT 'supporting',
   description   TEXT DEFAULT '',
   appearance    TEXT DEFAULT '',
@@ -197,7 +201,6 @@ CREATE TABLE IF NOT EXISTS characters (
 
 CREATE TABLE IF NOT EXISTS equipment (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT NOT NULL,
   name          TEXT NOT NULL,
   type          TEXT NOT NULL DEFAULT 'other',
   subtype       TEXT,
@@ -211,7 +214,6 @@ CREATE TABLE IF NOT EXISTS equipment (
 
 CREATE TABLE IF NOT EXISTS locations (
   id               TEXT PRIMARY KEY,
-  project_id       TEXT NOT NULL,
   name             TEXT NOT NULL,
   type             TEXT NOT NULL DEFAULT 'interior',
   sub_location     TEXT,
@@ -228,7 +230,6 @@ CREATE TABLE IF NOT EXISTS locations (
 
 CREATE TABLE IF NOT EXISTS scenes (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT NOT NULL,
   idx           INTEGER NOT NULL,
   title         TEXT NOT NULL,
   description   TEXT DEFAULT '',
@@ -244,7 +245,6 @@ CREATE TABLE IF NOT EXISTS scenes (
 
 CREATE TABLE IF NOT EXISTS scripts (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT NOT NULL,
   content       TEXT NOT NULL DEFAULT '',
   format        TEXT NOT NULL DEFAULT 'fountain',
   parsed_scenes TEXT DEFAULT '[]',
@@ -276,7 +276,6 @@ CREATE TABLE IF NOT EXISTS color_styles (
 CREATE TABLE IF NOT EXISTS workflow_runs (
   id                TEXT PRIMARY KEY,
   workflow_type     TEXT NOT NULL,
-  project_id        TEXT NOT NULL,
   entity_type       TEXT NOT NULL,
   entity_id         TEXT,
   trigger_source    TEXT NOT NULL,
@@ -299,12 +298,8 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   updated_at        INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_project_created
-  ON workflow_runs(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_status_updated
   ON workflow_runs(status, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_type_project
-  ON workflow_runs(workflow_type, project_id);
 
 CREATE TABLE IF NOT EXISTS workflow_stage_runs (
   id                TEXT PRIMARY KEY,
@@ -396,7 +391,6 @@ CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_asset_hash
 
 CREATE TABLE IF NOT EXISTS canvases (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT NOT NULL,
   name          TEXT NOT NULL,
   nodes         TEXT NOT NULL DEFAULT '[]',
   edges         TEXT NOT NULL DEFAULT '[]',
@@ -406,8 +400,17 @@ CREATE TABLE IF NOT EXISTS canvases (
   updated_at    INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_canvases_project
-  ON canvases(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_canvases_updated
+  ON canvases(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS custom_shot_templates (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  tracks_json TEXT NOT NULL DEFAULT '{}',
+  created_at  INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+  updated_at  INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+);
 
 CREATE TABLE IF NOT EXISTS series (
   id            TEXT PRIMARY KEY,
@@ -424,7 +427,6 @@ CREATE TABLE IF NOT EXISTS episodes (
   series_id     TEXT NOT NULL,
   title         TEXT NOT NULL,
   episode_order INTEGER NOT NULL DEFAULT 0,
-  project_id    TEXT,
   status        TEXT DEFAULT 'draft',
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL
@@ -435,8 +437,7 @@ CREATE INDEX IF NOT EXISTS idx_episodes_series
 
 CREATE TABLE IF NOT EXISTS preset_overrides (
   id            TEXT PRIMARY KEY,
-  project_id    TEXT NOT NULL,
-  preset_id     TEXT NOT NULL,
+  preset_id     TEXT NOT NULL UNIQUE,
   category      TEXT NOT NULL,
   name          TEXT NOT NULL,
   description   TEXT DEFAULT '',
@@ -445,12 +446,40 @@ CREATE TABLE IF NOT EXISTS preset_overrides (
   defaults      TEXT DEFAULT '{}',
   is_user       INTEGER NOT NULL DEFAULT 0,
   created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL,
-  UNIQUE(project_id, preset_id)
+  updated_at    INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_preset_overrides_project
-  ON preset_overrides(project_id, category);
+CREATE INDEX IF NOT EXISTS idx_preset_overrides_category
+  ON preset_overrides(category);
+
+CREATE TABLE IF NOT EXISTS commander_sessions (
+  id          TEXT PRIMARY KEY,
+  canvas_id   TEXT,
+  title       TEXT NOT NULL DEFAULT '',
+  messages    TEXT NOT NULL DEFAULT '[]',
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_commander_sessions_updated
+  ON commander_sessions(updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_commander_sessions_canvas
+  ON commander_sessions(canvas_id);
+
+CREATE TABLE IF NOT EXISTS snapshots (
+  id              TEXT PRIMARY KEY,
+  session_id      TEXT NOT NULL,
+  label           TEXT NOT NULL DEFAULT '',
+  trigger         TEXT NOT NULL DEFAULT 'auto',
+  schema_version  INTEGER NOT NULL DEFAULT 1,
+  data            TEXT NOT NULL DEFAULT '{}',
+  created_at      INTEGER NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES commander_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshots_session
+  ON snapshots(session_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS asset_embeddings (
   hash        TEXT PRIMARY KEY,
@@ -478,15 +507,27 @@ CREATE TRIGGER IF NOT EXISTS assets_au AFTER UPDATE ON assets BEGIN
 END;
 `;
 
-export class SqliteIndex {
+export class SqliteIndex implements IStorageLayer {
   private db: BetterSqlite3.Database;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
-    this.db.exec(SCHEMA_SQL);
-    runMigrations(this.db, migrations);
+
+    // Determine the highest migration version we have
+    const latestVersion = migrations.reduce((max, m) => Math.max(max, m.version), 0);
+    const currentVersion = getCurrentVersion(this.db);
+
+    if (currentVersion === 0) {
+      // Fresh install — run schema creation + all migrations once
+      this.db.exec(SCHEMA_SQL);
+      runMigrations(this.db, migrations);
+    } else if (currentVersion < latestVersion) {
+      // Existing DB needs migration — schema tables already exist
+      runMigrations(this.db, migrations);
+    }
+    // Else: DB is up-to-date — skip schema and migrations entirely
   }
 
   close(): void {
@@ -545,8 +586,8 @@ export class SqliteIndex {
   // --- Assets ---
   insertAsset(meta: AssetMetaInput): void { _insertAsset(this.db, meta); }
   deleteAsset(hash: string): void { _deleteAsset(this.db, hash); }
-  queryAssets(filter: { type?: string; projectId?: string; limit?: number; offset?: number }): AssetMeta[] { return _queryAssets(this.db, filter); }
-  searchAssets(query: string, limit = 50, projectId?: string): AssetMeta[] { return _searchAssets(this.db, query, limit, projectId); }
+  queryAssets(filter: { type?: string; limit?: number; offset?: number }): AssetMeta[] { return _queryAssets(this.db, filter); }
+  searchAssets(query: string, limit = 50): AssetMeta[] { return _searchAssets(this.db, query, limit); }
 
   // --- Asset Embeddings ---
   insertEmbedding(hash: string, description: string, tokens: string[], model: string): void { _insertEmbedding(this.db, hash, description, tokens, model); }
@@ -554,50 +595,46 @@ export class SqliteIndex {
   searchByTokens(queryTokens: string[], limit: number): SemanticSearchResult[] { return _searchByTokens(this.db, queryTokens, limit); }
   getAllEmbeddedHashes(): string[] { return _getAllEmbeddedHashes(this.db); }
 
-  // --- Projects ---
-  upsertProject(project: { id: string; title: string; path: string; seriesId?: string; updatedAt: number; thumbnail?: string }): void { _upsertProject(this.db, project); }
-  listProjects(): Array<{ id: string; title: string; path: string; updatedAt: number; thumbnail?: string }> { return _listProjects(this.db); }
-
   // --- Jobs ---
   insertJob(job: Job): void { _insertJob(this.db, job); }
   updateJob(jobId: string, updates: Parameters<typeof _updateJob>[2]): void { _updateJob(this.db, jobId, updates); }
   getJob(jobId: string): Job | undefined { return _getJob(this.db, jobId); }
-  listJobs(filter?: { projectId?: string; status?: string }): Job[] { return _listJobs(this.db, filter); }
+  listJobs(filter?: { status?: string }): Job[] { return _listJobs(this.db, filter); }
 
   // --- Canvases ---
   upsertCanvas(canvas: Canvas): void { _upsertCanvas(this.db, canvas); }
   getCanvas(id: string): Canvas | undefined { return _getCanvas(this.db, id); }
-  listCanvases(projectId: string): Array<{ id: string; name: string; updatedAt: number }> { return _listCanvases(this.db, projectId); }
-  listCanvasesFull(projectId: string): Canvas[] { return _listCanvasesFull(this.db, projectId); }
+  listCanvases(): Array<{ id: string; name: string; updatedAt: number }> { return _listCanvases(this.db); }
+  listCanvasesFull(): Canvas[] { return _listCanvasesFull(this.db); }
   deleteCanvas(id: string): void { _deleteCanvas(this.db, id); }
 
   // --- Characters ---
   upsertCharacter(char: Parameters<typeof _upsertCharacter>[1]): void { _upsertCharacter(this.db, char); }
   getCharacter(id: string): Character | undefined { return _getCharacter(this.db, id); }
-  listCharacters(projectId?: string): Character[] { return _listCharacters(this.db, projectId); }
+  listCharacters(): Character[] { return _listCharacters(this.db); }
   deleteCharacter(id: string): void { _deleteCharacter(this.db, id); }
 
   // --- Equipment ---
   upsertEquipment(equip: Parameters<typeof _upsertEquipment>[1]): void { _upsertEquipment(this.db, equip); }
   getEquipment(id: string): Equipment | undefined { return _getEquipment(this.db, id); }
-  listEquipment(projectId: string, type?: string): Equipment[] { return _listEquipment(this.db, projectId, type); }
+  listEquipment(type?: string): Equipment[] { return _listEquipment(this.db, type); }
   deleteEquipment(id: string): void { _deleteEquipment(this.db, id); }
 
   // --- Locations ---
   upsertLocation(loc: Parameters<typeof _upsertLocation>[1]): void { _upsertLocation(this.db, loc); }
   getLocation(id: string): Location | undefined { return _getLocation(this.db, id); }
-  listLocations(projectId: string, type?: string): Location[] { return _listLocations(this.db, projectId, type); }
+  listLocations(type?: string): Location[] { return _listLocations(this.db, type); }
   deleteLocation(id: string): void { _deleteLocation(this.db, id); }
 
   // --- Scenes ---
   upsertScene(scene: Scene): void { _upsertScene(this.db, scene); }
   getScene(id: string): Scene | undefined { return _getScene(this.db, id); }
-  listScenes(projectId: string): Scene[] { return _listScenes(this.db, projectId); }
+  listScenes(): Scene[] { return _listScenes(this.db); }
   deleteScene(id: string): void { _deleteScene(this.db, id); }
 
   // --- Scripts ---
   upsertScript(doc: ScriptDocument): void { _upsertScript(this.db, doc); }
-  getScript(projectId: string): ScriptDocument | null { return _getScript(this.db, projectId); }
+  getScript(): ScriptDocument | null { return _getScript(this.db); }
   deleteScript(id: string): void { _deleteScript(this.db, id); }
 
   // --- Color Styles ---
@@ -619,14 +656,31 @@ export class SqliteIndex {
 
   // --- Preset Overrides ---
   upsertPresetOverride(override: Parameters<typeof _upsertPresetOverride>[1]): void { _upsertPresetOverride(this.db, override); }
-  listPresetOverrides(projectId: string): ReturnType<typeof _listPresetOverrides> { return _listPresetOverrides(this.db, projectId); }
+  listPresetOverrides(): ReturnType<typeof _listPresetOverrides> { return _listPresetOverrides(this.db); }
   deletePresetOverride(id: string): void { _deletePresetOverride(this.db, id); }
-  deletePresetOverridesByProject(projectId: string): void { _deletePresetOverridesByProject(this.db, projectId); }
+
+  // --- Sessions ---
+  upsertSession(s: StoredSession): void { _upsertSession(this.db, s); }
+  getSession(id: string): StoredSession | undefined { return _getSession(this.db, id); }
+  listSessions(limit?: number): StoredSession[] { return _listSessions(this.db, limit); }
+  deleteSession(id: string): void { _deleteSession(this.db, id); }
+
+  // --- Snapshots ---
+  insertSnapshot(s: StoredSnapshot): void { _insertSnapshot(this.db, s); }
+  getSnapshot(id: string): StoredSnapshot | undefined { return _getSnapshot(this.db, id); }
+  listSnapshots(sessionId: string): StoredSnapshot[] { return _listSnapshots(this.db, sessionId); }
+  deleteSnapshot(id: string): void { _deleteSnapshot(this.db, id); }
+  pruneSnapshots(sessionId: string, maxKeep: number): void { _pruneSnapshots(this.db, sessionId, maxKeep); }
+  pruneSnapshotsTiered(): void { _pruneSnapshotsTiered(this.db); }
+  captureSnapshot(sessionId: string, label: string, trigger: 'auto' | 'manual'): StoredSnapshot {
+    return _captureSnapshot(this.db, sessionId, label, trigger);
+  }
+  restoreSnapshot(snapshotId: string): void { _restoreSnapshot(this.db, snapshotId); }
 
   // --- Workflow Runs ---
   insertWorkflowRun(run: WorkflowRun): void { _insertWorkflowRun(this.db, run); }
   getWorkflowRun(id: string): WorkflowRun | undefined { return _getWorkflowRun(this.db, id); }
-  listWorkflowRuns(filter?: { projectId?: string; status?: string; workflowType?: string; entityType?: string }): WorkflowRun[] { return _listWorkflowRuns(this.db, filter); }
+  listWorkflowRuns(filter?: { status?: string; workflowType?: string; entityType?: string }): WorkflowRun[] { return _listWorkflowRuns(this.db, filter); }
   updateWorkflowRun(id: string, updates: Parameters<typeof _updateWorkflowRun>[2]): void { _updateWorkflowRun(this.db, id, updates); }
 
   // --- Workflow Stage Runs ---
@@ -660,131 +714,15 @@ export class SqliteIndex {
   recomputeStageAggregate(stageRunId: string): void { _recomputeStageAggregate(this.db, stageRunId); }
   recomputeWorkflowAggregate(workflowRunId: string): void { _recomputeWorkflowAggregate(this.db, workflowRunId); }
 
-  // --- Sync (import JSON -> SQLite on project open for backward compat) ---
-
-  syncFromJson(projectPath: string): void {
-    let projectId: string | undefined;
-    const projectFile = path.join(projectPath, 'project.json');
-    if (fs.existsSync(projectFile)) {
-      const manifest = JSON.parse(fs.readFileSync(projectFile, 'utf-8')) as ProjectManifest;
-      projectId = manifest.id;
-      this.upsertProject({
-        id: manifest.id,
-        title: manifest.title,
-        path: projectPath,
-        updatedAt: manifest.updatedAt,
-      });
-    }
-
-    const charsFile = path.join(projectPath, 'characters.json');
-    if (fs.existsSync(charsFile)) {
-      const data = JSON.parse(fs.readFileSync(charsFile, 'utf-8')) as { characters: Character[] };
-      for (const char of data.characters) {
-        this.upsertCharacter({
-          id: char.id,
-          name: char.name,
-          projectId: char.projectId ?? projectId,
-          role: char.role,
-          description: char.description,
-          appearance: char.appearance,
-          personality: char.personality,
-          refImage: char.referenceImage,
-          costumes: char.costumes,
-          tags: char.tags,
-          createdAt: char.createdAt,
-          updatedAt: char.updatedAt,
-        });
-      }
-    }
-
-    const scenesDir = path.join(projectPath, 'scenes');
-    if (fs.existsSync(scenesDir)) {
-      for (const file of fs.readdirSync(scenesDir)) {
-        if (!file.endsWith('.json')) continue;
-        const scene = JSON.parse(fs.readFileSync(path.join(scenesDir, file), 'utf-8')) as Scene;
-        if (scene.id && scene.projectId) this.upsertScene(scene);
-      }
-    }
-
-    const scriptFile = path.join(projectPath, 'script.json');
-    if (fs.existsSync(scriptFile)) {
-      const raw = JSON.parse(fs.readFileSync(scriptFile, 'utf-8')) as Record<string, unknown>;
-      if (typeof raw.content === 'string' && typeof raw.format === 'string' && projectId) {
-        this.upsertScript(raw as unknown as ScriptDocument);
-      }
-    }
-
-    const equipFile = path.join(projectPath, 'equipment.json');
-    if (fs.existsSync(equipFile)) {
-      const data = JSON.parse(fs.readFileSync(equipFile, 'utf-8')) as { equipment: Equipment[] };
-      for (const equip of data.equipment ?? []) {
-        this.upsertEquipment({
-          id: equip.id,
-          projectId: equip.projectId ?? projectId ?? '',
-          name: equip.name,
-          type: equip.type,
-          subtype: equip.subtype,
-          description: equip.description,
-          functionDesc: equip.function,
-          tags: equip.tags,
-          referenceImages: equip.referenceImages,
-          createdAt: equip.createdAt,
-          updatedAt: equip.updatedAt,
-        });
-      }
-    }
-
-    const locationsFile = path.join(projectPath, 'locations.json');
-    if (fs.existsSync(locationsFile)) {
-      const data = JSON.parse(fs.readFileSync(locationsFile, 'utf-8')) as { locations: Location[] };
-      for (const loc of data.locations ?? []) {
-        this.upsertLocation({
-          id: loc.id,
-          projectId: loc.projectId ?? projectId ?? '',
-          name: loc.name,
-          type: loc.type,
-          subLocation: loc.subLocation,
-          description: loc.description,
-          timeOfDay: loc.timeOfDay,
-          mood: loc.mood,
-          weather: loc.weather,
-          lighting: loc.lighting,
-          tags: loc.tags,
-          referenceImages: loc.referenceImages,
-          createdAt: loc.createdAt,
-          updatedAt: loc.updatedAt,
-        });
-      }
-    }
-
-    const assetsDir = path.join(projectPath, 'assets');
-    if (fs.existsSync(assetsDir)) {
-      for (const typeDir of fs.readdirSync(assetsDir)) {
-        const typePath = path.join(assetsDir, typeDir);
-        if (!fs.statSync(typePath).isDirectory()) continue;
-        for (const prefixDir of fs.readdirSync(typePath)) {
-          const prefixPath = path.join(typePath, prefixDir);
-          if (!fs.statSync(prefixPath).isDirectory()) continue;
-          for (const file of fs.readdirSync(prefixPath)) {
-            if (!file.endsWith('.meta.json')) continue;
-            const meta = JSON.parse(
-              fs.readFileSync(path.join(prefixPath, file), 'utf-8'),
-            ) as AssetMetaInput;
-            this.insertAsset({ ...meta, projectId });
-          }
-        }
-      }
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Custom shot templates
   // ---------------------------------------------------------------------------
 
-  listCustomShotTemplates(projectId: string): ShotTemplate[] {
+  listCustomShotTemplates(): ShotTemplate[] {
     const rows = this.db.prepare(
-      'SELECT id, name, description, tracks_json, created_at FROM custom_shot_templates WHERE project_id = ?'
-    ).all(projectId) as Array<{ id: string; name: string; description: string; tracks_json: string; created_at: number }>;
+      'SELECT id, name, description, tracks_json, created_at FROM custom_shot_templates'
+    ).all() as Array<{ id: string; name: string; description: string; tracks_json: string; created_at: number }>;
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -795,17 +733,17 @@ export class SqliteIndex {
     }));
   }
 
-  upsertCustomShotTemplate(projectId: string, template: ShotTemplate): void {
+  upsertCustomShotTemplate(template: ShotTemplate): void {
     this.db.prepare(`
-      INSERT INTO custom_shot_templates (id, project_id, name, description, tracks_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO custom_shot_templates (id, name, description, tracks_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
         tracks_json = excluded.tracks_json, updated_at = excluded.updated_at
-    `).run(template.id, projectId, template.name, template.description, JSON.stringify(template.tracks), template.createdAt ?? Date.now(), Date.now());
+    `).run(template.id, template.name, template.description, JSON.stringify(template.tracks), template.createdAt ?? Date.now(), Date.now());
   }
 
-  deleteCustomShotTemplate(projectId: string, templateId: string): void {
-    this.db.prepare('DELETE FROM custom_shot_templates WHERE id = ? AND project_id = ?').run(templateId, projectId);
+  deleteCustomShotTemplate(templateId: string): void {
+    this.db.prepare('DELETE FROM custom_shot_templates WHERE id = ?').run(templateId);
   }
 
   // ---------------------------------------------------------------------------

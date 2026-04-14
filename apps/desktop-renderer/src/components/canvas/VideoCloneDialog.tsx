@@ -10,7 +10,6 @@ import {
 
 interface VideoCloneDialogProps {
   open: boolean;
-  projectId: string | null;
   onClose: () => void;
   onCanvasCreated?: (canvasId: string) => void;
 }
@@ -26,7 +25,6 @@ interface ProgressData {
 
 export function VideoCloneDialog({
   open,
-  projectId,
   onClose,
   onCanvasCreated,
 }: VideoCloneDialogProps) {
@@ -63,18 +61,18 @@ export function VideoCloneDialog({
   }, []);
 
   const handleClone = useCallback(async () => {
-    if (!filePath || !projectId) return;
+    if (!filePath) return;
     setState('cloning');
     setError('');
     try {
-      const res = await window.lucidAPI.video.clone(filePath, projectId, threshold);
+      const res = await window.lucidAPI.video.clone(filePath, threshold);
       setResult(res);
       setState('done');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setState('error');
     }
-  }, [filePath, projectId, threshold]);
+  }, [filePath, threshold]);
 
   const handleGoToCanvas = useCallback(() => {
     if (result?.canvasId) {
@@ -174,7 +172,7 @@ export function VideoCloneDialog({
               <button
                 type="button"
                 onClick={handleClone}
-                disabled={!filePath || !projectId || state === 'cloning'}
+                disabled={!filePath || state === 'cloning'}
                 className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
                 {state === 'cloning' ? (

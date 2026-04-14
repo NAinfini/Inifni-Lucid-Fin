@@ -35,7 +35,6 @@ describe('createStoryboardWorkflowHandlers', () => {
 
     const scene: Scene = {
       id: 'scene-1',
-      projectId: 'project-1',
       index: 0,
       title: 'Opening Scene',
       description: 'Intro shot',
@@ -133,7 +132,6 @@ describe('createStoryboardWorkflowHandlers', () => {
 
     const workflowRunId = workflowEngine.start({
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       input: {
@@ -157,7 +155,6 @@ describe('createStoryboardWorkflowHandlers', () => {
     const workflow = workflowEngine.get(workflowRunId);
     const scene = db.getScene('scene-1');
     const assets = db.queryAssets({
-      projectId: 'project-1',
       type: 'image',
       limit: 20,
     });
@@ -267,7 +264,6 @@ describe('createStoryboardWorkflowHandlers', () => {
 
     const _workflowRunId = workflowEngine.start({
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       input: {
@@ -283,7 +279,6 @@ describe('createStoryboardWorkflowHandlers', () => {
 
     const scene = db.getScene('scene-1');
     const assets = db.queryAssets({
-      projectId: 'project-1',
       type: 'image',
       limit: 20,
     });

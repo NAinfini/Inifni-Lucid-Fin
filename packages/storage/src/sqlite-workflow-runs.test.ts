@@ -12,7 +12,6 @@ const WorkflowRunStatus = {
 type WorkflowRun = {
   id: string;
   workflowType: string;
-  projectId: string;
   entityType: string;
   entityId?: string;
   triggerSource: string;
@@ -56,7 +55,6 @@ describe('workflow run storage api', () => {
     const run: WorkflowRun = {
       id: 'wf-1',
       workflowType: 'storyboard.generate',
-      projectId: 'project-1',
       entityType: 'scene',
       entityId: 'scene-1',
       triggerSource: 'user',
@@ -81,7 +79,7 @@ describe('workflow run storage api', () => {
     const fetched = db.getWorkflowRun(run.id);
     expect(fetched).toEqual(run);
 
-    const listed = db.listWorkflowRuns({ projectId: 'project-1' });
+    const listed = db.listWorkflowRuns({ status: 'queued' });
     expect(listed).toHaveLength(1);
     expect(listed[0]).toEqual(run);
 

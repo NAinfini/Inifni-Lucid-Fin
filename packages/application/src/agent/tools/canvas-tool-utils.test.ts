@@ -48,7 +48,6 @@ import {
 function createCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Canvas',
     nodes: [
       {
@@ -125,8 +124,6 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     }),
     renameNode: vi.fn(async () => undefined),
     renameCanvas: vi.fn(async () => undefined),
-    loadCanvas: vi.fn(async () => undefined),
-    saveCanvas: vi.fn(async () => undefined),
     connectNodes: vi.fn(async (_canvasId, edge) => {
       canvas.edges.push(edge);
     }),

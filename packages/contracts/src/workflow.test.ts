@@ -19,7 +19,6 @@ describe('workflow contracts', () => {
     const run: WorkflowRun = {
       id: 'wf-1',
       workflowType: 'storyboard.generate',
-      projectId: 'p1',
       entityType: 'scene',
       triggerSource: 'user',
       status: WorkflowRunStatus.Queued,

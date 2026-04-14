@@ -26,7 +26,6 @@ import {
 function makeCanvas(): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Main',
     nodes: [],
     edges: [],
@@ -105,13 +104,13 @@ describe('canvas generation reducers', () => {
 
     const state = canvasSlice.reducer(undefined, setCanvases([canvas]));
 
-    expect(state.canvases[0].nodes.find((node) => node.id === 'img-legacy')).toEqual(
+    expect(state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-legacy')).toEqual(
       expect.objectContaining({
         width: 240,
         height: 180,
       }),
     );
-    expect(state.canvases[0].nodes.find((node) => node.id === 'vid-legacy')).toEqual(
+    expect(state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-legacy')).toEqual(
       expect.objectContaining({
         width: 240,
         height: 180,
@@ -124,7 +123,7 @@ describe('canvas generation reducers', () => {
     state = canvasSlice.reducer(state, setNodeGenerating({ id: 'img-1', jobId: 'job-1' }));
     state = canvasSlice.reducer(state, setNodeProgress({ id: 'img-1', progress: 45 }));
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as { status: string; progress?: number; jobId?: string };
     expect(node?.status).toBe('generating');
     expect(data.status).toBe('generating');
@@ -147,7 +146,7 @@ describe('canvas generation reducers', () => {
       }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'vid-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'vid-1');
     const data = node?.data as {
       status: string;
       variants: string[];
@@ -177,7 +176,7 @@ describe('canvas generation reducers', () => {
       setNodeGenerationFailed({ id: 'aud-1', error: 'provider timeout' }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'aud-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'aud-1');
     const data = node?.data as { status: string; error?: string; progress?: number };
     expect(node?.status).toBe('failed');
     expect(data.status).toBe('failed');
@@ -208,8 +207,8 @@ describe('canvas generation reducers', () => {
     state = canvasSlice.reducer(state, selectVariant({ id: 'img-1', index: 1 }));
     state = canvasSlice.reducer(state, selectVariant({ id: 'aud-1', index: 1 }));
 
-    const imageNode = state.canvases[0].nodes.find((n) => n.id === 'img-1');
-    const audioNode = state.canvases[0].nodes.find((n) => n.id === 'aud-1');
+    const imageNode = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
+    const audioNode = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'aud-1');
     expect((imageNode?.data as { selectedVariantIndex: number; assetHash?: string }).selectedVariantIndex).toBe(1);
     expect((imageNode?.data as { selectedVariantIndex: number; assetHash?: string }).assetHash).toBe('img-v2');
     expect((audioNode?.data as { selectedVariantIndex: number; assetHash?: string }).selectedVariantIndex).toBe(1);
@@ -230,7 +229,7 @@ describe('canvas generation reducers', () => {
       setNodeEstimatedCost({ id: 'img-1', estimatedCost: 0.14 }),
     );
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'img-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as {
       seed?: number;
       seedLocked?: boolean;
@@ -247,8 +246,8 @@ describe('canvas generation reducers', () => {
 
   it('stores resolution, duration, and fps on generation nodes only', () => {
     let state = setup();
-    const initialImageNode = state.canvases[0].nodes.find((node) => node.id === 'img-1');
-    const initialVideoNode = state.canvases[0].nodes.find((node) => node.id === 'vid-1');
+    const initialImageNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-1');
+    const initialVideoNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-1');
 
     expect(initialImageNode).toEqual(
       expect.objectContaining({
@@ -276,9 +275,9 @@ describe('canvas generation reducers', () => {
     state = canvasSlice.reducer(state, setNodeDuration({ id: 'txt-1', duration: 12 }));
     state = canvasSlice.reducer(state, setNodeFps({ id: 'txt-1', fps: 30 }));
 
-    const imageNode = state.canvases[0].nodes.find((node) => node.id === 'img-1');
-    const videoNode = state.canvases[0].nodes.find((node) => node.id === 'vid-1');
-    const textNode = state.canvases[0].nodes.find((node) => node.id === 'txt-1');
+    const imageNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-1');
+    const videoNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-1');
+    const textNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'txt-1');
 
     expect(imageNode?.data).toEqual(
       expect.objectContaining({
@@ -341,7 +340,7 @@ describe('canvas generation reducers', () => {
     state = canvasSlice.reducer(state, setNodeFps({ id: 'txt-1', fps: 24 }));
     state = canvasSlice.reducer(state, selectVariant({ id: 'txt-1', index: 0 }));
 
-    const node = state.canvases[0].nodes.find((n) => n.id === 'txt-1');
+    const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'txt-1');
     const data = node?.data as unknown as Record<string, unknown>;
     expect(data.status).toBeUndefined();
     expect(data.seed).toBeUndefined();
@@ -369,13 +368,13 @@ describe('canvas generation reducers', () => {
       }),
     );
 
-    expect(state.canvases[0].nodes.find((node) => node.id === 'img-1')).toEqual(
+    expect(state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-1')).toEqual(
       expect.objectContaining({
         width: 240,
         height: 180,
       }),
     );
-    expect(state.canvases[0].nodes.find((node) => node.id === 'vid-1')).toEqual(
+    expect(state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-1')).toEqual(
       expect.objectContaining({
         width: 240,
         height: 180,
@@ -395,7 +394,7 @@ describe('canvas generation reducers', () => {
       setVideoFrameAsset({ id: 'vid-1', role: 'first', assetHash: 'uploaded-first-frame' }),
     );
 
-    let node = state.canvases[0].nodes.find((entry) => entry.id === 'vid-1');
+    let node = state.canvases.entities['canvas-1']!.nodes.find((entry) => entry.id === 'vid-1');
     let data = node?.data as {
       firstFrameAssetHash?: string;
       firstFrameNodeId?: string;
@@ -408,7 +407,7 @@ describe('canvas generation reducers', () => {
       setVideoFrameNode({ id: 'vid-1', role: 'first', frameNodeId: 'img-1' }),
     );
 
-    node = state.canvases[0].nodes.find((entry) => entry.id === 'vid-1');
+    node = state.canvases.entities['canvas-1']!.nodes.find((entry) => entry.id === 'vid-1');
     data = node?.data as {
       firstFrameAssetHash?: string;
       firstFrameNodeId?: string;
@@ -421,7 +420,7 @@ describe('canvas generation reducers', () => {
       setVideoFrameAsset({ id: 'vid-1', role: 'first', assetHash: undefined }),
     );
 
-    node = state.canvases[0].nodes.find((entry) => entry.id === 'vid-1');
+    node = state.canvases.entities['canvas-1']!.nodes.find((entry) => entry.id === 'vid-1');
     data = node?.data as {
       firstFrameAssetHash?: string;
       firstFrameNodeId?: string;

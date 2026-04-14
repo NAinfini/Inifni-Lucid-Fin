@@ -1,10 +1,9 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import log from '../logger.js';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { ProjectFS, CAS, Keychain, type PromptStore } from '@lucid-fin/storage';
+import { CAS, Keychain, type PromptStore } from '@lucid-fin/storage';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
 import type { JobQueue, WorkflowEngine, AgentOrchestrator } from '@lucid-fin/application';
-import { registerProjectHandlers } from './handlers/project.handlers.js';
 import { registerAssetHandlers } from './handlers/asset.handlers.js';
 import { registerJobHandlers } from './handlers/job.handlers.js';
 import { registerKeychainHandlers } from './handlers/keychain.handlers.js';
@@ -33,11 +32,11 @@ import { registerLipSyncHandlers } from './handlers/lipsync.handlers.js';
 import { registerEmbeddingHandlers } from './handlers/embedding.handlers.js';
 import { registerVideoCloneHandlers } from './handlers/video-clone.handlers.js';
 import { registerStorageHandlers } from './handlers/storage.handlers.js';
+import { registerSnapshotHandlers } from './handlers/snapshot.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 
 export interface AppDeps {
   db: SqliteIndex;
-  projectFS: ProjectFS;
   cas: CAS;
   keychain: Keychain;
   registry: AdapterRegistry;
@@ -52,13 +51,12 @@ export function registerAllHandlers(
   getWindow: () => BrowserWindow | null,
   deps: AppDeps,
 ): void {
-  const { db, projectFS, cas, keychain, registry, jobQueue, llmRegistry, workflowEngine, agent, promptStore } = deps;
+  const { db, cas, keychain, registry, jobQueue, llmRegistry, workflowEngine, agent, promptStore } = deps;
   log.info('Registering IPC handlers', {
     category: 'ipc',
     hasWindowGetter: typeof getWindow === 'function',
     hasAgent: Boolean(agent),
   });
-  registerProjectHandlers(ipcMain, projectFS, db, cas);
   registerAssetHandlers(ipcMain, cas, db, keychain);
   registerJobHandlers(ipcMain, getWindow, db, jobQueue);
   registerKeychainHandlers(ipcMain, keychain, registry, llmRegistry);
@@ -95,7 +93,6 @@ export function registerAllHandlers(
     workflowEngine,
     db,
     cas,
-    projectFS,
     keychain,
     resolvePrompt: (code: string) => promptStore.resolve(code),
   });
@@ -106,6 +103,7 @@ export function registerAllHandlers(
   registerEmbeddingHandlers(ipcMain, { cas, keychain, db });
   registerVideoCloneHandlers(ipcMain, { cas, canvasStore });
   registerStorageHandlers(ipcMain, { db, cas });
+  registerSnapshotHandlers(ipcMain, db);
   log.info('IPC handlers registered', {
     category: 'ipc',
     canvasStoreReady: true,

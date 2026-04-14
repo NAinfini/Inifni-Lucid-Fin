@@ -5,7 +5,6 @@ import type BetterSqlite3 from 'better-sqlite3';
 export type AssetMetaInput = Partial<AssetMeta> & {
   size?: unknown;
   mimeType?: unknown;
-  projectId?: string;
 };
 
 const ASSET_FORMAT_BY_MIME_TYPE: Record<string, string> = {
@@ -80,7 +79,7 @@ function normalizeAssetFormat(meta: AssetMetaInput): string {
   return 'bin';
 }
 
-export function normalizeAssetMeta(meta: AssetMetaInput): AssetMeta & { projectId?: string } {
+export function normalizeAssetMeta(meta: AssetMetaInput): AssetMeta {
   const format = normalizeAssetFormat(meta);
   const hash = typeof meta.hash === 'string' ? meta.hash : '';
   const type = meta.type as AssetMeta['type'];
@@ -102,7 +101,6 @@ export function normalizeAssetMeta(meta: AssetMetaInput): AssetMeta & { projectI
     provider: typeof meta.provider === 'string' ? meta.provider : undefined,
     tags: Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === 'string') : [],
     createdAt: normalizeAssetTimestamp(meta.createdAt),
-    projectId: typeof meta.projectId === 'string' ? meta.projectId : undefined,
   };
 }
 
@@ -110,8 +108,8 @@ export function insertAsset(db: BetterSqlite3.Database, meta: AssetMetaInput): v
   const normalized = normalizeAssetMeta(meta);
   db.prepare(
     `
-    INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, provider, created_at, file_size, project_id, width, height, duration)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, provider, created_at, file_size, width, height, duration)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     normalized.hash,
@@ -122,7 +120,6 @@ export function insertAsset(db: BetterSqlite3.Database, meta: AssetMetaInput): v
     normalized.provider ?? null,
     normalized.createdAt,
     normalized.fileSize,
-    normalized.projectId ?? null,
     normalized.width ?? null,
     normalized.height ?? null,
     normalized.duration ?? null,
@@ -135,7 +132,7 @@ export function deleteAsset(db: BetterSqlite3.Database, hash: string): void {
 
 export function queryAssets(
   db: BetterSqlite3.Database,
-  filter: { type?: string; projectId?: string; limit?: number; offset?: number },
+  filter: { type?: string; limit?: number; offset?: number },
 ): AssetMeta[] {
   const conditions: string[] = [];
   const params: unknown[] = [];
@@ -143,10 +140,6 @@ export function queryAssets(
   if (filter.type) {
     conditions.push('type = ?');
     params.push(filter.type);
-  }
-  if (filter.projectId) {
-    conditions.push('project_id = ?');
-    params.push(filter.projectId);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -261,21 +254,17 @@ export function searchAssets(
   db: BetterSqlite3.Database,
   query: string,
   limit = 50,
-  projectId?: string,
 ): AssetMeta[] {
-  const projectFilter = projectId ? 'AND a.project_id = ?' : '';
-  const params: unknown[] = projectId ? [query, projectId, limit] : [query, limit];
   const rows = db
     .prepare(
       `
     SELECT a.* FROM assets a
     JOIN assets_fts f ON a.rowid = f.rowid
     WHERE assets_fts MATCH ?
-    ${projectFilter}
     LIMIT ?
   `,
     )
-    .all(...params) as Array<Record<string, unknown>>;
+    .all(query, limit) as Array<Record<string, unknown>>;
 
   return rows.map((r) => ({
     hash: r.hash as string,

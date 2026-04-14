@@ -29,7 +29,6 @@ export interface EquipmentRef {
 
 export interface Equipment {
   id: string;
-  projectId: string;
   name: string;
   type: EquipmentType;
   subtype?: string;

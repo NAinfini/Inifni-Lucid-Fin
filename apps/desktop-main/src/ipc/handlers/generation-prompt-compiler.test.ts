@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 import type {
@@ -23,14 +21,7 @@ import type { SqliteIndex } from '@lucid-fin/storage';
 // Hoist mocks before any imports that trigger module resolution
 // ---------------------------------------------------------------------------
 
-const { mockGetCurrentProjectPath } = vi.hoisted(() => {
-  const mockGetCurrentProjectPath = vi.fn<[], string | null>(() => null);
-  return { mockGetCurrentProjectPath };
-});
-
-vi.mock('../project-context.js', () => ({
-  getCurrentProjectPath: mockGetCurrentProjectPath,
-}));
+// project-context has been removed — loadCurrentProjectStyleGuide now returns DEFAULT_STYLE_GUIDE directly
 
 vi.mock('../validation.js', () => ({
   assertWithinRoot: vi.fn((root: string, file: string) => path.join(root, file)),
@@ -76,7 +67,6 @@ function makeStyleGuide(overrides?: Partial<StyleGuide['global']>): StyleGuide {
 function makeCanvas(overrides?: Partial<Canvas>): Canvas {
   return {
     id: 'canvas-1',
-    projectId: 'project-1',
     name: 'Test',
     nodes: [],
     edges: [],
@@ -157,7 +147,6 @@ function makeCharacter(id: string, overrides?: Partial<Character>): Character {
 function makeEquipment(id: string, overrides?: Partial<Equipment>): Equipment {
   return {
     id,
-    projectId: 'project-1',
     name: `Equipment ${id}`,
     type: 'weapon',
     description: 'A test item',
@@ -172,7 +161,6 @@ function makeEquipment(id: string, overrides?: Partial<Equipment>): Equipment {
 function makeLocation(id: string, overrides?: Partial<Location>): Location {
   return {
     id,
-    projectId: 'project-1',
     name: `Location ${id}`,
     type: 'interior',
     description: 'A test location',
@@ -197,7 +185,7 @@ function makeDb(overrides?: Partial<SqliteIndex>): SqliteIndex {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
-  mockGetCurrentProjectPath.mockReturnValue(null);
+  // no-op (project path no longer used)
 });
 
 // ===========================================================================
@@ -206,83 +194,16 @@ afterEach(() => {
 
 describe('loadCurrentProjectStyleGuide', () => {
   it('returns DEFAULT_STYLE_GUIDE when no project path is set', () => {
-    mockGetCurrentProjectPath.mockReturnValue(null);
     const result = loadCurrentProjectStyleGuide();
     expect(result.global.lighting).toBe('natural');
     expect(result.sceneOverrides).toEqual({});
   });
 
-  it('reads style-guide.json when it exists and is valid', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-compiler-sg-'));
-    try {
-      mockGetCurrentProjectPath.mockReturnValue(tmpDir);
-      const guide: StyleGuide = makeStyleGuide({ artStyle: 'noir', lighting: 'dramatic' });
-      fs.writeFileSync(path.join(tmpDir, 'style-guide.json'), JSON.stringify(guide), 'utf-8');
-
-      const result = loadCurrentProjectStyleGuide();
-      expect(result.global.artStyle).toBe('noir');
-      expect(result.global.lighting).toBe('dramatic');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('falls back to project.json styleGuide field when style-guide.json is absent', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-compiler-proj-'));
-    try {
-      mockGetCurrentProjectPath.mockReturnValue(tmpDir);
-      const guide: StyleGuide = makeStyleGuide({ artStyle: 'watercolor', lighting: 'studio' });
-      const manifest = { styleGuide: guide };
-      fs.writeFileSync(path.join(tmpDir, 'project.json'), JSON.stringify(manifest), 'utf-8');
-
-      const result = loadCurrentProjectStyleGuide();
-      expect(result.global.artStyle).toBe('watercolor');
-      expect(result.global.lighting).toBe('studio');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('returns DEFAULT_STYLE_GUIDE when style-guide.json exists but has invalid shape', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-compiler-bad-'));
-    try {
-      mockGetCurrentProjectPath.mockReturnValue(tmpDir);
-      fs.writeFileSync(path.join(tmpDir, 'style-guide.json'), JSON.stringify({ version: 1 }), 'utf-8');
-
-      const result = loadCurrentProjectStyleGuide();
-      expect(result.global.lighting).toBe('natural');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('returns DEFAULT_STYLE_GUIDE when project.json styleGuide is missing', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-compiler-nosg-'));
-    try {
-      mockGetCurrentProjectPath.mockReturnValue(tmpDir);
-      fs.writeFileSync(path.join(tmpDir, 'project.json'), JSON.stringify({ name: 'my-project' }), 'utf-8');
-
-      const result = loadCurrentProjectStyleGuide();
-      expect(result.global.lighting).toBe('natural');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('prefers style-guide.json over project.json styleGuide', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-compiler-both-'));
-    try {
-      mockGetCurrentProjectPath.mockReturnValue(tmpDir);
-      const sgGuide: StyleGuide = makeStyleGuide({ artStyle: 'from-sg-file' });
-      const projGuide: StyleGuide = makeStyleGuide({ artStyle: 'from-project-json' });
-      fs.writeFileSync(path.join(tmpDir, 'style-guide.json'), JSON.stringify(sgGuide), 'utf-8');
-      fs.writeFileSync(path.join(tmpDir, 'project.json'), JSON.stringify({ styleGuide: projGuide }), 'utf-8');
-
-      const result = loadCurrentProjectStyleGuide();
-      expect(result.global.artStyle).toBe('from-sg-file');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
+  it('always returns DEFAULT_STYLE_GUIDE (project layer removed)', () => {
+    const result = loadCurrentProjectStyleGuide();
+    expect(result.global.lighting).toBe('natural');
+    expect(result.global.artStyle).toBe('');
+    expect(result.sceneOverrides).toEqual({});
   });
 });
 
@@ -828,17 +749,6 @@ describe('resolveReferenceImages', () => {
     expect(result).toContain('front-slot-hash');
   });
 
-  it('falls back to character.referenceImage (legacy single) when no slot match', () => {
-    const char = makeCharacter('char-1', { referenceImage: 'legacy-single-hash' });
-    const db = makeDb({ getCharacter: vi.fn(() => char) });
-    const imgNode = makeImageNode('img-1', {
-      characterRefs: [{ characterId: 'char-1', loadoutId: '' }],
-    });
-    const canvas = makeCanvas({ nodes: [imgNode] });
-    const result = resolveReferenceImages(db, canvas, imgNode);
-    expect(result).toContain('legacy-single-hash');
-  });
-
   it('collects all character.referenceImages when no slot or explicit hash', () => {
     const char = makeCharacter('char-1', {
       referenceImages: [
@@ -929,10 +839,12 @@ describe('resolveReferenceImages', () => {
   });
 
   it('deduplicates identical hashes across multiple refs', () => {
-    const char = makeCharacter('char-1', { referenceImage: 'shared-hash' });
+    const char = makeCharacter('char-1', {
+      referenceImages: [{ slot: 'front', assetHash: 'shared-hash', isStandard: true }],
+    });
     const db = makeDb({ getCharacter: vi.fn(() => char) });
     const imgNode = makeImageNode('img-1', {
-      // Two refs pointing to the same character, both falling back to referenceImage
+      // Two refs pointing to the same character, both falling back to referenceImages
       characterRefs: [
         { characterId: 'char-1', loadoutId: '' },
         { characterId: 'char-1', loadoutId: '' },

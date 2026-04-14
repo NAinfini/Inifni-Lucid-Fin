@@ -14,21 +14,20 @@ import {
   AgentToolRegistry,
   createCanvasTools,
   createCharacterTools,
-  createColorStyleTools,
   createEquipmentTools,
-  createJobTools,
   createSceneTools,
   createLocationTools,
   createPresetTools,
-  createProjectTools,
   createProviderTools,
   createScriptTools,
-  createSeriesTools,
   createMetaTools,
   createWorkflowTools,
-  createUtilityWorkflowTools,
   createCopywritingTools,
   createVisionTools,
+  registerToolModule,
+  jobToolModule,
+  colorStyleToolModule,
+  seriesToolModule,
   type JobQueue,
   type WorkflowEngine,
 } from '@lucid-fin/application';
@@ -40,18 +39,17 @@ import {
   type CanvasEdge,
   type CanvasNode,
   type CanvasNote,
-  type ProjectManifest,
   type PresetCategory,
   type PresetDefinition,
   type PresetTrackSet,
   type ShotTemplate,
+  type StyleGuide,
   normalizeLLMProviderRuntimeConfig,
   getBuiltinVisionProviderPreset,
 } from '@lucid-fin/contracts';
-import type { CAS, SqliteIndex, ProjectFS } from '@lucid-fin/storage';
+import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
 import { startCanvasGeneration, cancelCanvasGeneration } from './canvas-generation.handlers.js';
-import { getCurrentProjectId, getCurrentProjectPath } from '../project-context.js';
 import { getCachedProviders } from '../settings-cache.js';
 import { getBufferedLogs } from '../../logger.js';
 import { makeGenerateImage } from './commander-image-gen.js';
@@ -90,66 +88,20 @@ export function touchCanvas(canvas: Canvas, store: CanvasStore): void {
   store.save(canvas);
 }
 
-export function requireCurrentProject(): { projectId: string; projectPath: string } {
-  const projectId = getCurrentProjectId();
-  const projectPath = getCurrentProjectPath();
-  if (!projectId || !projectPath) {
-    throw new Error('No project open');
-  }
-  return { projectId, projectPath };
-}
-
-export function getCurrentProjectSnapshot(
-  db: SqliteIndex,
-  projectFS: ProjectFS,
-): {
-  projectId: string;
-  projectPath: string;
-  manifest: ProjectManifest;
-  projectRow?: { id: string; title: string; path: string; updatedAt: number; thumbnail?: string };
-} {
-  const { projectId, projectPath } = requireCurrentProject();
-  const manifest = projectFS.openProject(projectPath);
-  const projectRow = db.listProjects().find((entry) => entry.id === projectId);
-  return { projectId, projectPath, manifest, projectRow };
-}
-
-export function persistProjectSeriesId(
-  db: SqliteIndex,
-  projectFS: ProjectFS,
-  snapshot: ReturnType<typeof getCurrentProjectSnapshot>,
-  seriesId: string,
-): void {
-  const now = Date.now();
-  snapshot.manifest.seriesId = seriesId;
-  snapshot.manifest.updatedAt = now;
-  projectFS.saveProject(snapshot.projectPath, snapshot.manifest);
-  db.upsertProject({
-    id: snapshot.projectId,
-    title: snapshot.manifest.title,
-    path: snapshot.projectPath,
-    seriesId,
-    updatedAt: snapshot.manifest.updatedAt,
-    thumbnail: snapshot.projectRow?.thumbnail,
-  });
-}
-
 function normalizeScriptFormat(value: unknown): 'fountain' | 'fdx' | 'plaintext' {
   return value === 'fdx' || value === 'plaintext' || value === 'fountain' ? value : 'fountain';
 }
 
 function saveScriptDocument(
   db: SqliteIndex,
-  projectId: string,
   content: string,
   format: 'fountain' | 'fdx' | 'plaintext',
 ) {
   const parsedScenes = parseScript(content, format);
-  const existing = db.getScript(projectId);
+  const existing = db.getScript();
   const now = Date.now();
   const doc = {
     id: existing?.id ?? crypto.randomUUID(),
-    projectId,
     content,
     format,
     parsedScenes,
@@ -173,7 +125,6 @@ export interface ToolRegistrationDeps {
   workflowEngine: WorkflowEngine;
   db: SqliteIndex;
   cas: CAS;
-  projectFS: ProjectFS;
   keychain: import('@lucid-fin/storage').Keychain;
 }
 
@@ -184,10 +135,7 @@ export function registerAllTools(
   promptGuides: Array<{ id: string; name: string; content: string }>,
   compactRef?: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> },
 ): void {
-  const generateImage = makeGenerateImage({
-    ...deps,
-    getProjectId: () => getCurrentProjectId() ?? undefined,
-  });
+  const generateImage = makeGenerateImage(deps);
 
   // ---- Preset helpers (shared by canvas + preset tools) ----
   const listCommanderPresets = async (category?: PresetCategory): Promise<PresetDefinition[]> => {
@@ -200,23 +148,19 @@ export function registerAllTools(
     } else {
       deps.presetLibrary.push(preset);
     }
-    const projectId = getCurrentProjectId();
-    if (projectId) {
-      deps.db.upsertPresetOverride({
-        id: preset.id,
-        projectId,
-        presetId: preset.id,
-        category: preset.category,
-        name: preset.name,
-        description: preset.description ?? '',
-        prompt: preset.prompt ?? '',
-        params: preset.params as unknown[],
-        defaults: preset.defaults as Record<string, unknown>,
-        isUser: true,
-        createdAt: preset.createdAt ?? Date.now(),
-        updatedAt: Date.now(),
-      });
-    }
+    deps.db.upsertPresetOverride({
+      id: preset.id,
+      presetId: preset.id,
+      category: preset.category,
+      name: preset.name,
+      description: preset.description ?? '',
+      prompt: preset.prompt ?? '',
+      params: preset.params as unknown[],
+      defaults: preset.defaults as Record<string, unknown>,
+      isUser: true,
+      createdAt: preset.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+    });
     return preset;
   };
   const deleteCommanderPreset = async (presetId: string): Promise<void> => {
@@ -268,13 +212,6 @@ export function registerAllTools(
     renameCanvas: async (canvasId: string, name: string) => {
       const current = requireCanvas(deps.canvasStore, canvasId);
       current.name = name;
-      touchCanvas(current, deps.canvasStore);
-    },
-    loadCanvas: async (canvasId: string) => {
-      requireCanvas(deps.canvasStore, canvasId);
-    },
-    saveCanvas: async (canvasId: string) => {
-      const current = requireCanvas(deps.canvasStore, canvasId);
       touchCanvas(current, deps.canvasStore);
     },
     connectNodes: async (canvasId: string, edge: CanvasEdge) => {
@@ -354,20 +291,18 @@ export function registerAllTools(
     listPresets: listCommanderPresets,
     savePreset: persistCommanderPreset,
     listShotTemplates: async (): Promise<ShotTemplate[]> => {
-      const custom = deps.db.listCustomShotTemplates?.(getCurrentProjectId() ?? '') ?? [];
+      const custom = deps.db.listCustomShotTemplates?.() ?? [];
       return [...BUILT_IN_SHOT_TEMPLATES, ...custom];
     },
     saveShotTemplate: async (template: ShotTemplate): Promise<ShotTemplate> => {
-      const projectId = getCurrentProjectId();
-      if (projectId && deps.db.upsertCustomShotTemplate) {
-        deps.db.upsertCustomShotTemplate(projectId, template);
+      if (deps.db.upsertCustomShotTemplate) {
+        deps.db.upsertCustomShotTemplate(template);
       }
       return template;
     },
     deleteShotTemplate: async (templateId: string): Promise<void> => {
-      const projectId = getCurrentProjectId();
-      if (projectId && deps.db.deleteCustomShotTemplate) {
-        deps.db.deleteCustomShotTemplate(projectId, templateId);
+      if (deps.db.deleteCustomShotTemplate) {
+        deps.db.deleteCustomShotTemplate(templateId);
       }
     },
     removeCharacterRef: async (canvasId: string, nodeId: string, characterId: string) => {
@@ -509,29 +444,25 @@ export function registerAllTools(
   for (const tool of createScriptTools({
     loadScript: async (filePath?: string) => {
       if (!filePath) {
-        const projectId = getCurrentProjectId();
-        return projectId ? deps.db.getScript(projectId) : null;
+        return deps.db.getScript();
       }
       const resolved = path.resolve(filePath);
       if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
         throw new Error(`Script file not found: ${resolved}`);
       }
-      const { projectId } = requireCurrentProject();
       const content = fs.readFileSync(resolved, 'utf-8');
       const ext = path.extname(resolved).toLowerCase();
       const format =
         ext === '.fountain' ? 'fountain' : ext === '.fdx' ? 'fdx' : 'plaintext';
-      return saveScriptDocument(deps.db, projectId, content, format);
+      return saveScriptDocument(deps.db, content, format);
     },
     saveScript: async (content: string) => {
-      const { projectId } = requireCurrentProject();
-      saveScriptDocument(deps.db, projectId, content, 'fountain');
+      saveScriptDocument(deps.db, content, 'fountain');
     },
     parseScript: (content: string) => parseScript(content, 'fountain'),
     importScript: async (content: string, format?: string) => {
-      const { projectId } = requireCurrentProject();
       const normalizedFormat = normalizeScriptFormat(format);
-      const doc = saveScriptDocument(deps.db, projectId, content, normalizedFormat);
+      const doc = saveScriptDocument(deps.db, content, normalizedFormat);
       return {
         content: doc.content,
         parsedScenes: doc.parsedScenes,
@@ -545,12 +476,10 @@ export function registerAllTools(
   // ---- Entity tools ----
   for (const tool of createCharacterTools({
     listCharacters: async () => {
-      const projectId = getCurrentProjectId();
-      return projectId ? deps.db.listCharacters(projectId) : [];
+      return deps.db.listCharacters();
     },
     saveCharacter: async (c) => {
-      const projectId = getCurrentProjectId() ?? '';
-      deps.db.upsertCharacter({ ...c, projectId });
+      deps.db.upsertCharacter({ ...c });
     },
     deleteCharacter: async (id) => deps.db.deleteCharacter(id),
     generateImage,
@@ -560,16 +489,13 @@ export function registerAllTools(
   }
   for (const tool of createSceneTools({
     listScenes: async () => {
-      const projectId = getCurrentProjectId();
-      return projectId ? deps.db.listScenes(projectId) : [];
+      return deps.db.listScenes();
     },
     createScene: async (s) => {
-      const projectId = getCurrentProjectId() ?? '';
-      deps.db.upsertScene({ ...s, projectId });
+      deps.db.upsertScene({ ...s });
     },
     updateScene: async (s) => {
-      const projectId = getCurrentProjectId() ?? '';
-      deps.db.upsertScene({ ...s, projectId });
+      deps.db.upsertScene({ ...s });
     },
     deleteScene: async (id) => deps.db.deleteScene(id),
     getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
@@ -578,12 +504,10 @@ export function registerAllTools(
   }
   for (const tool of createLocationTools({
     listLocations: async () => {
-      const projectId = getCurrentProjectId();
-      return projectId ? deps.db.listLocations(projectId) : [];
+      return deps.db.listLocations();
     },
     saveLocation: async (l) => {
-      const projectId = getCurrentProjectId() ?? '';
-      deps.db.upsertLocation({ ...l, projectId });
+      deps.db.upsertLocation({ ...l });
     },
     deleteLocation: async (id) => deps.db.deleteLocation(id),
     generateImage,
@@ -592,12 +516,10 @@ export function registerAllTools(
   }
   for (const tool of createEquipmentTools({
     listEquipment: async () => {
-      const projectId = getCurrentProjectId();
-      return projectId ? deps.db.listEquipment(projectId) : [];
+      return deps.db.listEquipment();
     },
     saveEquipment: async (e) => {
-      const projectId = getCurrentProjectId() ?? '';
-      deps.db.upsertEquipment({ ...e, projectId });
+      deps.db.upsertEquipment({ ...e });
     },
     deleteEquipment: async (id) => deps.db.deleteEquipment(id),
     generateImage,
@@ -607,10 +529,9 @@ export function registerAllTools(
   }
 
   // ---- Job tools ----
-  for (const tool of createJobTools({
+  registerToolModule(registry, jobToolModule, {
     listJobs: async () => {
-      const projectId = getCurrentProjectId();
-      return deps.db.listJobs(projectId ? { projectId } : undefined).map((job) => ({
+      return deps.db.listJobs().map((job) => ({
         id: job.id,
         status: job.status,
         nodeId:
@@ -624,42 +545,42 @@ export function registerAllTools(
     cancelJob: async (jobId: string) => { deps.jobQueue.cancel(jobId); },
     pauseJob: async (jobId: string) => { deps.jobQueue.pause(jobId); },
     resumeJob: async (jobId: string) => { deps.jobQueue.resume(jobId); },
-  })) {
-    registry.register(tool);
-  }
+  });
 
   // ---- Series tools ----
+  // Track the active series ID in memory (no longer persisted per-project)
+  let activeSeriesId: string | undefined;
+
   const ensureCommanderSeriesId = () => {
-    const snapshot = getCurrentProjectSnapshot(deps.db, deps.projectFS);
-    if (snapshot.manifest.seriesId) {
-      return { snapshot, seriesId: snapshot.manifest.seriesId };
+    if (activeSeriesId) {
+      const existing = deps.db.getSeries(activeSeriesId);
+      if (existing) return { seriesId: activeSeriesId };
     }
     const now = Date.now();
     const seriesId = crypto.randomUUID();
     deps.db.upsertSeries({
       id: seriesId,
-      title: snapshot.manifest.title,
+      title: 'Untitled Series',
       description: '',
-      styleGuide: snapshot.manifest.styleGuide,
+      styleGuide: { global: { artStyle: '', colorPalette: { primary: '', secondary: '', forbidden: [] }, lighting: 'natural', texture: '', referenceImages: [], freeformDescription: '' }, sceneOverrides: {} } as StyleGuide,
       episodeIds: [],
       createdAt: now,
       updatedAt: now,
     });
-    persistProjectSeriesId(deps.db, deps.projectFS, snapshot, seriesId);
-    return { snapshot, seriesId };
+    activeSeriesId = seriesId;
+    return { seriesId };
   };
 
-  for (const tool of createSeriesTools({
+  registerToolModule(registry, seriesToolModule, {
     getSeries: async () => {
-      const snapshot = getCurrentProjectSnapshot(deps.db, deps.projectFS);
-      return snapshot.manifest.seriesId ? deps.db.getSeries(snapshot.manifest.seriesId) ?? null : null;
+      if (!activeSeriesId) return null;
+      return deps.db.getSeries(activeSeriesId) ?? null;
     },
     saveSeries: async (data: Record<string, unknown>) => {
-      const snapshot = getCurrentProjectSnapshot(deps.db, deps.projectFS);
       const existingId =
         typeof data.id === 'string' && data.id.trim().length > 0
           ? data.id.trim()
-          : snapshot.manifest.seriesId;
+          : activeSeriesId;
       const existingSeries = existingId ? deps.db.getSeries(existingId) : undefined;
       const now = Date.now();
       const seriesId = existingId ?? crypto.randomUUID();
@@ -672,15 +593,15 @@ export function registerAllTools(
         title:
           typeof data.title === 'string'
             ? data.title
-            : existingSeries?.title ?? snapshot.manifest.title,
+            : existingSeries?.title ?? 'Untitled Series',
         description:
           typeof data.description === 'string'
             ? data.description
             : existingSeries?.description ?? '',
         styleGuide:
           data.styleGuide && typeof data.styleGuide === 'object' && !Array.isArray(data.styleGuide)
-            ? data.styleGuide as ProjectManifest['styleGuide']
-            : existingSeries?.styleGuide ?? snapshot.manifest.styleGuide,
+            ? data.styleGuide as StyleGuide
+            : existingSeries?.styleGuide ?? { global: { artStyle: '', colorPalette: { primary: '', secondary: '', forbidden: [] }, lighting: 'natural', texture: '', referenceImages: [], freeformDescription: '' }, sceneOverrides: {} } as StyleGuide,
         episodeIds,
         createdAt:
           typeof data.createdAt === 'number'
@@ -689,24 +610,18 @@ export function registerAllTools(
         updatedAt: now,
       });
 
-      if (snapshot.manifest.seriesId !== seriesId) {
-        persistProjectSeriesId(deps.db, deps.projectFS, snapshot, seriesId);
-      }
-
+      activeSeriesId = seriesId;
       return deps.db.getSeries(seriesId) ?? null;
     },
     listEpisodes: async () => {
-      const snapshot = getCurrentProjectSnapshot(deps.db, deps.projectFS);
-      if (!snapshot.manifest.seriesId) {
-        return [];
-      }
-      return deps.db.listEpisodes(snapshot.manifest.seriesId).map((episode) => ({
+      if (!activeSeriesId) return [];
+      return deps.db.listEpisodes(activeSeriesId).map((episode) => ({
         id: episode.id,
         title: episode.title,
-        canvasId: episode.projectId ?? undefined,
+        canvasId: undefined,
       }));
     },
-    addEpisode: async (title: string, canvasId?: string) => {
+    addEpisode: async (title: string, _canvasId?: string) => {
       const { seriesId } = ensureCommanderSeriesId();
       const existingEpisodes = deps.db.listEpisodes(seriesId);
       const now = Date.now();
@@ -716,7 +631,6 @@ export function registerAllTools(
         seriesId,
         title,
         order: existingEpisodes.length,
-        projectId: canvasId,
         status: 'draft',
         createdAt: now,
         updatedAt: now,
@@ -734,8 +648,7 @@ export function registerAllTools(
       return { id: episodeId };
     },
     removeEpisode: async (episodeId: string) => {
-      const snapshot = getCurrentProjectSnapshot(deps.db, deps.projectFS);
-      const series = snapshot.manifest.seriesId ? deps.db.getSeries(snapshot.manifest.seriesId) : undefined;
+      const series = activeSeriesId ? deps.db.getSeries(activeSeriesId) : undefined;
       deps.db.deleteEpisode(episodeId);
       if (series) {
         deps.db.upsertSeries({
@@ -746,30 +659,24 @@ export function registerAllTools(
       }
     },
     reorderEpisodes: async (episodeIds: string[]) => {
-      const snapshot = getCurrentProjectSnapshot(deps.db, deps.projectFS);
-      if (!snapshot.manifest.seriesId) {
-        return [];
-      }
-      const episodes = deps.db.listEpisodes(snapshot.manifest.seriesId);
+      if (!activeSeriesId) return [];
+      const episodes = deps.db.listEpisodes(activeSeriesId);
       for (let index = 0; index < episodeIds.length; index += 1) {
         const episode = episodes.find((entry) => entry.id === episodeIds[index]);
         if (episode) {
           deps.db.upsertEpisode({
             ...episode,
-            projectId: episode.projectId ?? undefined,
             order: index,
             updatedAt: Date.now(),
           });
         }
       }
-      return deps.db.listEpisodes(snapshot.manifest.seriesId);
+      return deps.db.listEpisodes(activeSeriesId);
     },
-  })) {
-    registry.register(tool);
-  }
+  });
 
   // ---- Color style tools ----
-  for (const tool of createColorStyleTools({
+  registerToolModule(registry, colorStyleToolModule, {
     listColorStyles: async () => deps.db.listColorStyles(),
     saveColorStyle: async (style: Record<string, unknown>) => {
       if (
@@ -785,9 +692,7 @@ export function registerAllTools(
     deleteColorStyle: async (id: string) => {
       deps.db.deleteColorStyle(id);
     },
-  })) {
-    registry.register(tool);
-  }
+  });
 
   // ---- Provider tools ----
   for (const tool of createProviderTools({
@@ -855,28 +760,6 @@ export function registerAllTools(
     registry.register(tool);
   }
 
-  // ---- Project tools ----
-  for (const tool of createProjectTools({
-    listProjects: async () => {
-      return deps.db.listProjects().map((p) => ({
-        id: p.id,
-        title: p.title,
-        path: p.path,
-        updatedAt: p.updatedAt,
-      }));
-    },
-    createSnapshot: async (name: string) => {
-      const now = Date.now();
-      return { id: `snapshot-${now}`, name, createdAt: now };
-    },
-    listSnapshots: async () => {
-      return [];
-    },
-    restoreSnapshot: async (_snapshotId: string) => {},
-  })) {
-    registry.register(tool);
-  }
-
   // ---- Preset tools ----
   for (const tool of createPresetTools({
     listPresets: listCommanderPresets,
@@ -920,9 +803,7 @@ export function registerAllTools(
   })) {
     registry.register(tool);
   }
-  for (const tool of createUtilityWorkflowTools()) {
-    registry.register(tool);
-  }
+
 
   // ---- Copywriting tools ----
   for (const tool of createCopywritingTools({
@@ -1004,9 +885,7 @@ export function registerAllTools(
       return { prompt: result };
     },
     getNodeAssetHash: async (nodeId: string) => {
-      const projectId = getCurrentProjectId();
-      if (!projectId) return null;
-      const canvasList = deps.canvasStore.listForProject(projectId);
+      const canvasList = deps.canvasStore.list();
       for (const entry of canvasList) {
         const canvas = deps.canvasStore.get(entry.id);
         if (!canvas) continue;
@@ -1019,9 +898,7 @@ export function registerAllTools(
       return null;
     },
     writeNodeField: async (nodeId: string, field: string, value: string) => {
-      const projectId = getCurrentProjectId();
-      if (!projectId) return;
-      const canvasList = deps.canvasStore.listForProject(projectId);
+      const canvasList = deps.canvasStore.list();
       for (const entry of canvasList) {
         const canvas = deps.canvasStore.get(entry.id);
         if (!canvas) continue;
@@ -1040,7 +917,7 @@ export function registerAllTools(
   }
 
   for (const tool of createVideoTools({
-    cloneVideo: async (filePath, projectId, threshold) => {
+    cloneVideo: async (filePath, threshold) => {
       const scenes = await detectScenes(filePath, threshold ?? 0.4);
       if (scenes.length === 0) {
         return { canvasId: '', nodeCount: 0 };
@@ -1096,7 +973,6 @@ export function registerAllTools(
         }
         const canvas: Canvas = {
           id: canvasId,
-          projectId,
           name: `Video Clone ${new Date().toLocaleDateString()}`,
           nodes,
           edges,

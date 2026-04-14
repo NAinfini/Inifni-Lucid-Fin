@@ -1,7 +1,7 @@
 import type { AgentTool } from '@lucid-fin/application';
 
 export interface VideoToolDeps {
-  cloneVideo: (filePath: string, projectId: string, threshold?: number) => Promise<{ canvasId: string; nodeCount: number }>;
+  cloneVideo: (filePath: string, threshold?: number) => Promise<{ canvasId: string; nodeCount: number }>;
 }
 
 export function createVideoTools(deps: VideoToolDeps): AgentTool[] {
@@ -13,16 +13,14 @@ export function createVideoTools(deps: VideoToolDeps): AgentTool[] {
       type: 'object',
       properties: {
         filePath: { type: 'string', description: 'Path to the source video file' },
-        projectId: { type: 'string', description: 'Project ID to create the canvas in' },
         threshold: { type: 'number', description: 'Scene detection sensitivity (0-1, default 0.4)' },
       },
-      required: ['filePath', 'projectId'],
+      required: ['filePath'],
     },
     async execute(args) {
       try {
         const result = await deps.cloneVideo(
           String(args.filePath),
-          String(args.projectId),
           typeof args.threshold === 'number' ? args.threshold : undefined,
         );
         return { success: true, data: result };

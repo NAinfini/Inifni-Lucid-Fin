@@ -2,7 +2,6 @@ import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { Equipment, EquipmentType, ReferenceImage } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { getCurrentProjectId } from '../project-context.js';
 
 const VALID_TYPES: EquipmentType[] = [
   'weapon',
@@ -15,19 +14,12 @@ const VALID_TYPES: EquipmentType[] = [
   'other',
 ];
 
-function requireProject(): { projectId: string } {
-  const projectId = getCurrentProjectId();
-  if (!projectId) throw new Error('No project open');
-  return { projectId };
-}
-
 export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   ipcMain.handle('equipment:list', async (_e, args?: { type?: string } | void) => {
-    const { projectId } = requireProject();
     const typeFilter = args && typeof args === 'object' && typeof args.type === 'string'
       ? args.type
       : undefined;
-    return db.listEquipment(projectId, typeFilter);
+    return db.listEquipment(typeFilter);
   });
 
   ipcMain.handle('equipment:get', async (_e, args: { id: string }) => {
@@ -41,7 +33,6 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     if (!args || (typeof args.name !== 'string' && typeof args.id !== 'string')) {
       throw new Error('name or id is required');
     }
-    const { projectId } = requireProject();
     const existing = typeof args.id === 'string' ? db.getEquipment(args.id) : undefined;
     const now = Date.now();
 
@@ -55,7 +46,6 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
     const equip: Equipment = {
       id: existing?.id ?? (typeof args.id === 'string' && args.id ? args.id : randomUUID()),
-      projectId,
       name,
       type,
       subtype: typeof args.subtype === 'string' ? args.subtype : existing?.subtype,
@@ -74,7 +64,6 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
     db.upsertEquipment({
       id: equip.id,
-      projectId: equip.projectId,
       name: equip.name,
       type: equip.type,
       subtype: equip.subtype,
@@ -120,7 +109,6 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
       db.upsertEquipment({
         id: equip.id,
-        projectId: equip.projectId,
         name: equip.name,
         referenceImages: refs,
         updatedAt: Date.now(),
@@ -144,7 +132,6 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
       db.upsertEquipment({
         id: equip.id,
-        projectId: equip.projectId,
         name: equip.name,
         referenceImages: refs,
         updatedAt: Date.now(),
