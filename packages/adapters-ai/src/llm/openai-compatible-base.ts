@@ -7,6 +7,7 @@ import type {
   LLMCompletionResult,
   LLMToolCall,
   Capability,
+  ProviderProfile,
 } from '@lucid-fin/contracts';
 import { ErrorCategory, ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
@@ -90,6 +91,24 @@ function extractContentText(value: unknown): string {
   return '';
 }
 
+/** Extract a reasoning_content value that may be a string or an array of text objects. */
+function extractReasoningContent(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    const parts: string[] = [];
+    for (const entry of value) {
+      if (typeof entry === 'string') { parts.push(entry); continue; }
+      if (isRecord(entry)) {
+        const text = readTextValue(entry.text);
+        if (text) parts.push(text);
+      }
+    }
+    const joined = parts.join('\n').trim();
+    if (joined) return joined;
+  }
+  return undefined;
+}
+
 function stringifyUrl(url: URL): string {
   const pathname = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '');
   return `${url.origin}${pathname}${url.search}${url.hash}`;
@@ -150,6 +169,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
   readonly id: string;
   readonly name: string;
   readonly capabilities: Capability[];
+  readonly profile: ProviderProfile;
   /** Auto-detected from /models endpoint. */
   contextWindow?: number;
   /** User-configured override, always takes priority. */
@@ -170,6 +190,15 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     this.baseUrl = normalizeOpenAICompatibleBaseUrl(cfg.defaultBaseUrl);
     this.model = cfg.defaultModel;
     this.authStyle = cfg.authStyle ?? 'bearer';
+    const isReasoning = usesOpenAIReasoningChatCompatibility(cfg.defaultModel);
+    this.profile = {
+      providerId: cfg.id,
+      charsPerToken: 4.0,
+      sanitizeToolNames: true,
+      maxUtilization: isReasoning ? 0.80 : 0.95,
+      outputReserveTokens: isReasoning ? 8192 : 4096,
+      reasoningModel: isReasoning,
+    };
     this.capabilities = cfg.capabilities ?? [
       'text-generation',
       'script-expand',
@@ -322,6 +351,13 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
     const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined;
 
+    // Extract reasoning/thinking content (separate from main content)
+    // Priority: message.reasoning (user-configured format) > message.reasoning_content (DeepSeek R1) > choice.reasoning_content (proxy APIs)
+    const reasoning =
+      extractReasoningContent(message ? (message as Record<string, unknown>).reasoning : undefined) ??
+      extractReasoningContent(message?.reasoning_content) ??
+      extractReasoningContent(choice?.reasoning_content);
+
     if (!extractedContent && toolCalls.length === 0 && finishReason === 'stop' && opts?.tools?.length) {
       let streamedContent = '';
       for await (const chunk of this.stream(messages, { ...opts, tools: undefined, toolChoice: undefined })) {
@@ -332,7 +368,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       }
     }
 
-    if (!extractedContent && toolCalls.length === 0) {
+    if (!extractedContent && toolCalls.length === 0 && !reasoning) {
       throw this.buildEmptyAssistantResponseError(result, raw, finishReason, toolCalls.length);
     }
 
@@ -347,6 +383,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
             : toolCalls.length > 0
               ? 'tool_calls'
               : 'stop',
+      reasoning,
     };
   }
 
@@ -420,6 +457,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
+          timeoutMs: 300_000, // 5 min — tool-calling requests with large context can take several minutes
         });
       } catch (error) {
         lastTransportError = this.buildTransportError(

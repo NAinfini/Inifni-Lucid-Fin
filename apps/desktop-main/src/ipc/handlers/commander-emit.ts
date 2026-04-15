@@ -14,7 +14,7 @@ import type { CanvasStore } from './canvas.handlers.js';
 // ---------------------------------------------------------------------------
 
 export type CommanderStreamPayload = {
-  type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question';
+  type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question' | 'context_usage' | 'thinking';
   content?: string;
   toolName?: string;
   toolCallId?: string;
@@ -26,6 +26,16 @@ export type CommanderStreamPayload = {
   options?: Array<{ label: string; description?: string }>;
   startedAt?: number;
   completedAt?: number;
+  estimatedTokensUsed?: number;
+  contextWindowTokens?: number;
+  messageCount?: number;
+  systemPromptChars?: number;
+  toolSchemaChars?: number;
+  messageChars?: number;
+  cacheChars?: number;
+  cacheEntryCount?: number;
+  historyMessagesTrimmed?: number;
+  utilizationRatio?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -138,7 +148,9 @@ export function createEmitHandler(
                     question: event.question,
                     options: event.options,
                   }
-                : event.type === 'done'
+                : event.type === 'thinking'
+                  ? { type: 'thinking', content: event.content }
+                  : event.type === 'done'
                   ? { type: 'done', content: event.content }
                   : {
                       type: 'error',

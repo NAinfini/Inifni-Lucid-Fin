@@ -192,4 +192,15 @@ describe('workflowDefinitions slice', () => {
     ]);
     expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '[]')).toEqual([]);
   });
+
+  it('ships detailed built-in workflow and skill guides instead of placeholder snippets', async () => {
+    const { workflowDefinitionsSlice } = await loadWorkflowDefinitionsModule();
+    const state = workflowDefinitionsSlice.reducer(undefined, { type: '@@INIT' });
+
+    for (const entry of state.entries.filter((item) => item.builtIn)) {
+      expect(entry.content.startsWith('# ')).toBe(true);
+      expect(entry.content.split('\n').length).toBeGreaterThanOrEqual(10);
+      expect(entry.content.length).toBeGreaterThanOrEqual(350);
+    }
+  });
 });

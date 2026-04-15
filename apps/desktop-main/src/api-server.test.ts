@@ -5,12 +5,14 @@ const {
   createServerMock,
   randomUUIDMock,
   writeFileSyncMock,
+  readFileSyncMock,
   tmpdirMock,
   logger,
 } = vi.hoisted(() => ({
   createServerMock: vi.fn(),
   randomUUIDMock: vi.fn(() => 'test-token'),
   writeFileSyncMock: vi.fn(),
+  readFileSyncMock: vi.fn(() => JSON.stringify({ version: '0.0.3' })),
   tmpdirMock: vi.fn(() => 'C:/temp'),
   logger: {
     debug: vi.fn(),
@@ -35,8 +37,10 @@ vi.mock('node:crypto', () => ({
 vi.mock('node:fs', () => ({
   default: {
     writeFileSync: writeFileSyncMock,
+    readFileSync: readFileSyncMock,
   },
   writeFileSync: writeFileSyncMock,
+  readFileSync: readFileSyncMock,
 }));
 
 vi.mock('node:os', () => ({
@@ -201,7 +205,7 @@ describe('api server', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(parseJson(res)).toEqual({ status: 'ok', version: '0.0.1' });
+    expect(parseJson(res)).toEqual({ status: 'ok', version: '0.0.3' });
   });
 
   it('lists all canvases', async () => {

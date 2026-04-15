@@ -41,6 +41,11 @@ export class CAS {
     // Deduplication check
     if (fs.existsSync(destPath)) {
       const existingMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as AssetMeta;
+      // Backfill fileSize for meta files written before size tracking was added
+      if (!existingMeta.fileSize || existingMeta.fileSize <= 0) {
+        existingMeta.fileSize = stat.size;
+        atomicWrite(metaPath, existingMeta);
+      }
       return { ref, meta: existingMeta };
     }
 
@@ -78,6 +83,10 @@ export class CAS {
 
     if (fs.existsSync(destPath)) {
       const existingMeta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as AssetMeta;
+      if (!existingMeta.fileSize || existingMeta.fileSize <= 0) {
+        existingMeta.fileSize = buffer.length;
+        atomicWrite(metaPath, existingMeta);
+      }
       return { ref, meta: existingMeta };
     }
 

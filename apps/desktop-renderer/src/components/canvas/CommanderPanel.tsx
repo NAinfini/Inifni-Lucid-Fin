@@ -27,6 +27,7 @@ import {
   setPosition,
   setPermissionMode,
   clearPendingConfirmation,
+  setConfirmAutoMode,
   resolveQuestion,
   enqueueMessage,
   dequeueMessage,
@@ -77,6 +78,7 @@ export function CommanderPanel() {
     providerId,
     messages,
     currentStreamContent,
+    currentThinkingContent,
     currentToolCalls,
     currentSegments,
     position,
@@ -85,8 +87,11 @@ export function CommanderPanel() {
     permissionMode,
     pendingConfirmation,
     pendingQuestion,
+    consecutiveConfirmCount,
     messageQueue,
+    pendingInjectedMessages,
     maxTokens,
+    backendContextUsage,
   } = useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
   const inputHasText = input.trim().length > 0;
@@ -225,6 +230,58 @@ export function CommanderPanel() {
 
   // Estimate context usage with per-category breakdown
   const contextUsage = useMemo(() => {
+    // Use backend-reported numbers when available (accurate: includes system prompt + tool schemas)
+    if (backendContextUsage) {
+      const { estimatedTokensUsed, contextWindowTokens } = backendContextUsage;
+      const pct = Math.min(100, Math.round((estimatedTokensUsed / contextWindowTokens) * 100));
+
+      // Local breakdown for per-category display (best-effort from Redux messages)
+      let userChars = 0;
+      let assistantChars = 0;
+      let toolCallChars = 0;
+      let toolResultChars = 0;
+      let userCount = 0;
+      let assistantCount = 0;
+      let toolCallCount = 0;
+      for (const msg of messages) {
+        const contentLen = msg.content?.length ?? 0;
+        if (msg.role === 'user') { userChars += contentLen; userCount++; }
+        else { assistantChars += contentLen; assistantCount++; }
+        if (msg.toolCalls) {
+          for (const tc of msg.toolCalls) {
+            toolCallChars += JSON.stringify(tc.arguments).length;
+            toolCallCount++;
+            if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
+          }
+        }
+      }
+      assistantChars += currentStreamContent?.length ?? 0;
+      for (const tc of currentToolCalls) {
+        toolCallChars += JSON.stringify(tc.arguments).length;
+        toolCallCount++;
+        if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
+      }
+      const toTokens = (c: number) => Math.round(c / 3.5);
+      return {
+        pct,
+        estimatedTokens: estimatedTokensUsed,
+        ctxWindow: contextWindowTokens,
+        breakdown: {
+          user: toTokens(userChars),
+          assistant: toTokens(assistantChars),
+          toolCalls: toTokens(toolCallChars),
+          toolResults: toTokens(toolResultChars),
+        },
+        counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
+        cache: {
+          chars: backendContextUsage.cacheChars,
+          entries: backendContextUsage.cacheEntryCount,
+        },
+        historyTrimmed: backendContextUsage.historyMessagesTrimmed,
+      };
+    }
+
+    // Fallback: local estimate (less accurate — missing system prompt + tool schemas)
     let userChars = 0;
     let assistantChars = 0;
     let toolCallChars = 0;
@@ -249,7 +306,6 @@ export function CommanderPanel() {
         }
       }
     }
-    // Include in-flight streaming content and tool calls (not yet in messages)
     assistantChars += currentStreamContent?.length ?? 0;
     for (const tc of currentToolCalls) {
       toolCallChars += JSON.stringify(tc.arguments).length;
@@ -257,8 +313,7 @@ export function CommanderPanel() {
       if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
     }
     const totalChars = userChars + assistantChars + toolCallChars + toolResultChars;
-    // Token estimate: ~4 chars per token (matches backend ESTIMATED_CHARS_PER_TOKEN)
-    const toTokens = (c: number) => Math.round(c / 4);
+    const toTokens = (c: number) => Math.round(c / 3.5);
     const estimatedTokens = toTokens(totalChars);
     const ctxWindow = maxTokens;
     const pct = Math.min(100, Math.round((estimatedTokens / ctxWindow) * 100));
@@ -273,10 +328,13 @@ export function CommanderPanel() {
         toolResults: toTokens(toolResultChars),
       },
       counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
+      cache: { chars: 0, entries: 0 },
+      historyTrimmed: 0,
     };
-  }, [maxTokens, messages, currentStreamContent, currentToolCalls]);
+  }, [maxTokens, messages, currentStreamContent, currentToolCalls, backendContextUsage]);
 
   // Auto-compact when context reaches 95%, with 10s cooldown
+  // Triggers DURING active session (isStreaming) so the backend session still exists.
   const autoCompactedRef = useRef(false);
   const lastCompactTimeRef = useRef(0);
   useEffect(() => {
@@ -286,7 +344,7 @@ export function CommanderPanel() {
       contextUsage?.pct != null
       && contextUsage.pct >= 95
       && !autoCompactedRef.current
-      && !isStreaming
+      && isStreaming
       && now - lastCompactTimeRef.current > cooldownMs
     ) {
       autoCompactedRef.current = true;
@@ -509,9 +567,11 @@ export function CommanderPanel() {
           messages={messages}
           liveMessage={liveMessage}
           currentSegments={currentSegments}
+          pendingInjectedMessages={pendingInjectedMessages}
           isStreaming={isStreaming}
           error={error}
           nodeTitlesById={nodeTitlesById}
+          thinkingContent={currentThinkingContent}
           t={t}
           emptyLabel={t('commander.thinking')}
           streamingLabel={t('commander.streaming')}
@@ -521,48 +581,88 @@ export function CommanderPanel() {
 
       {/* Tool confirmation card */}
       {pendingConfirmation && (
-        <ToolConfirmCard
-          toolName={pendingConfirmation.toolName}
-          args={pendingConfirmation.args}
-          tier={pendingConfirmation.tier}
-          onExecute={() => {
-            const api = getAPI();
-            const canvasId = store.getState().canvas.activeCanvasId;
-            if (api?.commander && canvasId) {
-              void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, true);
-            }
-            dispatch(clearPendingConfirmation());
-          }}
-          onSkip={() => {
-            const api = getAPI();
-            const canvasId = store.getState().canvas.activeCanvasId;
-            if (api?.commander && canvasId) {
-              void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, false);
-            }
-            dispatch(clearPendingConfirmation());
-          }}
-          t={t}
-        />
+        <div className="space-y-1">
+          <ToolConfirmCard
+            toolName={pendingConfirmation.toolName}
+            args={pendingConfirmation.args}
+            tier={pendingConfirmation.tier}
+            onExecute={() => {
+              const api = getAPI();
+              const canvasId = store.getState().canvas.activeCanvasId;
+              if (api?.commander && canvasId) {
+                void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, true);
+              }
+              dispatch(clearPendingConfirmation());
+            }}
+            onSkip={() => {
+              const api = getAPI();
+              const canvasId = store.getState().canvas.activeCanvasId;
+              if (api?.commander && canvasId) {
+                void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, false);
+              }
+              dispatch(clearPendingConfirmation());
+            }}
+            t={t}
+          />
+          {consecutiveConfirmCount >= 4 && (
+            <div className="flex items-center justify-end gap-1.5 px-3 pb-1">
+              <span className="text-[10px] text-muted-foreground mr-auto">
+                {t('commander.confirmBatchHint')}
+              </span>
+              <button
+                type="button"
+                className="text-[10px] px-2 py-0.5 rounded border border-border/60 text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-colors"
+                onClick={() => {
+                  const api = getAPI();
+                  const canvasId = store.getState().canvas.activeCanvasId;
+                  if (api?.commander && canvasId) {
+                    void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, false);
+                  }
+                  dispatch(setConfirmAutoMode('skip'));
+                  dispatch(clearPendingConfirmation());
+                }}
+              >
+                {t('commander.skipAll')}
+              </button>
+              <button
+                type="button"
+                className="text-[10px] px-2 py-0.5 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
+                onClick={() => {
+                  const api = getAPI();
+                  const canvasId = store.getState().canvas.activeCanvasId;
+                  if (api?.commander && canvasId) {
+                    void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, true);
+                  }
+                  dispatch(setConfirmAutoMode('approve'));
+                  dispatch(clearPendingConfirmation());
+                }}
+              >
+                {t('commander.executeAll')}
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Question card (askUser tool) */}
-      {pendingQuestion && (
-        <QuestionCard
-          question={pendingQuestion.question}
-          options={pendingQuestion.options}
-          onAnswer={(answer) => {
-            const api = getAPI();
-            const canvasId = store.getState().canvas.activeCanvasId;
-            if (api?.commander && canvasId) {
-              void api.commander.answerQuestion(canvasId, pendingQuestion.toolCallId, answer);
-            }
-            dispatch(resolveQuestion({ answer }));
-          }}
-          t={t}
-        />
-      )}
-
-      <footer className="shrink-0 border-t border-border/60 bg-card">
+      <footer className="relative shrink-0 border-t border-border/60 bg-card">
+        {/* Question card overlay — extends upward from footer to cover chatbox */}
+        {pendingQuestion && (
+          <div className="absolute inset-x-0 bottom-0 z-10 bg-card/95 backdrop-blur-[2px] rounded-b-lg border-t border-blue-500/30">
+            <QuestionCard
+              question={pendingQuestion.question}
+              options={pendingQuestion.options}
+              onAnswer={(answer) => {
+                const api = getAPI();
+                const canvasId = store.getState().canvas.activeCanvasId;
+                if (api?.commander && canvasId) {
+                  void api.commander.answerQuestion(canvasId, pendingQuestion.toolCallId, answer);
+                }
+                dispatch(resolveQuestion({ answer }));
+              }}
+              t={t}
+            />
+          </div>
+        )}
         {/* Attachment preview chips */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1 px-3 pt-2">
@@ -887,6 +987,14 @@ export function CommanderPanel() {
                         <span className="text-right">{fmtK(bd.toolCalls)} ({ct.toolCalls})</span>
                         <span>{t('commander.contextBreakdown.toolResults')}</span>
                         <span className="text-right">{fmtK(bd.toolResults)}</span>
+                        {contextUsage.cache.entries > 0 && (<>
+                          <span>Cache</span>
+                          <span className="text-right">{fmtK(Math.round(contextUsage.cache.chars / 3.5))} ({contextUsage.cache.entries})</span>
+                        </>)}
+                        {contextUsage.historyTrimmed > 0 && (<>
+                          <span>Trimmed</span>
+                          <span className="text-right">{contextUsage.historyTrimmed} msgs</span>
+                        </>)}
                       </div>
                       <div className="mt-1 text-[10px] text-primary-foreground/50">{t('commander.slashCommand.compact')}</div>
                     </TooltipContent>

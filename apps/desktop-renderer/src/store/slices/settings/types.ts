@@ -39,6 +39,8 @@ export type BuiltinProviderConfig = ProviderConfig & ProviderMetadata;
 
 export interface ProviderCollectionConfig {
   providers: ProviderConfig[];
+  /** Default provider ID for this group — auto-assigned to new nodes. */
+  defaultProviderId?: string;
 }
 
 export interface UsageStats {

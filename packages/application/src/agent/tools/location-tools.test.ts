@@ -26,7 +26,8 @@ describe('createLocationTools', () => {
       'location.create',
       'location.update',
       'location.delete',
-      'location.refImage',
+      'location.setRefImage',
+      'location.deleteRefImage',
     ]);
   });
 
@@ -79,7 +80,7 @@ describe('createLocationTools', () => {
     });
   });
 
-  describe('location.refImage', () => {
+  describe('location ref image tools', () => {
     const baseLocation = {
       id: 'loc-1',
       name: 'Old Library',
@@ -97,44 +98,37 @@ describe('createLocationTools', () => {
       return deps;
     }
 
-    it('action=generate: calls generateImage and saves result', async () => {
+    it('generateRefImage: calls generateImage and saves result', async () => {
       const deps = createDepsWithLocation();
       deps.generateImage = vi.fn(async () => ({ assetHash: 'hash-gen' }));
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'loc-1', action: 'generate', slot: 'main' });
+      const tool = createLocationTools(deps).find((t) => t.name === 'location.generateRefImage')!;
+      const result = await tool.execute({ id: 'loc-1', slot: 'main' });
       expect(result).toMatchObject({ success: true, data: { assetHash: 'hash-gen', slot: 'main' } });
       expect(deps.saveLocation).toHaveBeenCalled();
     });
 
-    it('action=generate: returns error when generateImage not available', async () => {
+    it('setRefImage: sets a reference image by assetHash', async () => {
       const deps = createDepsWithLocation();
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'loc-1', action: 'generate' });
-      expect(result).toMatchObject({ success: false, error: 'Image generation not available' });
-    });
-
-    it('action=set: sets a reference image by assetHash', async () => {
-      const deps = createDepsWithLocation();
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'loc-1', action: 'set', slot: 'atmosphere', assetHash: 'hash-abc' });
+      const tool = createLocationTools(deps).find((t) => t.name === 'location.setRefImage')!;
+      const result = await tool.execute({ id: 'loc-1', slot: 'atmosphere', assetHash: 'hash-abc' });
       expect(result).toMatchObject({ success: true, data: { assetHash: 'hash-abc', slot: 'atmosphere' } });
       expect(deps.saveLocation).toHaveBeenCalled();
     });
 
-    it('action=delete: removes a reference image slot', async () => {
+    it('deleteRefImage: removes a reference image slot', async () => {
       const deps = createDeps();
       vi.mocked(deps.listLocations).mockResolvedValue([{
         ...baseLocation,
         referenceImages: [{ slot: 'main', assetHash: 'hash-old', isStandard: true }],
       }] as never);
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'loc-1', action: 'delete', slot: 'main' });
+      const tool = createLocationTools(deps).find((t) => t.name === 'location.deleteRefImage')!;
+      const result = await tool.execute({ id: 'loc-1', slot: 'main' });
       expect(result).toMatchObject({ success: true, data: { id: 'loc-1', slot: 'main' } });
       const saved = vi.mocked(deps.saveLocation).mock.calls[0][0];
       expect(saved.referenceImages).toHaveLength(0);
     });
 
-    it('action=setFromNode: pulls assetHash from canvas image node', async () => {
+    it('setRefImageFromNode: pulls assetHash from canvas image node', async () => {
       const mockCanvas: Canvas = {
         id: 'canvas-1',
         name: 'Canvas',
@@ -152,31 +146,17 @@ describe('createLocationTools', () => {
       } as never;
       const deps = createDepsWithLocation();
       deps.getCanvas = vi.fn(async () => mockCanvas);
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'loc-1', action: 'setFromNode', slot: 'main', canvasId: 'canvas-1', nodeId: 'node-1' });
+      const tool = createLocationTools(deps).find((t) => t.name === 'location.setRefImageFromNode')!;
+      const result = await tool.execute({ id: 'loc-1', slot: 'main', canvasId: 'canvas-1', nodeId: 'node-1' });
       expect(result).toMatchObject({ success: true, data: { id: 'loc-1', slot: 'main', assetHash: 'hash-from-node' } });
       expect(deps.saveLocation).toHaveBeenCalled();
     });
 
-    it('action=setFromNode: returns error when getCanvas not available', async () => {
-      const deps = createDepsWithLocation();
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'loc-1', action: 'setFromNode', slot: 'main', canvasId: 'canvas-1', nodeId: 'node-1' });
-      expect(result).toMatchObject({ success: false, error: 'getCanvas not available' });
-    });
-
-    it('action=set: returns error when location not found', async () => {
+    it('setRefImage: returns error when location not found', async () => {
       const deps = createDeps();
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'missing', action: 'set', slot: 'main', assetHash: 'h' });
+      const tool = createLocationTools(deps).find((t) => t.name === 'location.setRefImage')!;
+      const result = await tool.execute({ id: 'missing', slot: 'main', assetHash: 'h' });
       expect(result).toMatchObject({ success: false, error: 'Location not found: missing' });
-    });
-
-    it('returns error for unknown action', async () => {
-      const deps = createDepsWithLocation();
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.refImage')!;
-      const result = await tool.execute({ id: 'loc-1', action: 'unknown' });
-      expect(result).toMatchObject({ success: false, error: 'Unknown action: unknown' });
     });
   });
 });

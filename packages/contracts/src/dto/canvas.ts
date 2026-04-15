@@ -55,8 +55,6 @@ export interface ImageNodeData {
   assetHash?: string;
   status: MediaNodeStatus;
   prompt?: string;
-  imagePrompt?: string;
-  videoPrompt?: string;
   negativePrompt?: string;
   presetTracks?: PresetTrackSet;
   appliedShotTemplateId?: string;
@@ -101,8 +99,6 @@ export interface VideoNodeData {
   duration?: number;
   fps?: number;
   prompt?: string;
-  imagePrompt?: string;
-  videoPrompt?: string;
   negativePrompt?: string;
   presetTracks?: PresetTrackSet;
   appliedShotTemplateId?: string;

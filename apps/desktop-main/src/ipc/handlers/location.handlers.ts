@@ -1,10 +1,19 @@
 import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
-import type { Location, LocationType, ReferenceImage } from '@lucid-fin/contracts';
+import type { Location, ReferenceImage } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { safeHandle } from '../ipc-error-handler.js';
 
-const VALID_TYPES: LocationType[] = ['interior', 'exterior', 'int-ext'];
+const VALID_LOCATION_TYPES = new Set<Location['type']>(['interior', 'exterior', 'int-ext']);
+
+function normalizeLocationType(
+  value: unknown,
+  fallback: Location['type'] = 'interior',
+): Location['type'] {
+  return typeof value === 'string' && VALID_LOCATION_TYPES.has(value as Location['type'])
+    ? (value as Location['type'])
+    : fallback;
+}
 
 export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   safeHandle(ipcMain, 'location:list', async (_e, args?: { type?: string } | void) => {
@@ -32,22 +41,28 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     const name = (typeof args.name === 'string' ? args.name : (existing?.name ?? '')).trim();
     if (!name) throw new Error('name is required');
 
-    const type =
-      typeof args.type === 'string' && VALID_TYPES.includes(args.type as LocationType)
-        ? (args.type as LocationType)
-        : (existing?.type ?? 'interior');
-
     const loc: Location = {
       id: existing?.id ?? (typeof args.id === 'string' && args.id ? args.id : randomUUID()),
       name,
-      type,
-      subLocation: typeof args.subLocation === 'string' ? args.subLocation : existing?.subLocation,
+      type: normalizeLocationType(args.type, existing?.type ?? 'interior'),
+      subLocation:
+        typeof args.subLocation === 'string' ? args.subLocation : existing?.subLocation,
       description:
         typeof args.description === 'string' ? args.description : (existing?.description ?? ''),
       timeOfDay: typeof args.timeOfDay === 'string' ? args.timeOfDay : existing?.timeOfDay,
       mood: typeof args.mood === 'string' ? args.mood : existing?.mood,
       weather: typeof args.weather === 'string' ? args.weather : existing?.weather,
       lighting: typeof args.lighting === 'string' ? args.lighting : existing?.lighting,
+      architectureStyle: typeof args.architectureStyle === 'string' ? args.architectureStyle : existing?.architectureStyle,
+      dominantColors: Array.isArray(args.dominantColors)
+        ? args.dominantColors.filter((c): c is string => typeof c === 'string')
+        : existing?.dominantColors,
+      keyFeatures: Array.isArray(args.keyFeatures)
+        ? args.keyFeatures.filter((f): f is string => typeof f === 'string')
+        : existing?.keyFeatures,
+      atmosphereKeywords: Array.isArray(args.atmosphereKeywords)
+        ? args.atmosphereKeywords.filter((k): k is string => typeof k === 'string')
+        : existing?.atmosphereKeywords,
       tags: Array.isArray(args.tags)
         ? args.tags.filter((t): t is string => typeof t === 'string')
         : (existing?.tags ?? []),
@@ -68,6 +83,10 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       mood: loc.mood,
       weather: loc.weather,
       lighting: loc.lighting,
+      architectureStyle: loc.architectureStyle,
+      dominantColors: loc.dominantColors,
+      keyFeatures: loc.keyFeatures,
+      atmosphereKeywords: loc.atmosphereKeywords,
       tags: loc.tags,
       referenceImages: loc.referenceImages,
       createdAt: loc.createdAt,
@@ -107,8 +126,7 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       refs.push(refImage);
 
       db.upsertLocation({
-        id: loc.id,
-        name: loc.name,
+        ...loc,
         referenceImages: refs,
         updatedAt: Date.now(),
       });
@@ -130,8 +148,7 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       const refs = loc.referenceImages.filter((r) => r.slot !== args.slot);
 
       db.upsertLocation({
-        id: loc.id,
-        name: loc.name,
+        ...loc,
         referenceImages: refs,
         updatedAt: Date.now(),
       });

@@ -9,6 +9,8 @@ interface InspectorPanelIdentitySectionProps {
   iconColorClass: string;
   titleLabel: string;
   titlePlaceholder: string;
+  /** Buffered title value for responsive typing (local state, debounced to Redux) */
+  titleValue: string;
   typeLabel: string;
   statusLabel: string;
   positionLabel: string;
@@ -27,6 +29,7 @@ export function InspectorPanelIdentitySection({
   iconColorClass,
   titleLabel,
   titlePlaceholder,
+  titleValue,
   typeLabel,
   statusLabel,
   positionLabel,
@@ -46,7 +49,7 @@ export function InspectorPanelIdentitySection({
         </label>
         <input
           className="w-full rounded-md bg-muted px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
-          value={node.title}
+          value={titleValue}
           onChange={onTitleChange}
           placeholder={titlePlaceholder}
         />

@@ -99,7 +99,11 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         if (type !== 'text') {
           const mediaData = node.data as Record<string, unknown>;
           if (typeof args.prompt === 'string') mediaData.prompt = args.prompt;
-          if (typeof args.providerId === 'string') mediaData.providerId = args.providerId;
+          // Auto-assign provider: explicit arg > default from settings > none
+          const providerId = typeof args.providerId === 'string'
+            ? args.providerId
+            : deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
+          if (providerId) mediaData.providerId = providerId;
           if (Array.isArray(args.characterIds)) {
             mediaData.characterRefs = (args.characterIds as string[]).map((id) => ({ characterId: id }));
           }
@@ -664,7 +668,10 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           } else if (type !== 'text') {
             const mediaData = data as Record<string, unknown>;
             if (typeof desc.prompt === 'string') mediaData.prompt = desc.prompt;
-            if (typeof desc.providerId === 'string') mediaData.providerId = desc.providerId;
+            const batchProviderId = typeof desc.providerId === 'string'
+              ? desc.providerId
+              : deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
+            if (batchProviderId) mediaData.providerId = batchProviderId;
             if (Array.isArray(desc.characterIds)) {
               mediaData.characterRefs = (desc.characterIds as string[]).map((id) => ({ characterId: id }));
             }

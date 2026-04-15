@@ -22,14 +22,6 @@ export interface SeriesToolDeps {
   reorderEpisodes?: (episodeIds: string[]) => Promise<SeriesEpisode[]>;
 }
 
-function requireSeries(args: Record<string, unknown>): Series {
-  const value = args.series;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('series is required');
-  }
-  return value as Series;
-}
-
 export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
   const get: AgentTool = {
     name: 'series.get',
@@ -45,33 +37,26 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
     },
   };
 
-  const save: AgentTool = {
-    name: 'series.save',
-    description: 'Save the current project series definition. Two modes: (1) Pass a full "series" object to replace. (2) Pass "set": { title, description } to update individual fields — only fields in "set" are applied.',
+  const update: AgentTool = {
+    name: 'series.update',
+    description: 'Update the current project series definition. Wrap fields to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
-        series: { type: 'object', description: 'Advanced mode: a full series definition to save (replaces current). Mutually exclusive with set.' },
         set: {
           type: 'object',
-          description: 'Update mode: wrap fields to change inside "set". Only fields present in "set" will be applied — omitted fields are left untouched.',
+          description: 'Fields to change. Only include the ones you want to update.',
           properties: {
             title: { type: 'string', description: 'Series title.' },
             description: { type: 'string', description: 'Series description.' },
           },
         },
       },
-      required: [],
+      required: ['set'],
     },
     async execute(args) {
       try {
-        // Mode 1: full series object replace
-        if (args.series !== undefined) {
-          return ok(await deps.saveSeries(requireSeries(args) as unknown as Record<string, unknown>));
-        }
-
-        // Mode 2: partial update via set
         const set = extractSet(args);
         const warnings = warnExtraKeys(args);
 
@@ -192,7 +177,7 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
     },
   };
 
-  return [get, save, listEpisodes, addEpisode, removeEpisode, reorderEpisodes];
+  return [get, update, listEpisodes, addEpisode, removeEpisode, reorderEpisodes];
 }
 
 export const seriesToolModule = defineToolModule({

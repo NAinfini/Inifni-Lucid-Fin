@@ -5,8 +5,8 @@ import {
   type EquipmentType,
 } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
-import { createRefImageTool } from './ref-image-factory.js';
-import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import { createRefImageTools } from './ref-image-factory.js';
+import { extractSet, warnExtraKeys, requireString } from './tool-result-helpers.js';
 
 export interface EquipmentToolDeps {
   listEquipment: () => Promise<Equipment[]>;
@@ -134,9 +134,10 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
+        const id = requireString(args, 'id');
         const items = await deps.listEquipment();
-        const existing = items.find((e) => e.id === args.id);
-        if (!existing) return { success: false, error: `Equipment not found: ${args.id as string}` };
+        const existing = items.find((e) => e.id === id);
+        if (!existing) return { success: false, error: `Equipment not found: ${id}` };
         const set = extractSet(args);
         const warnings = warnExtraKeys(args);
         const updated: Equipment = {
@@ -175,7 +176,8 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
-        await deps.deleteEquipment(args.id as string);
+        const id = requireString(args, 'id');
+        await deps.deleteEquipment(id);
         return { success: true };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -183,8 +185,8 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
   };
 
-  const equipmentRefImage = createRefImageTool<Equipment>({
-    toolName: 'equipment.refImage',
+  const equipmentRefImages = createRefImageTools<Equipment>({
+    toolNamePrefix: 'equipment',
     entityLabel: 'equipment',
     tags: ['equipment', 'generation', 'mutate'],
     description: 'Manage reference images for an equipment item. Use action=generate to produce a new image (auto-compiles all equipment fields into the prompt; call ONE at a time, verify success before the next). Use action=set to assign an existing asset hash. Use action=delete to remove a slot. Use action=setFromNode to pull the asset directly from a generated canvas image node.',
@@ -202,29 +204,30 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
         'back': 'back orthographic view, rear details visible, full item visible',
         'left-side': 'left side orthographic view, pure profile, full item visible',
         'right-side': 'right side orthographic view, pure profile, full item visible',
-        'detail-closeup': 'extreme close-up macro view, fine surface textures, material details, engravings and mechanical parts visible',
-        'in-use': 'contextual action shot showing the item being held or used, clear view of the item with minimal background',
+        'detail-closeup': 'extreme close-up macro photography, shallow depth of field, fine surface textures and engravings visible, mechanical joints and wear marks readable',
+        'in-use': 'contextual action shot with a generic human silhouette or anonymous hand for scale reference, item is the subject, clear view of the item with minimal background',
       };
       const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
 
       const descParts: string[] = [];
       if (entity.description) descParts.push(entity.description);
       if (entity.function) descParts.push(`Function: ${entity.function}`);
-      if (entity.material) descParts.push(`Material: ${entity.material}`);
+      if (entity.material) descParts.push(`Material surfaces: ${entity.material}`);
       if (entity.color) descParts.push(`Color: ${entity.color}`);
       if (entity.condition) descParts.push(`Condition: ${entity.condition}`);
-      if (entity.visualDetails) descParts.push(`Visual details: ${entity.visualDetails}`);
+      if (entity.visualDetails) descParts.push(`Surface details: ${entity.visualDetails}`);
       if (entity.subtype) descParts.push(`Subtype: ${entity.subtype}`);
+      if (entity.tags && entity.tags.length > 0) descParts.push(`Keywords: ${entity.tags.join(', ')}`);
       const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
 
-      return `Product design reference, solid white background, even studio lighting, no characters, no environment, no scene. `
+      return `Product design reference. Tall portrait format (2:3 aspect ratio). Solid white background, even studio lighting, no characters, no environment, no scene. `
         + `Item: ${entity.name} (${entity.type}). ${richDesc}`
         + `${slotDesc}. `
         + `Object only, clean edges, high detail, consistent scale, professional product photography style, technical illustration quality.`;
     },
     isStandardSlot: (slot) => EQUIPMENT_STANDARD_SLOTS.includes(slot as (typeof EQUIPMENT_STANDARD_SLOTS)[number]),
-    defaultWidth: 1024,
-    defaultHeight: 1536,
+    defaultWidth: 1360,
+    defaultHeight: 2048,
     slotEnum: ['main', 'front', 'back', 'left-side', 'right-side', 'detail-closeup', 'in-use'],
   });
 
@@ -233,6 +236,6 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     equipmentCreate,
     equipmentUpdate,
     equipmentDelete,
-    equipmentRefImage,
+    ...equipmentRefImages,
   ];
 }

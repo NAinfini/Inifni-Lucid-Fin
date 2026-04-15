@@ -13,7 +13,7 @@ import {
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizePresetName, localizePresetDescription, localizeShotTemplateName, localizeShotTemplateDescription } from '../../i18n.js';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 
 const CATEGORIES: PresetCategory[] = ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'];
 
@@ -129,6 +129,7 @@ function CategoryCell({ templateId: _templateId, category, track, presetsById, a
         <DialogContent className="max-w-sm max-h-[70vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t('presetCategory.' + category)}</DialogTitle>
+            <DialogDescription className="sr-only">{t('presetCategory.' + category)}</DialogDescription>
           </DialogHeader>
 
           {/* Current entries */}

@@ -7,7 +7,6 @@ import type {
   Character,
   Equipment,
   Location,
-  Scene,
   ScriptDocument,
   ColorStyle,
   Series,
@@ -26,6 +25,7 @@ import {
   deleteAsset as _deleteAsset,
   queryAssets as _queryAssets,
   searchAssets as _searchAssets,
+  repairAssetSizes as _repairAssetSizes,
   insertEmbedding as _insertEmbedding,
   queryEmbeddingByHash as _queryEmbeddingByHash,
   searchByTokens as _searchByTokens,
@@ -61,10 +61,6 @@ import {
   deleteLocation as _deleteLocation,
 } from './sqlite-entities.js';
 import {
-  upsertScene as _upsertScene,
-  getScene as _getScene,
-  listScenes as _listScenes,
-  deleteScene as _deleteScene,
   upsertScript as _upsertScript,
   getScript as _getScript,
   deleteScript as _deleteScript,
@@ -222,25 +218,14 @@ CREATE TABLE IF NOT EXISTS locations (
   mood             TEXT,
   weather          TEXT,
   lighting         TEXT,
+  architecture_style TEXT,
+  dominant_colors  TEXT,
+  key_features     TEXT,
+  atmosphere_keywords TEXT,
   tags             TEXT DEFAULT '[]',
   reference_images TEXT DEFAULT '[]',
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS scenes (
-  id            TEXT PRIMARY KEY,
-  idx           INTEGER NOT NULL,
-  title         TEXT NOT NULL,
-  description   TEXT DEFAULT '',
-  location      TEXT DEFAULT '',
-  time_of_day   TEXT DEFAULT '',
-  characters    TEXT DEFAULT '[]',
-  keyframes     TEXT DEFAULT '[]',
-  segments      TEXT DEFAULT '[]',
-  style_override TEXT,
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS scripts (
@@ -588,6 +573,7 @@ export class SqliteIndex implements IStorageLayer {
   deleteAsset(hash: string): void { _deleteAsset(this.db, hash); }
   queryAssets(filter: { type?: string; limit?: number; offset?: number }): AssetMeta[] { return _queryAssets(this.db, filter); }
   searchAssets(query: string, limit = 50): AssetMeta[] { return _searchAssets(this.db, query, limit); }
+  repairAssetSizes(resolveAssetPath: (hash: string, type: string, format: string) => string): number { return _repairAssetSizes(this.db, resolveAssetPath); }
 
   // --- Asset Embeddings ---
   insertEmbedding(hash: string, description: string, tokens: string[], model: string): void { _insertEmbedding(this.db, hash, description, tokens, model); }
@@ -625,12 +611,6 @@ export class SqliteIndex implements IStorageLayer {
   getLocation(id: string): Location | undefined { return _getLocation(this.db, id); }
   listLocations(type?: string): Location[] { return _listLocations(this.db, type); }
   deleteLocation(id: string): void { _deleteLocation(this.db, id); }
-
-  // --- Scenes ---
-  upsertScene(scene: Scene): void { _upsertScene(this.db, scene); }
-  getScene(id: string): Scene | undefined { return _getScene(this.db, id); }
-  listScenes(): Scene[] { return _listScenes(this.db); }
-  deleteScene(id: string): void { _deleteScene(this.db, id); }
 
   // --- Scripts ---
   upsertScript(doc: ScriptDocument): void { _upsertScript(this.db, doc); }

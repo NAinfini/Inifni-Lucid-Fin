@@ -63,6 +63,7 @@ export function useBootstrap() {
         api.session?.list(MAX_SESSIONS_TO_LOAD).then((rows) => {
           const sessions: CommanderSession[] = rows.map((r) => ({
             id: r.id,
+            canvasId: (r as { canvasId?: string | null }).canvasId ?? null,
             title: r.title,
             messages: [], // Lazy-loaded when user clicks the session
             createdAt: r.createdAt,

@@ -34,6 +34,8 @@ interface InspectorCreativeTabProps {
   generationData?: ImageNodeData | VideoNodeData | AudioNodeData;
   audioType?: string;
   textContent?: string;
+  /** Buffered prompt value for responsive typing (local state, debounced to Redux) */
+  promptValue?: string;
   onContentChange: ChangeEventHandler<HTMLTextAreaElement>;
   onPromptChange: ChangeEventHandler<HTMLTextAreaElement>;
   templateDropdownOpen: boolean;
@@ -98,6 +100,7 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
   generationData,
   audioType,
   textContent,
+  promptValue,
   onContentChange,
   onPromptChange,
   templateDropdownOpen,
@@ -180,12 +183,12 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
           </div>
           <textarea
             className="w-full bg-muted px-2.5 py-1.5 rounded-md text-xs outline-none focus:ring-1 focus:ring-ring min-h-[100px] resize-y"
-            value={generationData.prompt ?? ''}
+            value={promptValue ?? generationData.prompt ?? ''}
             onChange={onPromptChange}
             placeholder={t('inspector.promptPlaceholder')}
           />
           {/* Suggested templates — shown when prompt is empty */}
-          {!generationData.prompt && suggestedTemplates && suggestedTemplates.length > 0 && (
+          {!promptValue && !generationData.prompt && suggestedTemplates && suggestedTemplates.length > 0 && (
             <div className="mt-1.5 space-y-1">
               <span className="text-[10px] text-muted-foreground">
                 {t('inspector.suggestedTemplates')}

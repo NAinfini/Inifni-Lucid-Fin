@@ -11,15 +11,13 @@ import { translateOrFallback } from '../components/settings/SettingsSidebarNav.j
 import { cn } from '../lib/utils.js';
 import {
   addEntry as addWorkflowEntry,
-  getDefaultWorkflowDefinitionName,
   removeEntry as removeWorkflowEntry,
   updateEntry as updateWorkflowEntry,
   type WorkflowDefEntry,
 } from '../store/slices/workflowDefinitions.js';
 
 function getWorkflowEntryDisplayName(entry: WorkflowDefEntry): string {
-  const defaultName = getDefaultWorkflowDefinitionName(entry.id);
-  if (defaultName && entry.name === defaultName) {
+  if (entry.builtIn) {
     return localizeWorkflowDefinitionName(entry.id, entry.name);
   }
   return entry.name;

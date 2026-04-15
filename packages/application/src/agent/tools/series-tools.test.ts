@@ -55,7 +55,7 @@ describe('createSeriesTools', () => {
     const deps = createDeps();
     expect(createSeriesTools(deps).map((tool) => tool.name)).toEqual([
       'series.get',
-      'series.save',
+      'series.update',
       'series.listEpisodes',
       'series.addEpisode',
       'series.removeEpisode',
@@ -67,7 +67,7 @@ describe('createSeriesTools', () => {
     const deps = createDeps();
 
     await expect(getTool('series.get', deps).execute({})).resolves.toEqual({ success: true, data: series });
-    await expect(getTool('series.save', deps).execute({
+    await expect(getTool('series.update', deps).execute({
       set: { title: 'Updated', description: 'Updated desc' },
     })).resolves.toEqual({
       success: true,
@@ -103,28 +103,17 @@ describe('createSeriesTools', () => {
     });
   });
 
-  it('supports saving a full series object and validates arguments', async () => {
+  it('validates series.update arguments', async () => {
     const deps = createDeps();
 
-    await expect(getTool('series.save', deps).execute({ series })).resolves.toEqual({
-      success: true,
-      data: series,
-    });
-    expect(deps.saveSeries).toHaveBeenCalledWith(series);
-
-    await expect(getTool('series.save', deps).execute({ series: [] })).resolves.toEqual({
-      success: false,
-      error: 'series is required',
-    });
-
     // No args at all → extractSet error
-    await expect(getTool('series.save', deps).execute({})).resolves.toEqual({
+    await expect(getTool('series.update', deps).execute({})).resolves.toEqual({
       success: false,
       error: '"set" object is required — wrap the fields you want to change inside set: { ... }',
     });
 
     // Extra keys placed outside set are warned
-    await expect(getTool('series.save', deps).execute({
+    await expect(getTool('series.update', deps).execute({
       set: { title: 'Warned' },
       title: 'Stray',
     })).resolves.toEqual({

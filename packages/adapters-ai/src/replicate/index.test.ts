@@ -24,7 +24,7 @@ describe('ReplicateAdapter', () => {
     });
 
     const adapter = new ReplicateAdapter();
-    adapter.configure('sk-replicate', { model: 'openai/sora-2' });
+    adapter.configure('sk-replicate', { model: 'openai/sora-2', generationType: 'video' });
 
     const request: GenerationRequest = {
       type: 'video',

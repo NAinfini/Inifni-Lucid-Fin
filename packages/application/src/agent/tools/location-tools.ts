@@ -1,7 +1,16 @@
 import { LOCATION_STANDARD_SLOTS, type Canvas, type Location } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
-import { createRefImageTool } from './ref-image-factory.js';
-import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import { createRefImageTools } from './ref-image-factory.js';
+import { extractSet, warnExtraKeys, requireString } from './tool-result-helpers.js';
+import { buildLocationRefImagePrompt } from './location-prompt.js';
+
+const VALID_LOCATION_TYPES = new Set<NonNullable<Location['type']>>(['interior', 'exterior', 'int-ext']);
+
+function normalizeLocationType(value: unknown): Location['type'] | undefined {
+  return typeof value === 'string' && VALID_LOCATION_TYPES.has(value as NonNullable<Location['type']>)
+    ? (value as NonNullable<Location['type']>)
+    : undefined;
+}
 
 export interface LocationToolDeps {
   listLocations: () => Promise<Location[]>;
@@ -58,13 +67,9 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'The location name.' },
-        type: {
-          type: 'string',
-          description: 'The location type.',
-          enum: ['interior', 'exterior', 'int-ext'],
-        },
+        type: { type: 'string', description: 'Location type.', enum: ['interior', 'exterior', 'int-ext'] },
+        subLocation: { type: 'string', description: 'Optional sub-location or area within the main location.' },
         description: { type: 'string', description: 'A brief description of the location.' },
-        subLocation: { type: 'string', description: 'Sub-location within the main location.' },
         timeOfDay: { type: 'string', description: 'Typical time of day.', enum: ['day', 'night', 'dawn', 'dusk', 'continuous'] },
         mood: { type: 'string', description: 'The mood/atmosphere of the location.' },
         weather: { type: 'string', description: 'Typical weather conditions.' },
@@ -87,7 +92,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
         },
         tags: { type: 'array', description: 'Tags for organizing locations.', items: { type: 'string', description: 'A tag.' } },
       },
-      required: ['name', 'type', 'description'],
+      required: ['name', 'description'],
     },
     async execute(args) {
       try {
@@ -95,9 +100,9 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
         const location: Location = {
           id: crypto.randomUUID(),
           name: args.name as string,
-          type: (args.type as Location['type']) ?? 'interior',
-          description: args.description as string,
+          type: normalizeLocationType(args.type) ?? 'interior',
           subLocation: typeof args.subLocation === 'string' ? args.subLocation : undefined,
+          description: args.description as string,
           timeOfDay: typeof args.timeOfDay === 'string' ? args.timeOfDay : undefined,
           mood: typeof args.mood === 'string' ? args.mood : undefined,
           weather: typeof args.weather === 'string' ? args.weather : undefined,
@@ -134,8 +139,8 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           properties: {
             name: { type: 'string', description: 'Updated location name.' },
             type: { type: 'string', description: 'Updated location type.', enum: ['interior', 'exterior', 'int-ext'] },
+            subLocation: { type: 'string', description: 'Updated sub-location or area.' },
             description: { type: 'string', description: 'Updated description.' },
-            subLocation: { type: 'string', description: 'Updated sub-location.' },
             timeOfDay: { type: 'string', description: 'Updated time of day.' },
             mood: { type: 'string', description: 'Updated mood.' },
             weather: { type: 'string', description: 'Updated weather.' },
@@ -152,19 +157,20 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
+        const id = requireString(args, 'id');
         const locations = await deps.listLocations();
-        const existing = locations.find((l) => l.id === args.id);
+        const existing = locations.find((l) => l.id === id);
         if (!existing) {
-          return { success: false, error: `Location not found: ${args.id}` };
+          return { success: false, error: `Location not found: ${id}` };
         }
         const set = extractSet(args);
         const warnings = warnExtraKeys(args);
         const updated: Location = {
           ...existing,
           ...(set.name !== undefined && { name: set.name as string }),
-          ...(set.type !== undefined && { type: set.type as Location['type'] }),
-          ...(set.description !== undefined && { description: set.description as string }),
+          ...(normalizeLocationType(set.type) !== undefined && { type: normalizeLocationType(set.type) }),
           ...(set.subLocation !== undefined && { subLocation: set.subLocation as string }),
+          ...(set.description !== undefined && { description: set.description as string }),
           ...(set.timeOfDay !== undefined && { timeOfDay: set.timeOfDay as string }),
           ...(set.mood !== undefined && { mood: set.mood as string }),
           ...(set.weather !== undefined && { weather: set.weather as string }),
@@ -198,7 +204,8 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
-        await deps.deleteLocation(args.id as string);
+        const id = requireString(args, 'id');
+        await deps.deleteLocation(id);
         return { success: true };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -206,8 +213,8 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
-  const locationRefImage = createRefImageTool<Location>({
-    toolName: 'location.refImage',
+  const locationRefImages = createRefImageTools<Location>({
+    toolNamePrefix: 'location',
     entityLabel: 'location',
     tags: ['location', 'generation', 'mutate'],
     description: 'Manage reference images for a location. Supports generate (auto-compiles location fields into prompt), set (assign by assetHash), delete (remove slot), and setFromNode (pull asset from a canvas image node). IMPORTANT for generate: Call ONE at a time, verify success before generating the next. Never batch parallel generation calls.',
@@ -218,41 +225,10 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     saveEntity: deps.saveLocation,
     generateImage: deps.generateImage,
     getCanvas: deps.getCanvas,
-    buildPrompt: (entity, slot) => {
-      const typeLabel = entity.type === 'interior' ? 'Interior space' : entity.type === 'exterior' ? 'Exterior view' : 'Interior-exterior transition';
-      const slotDescriptions: Record<string, string> = {
-        'main': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
-        'wide-establishing': 'wide establishing shot, full environment visible, cinematic composition, showing overall scale and layout',
-        'interior-detail': 'close-up interior detail shot, architectural features, furniture, textures, material quality visible',
-        'atmosphere': 'atmospheric mood study, emphasizing lighting, weather, time of day, volumetric light and shadow',
-        'key-angle-1': 'key camera angle, eye-level cinematic shot, showing primary viewpoint for scene staging',
-        'key-angle-2': 'alternate camera angle, different perspective of the same location, revealing secondary details',
-        'overhead': 'overhead bird\'s eye view, looking straight down, showing spatial layout, floor plan perspective',
-      };
-      const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
-
-      const descParts: string[] = [];
-      if (entity.description) descParts.push(entity.description);
-      if (entity.subLocation) descParts.push(`Sub-location: ${entity.subLocation}`);
-      if (entity.architectureStyle) descParts.push(`Architecture: ${entity.architectureStyle}`);
-      if (entity.mood) descParts.push(`Mood: ${entity.mood}`);
-      if (entity.lighting) descParts.push(`Lighting: ${entity.lighting}`);
-      if (entity.weather) descParts.push(`Weather: ${entity.weather}`);
-      if (entity.timeOfDay) descParts.push(`Time of day: ${entity.timeOfDay}`);
-      if (entity.dominantColors && entity.dominantColors.length > 0) descParts.push(`Color palette: ${entity.dominantColors.join(', ')}`);
-      if (entity.keyFeatures && entity.keyFeatures.length > 0) descParts.push(`Key features: ${entity.keyFeatures.join(', ')}`);
-      if (entity.atmosphereKeywords && entity.atmosphereKeywords.length > 0) descParts.push(`Atmosphere: ${entity.atmosphereKeywords.join(', ')}`);
-      const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
-
-      return `Environment concept art reference. Location: ${entity.name}. ${typeLabel}. `
-        + `${richDesc}`
-        + `${slotDesc}. `
-        + `No characters, no people, no figures, empty scene, environment only. `
-        + `Consistent architectural style, detailed textures, professional environment concept art, cinematic quality.`;
-    },
+    buildPrompt: buildLocationRefImagePrompt,
     isStandardSlot: (slot) => LOCATION_STANDARD_SLOTS.includes(slot as (typeof LOCATION_STANDARD_SLOTS)[number]),
-    defaultWidth: 1536,
-    defaultHeight: 1024,
+    defaultWidth: 2048,
+    defaultHeight: 1360,
   });
 
   return [
@@ -260,6 +236,6 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     locationCreate,
     locationUpdate,
     locationDelete,
-    locationRefImage,
+    ...locationRefImages,
   ];
 }

@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { selectActiveCanvas, selectSingleSelectedNode, selectNodesById } from '../../store/slices/canvas-selectors.js';
 import { useInspectorEntityRefs } from './useInspectorEntityRefs.js';
+import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 import {
   renameNode,
   updateNodeData,
@@ -157,9 +158,6 @@ export function InspectorPanel() {
     nodeCharacterRefs,
     nodeEquipmentRefs,
     nodeLocationRefs,
-    availableCharacters,
-    availableEquipment,
-    availableLocations,
     characterById,
     equipmentById,
     locationById,
@@ -180,12 +178,58 @@ export function InspectorPanel() {
     handleRemoveLocationRef,
   } = entityRefs;
 
-  const handleTitleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+  // --- Debounced text inputs: local state buffer for responsive typing ---
+  const commitTitle = useCallback(
+    (value: string) => {
       if (!selectedNode) return;
-      dispatch(renameNode({ id: selectedNode.id, title: e.target.value }));
+      dispatch(renameNode({ id: selectedNode.id, title: value }));
     },
     [dispatch, selectedNode],
+  );
+  const [localTitle, setLocalTitle] = useDebouncedDispatch(
+    selectedNode?.title ?? '',
+    commitTitle,
+  );
+
+  const commitContent = useCallback(
+    (value: string) => {
+      if (!selectedNode || selectedNode.type !== 'text') return;
+      dispatch(
+        updateNodeData({
+          id: selectedNode.id,
+          data: { content: value } as Partial<TextNodeData>,
+        }),
+      );
+    },
+    [dispatch, selectedNode],
+  );
+  const [localContent, setLocalContent] = useDebouncedDispatch(
+    selectedNode?.type === 'text' ? ((selectedNode.data as TextNodeData).content ?? '') : '',
+    commitContent,
+  );
+
+  const commitPrompt = useCallback(
+    (value: string) => {
+      if (!isGenerationNode(selectedNode)) return;
+      dispatch(
+        updateNodeData({
+          id: selectedNode.id,
+          data: { prompt: value } as Partial<
+            ImageNodeData | VideoNodeData | AudioNodeData
+          >,
+        }),
+      );
+    },
+    [dispatch, selectedNode],
+  );
+  const [localPrompt, setLocalPrompt] = useDebouncedDispatch(
+    isGenerationNode(selectedNode) ? (generationData?.prompt ?? '') : '',
+    commitPrompt,
+  );
+
+  const handleTitleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => setLocalTitle(e.target.value),
+    [setLocalTitle],
   );
 
   const handleApplyTemplate = useCallback(
@@ -198,31 +242,13 @@ export function InspectorPanel() {
   );
 
   const handleContentChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      if (!selectedNode || selectedNode.type !== 'text') return;
-      dispatch(
-        updateNodeData({
-          id: selectedNode.id,
-          data: { content: e.target.value } as Partial<TextNodeData>,
-        }),
-      );
-    },
-    [dispatch, selectedNode],
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => setLocalContent(e.target.value),
+    [setLocalContent],
   );
 
   const handlePromptChange = useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      if (!isGenerationNode(selectedNode)) return;
-      dispatch(
-        updateNodeData({
-          id: selectedNode.id,
-          data: { prompt: event.target.value } as Partial<
-            ImageNodeData | VideoNodeData | AudioNodeData
-          >,
-        }),
-      );
-    },
-    [dispatch, selectedNode],
+    (event: React.ChangeEvent<HTMLTextAreaElement>) => setLocalPrompt(event.target.value),
+    [setLocalPrompt],
   );
 
   const handleBackdropColorChange = useCallback(
@@ -309,6 +335,19 @@ export function InspectorPanel() {
     });
   }, [canvas, dispatch, selectedNode]);
 
+  const addedCharacterIds = useMemo(
+    () => new Set(nodeCharacterRefs.map((r) => r.characterId)),
+    [nodeCharacterRefs],
+  );
+  const addedEquipmentIds = useMemo(
+    () => new Set(nodeEquipmentRefs.map((r) => r.equipmentId)),
+    [nodeEquipmentRefs],
+  );
+  const addedLocationIds = useMemo(
+    () => new Set(nodeLocationRefs.map((r) => r.locationId)),
+    [nodeLocationRefs],
+  );
+
   if (!selectedNode) {
     return <InspectorPanelEmptyState text={t('inspector.selectNode')} />;
   }
@@ -357,7 +396,7 @@ export function InspectorPanel() {
           onAutoArrange: handleBackdropAutoArrange,
         }
       : undefined;
-  const characterPickerOptions = availableCharacters.map((character) => ({
+  const characterPickerOptions = characters.map((character) => ({
     id: character.id,
     label: character.name || t('characterManager.untitled'),
   }));
@@ -376,7 +415,7 @@ export function InspectorPanel() {
       slotOptions,
     };
   });
-  const equipmentPickerOptions = availableEquipment.map((equipment) => ({
+  const equipmentPickerOptions = equipmentItems.map((equipment) => ({
     id: equipment.id,
     label: equipment.name || t('equipmentManager.untitled'),
     description: equipment.type,
@@ -396,7 +435,7 @@ export function InspectorPanel() {
       slotOptions,
     };
   });
-  const locationPickerOptions = availableLocations.map((location) => ({
+  const locationPickerOptions = locationItems.map((location) => ({
     id: location.id,
     label: location.name || t('locationManager.title'),
   }));
@@ -516,6 +555,7 @@ export function InspectorPanel() {
           iconColorClass={meta.color}
           titleLabel={t('inspector.titleLabel')}
           titlePlaceholder={t('inspector.nodeTitle')}
+          titleValue={localTitle}
           typeLabel={t('inspector.type')}
           statusLabel={t('inspector.status')}
           positionLabel={t('inspector.position')}
@@ -563,8 +603,9 @@ export function InspectorPanel() {
                 : undefined
             }
             textContent={
-              selectedNode.type === 'text' ? (selectedNode.data as TextNodeData).content : undefined
+              selectedNode.type === 'text' ? localContent : undefined
             }
+            promptValue={isGenerationNode(selectedNode) ? localPrompt : undefined}
             onContentChange={handleContentChange}
             onPromptChange={handlePromptChange}
             templateDropdownOpen={templateDropdownOpen}
@@ -579,12 +620,12 @@ export function InspectorPanel() {
             backdropControls={backdropControls}
             textCharCount={
               selectedNode.type === 'text'
-                ? ((selectedNode.data as TextNodeData).content ?? '').length
+                ? localContent.length
                 : undefined
             }
             textWordCount={
               selectedNode.type === 'text'
-                ? ((selectedNode.data as TextNodeData).content ?? '')
+                ? localContent
                     .trim()
                     .split(/\s+/)
                     .filter(Boolean).length
@@ -594,7 +635,7 @@ export function InspectorPanel() {
               selectedNode.type === 'text'
                 ? t('inspector.chars').replace(
                     '{count}',
-                    String(((selectedNode.data as TextNodeData).content ?? '').length),
+                    String(localContent.length),
                   )
                 : undefined
             }
@@ -603,7 +644,7 @@ export function InspectorPanel() {
                 ? t('inspector.words').replace(
                     '{count}',
                     String(
-                      ((selectedNode.data as TextNodeData).content ?? '')
+                      localContent
                         .trim()
                         .split(/\s+/)
                         .filter(Boolean).length,
@@ -629,9 +670,12 @@ export function InspectorPanel() {
             charPickerOpen={charPickerOpen}
             equipPickerOpen={equipPickerOpen}
             locPickerOpen={locPickerOpen}
-            availableCharacters={characterPickerOptions}
-            availableEquipment={equipmentPickerOptions}
-            availableLocations={locationPickerOptions}
+            allCharacters={characterPickerOptions}
+            allEquipment={equipmentPickerOptions}
+            allLocations={locationPickerOptions}
+            addedCharacterIds={addedCharacterIds}
+            addedEquipmentIds={addedEquipmentIds}
+            addedLocationIds={addedLocationIds}
             characterItems={characterContextItems}
             equipmentItems={equipmentContextItems}
             locationItems={locationContextItems}

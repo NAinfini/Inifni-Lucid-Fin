@@ -114,17 +114,25 @@ export function pruneHistory(
 ): HistoryEntry[] {
   if (!history || history.length === 0) return [];
 
+  const entrySize = (e: HistoryEntry): number => {
+    let n = e.content.length;
+    if ('toolCalls' in e && Array.isArray(e.toolCalls)) {
+      for (const tc of e.toolCalls) n += safeStringify(tc.arguments).length;
+    }
+    return n;
+  };
+
   const pruned: HistoryEntry[] = [];
   let totalChars = 0;
 
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const entry = history[index];
-    const entryChars = entry.content.length;
+    const entryChars = entrySize(entry);
 
     if (pruned.length > 0 && totalChars + entryChars > charBudget) break;
     pruned.unshift(entry);
     totalChars += entryChars;
-    if (totalChars >= HISTORY_CHAR_BUDGET) break;
+    if (totalChars >= charBudget) break;
   }
 
   // Ensure we don't start with a dangling tool result
@@ -429,9 +437,10 @@ export function compactNamedToolDefinitions(
 /**
  * Progressively compact tools when total request size exceeds budget.
  *
+ * Tier 0: Tools not yet used start as name-only stubs (progressive loading).
  * Tier 1: Strip descriptions + param details from tools not used recently.
  * Tier 2: Evict tools not used for longer (they can be re-loaded via tool.get).
- * Always-loaded tools are never evicted.
+ * Always-loaded tools are never evicted or stripped.
  */
 export function adaptiveToolCompaction(
   tools: LLMToolDefinition[],
@@ -440,16 +449,33 @@ export function adaptiveToolCompaction(
   messageChars: number,
   charBudget: number,
 ): { tools: LLMToolDefinition[]; evictedNames: string[] } {
-  const toolChars = safeStringify(tools).length;
-  const totalChars = messageChars + toolChars;
-
-  if (totalChars <= charBudget) return { tools, evictedNames: [] };
-
   const alwaysLoaded = new Set<string>(ALWAYS_LOADED_TOOLS);
   const evictedNames: string[] = [];
 
-  // Tier 1: Strip stale tools to name-only stubs
+  // Tier 0: Start non-always-loaded tools that were never used as name-only stubs
   let result = tools.map((tool) => {
+    if (alwaysLoaded.has(tool.name)) return tool;
+    const lastUsed = toolLastUsedStep.get(tool.name);
+    // Never-used tools → name-only stub (progressive loading)
+    if (lastUsed === undefined || lastUsed === 0) {
+      const stepsAgo = currentStep;
+      if (stepsAgo >= TOOL_STRIP_AFTER_STEPS) {
+        return {
+          name: tool.name,
+          description: '',
+          parameters: { type: 'object' as const, required: tool.parameters.required, properties: {} },
+        };
+      }
+    }
+    return tool;
+  });
+
+  const toolChars = safeStringify(result).length;
+  const totalChars = messageChars + toolChars;
+  if (totalChars <= charBudget) return { tools: result, evictedNames };
+
+  // Tier 1: Strip stale tools to name-only stubs
+  result = result.map((tool) => {
     if (alwaysLoaded.has(tool.name)) return tool;
     const lastUsed = toolLastUsedStep.get(tool.name) ?? 0;
     const stepsAgo = currentStep - lastUsed;
@@ -497,9 +523,6 @@ function stringifyContextExtraValue(value: unknown): string {
 
 export interface AgentContext {
   page?: string;
-  sceneId?: string;
-  keyframeId?: string;
-  segmentId?: string;
   characterId?: string;
   extra?: Record<string, unknown>;
 }
@@ -514,8 +537,23 @@ export interface ContextManagerOptions {
 
 export class ContextManager {
   private _compactInstructions: string | null = null;
-  private _compactCount = 0;
   private _lastCompactTime = 0;
+  /** Minimum interval between auto-compactions in milliseconds. */
+  private static readonly COMPACT_MIN_INTERVAL_MS = 5_000;
+
+  /**
+   * Unified compaction throttle. Returns true if a compaction is allowed.
+   * @param explicit — true for user-triggered compactNow (always allowed)
+   */
+  private _canCompact(explicit = false): boolean {
+    if (explicit) return true;
+    const now = Date.now();
+    if (now - this._lastCompactTime < ContextManager.COMPACT_MIN_INTERVAL_MS) {
+      return false;
+    }
+    this._lastCompactTime = now;
+    return true;
+  }
 
   constructor(
     private llm: LLMAdapter,
@@ -528,17 +566,29 @@ export class ContextManager {
     this._compactInstructions = instructions;
   }
 
-  buildSystemPrompt(context: AgentContext): string {
+  buildSystemPrompt(context: AgentContext, step?: number): string {
     let prompt = this.resolvePrompt('agent-system');
+
+    // After step 5, abbreviate: strip prompt guide content (tools are known)
+    if (step && step > 5) {
+      // Remove any prompt guide sections to save tokens
+      const guideMarker = '## Prompt Guides';
+      const guideIdx = prompt.indexOf(guideMarker);
+      if (guideIdx !== -1) {
+        const nextSection = prompt.indexOf('\n## ', guideIdx + guideMarker.length);
+        prompt = nextSection !== -1
+          ? prompt.slice(0, guideIdx) + prompt.slice(nextSection)
+          : prompt.slice(0, guideIdx);
+      }
+    }
 
     const contextLines: string[] = [];
     if (context.page) contextLines.push(`Current page: ${context.page}`);
-    if (context.sceneId) contextLines.push(`Active scene ID: ${context.sceneId}`);
-    if (context.keyframeId) contextLines.push(`Active keyframe ID: ${context.keyframeId}`);
-    if (context.segmentId) contextLines.push(`Active segment ID: ${context.segmentId}`);
     if (context.characterId) contextLines.push(`Active character ID: ${context.characterId}`);
     if (context.extra) {
       for (const [k, v] of Object.entries(context.extra)) {
+        // On first step, include full context. After step 5, skip verbose entries.
+        if (step && step > 5 && k === 'promptGuides') continue;
         contextLines.push(`${k}: ${stringifyContextExtraValue(v)}`);
       }
     }
@@ -550,14 +600,27 @@ export class ContextManager {
   }
 
   /**
+   * Phase 1 only: fast rule-based compaction (truncate old tool results).
+   * No LLM call. Used proactively at 80% utilization.
+   * Returns true if any changes were made.
+   */
+  compactPhase1(messages: LLMMessage[]): boolean {
+    if (!this._canCompact(false)) return false;
+    const before = measureMessageChars(messages);
+    truncateOldToolResults(messages);
+    return measureMessageChars(messages) < before;
+  }
+
+  /**
    * Full-replacement context compaction -- modeled after Claude Code / Codex CLI.
    */
-  async compactWithLLM(messages: LLMMessage[], charBudget: number): Promise<boolean> {
+  async compactWithLLM(messages: LLMMessage[], charBudget: number, _cache?: unknown): Promise<boolean> {
     const totalChars = measureMessageChars(messages);
     if (totalChars <= charBudget) return false;
+    if (!this._canCompact(false)) return false;
 
     // Phase 1: Truncate old tool outputs first
-    truncateOldToolResults(messages);
+    this.compactPhase1(messages);
 
     const afterTruncation = measureMessageChars(messages);
     if (afterTruncation <= charBudget) return true;
@@ -646,24 +709,15 @@ export class ContextManager {
   async compactNow(
     messages: LLMMessage[] | null,
     instructions?: string,
+    _cache?: unknown,
   ): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
     if (!messages || messages.length === 0) {
       return { freedChars: 0, messageCount: 0, toolCount: 0 };
     }
 
-    // Anti-thrashing
-    const now = Date.now();
-    const ANTI_THRASH_WINDOW_MS = 15_000;
-    const MAX_COMPACT_PER_WINDOW = 2;
-    if (now - this._lastCompactTime < ANTI_THRASH_WINDOW_MS) {
-      this._compactCount++;
-      if (this._compactCount >= MAX_COMPACT_PER_WINDOW) {
-        return { freedChars: 0, messageCount: messages.length, toolCount: 0 };
-      }
-    } else {
-      this._compactCount = 0;
+    if (!this._canCompact(true)) {
+      return { freedChars: 0, messageCount: messages.length, toolCount: 0 };
     }
-    this._lastCompactTime = now;
 
     if (instructions) this._compactInstructions = instructions;
 

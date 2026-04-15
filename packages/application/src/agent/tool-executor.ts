@@ -1,6 +1,8 @@
 import type { LLMToolCall } from '@lucid-fin/contracts';
 import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
 import type { AgentEvent } from './agent-orchestrator.js';
+import type { ToolResultCache } from './tool-result-cache.js';
+import { getToolCompactionCategory } from './tool-compaction-class.js';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
 
 // ---------------------------------------------------------------------------
@@ -31,6 +33,52 @@ export function needsConfirmation(tier: number, mode: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// ---------------------------------------------------------------------------
+// Error classification & recovery
+// ---------------------------------------------------------------------------
+
+type ErrorClass = 'transient' | 'not_found' | 'validation' | 'permission' | 'fatal';
+
+function classifyError(err: unknown, toolResult?: ToolResult): ErrorClass {
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  const lower = msg.toLowerCase();
+
+  if (lower.includes('timeout') || lower.includes('rate limit') || lower.includes('service unavailable')
+    || lower.includes('econnrefused') || lower.includes('econnreset') || lower.includes('503')
+    || lower.includes('429')) {
+    return 'transient';
+  }
+  if (lower.includes('not found') || lower.includes('does not exist') || lower.includes('no such')
+    || (toolResult && !toolResult.success && toolResult.error?.toLowerCase().includes('not found'))) {
+    return 'not_found';
+  }
+  if (lower.includes('invalid') || lower.includes('required') || lower.includes('must be')
+    || lower.includes('type error') || lower.includes('expected')) {
+    return 'validation';
+  }
+  if (lower.includes('permission') || lower.includes('denied') || lower.includes('unauthorized')
+    || lower.includes('forbidden')) {
+    return 'permission';
+  }
+  return 'fatal';
+}
+
+function buildRecoveryHint(errorClass: ErrorClass, toolName: string, _errMsg: string): string {
+  const domain = toolName.split('.')[0];
+  switch (errorClass) {
+    case 'transient':
+      return `Transient error (network/rate limit). The system will retry automatically. If the issue persists, try a different approach.`;
+    case 'not_found':
+      return `The entity may have been deleted or the ID is stale. Call ${domain}.list to refresh your view and verify the ID.`;
+    case 'validation':
+      return `Parameter validation failed. Check the tool schema with tool.get('${toolName}') for correct parameter types and required fields.`;
+    case 'permission':
+      return `The user denied this action. Do not retry the same tool call. Ask the user for guidance or try an alternative approach.`;
+    case 'fatal':
+      return `Unexpected error. Report this to the user and consider a different approach.`;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,23 +146,43 @@ export interface ToolExecutionEntry {
 
 export interface ToolExecutorOptions {
   permissionMode?: 'auto' | 'normal' | 'strict';
+  /** Tool result cache for read-through. */
+  cache?: ToolResultCache;
+  /** Current step number for cache freshness checks. */
+  currentStep?: number;
+  /** Auto-injected into tool arguments so the LLM never needs to provide it. */
+  canvasId?: string;
 }
+
+/** Max step age for read-through cache hits per tool category. */
+const CACHE_MAX_AGE: Record<string, number> = {
+  'canvas.getState': 1,
+  'canvas.getNode': 3,
+  'canvas.listNodes': 3,
+  'canvas.listEdges': 3,
+};
+const CACHE_MAX_AGE_DEFAULT_GET = 2;
+const CACHE_MAX_AGE_DEFAULT_LIST = 3;
 
 export class ToolExecutor {
   /** Adaptive concurrency window (1 = sequential, max 8). */
   adaptiveConcurrency = 3;
+  /** Mutable options — currentStep is updated by the orchestrator each iteration. */
+  opts: ToolExecutorOptions;
 
   constructor(
     private tools: AgentToolRegistry,
-    private _opts?: ToolExecutorOptions,
-  ) {}
+    opts?: ToolExecutorOptions,
+  ) {
+    this.opts = opts ?? {};
+  }
 
   /** Check if a tool is always-loaded or discovered. */
   isToolActive(name: string, activeToolNames: Set<string>): boolean {
     return activeToolNames.has(name);
   }
 
-  /** Execute a single tool call, handling errors and result summarization. */
+  /** Execute a single tool call, handling errors, retries, and result summarization. */
   async executeSingle(
     tc: LLMToolCall,
     activeToolNames: Set<string>,
@@ -134,33 +202,90 @@ export class ToolExecutor {
     }
 
     const startedAt = Date.now();
-    emit({ type: 'tool_call', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, startedAt });
 
-    try {
-      const toolResult = await this.tools.execute(tc.name, tc.arguments);
-      const completedAt = Date.now();
-      const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
-      const resultContent = summarizeToolResult(tc.name, toolResult, toolMaxResult);
-
-      // tool.get discovery
-      if (tc.name === 'tool.get' && toolResult.success && toolResult.data != null) {
-        const data = toolResult.data;
-        const items = Array.isArray(data) ? data : [data];
-        for (const item of items) {
-          if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
-            discoveredToolNames.add(item.name);
-          }
+    // Read-through cache: serve from cache if fresh enough
+    const cache = this.opts?.cache;
+    const currentStep = this.opts?.currentStep ?? 0;
+    if (cache) {
+      const category = getToolCompactionCategory(tc.name);
+      if (category === 'get' || category === 'list') {
+        const maxAge = CACHE_MAX_AGE[tc.name]
+          ?? (category === 'get' ? CACHE_MAX_AGE_DEFAULT_GET : CACHE_MAX_AGE_DEFAULT_LIST);
+        const cached = this._lookupCache(cache, tc.name, tc.arguments as Record<string, unknown>, currentStep, maxAge);
+        if (cached) {
+          const completedAt = Date.now();
+          const cachedResult: ToolResult = { success: true, data: cached };
+          const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
+          const resultContent = summarizeToolResult(tc.name, cachedResult, toolMaxResult);
+          emit({ type: 'tool_call', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, startedAt });
+          emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: cachedResult, startedAt, completedAt });
+          return { tc, resultContent, success: true };
         }
       }
-      emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: toolResult, startedAt, completedAt });
-      return { tc, resultContent, success: toolResult.success !== false };
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      const completedAt = Date.now();
-      const resultContent = safeStringify({ success: false, error: errMsg });
-      emit({ type: 'error', toolCallId: tc.id, error: errMsg, startedAt, completedAt });
-      return { tc, resultContent, success: false };
     }
+
+    emit({ type: 'tool_call', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, startedAt });
+
+    // Auto-inject context-level arguments so the LLM never needs to provide them.
+    // This is extensible — any field in `contextArgs` is merged into every tool call,
+    // with the tool's own arguments taking precedence.
+    const contextArgs: Record<string, unknown> = {};
+    if (this.opts.canvasId) contextArgs.canvasId = this.opts.canvasId;
+    const mergedArgs = { ...contextArgs, ...tc.arguments };
+
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const toolResult = await this.tools.execute(tc.name, mergedArgs);
+        const completedAt = Date.now();
+        const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
+
+        // Check for logical failure with recovery hint
+        if (toolResult.success === false && toolResult.error) {
+          const errorClass = classifyError(toolResult.error, toolResult);
+          if (errorClass === 'transient' && attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+          const hint = buildRecoveryHint(errorClass, tc.name, toolResult.error);
+          const enriched = { ...toolResult, _recovery: hint };
+          const resultContent = summarizeToolResult(tc.name, enriched as ToolResult, toolMaxResult);
+          emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: enriched, startedAt, completedAt });
+          return { tc, resultContent, success: false };
+        }
+
+        const resultContent = summarizeToolResult(tc.name, toolResult, toolMaxResult);
+
+        // tool.get discovery
+        if (tc.name === 'tool.get' && toolResult.success && toolResult.data != null) {
+          const data = toolResult.data;
+          const items = Array.isArray(data) ? data : [data];
+          for (const item of items) {
+            if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
+              discoveredToolNames.add(item.name);
+            }
+          }
+        }
+        emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: toolResult, startedAt, completedAt });
+        return { tc, resultContent, success: toolResult.success !== false };
+      } catch (err) {
+        const errorClass = classifyError(err);
+        if (errorClass === 'transient' && attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const completedAt = Date.now();
+        const hint = buildRecoveryHint(errorClass, tc.name, errMsg);
+        const resultContent = safeStringify({ success: false, error: errMsg, _recovery: hint });
+        emit({ type: 'error', toolCallId: tc.id, error: errMsg, startedAt, completedAt });
+        return { tc, resultContent, success: false };
+      }
+    }
+
+    // Unreachable but satisfies TS
+    const resultContent = safeStringify({ success: false, error: 'Max retries exceeded' });
+    return { tc, resultContent, success: false };
   }
 
   /**
@@ -179,7 +304,7 @@ export class ToolExecutor {
     pendingResolvers: Map<string, (approved: boolean) => void>,
     pendingQuestionResolvers: Map<string, (answer: string) => void>,
   ): Promise<{ cancelled: boolean; dupMap: Map<string, string> }> {
-    const mode = this._opts?.permissionMode ?? 'normal';
+    const mode = this.opts?.permissionMode ?? 'normal';
 
     // Deduplicate identical tool calls
     const deduped = new Map<string, string>(); // signature -> first tc.id
@@ -303,5 +428,46 @@ export class ToolExecutor {
     const tool = this.tools.get(tc.name);
     const tier = tool?.tier ?? 1;
     return needsConfirmation(tier, mode);
+  }
+
+  /**
+   * Look up a cached value for a get/list tool call.
+   * Returns the parsed data if fresh enough, or undefined if not cached or stale.
+   */
+  private _lookupCache(
+    cache: ToolResultCache,
+    toolName: string,
+    args: Record<string, unknown>,
+    currentStep: number,
+    maxAge: number,
+  ): unknown | undefined {
+    // For 'get' tools: look up by entity key from args
+    const category = getToolCompactionCategory(toolName);
+    if (category === 'get') {
+      const entityId = this._extractIdFromArgs(args);
+      if (entityId) {
+        const entry = cache.getEntity(toolName, entityId);
+        if (entry && (currentStep - entry.lastAccessStep) <= maxAge) {
+          cache.touchEntry(toolName, entityId, currentStep);
+          return JSON.parse(entry.serialized);
+        }
+      }
+    }
+    // For 'list' tools: check if we have a list entry
+    if (category === 'list') {
+      const listEntry = cache.getList(toolName, args);
+      if (listEntry && (currentStep - listEntry.lastAccessStep) <= maxAge) {
+        return undefined; // Lists change with pagination args — don't serve from cache
+      }
+    }
+    return undefined;
+  }
+
+  private _extractIdFromArgs(args: Record<string, unknown>): string | undefined {
+    for (const field of ['id', 'nodeId', 'characterId', 'equipmentId', 'locationId', 'presetId']) {
+      const value = args[field];
+      if (typeof value === 'string' && value) return value;
+    }
+    return undefined;
   }
 }

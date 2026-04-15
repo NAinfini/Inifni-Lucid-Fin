@@ -1,5 +1,6 @@
-import type { GenerationRequest, GenerationResult, CostEstimate, JobStatus } from './job.js';
+import type { GenerationRequest, GenerationResult, CostEstimate, JobStatus, GenerationType } from './job.js';
 import type { AdapterError } from '../errors/index.js';
+import type { ProviderProfile } from './provider-profile.js';
 
 export type AdapterType = 'text' | 'image' | 'video' | 'voice' | 'music' | 'sfx';
 
@@ -16,6 +17,19 @@ export type Capability =
   | 'scene-breakdown'
   | 'character-extract'
   | 'prompt-enhance';
+
+/**
+ * Options passed to AIProviderAdapter.configure().
+ * `generationType` tells the adapter which media type this configuration targets,
+ * so multi-type adapters can route model/baseUrl to the correct internal slot.
+ */
+export interface AdapterConfigureOptions {
+  baseUrl?: string;
+  model?: string;
+  /** The generation type this configuration targets (image, video, voice, etc.) */
+  generationType?: GenerationType;
+  [key: string]: unknown;
+}
 
 /**
  * Real-time progress update during generation.
@@ -93,7 +107,7 @@ export interface AIProviderAdapter {
   /** Optional execution capabilities (streaming, webhooks, etc.) */
   readonly executionCapabilities?: AdapterExecutionCapabilities;
 
-  configure(apiKey: string, options?: Record<string, unknown>): void;
+  configure(apiKey: string, options?: AdapterConfigureOptions): void;
   validate(): Promise<boolean>;
   generate(req: GenerationRequest): Promise<GenerationResult>;
   /**
@@ -156,6 +170,8 @@ export interface LLMCompletionResult {
   content: string;
   toolCalls: LLMToolCall[];
   finishReason: 'stop' | 'tool_calls' | 'length' | 'error';
+  /** Model reasoning/thinking content (if available). Not sent to LLM on next turn. */
+  reasoning?: string;
 }
 
 export interface LLMRequestOptions {
@@ -171,6 +187,8 @@ export interface LLMAdapter {
   readonly id: string;
   readonly name: string;
   readonly capabilities: Capability[];
+  /** Per-provider configuration for message construction and token estimation. */
+  readonly profile?: ProviderProfile;
   /** Model context window in tokens, discovered from /models endpoint. */
   readonly contextWindow?: number;
   /** User-configured context window override. */

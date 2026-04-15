@@ -4,7 +4,7 @@ import { Image } from 'lucide-react';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
 import { useI18n } from '../../../hooks/use-i18n.js';
 import { selectImageAssets, type Asset } from '../../../store/slices/assets.js';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../ui/Dialog.js';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../ui/Dialog.js';
 
 interface AssetThumbProps {
   asset: Asset;
@@ -57,6 +57,7 @@ export function AssetPickerDialog({ open, onClose, onSelect }: AssetPickerDialog
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
+          <DialogDescription className="sr-only">{t('entity.selectImage')}</DialogDescription>
         </DialogHeader>
         {imageAssets.length === 0 ? (
           <div className="text-sm text-muted-foreground py-4 text-center">

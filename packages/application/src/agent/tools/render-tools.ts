@@ -18,37 +18,50 @@ export interface RenderToolDeps {
 export function createRenderTools(deps: RenderToolDeps): AgentTool[] {
   const context = ['canvas'];
 
-  const renderControl: AgentTool = {
-    name: 'render.control',
-    description: 'Start or cancel rendering a canvas to the requested output format.',
+  const renderStart: AgentTool = {
+    name: 'render.start',
+    description: 'Start rendering a canvas to the requested output format.',
     context,
     tier: 4,
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['start', 'cancel'], description: 'Action to perform: start or cancel.' },
-        canvasId: { type: 'string', description: 'The canvas ID to render or cancel.' },
-        format: { type: 'string', description: 'Requested render format, such as mp4 or mov. Required for action=start.' },
-        outputPath: { type: 'string', description: 'Optional output file path. Used for action=start.' },
+        canvasId: { type: 'string', description: 'The canvas ID to render.' },
+        format: { type: 'string', description: 'Requested render format, such as mp4 or mov.' },
+        outputPath: { type: 'string', description: 'Optional output file path.' },
       },
-      required: ['action', 'canvasId'],
+      required: ['canvasId', 'format'],
     },
     async execute(args) {
       try {
-        const action = requireString(args, 'action');
-        if (action !== 'start' && action !== 'cancel') {
-          throw new Error('action must be "start" or "cancel"');
-        }
         const canvasId = requireString(args, 'canvasId');
-        if (action === 'start') {
-          const format = requireString(args, 'format');
-          const outputPath = typeof args.outputPath === 'string' ? args.outputPath.trim() : undefined;
-          const result = await deps.startRender(canvasId, format, outputPath);
-          return ok(result);
-        } else {
-          await deps.cancelRender(canvasId);
-          return ok({ canvasId });
-        }
+        const format = requireString(args, 'format');
+        const outputPath = typeof args.outputPath === 'string' ? args.outputPath.trim() : undefined;
+        const result = await deps.startRender(canvasId, format, outputPath);
+        return ok(result);
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const renderCancel: AgentTool = {
+    name: 'render.cancel',
+    description: 'Cancel an active render for a canvas.',
+    context,
+    tier: 4,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'The canvas ID to cancel rendering for.' },
+      },
+      required: ['canvasId'],
+    },
+    async execute(args) {
+      try {
+        const canvasId = requireString(args, 'canvasId');
+        await deps.cancelRender(canvasId);
+        return ok({ canvasId });
       } catch (error) {
         return fail(error);
       }
@@ -89,5 +102,5 @@ export function createRenderTools(deps: RenderToolDeps): AgentTool[] {
     },
   };
 
-  return [renderControl, exportBundle];
+  return [renderStart, renderCancel, exportBundle];
 }

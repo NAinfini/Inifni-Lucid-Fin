@@ -8,6 +8,7 @@ import {
   Clipboard,
   ClipboardCopy,
   Copy,
+  Film,
   Link2,
   Lock,
   Pencil,
@@ -100,6 +101,12 @@ function NodeContextMenuComponent({
             <ContextMenu.Item className={ITEM} onSelect={() => cb.onGenerate(nodeId)}>
               <Sparkles className="w-3.5 h-3.5" />
               {t('contextMenu.generate')}
+            </ContextMenu.Item>
+          )}
+          {nodeType === 'video' && (
+            <ContextMenu.Item className={ITEM} onSelect={() => cb.onCloneVideo()}>
+              <Film className="w-3.5 h-3.5" />
+              {t('canvas.cloneVideo')}
             </ContextMenu.Item>
           )}
           <ContextMenu.Item className={ITEM} onSelect={() => cb.onCopyPromptForAI(nodeId)}>

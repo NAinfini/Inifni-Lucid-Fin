@@ -103,24 +103,8 @@ export async function buildGenerationContext(
   const resolvedEquipment = resolveStandaloneEquipment(deps.db, equipmentRefs, resolvedCharacters);
 
   // Select the best prompt for this generation type:
-  // image nodes → imagePrompt > prompt > title
-  // video nodes → videoPrompt > prompt > title
-  // audio nodes → prompt > title
-  const effectivePrompt = (() => {
-    if (generableNodeType === 'image') {
-      const imgData = nodeData as ImageNodeData;
-      return normalizeOptionalString(imgData.imagePrompt)
-        ?? normalizeOptionalString(imgData.prompt)
-        ?? node.title;
-    }
-    if (generableNodeType === 'video') {
-      const vidData = nodeData as VideoNodeData;
-      return normalizeOptionalString(vidData.videoPrompt)
-        ?? normalizeOptionalString(vidData.prompt)
-        ?? node.title;
-    }
-    return normalizeOptionalString(nodeData.prompt) ?? node.title;
-  })();
+  // All nodes: prompt > title
+  const effectivePrompt = normalizeOptionalString(nodeData.prompt) ?? node.title;
 
   const compiled = compilePrompt({
     nodeType: generableNodeType,
@@ -296,14 +280,14 @@ export async function resolveAdapter(
         throw error;
       }
       const apiKey = await resolveProviderApiKey(keychain, canonicalProviderId, providerConfig);
-      const options: Record<string, unknown> = {};
+      const options: Record<string, unknown> = { generationType };
       if (providerConfig?.baseUrl) {
         options.baseUrl = providerConfig.baseUrl;
       }
       if (providerConfig?.model) {
         options.model = providerConfig.model;
       }
-      adapter.configure(apiKey ?? '', Object.keys(options).length > 0 ? options : undefined);
+      adapter.configure(apiKey ?? '', options);
       return adapter;
     }
     if (providerConfig && keychain) {

@@ -12,13 +12,11 @@ const registerAssetHandlers = vi.hoisted(() => vi.fn());
 const registerJobHandlers = vi.hoisted(() => vi.fn());
 const registerKeychainHandlers = vi.hoisted(() => vi.fn());
 const registerScriptHandlers = vi.hoisted(() => vi.fn());
-const registerSceneHandlers = vi.hoisted(() => vi.fn());
 const registerCharacterHandlers = vi.hoisted(() => vi.fn());
 const registerEquipmentHandlers = vi.hoisted(() => vi.fn());
 const registerLocationHandlers = vi.hoisted(() => vi.fn());
 const registerStyleHandlers = vi.hoisted(() => vi.fn());
 const registerAiHandlers = vi.hoisted(() => vi.fn());
-const registerOrchestrationHandlers = vi.hoisted(() => vi.fn());
 const registerColorStyleHandlers = vi.hoisted(() => vi.fn());
 const registerWorkflowHandlers = vi.hoisted(() => vi.fn());
 const registerRenderHandlers = vi.hoisted(() => vi.fn());
@@ -31,6 +29,7 @@ const registerCanvasGenerationHandlers = vi.hoisted(() => vi.fn());
 const registerPresetHandlers = vi.hoisted(() => vi.fn());
 const registerCommanderHandlers = vi.hoisted(() => vi.fn());
 const registerEntityHandlers = vi.hoisted(() => vi.fn());
+const registerProcessPromptHandlers = vi.hoisted(() => vi.fn());
 
 vi.mock('../logger.js', () => ({
   default: logger,
@@ -49,13 +48,11 @@ vi.mock('./handlers/asset.handlers.js', () => ({ registerAssetHandlers }));
 vi.mock('./handlers/job.handlers.js', () => ({ registerJobHandlers }));
 vi.mock('./handlers/keychain.handlers.js', () => ({ registerKeychainHandlers }));
 vi.mock('./handlers/script.handlers.js', () => ({ registerScriptHandlers }));
-vi.mock('./handlers/scene.handlers.js', () => ({ registerSceneHandlers }));
 vi.mock('./handlers/character.handlers.js', () => ({ registerCharacterHandlers }));
 vi.mock('./handlers/equipment.handlers.js', () => ({ registerEquipmentHandlers }));
 vi.mock('./handlers/location.handlers.js', () => ({ registerLocationHandlers }));
 vi.mock('./handlers/style.handlers.js', () => ({ registerStyleHandlers }));
 vi.mock('./handlers/ai.handlers.js', () => ({ registerAiHandlers }));
-vi.mock('./handlers/orchestration.handlers.js', () => ({ registerOrchestrationHandlers }));
 vi.mock('./handlers/color-style.handlers.js', () => ({ registerColorStyleHandlers }));
 vi.mock('./handlers/workflow.handlers.js', () => ({ registerWorkflowHandlers }));
 vi.mock('./handlers/render.handlers.js', () => ({ registerRenderHandlers }));
@@ -67,6 +64,7 @@ vi.mock('./handlers/canvas-generation.handlers.js', () => ({ registerCanvasGener
 vi.mock('./handlers/preset.handlers.js', () => ({ registerPresetHandlers }));
 vi.mock('./handlers/commander.handlers.js', () => ({ registerCommanderHandlers }));
 vi.mock('./handlers/entity.handlers.js', () => ({ registerEntityHandlers }));
+vi.mock('./handlers/process-prompt.handlers.js', () => ({ registerProcessPromptHandlers }));
 vi.mock('@lucid-fin/contracts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@lucid-fin/contracts')>()),
   BUILT_IN_PRESET_LIBRARY: [{ id: 'preset-1' }],
@@ -91,6 +89,7 @@ describe('registerAllHandlers', () => {
       workflowEngine: { tag: 'workflowEngine' },
       agent: { tag: 'agent' },
       promptStore: { resolve: vi.fn((code: string) => code) },
+      processPromptStore: { getEffectiveValue: vi.fn((key: string) => key) },
     } as unknown as AppDeps;
 
     registerAllHandlers(getWindow, deps);
@@ -106,6 +105,17 @@ describe('registerAllHandlers', () => {
     expect(registerAssetHandlers).toHaveBeenCalled();
     expect(registerExportHandlers).toHaveBeenCalled();
     expect(registerCommanderHandlers).toHaveBeenCalled();
+    expect(registerProcessPromptHandlers).toHaveBeenCalledWith(
+      expect.anything(),
+      deps.processPromptStore,
+    );
+    expect(registerCommanderHandlers).toHaveBeenCalledWith(
+      expect.anything(),
+      getWindow,
+      expect.objectContaining({
+        resolveProcessPrompt: expect.any(Function),
+      }),
+    );
     expect(registerCanvasGenerationHandlers).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({

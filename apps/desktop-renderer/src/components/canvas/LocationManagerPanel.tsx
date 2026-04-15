@@ -8,7 +8,6 @@ import {
   updateLocation,
   removeLocation,
   selectLocation,
-  setLocationsFilterType,
   setLocationsLoading,
   setLocationRefImage,
   removeLocationRefImage,
@@ -17,7 +16,6 @@ import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
 import type {
   Location,
-  LocationType,
   ReferenceImage,
   ImageNodeData,
   VideoNodeData,
@@ -27,29 +25,13 @@ import { MapPin, Plus, Search, Trash2, Save, Upload, Image, ImageOff, X } from '
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useEntityManager } from '../../hooks/useEntityManager.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/Dialog.js';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 
-const TYPE_OPTIONS: LocationType[] = ['interior', 'exterior', 'int-ext'];
 const TIME_OF_DAY_OPTIONS = ['day', 'night', 'dawn', 'dusk', 'continuous'];
-
-function typeBadgeClass(type: LocationType): string {
-  switch (type) {
-    case 'interior':
-      return 'bg-blue-500/20 text-blue-400';
-    case 'exterior':
-      return 'bg-green-500/20 text-green-400';
-    case 'int-ext':
-      return 'bg-amber-500/20 text-amber-400';
-    default:
-      return 'bg-muted text-muted-foreground';
-  }
-}
 
 interface LocationDraft {
   id: string;
   name: string;
-  type: LocationType;
-  subLocation: string;
   timeOfDay: string;
   description: string;
   mood: string;
@@ -62,8 +44,6 @@ function createDraft(loc: Location): LocationDraft {
   return {
     id: loc.id,
     name: loc.name,
-    type: loc.type,
-    subLocation: loc.subLocation ?? '',
     timeOfDay: loc.timeOfDay ?? '',
     description: loc.description,
     mood: loc.mood ?? '',
@@ -76,7 +56,7 @@ function createDraft(loc: Location): LocationDraft {
 export function LocationManagerPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
-  const { items, selectedId, filterType, loading } = useSelector((s: RootState) => s.locations);
+  const { items, selectedId, loading } = useSelector((s: RootState) => s.locations);
 
   const {
     draft, setDraft,
@@ -99,12 +79,11 @@ export function LocationManagerPanel() {
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return items.filter((l) => {
-      if (filterType !== 'all' && l.type !== filterType) return false;
       if (!keyword) return true;
       const blob = `${l.name} ${l.description} ${l.tags.join(' ')}`.toLowerCase();
       return blob.includes(keyword);
     });
-  }, [items, search, filterType]);
+  }, [items, search]);
 
   const canvases = useSelector(selectAllCanvases);
 
@@ -170,7 +149,6 @@ export function LocationManagerPanel() {
       const api = getAPI();
       const data: Partial<Location> = {
         name: t('locationManager.newLocation'),
-        type: 'interior',
         description: '',
         tags: [],
         referenceImages: [],
@@ -192,8 +170,6 @@ export function LocationManagerPanel() {
       const data: Partial<Location> = {
         id: draft.id,
         name: draft.name.trim(),
-        type: draft.type,
-        subLocation: draft.subLocation || undefined,
         timeOfDay: draft.timeOfDay || undefined,
         description: draft.description,
         mood: draft.mood || undefined,
@@ -285,17 +261,10 @@ export function LocationManagerPanel() {
           selectedLoc.referenceImages[0];
         if (!mainRef) return;
 
-        const currentHash = mainRef.assetHash;
-        const prevVariants = [...(mainRef.variants ?? [])];
-        const updatedVariants = prevVariants.filter((h) => h !== variantHash);
-        if (currentHash && !updatedVariants.includes(currentHash)) {
-          updatedVariants.push(currentHash);
-        }
-
+        // Only change the active image; keep variants list unchanged
         const updatedRef: ReferenceImage = {
           ...mainRef,
           assetHash: variantHash,
-          variants: updatedVariants,
         };
 
         const updatedRefs = selectedLoc.referenceImages.map((r) =>
@@ -311,6 +280,46 @@ export function LocationManagerPanel() {
         dispatch(setLocationRefImage({ locationId: selectedLoc.id, refImage: updatedRef }));
       } catch (reason) {
         reportError(reason, 'handleSelectVariant');
+      }
+    },
+    [dispatch, reportError, selectedLoc, setError],
+  );
+
+  const handleDeleteVariant = useCallback(
+    async (variantHash: string) => {
+      if (!selectedLoc) return;
+      setError(null);
+      try {
+        const mainRef =
+          selectedLoc.referenceImages.find((r) => r.slot === 'main') ??
+          selectedLoc.referenceImages[0];
+        if (!mainRef || !mainRef.variants) return;
+
+        const newVariants = mainRef.variants.filter((v) => v !== variantHash);
+        const newAssetHash =
+          mainRef.assetHash === variantHash
+            ? (newVariants[0] ?? '')
+            : mainRef.assetHash;
+
+        const updatedRef: ReferenceImage = {
+          ...mainRef,
+          assetHash: newAssetHash,
+          variants: newVariants,
+        };
+
+        const updatedRefs = selectedLoc.referenceImages.map((r) =>
+          r.slot === mainRef.slot ? updatedRef : r,
+        );
+        const api = getAPI();
+        if (api?.location) {
+          await api.location.save({ id: selectedLoc.id, referenceImages: updatedRefs } as Record<
+            string,
+            unknown
+          >);
+        }
+        dispatch(setLocationRefImage({ locationId: selectedLoc.id, refImage: updatedRef }));
+      } catch (reason) {
+        reportError(reason, 'handleDeleteVariant');
       }
     },
     [dispatch, reportError, selectedLoc, setError],
@@ -356,18 +365,6 @@ export function LocationManagerPanel() {
             className="w-full rounded bg-muted pl-7 pr-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
-        <select
-          value={filterType}
-          onChange={(e) => dispatch(setLocationsFilterType(e.target.value as LocationType | 'all'))}
-          className="w-full rounded bg-muted px-2 py-1.5 text-xs"
-        >
-          <option value="all">{t('locationManager.allTypes')}</option>
-          {TYPE_OPTIONS.map((tp) => (
-            <option key={tp} value={tp}>
-              {t('locationManager.types.' + tp)}
-            </option>
-          ))}
-        </select>
       </div>
 
       <div className="grid grid-cols-[40%_60%] h-full min-h-0">
@@ -430,18 +427,6 @@ export function LocationManagerPanel() {
                         {loc.name || t('locationManager.untitled')}
                       </div>
                       <div className="flex items-center gap-1 flex-wrap">
-                        <span
-                          className={cn(
-                            'inline-block text-[9px] px-1 py-0.5 rounded',
-                            typeBadgeClass(loc.type),
-                          )}
-                        >
-                          {(() => {
-                            const key = `locationManager.types.${loc.type}`;
-                            const translated = t(key as 'locationManager.fields.name');
-                            return translated === key ? loc.type : translated;
-                          })()}
-                        </span>
                         {loc.timeOfDay &&
                           (() => {
                             const key = `locationManager.timeOfDayOptions.${loc.timeOfDay}`;
@@ -490,40 +475,6 @@ export function LocationManagerPanel() {
                   onChange={(e) => setDraft((p) => (p ? { ...p, name: e.target.value } : p))}
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                    {t('locationManager.fields.type')}
-                  </label>
-                  <select
-                    value={draft.type}
-                    onChange={(e) =>
-                      setDraft((p) => (p ? { ...p, type: e.target.value as LocationType } : p))
-                    }
-                    className="w-full rounded bg-muted px-2 py-1 text-xs"
-                  >
-                    {TYPE_OPTIONS.map((tp) => (
-                      <option key={tp} value={tp}>
-                        {t('locationManager.types.' + tp)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                    {t('locationManager.fields.subLocation')}
-                  </label>
-                  <input
-                    value={draft.subLocation}
-                    onChange={(e) =>
-                      setDraft((p) => (p ? { ...p, subLocation: e.target.value } : p))
-                    }
-                    className="w-full rounded bg-muted px-2 py-1 text-xs"
-                    placeholder={t('locationManager.optional')}
-                  />
-                </div>
               </div>
 
               <div className="space-y-1">
@@ -611,10 +562,11 @@ export function LocationManagerPanel() {
                 <SingleReferenceImage
                   referenceImages={selectedLoc?.referenceImages ?? []}
                   onUpload={() => handleRefImageUpload('main', true)}
-                  onRemove={() => handleRefImageRemove('main')}
+                  onRemove={(slot) => handleRefImageRemove(slot)}
                   onFromAssets={() => setAssetPickerOpen(true)}
                   onDropHash={(hash) => void handleRefImageFromAsset(hash)}
                   onSelectVariant={(hash) => void handleSelectVariant(hash)}
+                  onDeleteVariant={(hash) => void handleDeleteVariant(hash)}
                   entityType="location"
                   entityId={selectedLoc?.id}
                   slot="main"
@@ -647,16 +599,18 @@ function SingleReferenceImage({
   onFromAssets,
   onDropHash,
   onSelectVariant,
+  onDeleteVariant,
   entityType,
   entityId,
   slot,
 }: {
   referenceImages: ReferenceImage[];
   onUpload: () => void;
-  onRemove: () => void;
+  onRemove: (slot: string) => void;
   onFromAssets: () => void;
   onDropHash?: (hash: string) => void;
   onSelectVariant?: (hash: string) => void;
+  onDeleteVariant?: (hash: string) => void;
   entityType?: string;
   entityId?: string;
   slot?: string;
@@ -821,7 +775,7 @@ function SingleReferenceImage({
           {mainRef?.assetHash && (
             <button
               type="button"
-              onClick={onRemove}
+              onClick={() => onRemove(mainRef.slot)}
               className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
               aria-label={t('entity.removeImage')}
             >
@@ -838,14 +792,15 @@ function SingleReferenceImage({
           </span>
           <div className="flex gap-1 overflow-x-auto">
             {mainRef.assetHash && (
-              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
+              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive onDelete={onDeleteVariant ? () => onDeleteVariant(mainRef.assetHash!) : undefined} />
             )}
-            {mainRef.variants.map((variantHash) => (
+            {mainRef.variants.filter((v) => v !== mainRef.assetHash).map((variantHash) => (
               <VariantThumb
                 key={variantHash}
                 hash={variantHash}
                 isActive={false}
                 onClick={() => onSelectVariant?.(variantHash)}
+                onDelete={onDeleteVariant ? () => onDeleteVariant(variantHash) : undefined}
               />
             ))}
           </div>
@@ -859,26 +814,40 @@ function VariantThumb({
   hash,
   isActive,
   onClick,
+  onDelete,
 }: {
   hash: string;
   isActive: boolean;
   onClick?: () => void;
+  onDelete?: () => void;
 }) {
   const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return null;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'shrink-0 h-8 w-12 rounded border overflow-hidden transition-colors',
-        isActive
-          ? 'border-primary ring-1 ring-primary/40'
-          : 'border-border/60 hover:border-primary/50',
+    <div className="relative shrink-0 group">
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'h-8 w-12 rounded border overflow-hidden transition-colors',
+          isActive
+            ? 'border-primary ring-1 ring-primary/40'
+            : 'border-border/60 hover:border-primary/50',
+        )}
+      >
+        <img src={url} alt="variant" className="h-full w-full object-cover" onError={markFailed} />
+      </button>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          className="absolute -top-1 -right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="Delete variant"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
       )}
-    >
-      <img src={url} alt="variant" className="h-full w-full object-cover" onError={markFailed} />
-    </button>
+    </div>
   );
 }
 
@@ -912,6 +881,7 @@ function AssetPickerDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('entity.selectImage')}</DialogTitle>
+          <DialogDescription className="sr-only">{t('entity.selectImage')}</DialogDescription>
         </DialogHeader>
         {imageAssets.length === 0 ? (
           <div className="text-sm text-muted-foreground py-4 text-center">

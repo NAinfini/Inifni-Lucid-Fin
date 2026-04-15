@@ -104,13 +104,13 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     aliases: ['openai-image'],
     qualityTiers: ['standard', 'hd'],
     resolutions: ['1024x1024', '1024x1792', '1792x1024'],
-    maxDimension: 1792,
-    notes: 'Fixed resolution options only. No negative prompt or seed support.',
+    maxDimension: 4096,
+    notes: 'gpt-image-1: flexible sizes 256-4096 (multiples of 64). DALL-E 3 was limited to fixed sizes.',
   },
   ideogram: {
     type: 'image',
     aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
-    maxDimension: 1024,
+    maxDimension: 2048,
     notes: 'Supports negative prompt and seed. Good at text rendering in images.',
   },
   'recraft-v3': {
@@ -130,8 +130,8 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     type: 'image',
     aliases: ['google-image'],
     aspectRatios: ['1:1', '3:4', '4:3', '9:16', '16:9'],
-    maxDimension: 1536,
-    notes: 'Predefined aspect ratios only. Supports up to 2K resolution.',
+    maxDimension: 2048,
+    notes: 'Imagen 4 supports up to 2048. Predefined aspect ratios.',
   },
   flux: {
     type: 'image',
@@ -149,15 +149,15 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
   'fal-ai': {
     type: 'image',
     aliases: ['fal'],
-    maxDimension: 1536,
-    notes: 'fal.ai hosted. Most models support up to 1536px.',
+    maxDimension: 2048,
+    notes: 'fal.ai hosted. Most models support 1536-2048px.',
   },
   'stability-v2': {
     type: 'image',
     aliases: ['stability', 'sd3'],
     resolutions: ['1024x1024'],
-    maxDimension: 1024,
-    notes: 'Stability AI. SD3/SDXL: max 1024px per dimension.',
+    maxDimension: 1536,
+    notes: 'Stability AI. SDXL: 1024px, SD3.5 Large: up to 1536px.',
   },
   'together-ai': {
     type: 'image',
@@ -169,6 +169,30 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     type: 'image',
     maxDimension: 1024,
     notes: 'SiliconFlow hosted. Most models max 1024px.',
+  },
+  'zhipu-cogview': {
+    type: 'image',
+    aliases: ['cogview'],
+    maxDimension: 2048,
+    notes: 'CogView-4: up to 2048x2048.',
+  },
+  'tongyi-wanxiang': {
+    type: 'image',
+    aliases: ['wanxiang'],
+    maxDimension: 1024,
+    notes: 'Wanx v1: 1024px. Wanx v2: 2048px.',
+  },
+  kolors: {
+    type: 'image',
+    aliases: ['kuaishou'],
+    maxDimension: 1024,
+    notes: 'SDXL-based. Native 1024x1024 max.',
+  },
+  seedream: {
+    type: 'image',
+    aliases: ['volcengine-image'],
+    maxDimension: 2048,
+    notes: 'Seedream 3.0: up to 2048x2048.',
   },
 };
 

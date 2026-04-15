@@ -221,11 +221,11 @@ describe('createCanvasTools', () => {
     );
   });
 
-  it('updateNodes moves node position via position field', async () => {
+  it('updateNodes moves node position via setNodeLayout', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    const result = await getTool('canvas.updateNodes', deps).execute({
+    const result = await getTool('canvas.setNodeLayout', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'text-1',
       set: { position: { x: 220, y: 330 } },
@@ -359,7 +359,7 @@ describe('createCanvasTools', () => {
   it('returns error for missing node', async () => {
     const deps = createDeps(createCanvas());
 
-    const result = await getTool('canvas.updateNodes', deps).execute({
+    const result = await getTool('canvas.setNodeLayout', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'missing-node',
       set: { position: { x: 1, y: 2 } },
@@ -412,13 +412,12 @@ describe('createCanvasTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    const addResult = await getTool('canvas.presetEntry', deps).execute({
+    const addResult = await getTool('canvas.addPresetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       presetId: 'builtin-camera-push-in',
       intensity: 88,
-      action: 'add',
     });
 
     expect(addResult.success).toBe(true);
@@ -426,13 +425,12 @@ describe('createCanvasTools', () => {
     expect(tracksAfterAdd.camera.entries).toHaveLength(1);
     const entryId = tracksAfterAdd.camera.entries[0].id;
 
-    await expect(getTool('canvas.presetEntry', deps).execute({
+    await expect(getTool('canvas.updatePresetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       entryId,
       changes: { intensity: 60, direction: 'left' },
-      action: 'update',
     })).resolves.toEqual({
       success: true,
       data: {
@@ -442,22 +440,20 @@ describe('createCanvasTools', () => {
       },
     });
 
-    await getTool('canvas.presetEntry', deps).execute({
+    await getTool('canvas.addPresetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       presetId: 'builtin-camera-crane-up',
-      action: 'add',
     });
     const tracksAfterSecondAdd = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
     const secondEntryId = tracksAfterSecondAdd.camera.entries[1].id;
 
-    await expect(getTool('canvas.presetEntry', deps).execute({
+    await expect(getTool('canvas.removePresetEntry', deps).execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
       category: 'camera',
       entryId,
-      action: 'remove',
     })).resolves.toEqual({
       success: true,
       data: {
@@ -506,7 +502,7 @@ describe('createCanvasTools', () => {
     ).toBe('Horror Suspense');
   });
 
-  it('reads recent logs through logger.read', async () => {
+  it('reads recent logs through logger.list', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
     vi.mocked(deps.getRecentLogs).mockResolvedValueOnce([
@@ -519,7 +515,7 @@ describe('createCanvasTools', () => {
       },
     ]);
 
-    const result = await getTool('logger.read', deps).execute({
+    const result = await getTool('logger.list', deps).execute({
       level: 'error',
       category: 'generation',
       limit: 10,

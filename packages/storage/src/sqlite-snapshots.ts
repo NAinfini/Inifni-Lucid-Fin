@@ -23,7 +23,6 @@ export interface SnapshotData {
   characters: unknown[];
   equipment: unknown[];
   locations: unknown[];
-  scenes: unknown[];
   scripts: unknown[];
   presetOverrides: unknown[];
 }
@@ -226,7 +225,6 @@ const SNAPSHOT_TABLES = [
   'characters',
   'equipment',
   'locations',
-  'scenes',
   'scripts',
   'preset_overrides',
 ] as const;
@@ -254,10 +252,6 @@ const SNAPSHOT_TABLE_COLUMNS: Record<(typeof SNAPSHOT_TABLES)[number], readonly 
     'id', 'name', 'type', 'sub_location', 'description', 'time_of_day',
     'mood', 'weather', 'lighting', 'tags', 'reference_images', 'created_at', 'updated_at',
   ],
-  scenes: [
-    'id', 'idx', 'title', 'description', 'location', 'time_of_day',
-    'characters', 'keyframes', 'segments', 'style_override', 'created_at', 'updated_at',
-  ],
   scripts: [
     'id', 'content', 'format', 'parsed_scenes', 'created_at', 'updated_at',
   ],
@@ -279,13 +273,22 @@ export function captureSnapshot(
     data[table] = db.prepare(`SELECT ${cols.join(', ')} FROM ${table}`).all() as unknown[];
   }
 
+  // Ensure the referenced session exists in SQLite (may only live in
+  // Redux/localStorage at this point). Insert a minimal stub so the FK
+  // on snapshots.session_id is satisfied.
+  const now = Date.now();
+  db.prepare(`
+    INSERT OR IGNORE INTO commander_sessions (id, canvas_id, title, messages, created_at, updated_at)
+    VALUES (?, NULL, '', '[]', ?, ?)
+  `).run(sessionId, now, now);
+
   const snap: StoredSnapshot = {
     id: crypto.randomUUID(),
     sessionId,
     label,
     trigger,
     data: JSON.stringify(data),
-    createdAt: Date.now(),
+    createdAt: now,
   };
   insertSnapshot(db, snap);
   return snap;

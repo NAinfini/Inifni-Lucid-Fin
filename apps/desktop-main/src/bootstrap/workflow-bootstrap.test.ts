@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkflowEngine, AgentOrchestrator } from '@lucid-fin/application';
-import type { PromptStore } from '@lucid-fin/storage';
+import type { ProcessPromptStore, PromptStore } from '@lucid-fin/storage';
 import { initIpc } from './init-ipc.js';
 import { registerAllHandlers, type AppDeps } from '../ipc/router.js';
 
@@ -14,6 +14,7 @@ describe('initIpc workflow bootstrap', () => {
     const workflowEngine = {} as WorkflowEngine;
     const agent = {} as AgentOrchestrator;
     const promptStore = {} as PromptStore;
+    const processPromptStore = {} as ProcessPromptStore;
     const deps = {
       db: {} as never,
       cas: {} as never,
@@ -24,6 +25,7 @@ describe('initIpc workflow bootstrap', () => {
       workflowEngine,
       agent,
       promptStore,
+      processPromptStore,
     } satisfies AppDeps;
 
     initIpc(getWindow, deps);

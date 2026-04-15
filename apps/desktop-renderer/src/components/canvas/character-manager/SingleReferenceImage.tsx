@@ -11,10 +11,11 @@ import { VariantThumb } from './VariantThumb.js';
 interface SingleReferenceImageProps {
   referenceImages: ReferenceImage[];
   onUpload: () => void;
-  onRemove: () => void;
+  onRemove: (slot: string) => void;
   onFromAssets: () => void;
   onDropHash?: (hash: string) => void;
   onSelectVariant?: (hash: string) => void;
+  onDeleteVariant?: (hash: string) => void;
   entityType?: string;
   entityId?: string;
   slot?: string;
@@ -27,6 +28,7 @@ export function SingleReferenceImage({
   onFromAssets,
   onDropHash,
   onSelectVariant,
+  onDeleteVariant,
   entityType,
   entityId,
   slot,
@@ -191,7 +193,7 @@ export function SingleReferenceImage({
           {mainRef?.assetHash && (
             <button
               type="button"
-              onClick={onRemove}
+              onClick={() => onRemove(mainRef.slot)}
               className="ml-auto flex items-center gap-1 rounded border border-border/60 px-2 py-1 text-[10px] hover:bg-destructive/20 transition-colors"
               aria-label={t('entity.removeImage')}
             >
@@ -207,15 +209,13 @@ export function SingleReferenceImage({
             {t('characterManager.variants')}:
           </span>
           <div className="flex gap-1 overflow-x-auto">
-            {mainRef.assetHash && (
-              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive />
-            )}
             {mainRef.variants.map((variantHash) => (
               <VariantThumb
                 key={variantHash}
                 hash={variantHash}
-                isActive={false}
-                onClick={() => onSelectVariant?.(variantHash)}
+                isActive={variantHash === mainRef.assetHash}
+                onClick={variantHash === mainRef.assetHash ? undefined : () => onSelectVariant?.(variantHash)}
+                onDelete={onDeleteVariant ? () => onDeleteVariant(variantHash) : undefined}
               />
             ))}
           </div>

@@ -56,6 +56,19 @@ export interface CanvasToolDeps {
     currency: string;
     nodeCosts: Array<{ nodeId: string; estimatedCost: number }>;
   }>;
+  previewPrompt?: (
+    canvasId: string,
+    nodeId: string,
+  ) => Promise<{
+    prompt: string;
+    negativePrompt?: string;
+    segments: Array<{ source: string; text: string; trimmed: boolean }>;
+    wordCount: number;
+    budget: number;
+    diagnostics: Array<{ type: string; severity: string; message: string }>;
+    providerId: string;
+    mode: string;
+  }>;
   addNote: (canvasId: string, content: string) => Promise<import('@lucid-fin/contracts').CanvasNote>;
   getRecentLogs: (
     level?: string,
@@ -72,6 +85,8 @@ export interface CanvasToolDeps {
   deleteProviderKey?: (providerId: string) => Promise<void>;
   /** Check whether a media provider has an API key stored. */
   isProviderKeyConfigured?: (providerId: string) => Promise<boolean>;
+  /** Get the user's default provider for a media group (image/video/audio). */
+  getDefaultProviderId?: (group: 'image' | 'video' | 'audio') => string | undefined;
 }
 
 export type CanvasToolResult =

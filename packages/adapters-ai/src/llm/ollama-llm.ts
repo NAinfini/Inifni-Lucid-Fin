@@ -5,6 +5,7 @@ import type {
   LLMCompletionResult,
   LLMToolCall,
   Capability,
+  ProviderProfile,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 
@@ -18,9 +19,20 @@ export class OllamaLLMAdapter implements LLMAdapter {
     'character-extract',
     'prompt-enhance',
   ];
+  readonly profile: ProviderProfile;
 
   private baseUrl = 'http://localhost:11434';
   private model = 'llama3';
+
+  constructor() {
+    this.profile = {
+      providerId: this.id,
+      charsPerToken: 3.5,
+      sanitizeToolNames: false,
+      maxUtilization: 0.85,
+      outputReserveTokens: 2048,
+    };
+  }
 
   configure(_apiKey: string, options?: Record<string, unknown>): void {
     if (options?.baseUrl) this.baseUrl = options.baseUrl as string;

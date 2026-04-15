@@ -42,9 +42,9 @@ export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
         },
         writeField: {
           type: 'string',
-          enum: ['prompt', 'imagePrompt', 'videoPrompt'],
+          enum: ['prompt'],
           description:
-            'Optional: if set, writes the result back to this field on the node.',
+            'Optional: if set, writes the result back to the prompt field on the node.',
         },
       },
       required: ['nodeId'],

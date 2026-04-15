@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { setCanvases, setActiveCanvas } from '../store/slices/canvas.js';
-import { clearHistory, setProviderId, startStreaming } from '../store/slices/commander.js';
+import { clearHistory, deleteSession, setProviderId, startStreaming } from '../store/slices/commander.js';
 import { setEquipment } from '../store/slices/equipment.js';
 import { store } from '../store/index.js';
 import { syncCommanderEntitiesForTool, useCommander } from './useCommander.js';
@@ -82,6 +82,9 @@ function SendHarness() {
 afterEach(() => {
   cleanup();
   store.dispatch(clearHistory());
+  for (const session of store.getState().commander.sessions) {
+    store.dispatch(deleteSession(session.id));
+  }
   store.dispatch(setCanvases([]));
   store.dispatch(setActiveCanvas(null));
   store.dispatch(setProviderId(null));
@@ -213,5 +216,221 @@ describe('useCommander stream completion', () => {
       }),
     );
     expect(permissionMode).toBe('normal');
+  });
+
+  it('sends workflow and skill guides alongside prompt templates', async () => {
+    const chat = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(getAPI).mockReturnValue({
+      settings: {
+        save: vi.fn().mockResolvedValue(undefined),
+      },
+      commander: {
+        chat,
+        onStream: () => () => {},
+        onCanvasUpdated: () => () => {},
+        onEntitiesUpdated: () => () => {},
+        onSettingsDispatch: () => () => {},
+        onUndoDispatch: () => () => {},
+      },
+    } as never);
+
+    store.dispatch(setCanvases([{
+      id: 'canvas-1',
+      name: 'Main',
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      createdAt: 1,
+      updatedAt: 1,
+      notes: [],
+    }]));
+    store.dispatch(setActiveCanvas('canvas-1'));
+
+    const { getByRole } = render(
+      React.createElement(Provider, {
+        store,
+        children: React.createElement(SendHarness),
+      }),
+    );
+
+    await act(async () => {
+      getByRole('button', { name: 'Send' }).click();
+    });
+
+    await waitFor(() => {
+      expect(chat).toHaveBeenCalledTimes(1);
+    });
+
+    const promptGuides = chat.mock.calls[0]?.[4] as Array<{ id: string; name: string; content: string }>;
+
+    expect(promptGuides).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'meta-prompt' }),
+        expect.objectContaining({ id: 'wf-video-clone' }),
+        expect.objectContaining({ id: 'sk-lip-sync' }),
+      ]),
+    );
+  });
+
+  it('creates one stable session id for the first auto snapshot and chat request', async () => {
+    const chat = vi.fn().mockResolvedValue(undefined);
+    const upsert = vi.fn().mockResolvedValue(undefined);
+    const capture = vi.fn().mockResolvedValue({
+      id: 'snap-1',
+      sessionId: 'session-1',
+      label: 'Before Commander session',
+      trigger: 'auto',
+      createdAt: 1,
+    });
+
+    vi.mocked(getAPI).mockReturnValue({
+      settings: {
+        save: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        upsert,
+      },
+      snapshot: {
+        capture,
+      },
+      canvas: {
+        save: vi.fn().mockResolvedValue(undefined),
+      },
+      commander: {
+        chat,
+        onStream: () => () => {},
+        onCanvasUpdated: () => () => {},
+        onEntitiesUpdated: () => () => {},
+        onSettingsDispatch: () => () => {},
+        onUndoDispatch: () => () => {},
+      },
+    } as never);
+
+    store.dispatch(setCanvases([{
+      id: 'canvas-1',
+      name: 'Main',
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      createdAt: 1,
+      updatedAt: 1,
+      notes: [],
+    }]));
+    store.dispatch(setActiveCanvas('canvas-1'));
+
+    const { getByRole } = render(
+      React.createElement(Provider, {
+        store,
+        children: React.createElement(SendHarness),
+      }),
+    );
+
+    await act(async () => {
+      getByRole('button', { name: 'Send' }).click();
+    });
+
+    await waitFor(() => {
+      expect(chat).toHaveBeenCalledTimes(1);
+      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(capture).toHaveBeenCalledTimes(1);
+    });
+
+    const [stubSession] = upsert.mock.calls[0] as [{
+      id: string;
+      canvasId: string | null;
+      title: string;
+      messages: string;
+      createdAt: number;
+      updatedAt: number;
+    }];
+
+    expect(stubSession.id).not.toBe('canvas-1');
+    expect(capture).toHaveBeenCalledWith(stubSession.id, 'Before Commander session', 'auto');
+    expect(chat.mock.calls[0]?.[11]).toBe(stubSession.id);
+  });
+
+  it('captures the auto snapshot only once per session', async () => {
+    let onStream: ((data: CommanderStreamEvent) => void) | undefined;
+    const chat = vi.fn().mockResolvedValue(undefined);
+    const capture = vi.fn().mockResolvedValue({
+      id: 'snap-1',
+      sessionId: 'session-1',
+      label: 'Before Commander session',
+      trigger: 'auto',
+      createdAt: 1,
+    });
+
+    vi.mocked(getAPI).mockReturnValue({
+      settings: {
+        save: vi.fn().mockResolvedValue(undefined),
+      },
+      session: {
+        upsert: vi.fn().mockResolvedValue(undefined),
+      },
+      snapshot: {
+        capture,
+      },
+      canvas: {
+        save: vi.fn().mockResolvedValue(undefined),
+      },
+      commander: {
+        chat,
+        onStream: (cb: Parameters<LucidAPI['commander']['onStream']>[0]) => {
+          onStream = cb;
+          return () => {};
+        },
+        onCanvasUpdated: () => () => {},
+        onEntitiesUpdated: () => () => {},
+        onSettingsDispatch: () => () => {},
+        onUndoDispatch: () => () => {},
+      },
+    } as never);
+
+    store.dispatch(setCanvases([{
+      id: 'canvas-1',
+      name: 'Main',
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      createdAt: 1,
+      updatedAt: 1,
+      notes: [],
+    }]));
+    store.dispatch(setActiveCanvas('canvas-1'));
+
+    const { getByRole } = render(
+      React.createElement(Provider, {
+        store,
+        children: React.createElement(SendHarness),
+      }),
+    );
+
+    await act(async () => {
+      getByRole('button', { name: 'Send' }).click();
+    });
+
+    await waitFor(() => {
+      expect(chat).toHaveBeenCalledTimes(1);
+      expect(capture).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      onStream?.({ type: 'done' });
+    });
+
+    await waitFor(() => {
+      expect(store.getState().commander.activeSessionId).toBeTruthy();
+    });
+
+    await act(async () => {
+      getByRole('button', { name: 'Send' }).click();
+    });
+
+    await waitFor(() => {
+      expect(chat).toHaveBeenCalledTimes(2);
+    });
+
+    expect(capture).toHaveBeenCalledTimes(1);
   });
 });

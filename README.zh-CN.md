@@ -1,7 +1,7 @@
 <div align="center">
 
 <!-- HERO BANNER -->
-<img src="docs/assets/hero-banner.png" alt="梦鱼 Lucid Fin" width="100%">
+<img src="asset/光辉的鱼与蝶.png" alt="梦鱼 Lucid Fin" width="180">
 
 <br>
 
@@ -50,7 +50,7 @@
       <p>节点式可视化编辑器 — 图像、视频、音频、文本和背景板节点通过有向边连接。拖拽、连接、生成。</p>
     </td>
     <td width="33%" valign="top">
-      <h4>Commander AI</h4>
+      <h4>梦鱼 AI</h4>
       <p>内置 AI 助手，拥有 170+ 个工具。拆解剧本、管理角色、应用预设、分析图像、生成媒体 — 全部通过对话完成。</p>
     </td>
     <td width="33%" valign="top">
@@ -116,9 +116,9 @@
 </details>
 
 <details>
-<summary><strong>Commander AI</strong></summary>
+<summary><strong>梦鱼 AI</strong></summary>
 <br>
-<img src="docs/assets/screenshot-commander.png" alt="Commander AI" width="100%">
+<img src="docs/assets/screenshot-commander.png" alt="梦鱼 AI" width="100%">
 <em>AI 助手，支持斜杠命令、工具调用、流式响应和上下文管理</em>
 </details>
 
@@ -194,14 +194,14 @@
 graph TB
     subgraph Desktop["桌面应用 (Electron 35)"]
         subgraph Renderer["渲染进程 — React 19 + Vite 6"]
-            UI["画布工作区<br/>检查器 &middot; Commander AI"]
+            UI["画布工作区<br/>检查器 &middot; 梦鱼 AI"]
             Store["Redux 状态管理<br/>21 个切片"]
         end
 
         subgraph Main["主进程"]
             IPC["IPC 路由"]
             Pipeline["生成管线"]
-            Commander["Commander AI<br/>170+ 个代理工具"]
+            Commander["梦鱼 AI<br/>170+ 个代理工具"]
         end
 
         UI <--> Store
@@ -245,14 +245,14 @@ graph TB
 
 ```
 apps/
-  desktop-main/         Electron 主进程 — IPC、生成管线、Commander AI
+  desktop-main/         Electron 主进程 — IPC、生成管线、梦鱼 AI
   desktop-renderer/     React + Vite 前端 — 画布、面板、Redux 状态管理
 
 packages/
   contracts/            共享 TypeScript 类型、DTO、IPC 通道定义
   storage/              SQLite 数据库、内容寻址资产存储、系统钥匙串
   adapters-ai/          AI 提供方适配器（图像、视频、音频、LLM、视觉）
-  application/          Commander AI 编排器、170+ 个代理工具、提示编译器
+  application/          梦鱼 AI 编排器、170+ 个代理工具、提示编译器
   domain/               剧本解析器、提示组装器、级联逻辑
   media-engine/         FFmpeg 工具、Ken Burns 效果、拼接器、NLE 导出
 

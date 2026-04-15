@@ -6,6 +6,7 @@ import type {
   LLMCompletionResult,
   LLMToolCall,
   Capability,
+  ProviderProfile,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
@@ -90,6 +91,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     'character-extract',
     'prompt-enhance',
   ];
+  readonly profile: ProviderProfile;
 
   private apiKey = '';
   private baseUrl: string;
@@ -100,6 +102,13 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     this.name = cfg.name ?? 'Anthropic Claude';
     this.baseUrl = normalizeClaudeBaseUrl(cfg.defaultBaseUrl ?? 'https://api.anthropic.com');
     this.model = cfg.defaultModel ?? 'claude-sonnet-4-20250514';
+    this.profile = {
+      providerId: this.id,
+      charsPerToken: 3.5,
+      sanitizeToolNames: true,
+      maxUtilization: 0.90,
+      outputReserveTokens: 4096,
+    };
   }
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
@@ -308,10 +317,12 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     }>(result);
 
     let content = '';
+    let reasoning = '';
     const toolCalls: LLMToolCall[] = [];
     const blocks = Array.isArray(data.content) ? data.content : [];
     for (const block of blocks) {
       if (block.type === 'text') content += block.text ?? '';
+      if (block.type === 'thinking') reasoning += (block as { thinking?: string }).thinking ?? '';
       if (block.type === 'tool_use') {
         const rawName = block.name ?? '';
         toolCalls.push({
@@ -322,13 +333,14 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       }
     }
 
-    if (!content.trim() && toolCalls.length === 0) {
+    if (!content.trim() && toolCalls.length === 0 && !reasoning) {
       throw this.buildEmptyAssistantResponseError(result, data);
     }
 
     return {
       content,
       toolCalls,
+      reasoning: reasoning || undefined,
       finishReason:
         data.stop_reason === 'tool_use'
           ? 'tool_calls'

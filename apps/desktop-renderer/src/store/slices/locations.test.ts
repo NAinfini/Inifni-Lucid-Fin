@@ -9,7 +9,6 @@ import {
   selectLocation,
   setLocationRefImage,
   setLocations,
-  setLocationsFilterType,
   setLocationsLoading,
   setLocationsSearch,
   updateLocation,
@@ -28,7 +27,6 @@ function makeLocation(overrides: Partial<Location> = {}): Location {
   return {
     id: 'location-1',
     name: 'Warehouse',
-    type: 'interior',
     description: 'Abandoned warehouse',
     tags: ['industrial'],
     referenceImages: [makeReferenceImage()],
@@ -43,7 +41,6 @@ describe('locations slice', () => {
     expect(locationsSlice.reducer(undefined, { type: '@@INIT' })).toEqual({
       items: [],
       selectedId: null,
-      filterType: 'all',
       loading: false,
       search: '',
     });
@@ -55,7 +52,6 @@ describe('locations slice', () => {
     const restored: LocationsState = {
       items: [location],
       selectedId: 'location-1',
-      filterType: 'interior',
       loading: true,
       search: 'ware',
     };
@@ -79,10 +75,6 @@ describe('locations slice', () => {
     expect(selectLocation(null)).toMatchObject({
       type: 'locations/selectLocation',
       payload: null,
-    });
-    expect(setLocationsFilterType('exterior')).toMatchObject({
-      type: 'locations/setLocationsFilterType',
-      payload: 'exterior',
     });
     expect(setLocationsLoading(true)).toMatchObject({
       type: 'locations/setLocationsLoading',
@@ -108,12 +100,12 @@ describe('locations slice', () => {
     });
   });
 
-  it('sets, adds, updates, selects, filters, and removes locations', () => {
+  it('sets, adds, updates, selects, and removes locations', () => {
     let state = locationsSlice.reducer(
       undefined,
       setLocations([
         makeLocation(),
-        makeLocation({ id: 'location-2', name: 'Alley', type: 'exterior' }),
+        makeLocation({ id: 'location-2', name: 'Alley' }),
       ]),
     );
     state = locationsSlice.reducer(
@@ -135,7 +127,6 @@ describe('locations slice', () => {
         data: { name: 'Ignored' },
       }),
     );
-    state = locationsSlice.reducer(state, setLocationsFilterType('exterior'));
     state = locationsSlice.reducer(state, setLocationsLoading(true));
     state = locationsSlice.reducer(state, setLocationsSearch('alley'));
     state = locationsSlice.reducer(state, removeLocation('location-2'));
@@ -143,7 +134,6 @@ describe('locations slice', () => {
 
     expect(state.items.map((item) => item.id)).toEqual(['location-1', 'location-3']);
     expect(state.selectedId).toBeNull();
-    expect(state.filterType).toBe('exterior');
     expect(state.loading).toBe(true);
     expect(state.search).toBe('alley');
   });
@@ -189,7 +179,6 @@ describe('locations slice', () => {
     const restored: LocationsState = {
       items: [makeLocation({ id: 'location-restore', name: 'Restored Dock' })],
       selectedId: 'location-restore',
-      filterType: 'int-ext',
       loading: true,
       search: 'dock',
     };

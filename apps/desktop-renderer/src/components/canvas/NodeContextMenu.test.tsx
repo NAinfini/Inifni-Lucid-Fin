@@ -35,6 +35,7 @@ function createCallbacks(
     onToggleSeedLock: vi.fn(),
     onToggleCollapse: vi.fn(),
     onOpacityChange: vi.fn(),
+    onCloneVideo: vi.fn(),
     ...overrides,
   };
 }

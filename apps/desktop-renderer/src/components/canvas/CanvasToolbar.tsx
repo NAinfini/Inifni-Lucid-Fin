@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { Download, Film, Grid2X2, Map, Palette, Redo2, Search, Undo2, Upload } from 'lucide-react';
+import { forwardRef, useState, type ReactNode } from 'react';
+import { Download, Grid2X2, Map, Palette, Redo2, Search, Undo2, Upload } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
 import {
@@ -17,9 +17,10 @@ interface ToolbarButtonProps {
   onClick: () => void;
 }
 
-function ToolbarButton({ active = false, disabled = false, ariaLabel, icon, onClick }: ToolbarButtonProps) {
-  return (
+const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
+  ({ active = false, disabled = false, ariaLabel, icon, onClick }, ref) => (
     <button
+      ref={ref}
       type="button"
       aria-label={ariaLabel}
       aria-pressed={active}
@@ -28,7 +29,7 @@ function ToolbarButton({ active = false, disabled = false, ariaLabel, icon, onCl
       className={cn(
         'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
         disabled
-          ? 'text-muted-foreground/30 cursor-not-allowed'
+          ? 'cursor-not-allowed text-muted-foreground/30'
           : active
             ? 'bg-primary/12 text-primary'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -36,8 +37,9 @@ function ToolbarButton({ active = false, disabled = false, ariaLabel, icon, onCl
     >
       {icon}
     </button>
-  );
-}
+  ),
+);
+ToolbarButton.displayName = 'ToolbarButton';
 
 interface StyleGuideIndicatorProps {
   artStyle?: string;
@@ -108,7 +110,6 @@ interface CanvasToolbarProps {
   onToggleSnapToGrid: () => void;
   onExportWorkflow: () => void;
   onImportWorkflow: () => void;
-  onCloneVideo: () => void;
   onUndo: () => void;
   onRedo: () => void;
   undoEnabled: boolean;
@@ -125,7 +126,6 @@ export function CanvasToolbar({
   onToggleSnapToGrid,
   onExportWorkflow,
   onImportWorkflow,
-  onCloneVideo,
   onUndo,
   onRedo,
   undoEnabled,
@@ -166,12 +166,6 @@ export function CanvasToolbar({
       icon: <Upload className="h-3.5 w-3.5" />,
       onClick: onImportWorkflow,
     },
-    {
-      id: 'clone-video',
-      label: t('canvas.cloneVideo'),
-      icon: <Film className="h-3.5 w-3.5" />,
-      onClick: onCloneVideo,
-    },
   ];
 
   return (
@@ -180,27 +174,23 @@ export function CanvasToolbar({
         <div role="toolbar" aria-label="Undo / Redo" className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
           <Tooltip>
             <TooltipTrigger asChild>
-              <div>
-                <ToolbarButton
-                  disabled={!undoEnabled}
-                  ariaLabel={t('canvas.undo')}
-                  icon={<Undo2 className="h-3.5 w-3.5" />}
-                  onClick={onUndo}
-                />
-              </div>
+              <ToolbarButton
+                disabled={!undoEnabled}
+                ariaLabel={t('canvas.undo')}
+                icon={<Undo2 className="h-3.5 w-3.5" />}
+                onClick={onUndo}
+              />
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('canvas.undo')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div>
-                <ToolbarButton
-                  disabled={!redoEnabled}
-                  ariaLabel={t('canvas.redo')}
-                  icon={<Redo2 className="h-3.5 w-3.5" />}
-                  onClick={onRedo}
-                />
-              </div>
+              <ToolbarButton
+                disabled={!redoEnabled}
+                ariaLabel={t('canvas.redo')}
+                icon={<Redo2 className="h-3.5 w-3.5" />}
+                onClick={onRedo}
+              />
             </TooltipTrigger>
             <TooltipContent side="bottom">{t('canvas.redo')}</TooltipContent>
           </Tooltip>
@@ -210,14 +200,12 @@ export function CanvasToolbar({
         {buttons.map((button) => (
           <Tooltip key={button.id}>
             <TooltipTrigger asChild>
-              <div>
-                <ToolbarButton
-                  active={button.active}
-                  ariaLabel={button.label}
-                  icon={button.icon}
-                  onClick={button.onClick}
-                />
-              </div>
+              <ToolbarButton
+                active={button.active}
+                ariaLabel={button.label}
+                icon={button.icon}
+                onClick={button.onClick}
+              />
             </TooltipTrigger>
             <TooltipContent side="bottom">{button.label}</TooltipContent>
           </Tooltip>

@@ -11,7 +11,7 @@ import {
   registerDefaultWorkflows,
 } from '@lucid-fin/application';
 import { createStyleWorkflowHandlers } from './workflow/style-workflow-handlers.js';
-import { createStoryboardWorkflowHandlers } from './workflow/storyboard-workflow-handlers.js';
+import { createRefImageWorkflowHandlers } from './workflow/ref-image-workflow-handlers.js';
 import { initDb } from './bootstrap/init-db.js';
 import { initIpc } from './bootstrap/init-ipc.js';
 import { initApp, restoreAdapterKeys, selectConfiguredLLMAdapter } from './bootstrap/init-app.js';
@@ -180,6 +180,7 @@ app.whenReady().then(async () => {
       adapterRegistry,
       llmRegistry,
       promptStore,
+      processPromptStore,
       toolRegistry,
     } = initApp();
     initDb(db);
@@ -261,7 +262,9 @@ app.whenReady().then(async () => {
       );
     }
     const agent = llmAdapter
-      ? new AgentOrchestrator(llmAdapter, toolRegistry, (code: string) => promptStore.resolve(code))
+      ? new AgentOrchestrator(llmAdapter, toolRegistry, (code: string) => promptStore.resolve(code), {
+        resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
+      })
       : null;
 
     // Single JobQueue instance — shared across recovery and IPC handlers
@@ -279,9 +282,9 @@ app.whenReady().then(async () => {
           cas,
           llmRegistry,
         }),
-        ...createStoryboardWorkflowHandlers({
-          cas,
+        ...createRefImageWorkflowHandlers({
           adapterRegistry,
+          cas,
         }),
       ],
     });
@@ -299,6 +302,7 @@ app.whenReady().then(async () => {
       workflowEngine,
       agent,
       promptStore,
+      processPromptStore,
     });
 
     startSessionCleanup();

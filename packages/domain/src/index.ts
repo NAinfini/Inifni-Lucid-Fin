@@ -1,8 +1,5 @@
 // Domain layer — re-export contracts types + business rules
 export type {
-  Scene,
-  Keyframe,
-  SceneSegment,
   Character,
   StyleGuide,
   ScriptDocument,
@@ -12,13 +9,6 @@ export type {
 
 // Script parsing
 export { parseScript, parseFountain, parsePlaintext } from './script-parser.js';
-
-// Prompt assembly
-export {
-  assembleKeyframePrompt,
-  assembleSegmentPrompt,
-  assembleNegativePrompt,
-} from './prompt-assembler.js';
 
 // Cascade update engine
 export {

@@ -37,7 +37,8 @@ describe('createPresetTools', () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       'preset.list',
-      'preset.save',
+      'preset.create',
+      'preset.update',
       'preset.delete',
       'preset.reset',
       'preset.get',
@@ -57,13 +58,13 @@ describe('createPresetTools', () => {
     });
     expect(deps.listPresets).toHaveBeenCalledWith('camera');
 
-    await expect(getTool('preset.save', deps).execute({ preset })).resolves.toEqual({
+    await expect(getTool('preset.update', deps).execute({ preset })).resolves.toEqual({
       success: true,
       data: preset,
     });
 
     // Custom preset creation mode (individual fields)
-    const customResult = await getTool('preset.save', deps).execute({
+    const customResult = await getTool('preset.create', deps).execute({
       name: 'Dreamy Blur',
       category: 'look',
       description: 'Soft dreamlike atmosphere',
@@ -100,9 +101,9 @@ describe('createPresetTools', () => {
       success: false,
       error: 'category must be one of camera, lens, look, scene, composition, emotion, flow, technical',
     });
-    await expect(getTool('preset.save', deps).execute({ preset: [] })).resolves.toEqual({
+    await expect(getTool('preset.update', deps).execute({ preset: [] })).resolves.toEqual({
       success: false,
-      error: 'Provide either a "preset" object or individual fields (name, category, description, prompt)',
+      error: 'preset must be a valid object',
     });
     await expect(getTool('preset.reset', deps).execute({ presetId: 'preset-1', scope: 'bad' })).resolves.toEqual({
       success: false,

@@ -1,7 +1,7 @@
 import { useSelector } from 'react-redux';
-import { ListTodo, Loader2, CheckCircle2, XCircle, X, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { ListTodo, Loader2, CheckCircle2, XCircle, X, ChevronDown, ChevronRight, Trash2, ImageIcon } from 'lucide-react';
 import { useDispatch } from 'react-redux';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RootState } from '../../store/index.js';
 import { setRightPanel } from '../../store/slices/ui.js';
 import { setNodeProgress, clearNodeGenerationStatus } from '../../store/slices/canvas.js';
@@ -71,6 +71,41 @@ export function GenerationQueuePanel() {
     return unsubscribe;
   }, [activeCanvasId, dispatch]);
 
+  // --- Ref image generation jobs (character/equipment/location ref images) ---
+  interface RefImageJob {
+    id: string;
+    status: 'generating' | 'done' | 'failed';
+    provider: string;
+    width: number;
+    height: number;
+    error?: string;
+    startedAt: number;
+  }
+  const [refImageJobs, setRefImageJobs] = useState<RefImageJob[]>([]);
+
+  const removeRefJob = useCallback((jobId: string) => {
+    setRefImageJobs((prev) => prev.filter((j) => j.id !== jobId));
+  }, []);
+
+  useEffect(() => {
+    const api = getAPI();
+    if (!api?.refimage) return;
+    const unsubs: Array<() => void> = [];
+    unsubs.push(api.refimage.onStart((data: { jobId: string; provider: string; width: number; height: number }) => {
+      setRefImageJobs((prev) => [
+        ...prev,
+        { id: data.jobId, status: 'generating', provider: data.provider, width: data.width, height: data.height, startedAt: Date.now() },
+      ]);
+    }));
+    unsubs.push(api.refimage.onComplete((data: { jobId: string }) => {
+      setRefImageJobs((prev) => prev.map((j) => j.id === data.jobId ? { ...j, status: 'done' as const } : j));
+    }));
+    unsubs.push(api.refimage.onFailed((data: { jobId: string; error: string }) => {
+      setRefImageJobs((prev) => prev.map((j) => j.id === data.jobId ? { ...j, status: 'failed' as const, error: data.error } : j));
+    }));
+    return () => unsubs.forEach((u) => u());
+  }, []);
+
   const generationNodes = (canvas?.nodes ?? [])
     .filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio')
     .map((n) => {
@@ -133,11 +168,78 @@ export function GenerationQueuePanel() {
         aria-live="polite"
         aria-label={t('generation.queueStatus')}
       >
-        {generating.length === 0 && completed.length === 0 && failed.length === 0 ? (
+        {generating.length === 0 && completed.length === 0 && failed.length === 0 && refImageJobs.length === 0 ? (
           <div className="text-[11px] text-muted-foreground text-center py-8">
             {t('generation.noJobs')}
           </div>
         ) : null}
+
+        {/* Ref image generation jobs */}
+        {refImageJobs.filter((j) => j.status === 'generating').length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              {t('generation.refImages')} ({refImageJobs.filter((j) => j.status === 'generating').length})
+            </div>
+            {refImageJobs.filter((j) => j.status === 'generating').map((job) => (
+              <div key={job.id} className="flex items-center gap-2 rounded-md border border-border/40 bg-card px-2.5 py-2">
+                <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-medium truncate flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3 text-muted-foreground" />
+                    {t('generation.refImage')}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {resolveProviderName(job.provider) ?? job.provider} &middot; {job.width}&times;{job.height}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Ref image failed */}
+        {refImageJobs.filter((j) => j.status === 'failed').length > 0 && (
+          <div className="space-y-1">
+            {refImageJobs.filter((j) => j.status === 'failed').map((job) => (
+              <div key={job.id} className="flex items-center gap-2 rounded-md border border-destructive/30 bg-card px-2.5 py-2">
+                <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-medium truncate flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3 text-muted-foreground" />
+                    {t('generation.refImage')}
+                  </div>
+                  {job.error && <div className="text-[10px] text-destructive truncate">{job.error}</div>}
+                </div>
+                <button onClick={() => removeRefJob(job.id)} className="p-0.5 rounded hover:bg-muted shrink-0">
+                  <Trash2 className="w-3 h-3 text-muted-foreground" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Ref image completed */}
+        {refImageJobs.filter((j) => j.status === 'done').length > 0 && (
+          <div className="space-y-1">
+            {refImageJobs.filter((j) => j.status === 'done').map((job) => (
+              <div key={job.id} className="flex items-center gap-2 rounded-md border border-border/40 bg-card px-2.5 py-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-medium truncate flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3 text-muted-foreground" />
+                    {t('generation.refImage')}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {resolveProviderName(job.provider) ?? job.provider}
+                  </div>
+                </div>
+                <button onClick={() => removeRefJob(job.id)} className="p-0.5 rounded hover:bg-muted shrink-0">
+                  <Trash2 className="w-3 h-3 text-muted-foreground" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {generating.length > 0 && (
           <div className="space-y-1">

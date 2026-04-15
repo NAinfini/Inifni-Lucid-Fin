@@ -36,7 +36,7 @@ const askUser: AgentTool = {
 
 export function createCanvasMetaTools(deps: CanvasToolDeps): AgentTool[] {
   const readLogs: AgentTool = {
-    name: 'logger.read',
+    name: 'logger.list',
     description: 'Read recent application log entries for debugging',
     context: CANVAS_CONTEXT,
     tier: 1,

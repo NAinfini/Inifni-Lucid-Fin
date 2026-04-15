@@ -81,7 +81,6 @@ describe('CanvasNavigatorPanel', () => {
   it('creates, switches, renames, and deletes canvases through the store and IPC', async () => {
     api.canvas.create.mockResolvedValue({
       id: 'canvas-3',
-      projectId: 'project-1',
       name: 'Finale',
       nodes: [],
       edges: [],

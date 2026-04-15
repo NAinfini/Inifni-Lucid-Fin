@@ -95,6 +95,7 @@ export const settingsSlice = createSlice({
     resetProviderToDefaults: providerReducers.resetProviderToDefaults,
     addCustomProvider: providerReducers.addCustomProvider,
     removeCustomProvider: providerReducers.removeCustomProvider,
+    setDefaultProvider: providerReducers.setDefaultProvider,
 
     // Telemetry reducers
     recordToolCall: telemetryReducers.recordToolCall,
@@ -161,6 +162,7 @@ export const {
   resetProviderToDefaults,
   addCustomProvider,
   removeCustomProvider,
+  setDefaultProvider,
   setRenderPreset,
   recordToolCall,
   recordSession,

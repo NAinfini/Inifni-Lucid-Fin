@@ -1110,7 +1110,10 @@ function mergeProviderDefaults(
     .map((provider) => normalizeSavedProvider(group, provider));
   const providers = [...mergedDefaults, ...customProviders];
 
-  return { providers };
+  return {
+    providers,
+    ...(savedGroup?.defaultProviderId ? { defaultProviderId: savedGroup.defaultProviderId } : {}),
+  };
 }
 
 export function mergeSavedSettings(

@@ -1,7 +1,6 @@
 <div align="center">
 
-<!-- HERO BANNER -->
-<img src="docs/assets/hero-banner.png" alt="Lucid Fin" width="100%">
+<img src="asset/光辉的鱼与蝶.png" alt="Lucid Fin" width="180">
 
 <br>
 
@@ -14,6 +13,7 @@
 <p>
   <a href="#-features">Features</a> &nbsp;&bull;&nbsp;
   <a href="#-screenshots">Screenshots</a> &nbsp;&bull;&nbsp;
+  <a href="#-supported-ai-providers">Providers</a> &nbsp;&bull;&nbsp;
   <a href="#-architecture">Architecture</a> &nbsp;&bull;&nbsp;
   <a href="#-quick-start">Quick Start</a> &nbsp;&bull;&nbsp;
   <a href="README.zh-CN.md">中文</a>
@@ -55,7 +55,7 @@
     </td>
     <td width="33%" valign="top">
       <h4>Preset System</h4>
-      <p>8-category preset tracks (subject, style, camera, lighting, color, mood, composition, effects) with per-entry intensity and multi-param controls.</p>
+      <p>8-category preset tracks (camera, composition, mood, pacing, lens, visual style, scene lighting, technical) with per-entry intensity and multi-param controls.</p>
     </td>
   </tr>
   <tr>
@@ -93,11 +93,13 @@
 
 - **Dual Prompt System** — Separate image and video prompts per node
 - **Character & Equipment Manager** — Reference images, structured appearance fields for consistency
+- **Location Manager** — Structured scene locations with mood, weather, lighting, reference images
 - **Lip Sync** — Post-generation lip-sync via cloud API or local Wav2Lip
 - **Adaptive Tool Execution** — Concurrency auto-tunes based on success rate (1-8 parallel calls)
 - **Context Compaction** — Codex/Claude Code inspired handoff-style summarization with anti-thrash protection
 - **Shot Templates** — Apply pre-defined shot setups across multiple nodes at once
 - **Batch Tool Operations** — Most canvas tools support multi-node batch execution
+- **Snapshot & Rollback** — Time Machine-style tiered retention with manual and auto snapshots
 - **i18n** — Full English and Chinese localization
 
 </details>
@@ -106,35 +108,46 @@
 
 ## Screenshots
 
-> Screenshots needed — see [Contributing](#-contributing)
+<table>
+  <tr>
+    <td width="50%">
+      <strong>Commander AI</strong><br>
+      <img src="docs/assets/screenshot-commander.png" alt="Commander AI" width="100%"><br>
+      <em>AI assistant with 170+ tools, streaming responses, tool confirmations, and slash commands</em>
+    </td>
+    <td width="50%">
+      <strong>Preset Tracks</strong><br>
+      <img src="docs/assets/screenshot-presets.png" alt="Preset System" width="100%"><br>
+      <em>8-category preset tracks with shot templates and per-entry intensity controls</em>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Character Manager</strong><br>
+      <img src="docs/assets/screenshot-characters.png" alt="Character Manager" width="100%"><br>
+      <em>Structured character profiles with reference images, appearance, personality, and loadouts</em>
+    </td>
+    <td width="50%">
+      <strong>Location Manager</strong><br>
+      <img src="docs/assets/screenshot-locations.png" alt="Location Manager" width="100%"><br>
+      <em>Scene locations with mood, weather, lighting, reference images, and node usage tracking</em>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Settings — Commander AI</strong><br>
+      <img src="docs/assets/screenshot-settings-ai.png" alt="Commander AI Settings" width="100%"><br>
+      <em>Agent tuning: max steps, temperature, context window, undo depth, concurrency controls</em>
+    </td>
+    <td width="50%">
+      <strong>Settings — Providers</strong><br>
+      <img src="docs/assets/screenshot-settings-providers.png" alt="Provider Settings" width="100%"><br>
+      <em>Multi-provider configuration for LLM, Image, Video, Audio, and Vision AI</em>
+    </td>
+  </tr>
+</table>
 
-<details open>
-<summary><strong>Canvas Workspace</strong></summary>
-<br>
-<img src="docs/assets/screenshot-canvas.png" alt="Canvas Workspace" width="100%">
-<em>Node-based canvas with image/video/audio nodes, preset tracks, and generation controls</em>
-</details>
-
-<details>
-<summary><strong>Commander AI</strong></summary>
-<br>
-<img src="docs/assets/screenshot-commander.png" alt="Commander AI" width="100%">
-<em>AI assistant with slash commands, tool calls, streaming responses, and context management</em>
-</details>
-
-<details>
-<summary><strong>Preset System</strong></summary>
-<br>
-<img src="docs/assets/screenshot-presets.png" alt="Preset System" width="100%">
-<em>8-category preset tracks with intensity sliders and per-entry parameter controls</em>
-</details>
-
-<details>
-<summary><strong>Settings & Providers</strong></summary>
-<br>
-<img src="docs/assets/screenshot-settings.png" alt="Settings" width="100%">
-<em>Multi-provider configuration for LLM, Image, Video, Audio, and Vision AI</em>
-</details>
+> **Still needed:** Canvas workspace overview, video clone workflow, generation in progress, export dialog
 
 ---
 

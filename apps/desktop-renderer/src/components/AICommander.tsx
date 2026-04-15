@@ -14,6 +14,7 @@ import {
 } from '../store/slices/ai.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
+import { formatToolName } from './canvas/commander/tool-formatting.js';
 
 const QUICK_ACTIONS: Record<string, string[]> = {
   script: [
@@ -250,7 +251,7 @@ export function AICommander() {
                       <CheckCircle className="w-2.5 h-2.5 text-green-500" />
                     )}
                     {tc.status === 'error' && <XCircle className="w-2.5 h-2.5 text-destructive" />}
-                    <span className="text-foreground">{tc.name}</span>
+                    <span className="text-foreground">{formatToolName(tc.name, t)}</span>
                     {tc.status === 'error' && tc.error && (
                       <span className="text-destructive truncate">{tc.error}</span>
                     )}

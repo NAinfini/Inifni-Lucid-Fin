@@ -43,11 +43,12 @@ describe('style.extract workflow definition', () => {
     ]);
   });
 
-  it('registers storyboard and style workflows into the default registry', () => {
+  it('registers default workflows into the registry', () => {
     const registry = registerDefaultWorkflows(new WorkflowRegistry());
 
-    expect(registry.has('storyboard.generate')).toBe(true);
     expect(registry.has('style.extract')).toBe(true);
+    expect(registry.has('character.generate-references')).toBe(true);
+    expect(registry.has('location.generate-references')).toBe(true);
     expect(registry.get('style.extract')).toEqual(styleExtractWorkflow);
   });
 });

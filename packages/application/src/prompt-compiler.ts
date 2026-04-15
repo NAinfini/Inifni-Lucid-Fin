@@ -122,20 +122,20 @@ interface WordBudget {
 }
 
 const MODEL_BUDGETS: Record<string, WordBudget> = {
-  kling: { positive: 200, negative: 50 },
-  runway: { positive: 100, negative: 40 },
-  luma: { positive: 150, negative: 40 },
-  ray: { positive: 150, negative: 40 },
-  wan: { positive: 150, negative: 50 },
-  minimax: { positive: 150, negative: 40 },
-  hailuo: { positive: 150, negative: 40 },
-  pika: { positive: 100, negative: 50 },
-  seedance: { positive: 120, negative: 40 },
-  hunyuan: { positive: 200, negative: 60 },
-  cogvideo: { positive: 200, negative: 60 },
-  sora: { positive: 150, negative: 40 },
-  veo: { positive: 150, negative: 40 },
-  default: { positive: 200, negative: 60 },
+  kling: { positive: 300, negative: 50 },
+  runway: { positive: 150, negative: 40 },
+  luma: { positive: 250, negative: 40 },
+  ray: { positive: 250, negative: 40 },
+  wan: { positive: 250, negative: 50 },
+  minimax: { positive: 250, negative: 40 },
+  hailuo: { positive: 250, negative: 40 },
+  pika: { positive: 150, negative: 50 },
+  seedance: { positive: 200, negative: 40 },
+  hunyuan: { positive: 300, negative: 60 },
+  cogvideo: { positive: 300, negative: 60 },
+  sora: { positive: 250, negative: 40 },
+  veo: { positive: 250, negative: 40 },
+  default: { positive: 300, negative: 60 },
 };
 
 function getBudget(providerId: string): WordBudget {
@@ -825,15 +825,10 @@ export function buildCharacterDescription(resolved: ResolvedCharacter, shot: Cam
   return parts.filter(Boolean).join(', ');
 }
 
-function buildLocationDescription(location: Location): string {
+function _buildLocationDescription(location: Location): string {
   const parts: string[] = [];
 
-  const typeLabel = location.type === 'interior'
-    ? 'Interior of'
-    : location.type === 'exterior'
-      ? 'Exterior of'
-      : '';
-  const nameSegment = typeLabel ? `${typeLabel} ${location.name}` : location.name;
+  const nameSegment = location.name;
   const timeSegment = location.timeOfDay ? ` at ${location.timeOfDay}` : '';
   let firstPart = `${nameSegment}${timeSegment}`;
   if (location.architectureStyle) firstPart += `, ${location.architectureStyle}`;
@@ -850,7 +845,7 @@ function buildLocationDescription(location: Location): string {
   return parts.filter(Boolean).join('. ');
 }
 
-function buildStandaloneEquipmentDescription(items: Equipment[]): string {
+function _buildStandaloneEquipmentDescription(items: Equipment[]): string {
   const descriptions = items.map((item) => {
     const detailParts: string[] = [];
     if (item.material || item.color) {
@@ -1079,7 +1074,6 @@ function compileSfx(input: PromptCompilerInput): CompiledPrompt {
   if (input.locations?.[0]) {
     const loc = input.locations[0];
     const envParts: string[] = [];
-    if (loc.type) envParts.push(loc.type);
     if (loc.name) envParts.push(loc.name);
     if (loc.atmosphereKeywords?.length) envParts.push(loc.atmosphereKeywords.join(', '));
     if (envParts.length) {
@@ -1335,61 +1329,9 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
-  // 3. Location descriptions (rich or fallback to ID)
-  if (input.locations?.length) {
-    for (const location of input.locations) {
-      const desc = buildLocationDescription(location);
-      if (desc) trackedSegments.push({ source: 'location:' + location.id, text: desc, trimmed: false });
-    }
-  } else if (input.locationRefs?.length) {
-    const locations = input.locationRefs
-      .map((ref) => ref.locationId?.trim())
-      .filter((value): value is string => Boolean(value));
-    if (locations.length) {
-      trackedSegments.push({ source: 'location', text: `Location: ${locations.join(', ')}`, trimmed: false });
-    }
-  }
-
-  // 4. Character descriptions (camera-aware or fallback to ID)
-  if (input.characters?.length) {
-    const shot = getCameraShot(effectivePresetTracks);
-    for (const resolved of input.characters) {
-      const desc = buildCharacterDescription(resolved, shot);
-      if (desc) trackedSegments.push({ source: 'character:' + resolved.character.id, text: desc, trimmed: false });
-    }
-  } else if (input.characterRefs?.length) {
-    const characters = input.characterRefs
-      .map((ref) => ref.characterId?.trim())
-      .filter((value): value is string => Boolean(value));
-    if (characters.length) {
-      trackedSegments.push({ source: 'character', text: `Characters: ${characters.join(', ')}`, trimmed: false });
-    }
-  }
-
-  // 4b. Reference image text anchors
-  if (input.characters?.length) {
-    for (const resolved of input.characters) {
-      const hasRefImages = resolved.character.referenceImages?.some(img => img.assetHash);
-      if (hasRefImages) {
-        const costumeName = resolved.costume
-          ? resolved.character.costumes.find(c => c.id === resolved.costume || c.name === resolved.costume)?.name ?? 'default outfit'
-          : 'default outfit';
-        trackedSegments.push({ source: 'ref-anchor', text: `(reference image: ${resolved.character.name}, ${costumeName})`, trimmed: false });
-      }
-    }
-  }
-
-  // 5. Standalone equipment (rich or fallback to ID)
-  if (input.equipmentItems?.length) {
-    trackedSegments.push({ source: 'equipment', text: buildStandaloneEquipmentDescription(input.equipmentItems), trimmed: false });
-  } else if (input.equipmentRefs?.length) {
-    const equipment = input.equipmentRefs
-      .map((value) => typeof value === 'string' ? value.trim() : value.equipmentId.trim())
-      .filter(Boolean);
-    if (equipment.length) {
-      trackedSegments.push({ source: 'equipment', text: `Equipment: ${equipment.join(', ')}`, trimmed: false });
-    }
-  }
+  // 3–5. Entity descriptions (location, character, equipment) are NOT injected.
+  // The AI Commander writes the full prompt with all relevant details.
+  // Reference image hashes are still collected and attached to the generation request.
 
   // 3. Stack presets in order
   {

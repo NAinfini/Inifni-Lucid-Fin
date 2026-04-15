@@ -25,7 +25,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const LONG_TIMEOUT_CHANNELS = new Set([
   'ai:complete', 'ai:stream', 'ai:completeWithTools',
   'ai:chat',
-  'commander:chat', 'commander:sendStreaming',
+  'commander:sendStreaming',
   'canvas:generate', 'canvasGeneration:start',
   'video:clone', 'lipsync:process',
   'render:start', 'render:segment',
@@ -37,6 +37,11 @@ const LONG_TIMEOUT_CHANNELS = new Set([
   'colorStyle:extract',
 ]);
 const LONG_TIMEOUT_MS = 300_000; // 5 minutes
+
+/** Channels where the handler streams events separately and can run indefinitely. */
+const NO_TIMEOUT_CHANNELS = new Set([
+  'commander:chat',
+]);
 
 /* ---------- IPC rate limiting ---------- */
 
@@ -71,6 +76,10 @@ function checkRateLimit(channel: string): void {
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   checkRateLimit(channel);
+
+  if (NO_TIMEOUT_CHANNELS.has(channel)) {
+    return ipcRenderer.invoke(channel, ...args) as Promise<T>;
+  }
 
   const timeoutMs = LONG_TIMEOUT_CHANNELS.has(channel) ? LONG_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
 
@@ -153,14 +162,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     save: (data: Record<string, unknown>) => invoke('script:save', data),
     load: () => invoke('script:load'),
     import: (filePath: string) => invoke('script:import', { filePath }),
-  },
-
-  // Scene
-  scene: {
-    list: () => invoke('scene:list'),
-    create: (data: Record<string, unknown>) => invoke('scene:create', data),
-    update: (id: string, data: Record<string, unknown>) => invoke('scene:update', { id, data }),
-    delete: (id: string) => invoke('scene:delete', { id }),
   },
 
   // Character
@@ -257,6 +258,12 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     onComplete: (cb: Callback) => subscribe('job:complete', cb),
   },
 
+  refimage: {
+    onStart: (cb: Callback) => subscribe('refimage:start', cb),
+    onComplete: (cb: Callback) => subscribe('refimage:complete', cb),
+    onFailed: (cb: Callback) => subscribe('refimage:failed', cb),
+  },
+
   // Workflows
   workflow: {
     list: (filter?: Record<string, unknown>) => invoke('workflow:list', filter ?? {}),
@@ -305,6 +312,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('ai:prompt:setCustom', { code, value }),
     promptClearCustom: (code: string) => invoke('ai:prompt:clearCustom', { code }),
   },
+  processPrompt: {
+    list: () => typedInvoke('processPrompt:list', undefined as IpcRequest<'processPrompt:list'>),
+    get: (processKey: string) => typedInvoke('processPrompt:get', { processKey }),
+    setCustom: (processKey: string, value: string) =>
+      typedInvoke('processPrompt:setCustom', { processKey, value }),
+    reset: (processKey: string) => typedInvoke('processPrompt:reset', { processKey }),
+  },
   commander: {
     chat: (
       canvasId: string,
@@ -318,7 +332,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       maxSteps?: number,
       temperature?: number,
       maxTokens?: number,
-    ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode, locale, maxSteps, temperature, maxTokens }),
+      sessionId?: string,
+      defaultProviders?: Record<string, string>,
+    ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode, locale, maxSteps, temperature, maxTokens, sessionId, defaultProviders }),
     cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),
     compact: (canvasId: string) => invoke<{ freedChars: number; messageCount: number; toolCount: number }>('commander:compact', { canvasId }),
     injectMessage: (canvasId: string, message: string) =>

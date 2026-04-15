@@ -290,18 +290,10 @@ export function CharacterManagerPanel() {
           selectedChar.referenceImages[0];
         if (!mainRef) return;
 
-        // Swap: current active goes into variants, selected variant becomes active
-        const currentHash = mainRef.assetHash;
-        const prevVariants = [...(mainRef.variants ?? [])];
-        const updatedVariants = prevVariants.filter((h) => h !== variantHash);
-        if (currentHash && !updatedVariants.includes(currentHash)) {
-          updatedVariants.push(currentHash);
-        }
-
+        // Only change the active image; keep variants list unchanged
         const updatedRef: ReferenceImage = {
           ...mainRef,
           assetHash: variantHash,
-          variants: updatedVariants,
         };
 
         // Persist the full updated referenceImages via character:save so variants are preserved
@@ -318,6 +310,47 @@ export function CharacterManagerPanel() {
         dispatch(setCharacterRefImage({ characterId: selectedChar.id, refImage: updatedRef }));
       } catch (reason) {
         reportError(reason, 'handleSelectVariant');
+      }
+    },
+    [dispatch, reportError, selectedChar, setError],
+  );
+
+  const handleDeleteVariant = useCallback(
+    async (variantHash: string) => {
+      if (!selectedChar) return;
+      setError(null);
+      try {
+        const mainRef =
+          selectedChar.referenceImages.find((r) => r.slot === 'main') ??
+          selectedChar.referenceImages[0];
+        if (!mainRef || !mainRef.variants) return;
+
+        const newVariants = mainRef.variants.filter((v) => v !== variantHash);
+        // If deleting the active variant, switch to first remaining variant or clear
+        const newAssetHash =
+          mainRef.assetHash === variantHash
+            ? (newVariants[0] ?? '')
+            : mainRef.assetHash;
+
+        const updatedRef: ReferenceImage = {
+          ...mainRef,
+          assetHash: newAssetHash,
+          variants: newVariants,
+        };
+
+        const updatedRefs = selectedChar.referenceImages.map((r) =>
+          r.slot === mainRef.slot ? updatedRef : r,
+        );
+        const api = getAPI();
+        if (api?.character) {
+          await api.character.save({ id: selectedChar.id, referenceImages: updatedRefs } as Record<
+            string,
+            unknown
+          >);
+        }
+        dispatch(setCharacterRefImage({ characterId: selectedChar.id, refImage: updatedRef }));
+      } catch (reason) {
+        reportError(reason, 'handleDeleteVariant');
       }
     },
     [dispatch, reportError, selectedChar, setError],
@@ -761,10 +794,11 @@ export function CharacterManagerPanel() {
                 <SingleReferenceImage
                   referenceImages={selectedChar?.referenceImages ?? []}
                   onUpload={() => handleRefImageUpload('main', true)}
-                  onRemove={() => handleRefImageRemove('main')}
+                  onRemove={(slot) => handleRefImageRemove(slot)}
                   onFromAssets={() => setAssetPickerOpen(true)}
                   onDropHash={(hash) => void handleRefImageFromAsset(hash)}
                   onSelectVariant={(hash) => void handleSelectVariant(hash)}
+                  onDeleteVariant={(hash) => void handleDeleteVariant(hash)}
                   entityType="character"
                   entityId={selectedChar?.id}
                   slot="main"

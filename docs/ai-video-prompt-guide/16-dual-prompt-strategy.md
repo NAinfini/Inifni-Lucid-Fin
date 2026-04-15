@@ -34,5 +34,5 @@ A woman in a dark trench coat stands at a rain-soaked crosswalk, neon reflection
 **Video Prompt:**
 Slow tracking shot following a woman in a dark trench coat as she crosses a rain-soaked intersection, camera dollies right, raindrops catch neon light, puddle reflections ripple with each step, ambient city noise fades
 
-## Fallback Behavior
-If only `prompt` is set (no imagePrompt/videoPrompt), it's used for both image and video generation. Set specialized prompts only when the base prompt doesn't produce good results for one modality.
+## Applying in Lucid Fin
+Each node has a single `prompt` field. Write the prompt targeting the node's generation type — image-style for image nodes, video-style for video nodes. If you need both a still and a motion version of the same scene, create two nodes (one image, one video) with appropriately tailored prompts.

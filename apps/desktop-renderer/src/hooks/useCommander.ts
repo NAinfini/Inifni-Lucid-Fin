@@ -5,12 +5,18 @@ import { store, type AppDispatch, type RootState } from '../store/index.js';
 import {
   addToolCall,
   addUserMessage,
+  addInjectedMessage,
   appendStreamChunk,
+  ensureActiveSession,
   finishStreaming,
   resolveToolCall,
   setProviderId,
   setPendingConfirmation,
+  clearPendingConfirmation,
   setPendingQuestion,
+  setBackendContextUsage,
+  setThinkingContent,
+  switchCanvas,
   startStreaming,
   streamError,
 } from '../store/slices/commander.js';
@@ -28,6 +34,7 @@ import {
 import { setCharacters } from '../store/slices/characters.js';
 import { setEquipment } from '../store/slices/equipment.js';
 import { setLocations } from '../store/slices/locations.js';
+import { upsertPreset } from '../store/slices/presets.js';
 import {
   setProviderBaseUrl,
   setProviderModel,
@@ -47,6 +54,30 @@ import { t, getLocale } from '../i18n.js';
 import { getAPI, type LucidAPI } from '../utils/api.js';
 
 type CommanderEntityAPI = Pick<NonNullable<LucidAPI>, 'character' | 'equipment' | 'location'>;
+type CommanderPromptGuide = { id: string; name: string; content: string };
+
+function selectCommanderPromptGuides(state: RootState): CommanderPromptGuide[] {
+  const guides: CommanderPromptGuide[] = [];
+  const seen = new Set<string>();
+
+  for (const guide of selectActiveTemplates(state.promptTemplates.templates)) {
+    if (seen.has(guide.id)) continue;
+    seen.add(guide.id);
+    guides.push(guide);
+  }
+
+  for (const entry of state.workflowDefinitions.entries) {
+    if (seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    guides.push({
+      id: entry.id,
+      name: entry.name,
+      content: entry.content,
+    });
+  }
+
+  return guides;
+}
 
 export async function syncCommanderEntitiesForTool(
   api: CommanderEntityAPI | undefined,
@@ -102,8 +133,13 @@ export function useCommander(): {
         throw new Error(t('commander.noActiveCanvas'));
       }
 
+      // Sync Commander's canvas binding if it drifted (e.g. cold start)
+      if (state.commander.activeCanvasId !== currentCanvasId) {
+        dispatch(switchCanvas(currentCanvasId));
+      }
+
       if (state.commander.streaming) {
-        dispatch(addUserMessage(trimmed));
+        dispatch(addInjectedMessage(trimmed));
         await api.commander.injectMessage(currentCanvasId, trimmed);
         return;
       }
@@ -123,11 +159,9 @@ export function useCommander(): {
             // Push corresponding tool result messages
             for (const tc of completedCalls) {
               const resultStr = tc.result != null ? (typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result)) : '';
-              // Truncate tool results to avoid bloating context
-              const truncated = resultStr.length > 2000 ? resultStr.slice(0, 2000) + '...(truncated)' : resultStr;
               history.push({
                 role: 'tool',
-                content: truncated,
+                content: resultStr,
                 toolCallId: tc.id,
               });
             }
@@ -139,15 +173,31 @@ export function useCommander(): {
           history.push({ role: entry.role, content: entry.content });
         }
       }
-      const activeTemplates = selectActiveTemplates(state.promptTemplates.templates);
+      const promptGuides = selectCommanderPromptGuides(state);
       const llmSettings = state.settings.llm;
       const selectedNodeIds = state.canvas.selectedNodeIds;
+      const hasUserMessages = state.commander.messages.some((entry) => entry.role === 'user');
+      const sessionId = state.commander.activeSessionId ?? crypto.randomUUID();
+
+      if (!state.commander.activeSessionId) {
+        dispatch(ensureActiveSession(sessionId));
+      }
 
       // Auto-snapshot: capture project state before the first message of a session
-      if (!state.commander.streaming) {
-        const snapshotSessionId = state.commander.activeSessionId ?? currentCanvasId;
+      if (!state.commander.streaming && !hasUserMessages) {
         try {
-          await api.snapshot?.capture(snapshotSessionId, 'Before Commander session', 'auto');
+          // Ensure the session row exists so the FK constraint on snapshots is satisfied
+          if (api.session?.upsert) {
+            await api.session.upsert({
+              id: sessionId,
+              canvasId: currentCanvasId,
+              title: '',
+              messages: '[]',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            });
+          }
+          await api.snapshot?.capture(sessionId, 'Before Commander session', 'auto');
         } catch (err) {
           // Non-fatal — log and continue
           dispatch(
@@ -190,8 +240,29 @@ export function useCommander(): {
       const permissionMode = state.commander.permissionMode;
       const { maxSteps, temperature, maxTokens } = state.commander;
 
+      // Build default provider map from settings
+      const defaultProviders: Record<string, string> = {};
+      for (const group of ['image', 'video', 'audio'] as const) {
+        const id = state.settings[group].defaultProviderId;
+        if (id) defaultProviders[group] = id;
+      }
+
       try {
-        await api.commander.chat(currentCanvasId, trimmed, history, selectedNodeIds, activeTemplates, customLLMProvider, permissionMode, getLocale(), maxSteps, temperature, maxTokens);
+        await api.commander.chat(
+          currentCanvasId,
+          trimmed,
+          history,
+          selectedNodeIds,
+          promptGuides,
+          customLLMProvider,
+          permissionMode,
+          getLocale(),
+          maxSteps,
+          temperature,
+          maxTokens,
+          sessionId,
+          Object.keys(defaultProviders).length > 0 ? defaultProviders : undefined,
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         dispatch(
@@ -217,6 +288,11 @@ export function useCommander(): {
     const unsubStream = api.commander.onStream((data) => {
       if (data.type === 'chunk' && data.content) {
         dispatch(appendStreamChunk(data.content));
+        return;
+      }
+
+      if (data.type === 'thinking' && data.content) {
+        dispatch(setThinkingContent(data.content));
         return;
       }
 
@@ -274,11 +350,34 @@ export function useCommander(): {
           } else if (data.toolName === 'prop.create') {
             dispatch(recordEntityCreate({ entityType: 'prop' }));
           }
+          // Sync AI-created/updated presets to Redux so inspector shows names
+          if (
+            (toolName === 'preset.create' || toolName === 'preset.update') &&
+            resultRecord &&
+            typeof resultRecord === 'object' &&
+            'data' in resultRecord &&
+            resultRecord.data &&
+            typeof resultRecord.data === 'object' &&
+            'id' in (resultRecord.data as Record<string, unknown>)
+          ) {
+            dispatch(upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition));
+          }
         }
         return;
       }
 
       if (data.type === 'tool_confirm' && data.toolCallId && data.toolName) {
+        // Auto-resolve if user previously chose "approve all" or "skip all"
+        const { confirmAutoMode } = store.getState().commander;
+        if (confirmAutoMode !== 'none') {
+          const approved = confirmAutoMode === 'approve';
+          const cid = store.getState().canvas.activeCanvasId;
+          if (api?.commander && cid) {
+            void api.commander.confirmTool(cid, data.toolCallId, approved);
+          }
+          dispatch(clearPendingConfirmation());
+          return;
+        }
         dispatch(
           setPendingConfirmation({
             toolCallId: data.toolCallId,
@@ -298,6 +397,36 @@ export function useCommander(): {
             options: (data as { options?: Array<{ label: string; description?: string }> }).options ?? [],
           }),
         );
+        return;
+      }
+
+      if (data.type === 'context_usage') {
+        const payload = data as {
+          estimatedTokensUsed?: number;
+          contextWindowTokens?: number;
+          messageCount?: number;
+          systemPromptChars?: number;
+          toolSchemaChars?: number;
+          messageChars?: number;
+          cacheChars?: number;
+          cacheEntryCount?: number;
+          historyMessagesTrimmed?: number;
+          utilizationRatio?: number;
+        };
+        if (typeof payload.estimatedTokensUsed === 'number' && typeof payload.contextWindowTokens === 'number') {
+          dispatch(setBackendContextUsage({
+            estimatedTokensUsed: payload.estimatedTokensUsed,
+            contextWindowTokens: payload.contextWindowTokens,
+            messageCount: payload.messageCount ?? 0,
+            systemPromptChars: payload.systemPromptChars ?? 0,
+            toolSchemaChars: payload.toolSchemaChars ?? 0,
+            messageChars: payload.messageChars ?? 0,
+            cacheChars: payload.cacheChars ?? 0,
+            cacheEntryCount: payload.cacheEntryCount ?? 0,
+            historyMessagesTrimmed: payload.historyMessagesTrimmed ?? 0,
+            utilizationRatio: payload.utilizationRatio ?? 0,
+          }));
+        }
         return;
       }
 
@@ -323,6 +452,23 @@ export function useCommander(): {
           // Don't return — let it also call streamError to finalize the message
         }
         dispatch(streamError(errMsg));
+
+        // Persist session to SQLite on error (same as done handler below)
+        const errState = store.getState() as RootState;
+        const errSid = errState.commander.activeSessionId;
+        if (errSid && errState.commander.messages.length > 0) {
+          const errSess = errState.commander.sessions.find((s) => s.id === errSid);
+          if (errSess) {
+            api.session?.upsert({
+              id: errSess.id,
+              canvasId: errState.canvas.activeCanvasId ?? null,
+              title: errSess.title,
+              messages: JSON.stringify(errSess.messages),
+              createdAt: errSess.createdAt,
+              updatedAt: errSess.updatedAt,
+            }).catch(() => {});
+          }
+        }
         return;
       }
 

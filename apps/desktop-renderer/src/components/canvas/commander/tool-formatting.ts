@@ -68,6 +68,11 @@ export function summarizeToolAction(
     guide: t('commander.toolDomain.guide'),
     commander: t('commander.toolDomain.commander'),
     logger: t('commander.toolDomain.logger'),
+    shotTemplate: t('commander.toolDomain.shotTemplate'),
+    colorStyle: t('commander.toolDomain.colorStyle'),
+    text: t('commander.toolDomain.text'),
+    job: t('commander.toolDomain.job'),
+    snapshot: t('commander.toolDomain.snapshot'),
   };
   const domainLabel = domainLabels[domain] ?? domain;
 

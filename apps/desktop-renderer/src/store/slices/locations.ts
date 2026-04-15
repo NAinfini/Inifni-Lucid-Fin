@@ -1,10 +1,9 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { Location, LocationType, ReferenceImage } from '@lucid-fin/contracts';
+import type { Location, ReferenceImage } from '@lucid-fin/contracts';
 
 export interface LocationsState {
   items: Location[];
   selectedId: string | null;
-  filterType: LocationType | 'all';
   loading: boolean;
   search: string;
 }
@@ -12,7 +11,6 @@ export interface LocationsState {
 const initialState: LocationsState = {
   items: [],
   selectedId: null,
-  filterType: 'all',
   loading: false,
   search: '',
 };
@@ -37,9 +35,6 @@ export const locationsSlice = createSlice({
     },
     selectLocation(state, action: PayloadAction<string | null>) {
       state.selectedId = action.payload;
-    },
-    setLocationsFilterType(state, action: PayloadAction<LocationType | 'all'>) {
-      state.filterType = action.payload;
     },
     setLocationsLoading(state, action: PayloadAction<boolean>) {
       state.loading = action.payload;
@@ -77,7 +72,6 @@ export const {
   updateLocation,
   removeLocation,
   selectLocation,
-  setLocationsFilterType,
   setLocationsLoading,
   setLocationsSearch,
   setLocationRefImage,

@@ -81,6 +81,11 @@ export function setNodeProgress(
   if (action.payload.currentStep !== undefined) {
     data.currentStep = action.payload.currentStep;
   }
+  // Promote to 'generating' if still idle/empty (e.g. Commander AI triggered generation)
+  if (!data.status || data.status === 'empty') {
+    data.status = 'generating';
+    node.status = 'generating';
+  }
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -419,38 +424,6 @@ export function setNodeAdvancedParams(
   if (action.payload.cfgScale !== undefined) data.cfgScale = action.payload.cfgScale;
   if (action.payload.scheduler !== undefined) data.scheduler = action.payload.scheduler;
   if (action.payload.img2imgStrength !== undefined) data.img2imgStrength = action.payload.img2imgStrength;
-  node.updatedAt = Date.now();
-  canvas.updatedAt = node.updatedAt;
-}
-
-// ---------------------------------------------------------------------------
-// Dual prompt system (F9)
-// ---------------------------------------------------------------------------
-
-export function setNodeImagePrompt(
-  state: CanvasSliceState,
-  action: PayloadAction<{ id: string; imagePrompt: string }>,
-): void {
-  const canvas = findActiveCanvas(state);
-  if (!canvas) return;
-  const node = canvas.nodes.find((n) => n.id === action.payload.id);
-  if (!node || (node.type !== 'image' && node.type !== 'video')) return;
-  const data = node.data as ImageNodeData | VideoNodeData;
-  data.imagePrompt = action.payload.imagePrompt;
-  node.updatedAt = Date.now();
-  canvas.updatedAt = node.updatedAt;
-}
-
-export function setNodeVideoPrompt(
-  state: CanvasSliceState,
-  action: PayloadAction<{ id: string; videoPrompt: string }>,
-): void {
-  const canvas = findActiveCanvas(state);
-  if (!canvas) return;
-  const node = canvas.nodes.find((n) => n.id === action.payload.id);
-  if (!node || (node.type !== 'image' && node.type !== 'video')) return;
-  const data = node.data as ImageNodeData | VideoNodeData;
-  data.videoPrompt = action.payload.videoPrompt;
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }

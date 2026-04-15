@@ -5,6 +5,8 @@ export {
   localizeParamValue,
   localizePresetDescription,
   localizePresetName,
+  localizeProcessPromptDescription,
+  localizeProcessPromptName,
   localizePromptTemplateName,
   localizeSettingsCategory,
   localizeShotTemplateDescription,

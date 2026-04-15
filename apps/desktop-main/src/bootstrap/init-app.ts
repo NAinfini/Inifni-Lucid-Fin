@@ -3,7 +3,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import log from '../logger.js';
-import { CAS, SqliteIndex, Keychain, PromptStore } from '@lucid-fin/storage';
+import { CAS, SqliteIndex, Keychain, PromptStore, ProcessPromptStore } from '@lucid-fin/storage';
 import {
   AdapterRegistry,
   // Image adapters
@@ -131,11 +131,21 @@ export function initApp() {
 
   // Prompt template store
   const promptStore = new PromptStore(promptDbPath);
+  const processPromptStore = new ProcessPromptStore(promptDbPath);
 
   // Agent system
   const toolRegistry = new AgentToolRegistry();
 
-  return { db, cas, keychain, adapterRegistry, llmRegistry, promptStore, toolRegistry };
+  return {
+    db,
+    cas,
+    keychain,
+    adapterRegistry,
+    llmRegistry,
+    promptStore,
+    processPromptStore,
+    toolRegistry,
+  };
 }
 
 export async function selectConfiguredLLMAdapter(

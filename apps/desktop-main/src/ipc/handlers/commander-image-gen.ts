@@ -55,11 +55,15 @@ export function makeGenerateImage(deps: {
   adapterRegistry: AdapterRegistry;
   cas: CAS;
   db?: SqliteIndex;
+  onStart?: (jobId: string, provider: string, width: number, height: number) => void;
+  onComplete?: (jobId: string, assetHash: string) => void;
+  onFailed?: (jobId: string, error: string) => void;
 }): (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => Promise<{ assetHash: string }> {
   return async (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => {
     const providerId = options?.providerId;
     const width = options?.width ?? 1024;
     const height = options?.height ?? 1024;
+    const jobId = crypto.randomUUID();
     const candidates = providerId
       ? deps.adapterRegistry.list('image').filter((adapter) => adapter.id === providerId)
       : deps.adapterRegistry.list('image');
@@ -72,38 +76,40 @@ export function makeGenerateImage(deps: {
       const actualProviderId = providerId ?? adapter.id;
       const clamped = clampDimensions(width, height, actualProviderId);
 
-      const generated = await adapter.generate({
-        type: 'image',
-        providerId: actualProviderId,
-        prompt,
-        width: clamped.width,
-        height: clamped.height,
-      });
-      const materialized = await materializeAsset(generated);
+      deps.onStart?.(jobId, actualProviderId, clamped.width, clamped.height);
       try {
-        const { ref } = await deps.cas.importAsset(materialized.filePath, 'image');
+        const generated = await adapter.generate({
+          type: 'image',
+          providerId: actualProviderId,
+          prompt,
+          width: clamped.width,
+          height: clamped.height,
+        });
+        const materialized = await materializeAsset(generated);
+        try {
+          const { ref } = await deps.cas.importAsset(materialized.filePath, 'image');
 
-        // Register in asset library so the image appears in the asset browser
-        if (deps.db) {
-          try {
-            deps.db.insertAsset({
-              hash: ref.hash,
-              type: 'image',
-              format: ref.format,
-              prompt,
-              provider: actualProviderId,
-              width: clamped.width,
-              height: clamped.height,
-            });
-          } catch (dbErr) {
-            // Non-fatal — CAS already has the file
-            log.warn('Failed to register generated image in asset index', {
-              category: 'commander',
-              hash: ref.hash,
-              error: dbErr instanceof Error ? dbErr.message : String(dbErr),
-            });
+          // Register in asset library so the image appears in the asset browser
+          if (deps.db) {
+            try {
+              deps.db.insertAsset({
+                hash: ref.hash,
+                type: 'image',
+                format: ref.format,
+                prompt,
+                provider: actualProviderId,
+                width: clamped.width,
+                height: clamped.height,
+              });
+            } catch (dbErr) {
+              // Non-fatal — CAS already has the file
+              log.warn('Failed to register generated image in asset index', {
+                category: 'commander',
+                hash: ref.hash,
+                error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+              });
+            }
           }
-        }
 
         log.info('Commander image generated and stored', {
           category: 'commander',
@@ -111,11 +117,16 @@ export function makeGenerateImage(deps: {
           format: ref.format,
           path: ref.path,
         });
+        deps.onComplete?.(jobId, ref.hash);
         return { assetHash: ref.hash };
       } finally {
         if (materialized.cleanupPath) {
           await fsp.rm(materialized.cleanupPath, { recursive: true, force: true });
         }
+      }
+      } catch (genErr) {
+        deps.onFailed?.(jobId, genErr instanceof Error ? genErr.message : String(genErr));
+        throw genErr;
       }
     }
 

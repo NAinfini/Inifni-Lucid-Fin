@@ -56,18 +56,18 @@ function getTool(name: string, deps: CanvasToolDeps) {
 }
 
 describe('createCanvasMetaTools', () => {
-  it('defines logger.read and commander.askUser tools', () => {
+  it('defines logger.list and commander.askUser tools', () => {
     const deps = createDeps();
     const tools = createCanvasMetaTools(deps);
 
-    expect(tools.map((tool) => tool.name)).toEqual(['logger.read', 'commander.askUser']);
+    expect(tools.map((tool) => tool.name)).toEqual(['logger.list', 'commander.askUser']);
     expect(getTool('commander.askUser', deps).tags).toEqual(['meta', 'interaction']);
   });
 
   it('reads logs with normalized filters', async () => {
     const deps = createDeps();
 
-    await expect(getTool('logger.read', deps).execute({
+    await expect(getTool('logger.list', deps).execute({
       level: ' error ',
       category: ' generation ',
       limit: 3.8,
@@ -89,7 +89,7 @@ describe('createCanvasMetaTools', () => {
       success: true,
       data: 'Waiting for user response...',
     });
-    await expect(getTool('logger.read', deps).execute({})).resolves.toEqual({
+    await expect(getTool('logger.list', deps).execute({})).resolves.toEqual({
       success: false,
       error: 'log read failed',
     });

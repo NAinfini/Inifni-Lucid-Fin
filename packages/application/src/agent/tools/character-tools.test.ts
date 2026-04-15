@@ -18,14 +18,17 @@ describe('createCharacterTools', () => {
     expect(tools.find((tool) => tool.name === 'character.create')?.tags).toEqual(['character', 'mutate']);
     expect(tools.find((tool) => tool.name === 'character.update')?.tags).toEqual(['character', 'mutate']);
     expect(tools.find((tool) => tool.name === 'character.delete')?.tags).toEqual(['character', 'mutate']);
-    expect(tools.find((tool) => tool.name === 'character.refImage')?.tags).toEqual(['character', 'generation']);
+    expect(tools.find((tool) => tool.name === 'character.setRefImage')?.tags).toEqual(['character', 'generation']);
+    expect(tools.find((tool) => tool.name === 'character.deleteRefImage')?.tags).toEqual(['character', 'generation']);
   });
 
-  it('returns tool names including character.refImage', () => {
+  it('returns tool names with split ref image tools', () => {
     const deps = createDeps();
     const tools = createCharacterTools(deps);
     const names = tools.map((t) => t.name);
-    expect(names).toContain('character.refImage');
+    expect(names).toContain('character.setRefImage');
+    expect(names).toContain('character.deleteRefImage');
+    expect(names).not.toContain('character.refImage');
     expect(names).not.toContain('character.generateReferenceImage');
     expect(names).not.toContain('character.setReferenceImage');
     expect(names).not.toContain('character.deleteReferenceImage');

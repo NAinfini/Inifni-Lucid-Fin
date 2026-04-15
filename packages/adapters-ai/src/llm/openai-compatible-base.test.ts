@@ -121,7 +121,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
   });
 
-  it('throws a structured error when the provider returns JSON without extractable content or tool calls', async () => {
+  it('extracts reasoning from a response with reasoning_content field', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -130,7 +130,8 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
             choices: [
               {
                 message: {
-                  content: [{ type: 'reasoning', text: 'internal only' }],
+                  content: '',
+                  reasoning_content: 'internal only',
                 },
                 finish_reason: 'stop',
               },
@@ -155,20 +156,12 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       model: 'gpt-5.4',
     });
 
-    await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
-    ).rejects.toMatchObject<Partial<LucidError>>({
-      code: ErrorCode.ServiceUnavailable,
-      message: 'Custom Local returned JSON without extractable assistant content',
-      details: expect.objectContaining({
-        endpoint: 'http://127.0.0.1:37123/v1/chat/completions',
-        model: 'gpt-5.4',
-        provider: 'Custom Local',
-        finishReason: 'stop',
-        choiceCount: 1,
-        toolCallCount: 0,
-        messageContentTypes: ['reasoning'],
-      }),
+    const result = await adapter.completeWithTools([{ role: 'user', content: 'hello' }]);
+    expect(result).toMatchObject({
+      content: '',
+      toolCalls: [],
+      reasoning: 'internal only',
+      finishReason: 'stop',
     });
   });
 

@@ -220,8 +220,6 @@ const internalCanvasSlice = createSlice({
     // --- Advanced generation params (L17) ---------------------------------
 
     setNodeAdvancedParams: generationReducers.setNodeAdvancedParams,
-    setNodeImagePrompt: generationReducers.setNodeImagePrompt,
-    setNodeVideoPrompt: generationReducers.setNodeVideoPrompt,
     setNodeSourceImage: generationReducers.setNodeSourceImage,
     setNodeFaceReferences: generationReducers.setNodeFaceReferences,
 
@@ -432,8 +430,6 @@ export const {
   setNodeLipSync,
   // L17: Advanced generation params
   setNodeAdvancedParams,
-  setNodeImagePrompt,
-  setNodeVideoPrompt,
   setNodeSourceImage,
   setNodeFaceReferences,
   // L19: Duration / scene metadata

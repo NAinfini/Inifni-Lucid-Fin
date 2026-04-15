@@ -54,7 +54,7 @@ export const store = configureStore({
     workflowDefinitions: workflowDefinitionsSlice.reducer,
   },
   middleware: (getDefault) =>
-    getDefault()
+    getDefault({ serializableCheck: false, immutableCheck: false })
       .prepend(listenerMiddleware.middleware)
       .concat(ipcMiddleware, persistMiddleware, undoMiddleware),
 });

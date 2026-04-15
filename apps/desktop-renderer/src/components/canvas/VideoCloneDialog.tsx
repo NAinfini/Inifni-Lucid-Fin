@@ -4,6 +4,7 @@ import { t } from '../../i18n.js';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog.js';
@@ -89,6 +90,7 @@ export function VideoCloneDialog({
             <Film className="h-4 w-4" />
             {t('videoClone.title')}
           </DialogTitle>
+          <DialogDescription className="sr-only">{t('videoClone.title')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

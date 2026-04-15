@@ -58,7 +58,13 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
 // ── route handlers ────────────────────────────────────────────────────────────
 
 function handleHealth(res: http.ServerResponse): void {
-  send(res, 200, { status: 'ok', version: '0.0.1' });
+  let version = 'unknown';
+  try {
+    const pkgPath = path.join(__dirname, '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    version = pkg.version ?? version;
+  } catch { /* fallback */ }
+  send(res, 200, { status: 'ok', version });
 }
 
 function handleListCanvases(res: http.ServerResponse, db: SqliteIndex): void {

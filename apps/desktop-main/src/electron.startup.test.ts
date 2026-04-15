@@ -83,8 +83,8 @@ vi.mock('./workflow/style-workflow-handlers.js', () => ({
   createStyleWorkflowHandlers: vi.fn(() => []),
 }));
 
-vi.mock('./workflow/storyboard-workflow-handlers.js', () => ({
-  createStoryboardWorkflowHandlers: vi.fn(() => []),
+vi.mock('./workflow/ref-image-workflow-handlers.js', () => ({
+  createRefImageWorkflowHandlers: vi.fn(() => []),
 }));
 
 vi.mock('./auto-updater.js', () => ({

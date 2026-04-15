@@ -2,7 +2,6 @@ export interface Costume {
   id: string;
   name: string;
   description: string;
-  referenceImage?: string;
 }
 
 export interface ReferenceImage {

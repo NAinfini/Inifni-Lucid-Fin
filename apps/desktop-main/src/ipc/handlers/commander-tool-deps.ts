@@ -15,7 +15,6 @@ import {
   createCanvasTools,
   createCharacterTools,
   createEquipmentTools,
-  createSceneTools,
   createLocationTools,
   createPresetTools,
   createProviderTools,
@@ -24,12 +23,14 @@ import {
   createWorkflowTools,
   createCopywritingTools,
   createVisionTools,
+  createSnapshotTools,
   registerToolModule,
   jobToolModule,
   colorStyleToolModule,
   seriesToolModule,
   type JobQueue,
   type WorkflowEngine,
+  WORKFLOW_GUIDES,
 } from '@lucid-fin/application';
 import { parseScript } from '@lucid-fin/domain';
 import {
@@ -128,14 +129,43 @@ export interface ToolRegistrationDeps {
   keychain: import('@lucid-fin/storage').Keychain;
 }
 
+type PromptGuide = { id: string; name: string; content: string };
+
+export function mergePromptGuidesWithBuiltIns(promptGuides: PromptGuide[]): PromptGuide[] {
+  const merged: PromptGuide[] = [];
+  const seen = new Set<string>();
+
+  for (const guide of [...promptGuides, ...WORKFLOW_GUIDES]) {
+    if (seen.has(guide.id)) continue;
+    seen.add(guide.id);
+    merged.push(guide);
+  }
+
+  return merged;
+}
+
 export function registerAllTools(
   registry: AgentToolRegistry,
   deps: ToolRegistrationDeps,
   getWindow: () => BrowserWindow | null,
   promptGuides: Array<{ id: string; name: string; content: string }>,
   compactRef?: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> },
+  sessionId?: string,
+  defaultProviders?: Record<string, string>,
 ): void {
-  const generateImage = makeGenerateImage(deps);
+  const mergedPromptGuides = mergePromptGuidesWithBuiltIns(promptGuides);
+  const generateImage = makeGenerateImage({
+    ...deps,
+    onStart: (jobId, provider, width, height) => {
+      emitToWindow(getWindow, 'refimage:start', { jobId, provider, width, height });
+    },
+    onComplete: (jobId, assetHash) => {
+      emitToWindow(getWindow, 'refimage:complete', { jobId, assetHash });
+    },
+    onFailed: (jobId, error) => {
+      emitToWindow(getWindow, 'refimage:failed', { jobId, error });
+    },
+  });
 
   // ---- Preset helpers (shared by canvas + preset tools) ----
   const listCommanderPresets = async (category?: PresetCategory): Promise<PresetDefinition[]> => {
@@ -392,6 +422,7 @@ export function registerAllTools(
         return false;
       }
     },
+    getDefaultProviderId: (group: 'image' | 'video' | 'audio') => defaultProviders?.[group],
     clearSelection: async (_canvasId: string) => {},
     setNodeColorTag: async (canvasId: string, nodeId: string, color: string | undefined) => {
       const { canvas: cur, node } = requireNode(deps.canvasStore, canvasId, nodeId);
@@ -412,6 +443,19 @@ export function registerAllTools(
       touchCanvas(cur, deps.canvasStore);
     },
     estimateCost: async () => ({ totalEstimatedCost: 0, currency: 'USD', nodeCosts: [] }),
+    previewPrompt: async (_canvasId: string, _nodeId: string) => {
+      // TODO: implement once compilePrompt is exposed from generation pipeline
+      return {
+        prompt: '',
+        negativePrompt: undefined,
+        segments: [],
+        wordCount: 0,
+        budget: 0,
+        diagnostics: [],
+        providerId: '',
+        mode: '',
+      };
+    },
     addNote: async (_canvasId: string, content: string): Promise<CanvasNote> => {
       const now = Date.now();
       return { id: `note-${content.slice(0, 8)}-${now}`, content, createdAt: now, updatedAt: now };
@@ -483,21 +527,6 @@ export function registerAllTools(
     },
     deleteCharacter: async (id) => deps.db.deleteCharacter(id),
     generateImage,
-    getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
-  })) {
-    registry.register(tool);
-  }
-  for (const tool of createSceneTools({
-    listScenes: async () => {
-      return deps.db.listScenes();
-    },
-    createScene: async (s) => {
-      deps.db.upsertScene({ ...s });
-    },
-    updateScene: async (s) => {
-      deps.db.upsertScene({ ...s });
-    },
-    deleteScene: async (id) => deps.db.deleteScene(id),
     getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
   })) {
     registry.register(tool);
@@ -792,7 +821,7 @@ export function registerAllTools(
 
   // ---- Meta + utility tools ----
   for (const tool of createMetaTools(registry, {
-    promptGuides: promptGuides,
+    promptGuides: mergedPromptGuides,
     context: 'canvas',
     compactContext: compactRef
       ? async (instructions?: string) => {
@@ -993,5 +1022,17 @@ export function registerAllTools(
     },
   })) {
     registry.register(tool);
+  }
+
+  // ---- Snapshot tools ----
+  if (sessionId) {
+    for (const tool of createSnapshotTools({
+      captureSnapshot: (sid, label, trigger) => deps.db.captureSnapshot(sid, label, trigger),
+      listSnapshots: (sid) => deps.db.listSnapshots(sid).map(({ data: _d, ...meta }) => meta),
+      restoreSnapshot: (snapshotId) => deps.db.restoreSnapshot(snapshotId),
+      getSessionId: () => sessionId,
+    })) {
+      registry.register(tool);
+    }
   }
 }

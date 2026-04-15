@@ -1,7 +1,5 @@
 import type { ReferenceImage } from './character.js';
 
-export type LocationType = 'interior' | 'exterior' | 'int-ext';
-
 export const LOCATION_STANDARD_SLOTS = [
   'wide-establishing',
   'interior-detail',
@@ -22,7 +20,7 @@ export interface LocationRef {
 export interface Location {
   id: string;
   name: string;
-  type: LocationType;
+  type?: 'interior' | 'exterior' | 'int-ext';
   subLocation?: string;
   timeOfDay?: string;
   description: string;

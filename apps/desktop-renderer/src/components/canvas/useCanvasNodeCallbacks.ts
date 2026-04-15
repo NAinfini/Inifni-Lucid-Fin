@@ -38,12 +38,14 @@ export interface UseCanvasNodeCallbacksParams {
   generate: (id: string) => Promise<void>;
   /** Setter for the "connecting from" mode (connect-to action). */
   setConnectingFromNodeId: (id: string | null) => void;
+  /** Open the video clone dialog. */
+  setVideoCloneOpen: (open: boolean) => void;
 }
 
 export function useCanvasNodeCallbacks(
   params: UseCanvasNodeCallbacksParams,
 ): NodeCallbacks {
-  const { generate, setConnectingFromNodeId } = params;
+  const { generate, setConnectingFromNodeId, setVideoCloneOpen } = params;
   const dispatch = useDispatch<AppDispatch>();
   const canvas = useSelector(selectActiveCanvas);
   const clipboard = useSelector(
@@ -244,6 +246,13 @@ export function useCanvasNodeCallbacks(
     [dispatch],
   );
 
+  const handleCloneVideo = useCallback(
+    () => {
+      setVideoCloneOpen(true);
+    },
+    [setVideoCloneOpen],
+  );
+
   return useMemo<NodeCallbacks>(
     () => ({
       onTitleChange: handleTitleChange,
@@ -268,6 +277,7 @@ export function useCanvasNodeCallbacks(
       onToggleSeedLock: handleToggleSeedLock,
       onToggleCollapse: handleToggleCollapse,
       onOpacityChange: handleOpacityChange,
+      onCloneVideo: handleCloneVideo,
     }),
     [
       handleTitleChange,
@@ -288,6 +298,7 @@ export function useCanvasNodeCallbacks(
       handleToggleSeedLock,
       handleToggleCollapse,
       handleOpacityChange,
+      handleCloneVideo,
     ],
   );
 }

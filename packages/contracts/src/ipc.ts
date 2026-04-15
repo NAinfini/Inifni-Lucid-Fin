@@ -1,7 +1,6 @@
 import type { StyleGuide } from './dto/project.js';
 import type { AssetRef, AssetMeta, AssetType } from './dto/asset.js';
 import type { Job, GenerationRequest } from './dto/job.js';
-import type { Scene } from './dto/scene.js';
 import type {
   Character,
   ReferenceImage,
@@ -45,6 +44,17 @@ export interface IpcSnapshotMeta {
   createdAt: number;
 }
 
+export interface IpcProcessPrompt {
+  id: number;
+  processKey: string;
+  name: string;
+  description: string;
+  defaultValue: string;
+  customValue: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface IpcChannelMap {
   // --- Settings ---
   'settings:load': {
@@ -72,24 +82,6 @@ export interface IpcChannelMap {
   'script:import': {
     request: { filePath: string };
     response: ScriptDocument;
-  };
-
-  // --- Scene ---
-  'scene:list': {
-    request: void;
-    response: Scene[];
-  };
-  'scene:create': {
-    request: Omit<Scene, 'id' | 'createdAt' | 'updatedAt' | 'keyframes' | 'segments'>;
-    response: Scene;
-  };
-  'scene:update': {
-    request: { id: string; data: Partial<Scene> };
-    response: Scene;
-  };
-  'scene:delete': {
-    request: { id: string };
-    response: void;
   };
 
   // --- Character ---
@@ -294,9 +286,6 @@ export interface IpcChannelMap {
       message: string;
       context?: {
         page: string;
-        sceneId?: string;
-        keyframeId?: string;
-        segmentId?: string;
         characterId?: string;
         extra?: Record<string, unknown>;
       };
@@ -322,10 +311,29 @@ export interface IpcChannelMap {
     response: void;
   };
 
+  // --- Process Prompts ---
+  'processPrompt:list': {
+    request: void;
+    response: IpcProcessPrompt[];
+  };
+  'processPrompt:get': {
+    request: { processKey: string };
+    response: IpcProcessPrompt;
+  };
+  'processPrompt:setCustom': {
+    request: { processKey: string; value: string };
+    response: void;
+  };
+  'processPrompt:reset': {
+    request: { processKey: string };
+    response: void;
+  };
+
   // --- Commander ---
   'commander:chat': {
     request: {
       canvasId: string;
+      sessionId?: string;
       message: string;
       history: Array<{ role: 'user' | 'assistant'; content: string }>;
       selectedNodeIds: string[];

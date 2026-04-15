@@ -4,8 +4,9 @@ import {
   type Character,
 } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
-import { createRefImageTool } from './ref-image-factory.js';
-import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import { createRefImageTools } from './ref-image-factory.js';
+import { extractSet, warnExtraKeys, requireString } from './tool-result-helpers.js';
+import { buildCharacterRefImagePrompt } from './character-prompt.js';
 
 export interface GenerateImageOptions {
   providerId?: string;
@@ -23,68 +24,6 @@ export interface CharacterToolDeps {
 
 export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
-  /** Build a compact appearance string from structured fields + freeform appearance text. */
-  function buildAppearancePrompt(entity: Character): string {
-    const parts: string[] = [];
-
-    // Age and gender
-    const ageGender: string[] = [];
-    if (entity.age) ageGender.push(`${entity.age} years old`);
-    if (entity.gender) ageGender.push(entity.gender);
-    if (ageGender.length > 0) parts.push(ageGender.join(', '));
-
-    // Face
-    const face = entity.face;
-    if (face) {
-      const faceParts: string[] = [];
-      if (face.eyeShape) faceParts.push(`${face.eyeShape} eyes`);
-      if (face.eyeColor) faceParts.push(`${face.eyeColor} eye color`);
-      if (face.noseType) faceParts.push(`${face.noseType} nose`);
-      if (face.lipShape) faceParts.push(`${face.lipShape} lips`);
-      if (face.jawline) faceParts.push(`${face.jawline} jawline`);
-      if (face.definingFeatures) faceParts.push(face.definingFeatures);
-      if (faceParts.length > 0) parts.push(`Face: ${faceParts.join(', ')}`);
-    }
-
-    // Hair
-    const hair = entity.hair;
-    if (hair) {
-      const hairParts: string[] = [];
-      if (hair.color) hairParts.push(hair.color);
-      if (hair.length) hairParts.push(hair.length);
-      if (hair.style) hairParts.push(hair.style);
-      if (hair.texture) hairParts.push(hair.texture);
-      if (hairParts.length > 0) parts.push(`Hair: ${hairParts.join(', ')}`);
-    }
-
-    // Skin
-    if (entity.skinTone) parts.push(`Skin tone: ${entity.skinTone}`);
-
-    // Body
-    const body = entity.body;
-    if (body) {
-      const bodyParts: string[] = [];
-      if (body.height) bodyParts.push(body.height);
-      if (body.build) bodyParts.push(`${body.build} build`);
-      if (body.proportions) bodyParts.push(body.proportions);
-      if (bodyParts.length > 0) parts.push(`Body: ${bodyParts.join(', ')}`);
-    }
-
-    // Distinct traits
-    if (entity.distinctTraits && entity.distinctTraits.length > 0) {
-      parts.push(`Distinctive: ${entity.distinctTraits.join(', ')}`);
-    }
-
-    // Freeform appearance as supplement (only if structured fields are empty)
-    if (entity.appearance && parts.length === 0) {
-      parts.push(entity.appearance);
-    } else if (entity.appearance && parts.length > 0) {
-      // Append freeform as extra details
-      parts.push(`Additional: ${entity.appearance}`);
-    }
-
-    return parts.join('. ');
-  }
   const characterList: AgentTool = {
     name: 'character.list',
     description: 'List all characters in the current project.',
@@ -312,10 +251,11 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
+        const id = requireString(args, 'id');
         const characters = await deps.listCharacters();
-        const existing = characters.find((c) => c.id === args.id);
+        const existing = characters.find((c) => c.id === id);
         if (!existing) {
-          return { success: false, error: `Character not found: ${args.id}` };
+          return { success: false, error: `Character not found: ${id}` };
         }
         const set = extractSet(args);
         const warnings = warnExtraKeys(args);
@@ -366,7 +306,8 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
-        await deps.deleteCharacter(args.id as string);
+        const id = requireString(args, 'id');
+        await deps.deleteCharacter(id);
         return { success: true };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
@@ -374,8 +315,8 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
   };
 
-  const characterRefImage = createRefImageTool<Character>({
-    toolName: 'character.refImage',
+  const characterRefImages = createRefImageTools<Character>({
+    toolNamePrefix: 'character',
     entityLabel: 'character',
     tags: ['character', 'generation'],
     description: 'Manage a character reference image. Use action=generate to generate a turnaround ref sheet, action=set to assign an existing asset, action=delete to remove a slot, action=setFromNode to pull an asset from a canvas node.',
@@ -386,23 +327,10 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     saveEntity: deps.saveCharacter,
     generateImage: deps.generateImage,
     getCanvas: deps.getCanvas,
-    buildPrompt: (entity, slot) => {
-      void slot;
-      const appearanceDesc = buildAppearancePrompt(entity);
-      return `Professional character turnaround reference sheet for animation/film production. `
-        + `Solid white background, even studio lighting, no environment, no scene, no props. `
-        + `Character: ${entity.name}. `
-        + (appearanceDesc ? `${appearanceDesc}. ` : '')
-        + `TOP ROW: Three full-body standing poses shown from head to feet with shoes visible — front view, side profile, back view. `
-        + `Each pose shows the complete figure at identical scale, arms slightly away from body for silhouette clarity. `
-        + `BOTTOM ROW: Five head-and-shoulders close-up portraits of the same character showing distinct facial expressions — neutral, happy, sad, angry, surprised. `
-        + `Each close-up fills a square frame with detailed facial features and expression clearly visible. `
-        + `Consistent character design, proportions, clothing, and art style across all views. `
-        + `High detail, clean lines, professional character concept art, no text labels, single character only.`;
-    },
+    buildPrompt: buildCharacterRefImagePrompt,
     isStandardSlot: (slot) => STANDARD_ANGLE_SLOTS.includes(slot as (typeof STANDARD_ANGLE_SLOTS)[number]),
-    defaultWidth: 1536,
-    defaultHeight: 1024,
+    defaultWidth: 2048,
+    defaultHeight: 1360,
   });
 
   return [
@@ -410,6 +338,6 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     characterCreate,
     characterUpdate,
     characterDelete,
-    characterRefImage,
+    ...characterRefImages,
   ];
 }

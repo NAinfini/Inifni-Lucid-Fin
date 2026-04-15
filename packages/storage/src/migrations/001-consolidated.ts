@@ -1,8 +1,8 @@
 /**
- * Migration 001 — Consolidated dev migration (v7).
+ * Migration 001 — Consolidated dev baseline.
  *
  * No-op: SCHEMA_SQL already creates all tables in their final form.
- * This migration exists solely so the runner records version 7 in
+ * This migration exists solely so the runner records version 1 in
  * schema_migrations, preventing future migrations from re-running.
  *
  * If you add a real migration later, increment the version number

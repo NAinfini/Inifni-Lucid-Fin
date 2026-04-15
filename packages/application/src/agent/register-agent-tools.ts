@@ -2,7 +2,6 @@ import { AgentToolRegistry } from './tool-registry.js';
 import { registerToolModule } from './tool-module.js';
 import { createScriptTools, type ScriptToolDeps } from './tools/script-tools.js';
 import { createCharacterTools, type CharacterToolDeps } from './tools/character-tools.js';
-import { createSceneTools, type SceneToolDeps } from './tools/scene-tools.js';
 import { createCanvasTools, type CanvasToolDeps } from './tools/canvas-tools.js';
 import { createLocationTools, type LocationToolDeps } from './tools/location-tools.js';
 import { jobToolModule, type JobToolDeps } from './tools/job-tools.js';
@@ -20,7 +19,6 @@ import { WORKFLOW_GUIDES } from './tools/workflow-guides.js';
 export interface AllToolDeps
   extends ScriptToolDeps,
     Omit<CharacterToolDeps, 'getCanvas'>,
-    Omit<SceneToolDeps, 'getCanvas'>,
     CanvasToolDeps,
     Omit<LocationToolDeps, 'getCanvas'>,
     JobToolDeps,
@@ -46,7 +44,6 @@ export function registerAgentTools(
   // Legacy manual registration (to be converted later)
   for (const tool of createScriptTools(deps)) registry.register(tool);
   for (const tool of createCharacterTools(deps)) registry.register(tool);
-  for (const tool of createSceneTools(deps)) registry.register(tool);
   for (const tool of createCanvasTools(deps)) registry.register(tool);
   for (const tool of createLocationTools(deps)) registry.register(tool);
   for (const tool of createEquipmentTools(deps)) registry.register(tool);

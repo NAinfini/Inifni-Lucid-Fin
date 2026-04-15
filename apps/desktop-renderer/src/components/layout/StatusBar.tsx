@@ -1,12 +1,18 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { Activity } from 'lucide-react';
 import { t } from '../../i18n.js';
+import { getAPI } from '../../utils/api.js';
 
 export function StatusBar() {
   const { title } = useSelector((s: RootState) => s.settings.production);
   const { activeCount } = useSelector((s: RootState) => s.jobs);
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    getAPI()?.app.version().then(setVersion).catch(() => setVersion('dev'));
+  }, []);
 
   return (
     <footer
@@ -22,7 +28,7 @@ export function StatusBar() {
             {activeCount} {t('statusBar.jobsRunning')}
           </span>
         )}
-        <span>Lucid Fin v0.0.1</span>
+        <span>Lucid Fin {version ? `v${version}` : ''}</span>
       </div>
     </footer>
   );

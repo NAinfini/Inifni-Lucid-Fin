@@ -284,6 +284,20 @@ export class OpenAIResponsesLLM implements LLMAdapter {
       (opts?.tools ?? []).map((tool) => [tool.name.replace(/\./g, '_'), tool.name]),
     );
     const output = Array.isArray(data.output) ? data.output : [];
+
+    // Extract reasoning from reasoning output items
+    let reasoning = '';
+    for (const item of output) {
+      if (isRecord(item) && item.type === 'reasoning') {
+        const summary = Array.isArray(item.summary) ? item.summary : [];
+        for (const part of summary) {
+          if (isRecord(part) && part.type === 'summary_text' && typeof part.text === 'string') {
+            reasoning += part.text;
+          }
+        }
+      }
+    }
+
     const toolCalls: LLMToolCall[] = output
       .filter((item): item is Record<string, unknown> => isRecord(item) && item.type === 'function_call')
       .map((item, index) => {
@@ -309,7 +323,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
         };
       });
 
-    if (!content && toolCalls.length === 0) {
+    if (!content && toolCalls.length === 0 && !reasoning) {
       throw new LucidError(ErrorCode.ServiceUnavailable, `${this.name} returned a response without extractable content`, {
         responseBody: data,
       });
@@ -318,6 +332,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
     return {
       content,
       toolCalls,
+      reasoning: reasoning || undefined,
       finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
     };
   }

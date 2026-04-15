@@ -43,8 +43,11 @@ export {
 } from './workflow-engine.js';
 export { WorkflowRecovery } from './workflow-recovery.js';
 export { registerDefaultWorkflows } from './register-default-workflows.js';
-export { storyboardGenerateWorkflow } from './workflows/storyboard.generate.js';
 export { styleExtractWorkflow } from './workflows/style.extract.js';
+export { characterGenerateReferencesWorkflow } from './workflows/character.generate-references.js';
+export { locationGenerateReferencesWorkflow } from './workflows/location.generate-references.js';
+export { buildCharacterAppearancePrompt, buildCharacterRefImagePrompt } from './agent/tools/character-prompt.js';
+export { buildLocationRefImagePrompt } from './agent/tools/location-prompt.js';
 export { AgentToolRegistry, type AgentTool, type ToolResult } from './agent/tool-registry.js';
 export { defineToolModule, registerToolModule, type ToolModule } from './agent/tool-module.js';
 export {
@@ -56,12 +59,15 @@ export {
   type AgentLLMRequestDiagnostics,
   type HistoryEntry,
 } from './agent/agent-orchestrator.js';
+export { detectProcess, getProcessCategoryName, type ProcessCategory } from './agent/process-detection.js';
 export { ContextManager } from './agent/context-manager.js';
+export { buildMessagesForRequest, destructLLMResponse, type MessageBuildContext } from './agent/message-constructor.js';
 export { ToolExecutor } from './agent/tool-executor.js';
+export { ToolResultCache, type CacheColdState } from './agent/tool-result-cache.js';
+export { TranscriptIndex } from './agent/transcript-index.js';
 export { registerAgentTools, type AllToolDeps } from './agent/register-agent-tools.js';
 export { createCanvasTools, type CanvasToolDeps } from './agent/tools/canvas-tools.js';
 export { createCharacterTools, type CharacterToolDeps } from './agent/tools/character-tools.js';
-export { createSceneTools, type SceneToolDeps } from './agent/tools/scene-tools.js';
 export { createLocationTools, type LocationToolDeps } from './agent/tools/location-tools.js';
 export { createScriptTools, type ScriptToolDeps } from './agent/tools/script-tools.js';
 export { createJobTools, type JobToolDeps } from './agent/tools/job-tools.js';
@@ -86,4 +92,11 @@ export { createEquipmentTools, type EquipmentToolDeps } from './agent/tools/equi
 export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';
 export { createCopywritingTools, type CopywritingToolDeps } from './agent/tools/copywriting-tools.js';
 export { createVisionTools, type VisionToolDeps } from './agent/tools/vision-tools.js';
+export { createSnapshotTools, type SnapshotToolDeps } from './agent/tools/snapshot-tools.js';
+export { snapshotToolModule } from './agent/tools/snapshot-tools.js';
 export { ok, fail, requireString, requireNumber, requireStringArray, requireText, requireBoolean } from './agent/tools/tool-result-helpers.js';
+export {
+  getToolCompactionCategory,
+  getClassifiedToolNames,
+  type ToolCompactionCategory,
+} from './agent/tool-compaction-class.js';

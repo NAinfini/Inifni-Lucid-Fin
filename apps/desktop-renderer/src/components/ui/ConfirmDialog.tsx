@@ -5,6 +5,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from './Dialog.js';
+import { t } from '../../i18n.js';
 
 interface ConfirmOptions {
   title: string;
@@ -43,15 +44,14 @@ export function useConfirm() {
 
   const ConfirmDialogComponent = (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleCancel(); }}>
-      <DialogContent
-        aria-describedby={options.description ? 'confirm-dialog-description' : undefined}
-        className="max-w-sm"
-      >
+      <DialogContent className="max-w-sm">
         <DialogTitle className="text-sm font-medium">{options.title}</DialogTitle>
-        {options.description && (
-          <DialogDescription id="confirm-dialog-description" className="text-xs text-muted-foreground">
+        {options.description ? (
+          <DialogDescription className="text-xs text-muted-foreground">
             {options.description}
           </DialogDescription>
+        ) : (
+          <DialogDescription className="sr-only">Confirm action</DialogDescription>
         )}
         <div className="flex justify-end gap-2 pt-2">
           <button
@@ -59,7 +59,7 @@ export function useConfirm() {
             onClick={handleCancel}
             className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted transition-colors"
           >
-            {options.cancelLabel ?? 'Cancel'}
+            {options.cancelLabel ?? t('dialog.cancel')}
           </button>
           <button
             type="button"
@@ -70,7 +70,7 @@ export function useConfirm() {
                 : 'bg-primary text-primary-foreground hover:bg-primary/90'
             }`}
           >
-            {options.confirmLabel ?? 'OK'}
+            {options.confirmLabel ?? t('dialog.ok')}
           </button>
         </div>
       </DialogContent>

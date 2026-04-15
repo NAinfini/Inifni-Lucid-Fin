@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import type { AssetMeta } from '@lucid-fin/contracts';
 import type BetterSqlite3 from 'better-sqlite3';
@@ -164,6 +165,47 @@ export function queryAssets(
     provider: r.provider as string | undefined,
     createdAt: r.created_at as number,
   }));
+}
+
+/**
+ * One-time startup repair: backfill file_size for asset rows that have NULL or 0.
+ * Resolves the actual file on disk via the provided path resolver, reads its size,
+ * and updates the DB row. Silently skips assets whose files are missing.
+ *
+ * @param resolveAssetPath - (hash, type, format) => absolute file path (e.g. CAS.getAssetPath)
+ * @returns Number of rows repaired.
+ */
+export function repairAssetSizes(
+  db: BetterSqlite3.Database,
+  resolveAssetPath: (hash: string, type: string, format: string) => string,
+): number {
+  const rows = db
+    .prepare('SELECT hash, type, format FROM assets WHERE file_size IS NULL OR file_size <= 0')
+    .all() as Array<{ hash: string; type: string; format: string }>;
+
+  if (rows.length === 0) return 0;
+
+  const update = db.prepare('UPDATE assets SET file_size = ? WHERE hash = ?');
+
+  let repaired = 0;
+  const run = db.transaction(() => {
+    for (const row of rows) {
+      try {
+        const filePath = resolveAssetPath(row.hash, row.type, row.format);
+        if (!fs.existsSync(filePath)) continue;
+        const size = fs.statSync(filePath).size;
+        if (size > 0) {
+          update.run(size, row.hash);
+          repaired++;
+        }
+      } catch {
+        // Skip unresolvable assets (invalid hash, missing file, etc.)
+      }
+    }
+  });
+  run();
+
+  return repaired;
 }
 
 export interface EmbeddingRecord {

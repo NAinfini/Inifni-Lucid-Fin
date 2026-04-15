@@ -24,7 +24,6 @@ const SNAP_DATA = {
   characters: [{ id: 'c1', name: 'Alice' }],
   equipment: [],
   locations: [],
-  scenes: [],
   scripts: [],
   presetOverrides: [],
 };

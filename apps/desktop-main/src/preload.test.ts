@@ -134,12 +134,12 @@ describe('preload IPC rate limiting', () => {
   it('does not rate limit non-limited channels', async () => {
     await import('./preload.cjs');
     const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      scene: { list: () => Promise<unknown> };
+      character: { list: () => Promise<unknown> };
     };
 
-    // scene:list is not rate limited, many rapid calls should be fine
+    // character:list is not rate limited, many rapid calls should be fine
     for (let i = 0; i < 20; i++) {
-      await api.scene.list();
+      await api.character.list();
     }
     expect(ipcInvoke).toHaveBeenCalledTimes(20);
   });

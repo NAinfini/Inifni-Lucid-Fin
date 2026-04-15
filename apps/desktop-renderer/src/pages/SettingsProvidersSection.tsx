@@ -571,12 +571,12 @@ function ProviderCard({
               disabled={saving || !isDirty}
               className={cn(
                 'rounded px-2 py-1 text-xs transition-colors disabled:opacity-50',
-                saved ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground',
+                saved && !isDirty ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground',
               )}
             >
               {saving
                 ? t('settings.providerCard.saving')
-                : saved
+                : saved && !isDirty
                   ? t('settings.providerCard.saved')
                   : t('settings.providerCard.save')}
             </button>

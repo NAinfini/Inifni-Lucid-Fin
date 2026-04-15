@@ -5,7 +5,6 @@ import type {
   Character,
   Equipment,
   Location,
-  Scene,
   ScriptDocument,
   ColorStyle,
   Series,
@@ -78,7 +77,7 @@ export interface ICanvasStore {
   deleteCanvas(id: string): void;
 }
 
-/** Entity CRUD -- characters, equipment, locations, scenes, scripts, color styles, dependencies */
+/** Entity CRUD -- characters, equipment, locations, scripts, color styles, dependencies */
 export interface IEntityStore {
   // Characters
   upsertCharacter(char: Parameters<typeof _upsertCharacter>[1]): void;
@@ -97,12 +96,6 @@ export interface IEntityStore {
   getLocation(id: string): Location | undefined;
   listLocations(type?: string): Location[];
   deleteLocation(id: string): void;
-
-  // Scenes
-  upsertScene(scene: Scene): void;
-  getScene(id: string): Scene | undefined;
-  listScenes(): Scene[];
-  deleteScene(id: string): void;
 
   // Scripts
   upsertScript(doc: ScriptDocument): void;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { store, type AppDispatch, type RootState } from '../store/index.js';
+import { useDispatch, useSelector, useStore } from 'react-redux';
+import type { AppDispatch, RootState } from '../store/index.js';
 import {
   setNodeEstimatedCost,
   setNodeGenerationComplete,
@@ -13,6 +13,12 @@ import { setAssets, type Asset } from '../store/slices/assets.js';
 import { recordGeneration, recordError } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
 
+type ProviderConfigOverride = {
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+};
+
 function serializeGenerationDetail(detail: Record<string, unknown>, error?: unknown): string {
   const payload: Record<string, unknown> = { ...detail };
   if (error instanceof Error) {
@@ -22,6 +28,36 @@ function serializeGenerationDetail(detail: Record<string, unknown>, error?: unkn
     payload.error = String(error);
   }
   return JSON.stringify(payload, null, 2);
+}
+
+function resolveNodeProviderConfig(
+  state: RootState,
+  canvasId: string,
+  nodeId: string,
+  requestedProviderId?: string,
+): ProviderConfigOverride | undefined {
+  const canvas = state.canvas.canvases.entities[canvasId];
+  const node = canvas?.nodes.find((entry) => entry.id === nodeId);
+  if (!node) return undefined;
+
+  const nodeData = node.data as { providerId?: string };
+  const providerId = requestedProviderId ?? nodeData.providerId;
+  if (!providerId) return undefined;
+
+  const providerCollection =
+    node.type === 'audio'
+      ? state.settings?.audio.providers
+      : node.type === 'video'
+        ? state.settings?.video.providers
+        : state.settings?.image.providers;
+
+  const provider = providerCollection?.find((entry) => entry.id === providerId);
+  if (!provider) return undefined;
+
+  return {
+    baseUrl: provider.baseUrl,
+    model: provider.model,
+  };
 }
 
 export function useCanvasGeneration(): {
@@ -35,6 +71,7 @@ export function useCanvasGeneration(): {
   estimateCost: (nodeId: string, providerId: string) => Promise<number>;
 } {
   const dispatch = useDispatch<AppDispatch>();
+  const reduxStore = useStore<RootState>();
   const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
 
   useEffect(() => {
@@ -133,9 +170,12 @@ export function useCanvasGeneration(): {
         throw new Error('No active canvas selected');
       }
 
+      const state = reduxStore.getState();
+      const providerConfig = resolveNodeProviderConfig(state, activeCanvasId, nodeId, providerId);
+
       // Flush in-memory canvas to DB before main process reads it,
       // avoiding stale state caused by the persistence debounce.
-      const { canvases } = (store.getState() as RootState).canvas;
+      const { canvases } = state.canvas;
       const activeCanvas = canvases.entities[activeCanvasId];
       if (activeCanvas && api.canvas?.save) {
         await api.canvas.save(activeCanvas).catch(() => {});
@@ -150,6 +190,7 @@ export function useCanvasGeneration(): {
             canvasId: activeCanvasId,
             nodeId,
             providerId,
+            providerConfig,
             variantCount,
             seed,
           }),
@@ -163,6 +204,7 @@ export function useCanvasGeneration(): {
           providerId,
           variantCount,
           seed,
+          providerConfig,
         );
         dispatch(setNodeGenerating({ id: nodeId, jobId: result.jobId }));
         dispatch(
@@ -175,6 +217,7 @@ export function useCanvasGeneration(): {
               nodeId,
               jobId: result.jobId,
               providerId,
+              providerConfig,
             }),
           }),
         );
@@ -194,6 +237,7 @@ export function useCanvasGeneration(): {
               canvasId: activeCanvasId,
               nodeId,
               providerId,
+              providerConfig,
               variantCount,
               seed,
             }, error),
@@ -202,7 +246,7 @@ export function useCanvasGeneration(): {
         throw error;
       }
     },
-    [activeCanvasId, dispatch],
+    [activeCanvasId, dispatch, reduxStore],
   );
 
   const cancel = useCallback(
@@ -265,8 +309,10 @@ export function useCanvasGeneration(): {
       if (!activeCanvasId) {
         throw new Error('No active canvas selected');
       }
+      const state = reduxStore.getState();
+      const providerConfig = resolveNodeProviderConfig(state, activeCanvasId, nodeId, providerId);
       try {
-        const result = await api.canvasGeneration.estimateCost(activeCanvasId, nodeId, providerId);
+        const result = await api.canvasGeneration.estimateCost(activeCanvasId, nodeId, providerId, providerConfig);
         dispatch(setNodeEstimatedCost({ id: nodeId, estimatedCost: result.estimatedCost }));
         dispatch(
           addLog({
@@ -277,6 +323,7 @@ export function useCanvasGeneration(): {
               canvasId: activeCanvasId,
               nodeId,
               providerId,
+              providerConfig,
               estimatedCost: result.estimatedCost,
               currency: result.currency,
             }),
@@ -293,13 +340,14 @@ export function useCanvasGeneration(): {
               canvasId: activeCanvasId,
               nodeId,
               providerId,
+              providerConfig,
             }, error),
           }),
         );
         throw error;
       }
     },
-    [activeCanvasId, dispatch],
+    [activeCanvasId, dispatch, reduxStore],
   );
 
   return { generate, cancel, estimateCost };

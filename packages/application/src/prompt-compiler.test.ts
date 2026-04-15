@@ -115,7 +115,7 @@ describe('compilePrompt', () => {
   });
 
   it('trims prompt to model-specific word budget', () => {
-    const longPrompt = Array.from({ length: 140 }, (_, i) => `word${i + 1}`).join(' ');
+    const longPrompt = Array.from({ length: 200 }, (_, i) => `word${i + 1}`).join(' ');
 
     const result = compilePrompt({
       nodeType: 'video',
@@ -125,7 +125,7 @@ describe('compilePrompt', () => {
       presetLibrary: [],
     });
 
-    expect(result.prompt.split(/\s+/).length).toBe(100);
+    expect(result.prompt.split(/\s+/).length).toBe(150);
   });
 
   it('strips non-motion context in image-to-video mode', () => {
@@ -246,7 +246,7 @@ describe('compilePrompt', () => {
     expect(result.referenceImages).toBeUndefined();
   });
 
-  it('injects rich character description based on camera shot', () => {
+  it('does not inject entity descriptions into compiled prompt', () => {
     const character: Character = {
       id: 'char-1',
       name: 'Alex',
@@ -283,36 +283,9 @@ describe('compilePrompt', () => {
       emotion: 'determined',
     };
 
-    const tracks = makeTracks();
-    tracks.camera.entries.push({
-      id: 'e-cam',
-      category: 'camera',
-      presetId: 'close-up-face',
-      params: {},
-      order: 0,
-    });
-
-    const result = compilePrompt({
-      nodeType: 'image',
-      prompt: 'A scene in the city',
-      presetTracks: tracks,
-      characters: [resolved],
-      providerId: 'kling',
-      mode: 'text-to-image',
-      presetLibrary: [],
-    });
-
-    expect(result.prompt).toContain('Alex');
-    expect(result.prompt).toContain('age 45');
-    expect(result.prompt).toContain('determined');
-    expect(result.prompt).toContain('handgun');
-  });
-
-  it('injects rich location description', () => {
     const location: Location = {
       id: 'loc-1',
       name: 'The Blue Moon Bar',
-      type: 'interior',
       timeOfDay: 'night',
       description: 'A dimly lit dive bar with neon signs',
       mood: 'tense',
@@ -325,104 +298,21 @@ describe('compilePrompt', () => {
 
     const result = compilePrompt({
       nodeType: 'image',
-      prompt: 'A detective walks in',
-      locations: [location],
-      providerId: 'kling',
-      mode: 'text-to-image',
-      presetLibrary: [],
-    });
-
-    expect(result.prompt).toContain('Interior of The Blue Moon Bar at night');
-    expect(result.prompt).toContain('dimly lit dive bar');
-    expect(result.prompt).toContain('neon, dim lighting');
-    expect(result.prompt).toContain('tense atmosphere');
-  });
-
-  it('injects standalone equipment as props', () => {
-    const eq: Equipment = {
-      id: 'eq-2',
-      name: 'antique clock',
-      type: 'furniture',
-      description: 'An ornate grandfather clock ticking loudly.',
-      tags: [],
-      referenceImages: [],
-      createdAt: 0,
-      updatedAt: 0,
-    };
-
-    const result = compilePrompt({
-      nodeType: 'image',
-      prompt: 'A scene in the manor',
-      equipmentItems: [eq],
-      providerId: 'kling',
-      mode: 'text-to-image',
-      presetLibrary: [],
-    });
-
-    expect(result.prompt).toContain('Props: antique clock: An ornate grandfather clock ticking loudly');
-  });
-
-  it('uses medium shot description when camera preset is medium', () => {
-    const character: Character = {
-      id: 'char-2',
-      name: 'Sophia',
-      role: 'supporting',
-      description: 'A skilled hacker.',
-      appearance: 'Petite with platinum blonde pixie cut. Wears cyberpunk gear.',
-      personality: 'Witty',
-      costumes: [
-        { id: 'c1', name: 'cyber-suit', description: 'neon-trimmed cyber suit' },
-      ],
-      tags: [],
-      referenceImages: [],
-      loadouts: [{ id: 'l1', name: 'default', equipmentIds: [] }],
-      defaultLoadoutId: 'l1',
-      createdAt: 0,
-      updatedAt: 0,
-    };
-    const resolved: ResolvedCharacter = {
-      character,
-      costume: 'cyber-suit',
-    };
-
-    const tracks = makeTracks();
-    tracks.camera.entries.push({
-      id: 'e-cam',
-      category: 'camera',
-      presetId: 'medium-shot',
-      params: {},
-      order: 0,
-    });
-
-    const result = compilePrompt({
-      nodeType: 'image',
-      prompt: 'Hacking scene',
-      presetTracks: tracks,
+      prompt: 'A scene in the city',
       characters: [resolved],
+      locations: [location],
+      equipmentItems: [equipment],
       providerId: 'kling',
       mode: 'text-to-image',
       presetLibrary: [],
     });
 
-    expect(result.prompt).toContain('Sophia');
-    expect(result.prompt).toContain('neon-trimmed cyber suit');
-  });
-
-  it('falls back to ID-based injection when resolved entities are not provided', () => {
-    const result = compilePrompt({
-      nodeType: 'image',
-      prompt: 'A test scene',
-      characterRefs: [{ characterId: 'alex', loadoutId: 'l1' }],
-      equipmentRefs: [{ equipmentId: 'gun-01' }],
-      locationRefs: [{ locationId: 'bar-01' }],
-      providerId: 'kling',
-      mode: 'text-to-image',
-      presetLibrary: [],
-    });
-
-    expect(result.prompt).toContain('Characters: alex');
-    expect(result.prompt).toContain('Equipment: gun-01');
-    expect(result.prompt).toContain('Location: bar-01');
+    // Entity descriptions should NOT be injected — AI writes the full prompt
+    expect(result.prompt).toContain('A scene in the city');
+    expect(result.prompt).not.toContain('Alex');
+    expect(result.prompt).not.toContain('The Blue Moon Bar');
+    expect(result.prompt).not.toContain('handgun');
+    expect(result.prompt).not.toContain('Props:');
   });
 
   it('detects conflicting presets and reports diagnostic', () => {
@@ -623,7 +513,7 @@ describe('compilePrompt', () => {
       presetLibrary: [],
       sfxPlacement: 'close',
       locations: [{
-        id: 'loc1', name: 'Dungeon', type: 'interior',
+        id: 'loc1', name: 'Dungeon',
         description: '', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0,
         atmosphereKeywords: ['echoing', 'damp'],
       }],
@@ -635,7 +525,6 @@ describe('compilePrompt', () => {
     });
 
     expect(result.prompt).toContain('sword clash');
-    expect(result.prompt).toContain('interior');
     expect(result.prompt).toContain('Dungeon');
     expect(result.prompt).toContain('echoing');
     expect(result.prompt).toContain('forged steel Broadsword');

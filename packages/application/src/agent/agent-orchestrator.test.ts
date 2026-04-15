@@ -147,7 +147,7 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('test', { page: 'script-editor', sceneId: 'sc-1' }, () => {});
+    await agent.execute('test', { page: 'script-editor', extra: { sceneId: 'sc-1' } }, () => {});
 
     const call = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0];
     const messages = call[0] as Array<{ role: string; content: string }>;
@@ -738,5 +738,137 @@ describe('AgentOrchestrator', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain("Tool 'character.list' exists but is not loaded");
     expect(result.error).toContain('tool.get');
+  });
+
+  it('injects a process-bound system prompt after a matching tool call', async () => {
+    toolRegistry.register({
+      name: 'character.generateRefImage',
+      description: 'Generate a character reference image',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: { assetHash: 'asset-1' } })),
+    });
+
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-ref', name: 'character.generateRefImage', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: 'done',
+        toolCalls: [],
+        finishReason: 'stop',
+      },
+    ]);
+
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resolveProcessPrompt: (processKey) =>
+        processKey === 'ref-image-generation' ? 'Ref image rules go here.' : null,
+    });
+
+    await agent.execute('generate ref', {}, () => {}, {
+      discoveredTools: ['character.generateRefImage'],
+    });
+
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+
+    expect(secondCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'system',
+          content: expect.stringContaining('[[process-prompt:ref-image-generation]]'),
+        }),
+        expect.objectContaining({
+          role: 'system',
+          content: expect.stringContaining('[Process Guide: 参考图生成]'),
+        }),
+      ]),
+    );
+  });
+
+  it('deduplicates and later strips inactive process prompts', async () => {
+    const imageGenerateTool = vi.fn(async () => ({ success: true, data: { nodeId: 'image-1' } }));
+    const noopTool = vi.fn(async () => ({ success: true, data: { ok: true } }));
+
+    toolRegistry.register({
+      name: 'canvas.generate',
+      description: 'Generate node media',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: imageGenerateTool,
+    });
+    toolRegistry.register({
+      name: 'noop.tool',
+      description: 'No-op',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: noopTool,
+    });
+
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-1', name: 'canvas.generate', arguments: { nodeType: 'image' } }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-2', name: 'canvas.generate', arguments: { nodeType: 'image' } }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-3', name: 'noop.tool', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-4', name: 'noop.tool', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-5', name: 'noop.tool', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      {
+        content: 'done',
+        toolCalls: [],
+        finishReason: 'stop',
+      },
+    ]);
+
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resolveProcessPrompt: (processKey) =>
+        processKey === 'image-node-generation' ? 'Image prompt rules.' : null,
+    });
+
+    await agent.execute('run workflow', {}, () => {}, {
+      discoveredTools: ['canvas.generate', 'noop.tool'],
+    });
+
+    const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[2][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    const injectedSystemMessages = thirdCallMessages.filter(
+      (message) =>
+        message.role === 'system' &&
+        message.content.includes('[[process-prompt:image-node-generation]]'),
+    );
+    expect(injectedSystemMessages).toHaveLength(1);
+
+    const sixthCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[5][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(
+      sixthCallMessages.some(
+        (message) =>
+          message.role === 'system' &&
+          message.content.includes('[[process-prompt:image-node-generation]]'),
+      ),
+    ).toBe(false);
   });
 });

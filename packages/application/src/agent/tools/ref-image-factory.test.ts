@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRefImageTool, type RefImageFactoryConfig, type RefImageEntity } from './ref-image-factory.js';
+import { createRefImageTools, type RefImageFactoryConfig, type RefImageEntity } from './ref-image-factory.js';
 
 interface TestEntity extends RefImageEntity {
   name: string;
@@ -7,7 +7,7 @@ interface TestEntity extends RefImageEntity {
 
 function createConfig(overrides?: Partial<RefImageFactoryConfig<TestEntity>>): RefImageFactoryConfig<TestEntity> {
   return {
-    toolName: 'test.refImage',
+    toolNamePrefix: 'test',
     entityLabel: 'test entity',
     tags: ['test'],
     getEntity: vi.fn(async (id) => id === 'e1' ? { id: 'e1', name: 'Entity 1', referenceImages: [] } : null),
@@ -19,61 +19,56 @@ function createConfig(overrides?: Partial<RefImageFactoryConfig<TestEntity>>): R
   };
 }
 
-describe('createRefImageTool', () => {
+describe('createRefImageTools', () => {
   describe('tool metadata', () => {
-    it('has correct name', () => {
-      const tool = createRefImageTool(createConfig());
-      expect(tool.name).toBe('test.refImage');
+    it('generates correct tool names', () => {
+      const tools = createRefImageTools(createConfig({ getCanvas: vi.fn(async () => ({} as never)) }));
+      const names = tools.map((t) => t.name);
+      expect(names).toContain('test.generateRefImage');
+      expect(names).toContain('test.setRefImage');
+      expect(names).toContain('test.deleteRefImage');
+      expect(names).toContain('test.setRefImageFromNode');
     });
 
-    it('has correct tags', () => {
-      const tool = createRefImageTool(createConfig());
-      expect(tool.tags).toEqual(['test']);
+    it('has correct tags on all tools', () => {
+      const tools = createRefImageTools(createConfig());
+      for (const tool of tools) {
+        expect(tool.tags).toEqual(['test']);
+      }
     });
 
-    it('has tier 3', () => {
-      const tool = createRefImageTool(createConfig());
-      expect(tool.tier).toBe(3);
+    it('all tools have tier 3', () => {
+      const tools = createRefImageTools(createConfig());
+      for (const tool of tools) {
+        expect(tool.tier).toBe(3);
+      }
     });
 
-    it('has no context set', () => {
-      const tool = createRefImageTool(createConfig());
-      expect(tool.context).toBeUndefined();
+    it('excludes generateRefImage when generateImage is not provided', () => {
+      const tools = createRefImageTools(createConfig({ generateImage: undefined }));
+      const names = tools.map((t) => t.name);
+      expect(names).not.toContain('test.generateRefImage');
+      expect(names).toContain('test.setRefImage');
+      expect(names).toContain('test.deleteRefImage');
     });
 
-    it('uses default description when none provided', () => {
-      const tool = createRefImageTool(createConfig());
-      expect(tool.description).toBe('Manage reference images for a test entity.');
-    });
-
-    it('uses custom description when provided', () => {
-      const tool = createRefImageTool(createConfig({ description: 'Custom description' }));
-      expect(tool.description).toBe('Custom description');
-    });
-
-    it('includes generate in actionEnum when generateImage is provided', () => {
-      const tool = createRefImageTool(createConfig());
-      const actionParam = tool.parameters.properties['action'];
-      expect(actionParam.enum).toContain('generate');
-    });
-
-    it('excludes generate from actionEnum when generateImage is not provided', () => {
-      const tool = createRefImageTool(createConfig({ generateImage: undefined }));
-      const actionParam = tool.parameters.properties['action'];
-      expect(actionParam.enum).not.toContain('generate');
+    it('excludes setRefImageFromNode when getCanvas is not provided', () => {
+      const tools = createRefImageTools(createConfig({ getCanvas: undefined }));
+      const names = tools.map((t) => t.name);
+      expect(names).not.toContain('test.setRefImageFromNode');
     });
   });
 
-  describe('action: generate', () => {
+  describe('generateRefImage', () => {
     it('generates image and saves entity with new ref image', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      const result = await tool.execute({ action: 'generate', id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
 
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ assetHash: 'hash-123', slot: 'portrait' });
-      expect(config.generateImage).toHaveBeenCalledWith('test prompt', expect.objectContaining({ width: 1536, height: 1024 }));
+      expect(config.generateImage).toHaveBeenCalledWith('test prompt', expect.objectContaining({ width: 2048, height: 1360 }));
       expect(config.saveEntity).toHaveBeenCalledOnce();
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
@@ -82,41 +77,45 @@ describe('createRefImageTool', () => {
 
     it('defaults slot to "main" when slot not provided', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      const result = await tool.execute({ action: 'generate', id: 'e1' });
+      const result = await tool.execute({ id: 'e1' });
 
       expect(result.success).toBe(true);
       const data = result.data as { slot: string };
       expect(data.slot).toBe('main');
     });
 
-    it('uses custom prompt override when provided', async () => {
+    it('uses AI prompt as primary when provided, ignoring buildPrompt', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      await tool.execute({ action: 'generate', id: 'e1', slot: 'portrait', prompt: 'custom prompt' });
+      await tool.execute({ id: 'e1', slot: 'portrait', prompt: 'custom prompt from AI' });
 
-      expect(config.generateImage).toHaveBeenCalledWith('custom prompt', expect.anything());
-      expect(config.buildPrompt).not.toHaveBeenCalled();
+      // buildPrompt should NOT be called when AI provides its own prompt
+      expect(config.generateImage).toHaveBeenCalledWith(
+        'custom prompt from AI',
+        expect.anything(),
+      );
+    });
+
+    it('falls back to buildPrompt when AI prompt is omitted', async () => {
+      const config = createConfig();
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({ id: 'e1', slot: 'portrait' });
+
+      expect(config.buildPrompt).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), 'portrait');
+      expect(config.generateImage).toHaveBeenCalledWith('test prompt', expect.anything());
     });
 
     it('returns fail for missing entity', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      const result = await tool.execute({ action: 'generate', id: 'missing' });
+      const result = await tool.execute({ id: 'missing' });
 
       expect(result).toEqual({ success: false, error: 'Test entity not found: missing' });
-    });
-
-    it('returns fail when generateImage is not available', async () => {
-      const config = createConfig({ generateImage: undefined });
-      const tool = createRefImageTool(config);
-
-      const result = await tool.execute({ action: 'generate', id: 'e1', slot: 'portrait' });
-
-      expect(result).toEqual({ success: false, error: 'Image generation not available' });
     });
 
     it('pushes previous assetHash to variants on re-generate', async () => {
@@ -127,9 +126,9 @@ describe('createRefImageTool', () => {
           referenceImages: [{ slot: 'portrait', assetHash: 'old-hash', isStandard: true }],
         })),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      const result = await tool.execute({ action: 'generate', id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
 
       expect(result.success).toBe(true);
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
@@ -139,12 +138,12 @@ describe('createRefImageTool', () => {
     });
   });
 
-  describe('action: set', () => {
+  describe('setRefImage', () => {
     it('sets ref image from existing asset', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ action: 'set', id: 'e1', slot: 'portrait', assetHash: 'abc' });
+      const result = await tool.execute({ id: 'e1', slot: 'portrait', assetHash: 'abc' });
 
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ assetHash: 'abc', slot: 'portrait' });
@@ -156,9 +155,9 @@ describe('createRefImageTool', () => {
 
     it('returns fail when assetHash is missing', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', action: 'set', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('assetHash is required');
@@ -166,9 +165,9 @@ describe('createRefImageTool', () => {
 
     it('returns fail when slot is missing', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', action: 'set', assetHash: 'abc' });
+      const result = await tool.execute({ id: 'e1', assetHash: 'abc' });
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('slot is required');
@@ -176,9 +175,9 @@ describe('createRefImageTool', () => {
 
     it('returns fail for missing entity', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ action: 'set', id: 'missing', slot: 'portrait', assetHash: 'abc' });
+      const result = await tool.execute({ id: 'missing', slot: 'portrait', assetHash: 'abc' });
 
       expect(result.success).toBe(false);
     });
@@ -191,9 +190,9 @@ describe('createRefImageTool', () => {
           referenceImages: [{ slot: 'portrait', assetHash: 'old', isStandard: true }],
         })),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      await tool.execute({ action: 'set', id: 'e1', slot: 'portrait', assetHash: 'new' });
+      await tool.execute({ id: 'e1', slot: 'portrait', assetHash: 'new' });
 
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
@@ -201,7 +200,7 @@ describe('createRefImageTool', () => {
     });
   });
 
-  describe('action: delete', () => {
+  describe('deleteRefImage', () => {
     it('removes ref image for slot', async () => {
       const config = createConfig({
         getEntity: vi.fn(async () => ({
@@ -213,9 +212,9 @@ describe('createRefImageTool', () => {
           ],
         })),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.deleteRefImage')!;
 
-      const result = await tool.execute({ action: 'delete', id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
 
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ id: 'e1', slot: 'portrait' });
@@ -226,25 +225,25 @@ describe('createRefImageTool', () => {
 
     it('returns fail for missing entity', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.deleteRefImage')!;
 
-      const result = await tool.execute({ action: 'delete', id: 'missing', slot: 'portrait' });
+      const result = await tool.execute({ id: 'missing', slot: 'portrait' });
 
       expect(result.success).toBe(false);
     });
 
     it('returns fail when slot is missing', async () => {
       const config = createConfig();
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.deleteRefImage')!;
 
-      const result = await tool.execute({ action: 'delete', id: 'e1' });
+      const result = await tool.execute({ id: 'e1' });
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('slot is required');
     });
   });
 
-  describe('action: setFromNode', () => {
+  describe('setRefImageFromNode', () => {
     function buildCanvas(nodeOverrides?: Partial<{ type: string; data: Record<string, unknown> }>) {
       return {
         id: 'canvas-1',
@@ -280,10 +279,9 @@ describe('createRefImageTool', () => {
       const config = createConfig({
         getCanvas: vi.fn(async () => canvas as never),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImageFromNode')!;
 
       const result = await tool.execute({
-        action: 'setFromNode',
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -300,10 +298,9 @@ describe('createRefImageTool', () => {
       const config = createConfig({
         getCanvas: vi.fn(async () => canvas as never),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImageFromNode')!;
 
       const result = await tool.execute({
-        action: 'setFromNode',
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -315,30 +312,14 @@ describe('createRefImageTool', () => {
       expect(data.assetHash).toBe('fallback-hash');
     });
 
-    it('returns fail when getCanvas is not configured', async () => {
-      const config = createConfig({ getCanvas: undefined });
-      const tool = createRefImageTool(config);
-
-      const result = await tool.execute({
-        action: 'setFromNode',
-        id: 'e1',
-        canvasId: 'canvas-1',
-        nodeId: 'node-1',
-        slot: 'portrait',
-      });
-
-      expect(result).toEqual({ success: false, error: 'getCanvas not available' });
-    });
-
     it('returns fail when node is not found', async () => {
       const canvas = buildCanvas();
       const config = createConfig({
         getCanvas: vi.fn(async () => canvas as never),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImageFromNode')!;
 
       const result = await tool.execute({
-        action: 'setFromNode',
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-999',
@@ -353,10 +334,9 @@ describe('createRefImageTool', () => {
       const config = createConfig({
         getCanvas: vi.fn(async () => canvas as never),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImageFromNode')!;
 
       const result = await tool.execute({
-        action: 'setFromNode',
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -372,10 +352,9 @@ describe('createRefImageTool', () => {
       const config = createConfig({
         getCanvas: vi.fn(async () => canvas as never),
       });
-      const tool = createRefImageTool(config);
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImageFromNode')!;
 
       const result = await tool.execute({
-        action: 'setFromNode',
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -383,17 +362,6 @@ describe('createRefImageTool', () => {
       });
 
       expect(result).toEqual({ success: false, error: 'No generated asset on node' });
-    });
-  });
-
-  describe('unknown action', () => {
-    it('returns fail for unknown action', async () => {
-      const config = createConfig();
-      const tool = createRefImageTool(config);
-
-      const result = await tool.execute({ action: 'fly', id: 'e1' });
-
-      expect(result).toEqual({ success: false, error: 'Unknown action: fly' });
     });
   });
 });

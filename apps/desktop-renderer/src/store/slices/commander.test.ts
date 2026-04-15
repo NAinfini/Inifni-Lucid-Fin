@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   addToolCall,
   addUserMessage,
+  addInjectedMessage,
   appendStreamChunk,
   clearHistory,
   commanderSlice,
@@ -205,6 +206,44 @@ describe('commander slice', () => {
       state = commanderSlice.reducer(state, startStreaming());
       expect(state.open).toBe(true);
       expect(state.minimized).toBe(false);
+    });
+  });
+
+  describe('addInjectedMessage during streaming', () => {
+    it('queues messages that are committed after finishStreaming', () => {
+      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
+      state = commanderSlice.reducer(state, startStreaming());
+      state = commanderSlice.reducer(state, appendStreamChunk('AI reply'));
+      // User injects messages during streaming
+      state = commanderSlice.reducer(state, addInjectedMessage('followup 1'));
+      state = commanderSlice.reducer(state, addInjectedMessage('followup 2'));
+
+      // Pending messages are stored separately, not in messages[]
+      expect(state.pendingInjectedMessages).toHaveLength(2);
+      expect(state.messages).toHaveLength(1); // only the initial user message
+
+      state = commanderSlice.reducer(state, finishStreaming());
+
+      // After finish: assistant message + both injected user messages committed
+      expect(state.messages).toHaveLength(4);
+      expect(state.messages[0]).toEqual(expect.objectContaining({ role: 'user', content: 'hello' }));
+      expect(state.messages[1]).toEqual(expect.objectContaining({ role: 'assistant', content: 'AI reply' }));
+      expect(state.messages[2]).toEqual(expect.objectContaining({ role: 'user', content: 'followup 1' }));
+      expect(state.messages[3]).toEqual(expect.objectContaining({ role: 'user', content: 'followup 2' }));
+      expect(state.pendingInjectedMessages).toHaveLength(0);
+    });
+
+    it('commits injected messages on streamError too', () => {
+      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
+      state = commanderSlice.reducer(state, startStreaming());
+      state = commanderSlice.reducer(state, addInjectedMessage('mid-stream'));
+      state = commanderSlice.reducer(state, streamError('something broke'));
+
+      // user msg + injected user msg + error msg
+      const userMsgs = state.messages.filter((m) => m.role === 'user');
+      expect(userMsgs).toHaveLength(2);
+      expect(userMsgs[1].content).toBe('mid-stream');
+      expect(state.pendingInjectedMessages).toHaveLength(0);
     });
   });
 });

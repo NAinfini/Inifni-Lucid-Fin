@@ -9,10 +9,10 @@ import type {
   Equipment,
   EquipmentLoadout,
   EquipmentType,
+  IpcProcessPrompt,
   LLMProviderRuntimeInput,
   LLMProviderRuntimeConfig,
   Location,
-  LocationType,
   PresetCategory,
   PresetDefinition,
   PresetLibraryExportPayload,
@@ -365,6 +365,11 @@ declare global {
         onProgress: (cb: (job: JobSummary) => void) => () => void;
         onComplete: (cb: (job: JobSummary) => void) => () => void;
       };
+      refimage: {
+        onStart: (cb: (data: { jobId: string; provider: string; width: number; height: number }) => void) => () => void;
+        onComplete: (cb: (data: { jobId: string; assetHash: string }) => void) => () => void;
+        onFailed: (cb: (data: { jobId: string; error: string }) => void) => () => void;
+      };
       workflow: {
         list: (filter?: Record<string, unknown>) => Promise<WorkflowActivitySummary[]>;
         get: (id: string) => Promise<WorkflowActivitySummary>;
@@ -401,6 +406,12 @@ declare global {
         promptSetCustom: (code: string, value: string) => Promise<void>;
         promptClearCustom: (code: string) => Promise<void>;
       };
+      processPrompt: {
+        list: () => Promise<IpcProcessPrompt[]>;
+        get: (processKey: string) => Promise<IpcProcessPrompt>;
+        setCustom: (processKey: string, value: string) => Promise<void>;
+        reset: (processKey: string) => Promise<void>;
+      };
       commander: {
         chat: (
           canvasId: string,
@@ -414,6 +425,8 @@ declare global {
           maxSteps?: number,
           temperature?: number,
           maxTokens?: number,
+          sessionId?: string,
+          defaultProviders?: Record<string, string>,
         ) => Promise<void>;
         cancel: (canvasId: string) => Promise<void>;
         compact: (canvasId: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
@@ -423,7 +436,7 @@ declare global {
         toolList: () => Promise<CommanderToolSummary[]>;
         toolSearch: (query?: string) => Promise<CommanderToolSearchResult[]>;
         onStream: (cb: (data: {
-          type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question';
+          type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question' | 'context_usage' | 'thinking';
           content?: string;
           toolName?: string;
           toolCallId?: string;
@@ -435,6 +448,16 @@ declare global {
           options?: Array<{ label: string; description?: string }>;
           startedAt?: number;
           completedAt?: number;
+          estimatedTokensUsed?: number;
+          contextWindowTokens?: number;
+          messageCount?: number;
+          systemPromptChars?: number;
+          toolSchemaChars?: number;
+          messageChars?: number;
+          cacheChars?: number;
+          cacheEntryCount?: number;
+          historyMessagesTrimmed?: number;
+          utilizationRatio?: number;
         }) => void) => () => void;
         onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;

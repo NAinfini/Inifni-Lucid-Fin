@@ -1,6 +1,7 @@
 import type {
   AIProviderAdapter,
   AdapterType,
+  AdapterConfigureOptions,
   Capability,
   GenerationRequest,
   GenerationResult,
@@ -26,14 +27,16 @@ export class ReplicateAdapter implements AIProviderAdapter {
   private model = 'black-forest-labs/flux-1.1-pro';
   private videoModel = 'minimax/video-01';
 
-  configure(apiKey: string, options?: Record<string, unknown>): void {
+  configure(apiKey: string, options?: AdapterConfigureOptions): void {
     this.apiKey = apiKey;
     if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
     if (options?.model) {
-      this.model = options.model as string;
-      this.videoModel = options.model as string;
+      if (options.generationType === 'video') {
+        this.videoModel = options.model as string;
+      } else {
+        this.model = options.model as string;
+      }
     }
-    if (options?.videoModel) this.videoModel = options.videoModel as string;
   }
 
   async validate(): Promise<boolean> {

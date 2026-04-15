@@ -75,13 +75,21 @@ describe('entityMutatingToolNames', () => {
     expect(entityMutatingToolNames.has('equipment.create')).toBe(true);
     expect(entityMutatingToolNames.has('equipment.update')).toBe(true);
     expect(entityMutatingToolNames.has('equipment.delete')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.refImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.generateRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.setRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.deleteRefImage')).toBe(true);
   });
 
   it('includes reference image tools for all entity types', () => {
-    expect(entityMutatingToolNames.has('character.refImage')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.refImage')).toBe(true);
-    expect(entityMutatingToolNames.has('location.refImage')).toBe(true);
+    expect(entityMutatingToolNames.has('character.generateRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('character.setRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('character.deleteRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.generateRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.setRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('equipment.deleteRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('location.generateRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('location.setRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('location.deleteRefImage')).toBe(true);
   });
 });
 

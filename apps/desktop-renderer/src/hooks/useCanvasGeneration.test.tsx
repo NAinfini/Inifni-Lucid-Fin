@@ -8,6 +8,7 @@ import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canvasSlice, setActiveCanvas } from '../store/slices/canvas.js';
 import { loggerSlice } from '../store/slices/logger.js';
+import { settingsSlice } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
 import { useCanvasGeneration } from './useCanvasGeneration.js';
 
@@ -62,6 +63,7 @@ function renderHookHarness({
     reducer: {
       canvas: canvasSlice.reducer,
       logger: loggerSlice.reducer,
+      settings: settingsSlice.reducer,
     },
   });
 
@@ -231,6 +233,65 @@ describe('useCanvasGeneration', () => {
           message: 'Canvas generation queued',
         }),
       ]),
+    );
+  });
+
+  it('passes the configured provider override through generate and estimate requests', async () => {
+    const generate = vi.fn().mockResolvedValue({ jobId: 'job-321' });
+    const estimateCost = vi.fn().mockResolvedValue({ estimatedCost: 0.25, currency: 'USD' });
+
+    vi.mocked(getAPI).mockReturnValue({
+      canvasGeneration: {
+        onProgress: vi.fn(() => () => {}),
+        onComplete: vi.fn(() => () => {}),
+        onFailed: vi.fn(() => () => {}),
+        generate,
+        estimateCost,
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const { getHook } = renderHookHarness({
+      canvases: [
+        createCanvas([
+          createCanvasNode({
+            data: {
+              status: 'empty',
+              progress: 0,
+              variants: [],
+              selectedVariantIndex: 0,
+              providerId: 'replicate',
+            },
+          }),
+        ]),
+      ],
+    });
+
+    await act(async () => {
+      await getHook().generate('node-1');
+    });
+    await act(async () => {
+      await getHook().estimateCost('node-1', 'replicate');
+    });
+
+    expect(generate).toHaveBeenCalledWith(
+      'canvas-1',
+      'node-1',
+      undefined,
+      undefined,
+      undefined,
+      expect.objectContaining({
+        baseUrl: expect.any(String),
+        model: expect.any(String),
+      }),
+    );
+    expect(estimateCost).toHaveBeenCalledWith(
+      'canvas-1',
+      'node-1',
+      'replicate',
+      expect.objectContaining({
+        baseUrl: expect.any(String),
+        model: expect.any(String),
+      }),
     );
   });
 });

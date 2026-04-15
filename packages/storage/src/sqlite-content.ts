@@ -1,75 +1,9 @@
 import type {
-  Scene,
   ScriptDocument,
   ColorStyle,
   Series,
 } from '@lucid-fin/contracts';
 import type BetterSqlite3 from 'better-sqlite3';
-
-// --- Scenes ---
-
-export function upsertScene(db: BetterSqlite3.Database, scene: Scene): void {
-  db.prepare(
-    `
-    INSERT INTO scenes (id, idx, title, description, location, time_of_day, characters, keyframes, segments, style_override, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      idx=excluded.idx, title=excluded.title,
-      description=excluded.description, location=excluded.location, time_of_day=excluded.time_of_day,
-      characters=excluded.characters, keyframes=excluded.keyframes, segments=excluded.segments,
-      style_override=excluded.style_override, updated_at=excluded.updated_at
-  `,
-  ).run(
-    scene.id,
-    scene.index,
-    scene.title,
-    scene.description ?? '',
-    scene.location ?? '',
-    scene.timeOfDay ?? '',
-    JSON.stringify(scene.characters ?? []),
-    JSON.stringify(scene.keyframes ?? []),
-    JSON.stringify(scene.segments ?? []),
-    scene.styleOverride ? JSON.stringify(scene.styleOverride) : null,
-    scene.createdAt,
-    scene.updatedAt,
-  );
-}
-
-export function getScene(db: BetterSqlite3.Database, id: string): Scene | undefined {
-  const row = db.prepare('SELECT * FROM scenes WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined;
-  if (!row) return undefined;
-  return rowToScene(row);
-}
-
-export function listScenes(db: BetterSqlite3.Database): Scene[] {
-  const rows = db
-    .prepare('SELECT * FROM scenes ORDER BY idx ASC')
-    .all() as Array<Record<string, unknown>>;
-  return rows.map((r) => rowToScene(r));
-}
-
-export function deleteScene(db: BetterSqlite3.Database, id: string): void {
-  db.prepare('DELETE FROM scenes WHERE id = ?').run(id);
-}
-
-function rowToScene(row: Record<string, unknown>): Scene {
-  return {
-    id: row.id as string,
-    index: row.idx as number,
-    title: row.title as string,
-    description: (row.description as string) ?? '',
-    location: (row.location as string) ?? '',
-    timeOfDay: (row.time_of_day as string) ?? '',
-    characters: JSON.parse((row.characters as string) || '[]'),
-    keyframes: JSON.parse((row.keyframes as string) || '[]'),
-    segments: JSON.parse((row.segments as string) || '[]'),
-    styleOverride: row.style_override ? JSON.parse(row.style_override as string) : undefined,
-    createdAt: row.created_at as number,
-    updatedAt: row.updated_at as number,
-  };
-}
 
 // --- Scripts ---
 

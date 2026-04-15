@@ -110,6 +110,14 @@ export function localizePromptTemplateName(id: string, fallback: string): string
   return localizeWithFallback('promptTemplateNames.' + id, fallback);
 }
 
+export function localizeProcessPromptName(processKey: string, fallback: string): string {
+  return localizeWithFallback('processPromptNames.' + processKey, fallback);
+}
+
+export function localizeProcessPromptDescription(processKey: string, fallback: string): string {
+  return localizeWithFallback('processPromptDescriptions.' + processKey, fallback);
+}
+
 export function localizeWorkflowDefinitionName(id: string, fallback: string): string {
   return localizeWithFallback('workflowDefinitionNames.' + id, fallback);
 }

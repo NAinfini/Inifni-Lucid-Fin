@@ -124,8 +124,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       refs.push(refImage);
 
       db.upsertCharacter({
-        id: char.id,
-        name: char.name,
+        ...char,
         referenceImages: refs,
         updatedAt: Date.now(),
       });
@@ -146,8 +145,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       const refs = char.referenceImages.filter((r) => r.slot !== args.slot);
 
       db.upsertCharacter({
-        id: char.id,
-        name: char.name,
+        ...char,
         referenceImages: refs,
         updatedAt: Date.now(),
       });

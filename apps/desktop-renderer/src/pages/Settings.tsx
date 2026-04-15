@@ -6,7 +6,8 @@ import { t, setLocale, getLocale, onLocaleChange, type Locale } from '../i18n.js
 import type { RootState } from '../store/index.js';
 import { setTheme, type Theme } from '../store/slices/ui.js';
 import { SettingsAppearanceSection } from '../components/settings/SettingsAppearanceSection.js';
-import { SettingsPromptTemplatesSection } from '../components/settings/SettingsPromptTemplatesSection.js';
+import { SettingsGuidesSection } from '../components/settings/SettingsGuidesSection.js';
+import { SettingsProcessPromptsSection } from '../components/settings/SettingsProcessPromptsSection.js';
 import {
   SettingsSidebarNav,
   translateOrFallback,
@@ -24,26 +25,24 @@ import {
 } from '../store/slices/promptTemplates.js';
 import { SettingsProvidersSection } from './SettingsProvidersSection.js';
 import { SettingsUpdateSection } from './SettingsUpdateSection.js';
-import { SettingsWorkflowsSection } from './SettingsWorkflowsSection.js';
 import { SettingsStorageSection } from './SettingsStorageSection.js';
 import { SettingsCommanderSection } from './SettingsCommanderSection.js';
 import { SettingsUsageSection } from './SettingsUsageSection.js';
-
-type TemplateDraft = {
-  content: string;
-  name: string;
-};
+import {
+  addEntry as addWorkflowEntry,
+  removeEntry as removeWorkflowEntry,
+  updateEntry as updateWorkflowEntry,
+} from '../store/slices/workflowDefinitions.js';
 
 export function Settings() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const theme = useSelector((state: RootState) => state.ui.theme);
   const templates = useSelector((state: RootState) => state.promptTemplates.templates);
+  const workflowEntries = useSelector((state: RootState) => state.workflowDefinitions.entries);
   const [locale, setLocaleState] = useState<Locale>(getLocale());
   const [activeTab, setActiveTab] = useState<SettingsTab>('commander');
   const [providerSubTab, setProviderSubTab] = useState<APIGroup>('llm');
-  const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
-  const [templateDrafts, setTemplateDrafts] = useState<Record<string, TemplateDraft>>({});
 
   useEffect(() => {
     return onLocaleChange(() => setLocaleState(getLocale()));
@@ -66,58 +65,34 @@ export function Settings() {
     window.location.reload();
   }, []);
 
-  const handleExpandedTemplateIdChange = useCallback((id: string | null) => {
-    setExpandedTemplateId(id);
-  }, []);
-
-  const handleTemplateDraftChange = useCallback((id: string, draft: TemplateDraft) => {
-    setTemplateDrafts((previous) => ({ ...previous, [id]: draft }));
-  }, []);
-
-  const handleResetAllTemplates = useCallback(() => {
-    dispatch(resetAllContent());
-    setExpandedTemplateId(null);
-    setTemplateDrafts({});
-  }, [dispatch]);
-
-  const handleResetTemplate = useCallback(
-    (id: string) => {
-      dispatch(resetContent(id));
-    },
-    [dispatch],
-  );
-
-  const handleSaveTemplate = useCallback(
-    (id: string, draft: TemplateDraft) => {
-      dispatch(renameTemplate({ id, name: draft.name }));
-      dispatch(setCustomContent({ id, content: draft.content }));
-    },
-    [dispatch],
-  );
-
   const activeTabTitle =
     activeTab === 'appearance'
       ? t('settings.appearance.title')
-      : activeTab === 'promptTemplates'
-        ? t('settings.promptTemplates')
-        : activeTab === 'workflows'
-          ? translateOrFallback('settings.workflows.title', 'Workflows & Skills')
+      : activeTab === 'guides'
+        ? t('settings.guides.title')
+        : activeTab === 'processGuides'
+          ? t('settings.processGuides.title')
           : activeTab === 'storage'
             ? translateOrFallback('settings.storage.title', 'Storage & Data')
-            : activeTab === 'commander'
-              ? translateOrFallback('settings.commander.title', 'Commander AI')
-              : activeTab === 'usage'
-                ? translateOrFallback('settings.usage.title', 'Usage Statistics')
-                : activeTab === 'about'
+          : activeTab === 'commander'
+            ? translateOrFallback('settings.commander.title', 'Commander AI')
+            : activeTab === 'usage'
+              ? translateOrFallback('settings.usage.title', 'Usage Statistics')
+              : activeTab === 'about'
                 ? t('settings.update.title')
                 : translateOrFallback('settings.nav.providers', 'Providers');
 
   const activeTabDescription =
-    activeTab === 'workflows'
+    activeTab === 'guides'
       ? translateOrFallback(
-          'settings.workflows.subtitle',
-          'Dedicated space for workflow and skill controls.',
+          'settings.guides.subtitle',
+          'Prompt templates and workflow guides that Commander can read on demand.',
         )
+      : activeTab === 'processGuides'
+        ? translateOrFallback(
+            'settings.processGuides.subtitle',
+            'Edit the process-specific guidance that Commander injects on demand.',
+          )
       : undefined;
 
   return (
@@ -172,22 +147,23 @@ export function Settings() {
                     />
                   )}
 
-                  {activeTab === 'promptTemplates' && (
-                    <SettingsPromptTemplatesSection
-                      expandedTemplateId={expandedTemplateId}
-                      onExpandedTemplateIdChange={handleExpandedTemplateIdChange}
-                      onResetAll={handleResetAllTemplates}
-                      onResetTemplate={handleResetTemplate}
-                      onSaveTemplate={handleSaveTemplate}
-                      onTemplateDraftChange={handleTemplateDraftChange}
+                  {activeTab === 'guides' && (
+                    <SettingsGuidesSection
+                      templates={templates}
+                      workflowEntries={workflowEntries}
                       onAddTemplate={(template) => dispatch(addCustomTemplate(template))}
                       onRemoveTemplate={(id) => dispatch(removeCustomTemplate(id))}
-                      templateDrafts={templateDrafts}
-                      templates={templates.filter((template) => template.category !== 'skill')}
+                      onRenameTemplate={(payload) => dispatch(renameTemplate(payload))}
+                      onSetTemplateContent={(payload) => dispatch(setCustomContent(payload))}
+                      onResetAllTemplates={() => dispatch(resetAllContent())}
+                      onResetTemplate={(id) => dispatch(resetContent(id))}
+                      onAddWorkflowEntry={(entry) => dispatch(addWorkflowEntry(entry))}
+                      onUpdateWorkflowEntry={(payload) => dispatch(updateWorkflowEntry(payload))}
+                      onRemoveWorkflowEntry={(id) => dispatch(removeWorkflowEntry(id))}
                     />
                   )}
 
-                  {activeTab === 'workflows' && <SettingsWorkflowsSection />}
+                  {activeTab === 'processGuides' && <SettingsProcessPromptsSection />}
 
                   {activeTab === 'commander' && <SettingsCommanderSection />}
 

@@ -171,6 +171,7 @@ export function CanvasWorkspace() {
   const nodeCallbacks = useCanvasNodeCallbacks({
     generate,
     setConnectingFromNodeId,
+    setVideoCloneOpen,
   });
   const edgeCallbacks = useCanvasEdgeCallbacks();
 
@@ -710,7 +711,6 @@ export function CanvasWorkspace() {
           onToggleSnapToGrid={() => dispatch(toggleSnapToGrid())}
           onExportWorkflow={handleExportWorkflow}
           onImportWorkflow={handleOpenWorkflowImport}
-          onCloneVideo={() => setVideoCloneOpen(true)}
           onUndo={handleUndo}
           onRedo={handleRedo}
           undoEnabled={undoEnabled}

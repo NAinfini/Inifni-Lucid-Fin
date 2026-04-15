@@ -199,7 +199,7 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
     });
   });
 
-  it('throws a structured error when Claude returns JSON without extractable assistant content or tool calls', async () => {
+  it('extracts reasoning from a response that only contains thinking content blocks', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -232,35 +232,23 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
       baseUrl: 'https://proxy.example/v1',
     });
 
-    await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }], {
-        tools: [
-          {
-            name: 'tool.search',
-            description: 'Search tools',
-            parameters: {
-              type: 'object',
-              properties: {},
-            },
+    const result = await adapter.completeWithTools([{ role: 'user', content: 'hello' }], {
+      tools: [
+        {
+          name: 'tool.search',
+          description: 'Search tools',
+          parameters: {
+            type: 'object',
+            properties: {},
           },
-        ],
-      }),
-    ).rejects.toMatchObject<Partial<LucidError>>({
-      code: ErrorCode.ServiceUnavailable,
-      message: 'Anthropic Claude returned JSON without extractable assistant content',
-      details: expect.objectContaining({
-        endpoint: 'https://proxy.example/v1/messages',
-        provider: 'Anthropic Claude',
-        providerId: 'claude',
-        baseUrl: 'https://proxy.example/v1',
-        model: 'claude-sonnet-4-20250514',
-        finishReason: 'end_turn',
-        toolCallCount: 0,
-        messageContentTypes: ['thinking'],
-        responseBody: expect.objectContaining({
-          id: 'msg_empty',
-        }),
-      }),
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      content: '',
+      toolCalls: [],
+      reasoning: 'internal only',
+      finishReason: 'stop',
     });
   });
 

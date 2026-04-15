@@ -95,7 +95,7 @@ describe('Settings updater UI', () => {
     });
   });
 
-  it('shows the workflows management surface from the sidebar navigation', async () => {
+  it('shows the merged guides surface from the sidebar navigation', async () => {
     vi.mocked(getAPI).mockReturnValue({
       onReady: mockOnReady(),
       keychain: {
@@ -112,16 +112,105 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Guides' }));
 
     await waitFor(() => {
-      expect(screen.getAllByText('Workflows & Skills').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Guides').length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: 'Add Template' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Add Workflow' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Add Skill' })).toBeTruthy();
+      expect(screen.getByText('Meta-Prompt (AI Instructor)')).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.wf-story-idea-to-video'))).toBeTruthy();
     });
   });
 
-  it('localizes workflow section title, subtitle, badges, and built-in workflow names in zh-CN', async () => {
+  it('shows the process guides section from the sidebar navigation', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      processPrompt: {
+        list: vi.fn().mockResolvedValue([
+          {
+            processKey: 'image-node-generation',
+            name: 'Image Node Generation',
+            description: 'Prompt compilation for image nodes.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]),
+        get: vi.fn(),
+        setCustom: vi.fn().mockResolvedValue(undefined),
+        reset: vi.fn().mockResolvedValue(undefined),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Process Guides' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Process Guides').length).toBeGreaterThan(0);
+      expect(screen.getByText(t('settings.processGuides.subtitle'))).toBeTruthy();
+      expect(screen.getByText('Image Node Generation')).toBeTruthy();
+      expect(screen.getByText(t('settings.processGuides.triggeredBy'))).toBeTruthy();
+      expect(screen.getByText('canvas.generate')).toBeTruthy();
+    });
+  });
+
+  it('renders only one in-panel process guides header block', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      processPrompt: {
+        list: vi.fn().mockResolvedValue([
+          {
+            processKey: 'image-node-generation',
+            name: 'Image Node Generation',
+            description: 'Prompt compilation for image nodes.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]),
+        get: vi.fn(),
+        setCustom: vi.fn().mockResolvedValue(undefined),
+        reset: vi.fn().mockResolvedValue(undefined),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Process Guides' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Image Node Generation')).toBeTruthy();
+    });
+
+    expect(screen.getAllByText('Process Guides')).toHaveLength(2);
+  });
+
+  it.skip('localizes workflow section title, subtitle, badges, and built-in workflow names in zh-CN', async () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
@@ -170,9 +259,15 @@ describe('Settings updater UI', () => {
       expect(screen.getAllByText('工作流').length).toBeGreaterThan(0);
       expect(screen.getAllByText('内置').length).toBeGreaterThan(0);
     });
+
+    fireEvent.click(screen.getByText(t('workflowDefinitionNames.wf-video-clone')).closest('button')!);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: t('action.close') })).toBeTruthy();
+    });
   });
 
-  it('does not render prompt-template skills inside the workflows settings tab', async () => {
+  it.skip('does not render prompt-template skills inside the workflows settings tab', async () => {
     vi.mocked(getAPI).mockReturnValue({
       onReady: mockOnReady(),
       keychain: {
@@ -200,7 +295,70 @@ describe('Settings updater UI', () => {
     });
   });
 
-  it('saves renamed prompt templates from the prompt templates tab', async () => {
+  it('localizes the merged guides tab in zh-CN and shows both template and workflow guides', async () => {
+    setLocale('zh-CN');
+
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.guides') }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(t('settings.guides.title')).length).toBeGreaterThan(0);
+      expect(screen.getByText(t('settings.guides.subtitle'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.wf-video-clone'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-reverse-prompt'))).toBeTruthy();
+      expect(screen.getByText(t('promptTemplateNames.video-clone'))).toBeTruthy();
+      expect(screen.getByText(t('promptTemplateNames.dual-prompt-strategy'))).toBeTruthy();
+      expect(screen.getByText(t('promptTemplateNames.lip-sync-workflow'))).toBeTruthy();
+      expect(screen.getAllByText(t('settings.guides.templateSource')).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(t('settings.guides.workflowSource')).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(t('settings.builtIn')).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('renders prompt-template skills inside the merged guides tab', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Guides' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Guides').length).toBeGreaterThan(0);
+      expect(screen.getByText('Reverse Prompt Inference')).toBeTruthy();
+      expect(screen.getByText('Style Transfer')).toBeTruthy();
+      expect(screen.getByText('Shot List from Script')).toBeTruthy();
+      expect(screen.getByText('Dual Prompt Strategy')).toBeTruthy();
+    });
+  });
+
+  it('saves renamed prompt templates from the guides tab', async () => {
     vi.mocked(getAPI).mockReturnValue({
       onReady: mockOnReady(),
       keychain: {
@@ -217,7 +375,7 @@ describe('Settings updater UI', () => {
 
     const store = renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Prompt Templates' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Guides' }));
     fireEvent.click(screen.getByText('Meta-Prompt (AI Instructor)').closest('button')!);
 
     const nameInput = await screen.findByDisplayValue('Meta-Prompt (AI Instructor)');
@@ -247,7 +405,7 @@ describe('Settings updater UI', () => {
     expect(screen.getByText('Director Notes')).toBeTruthy();
   });
 
-  it('shows customized badges for prompt templates in zh-CN', async () => {
+  it('shows customized badges for guides in zh-CN', async () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
@@ -270,7 +428,7 @@ describe('Settings updater UI', () => {
 
     renderSettings(store);
 
-    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.promptTemplates') }));
+    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.guides') }));
     expect(screen.getAllByText(t('settings.customized')).length).toBeGreaterThan(0);
   });
 

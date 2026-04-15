@@ -72,27 +72,72 @@ export function useSlashCommands({
 
   const triggerCompact = useCallback(async () => {
     dispatch(addSystemNotice(t('commander.slashCommand.compacting')));
+
+    // Measure chars before Phase 1
+    const measureChars = (msgs: typeof msgsBefore) => msgs.reduce((sum, m) => {
+      let c = m.content.length;
+      if (m.toolCalls) {
+        for (const tc of m.toolCalls) {
+          c += JSON.stringify(tc.arguments).length;
+          if (tc.result != null) {
+            c += typeof tc.result === 'string' ? tc.result.length : JSON.stringify(tc.result).length;
+          }
+        }
+      }
+      return sum + c;
+    }, 0);
+    const msgsBefore = store.getState().commander.messages;
+    const charsBefore = measureChars(msgsBefore);
+
     // Phase 1: compact local Redux store (truncate old tool results + assistant text)
     dispatch(compactLocalContext());
-    // Phase 2: compact backend activeMessages via IPC
+
+    const msgsAfter = store.getState().commander.messages;
+    const charsAfter = measureChars(msgsAfter);
+    const localFreed = Math.max(0, charsBefore - charsAfter);
+
+    // Phase 2: compact backend activeMessages via IPC (only works during active session)
+    let backendFreed = 0;
+    let backendMsgCount = 0;
+    let backendToolCount = 0;
     const api = getAPI();
     const canvasId = store.getState().canvas.activeCanvasId;
     if (api?.commander && canvasId) {
       try {
         const result = await api.commander.compact(canvasId) as { freedChars: number; messageCount: number; toolCount: number };
-        if (result.freedChars > 0) {
-          dispatch(addSystemNotice(
-            t('commander.slashCommand.compactResult')
-              .replace('{chars}', result.freedChars.toLocaleString())
-              .replace('{messages}', String(result.messageCount))
-              .replace('{tools}', String(result.toolCount)),
-          ));
-        } else {
-          dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
+        backendFreed = result.freedChars;
+        backendMsgCount = result.messageCount;
+        backendToolCount = result.toolCount;
+      } catch { /* IPC call failed — use local results only */ }
+    }
+
+    const totalFreed = localFreed + backendFreed;
+    if (totalFreed > 0) {
+      // Persist compacted session to SQLite so restart preserves the savings
+      const freshState = store.getState() as { commander: { activeSessionId: string | null; sessions: Array<{ id: string; title: string; messages: unknown[]; createdAt: number; updatedAt: number }>; messages: unknown[] }; canvas: { activeCanvasId: string | null } };
+      const sid = freshState.commander.activeSessionId;
+      if (sid && api?.session) {
+        const sess = freshState.commander.sessions.find((s) => s.id === sid);
+        if (sess) {
+          api.session.upsert({
+            id: sess.id,
+            canvasId: freshState.canvas.activeCanvasId ?? null,
+            title: sess.title,
+            messages: JSON.stringify(sess.messages),
+            createdAt: sess.createdAt,
+            updatedAt: sess.updatedAt,
+          }).catch(() => {});
         }
-      } catch { /* compact IPC call failed — show noop message as fallback */
-        dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
       }
+
+      dispatch(addSystemNotice(
+        t('commander.slashCommand.compactResult')
+          .replace('{chars}', totalFreed.toLocaleString())
+          .replace('{messages}', String(backendMsgCount || msgsAfter.length))
+          .replace('{tools}', String(backendToolCount)),
+      ));
+    } else {
+      dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
     }
   }, [dispatch, t]);
 
@@ -122,7 +167,6 @@ export function useSlashCommands({
           let uChars = 0, aChars = 0, tcChars = 0, trChars = 0;
           let uCount = 0, aCount = 0, tcCount = 0;
           const toolFreq: Record<string, number> = {};
-          // Per-tool token breakdown: args + results
           const toolArgChars: Record<string, number> = {};
           const toolResultChars: Record<string, number> = {};
           for (const m of msgs) {
@@ -143,43 +187,69 @@ export function useSlashCommands({
             }
           }
           const tok = (c: number) => Math.round(c / 4);
-          const totalTok = tok(uChars + aChars + tcChars + trChars);
+          const totalCharsAll = uChars + aChars + tcChars + trChars;
+          const totalTok = tok(totalCharsAll);
           const budget = store.getState().commander.maxTokens;
           const pctVal = Math.min(100, Math.round((totalTok / budget) * 100));
           const fK = (n: number) => {
             if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; }
             return String(n);
           };
-          const pctOf = (part: number, whole: number) => whole > 0 ? `${Math.round(part / whole * 100)}%` : '0%';
+          const pctOf = (part: number) => totalCharsAll > 0 ? Math.round(part / totalCharsAll * 100) : 0;
 
-          const totalCharsAll = uChars + aChars + tcChars + trChars;
+          const cb = (key: string) => t(`commander.contextBreakdown.${key}`);
 
-          // Top 10 tools by total token usage (args + results)
+          // === Category breakdown rows ===
+          const catRows = [
+            { label: cb('user'), tok: tok(uChars), detail: `${uCount} ${cb('msgs')}`, pct: pctOf(uChars) },
+            { label: cb('assistant'), tok: tok(aChars), detail: `${aCount} ${cb('msgs')}`, pct: pctOf(aChars) },
+            { label: cb('toolCalls'), tok: tok(tcChars), detail: `${tcCount} ${cb('calls')}`, pct: pctOf(tcChars) },
+            { label: cb('toolResults'), tok: tok(trChars), detail: '', pct: pctOf(trChars) },
+          ];
+          const maxCatLabel = Math.max(...catRows.map((r) => r.label.length));
+          const catLines = catRows.map((r) => {
+            const lbl = r.label.padEnd(maxCatLabel);
+            const tokStr = fK(r.tok).padStart(6);
+            const pctStr = `${r.pct}%`.padStart(4);
+            const det = r.detail ? `  (${r.detail})` : '';
+            return `${lbl}  ${tokStr}  ${pctStr}${det}`;
+          });
+
+          // === Tool ranking rows ===
           const toolTotalChars: Record<string, number> = {};
           for (const name of Object.keys(toolFreq)) {
             toolTotalChars[name] = (toolArgChars[name] ?? 0) + (toolResultChars[name] ?? 0);
           }
-          const topBySize = Object.entries(toolTotalChars)
+          const topTools = Object.entries(toolTotalChars)
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([name, chars]) => {
+            .slice(0, 10);
+
+          let toolSection: string;
+          if (topTools.length === 0) {
+            toolSection = `(${cb('none')})`;
+          } else {
+            const maxName = Math.max(...topTools.map(([n]) => n.length));
+            toolSection = topTools.map(([name, chars]) => {
               const calls = toolFreq[name];
-              const argTok = tok(toolArgChars[name] ?? 0);
-              const resTok = tok(toolResultChars[name] ?? 0);
-              return `  ${name}: ${fK(tok(chars))} ${t('commander.contextBreakdown.tokens')} (${calls}x) — ${t('commander.contextBreakdown.args')} ${fK(argTok)}, ${t('commander.contextBreakdown.resultsLabel')} ${fK(resTok)}`;
-            })
-            .join('\n');
+              const argTok = fK(tok(toolArgChars[name] ?? 0));
+              const resTok = fK(tok(toolResultChars[name] ?? 0));
+              const totalStr = fK(tok(chars)).padStart(6);
+              const pctStr = `${pctOf(chars)}%`.padStart(4);
+              return `${name.padEnd(maxName)}  ${totalStr}  ${pctStr}  ×${calls}  ${cb('args')} ${argTok} / ${cb('resultsLabel')} ${resTok}`;
+            }).join('\n');
+          }
 
           const detail = [
-            `${t('commander.contextBreakdown.context')}: ${fK(totalTok)} / ${fK(budget)} ${t('commander.contextBreakdown.tokens')} (${pctVal}%)`,
-            ``,
-            `${t('commander.contextBreakdown.user')}: ${fK(tok(uChars))} ${t('commander.contextBreakdown.tokens')} (${uCount} ${t('commander.contextBreakdown.msgs')}) — ${pctOf(uChars, totalCharsAll)}`,
-            `${t('commander.contextBreakdown.assistant')}: ${fK(tok(aChars))} ${t('commander.contextBreakdown.tokens')} (${aCount} ${t('commander.contextBreakdown.msgs')}) — ${pctOf(aChars, totalCharsAll)}`,
-            `${t('commander.contextBreakdown.toolCalls')}: ${fK(tok(tcChars))} ${t('commander.contextBreakdown.tokens')} (${tcCount} ${t('commander.contextBreakdown.calls')}) — ${pctOf(tcChars, totalCharsAll)}`,
-            `${t('commander.contextBreakdown.toolResults')}: ${fK(tok(trChars))} ${t('commander.contextBreakdown.tokens')} — ${pctOf(trChars, totalCharsAll)}`,
-            ``,
-            `${t('commander.contextBreakdown.topToolsBySize')}:`,
-            topBySize || `  (${t('commander.contextBreakdown.none')})`,
+            `**${cb('context')}**: ${fK(totalTok)} / ${fK(budget)} tokens (${pctVal}%)`,
+            '',
+            '```',
+            ...catLines,
+            '```',
+            '',
+            `**${cb('topToolsBySize')}**:`,
+            '```',
+            toolSection,
+            '```',
           ].join('\n');
 
           dispatch(addSystemNotice(detail));

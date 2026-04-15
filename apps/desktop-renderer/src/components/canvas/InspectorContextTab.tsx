@@ -59,9 +59,12 @@ interface InspectorContextTabProps {
   charPickerOpen: boolean;
   equipPickerOpen: boolean;
   locPickerOpen: boolean;
-  availableCharacters: PickerOption[];
-  availableEquipment: PickerOption[];
-  availableLocations: PickerOption[];
+  allCharacters: PickerOption[];
+  allEquipment: PickerOption[];
+  allLocations: PickerOption[];
+  addedCharacterIds: ReadonlySet<string>;
+  addedEquipmentIds: ReadonlySet<string>;
+  addedLocationIds: ReadonlySet<string>;
   characterItems: ReferenceItem[];
   equipmentItems: ReferenceItem[];
   locationItems: ReferenceItem[];
@@ -85,9 +88,12 @@ export const InspectorContextTab = memo(function InspectorContextTab({
   charPickerOpen,
   equipPickerOpen,
   locPickerOpen,
-  availableCharacters,
-  availableEquipment,
-  availableLocations,
+  allCharacters,
+  allEquipment,
+  allLocations,
+  addedCharacterIds,
+  addedEquipmentIds,
+  addedLocationIds,
   characterItems,
   equipmentItems,
   locationItems,
@@ -110,14 +116,14 @@ export const InspectorContextTab = memo(function InspectorContextTab({
   const [locSearch, setLocSearch] = useState('');
 
   const filteredCharacters = charSearch
-    ? availableCharacters.filter((c) => c.label.toLowerCase().includes(charSearch.toLowerCase()))
-    : availableCharacters;
+    ? allCharacters.filter((c) => c.label.toLowerCase().includes(charSearch.toLowerCase()))
+    : allCharacters;
   const filteredEquipment = equipSearch
-    ? availableEquipment.filter((e) => e.label.toLowerCase().includes(equipSearch.toLowerCase()))
-    : availableEquipment;
+    ? allEquipment.filter((e) => e.label.toLowerCase().includes(equipSearch.toLowerCase()))
+    : allEquipment;
   const filteredLocations = locSearch
-    ? availableLocations.filter((l) => l.label.toLowerCase().includes(locSearch.toLowerCase()))
-    : availableLocations;
+    ? allLocations.filter((l) => l.label.toLowerCase().includes(locSearch.toLowerCase()))
+    : allLocations;
 
   if (!showsVisualContext) {
     return null;
@@ -154,36 +160,39 @@ export const InspectorContextTab = memo(function InspectorContextTab({
           <button
             onClick={onToggleCharPicker}
             className="inline-flex items-center gap-1 text-[11px] rounded-md border border-border/60 px-1.5 py-0.5 hover:bg-muted"
-            disabled={availableCharacters.length === 0}
+            disabled={allCharacters.length === 0}
           >
             <Plus className="w-3 h-3" />
             {t('inspector.addCharacter')}
           </button>
         </div>
-        {charPickerOpen && availableCharacters.length > 0 ? (
+        {charPickerOpen && allCharacters.length > 0 ? (
           <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-36 overflow-auto space-y-0.5">
-            {availableCharacters.length > 4 && (
-              <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
-                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
-                <input
-                  type="text"
-                  value={charSearch}
-                  onChange={(e) => setCharSearch(e.target.value)}
-                  placeholder={t('inspector.searchEntity')}
-                  className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
-                  autoFocus
-                />
-              </div>
-            )}
-            {filteredCharacters.map((character) => (
-              <button
-                key={character.id}
-                onClick={() => onAddCharacter(character.id)}
-                className="w-full text-left text-[11px] px-2 py-1 rounded-md hover:bg-muted"
-              >
-                {character.label}
-              </button>
-            ))}
+            <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
+              <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                value={charSearch}
+                onChange={(e) => setCharSearch(e.target.value)}
+                placeholder={t('inspector.searchEntity')}
+                className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+                autoFocus
+              />
+            </div>
+            {filteredCharacters.map((character) => {
+              const added = addedCharacterIds.has(character.id);
+              return (
+                <button
+                  key={character.id}
+                  onClick={() => !added && onAddCharacter(character.id)}
+                  disabled={added}
+                  className={`w-full text-left text-[11px] px-2 py-1 rounded-md ${added ? 'text-muted-foreground/50 cursor-default' : 'hover:bg-muted'}`}
+                >
+                  {character.label}
+                  {added && <span className="ml-1 text-[10px]">✓</span>}
+                </button>
+              );
+            })}
           </div>
         ) : null}
         {characterItems.length === 0 ? (
@@ -217,37 +226,42 @@ export const InspectorContextTab = memo(function InspectorContextTab({
           <button
             onClick={onToggleEquipPicker}
             className="inline-flex items-center gap-1 text-[11px] rounded-md border border-border/60 px-1.5 py-0.5 hover:bg-muted"
-            disabled={availableEquipment.length === 0}
+            disabled={allEquipment.length === 0}
           >
             <Plus className="w-3 h-3" />
             {t('inspector.addEquipment')}
           </button>
         </div>
-        {equipPickerOpen && availableEquipment.length > 0 ? (
+        {equipPickerOpen && allEquipment.length > 0 ? (
           <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-36 overflow-auto space-y-0.5">
-            {availableEquipment.length > 4 && (
-              <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
-                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
-                <input
-                  type="text"
-                  value={equipSearch}
-                  onChange={(e) => setEquipSearch(e.target.value)}
-                  placeholder={t('inspector.searchEntity')}
-                  className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
-                  autoFocus
-                />
-              </div>
-            )}
-            {filteredEquipment.map((equipment) => (
-              <button
-                key={equipment.id}
-                onClick={() => onAddEquipment(equipment.id)}
-                className="w-full text-left text-[11px] px-2 py-1 rounded-md hover:bg-muted"
-              >
-                <div className="font-medium">{equipment.label}</div>
-                {equipment.description ? <div className="text-muted-foreground capitalize">{equipment.description}</div> : null}
-              </button>
-            ))}
+            <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
+              <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                value={equipSearch}
+                onChange={(e) => setEquipSearch(e.target.value)}
+                placeholder={t('inspector.searchEntity')}
+                className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+                autoFocus
+              />
+            </div>
+            {filteredEquipment.map((equipment) => {
+              const added = addedEquipmentIds.has(equipment.id);
+              return (
+                <button
+                  key={equipment.id}
+                  onClick={() => !added && onAddEquipment(equipment.id)}
+                  disabled={added}
+                  className={`w-full text-left text-[11px] px-2 py-1 rounded-md ${added ? 'text-muted-foreground/50 cursor-default' : 'hover:bg-muted'}`}
+                >
+                  <div className="font-medium">
+                    {equipment.label}
+                    {added && <span className="ml-1 text-[10px]">✓</span>}
+                  </div>
+                  {equipment.description ? <div className="text-muted-foreground capitalize">{equipment.description}</div> : null}
+                </button>
+              );
+            })}
           </div>
         ) : null}
         {equipmentItems.length === 0 ? (
@@ -281,37 +295,42 @@ export const InspectorContextTab = memo(function InspectorContextTab({
           <button
             onClick={onToggleLocPicker}
             className="inline-flex items-center gap-1 text-[11px] rounded-md border border-border/60 px-1.5 py-0.5 hover:bg-muted"
-            disabled={availableLocations.length === 0}
+            disabled={allLocations.length === 0}
           >
             <Plus className="w-3 h-3" />
             {t('inspector.addLocation')}
           </button>
         </div>
-        {locPickerOpen && availableLocations.length > 0 ? (
+        {locPickerOpen && allLocations.length > 0 ? (
           <div className="rounded-md border border-border/60 bg-card p-1.5 max-h-36 overflow-auto space-y-0.5">
-            {availableLocations.length > 4 && (
-              <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
-                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
-                <input
-                  type="text"
-                  value={locSearch}
-                  onChange={(e) => setLocSearch(e.target.value)}
-                  placeholder={t('inspector.searchEntity')}
-                  className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
-                  autoFocus
-                />
-              </div>
-            )}
-            {filteredLocations.map((location) => (
-              <button
-                key={location.id}
-                onClick={() => onAddLocation(location.id)}
-                className="w-full text-left text-[11px] px-2 py-1 rounded-md hover:bg-muted"
-              >
-                <div className="font-medium">{location.label}</div>
-                {location.description ? <div className="text-muted-foreground">{location.description}</div> : null}
-              </button>
-            ))}
+            <div className="flex items-center gap-1 rounded-md border border-border/40 bg-muted/30 px-1.5 py-0.5 mb-1">
+              <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                value={locSearch}
+                onChange={(e) => setLocSearch(e.target.value)}
+                placeholder={t('inspector.searchEntity')}
+                className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
+                autoFocus
+              />
+            </div>
+            {filteredLocations.map((location) => {
+              const added = addedLocationIds.has(location.id);
+              return (
+                <button
+                  key={location.id}
+                  onClick={() => !added && onAddLocation(location.id)}
+                  disabled={added}
+                  className={`w-full text-left text-[11px] px-2 py-1 rounded-md ${added ? 'text-muted-foreground/50 cursor-default' : 'hover:bg-muted'}`}
+                >
+                  <div className="font-medium">
+                    {location.label}
+                    {added && <span className="ml-1 text-[10px]">✓</span>}
+                  </div>
+                  {location.description ? <div className="text-muted-foreground">{location.description}</div> : null}
+                </button>
+              );
+            })}
           </div>
         ) : null}
         {locationItems.length === 0 ? (

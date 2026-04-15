@@ -1,6 +1,6 @@
 {
   "name": "lucid-fin",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Lucid Fin – AI Movie Production Tool",
   "author": "Lucid Fin Team",
   "private": true,
@@ -18,8 +18,8 @@
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "test:coverage:critical": "vitest run --root apps/desktop-main src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/canvas-generation.handlers.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/workflow.handlers.test.ts src/ipc/handlers/job.handlers.test.ts --coverage",
-    "predev": "npx @electron/rebuild -f -w better-sqlite3",
-    "postinstall": "npx patch-package && node -e \"if(!process.env.CI)require('child_process').execSync('npx @electron/rebuild -m .',{stdio:'inherit'})\"",
+    "predev": "npx @electron/rebuild -f -w better-sqlite3 -v 41.2.0",
+    "postinstall": "npx patch-package && node -e \"if(!process.env.CI)require('child_process').execSync('npx @electron/rebuild -f -w better-sqlite3 -v 41.2.0',{stdio:'inherit'})\"",
     "lint": "eslint .",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
@@ -39,5 +39,9 @@
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.58.1",
     "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "@radix-ui/react-slot": "1.2.4",
+    "@radix-ui/react-primitive": "2.1.4"
   }
 }

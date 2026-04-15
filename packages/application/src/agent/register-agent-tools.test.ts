@@ -14,11 +14,6 @@ function createMockDeps(): AllToolDeps {
     listCharacters: vi.fn(async () => []),
     saveCharacter: vi.fn(async () => undefined),
     deleteCharacter: vi.fn(async () => undefined),
-    // SceneToolDeps
-    listScenes: vi.fn(async () => []),
-    createScene: vi.fn(async () => undefined),
-    updateScene: vi.fn(async () => undefined),
-    deleteScene: vi.fn(async () => undefined),
     // CanvasToolDeps
     getCanvas: vi.fn(async () => ({
       id: 'canvas-1',
@@ -196,13 +191,6 @@ describe('registerAgentTools', () => {
     expect(equipmentTools.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('registers at least one scene. tool', () => {
-    const registry = new AgentToolRegistry();
-    registerAgentTools(registry, createMockDeps());
-    const sceneTools = registry.list().filter((t) => t.name.startsWith('scene.'));
-    expect(sceneTools.length).toBeGreaterThanOrEqual(1);
-  });
-
   it('returns the same registry instance', () => {
     const registry = new AgentToolRegistry();
     const result = registerAgentTools(registry, createMockDeps());
@@ -216,7 +204,7 @@ describe('registerAgentTools', () => {
     const canvasTools = canvasContextTools.filter((t) => t.name.startsWith('canvas.'));
     expect(canvasTools.length).toBeGreaterThanOrEqual(30);
     expect(canvasContextTools.some((t) => t.name === 'canvas.listNodes')).toBe(true);
-    expect(canvasContextTools.some((t) => t.name === 'logger.read')).toBe(true);
+    expect(canvasContextTools.some((t) => t.name === 'logger.list')).toBe(true);
 
     const storyboardContextTools = registry.forContext('storyboard');
     expect(storyboardContextTools.some((t) => t.name.startsWith('canvas.'))).toBe(false);

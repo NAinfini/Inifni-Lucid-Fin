@@ -26,10 +26,87 @@ function headers(apiKey: string): Record<string, string> {
   };
 }
 
-function handleError(res: Response, provider: string): never {
-  if (res.status === 401) throw new LucidError(ErrorCode.AuthFailed, `Invalid Replicate API key (${provider})`);
-  if (res.status === 429) throw new LucidError(ErrorCode.RateLimited, `Replicate rate limited (${provider})`);
-  throw new LucidError(ErrorCode.ServiceUnavailable, `Replicate error for ${provider}: ${res.status}`);
+function extractErrorSummary(payload: unknown): string | undefined {
+  if (!payload) return undefined;
+  if (typeof payload === 'string') {
+    const trimmed = payload.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof payload !== 'object') return undefined;
+
+  const record = payload as Record<string, unknown>;
+  for (const key of ['detail', 'error', 'message', 'title']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  if (Array.isArray(record.errors)) {
+    const parts = record.errors
+      .map((entry) => extractErrorSummary(entry))
+      .filter((value): value is string => Boolean(value));
+    if (parts.length > 0) return parts.join('; ');
+  }
+
+  return undefined;
+}
+
+async function readErrorSummary(res: Response): Promise<string | undefined> {
+  const text = (await res.text()).trim();
+  if (text.length === 0) return undefined;
+
+  const contentType = res.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    try {
+      return extractErrorSummary(JSON.parse(text)) ?? text;
+    } catch {
+      return text;
+    }
+  }
+
+  return text;
+}
+
+function appendErrorSummary(message: string, summary: string | undefined): string {
+  return summary ? `${message} - ${summary}` : message;
+}
+
+async function handleError(
+  res: Response,
+  provider: string,
+  details?: Record<string, unknown>,
+): Promise<never> {
+  const summary = await readErrorSummary(res);
+  const errorDetails = { ...details, provider, status: res.status };
+
+  if (res.status === 401) {
+    throw new LucidError(
+      ErrorCode.AuthFailed,
+      appendErrorSummary(`Invalid Replicate API key (${provider})`, summary),
+      errorDetails,
+    );
+  }
+  if (res.status === 429) {
+    throw new LucidError(
+      ErrorCode.RateLimited,
+      appendErrorSummary(`Replicate rate limited (${provider})`, summary),
+      errorDetails,
+    );
+  }
+  if (res.status === 400 || res.status === 422) {
+    throw new LucidError(
+      ErrorCode.InvalidRequest,
+      appendErrorSummary(`Replicate rejected the request for ${provider}: ${res.status}`, summary),
+      errorDetails,
+    );
+  }
+
+  throw new LucidError(
+    ErrorCode.ServiceUnavailable,
+    appendErrorSummary(`Replicate error for ${provider}: ${res.status}`, summary),
+    errorDetails,
+  );
 }
 
 export async function createPrediction(
@@ -61,7 +138,13 @@ export async function createPrediction(
     timeoutMs: 60_000,
   });
 
-  if (!res.ok) handleError(res, provider);
+  if (!res.ok) {
+    await handleError(res, provider, {
+      model,
+      endpoint: url,
+      operation: 'createPrediction',
+    });
+  }
   return (await res.json()) as ReplicatePrediction;
 }
 
@@ -76,7 +159,11 @@ export async function getPrediction(
   });
 
   if (!res.ok) {
-    throw new LucidError(ErrorCode.ServiceUnavailable, `Replicate status check failed for ${provider}: ${res.status}`);
+    await handleError(res, provider, {
+      predictionId,
+      endpoint: `${baseUrl}/predictions/${predictionId}`,
+      operation: 'getPrediction',
+    });
   }
   return (await res.json()) as ReplicatePrediction;
 }

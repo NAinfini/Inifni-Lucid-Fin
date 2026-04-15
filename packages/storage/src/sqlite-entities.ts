@@ -193,6 +193,10 @@ export function upsertLocation(
     mood?: string;
     weather?: string;
     lighting?: string;
+    architectureStyle?: string;
+    dominantColors?: string[];
+    keyFeatures?: string[];
+    atmosphereKeywords?: string[];
     tags?: string[];
     referenceImages?: unknown[];
     createdAt?: number;
@@ -202,13 +206,16 @@ export function upsertLocation(
   const now = Date.now();
   db.prepare(
     `
-    INSERT INTO locations (id, name, type, sub_location, description, time_of_day, mood, weather, lighting, tags, reference_images, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO locations (id, name, type, sub_location, description, time_of_day, mood, weather, lighting, architecture_style, dominant_colors, key_features, atmosphere_keywords, tags, reference_images, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name=excluded.name, type=excluded.type,
       sub_location=excluded.sub_location, description=excluded.description,
       time_of_day=excluded.time_of_day, mood=excluded.mood, weather=excluded.weather,
-      lighting=excluded.lighting, tags=excluded.tags, reference_images=excluded.reference_images,
+      lighting=excluded.lighting, architecture_style=excluded.architecture_style,
+      dominant_colors=excluded.dominant_colors, key_features=excluded.key_features,
+      atmosphere_keywords=excluded.atmosphere_keywords,
+      tags=excluded.tags, reference_images=excluded.reference_images,
       updated_at=excluded.updated_at
   `,
   ).run(
@@ -221,6 +228,10 @@ export function upsertLocation(
     loc.mood ?? null,
     loc.weather ?? null,
     loc.lighting ?? null,
+    loc.architectureStyle ?? null,
+    loc.dominantColors ? JSON.stringify(loc.dominantColors) : null,
+    loc.keyFeatures ? JSON.stringify(loc.keyFeatures) : null,
+    loc.atmosphereKeywords ? JSON.stringify(loc.atmosphereKeywords) : null,
     JSON.stringify(loc.tags ?? []),
     JSON.stringify(loc.referenceImages ?? []),
     loc.createdAt ?? now,
@@ -265,6 +276,10 @@ function rowToLocation(row: Record<string, unknown>): Location {
     mood: (row.mood as string | null) ?? undefined,
     weather: (row.weather as string | null) ?? undefined,
     lighting: (row.lighting as string | null) ?? undefined,
+    architectureStyle: (row.architecture_style as string | null) ?? undefined,
+    dominantColors: row.dominant_colors ? JSON.parse(row.dominant_colors as string) : undefined,
+    keyFeatures: row.key_features ? JSON.parse(row.key_features as string) : undefined,
+    atmosphereKeywords: row.atmosphere_keywords ? JSON.parse(row.atmosphere_keywords as string) : undefined,
     tags: JSON.parse((row.tags as string) || '[]'),
     referenceImages: JSON.parse((row.reference_images as string) || '[]'),
     createdAt: (row.created_at as number) ?? Date.now(),

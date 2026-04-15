@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { cn } from '../../../lib/utils.js';
 import { Markdown } from './Markdown.js';
 import { ToolCallCard } from './ToolCallCard.js';
@@ -15,9 +15,11 @@ interface MessageListProps {
     toolCalls: CommanderToolCall[];
   } | null;
   currentSegments: MessageSegment[];
+  pendingInjectedMessages: string[];
   isStreaming: boolean;
   error: string | null;
   nodeTitlesById: Record<string, string>;
+  thinkingContent?: string;
   t: (key: string) => string;
   emptyLabel: string;
   streamingLabel: string;
@@ -28,14 +30,19 @@ export const MessageList = memo(function MessageList({
   messages,
   liveMessage,
   currentSegments,
+  pendingInjectedMessages,
   isStreaming,
   error,
   nodeTitlesById,
+  thinkingContent,
   t,
   emptyLabel,
   streamingLabel,
   onNodeClick,
 }: MessageListProps) {
+  const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const showThinking = Boolean(thinkingContent);
+
   return (
     <>
       {messages.length === 0 && !liveMessage ? (
@@ -134,6 +141,35 @@ export const MessageList = memo(function MessageList({
             </>
           ) : null}
         </article>
+      ) : null}
+
+      {/* User messages injected during streaming — shown below live AI response */}
+      {pendingInjectedMessages.map((msg, i) => (
+        <article
+          key={`injected-${i}`}
+          className="w-full text-sm border-l-2 border-primary/40 pl-3 py-1.5 opacity-70"
+        >
+          <div className="whitespace-pre-wrap">{msg}</div>
+        </article>
+      ))}
+
+      {showThinking ? (
+        <div className="rounded-md border border-violet-500/30 bg-violet-500/5">
+          <button
+            type="button"
+            className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-violet-400 hover:text-violet-300"
+            onClick={() => setThinkingExpanded((prev) => !prev)}
+          >
+            <span className="animate-pulse">{'✦'}</span>
+            <span>{t('commander.thinkingProcess')}</span>
+            <span className="ml-auto text-[9px]">{thinkingExpanded ? '▾' : '▸'}</span>
+          </button>
+          {thinkingExpanded ? (
+            <div className="border-t border-violet-500/20 px-2.5 py-2 text-[11px] leading-relaxed text-violet-300/80">
+              <div className="max-h-40 overflow-y-auto whitespace-pre-wrap">{thinkingContent}</div>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {isStreaming && (

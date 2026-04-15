@@ -108,8 +108,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       refs.push(refImage);
 
       db.upsertEquipment({
-        id: equip.id,
-        name: equip.name,
+        ...equip,
         referenceImages: refs,
         updatedAt: Date.now(),
       });
@@ -131,8 +130,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       const refs = equip.referenceImages.filter((r) => r.slot !== args.slot);
 
       db.upsertEquipment({
-        id: equip.id,
-        name: equip.name,
+        ...equip,
         referenceImages: refs,
         updatedAt: Date.now(),
       });

@@ -5,6 +5,7 @@ import type {
   LLMCompletionResult,
   LLMToolCall,
   Capability,
+  ProviderProfile,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { parseSseStream } from './sse-parser.js';
@@ -26,6 +27,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
     'character-extract',
     'prompt-enhance',
   ];
+  readonly profile: ProviderProfile;
 
   private apiKey = '';
   private baseUrl: string;
@@ -36,6 +38,13 @@ export class GeminiLLMAdapter implements LLMAdapter {
     this.name = cfg.name ?? 'Google Gemini';
     this.baseUrl = cfg.defaultBaseUrl ?? 'https://generativelanguage.googleapis.com/v1beta';
     this.model = cfg.defaultModel ?? 'gemini-2.5-flash';
+    this.profile = {
+      providerId: this.id,
+      charsPerToken: 4.0,
+      sanitizeToolNames: false,
+      maxUtilization: 0.95,
+      outputReserveTokens: 4096,
+    };
   }
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
@@ -164,6 +173,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
         content: {
           parts: Array<{
             text?: string;
+            thought?: boolean;
             functionCall?: { name: string; args: Record<string, unknown> };
           }>;
         };
@@ -173,11 +183,16 @@ export class GeminiLLMAdapter implements LLMAdapter {
 
     const candidate = data.candidates?.[0];
     let content = '';
+    let reasoning = '';
     const toolCalls: LLMToolCall[] = [];
     let callIdx = 0;
 
     for (const part of candidate?.content?.parts ?? []) {
-      if (part.text) content += part.text;
+      if (part.thought && part.text) {
+        reasoning += part.text;
+      } else if (part.text) {
+        content += part.text;
+      }
       if (part.functionCall) {
         toolCalls.push({
           id: `gemini-tc-${callIdx++}`,
@@ -190,6 +205,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
     return {
       content,
       toolCalls,
+      reasoning: reasoning || undefined,
       finishReason:
         toolCalls.length > 0
           ? 'tool_calls'

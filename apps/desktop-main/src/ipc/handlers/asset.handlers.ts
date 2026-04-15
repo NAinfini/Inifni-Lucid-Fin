@@ -269,4 +269,10 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       return { success: true, count: exported.length, directory: outputDir };
     },
   );
+
+  // One-time startup repair: backfill file_size for legacy assets with 0 or NULL
+  const repaired = db.repairAssetSizes((hash, type, format) => cas.getAssetPath(hash, type as AssetType, format));
+  if (repaired > 0) {
+    log.info('Repaired asset file sizes', { category: 'asset', repairedCount: repaired });
+  }
 }

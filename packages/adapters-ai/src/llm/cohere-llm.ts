@@ -5,6 +5,7 @@ import type {
   LLMMessage,
   LLMRequestOptions,
   LLMToolCall,
+  ProviderProfile,
 } from '@lucid-fin/contracts';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
 
@@ -25,6 +26,7 @@ export class CohereLLMAdapter implements LLMAdapter {
     'character-extract',
     'prompt-enhance',
   ];
+  readonly profile: ProviderProfile;
 
   private apiKey = '';
   private baseUrl: string;
@@ -35,6 +37,13 @@ export class CohereLLMAdapter implements LLMAdapter {
     this.name = cfg.name ?? 'Cohere';
     this.baseUrl = cfg.defaultBaseUrl ?? 'https://api.cohere.com/v2';
     this.model = cfg.defaultModel ?? 'command-a-03-2025';
+    this.profile = {
+      providerId: this.id,
+      charsPerToken: 4.0,
+      sanitizeToolNames: false,
+      maxUtilization: 0.90,
+      outputReserveTokens: 4096,
+    };
   }
 
   configure(apiKey: string, options?: Record<string, unknown>): void {

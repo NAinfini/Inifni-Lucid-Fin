@@ -14,6 +14,7 @@ import {
   setNodeDuration,
   setNodeFps,
   setNodeAudio,
+  setNodeLipSync,
   setNodeQuality,
   setNodeUploadedAsset,
   clearNodeAsset,
@@ -441,11 +442,13 @@ export function InspectorGenerationState({
       const msg = error instanceof Error ? error.message : String(error);
       dispatch(setNodeGenerationFailed({ id: selectedNode.id, error: msg }));
       const isProviderError = /no configured adapter|api.?key|provider.*not.*found/i.test(msg);
+      const isProviderSettingsError =
+        isProviderError || /replicate.*(422|rejected the request)|invalid[_ ]request/i.test(msg);
       dispatch(enqueueToast({
         title: t('generation.failed'),
         message: isProviderError ? t('generation.noProviderHint') : msg,
         variant: 'error',
-        ...(isProviderError && {
+        ...(isProviderSettingsError && {
           actionLabel: t('generation.openProviders'),
           onAction: () => { window.location.hash = '#/settings'; },
         }),
@@ -474,6 +477,14 @@ export function InspectorGenerationState({
     (enabled: boolean) => {
       if (selectedNode.type !== 'video') return;
       dispatch(setNodeAudio({ id: selectedNode.id, audio: enabled }));
+    },
+    [dispatch, selectedNode.id, selectedNode.type],
+  );
+
+  const handleLipSyncChange = useCallback(
+    (enabled: boolean) => {
+      if (selectedNode.type !== 'video') return;
+      dispatch(setNodeLipSync({ nodeId: selectedNode.id, enabled }));
     },
     [dispatch, selectedNode.id, selectedNode.type],
   );
@@ -645,6 +656,12 @@ export function InspectorGenerationState({
           ? t('node.audioUnsupported')
           : undefined
       }
+      showLipSyncToggle={selectedNode.type === 'video'}
+      lipSyncEnabled={
+        selectedNode.type === 'video' ? ((selectedNode.data as VideoNodeData).lipSyncEnabled ?? false) : false
+      }
+      onLipSyncChange={handleLipSyncChange}
+      lipSyncLabel={t('inspector.lipSync.enable')}
       qualityOptions={((activeVideoProviderMetadata?.qualityTiers?.length ?? 0) > 0
         ? activeVideoProviderMetadata?.qualityTiers
         : ['standard']

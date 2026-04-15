@@ -19,6 +19,7 @@ export interface NodeCallbacks {
   onToggleSeedLock: (id: string) => void;
   onToggleCollapse: (id: string) => void;
   onOpacityChange: (id: string, opacity: number) => void;
+  onCloneVideo: () => void;
 }
 
 const NOOP = () => {};
@@ -41,6 +42,7 @@ const DEFAULT_CALLBACKS: NodeCallbacks = {
   onToggleSeedLock: NOOP,
   onToggleCollapse: NOOP,
   onOpacityChange: NOOP,
+  onCloneVideo: NOOP,
 };
 
 export const NodeCallbacksContext = createContext<NodeCallbacks>(DEFAULT_CALLBACKS);

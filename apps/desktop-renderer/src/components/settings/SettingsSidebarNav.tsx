@@ -1,13 +1,21 @@
-import { BarChart3, Bot, Cpu, FileText, HardDrive, Info, Sun, Workflow } from 'lucide-react';
+import { BarChart3, Bot, Cpu, FileText, HardDrive, Info, ListTree, Sun } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 
-export type SettingsTab = 'commander' | 'providers' | 'promptTemplates' | 'workflows' | 'appearance' | 'storage' | 'usage' | 'about';
+export type SettingsTab =
+  | 'commander'
+  | 'providers'
+  | 'guides'
+  | 'processGuides'
+  | 'appearance'
+  | 'storage'
+  | 'usage'
+  | 'about';
 
 const TAB_ORDER: SettingsTab[] = [
-  'commander', 'providers', 'promptTemplates', 'workflows',
+  'commander', 'providers', 'guides', 'processGuides',
   'appearance', 'storage', 'usage', 'about',
 ];
 
@@ -21,12 +29,16 @@ export const SETTINGS_TAB_META: Record<
 > = {
   commander: { labelKey: 'settings.nav.commander', fallbackLabel: 'Commander AI', icon: Bot },
   providers: { labelKey: 'settings.nav.providers', fallbackLabel: 'Providers', icon: Cpu },
-  promptTemplates: {
-    labelKey: 'settings.nav.promptTemplates',
-    fallbackLabel: 'Prompt Templates',
+  guides: {
+    labelKey: 'settings.nav.guides',
+    fallbackLabel: 'Guides',
     icon: FileText,
   },
-  workflows: { labelKey: 'settings.nav.workflows', fallbackLabel: 'Workflows', icon: Workflow },
+  processGuides: {
+    labelKey: 'settings.nav.processGuides',
+    fallbackLabel: 'Process Guides',
+    icon: ListTree,
+  },
   appearance: { labelKey: 'settings.nav.appearance', fallbackLabel: 'Appearance', icon: Sun },
   storage: { labelKey: 'settings.nav.storage', fallbackLabel: 'Storage', icon: HardDrive },
   usage: { labelKey: 'settings.nav.usage', fallbackLabel: 'Usage', icon: BarChart3 },

@@ -107,7 +107,6 @@ export {
   updateLocation,
   removeLocation,
   selectLocation,
-  setLocationsFilterType,
   setLocationsLoading,
   setLocationsSearch,
   setLocationRefImage,

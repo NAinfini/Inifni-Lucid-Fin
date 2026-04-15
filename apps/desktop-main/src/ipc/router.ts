@@ -1,20 +1,18 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import log from '../logger.js';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import { CAS, Keychain, type PromptStore } from '@lucid-fin/storage';
+import { CAS, Keychain, type PromptStore, type ProcessPromptStore } from '@lucid-fin/storage';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
 import type { JobQueue, WorkflowEngine, AgentOrchestrator } from '@lucid-fin/application';
 import { registerAssetHandlers } from './handlers/asset.handlers.js';
 import { registerJobHandlers } from './handlers/job.handlers.js';
 import { registerKeychainHandlers } from './handlers/keychain.handlers.js';
 import { registerScriptHandlers } from './handlers/script.handlers.js';
-import { registerSceneHandlers } from './handlers/scene.handlers.js';
 import { registerCharacterHandlers } from './handlers/character.handlers.js';
 import { registerEquipmentHandlers } from './handlers/equipment.handlers.js';
 import { registerLocationHandlers } from './handlers/location.handlers.js';
 import { registerStyleHandlers } from './handlers/style.handlers.js';
 import { registerAiHandlers } from './handlers/ai.handlers.js';
-import { registerOrchestrationHandlers } from './handlers/orchestration.handlers.js';
 import { registerColorStyleHandlers } from './handlers/color-style.handlers.js';
 import { registerWorkflowHandlers } from './handlers/workflow.handlers.js';
 import { registerRenderHandlers } from './handlers/render.handlers.js';
@@ -33,6 +31,7 @@ import { registerEmbeddingHandlers } from './handlers/embedding.handlers.js';
 import { registerVideoCloneHandlers } from './handlers/video-clone.handlers.js';
 import { registerStorageHandlers } from './handlers/storage.handlers.js';
 import { registerSnapshotHandlers } from './handlers/snapshot.handlers.js';
+import { registerProcessPromptHandlers } from './handlers/process-prompt.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 
 export interface AppDeps {
@@ -45,13 +44,25 @@ export interface AppDeps {
   workflowEngine: WorkflowEngine;
   agent: AgentOrchestrator | null;
   promptStore: PromptStore;
+  processPromptStore: ProcessPromptStore;
 }
 
 export function registerAllHandlers(
   getWindow: () => BrowserWindow | null,
   deps: AppDeps,
 ): void {
-  const { db, cas, keychain, registry, jobQueue, llmRegistry, workflowEngine, agent, promptStore } = deps;
+  const {
+    db,
+    cas,
+    keychain,
+    registry,
+    jobQueue,
+    llmRegistry,
+    workflowEngine,
+    agent,
+    promptStore,
+    processPromptStore,
+  } = deps;
   log.info('Registering IPC handlers', {
     category: 'ipc',
     hasWindowGetter: typeof getWindow === 'function',
@@ -61,13 +72,12 @@ export function registerAllHandlers(
   registerJobHandlers(ipcMain, getWindow, db, jobQueue);
   registerKeychainHandlers(ipcMain, keychain, registry, llmRegistry);
   registerScriptHandlers(ipcMain, db);
-  registerSceneHandlers(ipcMain, db);
   registerCharacterHandlers(ipcMain, db);
   registerEquipmentHandlers(ipcMain, db);
   registerLocationHandlers(ipcMain, db);
   registerStyleHandlers(ipcMain);
   registerAiHandlers(ipcMain, getWindow, agent, promptStore);
-  registerOrchestrationHandlers(ipcMain, db);
+  registerProcessPromptHandlers(ipcMain, processPromptStore);
   registerColorStyleHandlers(ipcMain, db, cas, workflowEngine);
   registerWorkflowHandlers(ipcMain, workflowEngine);
   registerRenderHandlers(ipcMain);
@@ -95,6 +105,7 @@ export function registerAllHandlers(
     cas,
     keychain,
     resolvePrompt: (code: string) => promptStore.resolve(code),
+    resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
   });
   registerEntityHandlers(ipcMain, { adapterRegistry: registry, cas, db });
   registerVisionHandlers(ipcMain, { cas, keychain });

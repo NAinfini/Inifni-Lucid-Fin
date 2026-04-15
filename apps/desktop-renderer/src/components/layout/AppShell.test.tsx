@@ -29,7 +29,7 @@ describe('AppShell drag regions', () => {
       </Provider>,
     );
 
-    const titleBar = screen.getByText('Lucid Fin').parentElement as HTMLElement;
+    const titleBar = screen.getAllByText('Lucid Fin')[0].parentElement as HTMLElement;
     const main = screen.getByRole('main') as HTMLElement;
 
     const titleBarRegion = (titleBar.style as unknown as { WebkitAppRegion?: string }).WebkitAppRegion;

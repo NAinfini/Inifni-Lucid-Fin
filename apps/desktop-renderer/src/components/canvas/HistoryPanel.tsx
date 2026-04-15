@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, startTransition } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   History,
@@ -13,12 +13,13 @@ import {
 } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { newSession, loadSession, deleteSession, renameSession } from '../../store/slices/commander.js';
+import { newSession, loadSession, deleteSession, renameSession, type CommanderMessage } from '../../store/slices/commander.js';
 import { setCharacters } from '../../store/slices/characters.js';
 import { setEquipment } from '../../store/slices/equipment.js';
 import { setLocations } from '../../store/slices/locations.js';
 import { setCanvases } from '../../store/slices/canvas.js';
 import { enqueueToast } from '../../store/slices/toast.js';
+import { useConfirm } from '../ui/ConfirmDialog.js';
 import { cn } from '../../lib/utils.js';
 import { getAPI } from '../../utils/api.js';
 
@@ -50,6 +51,7 @@ export function HistoryPanel() {
   const activeSessionId = useSelector((state: RootState) => state.commander.activeSessionId);
   const isStreaming = useSelector((state: RootState) => state.commander.streaming);
   const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
+  const { confirm, ConfirmDialog } = useConfirm();
 
   // --- Snapshot-related local state ---
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
@@ -65,14 +67,18 @@ export function HistoryPanel() {
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const filteredSessions = useMemo(() => {
-    if (!searchQuery.trim()) return sessions;
+    // Show sessions for the active canvas (plus legacy sessions with no canvasId)
+    const canvasSessions = activeCanvasId
+      ? sessions.filter((s) => !s.canvasId || s.canvasId === activeCanvasId)
+      : sessions;
+    if (!searchQuery.trim()) return canvasSessions;
     const q = searchQuery.toLowerCase();
-    return sessions.filter(
+    return canvasSessions.filter(
       (s) =>
         s.title.toLowerCase().includes(q) ||
         s.messages.some((m) => m.content.toLowerCase().includes(q)),
     );
-  }, [sessions, searchQuery]);
+  }, [sessions, searchQuery, activeCanvasId]);
 
   useEffect(() => {
     if (renamingSessionId && renameInputRef.current) {
@@ -105,11 +111,11 @@ export function HistoryPanel() {
   );
 
   // -----------------------------------------------------------------------
-  // Session click — toggle expand + load messages lazily + load snapshots
+  // Toggle expand/collapse + load snapshots lazily
   // -----------------------------------------------------------------------
-  const handleSessionClick = useCallback(
-    async (sessionId: string) => {
-      if (isStreaming) return;
+  const handleToggleExpand = useCallback(
+    async (sessionId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
       const api = getAPI();
 
       // Toggle expansion
@@ -122,22 +128,6 @@ export function HistoryPanel() {
         }
         return next;
       });
-
-      // Load session messages lazily into commander store
-      if (activeSessionId !== sessionId) {
-        const stored = sessions.find((s) => s.id === sessionId);
-        if (stored && stored.messages.length === 0 && api?.session) {
-          try {
-            const full = await api.session.get(sessionId);
-            const msgs = JSON.parse(full.messages);
-            // Patch messages into the session before loading
-            stored.messages = msgs;
-          } catch {
-            /* session fetch failed — fall through to loadSession with empty messages */
-          }
-        }
-        dispatch(loadSession(sessionId));
-      }
 
       // Load snapshots lazily on first expand
       if (!sessionSnapshots[sessionId] && !loadingSnaps.has(sessionId)) {
@@ -156,7 +146,35 @@ export function HistoryPanel() {
         }
       }
     },
-    [isStreaming, activeSessionId, sessions, sessionSnapshots, loadingSnaps, dispatch],
+    [sessionSnapshots, loadingSnaps],
+  );
+
+  // -----------------------------------------------------------------------
+  // Load session into Commander
+  // -----------------------------------------------------------------------
+  const handleSessionClick = useCallback(
+    async (sessionId: string) => {
+      if (isStreaming) return;
+      const api = getAPI();
+
+      // Lazy-load session messages from SQLite if not yet hydrated
+      const stored = sessions.find((s) => s.id === sessionId);
+      let hydratedMessages: CommanderMessage[] | undefined;
+      if (stored && stored.messages.length === 0 && api?.session) {
+        try {
+          const full = await api.session.get(sessionId);
+          hydratedMessages = JSON.parse(full.messages) as CommanderMessage[];
+        } catch {
+          /* session fetch failed — load with empty messages */
+        }
+      }
+      // Wrap in startTransition so the heavy message list re-render
+      // doesn't block INP (allows the click highlight to paint first).
+      startTransition(() => {
+        dispatch(loadSession({ id: sessionId, hydratedMessages }));
+      });
+    },
+    [isStreaming, sessions, dispatch],
   );
 
   // -----------------------------------------------------------------------
@@ -168,7 +186,13 @@ export function HistoryPanel() {
       if (restoringSnap || isStreaming) return;
 
       // Confirmation dialog
-      if (!confirm(t('history.confirmRestore'))) return;
+      const ok = await confirm({
+        title: t('history.confirmRestore'),
+        description: t('history.confirmRestoreDescription'),
+        confirmLabel: t('history.restore'),
+        destructive: true,
+      });
+      if (!ok) return;
 
       const api = getAPI();
       setRestoringSnap(snapId);
@@ -218,7 +242,7 @@ export function HistoryPanel() {
         setRestoringSnap(null);
       }
     },
-    [restoringSnap, isStreaming, dispatch, t],
+    [restoringSnap, isStreaming, confirm, dispatch, t],
   );
 
   // -----------------------------------------------------------------------
@@ -296,14 +320,18 @@ export function HistoryPanel() {
                   )}
                   onClick={() => void handleSessionClick(session.id)}
                 >
-                  {/* Expand/collapse chevron */}
-                  <span className="mt-0.5 shrink-0 text-muted-foreground">
+                  {/* Expand/collapse chevron — only toggles expand */}
+                  <button
+                    type="button"
+                    className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground rounded p-0"
+                    onClick={(e) => void handleToggleExpand(session.id, e)}
+                  >
                     {isExpanded ? (
                       <ChevronDown className="w-3 h-3" />
                     ) : (
                       <ChevronRight className="w-3 h-3" />
                     )}
-                  </span>
+                  </button>
                   <MessageSquare className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
                     {renamingSessionId === session.id ? (
@@ -341,6 +369,11 @@ export function HistoryPanel() {
                       <span>
                         {session.messages.length} {t('history.messages')}
                       </span>
+                      {activeSessionId === session.id && (
+                        <span className="rounded-full bg-primary/20 text-primary px-1.5 py-px text-[9px] font-medium leading-tight">
+                          {t('history.selected')}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <button
@@ -357,9 +390,18 @@ export function HistoryPanel() {
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
+                      const ok = await confirm({
+                        title: t('history.confirmDelete'),
+                        description: t('history.confirmDeleteDescription'),
+                        confirmLabel: t('history.delete'),
+                        destructive: true,
+                      });
+                      if (!ok) return;
                       dispatch(deleteSession(session.id));
+                      // Also delete from SQLite so it doesn't reappear on restart
+                      getAPI()?.session?.delete(session.id).catch(() => {});
                     }}
                     className="hidden group-hover:flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground hover:text-destructive"
                     title={t('history.delete')}
@@ -370,7 +412,8 @@ export function HistoryPanel() {
 
                 {/* Snapshot sub-list (expanded) */}
                 {isExpanded && (
-                  <div className="ml-5 mt-1 space-y-0.5">
+                  <div className="ml-5 mt-1 max-h-32 overflow-y-auto rounded border border-border/40 bg-muted/20">
+                    <div className="space-y-0.5 p-1">
                     {isLoadingSnaps && (
                       <div className="text-[10px] text-muted-foreground px-1 py-0.5">
                         {t('history.loadingSnapshots')}
@@ -389,18 +432,20 @@ export function HistoryPanel() {
                         <Clock className="w-3 h-3 shrink-0 text-muted-foreground" />
                         <div className="min-w-0 flex-1">
                           <div className="text-[10px] truncate">
-                            {snap.label || t('history.autoSnapshot')}
+                            {snap.label === 'Before Commander session'
+                              ? t('history.beforeSession')
+                              : snap.label || t('history.autoSnapshot')}
                           </div>
                           <div className="text-[9px] text-muted-foreground">
                             {formatDate(snap.createdAt)}
                             {snap.trigger === 'auto' && (
                               <span className="ml-1 text-[8px] rounded bg-muted px-1 py-px">
-                                auto
+                                {t('history.triggerAuto')}
                               </span>
                             )}
                             {snap.trigger === 'manual' && (
                               <span className="ml-1 text-[8px] rounded bg-primary/20 text-primary px-1 py-px">
-                                manual
+                                {t('history.triggerManual')}
                               </span>
                             )}
                           </div>
@@ -424,6 +469,7 @@ export function HistoryPanel() {
                         </button>
                       </div>
                     ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -431,6 +477,7 @@ export function HistoryPanel() {
           })}
         </div>
       )}
+      {ConfirmDialog}
     </div>
   );
 }

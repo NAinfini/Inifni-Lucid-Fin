@@ -676,7 +676,10 @@ describe('resolveAdapter', () => {
     );
 
     expect(result.id).toBe('openai-dalle');
-    expect(adapter.configure).toHaveBeenCalledWith('sk-test', undefined);
+    expect(adapter.configure).toHaveBeenCalledWith(
+      'sk-test',
+      expect.objectContaining({ generationType: 'image' }),
+    );
   });
 
   it('configures adapter with baseUrl and model from providerConfig', async () => {
@@ -742,7 +745,10 @@ describe('resolveAdapter', () => {
       keychain as never,
     );
 
-    expect(adapter.configure).toHaveBeenCalledWith('override-key', undefined);
+    expect(adapter.configure).toHaveBeenCalledWith(
+      'override-key',
+      expect.objectContaining({ generationType: 'image' }),
+    );
     expect(keychain.getKey).not.toHaveBeenCalled();
   });
 });
@@ -911,66 +917,10 @@ describe('buildGenerationContext', () => {
     expect(ctx.requestBase.seed).toBe(77777);
   });
 
-  it('prefers imagePrompt over prompt for image nodes', async () => {
-    const node = makeImageNode({
-      providerId: 'mock-provider',
-      prompt: 'generic prompt',
-      imagePrompt: 'image-specific prompt',
-    });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
-
-    // compilePrompt will receive effectivePrompt; capture it
-    compilePromptMock.mockImplementation((args: { prompt: string }) => ({
-      prompt: args.prompt,
-      negativePrompt: undefined,
-      referenceImages: [],
-      params: {},
-      wordCount: 3,
-      budget: 100,
-      segments: [],
-      diagnostics: [],
-    }));
-
-    const ctx = await buildGenerationContext(deps as never, {
-      canvasId: 'canvas-1',
-      nodeId: 'node-image',
-    });
-
-    expect(ctx.requestBase.prompt).toBe('image-specific prompt');
-  });
-
-  it('prefers videoPrompt over prompt for video nodes', async () => {
-    const node = makeVideoNode({
-      providerId: 'mock-provider',
-      prompt: 'generic prompt',
-      videoPrompt: 'video-specific prompt',
-    });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'video', capabilities: ['text-to-video'] });
-
-    compilePromptMock.mockImplementation((args: { prompt: string }) => ({
-      prompt: args.prompt,
-      negativePrompt: undefined,
-      referenceImages: [],
-      params: {},
-      wordCount: 3,
-      budget: 100,
-      segments: [],
-      diagnostics: [],
-    }));
-
-    const ctx = await buildGenerationContext(deps as never, {
-      canvasId: 'canvas-1',
-      nodeId: 'node-video',
-    });
-
-    expect(ctx.requestBase.prompt).toBe('video-specific prompt');
-  });
-
-  it('falls back to node.title when both prompt and imagePrompt are empty', async () => {
+  it('falls back to node.title when prompt is empty', async () => {
     const node = makeImageNode({
       providerId: 'mock-provider',
       prompt: '',
-      imagePrompt: '',
     });
     const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
 

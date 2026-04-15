@@ -22,12 +22,6 @@ import {
 import { toggleCommander } from '../../store/slices/commander.js';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../ui/Tooltip.js';
 
 interface ToolbarButton {
   id: string;
@@ -79,117 +73,104 @@ export function LeftToolbar() {
   }, []);
 
   return (
-    <TooltipProvider delayDuration={120}>
-      <aside
-        ref={toolbarRef}
-        role="toolbar"
-        aria-label={t('toolbar.ariaLabel')}
-        aria-orientation="vertical"
-        onKeyDown={handleToolbarKeyDown}
-        className="flex h-full w-11 shrink-0 flex-col border-r border-border bg-card px-0.5 py-1.5"
-      >
-        <div className="flex flex-col gap-0.5">
-          {TOOLBAR_BUTTONS.slice(0, -1).map((button, idx) => {
-            const label = t(button.label);
-            const Icon = button.icon;
-            const active = Boolean(
-              (button.panel && activePanel === button.panel) ||
-                (button.route && location.pathname === button.route),
-            );
-            const isDefaultFocusable = !anyActive && idx === 0;
+    <aside
+      ref={toolbarRef}
+      role="toolbar"
+      aria-label={t('toolbar.ariaLabel')}
+      aria-orientation="vertical"
+      onKeyDown={handleToolbarKeyDown}
+      className="flex h-full w-11 shrink-0 flex-col border-r border-border bg-card px-0.5 py-1.5"
+    >
+      <div className="flex flex-col gap-0.5">
+        {TOOLBAR_BUTTONS.slice(0, -1).map((button, idx) => {
+          const label = t(button.label);
+          const Icon = button.icon;
+          const active = Boolean(
+            (button.panel && activePanel === button.panel) ||
+              (button.route && location.pathname === button.route),
+          );
+          const isDefaultFocusable = !anyActive && idx === 0;
 
-            return (
-              <Tooltip key={button.id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={label}
-                    aria-pressed={active}
-                    tabIndex={active || isDefaultFocusable ? 0 : -1}
-                    onClick={() => {
-                      if (button.panel) {
-                        dispatch(togglePanel(button.panel));
-                        return;
-                      }
-                      if (button.route) {
-                        dispatch(setActivePanel(null));
-                        navigate(button.route);
-                      }
-                    }}
-                    className={cn(
-                      'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
-                      active
-                        ? 'bg-primary/12 text-primary'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                    )}
-                  >
-                    <Icon className="h-[15px] w-[15px]" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">{label}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
-
-        <div className="flex-1" />
-
-        <Tooltip>
-          <TooltipTrigger asChild>
+          return (
             <button
+              key={button.id}
               type="button"
-              aria-label={`${t('commander.commanderAI')} (Ctrl+J)`}
-              aria-pressed={commanderOpen}
-              tabIndex={commanderOpen ? 0 : -1}
-              onClick={() => dispatch(toggleCommander())}
+              aria-label={label}
+              title={label}
+              aria-pressed={active}
+              tabIndex={active || isDefaultFocusable ? 0 : -1}
+              onClick={() => {
+                if (button.panel) {
+                  dispatch(togglePanel(button.panel));
+                  return;
+                }
+                if (button.route) {
+                  dispatch(setActivePanel(null));
+                  navigate(button.route);
+                }
+              }}
               className={cn(
                 'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
-                commanderOpen
-                  ? 'bg-amber-400/12 text-amber-400'
+                active
+                  ? 'bg-primary/12 text-primary'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )}
             >
-              <Zap className="h-[15px] w-[15px]" />
+              <Icon className="h-[15px] w-[15px]" />
             </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">{t('commander.commanderAI')} (Ctrl+J)</TooltipContent>
-        </Tooltip>
-
-        {(() => {
-          const button = TOOLBAR_BUTTONS[TOOLBAR_BUTTONS.length - 1];
-          const label = t(button.label);
-          const Icon = button.icon;
-          const active = location.pathname === button.route;
-
-          return (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={label}
-                  aria-pressed={active}
-                  tabIndex={active ? 0 : -1}
-                  onClick={() => {
-                    if (button.route) {
-                      dispatch(setActivePanel(null));
-                      navigate(button.route);
-                    }
-                  }}
-                  className={cn(
-                    'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
-                    active
-                      ? 'bg-primary/12 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
-                >
-                  <Icon className="h-[15px] w-[15px]" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{label}</TooltipContent>
-            </Tooltip>
           );
-        })()}
-      </aside>
-    </TooltipProvider>
+        })}
+      </div>
+
+      <div className="flex-1" />
+
+      <button
+        type="button"
+        aria-label={`${t('commander.commanderAI')} (Ctrl+J)`}
+        title={`${t('commander.commanderAI')} (Ctrl+J)`}
+        aria-pressed={commanderOpen}
+        tabIndex={commanderOpen ? 0 : -1}
+        onClick={() => dispatch(toggleCommander())}
+        className={cn(
+          'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
+          commanderOpen
+            ? 'bg-amber-400/12 text-amber-400'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+        )}
+      >
+        <Zap className="h-[15px] w-[15px]" />
+      </button>
+
+      {(() => {
+        const button = TOOLBAR_BUTTONS[TOOLBAR_BUTTONS.length - 1];
+        const label = t(button.label);
+        const Icon = button.icon;
+        const active = location.pathname === button.route;
+
+        return (
+          <button
+            type="button"
+            aria-label={label}
+            title={label}
+            aria-pressed={active}
+            tabIndex={active ? 0 : -1}
+            onClick={() => {
+              if (button.route) {
+                dispatch(setActivePanel(null));
+                navigate(button.route);
+              }
+            }}
+            className={cn(
+              'flex h-9 w-10 items-center justify-center rounded-md transition-colors',
+              active
+                ? 'bg-primary/12 text-primary'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            <Icon className="h-[15px] w-[15px]" />
+          </button>
+        );
+      })()}
+    </aside>
   );
 }

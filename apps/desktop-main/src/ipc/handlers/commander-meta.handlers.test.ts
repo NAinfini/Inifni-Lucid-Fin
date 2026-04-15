@@ -48,7 +48,7 @@ describe('registerCommanderMetaHandlers', () => {
 
     await expect(cancel?.({}, { canvasId: 'canvas-1' })).resolves.toBeUndefined();
 
-    expect(runningSessions.get('canvas-1')?.aborted).toBe(true);
+    expect(runningSessions.has('canvas-1')).toBe(false);
     expect(scopedLogger.info).toHaveBeenCalledWith(
       'Commander cancel requested',
       expect.objectContaining({

@@ -25,7 +25,9 @@ import type {
   LLMProviderRuntimeConfig,
   Canvas,
   PresetDefinition,
+  ProviderProfile,
 } from '@lucid-fin/contracts';
+import { DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
 import {
@@ -54,40 +56,67 @@ export const mutatingToolNames = new Set([
   'canvas.deleteNode',
   'canvas.deleteEdge',
   'canvas.updateNodes',
+  'canvas.setNodeLayout',
+  'canvas.setNodeProvider',
+  'canvas.setImageParams',
+  'canvas.setVideoParams',
+  'canvas.setAudioParams',
   'canvas.setNodeRefs',
   'canvas.batchCreate',
   'canvas.writeNodePresetTracks',
+  'canvas.writePresetTracksBatch',
   'canvas.updateBackdrop',
-  'canvas.presetEntry',
+  'canvas.addPresetEntry',
+  'canvas.removePresetEntry',
+  'canvas.updatePresetEntry',
   'canvas.applyShotTemplate',
   'canvas.setVideoFrames',
   'canvas.swapEdgeDirection',
   'canvas.disconnectNode',
   'canvas.selectVariant',
+  'canvas.addNote',
+  'canvas.updateNote',
+  'canvas.deleteNote',
   'canvas.undo',
   'canvas.redo',
-  'preset.save',
-  'shotTemplate.save',
+  'preset.create',
+  'preset.update',
+  'shotTemplate.create',
+  'shotTemplate.update',
   'shotTemplate.delete',
+  'render.start',
+  'render.cancel',
+  'series.update',
 ]);
 
 export const entityMutatingToolNames = new Set([
   'character.create',
   'character.update',
   'character.delete',
-  'character.refImage',
+  'character.generateRefImage',
+  'character.setRefImage',
+  'character.deleteRefImage',
+  'character.setRefImageFromNode',
   'equipment.create',
   'equipment.update',
   'equipment.delete',
-  'equipment.refImage',
+  'equipment.generateRefImage',
+  'equipment.setRefImage',
+  'equipment.deleteRefImage',
+  'equipment.setRefImageFromNode',
   'location.create',
   'location.update',
   'location.delete',
-  'location.refImage',
+  'location.generateRefImage',
+  'location.setRefImage',
+  'location.deleteRefImage',
+  'location.setRefImageFromNode',
   'scene.create',
   'scene.update',
   'scene.delete',
-  'scene.refImage',
+  'scene.setRefImage',
+  'scene.deleteRefImage',
+  'scene.setRefImageFromNode',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -201,6 +230,7 @@ export function registerCommanderHandlers(
     cas: CAS;
     keychain: import('@lucid-fin/storage').Keychain;
     resolvePrompt: (code: string) => string;
+    resolveProcessPrompt: (processKey: string) => string | null;
   },
 ): void {
   ipcMain.handle(
@@ -209,6 +239,7 @@ export function registerCommanderHandlers(
       _event,
       args: {
         canvasId: string;
+        sessionId?: string;
         message: string;
         history: HistoryEntry[];
         selectedNodeIds: string[];
@@ -219,6 +250,7 @@ export function registerCommanderHandlers(
         maxSteps?: number;
         temperature?: number;
         maxTokens?: number;
+        defaultProviders?: Record<string, string>;
       },
     ) => {
       if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
@@ -234,8 +266,8 @@ export function registerCommanderHandlers(
         throw new Error('selectedNodeIds must be an array');
       }
       validateHistoryEntries(args.history);
-      if (runningSessions.size > 0) {
-        throw new Error('Commander already has an active session');
+      if (runningSessions.has(args.canvasId)) {
+        throw new Error('Commander already has an active session for this canvas');
       }
 
       let session: RunningCommanderSession | undefined;
@@ -274,14 +306,25 @@ export function registerCommanderHandlers(
           cas: deps.cas,
           keychain: deps.keychain,
         };
-        registerAllTools(registry, toolDeps, getWindow, args.promptGuides ?? [], compactRef);
+        registerAllTools(
+          registry,
+          toolDeps,
+          getWindow,
+          args.promptGuides ?? [],
+          compactRef,
+          args.sessionId ?? args.canvasId,
+          args.defaultProviders as Record<string, string> | undefined,
+        );
         setLastToolRegistry(registry);
 
         // Create orchestrator
+        const adapterProfile: ProviderProfile = llmAdapter.profile ?? DEFAULT_PROVIDER_PROFILE;
         const orchestrator = new AgentOrchestrator(llmAdapter, registry, deps.resolvePrompt, {
           maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : undefined,
           temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
           maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
+          profile: adapterProfile,
+          resolveProcessPrompt: deps.resolveProcessPrompt,
         });
         compactRef.compact = (instructions?: string) => orchestrator.compactNow(instructions);
         session = { aborted: false, canvasId: args.canvasId, orchestrator, lastActivity: Date.now() };
@@ -314,15 +357,7 @@ export function registerCommanderHandlers(
           history: args.history,
           isAborted: () => session?.aborted ?? false,
           permissionMode: args.permissionMode ?? 'normal',
-          onLLMRequest: (diagnostics: {
-            step: number;
-            toolCount: number;
-            toolSchemaChars: number;
-            messageCount: number;
-            messageChars: number;
-            systemPromptChars: number;
-            promptGuideChars: number;
-          }) => {
+          onLLMRequest: (diagnostics) => {
             touchSession(args.canvasId);
             log.debug('Commander LLM request prepared', {
               category: 'commander',
@@ -337,6 +372,24 @@ export function registerCommanderHandlers(
               messageChars: diagnostics.messageChars,
               systemPromptChars: diagnostics.systemPromptChars,
               promptGuideChars: diagnostics.promptGuideChars,
+              estimatedTokensUsed: diagnostics.estimatedTokensUsed,
+              contextWindowTokens: diagnostics.contextWindowTokens,
+              cacheChars: diagnostics.cacheChars,
+              cacheEntryCount: diagnostics.cacheEntryCount,
+              utilizationRatio: diagnostics.utilizationRatio,
+            });
+            emitToWindow(getWindow, 'commander:stream', {
+              type: 'context_usage',
+              estimatedTokensUsed: diagnostics.estimatedTokensUsed,
+              contextWindowTokens: diagnostics.contextWindowTokens,
+              messageCount: diagnostics.messageCount,
+              systemPromptChars: diagnostics.systemPromptChars,
+              toolSchemaChars: diagnostics.toolSchemaChars,
+              messageChars: diagnostics.messageChars,
+              cacheChars: diagnostics.cacheChars,
+              cacheEntryCount: diagnostics.cacheEntryCount,
+              historyMessagesTrimmed: diagnostics.historyMessagesTrimmed,
+              utilizationRatio: diagnostics.utilizationRatio,
             });
           },
         });

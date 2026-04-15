@@ -2,7 +2,7 @@ import { memo, useState } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { getProviderDisplayName } from '../../../utils/provider-names.js';
 import { t } from '../../../i18n.js';
-import { Image, Loader2, Sparkles, RefreshCw, Lock, Unlock, Upload } from 'lucide-react';
+import { Image, Loader2, Sparkles, RefreshCw, Lock, Unlock, ImageOff } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
@@ -125,14 +125,10 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
                     <span className="text-[10px]">{t('node.generating')}</span>
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); cb.onUpload(d.nodeId); }}
-                    className="flex flex-col items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                  >
-                    <Upload className="h-6 w-6 opacity-40" />
+                  <div className="flex flex-col items-center gap-1.5 text-muted-foreground">
+                    <ImageOff className="h-6 w-6 opacity-30" />
                     <span className="text-[10px]">{t('node.noImageGenerated')}</span>
-                  </button>
+                  </div>
                 )}
               </div>
 

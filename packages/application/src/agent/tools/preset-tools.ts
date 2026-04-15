@@ -120,59 +120,71 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
     },
   };
 
-  const save: AgentTool = {
-    name: 'preset.save',
-    description:
-      'Save a preset definition to the project library. Two modes: ' +
-      '(1) Pass a raw "preset" object for advanced control. ' +
-      '(2) Pass individual fields (name, category, description, prompt) to create a new custom preset with auto-generated ID and timestamps.',
+  const create: AgentTool = {
+    name: 'preset.create',
+    description: 'Create a new custom preset definition with auto-generated ID and timestamps.',
+    tier: 2,
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Display name (e.g., "Shaky Handheld").' },
+        category: {
+          type: 'string',
+          description: 'Preset category.',
+          enum: [...PRESET_CATEGORIES],
+        },
+        description: { type: 'string', description: 'Short description of the visual effect.' },
+        prompt: { type: 'string', description: 'The prompt fragment for AI generation.' },
+      },
+      required: ['name', 'category', 'description', 'prompt'],
+    },
+    async execute(args) {
+      try {
+        const name = requireString(args, 'name');
+        const category = parseOptionalCategory(args);
+        if (!category) throw new Error('category is required');
+        const description = requireString(args, 'description');
+        const prompt = requireString(args, 'prompt');
+        const preset: PresetDefinition = {
+          id: `custom-${crypto.randomUUID()}`,
+          category,
+          name,
+          description,
+          prompt,
+          builtIn: false,
+          modified: false,
+          params: [],
+          defaults: {},
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        return ok(await deps.savePreset(preset));
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const update: AgentTool = {
+    name: 'preset.update',
+    description: 'Update an existing preset definition. Pass a full preset object to save.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         preset: {
           type: 'object',
-          description: 'Advanced mode: a full preset definition object to save.',
+          description: 'The full preset definition object to save.',
         },
-        name: { type: 'string', description: 'Custom mode: display name (e.g., "Shaky Handheld").' },
-        category: {
-          type: 'string',
-          description: 'Custom mode: preset category.',
-          enum: [...PRESET_CATEGORIES],
-        },
-        description: { type: 'string', description: 'Custom mode: short description of the visual effect.' },
-        prompt: { type: 'string', description: 'Custom mode: the prompt fragment for AI generation.' },
       },
-      required: [],
+      required: ['preset'],
     },
     async execute(args) {
       try {
-        let preset: PresetDefinition;
-        if (args.preset && typeof args.preset === 'object' && !Array.isArray(args.preset)) {
-          preset = args.preset as PresetDefinition;
-        } else if (typeof args.name === 'string') {
-          const name = requireString(args, 'name');
-          const category = parseOptionalCategory(args);
-          if (!category) throw new Error('category is required for custom preset creation');
-          const description = requireString(args, 'description');
-          const prompt = requireString(args, 'prompt');
-          preset = {
-            id: `custom-${crypto.randomUUID()}`,
-            category,
-            name,
-            description,
-            prompt,
-            builtIn: false,
-            modified: false,
-            params: [],
-            defaults: {},
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-        } else {
-          throw new Error('Provide either a "preset" object or individual fields (name, category, description, prompt)');
+        if (!args.preset || typeof args.preset !== 'object' || Array.isArray(args.preset)) {
+          throw new Error('preset must be a valid object');
         }
-        return ok(await deps.savePreset(preset));
+        return ok(await deps.savePreset(args.preset as PresetDefinition));
       } catch (error) {
         return fail(error);
       }
@@ -272,5 +284,5 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
     },
   };
 
-  return [list, save, del, reset, get];
+  return [list, create, update, del, reset, get];
 }

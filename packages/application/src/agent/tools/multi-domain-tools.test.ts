@@ -224,7 +224,7 @@ describe('new agent tool groups', () => {
       success: true,
       data: { jobId: 'job-1', action: 'cancel' },
     });
-    await expect(getTool(renderTools, 'render.control').execute({ canvasId: 'canvas-1', format: 'mp4', action: 'start' })).resolves.toEqual({
+    await expect(getTool(renderTools, 'render.start').execute({ canvasId: 'canvas-1', format: 'mp4' })).resolves.toEqual({
       success: true,
       data: { renderId: 'render-1' },
     });
@@ -365,7 +365,7 @@ describe('new agent tool groups', () => {
       deleteColorStyle: vi.fn(async () => undefined),
     });
 
-    await expect(getTool(seriesTools, 'series.save').execute({
+    await expect(getTool(seriesTools, 'series.update').execute({
       set: { title: 'Updated Series', description: 'Updated Desc' },
     })).resolves.toEqual({
       success: true,

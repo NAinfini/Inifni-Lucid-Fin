@@ -62,6 +62,7 @@ function registerHandlers(
       deleteAsset: vi.fn(),
       searchAssets: vi.fn(),
       queryAssets: vi.fn(),
+      repairAssetSizes: vi.fn().mockReturnValue(0),
     }) as never,
   );
 
@@ -101,6 +102,7 @@ describe("registerAssetHandlers", () => {
       deleteAsset: vi.fn(),
       searchAssets: vi.fn(),
       queryAssets: vi.fn(),
+      repairAssetSizes: vi.fn().mockReturnValue(0),
     };
     const handlers = registerHandlers(cas, db);
 
@@ -140,6 +142,7 @@ describe("registerAssetHandlers", () => {
       deleteAsset: vi.fn(),
       searchAssets: vi.fn(),
       queryAssets: vi.fn(),
+      repairAssetSizes: vi.fn().mockReturnValue(0),
     };
     const handlers = registerHandlers(cas, db);
     const importBuffer = handlers.get("asset:importBuffer");
@@ -226,6 +229,7 @@ describe("registerAssetHandlers", () => {
       deleteAsset: vi.fn(),
       searchAssets: vi.fn(() => [{ hash: "searched" }]),
       queryAssets: vi.fn(() => [{ hash: "listed" }]),
+      repairAssetSizes: vi.fn().mockReturnValue(0),
     };
     const handlers = registerHandlers(undefined, db);
     const query = handlers.get("asset:query");
@@ -278,6 +282,7 @@ describe("registerAssetHandlers", () => {
       deleteAsset: vi.fn(),
       searchAssets: vi.fn(),
       queryAssets: vi.fn(),
+      repairAssetSizes: vi.fn().mockReturnValue(0),
     };
     const handlers = registerHandlers(cas, db);
     const deleteAsset = handlers.get("asset:delete");

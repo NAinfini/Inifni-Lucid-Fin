@@ -17,6 +17,9 @@ export function registerCommanderMetaHandlers(ipcMain: IpcMain): void {
     if (session) {
       session.aborted = true;
       session.orchestrator?.cancel();
+      // Remove immediately so a new session can start without waiting for
+      // the execute() promise to fully unwind in the finally block.
+      runningSessions.delete(args.canvasId);
     }
   });
 
@@ -84,9 +87,7 @@ export function registerCommanderMetaHandlers(ipcMain: IpcMain): void {
     }
     const session = runningSessions.get(args.canvasId);
     if (!session?.orchestrator) {
-      logger.warn('Commander compact requested with no active session', {
-        canvasId: args.canvasId,
-      });
+      // Normal race condition — compact requested after session ended. Silent no-op.
       return { freedChars: 0, messageCount: 0, toolCount: 0 };
     }
     const result = await session.orchestrator.compactNow();

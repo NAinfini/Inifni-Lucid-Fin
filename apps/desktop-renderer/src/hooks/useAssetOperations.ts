@@ -50,7 +50,6 @@ export function useAssetOperations() {
             type: (asset.type as Asset['type']) ?? 'other',
             path: typeof asset.path === 'string' ? asset.path : '',
             tags: Array.isArray(asset.tags) ? (asset.tags as string[]) : [],
-            projectId: typeof asset.projectId === 'string' ? asset.projectId : undefined,
             global: Boolean(asset.global),
             size: typeof asset.fileSize === 'number' ? asset.fileSize : (typeof asset.size === 'number' ? asset.size : 0),
             createdAt: typeof asset.createdAt === 'number' ? asset.createdAt : Date.now(),

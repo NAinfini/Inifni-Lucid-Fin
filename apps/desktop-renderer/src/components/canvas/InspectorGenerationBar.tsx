@@ -64,6 +64,11 @@ export interface InspectorGenerationBarProps {
   onAudioChange?: (enabled: boolean) => void;
   audioLabel?: string;
   audioWarning?: string;
+  // Lip sync toggle (video nodes)
+  showLipSyncToggle?: boolean;
+  lipSyncEnabled?: boolean;
+  onLipSyncChange?: (enabled: boolean) => void;
+  lipSyncLabel?: string;
   // Quality selector (all video providers)
   showQualitySelector?: boolean;
   qualityOptions?: Array<{ value: string; label: string }>;
@@ -124,6 +129,10 @@ export function InspectorGenerationBar({
   onAudioChange,
   audioLabel,
   audioWarning,
+  showLipSyncToggle,
+  lipSyncEnabled,
+  onLipSyncChange,
+  lipSyncLabel,
   showQualitySelector,
   qualityOptions,
   qualityValue,
@@ -356,6 +365,21 @@ export function InspectorGenerationBar({
               {audioWarning && (
                 <span className="block text-[9px] text-yellow-500">{audioWarning}</span>
               )}
+            </div>
+          )}
+
+          {/* Lip sync toggle (video nodes) */}
+          {showLipSyncToggle && onLipSyncChange && (
+            <div className="space-y-0.5">
+              <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={lipSyncEnabled ?? false}
+                  onChange={(e) => onLipSyncChange(e.target.checked)}
+                  className="rounded border-border accent-primary"
+                />
+                {lipSyncLabel ?? 'Lip Sync'}
+              </label>
             </div>
           )}
 

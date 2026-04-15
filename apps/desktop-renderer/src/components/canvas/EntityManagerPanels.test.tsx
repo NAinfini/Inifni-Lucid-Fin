@@ -90,7 +90,6 @@ function createLocation(): Location {
   return {
     id: 'location-1',
     name: 'Hangar Bay',
-    type: 'interior',
     description: 'Industrial launch bay',
     tags: ['industrial'],
     referenceImages: [],
@@ -162,7 +161,6 @@ function renderWithStore(
     locationsSlice.actions.restore({
       items: locations,
       selectedId: selectedLocationId,
-      filterType: 'all',
       loading: false,
       search: '',
     }),
