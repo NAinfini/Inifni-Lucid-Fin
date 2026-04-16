@@ -69,7 +69,7 @@ For each location:
         description: 'Generate turnaround reference sheets for characters and locations',
         commanderPrompt: `Generate reference images for all characters and locations:
 
-For characters: Use the character turnaround template — front, 3/4, side, back views on white background, consistent lighting, neutral pose.
+For characters: Generate the main/front slot as a two-row model sheet — full-body front, left, right, and back panels on the top row, enlarged facial expression studies on the bottom row, white background, even studio lighting, neutral body pose.
 
 For locations: Use the location reference template — wide establishing shot + 2-3 key angles, consistent time of day.
 
@@ -210,7 +210,7 @@ Create all locations using location.create.`,
         description: 'Generate turnaround sheets for all characters, equipment, and locations',
         commanderPrompt: `Generate reference images for all extracted entities:
 
-Characters: turnaround sheet (front, 3/4, side, back), white background, consistent lighting
+Characters: main/front slot should be a two-row model sheet with full-body front, left, right, and back panels plus enlarged facial expression studies, white background, even studio lighting
 Equipment: orthographic views (front, side, top), technical drawing style
 Locations: establishing shot + 2-3 key angles, consistent atmosphere
 

@@ -146,13 +146,17 @@ export function InspectorGenerationState({
 
   const generationData = selectedNode.data as ImageNodeData | VideoNodeData | AudioNodeData;
   const activeProviderId = generationData.providerId;
+  const providerCandidates = useMemo(() => {
+    if (selectedNode.type === 'audio') return audioProviders;
+    if (selectedNode.type === 'video') return videoProviders;
+    return imageProviders;
+  }, [audioProviders, imageProviders, selectedNode.type, videoProviders]);
   const activeProviderConfig = useMemo(() => {
     if (!activeProviderId) return undefined;
-    const all = [...imageProviders, ...videoProviders, ...audioProviders];
-    const p = all.find((x) => x.id === activeProviderId);
+    const p = providerCandidates.find((x) => x.id === activeProviderId);
     if (!p) return undefined;
     return { baseUrl: p.baseUrl, model: p.model };
-  }, [activeProviderId, imageProviders, videoProviders, audioProviders]);
+  }, [activeProviderId, providerCandidates]);
   const activeVideoProviderMetadata = useMemo(() => {
     if (selectedNode.type !== 'video' || !activeProviderId) return undefined;
     return getProviderMetadata('video', activeProviderId);
@@ -197,12 +201,6 @@ export function InspectorGenerationState({
   const [durationSelectValue, setDurationSelectValue] = useState<string | null>(null);
   const [configuredProviders, setConfiguredProviders] = useState<ProviderConfig[]>([]);
   const [providerLoading, setProviderLoading] = useState(false);
-
-  const providerCandidates = useMemo(() => {
-    if (selectedNode.type === 'audio') return audioProviders;
-    if (selectedNode.type === 'video') return videoProviders;
-    return imageProviders;
-  }, [audioProviders, imageProviders, selectedNode.type, videoProviders]);
 
   useEffect(() => {
     if (!visualGenerationNode) {

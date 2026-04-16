@@ -28,6 +28,7 @@ import type {
   Equipment,
   Location,
 } from '@lucid-fin/contracts';
+import { normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 
 export interface UseInspectorEntityRefsOptions {
   selectedNode: CanvasNode | undefined;
@@ -139,13 +140,19 @@ export function useInspectorEntityRefs({
       if (!selectedNode) return;
       const character = characters.find((c) => c.id === characterId);
       const referenceImageHash = angleSlot
-        ? character?.referenceImages?.find((r: ReferenceImage) => r.slot === angleSlot)?.assetHash
+        ? character?.referenceImages?.find(
+          (r: ReferenceImage) =>
+            normalizeCharacterRefSlot(r.slot) === normalizeCharacterRefSlot(angleSlot),
+        )?.assetHash
         : undefined;
       dispatch(
         updateNodeCharacterRef({
           id: selectedNode.id,
           characterId,
-          changes: { angleSlot, referenceImageHash },
+          changes: {
+            angleSlot: angleSlot ? normalizeCharacterRefSlot(angleSlot) : undefined,
+            referenceImageHash,
+          },
         }),
       );
     },

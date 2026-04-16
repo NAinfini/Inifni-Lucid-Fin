@@ -6,7 +6,12 @@ import type {
   GenerationResult,
   CostEstimate,
 } from '@lucid-fin/contracts';
-import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
+import {
+  LucidError,
+  ErrorCode,
+  JobStatus,
+  resolvePrimaryVideoConditioningImage,
+} from '@lucid-fin/contracts';
 import { fetchWithTimeout } from '../fetch-utils.js';
 import { toKlingRequest, parseKlingResponse } from './mapper.js';
 
@@ -54,7 +59,7 @@ export class KlingAdapter implements AIProviderAdapter {
   }
 
   async generate(req: GenerationRequest): Promise<GenerationResult> {
-    const isImg2Vid = req.referenceImages && req.referenceImages.length > 0;
+    const isImg2Vid = Boolean(resolvePrimaryVideoConditioningImage(req));
     const endpoint = isImg2Vid ? '/videos/image2video' : '/videos/text2video';
     const body = toKlingRequest(req);
     const auth = await this.authHeader();

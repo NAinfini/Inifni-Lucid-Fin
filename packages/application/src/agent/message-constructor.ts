@@ -190,7 +190,18 @@ export function buildMessagesForRequest(input: BuildMessagesInput): BuildMessage
   // We pre-compute this so both the budget walk and the assembly loop
   // can skip entire groups atomically (never leaving orphan references).
   const STUB_CONTENT = '{"_cached":true}';
-  const fullyStudbedToolCallIds = new Set<string>();
+  const shouldPreserveAssistantToolGroup = (assistantIndex: number): boolean => {
+    const toolCallIds = new Set(msgs[assistantIndex].toolCalls?.map((toolCall) => toolCall.id) ?? []);
+    for (let i = assistantIndex + 1; i < msgs.length; i++) {
+      const message = msgs[i];
+      if (message.role === 'system') continue;
+      if (message.role === 'tool' && message.toolCallId && toolCallIds.has(message.toolCallId)) continue;
+      return false;
+    }
+    return true;
+  };
+
+  const fullySkippedToolCallIds = new Set<string>();
   for (let i = 0; i < msgs.length; i++) {
     if (msgs[i].role !== 'assistant' || !msgs[i].toolCalls?.length) continue;
     const tcs = msgs[i].toolCalls!;
@@ -204,8 +215,11 @@ export function buildMessagesForRequest(input: BuildMessagesInput): BuildMessage
       }
       return false;
     });
-    if (allStubbed) {
-      for (const tc of tcs) fullyStudbedToolCallIds.add(tc.id);
+    const allCached = !shouldPreserveAssistantToolGroup(i)
+      && !!input.cache
+      && tcs.every((tc) => input.cache!.hasCoverage(tc.name, tc.arguments as Record<string, unknown>));
+    if (allStubbed || allCached) {
+      for (const tc of tcs) fullySkippedToolCallIds.add(tc.id);
     }
   }
 
@@ -217,12 +231,12 @@ export function buildMessagesForRequest(input: BuildMessagesInput): BuildMessage
   for (let i = msgs.length - 1; i >= historyStart; i--) {
     if (isProcessPromptMessage(msgs[i])) continue;
     // Skip stubbed tool messages from fully-stubbed groups
-    if (msgs[i].role === 'tool' && msgs[i].toolCallId && fullyStudbedToolCallIds.has(msgs[i].toolCallId!)) {
+    if (msgs[i].role === 'tool' && msgs[i].toolCallId && fullySkippedToolCallIds.has(msgs[i].toolCallId!)) {
       continue;
     }
     // Skip fully-stubbed assistant messages
     if (msgs[i].role === 'assistant' && msgs[i].toolCalls?.length) {
-      if (msgs[i].toolCalls!.every((tc) => fullyStudbedToolCallIds.has(tc.id))) continue;
+      if (msgs[i].toolCalls!.every((tc) => fullySkippedToolCallIds.has(tc.id))) continue;
     }
     const mc = messageChars(msgs[i]);
     if (historyChars + mc > historyBudgetChars && i !== msgs.length - 1) {
@@ -248,7 +262,7 @@ export function buildMessagesForRequest(input: BuildMessagesInput): BuildMessage
       if (msgs[i].role === 'tool' && msgs[i].toolCallId) presentIds.add(msgs[i].toolCallId!);
     }
     // Exclude fully-stubbed tool call IDs — those are intentionally omitted
-    for (const id of fullyStudbedToolCallIds) {
+    for (const id of fullySkippedToolCallIds) {
       requiredIds.delete(id);
     }
     const allPresent = [...requiredIds].every((id) => presentIds.has(id));
@@ -278,10 +292,10 @@ export function buildMessagesForRequest(input: BuildMessagesInput): BuildMessage
     const m = msgs[i];
     if (isProcessPromptMessage(m)) continue;
     // Skip tool messages from fully-stubbed groups
-    if (m.role === 'tool' && m.toolCallId && fullyStudbedToolCallIds.has(m.toolCallId)) continue;
+    if (m.role === 'tool' && m.toolCallId && fullySkippedToolCallIds.has(m.toolCallId)) continue;
     // Skip fully-stubbed assistant messages
     if (m.role === 'assistant' && m.toolCalls?.length) {
-      if (m.toolCalls.every((tc) => fullyStudbedToolCallIds.has(tc.id))) continue;
+      if (m.toolCalls.every((tc) => fullySkippedToolCallIds.has(tc.id))) continue;
     }
     if (profile.sanitizeToolNames) {
       wireMessages.push(sanitizeMessage(m, toolNameReverseMap));

@@ -14,7 +14,7 @@ import type {
   StyleGuide,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
+import { createEmptyPresetTrackSet, normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 import type { ResolvedCharacter } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import {
@@ -123,20 +123,8 @@ export function hasLocationRefs(data: unknown): data is { locationRefs?: Locatio
 // ---------------------------------------------------------------------------
 
 export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: CanvasNode): string[] {
+  void canvas;
   const hashes = new Set<string>();
-
-  if (node.type === 'video') {
-    const frameHashes = resolveVideoFrameReferenceImages(canvas, node);
-    for (const hash of frameHashes) {
-      hashes.add(hash);
-    }
-    if (frameHashes.length === 0) {
-      const sourceHash = findConnectedImageHash(canvas, node.id);
-      if (sourceHash) hashes.add(sourceHash);
-    }
-    const nodeHash = normalizeOptionalString((node.data as VideoNodeData).sourceImageHash);
-    if (nodeHash) hashes.add(nodeHash);
-  }
 
   const withCharacterRefs = node.data as ImageNodeData | VideoNodeData;
   for (const ref of withCharacterRefs.characterRefs ?? []) {
@@ -150,7 +138,11 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
       continue;
     }
     const slotHash = ref.angleSlot
-      ? normalizeOptionalString(character.referenceImages?.find((r) => r.slot === ref.angleSlot)?.assetHash)
+      ? normalizeOptionalString(
+        character.referenceImages?.find(
+          (r) => normalizeCharacterRefSlot(r.slot) === normalizeCharacterRefSlot(ref.angleSlot),
+        )?.assetHash,
+      )
       : undefined;
     if (slotHash) {
       hashes.add(slotHash);
@@ -187,12 +179,43 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
     }
   }
 
+  for (const ref of withCharacterRefs.locationRefs ?? []) {
+    const location = db.getLocation(ref.locationId);
+    if (!location) continue;
+
+    const explicitHash = normalizeOptionalString(ref.referenceImageHash);
+    if (explicitHash) {
+      hashes.add(explicitHash);
+      continue;
+    }
+    const slotHash = ref.angleSlot
+      ? normalizeOptionalString(location.referenceImages?.find((r) => r.slot === ref.angleSlot)?.assetHash)
+      : undefined;
+    if (slotHash) {
+      hashes.add(slotHash);
+      continue;
+    }
+    for (const image of location.referenceImages ?? []) {
+      if (normalizeOptionalString(image.assetHash)) {
+        hashes.add(image.assetHash as string);
+      }
+    }
+  }
+
   return Array.from(hashes);
 }
 
-export function resolveVideoFrameReferenceImages(canvas: Canvas, node: CanvasNode): string[] {
+export type ResolvedVideoFrameReferenceImages = {
+  first?: string;
+  last?: string;
+};
+
+export function resolveVideoFrameReferenceImageSet(
+  canvas: Canvas,
+  node: CanvasNode,
+): ResolvedVideoFrameReferenceImages {
   if (node.type !== 'video') {
-    return [];
+    return {};
   }
 
   const data = node.data as VideoNodeData;
@@ -222,7 +245,15 @@ export function resolveVideoFrameReferenceImages(canvas: Canvas, node: CanvasNod
     return normalizeOptionalString((frameNode.data as ImageNodeData).assetHash);
   };
 
-  return [resolveFrameHash('first'), resolveFrameHash('last')].filter(
+  return {
+    first: resolveFrameHash('first'),
+    last: resolveFrameHash('last'),
+  };
+}
+
+export function resolveVideoFrameReferenceImages(canvas: Canvas, node: CanvasNode): string[] {
+  const frames = resolveVideoFrameReferenceImageSet(canvas, node);
+  return [frames.first, frames.last].filter(
     (hash): hash is string => Boolean(hash),
   );
 }

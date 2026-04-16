@@ -62,7 +62,7 @@ Common failures:
 - Treating vision.describeImage output as literal truth when the reference image itself is ambiguous.
 
 Related process prompts:
-- Use the "preset-and-style" prompt for deeper track-writing heuristics.
+- Use the "node-preset-tracks", "preset-definition-management", "shot-template-management", and "color-style-management" prompts for deeper track-writing heuristics.
 - Use the "vision-analysis" prompt when the main challenge is extracting reusable style language from a finished frame.`,
   },
   {
@@ -118,7 +118,7 @@ Quality checks:
 Suggested handoff:
 - After the text shot list is stable, create image nodes for keyframes or storyboard stills first.
 - Then create video nodes only for shots that truly require motion.
-- Use the "canvas-workflow" and "video-node-generation" process prompts for expansion into production nodes.
+- Use the "canvas-structure", "canvas-graph-and-layout", "canvas-node-editing", and "video-node-generation" process prompts for expansion into production nodes.
 
 Common failures:
 - Creating nodes before deciding the sequence.
@@ -160,8 +160,10 @@ Decision branches:
 
 Validation:
 1. Call canvas.previewPrompt on at least one rewritten node from each major category to make sure preset merges did not distort the new language.
-2. Spot-check refs with canvas.getNode or canvas.setNodeRefs if the rewrite changes which entities must be visible.
-3. Report which nodes were rewritten, which were skipped, and any unresolved ambiguity that may require user approval.
+2. Verify the compiled prompt still includes every visible character, location, and equipment identity that must survive the rewrite.
+3. Spot-check refs with canvas.getNode or canvas.setNodeRefs if the rewrite changes which entities must be visible.
+4. If any video nodes are in scope, confirm first/last frame refs are still separate from generic entity refs.
+5. Report which nodes were rewritten, which were skipped, and any unresolved ambiguity that may require user approval.
 
 Useful rewrite patterns:
 - Style consolidation: unify palette, lighting, texture, and atmosphere while preserving action.
@@ -200,6 +202,7 @@ Evidence sources:
 - Prompts and refs are the baseline.
 - If a node already has a finished image asset, call vision.describeImage on the most important shots to verify what actually rendered rather than trusting prompt intent alone.
 - Use style="description" when you need broad factual readback and style="style-analysis" when continuity risk lives in grade or light behavior.
+- For generation-ready nodes, check the compiled prompt and attached refs together; continuity can break even when raw node prompt text looks correct.
 
 Severity model:
 - Critical: identity breaks that change the same character, prop, or location into something else.
@@ -228,6 +231,8 @@ Validation checklist:
 - Confirm every critical issue references concrete evidence.
 - Confirm each recommended fix maps to a real tool.
 - Confirm that at least one pass checked actual rendered assets if they exist.
+- Confirm that visible characters, locations, and equipment appear in both the compiled prompt and the attached generic ref set when they are on screen.
+- Confirm that video first/last frame refs are evaluated separately from generic entity refs instead of being treated as interchangeable.
 
 Common failures:
 - Comparing non-adjacent shots without accounting for an intentional scene break.

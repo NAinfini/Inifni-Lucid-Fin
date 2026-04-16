@@ -1,4 +1,4 @@
-import { forwardRef, useState, type ReactNode } from 'react';
+import { forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { Download, Grid2X2, Map, Palette, Redo2, Search, Undo2, Upload } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
@@ -9,31 +9,29 @@ import {
   TooltipTrigger,
 } from '../ui/Tooltip.js';
 
-interface ToolbarButtonProps {
+interface ToolbarButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   active?: boolean;
-  disabled?: boolean;
   ariaLabel: string;
   icon: ReactNode;
-  onClick: () => void;
 }
 
 const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
-  ({ active = false, disabled = false, ariaLabel, icon, onClick }, ref) => (
+  ({ active = false, ariaLabel, className, icon, type = 'button', ...props }, ref) => (
     <button
       ref={ref}
-      type="button"
+      type={type}
       aria-label={ariaLabel}
       aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
       className={cn(
         'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-        disabled
+        props.disabled
           ? 'cursor-not-allowed text-muted-foreground/30'
           : active
             ? 'bg-primary/12 text-primary'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+        className,
       )}
+      {...props}
     >
       {icon}
     </button>

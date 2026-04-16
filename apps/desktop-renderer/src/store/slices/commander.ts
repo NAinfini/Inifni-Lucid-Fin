@@ -15,10 +15,40 @@ export type MessageSegment =
   | { type: 'text'; content: string }
   | { type: 'tool'; toolCall: CommanderToolCall };
 
+export interface CommanderQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface CommanderQuestionMeta {
+  question: string;
+  options: CommanderQuestionOption[];
+}
+
+export type CommanderRunStatus = 'completed' | 'failed';
+
+export interface CommanderRunSummary {
+  excerpt: string;
+  toolCount: number;
+  failedToolCount: number;
+  durationMs: number;
+}
+
+export interface CommanderRunMeta {
+  status: CommanderRunStatus;
+  collapsed: boolean;
+  startedAt: number;
+  completedAt: number;
+  thinkingContent?: string;
+  summary: CommanderRunSummary;
+}
+
 export interface CommanderMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  questionMeta?: CommanderQuestionMeta;
+  runMeta?: CommanderRunMeta;
   segments?: MessageSegment[];
   toolCalls?: CommanderToolCall[];
   timestamp: number;
@@ -36,7 +66,7 @@ export interface PendingConfirmation {
 export interface PendingQuestion {
   toolCallId: string;
   question: string;
-  options: Array<{ label: string; description?: string }>;
+  options: CommanderQuestionOption[];
 }
 
 export interface CommanderSession {
@@ -58,6 +88,7 @@ export interface CommanderState {
   sessions: CommanderSession[];
   messages: CommanderMessage[];
   streaming: boolean;
+  currentRunStartedAt: number | null;
   currentStreamContent: string;
   /** Model reasoning/thinking content for the current step (cleared on each new step). */
   currentThinkingContent: string;
@@ -134,6 +165,136 @@ function loadPersistedProviderId(): string | null {
   } catch { /* localStorage unavailable — no persisted provider */
     return null;
   }
+}
+
+function formatQuestionTranscript(question: string, options: CommanderQuestionOption[]): string {
+  const optionLines = options.map((option) =>
+    option.description ? `- ${option.label}: ${option.description}` : `- ${option.label}`,
+  );
+
+  return optionLines.length > 0 ? `${question}\n\n${optionLines.join('\n')}` : question;
+}
+
+function normalizeRunExcerpt(content: string): string {
+  return content.replace(/\s+/g, ' ').trim();
+}
+
+function trimRunExcerpt(content: string): string {
+  return content.length > 160 ? `${content.slice(0, 157)}...` : content;
+}
+
+function buildRunSummary(
+  status: CommanderRunStatus,
+  content: string,
+  toolCalls: CommanderToolCall[],
+  startedAt: number,
+  completedAt: number,
+  errorMessage?: string,
+): CommanderRunSummary {
+  const failedToolCount = toolCalls.filter((toolCall) => toolCall.status === 'error').length;
+  const toolCount = toolCalls.length;
+  const normalizedContent = normalizeRunExcerpt(content);
+  const excerptSource =
+    normalizedContent ||
+    normalizeRunExcerpt(errorMessage ?? '') ||
+    (toolCount > 0
+      ? `${status === 'failed' ? 'Attempted' : 'Completed'} ${toolCount} tool call${toolCount === 1 ? '' : 's'}.`
+      : status === 'failed'
+        ? 'Run failed before producing output.'
+        : 'Run completed.');
+
+  return {
+    excerpt: trimRunExcerpt(excerptSource),
+    toolCount,
+    failedToolCount,
+    durationMs: Math.max(0, completedAt - startedAt),
+  };
+}
+
+function finalizeCurrentRunMessage(
+  state: CommanderState,
+  status: CommanderRunStatus,
+  fallbackContent?: string,
+  errorMessage?: string,
+): void {
+  const content = state.currentStreamContent || fallbackContent || '';
+  const hasThinking = state.currentThinkingContent.trim().length > 0;
+  const hasSegments = state.currentSegments.length > 0;
+  const hasTools = state.currentToolCalls.length > 0;
+
+  if (!content && !hasTools && !hasThinking && !errorMessage) {
+    return;
+  }
+
+  const completedAt = Date.now();
+  const startedAt = state.currentRunStartedAt ?? completedAt;
+  const segments: MessageSegment[] | undefined =
+    hasSegments
+      ? [...state.currentSegments]
+      : content
+        ? [{ type: 'text' as const, content }]
+        : undefined;
+
+  state.messages.push({
+    id: createMessageId('assistant'),
+    role: 'assistant',
+    content,
+    runMeta: {
+      status,
+      collapsed: true,
+      startedAt,
+      completedAt,
+      thinkingContent: hasThinking ? state.currentThinkingContent : undefined,
+      summary: buildRunSummary(status, content, state.currentToolCalls, startedAt, completedAt, errorMessage),
+    },
+    segments,
+    toolCalls: hasTools ? [...state.currentToolCalls] : undefined,
+    timestamp: completedAt,
+  });
+}
+
+function persistCurrentSession(state: CommanderState): void {
+  if (!hasUserMessage(state.messages)) {
+    return;
+  }
+
+  if (!state.activeSessionId) {
+    state.activeSessionId = crypto.randomUUID();
+  }
+
+  const now = Date.now();
+  const existing = state.sessions.findIndex((session) => session.id === state.activeSessionId);
+  const session: CommanderSession = {
+    id: state.activeSessionId,
+    canvasId: state.activeCanvasId,
+    title: deriveSessionTitle(state.messages),
+    messages: state.messages,
+    createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
+    updatedAt: now,
+  };
+
+  if (existing >= 0) {
+    state.sessions[existing] = session;
+  } else {
+    state.sessions.unshift(session);
+  }
+
+  if (state.sessions.length > MAX_SESSIONS) {
+    state.sessions = state.sessions.slice(0, MAX_SESSIONS);
+  }
+
+  persistSessions(state.sessions);
+}
+
+function resetTransientRunState(state: CommanderState): void {
+  state.streaming = false;
+  state.currentRunStartedAt = null;
+  state.currentStreamContent = '';
+  state.currentThinkingContent = '';
+  state.currentToolCalls = [];
+  state.currentSegments = [];
+  state.confirmAutoMode = 'none';
+  state.consecutiveConfirmCount = 0;
 }
 
 interface PersistedSettings {
@@ -256,6 +417,7 @@ const initialState: CommanderState = {
   sessions: loadPersistedSessions(),
   messages: [],
   streaming: false,
+  currentRunStartedAt: null,
   currentStreamContent: '',
   currentThinkingContent: '',
   currentToolCalls: [],
@@ -343,6 +505,7 @@ export const commanderSlice = createSlice({
     },
     startStreaming(state) {
       state.streaming = true;
+      state.currentRunStartedAt = Date.now();
       state.currentStreamContent = '';
       state.currentThinkingContent = '';
       state.currentToolCalls = [];
@@ -353,10 +516,6 @@ export const commanderSlice = createSlice({
     },
     appendStreamChunk(state, action: PayloadAction<string>) {
       state.currentStreamContent += action.payload;
-      // Clear thinking when actual content starts streaming
-      if (state.currentThinkingContent) {
-        state.currentThinkingContent = '';
-      }
       // Append to last text segment or create new one
       const last = state.currentSegments[state.currentSegments.length - 1];
       if (last && last.type === 'text') {
@@ -411,17 +570,7 @@ export const commanderSlice = createSlice({
       }
     },
     finishStreaming(state, action: PayloadAction<string | undefined>) {
-      const content = state.currentStreamContent || action.payload || '';
-      if (content || state.currentToolCalls.length > 0) {
-        state.messages.push({
-          id: createMessageId('assistant'),
-          role: 'assistant',
-          content,
-          segments: state.currentSegments.length > 0 ? [...state.currentSegments] : undefined,
-          toolCalls: state.currentToolCalls.length > 0 ? [...state.currentToolCalls] : undefined,
-          timestamp: Date.now(),
-        });
-      }
+      finalizeCurrentRunMessage(state, 'completed', action.payload);
       // Commit injected user messages (sent during streaming) in correct chronological order
       for (const msg of state.pendingInjectedMessages) {
         state.messages.push({
@@ -432,56 +581,12 @@ export const commanderSlice = createSlice({
         });
       }
       state.pendingInjectedMessages = [];
-      state.streaming = false;
-      state.currentStreamContent = '';
-      state.currentThinkingContent = '';
-      state.currentToolCalls = [];
-      state.currentSegments = [];
-      state.confirmAutoMode = 'none';
-      state.consecutiveConfirmCount = 0;
-      if (hasUserMessage(state.messages)) {
-        if (!state.activeSessionId) {
-          state.activeSessionId = crypto.randomUUID();
-        }
-        const now = Date.now();
-        const existing = state.sessions.findIndex((s) => s.id === state.activeSessionId);
-        const session: CommanderSession = {
-          id: state.activeSessionId!,
-          canvasId: state.activeCanvasId,
-          title: deriveSessionTitle(state.messages),
-          messages: state.messages,
-          createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
-          updatedAt: now,
-        };
-        if (existing >= 0) {
-          state.sessions[existing] = session;
-        } else {
-          state.sessions.unshift(session);
-        }
-        if (state.sessions.length > MAX_SESSIONS) {
-          state.sessions = state.sessions.slice(0, MAX_SESSIONS);
-        }
-        persistSessions(state.sessions);
-      }
+      resetTransientRunState(state);
+      persistCurrentSession(state);
     },
     streamError(state, action: PayloadAction<string>) {
       state.error = action.payload;
-      state.streaming = false;
-      state.confirmAutoMode = 'none';
-      state.consecutiveConfirmCount = 0;
-      // Finalize any accumulated streaming content / tool calls into a message
-      // so they don't vanish when we clear the transient buffers.
-      const content = state.currentStreamContent || '';
-      if (content || state.currentToolCalls.length > 0) {
-        state.messages.push({
-          id: createMessageId('assistant'),
-          role: 'assistant',
-          content,
-          segments: state.currentSegments.length > 0 ? [...state.currentSegments] : undefined,
-          toolCalls: state.currentToolCalls.length > 0 ? [...state.currentToolCalls] : undefined,
-          timestamp: Date.now(),
-        });
-      }
+      finalizeCurrentRunMessage(state, 'failed', action.payload, action.payload);
       // Commit injected user messages before the error notice
       for (const msg of state.pendingInjectedMessages) {
         state.messages.push({
@@ -492,86 +597,44 @@ export const commanderSlice = createSlice({
         });
       }
       state.pendingInjectedMessages = [];
-      // Persist the error as a visible message so it survives the next
-      // addUserMessage clearing state.error.
-      state.messages.push({
-        id: createMessageId('error'),
-        role: 'assistant',
-        content: `⚠️ ${action.payload}`,
-        timestamp: Date.now(),
-      });
-      state.currentStreamContent = '';
-      state.currentThinkingContent = '';
-      state.currentToolCalls = [];
-      state.currentSegments = [];
+      resetTransientRunState(state);
+      persistCurrentSession(state);
     },
     clearHistory(state) {
       // Save current session before clearing
-      if (hasUserMessage(state.messages)) {
-        const now = Date.now();
-        const sessionId = state.activeSessionId ?? crypto.randomUUID();
-        const existing = state.sessions.findIndex((s) => s.id === sessionId);
-        const session: CommanderSession = {
-          id: sessionId,
-          canvasId: state.activeCanvasId,
-          title: deriveSessionTitle(state.messages),
-          messages: state.messages,
-          createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
-          updatedAt: now,
-        };
-        if (existing >= 0) {
-          state.sessions[existing] = session;
-        } else {
-          state.sessions.unshift(session);
-        }
-        if (state.sessions.length > MAX_SESSIONS) {
-          state.sessions = state.sessions.slice(0, MAX_SESSIONS);
-        }
-        persistSessions(state.sessions);
-      }
+      persistCurrentSession(state);
       state.activeSessionId = null;
       state.messages = [];
+      state.currentRunStartedAt = null;
       state.currentStreamContent = '';
       state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
       state.streaming = false;
+      state.pendingConfirmation = null;
+      state.pendingQuestion = null;
+      state.confirmAutoMode = 'none';
+      state.consecutiveConfirmCount = 0;
       state.pendingInjectedMessages = [];
       state.backendContextUsage = null;
     },
     /** Start a new session (save current first) */
     newSession(state) {
-      if (hasUserMessage(state.messages)) {
-        const now = Date.now();
-        const sessionId = state.activeSessionId ?? crypto.randomUUID();
-        const existing = state.sessions.findIndex((s) => s.id === sessionId);
-        const session: CommanderSession = {
-          id: sessionId,
-          canvasId: state.activeCanvasId,
-          title: deriveSessionTitle(state.messages),
-          messages: state.messages,
-          createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
-          updatedAt: now,
-        };
-        if (existing >= 0) {
-          state.sessions[existing] = session;
-        } else {
-          state.sessions.unshift(session);
-        }
-        if (state.sessions.length > MAX_SESSIONS) {
-          state.sessions = state.sessions.slice(0, MAX_SESSIONS);
-        }
-        persistSessions(state.sessions);
-      }
+      persistCurrentSession(state);
       state.activeSessionId = null;
       state.messages = [];
+      state.currentRunStartedAt = null;
       state.currentStreamContent = '';
       state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
       state.streaming = false;
+      state.pendingConfirmation = null;
+      state.pendingQuestion = null;
+      state.confirmAutoMode = 'none';
+      state.consecutiveConfirmCount = 0;
       state.pendingInjectedMessages = [];
       state.backendContextUsage = null;
     },
@@ -598,12 +661,17 @@ export const commanderSlice = createSlice({
       state.activeSessionId = session.id;
       state.activeCanvasId = session.canvasId;
       state.messages = session.messages;
+      state.currentRunStartedAt = null;
       state.currentStreamContent = '';
       state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
       state.streaming = false;
+      state.pendingConfirmation = null;
+      state.pendingQuestion = null;
+      state.confirmAutoMode = 'none';
+      state.consecutiveConfirmCount = 0;
     },
     /** Delete a saved session */
     deleteSession(state, action: PayloadAction<string>) {
@@ -712,12 +780,11 @@ export const commanderSlice = createSlice({
     resolveQuestion(state, action: PayloadAction<{ answer: string }>) {
       if (!state.pendingQuestion) return;
       const { question, options } = state.pendingQuestion;
-      // Record the question as an assistant message
-      const optionList = options.map((o) => `  • ${o.label}${o.description ? ` — ${o.description}` : ''}`).join('\n');
       state.messages.push({
         id: createMessageId('assistant'),
         role: 'assistant',
-        content: `**Question:** ${question}\n${optionList}`,
+        content: formatQuestionTranscript(question, options),
+        questionMeta: { question, options },
         timestamp: Date.now(),
       });
       // Record the user's answer
@@ -1073,6 +1140,13 @@ export const commanderSlice = createSlice({
       return {
         ...initialState,
         ...action.payload,
+        streaming: false,
+        currentRunStartedAt: null,
+        currentStreamContent: '',
+        currentThinkingContent: '',
+        currentToolCalls: [],
+        currentSegments: [],
+        error: null,
         permissionMode: action.payload.permissionMode ?? 'normal',
         maxSteps: action.payload.maxSteps ?? DEFAULT_MAX_STEPS,
         temperature: action.payload.temperature ?? DEFAULT_TEMPERATURE,
@@ -1152,6 +1226,7 @@ export const commanderSlice = createSlice({
       }
 
       // 4. Reset transient state
+      state.currentRunStartedAt = null;
       state.currentStreamContent = '';
       state.currentThinkingContent = '';
       state.currentToolCalls = [];

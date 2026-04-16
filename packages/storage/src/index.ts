@@ -1,4 +1,9 @@
 export { CAS } from './cas.js';
+export {
+  ensureExpectedMediaType,
+  inspectBufferMedia,
+  inspectFileMedia,
+} from './media-inspector.js';
 export { SqliteIndex } from './sqlite-index.js';
 export type {
   IStorageLayer,

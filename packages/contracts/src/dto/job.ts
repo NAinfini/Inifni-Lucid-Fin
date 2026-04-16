@@ -12,12 +12,20 @@ export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
 
 export type GenerationType = 'text' | 'image' | 'video' | 'voice' | 'music' | 'sfx';
 
+export interface GenerationFrameReferenceImages {
+  first?: string;
+  last?: string;
+}
+
 export interface GenerationRequest {
   type: GenerationType;
   providerId: string;
   prompt: string;
   negativePrompt?: string;
+  /** Generic reference images such as character, location, or equipment refs. */
   referenceImages?: string[];
+  /** Explicit first/last frame constraints for video generation. */
+  frameReferenceImages?: GenerationFrameReferenceImages;
   width?: number;
   height?: number;
   duration?: number;
@@ -27,6 +35,8 @@ export interface GenerationRequest {
   params?: Record<string, unknown>;
   /** Image-to-image: source image asset hash */
   sourceImageHash?: string;
+  /** Materialized local file path for source-image conditioning. */
+  sourceImagePath?: string;
   /** Image-to-image: denoising strength (0-1) */
   img2imgStrength?: number;
   /** Advanced: inference steps */

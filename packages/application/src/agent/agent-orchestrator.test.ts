@@ -763,7 +763,7 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
       resolveProcessPrompt: (processKey) =>
-        processKey === 'ref-image-generation' ? 'Ref image rules go here.' : null,
+        processKey === 'character-ref-image-generation' ? 'Ref image rules go here.' : null,
     });
 
     await agent.execute('generate ref', {}, () => {}, {
@@ -779,11 +779,39 @@ describe('AgentOrchestrator', () => {
       expect.arrayContaining([
         expect.objectContaining({
           role: 'system',
-          content: expect.stringContaining('[[process-prompt:ref-image-generation]]'),
+          content: expect.stringContaining('[[process-prompt:character-ref-image-generation]]'),
         }),
         expect.objectContaining({
           role: 'system',
-          content: expect.stringContaining('[Process Guide: 参考图生成]'),
+          content: expect.stringContaining('[Process Guide: Character Reference Image Generation]'),
+        }),
+      ]),
+    );
+  });
+
+  it('injects initial process prompts before the first LLM call when context requests them', async () => {
+    const adapter = createMockAdapter([{ content: 'done', toolCalls: [], finishReason: 'stop' }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resolveProcessPrompt: (processKey) =>
+        processKey === 'image-node-generation' ? 'Image prompt rules.' : null,
+    });
+
+    await agent.execute(
+      'rewrite the prompt',
+      { extra: { initialProcessPrompts: ['image-node-generation'] } },
+      () => {},
+    );
+
+    const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+      role: string;
+      content: string;
+    }>;
+
+    expect(firstCallMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: 'system',
+          content: expect.stringContaining('[[process-prompt:image-node-generation]]'),
         }),
       ]),
     );

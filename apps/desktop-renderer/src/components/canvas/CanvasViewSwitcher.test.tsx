@@ -11,9 +11,10 @@ import { commanderSlice } from '../../store/slices/commander.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
 import { uiSlice } from '../../store/slices/ui.js';
 import { workflowsSlice } from '../../store/slices/workflows.js';
-import { RightToolbar } from './RightToolbar.js';
+import { TooltipProvider } from '../ui/Tooltip.js';
+import { CanvasViewSwitcher } from './CanvasViewSwitcher.js';
 
-function renderToolbar() {
+function renderSwitcher() {
   const store = configureStore({
     reducer: {
       ui: uiSlice.reducer,
@@ -26,14 +27,16 @@ function renderToolbar() {
 
   render(
     <Provider store={store}>
-      <RightToolbar />
+      <TooltipProvider delayDuration={0}>
+        <CanvasViewSwitcher />
+      </TooltipProvider>
     </Provider>,
   );
 
   return store;
 }
 
-describe('RightToolbar', () => {
+describe('CanvasViewSwitcher', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -45,24 +48,21 @@ describe('RightToolbar', () => {
     cleanup();
   });
 
-  it('renders tooltip-trigger buttons without entering a ref update loop', () => {
-    renderToolbar();
+  it('renders tooltip triggers with Radix state attributes', () => {
+    renderSwitcher();
 
-    expect(screen.getByRole('button', { name: t('toolbar.inspector') })).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('toolbar.queue') })).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('toolbar.inspector') }).getAttribute('data-state')).toBe('closed');
+    const mainButton = screen.getByRole('button', { name: t('view.main') });
+    expect(mainButton.getAttribute('data-state')).toBe('closed');
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
-  it('toggles the active panel state', () => {
-    renderToolbar();
+  it('switches canvas modes without logging update-depth errors', () => {
+    renderSwitcher();
 
-    const inspectorButton = screen.getByRole('button', { name: t('toolbar.inspector') });
-    fireEvent.click(inspectorButton);
-    expect(inspectorButton.getAttribute('aria-pressed')).toBe('true');
+    const audioButton = screen.getByRole('button', { name: t('view.audioLabel') });
+    fireEvent.click(audioButton);
 
-    fireEvent.click(inspectorButton);
-    expect(inspectorButton.getAttribute('aria-pressed')).toBe('false');
+    expect(audioButton.getAttribute('aria-pressed')).toBe('true');
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 });

@@ -399,9 +399,27 @@ describe('settings extracted sections', () => {
       processPrompt: {
         list: vi.fn(async () => [
           {
-            processKey: 'image-node-generation',
-            name: 'Image Node Generation',
-            description: 'Prompt compilation for image nodes.',
+            processKey: 'node-preset-tracks',
+            name: 'Node Preset Tracks',
+            description: 'Guidance for node-level preset track work.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'provider-management',
+            name: 'Provider Management',
+            description: 'Guidance for provider setup and capability checks.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'series-management',
+            name: 'Series Management',
+            description: 'Guidance for series and episode planning work.',
             defaultValue: 'Default rules',
             customValue: null,
             createdAt: 1,
@@ -415,10 +433,14 @@ describe('settings extracted sections', () => {
 
     render(<SettingsProcessPromptsSection api={api.processPrompt as never} />);
 
-    expect(await screen.findByText('Image Node Generation')).toBeTruthy();
-    expect(screen.getByText('Triggered by')).toBeTruthy();
-    expect(screen.getByText('canvas.generate')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(await screen.findByText('Node Preset Tracks')).toBeTruthy();
+    expect(screen.getByText('Provider Management')).toBeTruthy();
+    expect(screen.getByText('Series Management')).toBeTruthy();
+    expect(screen.getAllByText('Triggered by')).toHaveLength(3);
+    expect(screen.getByText('canvas.writePresetTracksBatch')).toBeTruthy();
+    expect(screen.getByText('provider.list')).toBeTruthy();
+    expect(screen.getByText('series.addEpisode')).toBeTruthy();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]!);
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'Custom image rules' },
     });
@@ -426,15 +448,15 @@ describe('settings extracted sections', () => {
 
     await waitFor(() => {
       expect(api.processPrompt.setCustom).toHaveBeenCalledWith(
-        'image-node-generation',
+        'node-preset-tracks',
         'Custom image rules',
       );
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reset' })[0]!);
 
     await waitFor(() => {
-      expect(api.processPrompt.reset).toHaveBeenCalledWith('image-node-generation');
+      expect(api.processPrompt.reset).toHaveBeenCalledWith('node-preset-tracks');
     });
   });
 
@@ -460,8 +482,61 @@ describe('settings extracted sections', () => {
 
     render(<SettingsProcessPromptsSection api={api.processPrompt as never} />);
 
-    expect(await screen.findByText('图片节点生成')).toBeTruthy();
-    expect(screen.getByText('用于图片节点的提示词编写规则。')).toBeTruthy();
+    await screen.findByText((content) => content.length > 0 && content !== 'Image Node Generation');
+    expect(screen.queryByText('Image Node Generation')).toBeNull();
+    expect(screen.queryByText('Prompt compilation rules for image nodes.')).toBeNull();
+  });
+
+  it('renders split ref-image process prompts as separate cards', async () => {
+    setLocale('en-US');
+    const api = {
+      processPrompt: {
+        list: vi.fn(async () => [
+          {
+            processKey: 'character-ref-image-generation',
+            name: 'Character Reference Image Generation',
+            description: 'Guidance for character reference image creation.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'location-ref-image-generation',
+            name: 'Location Reference Image Generation',
+            description: 'Guidance for location reference image creation.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'equipment-ref-image-generation',
+            name: 'Equipment Reference Image Generation',
+            description: 'Guidance for equipment reference image creation.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]),
+        setCustom: vi.fn(async () => undefined),
+        reset: vi.fn(async () => undefined),
+      },
+    };
+
+    render(<SettingsProcessPromptsSection api={api.processPrompt as never} />);
+
+    expect(await screen.findByText('Character Reference Image Generation')).toBeTruthy();
+    expect(screen.getByText('Location Reference Image Generation')).toBeTruthy();
+    expect(screen.getByText('Equipment Reference Image Generation')).toBeTruthy();
+    expect(screen.getAllByText('Triggered by')).toHaveLength(3);
+    expect(screen.getByText('character.generateRefImage')).toBeTruthy();
+    expect(screen.getByText('character.setRefImage')).toBeTruthy();
+    expect(screen.getByText('location.generateRefImage')).toBeTruthy();
+    expect(screen.getByText('location.setRefImageFromNode')).toBeTruthy();
+    expect(screen.getByText('equipment.generateRefImage')).toBeTruthy();
+    expect(screen.getByText('equipment.deleteRefImage')).toBeTruthy();
   });
 
   it('retries process guide loading until the preload API becomes available', async () => {

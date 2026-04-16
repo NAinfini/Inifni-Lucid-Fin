@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import type { AssetRef, AssetMeta, AssetType } from '@lucid-fin/contracts';
+import { ensureExpectedMediaType, inspectBufferMedia, inspectFileMedia } from './media-inspector.js';
 import { ensureDir, atomicWrite } from './utils.js';
 
 const WORKER_THRESHOLD = 10 * 1024 * 1024; // 10MB
@@ -28,8 +29,9 @@ export class CAS {
     filePath: string,
     type: AssetType,
   ): Promise<{ ref: AssetRef; meta: AssetMeta }> {
-    const ext = path.extname(filePath).slice(1).toLowerCase();
     const stat = fs.statSync(filePath);
+    const inspection = ensureExpectedMediaType(inspectFileMedia(filePath), type, filePath);
+    const ext = inspection.format;
     const hash = await this.computeHash(filePath, stat.size);
     const prefix = hash.slice(0, 2);
     const destDir = path.join(this.assetsRoot, type, prefix);
@@ -72,7 +74,8 @@ export class CAS {
     fileName: string,
     type: AssetType,
   ): Promise<{ ref: AssetRef; meta: AssetMeta }> {
-    const ext = path.extname(fileName).slice(1).toLowerCase() || 'bin';
+    const inspection = ensureExpectedMediaType(inspectBufferMedia(buffer), type, fileName);
+    const ext = inspection.format;
     const hash = crypto.createHash('sha256').update(buffer).digest('hex');
     const prefix = hash.slice(0, 2);
     const destDir = path.join(this.assetsRoot, type, prefix);

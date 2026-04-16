@@ -8,7 +8,7 @@ import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canvasSlice, setActiveCanvas } from '../store/slices/canvas.js';
 import { loggerSlice } from '../store/slices/logger.js';
-import { settingsSlice } from '../store/slices/settings.js';
+import { settingsSlice, setProviderBaseUrl, setProviderModel } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
 import { useCanvasGeneration } from './useCanvasGeneration.js';
 
@@ -291,6 +291,72 @@ describe('useCanvasGeneration', () => {
       expect.objectContaining({
         baseUrl: expect.any(String),
         model: expect.any(String),
+      }),
+    );
+  });
+
+  it('resolves provider overrides from the node media group when provider ids overlap', async () => {
+    const generate = vi.fn().mockResolvedValue({ jobId: 'job-video-1' });
+    const estimateCost = vi.fn().mockResolvedValue({ estimatedCost: 0.5, currency: 'USD' });
+
+    vi.mocked(getAPI).mockReturnValue({
+      canvasGeneration: {
+        onProgress: vi.fn(() => () => {}),
+        onComplete: vi.fn(() => () => {}),
+        onFailed: vi.fn(() => () => {}),
+        generate,
+        estimateCost,
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const { store, getHook } = renderHookHarness({
+      canvases: [
+        createCanvas([
+          createCanvasNode({
+            type: 'video',
+            data: {
+              status: 'empty',
+              progress: 0,
+              duration: 5,
+              variants: [],
+              selectedVariantIndex: 0,
+              providerId: 'replicate',
+            },
+          }),
+        ]),
+      ],
+    });
+
+    store.dispatch(setProviderBaseUrl({ group: 'image', provider: 'replicate', url: 'https://image.example/api' }));
+    store.dispatch(setProviderModel({ group: 'image', provider: 'replicate', model: 'flux-image' }));
+    store.dispatch(setProviderBaseUrl({ group: 'video', provider: 'replicate', url: 'https://video.example/api' }));
+    store.dispatch(setProviderModel({ group: 'video', provider: 'replicate', model: 'minimax-video' }));
+
+    await act(async () => {
+      await getHook().generate('node-1');
+    });
+    await act(async () => {
+      await getHook().estimateCost('node-1', 'replicate');
+    });
+
+    expect(generate).toHaveBeenCalledWith(
+      'canvas-1',
+      'node-1',
+      undefined,
+      undefined,
+      undefined,
+      expect.objectContaining({
+        baseUrl: 'https://video.example/api',
+        model: 'minimax-video',
+      }),
+    );
+    expect(estimateCost).toHaveBeenCalledWith(
+      'canvas-1',
+      'node-1',
+      'replicate',
+      expect.objectContaining({
+        baseUrl: 'https://video.example/api',
+        model: 'minimax-video',
       }),
     );
   });

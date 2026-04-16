@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { ReferenceImage } from '@lucid-fin/contracts';
+import { normalizeCharacterRefSlot, type ReferenceImage } from '@lucid-fin/contracts';
 import { Image, ImageOff, Upload, X } from 'lucide-react';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
 import { useI18n } from '../../../hooks/use-i18n.js';
@@ -35,7 +35,8 @@ export function SingleReferenceImage({
 }: SingleReferenceImageProps) {
   const { t } = useI18n();
   const [isDragOver, setIsDragOver] = useState(false);
-  const mainRef = referenceImages.find((r) => r.slot === 'main') || referenceImages[0];
+  const mainRef =
+    referenceImages.find((r) => normalizeCharacterRefSlot(r.slot) === 'main') || referenceImages[0];
   const { url, markFailed } = useAssetUrl(mainRef?.assetHash, 'image', 'png');
 
   const handleDragOver = (e: React.DragEvent) => {

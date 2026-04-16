@@ -267,6 +267,41 @@ describe('buildMessagesForRequest', () => {
         withoutCache.buildCtx.historyMessagesTrimmed,
       );
     });
+
+    it('drops older fully-cached get exchanges instead of sending both cache and raw tool payloads', () => {
+      const cache = new ToolResultCache();
+      cache.absorbResult(
+        'canvas.getNode',
+        { nodeId: 'n1' },
+        { success: true, data: { id: 'n1', title: 'Node 1', description: 'cached' } },
+        1,
+      );
+
+      const toolPayload = JSON.stringify({
+        success: true,
+        data: { id: 'n1', title: 'Node 1', description: 'x'.repeat(400) },
+      });
+      const messages: LLMMessage[] = [
+        sysMsg('System prompt'),
+        assistantMsg('', [
+          { id: 'tc1', name: 'canvas.getNode', arguments: { nodeId: 'n1' } },
+        ]),
+        toolMsg('tc1', toolPayload),
+        userMsg('continue'),
+      ];
+
+      const { wireMessages } = buildMessagesForRequest({
+        ...baseInput,
+        messages,
+        cache,
+      });
+
+      expect(wireMessages).toHaveLength(2);
+      expect(wireMessages[0].content).toContain('[Entity Cache');
+      expect(wireMessages.some((message) => message.role === 'assistant' && message.toolCalls?.length)).toBe(false);
+      expect(wireMessages.some((message) => message.role === 'tool')).toBe(false);
+      expect(wireMessages[1].content).toBe('continue');
+    });
   });
 
   describe('tool name sanitization', () => {

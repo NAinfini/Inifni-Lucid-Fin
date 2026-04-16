@@ -49,6 +49,8 @@ export interface PromptCompilerInput {
   nodeType: 'image' | 'video' | 'audio';
   /** User-written scene text / prompt */
   prompt?: string;
+  /** User-written exclusions / failure modes to avoid */
+  negativePrompt?: string;
   presetTracks?: PresetTrackSet;
   characterRefs?: CharacterRef[];
   equipmentRefs?: Array<EquipmentRef | string>;
@@ -535,6 +537,135 @@ function collectReferenceImages(input: PromptCompilerInput): string[] {
   }
 
   return Array.from(hashes);
+}
+
+function pushVisualPart(target: string[], value: string | undefined): void {
+  const normalized = normalizeTextSegment(value ?? '');
+  if (normalized) {
+    target.push(normalized);
+  }
+}
+
+function describeCharacterIdentity(
+  resolved: ResolvedCharacter,
+  mode: PromptMode,
+): string {
+  const { character } = resolved;
+  const fragments: string[] = [];
+
+  pushVisualPart(fragments, character.description);
+  pushVisualPart(fragments, character.appearance);
+
+  if (character.face) {
+    const faceParts: string[] = [];
+    if (character.face.eyeShape && character.face.eyeColor) faceParts.push(`${character.face.eyeShape} ${character.face.eyeColor} eyes`);
+    else {
+      pushVisualPart(faceParts, character.face.eyeColor);
+      pushVisualPart(faceParts, character.face.eyeShape);
+    }
+    pushVisualPart(faceParts, character.face.noseType ? `${character.face.noseType} nose` : undefined);
+    pushVisualPart(faceParts, character.face.lipShape ? `${character.face.lipShape} lips` : undefined);
+    pushVisualPart(faceParts, character.face.jawline ? `${character.face.jawline} jawline` : undefined);
+    pushVisualPart(faceParts, character.face.definingFeatures);
+    if (faceParts.length > 0) fragments.push(faceParts.join(', '));
+  }
+
+  if (character.hair) {
+    const hairParts = [
+      character.hair.color,
+      character.hair.style,
+      character.hair.length,
+      character.hair.texture,
+    ].map((part) => normalizeTextSegment(part ?? '')).filter(Boolean);
+    if (hairParts.length > 0) fragments.push(`${hairParts.join(', ')} hair`);
+  }
+
+  pushVisualPart(fragments, character.skinTone ? `${character.skinTone} skin tone` : undefined);
+
+  if (character.body) {
+    const bodyParts = [
+      character.body.height,
+      character.body.build,
+      character.body.proportions,
+    ].map((part) => normalizeTextSegment(part ?? '')).filter(Boolean);
+    if (bodyParts.length > 0) fragments.push(bodyParts.join(', '));
+  }
+
+  for (const trait of character.distinctTraits ?? []) {
+    pushVisualPart(fragments, trait);
+  }
+
+  if (resolved.costume) {
+    const costume = character.costumes.find((item) => item.id === resolved.costume || item.name === resolved.costume);
+    pushVisualPart(fragments, costume?.description ?? resolved.costume);
+  }
+
+  for (const item of resolved.equipment ?? []) {
+    const equipmentParts: string[] = [];
+    pushVisualPart(equipmentParts, item.name);
+    pushVisualPart(equipmentParts, item.description);
+    pushVisualPart(equipmentParts, item.material);
+    pushVisualPart(equipmentParts, item.color);
+    pushVisualPart(equipmentParts, item.condition);
+    pushVisualPart(equipmentParts, item.visualDetails);
+    if (equipmentParts.length > 0) fragments.push(equipmentParts.join(', '));
+  }
+
+  if (resolved.emotion) {
+    fragments.push(
+      mode === 'image-to-video'
+        ? `same expression continuity: ${resolved.emotion}`
+        : `expression reads ${resolved.emotion}`,
+    );
+  }
+
+  if (fragments.length === 0) {
+    return '';
+  }
+
+  const prefix = character.name ? `${character.name}: ` : 'Character: ';
+  return `${prefix}${fragments.join('; ')}`;
+}
+
+function describeLocationIdentity(location: Location, mode: PromptMode): string {
+  const fragments: string[] = [];
+
+  pushVisualPart(fragments, location.name);
+  pushVisualPart(fragments, location.subLocation);
+  pushVisualPart(fragments, location.description);
+  pushVisualPart(fragments, location.timeOfDay ? `${location.timeOfDay}` : undefined);
+  pushVisualPart(fragments, location.weather);
+  pushVisualPart(fragments, location.lighting);
+  pushVisualPart(fragments, location.architectureStyle);
+  pushVisualPart(fragments, location.mood ? `${location.mood} mood` : undefined);
+
+  if (location.dominantColors?.length) {
+    fragments.push(`${location.dominantColors.join(', ')} palette`);
+  }
+  if (location.keyFeatures?.length) {
+    fragments.push(location.keyFeatures.join(', '));
+  }
+  if (location.atmosphereKeywords?.length) {
+    fragments.push(location.atmosphereKeywords.join(', '));
+  }
+
+  if (fragments.length === 0) {
+    return '';
+  }
+
+  const prefix = mode === 'image-to-video' ? 'same location continuity' : 'Location';
+  return `${prefix}: ${fragments.join('; ')}`;
+}
+
+function describeStandaloneEquipment(item: Equipment): string {
+  const fragments: string[] = [];
+  pushVisualPart(fragments, item.name);
+  pushVisualPart(fragments, item.description);
+  pushVisualPart(fragments, item.material);
+  pushVisualPart(fragments, item.color);
+  pushVisualPart(fragments, item.condition);
+  pushVisualPart(fragments, item.visualDetails);
+  return fragments.length > 0 ? `Visible equipment: ${fragments.join('; ')}` : '';
 }
 
 function applyIntensityAndDirection(
@@ -1211,13 +1342,14 @@ function compileCharacterSheet(
   sections.push(`\nPOSE & TURNAROUND (main sheet):
 Display the SAME character (identical design, no variation) in:
 - Front view (neutral pose, arms slightly away from body)
-- Side view (facing right)
+- Left profile view
+- Right profile view
 - Back view
-- 3/4 view (slightly rotated)
 
 All views must:
 - Match perfectly in proportions, clothing, hairstyle, and colors
-- Be aligned evenly in a clean horizontal layout
+- Be aligned evenly in a clean two-row model sheet layout
+- Keep full body visible in every body panel with no cropped limbs or hair tips
 - Look like the same model rotated in space`);
 
   // 5. EXPRESSION SHEET
@@ -1228,7 +1360,7 @@ Include detailed headshots showing:
 - Sad
 - Angry
 - Surprised
-- Confident
+- Determined
 
 Faces must remain structurally identical across emotions.`);
 
@@ -1253,7 +1385,7 @@ No dramatic shadows (to preserve true colors and details)`);
 - Orthographic-style reference sheet
 - Clean white or neutral background
 - Symmetrical layout, evenly spaced
-- Full body visible in all views + separate face panel`);
+- Full body visible in every body panel + separate expression row`);
 
   // 9. COLOR & RENDER
   sections.push(`\nCOLOR & RENDER QUALITY:
@@ -1329,11 +1461,43 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
-  // 3–5. Entity descriptions (location, character, equipment) are NOT injected.
-  // The AI Commander writes the full prompt with all relevant details.
-  // Reference image hashes are still collected and attached to the generation request.
+  // 3. Inject visible entity context so provider-facing prompts carry the same
+  // continuity-critical identity details that node refs encode structurally.
 
-  // 3. Stack presets in order
+  for (const resolved of input.characters ?? []) {
+    const text = describeCharacterIdentity(resolved, input.mode);
+    if (text) {
+      trackedSegments.push({
+        source: `character:${resolved.character.id}`,
+        text,
+        trimmed: false,
+      });
+    }
+  }
+
+  for (const location of input.locations ?? []) {
+    const text = describeLocationIdentity(location, input.mode);
+    if (text) {
+      trackedSegments.push({
+        source: `location:${location.id}`,
+        text,
+        trimmed: false,
+      });
+    }
+  }
+
+  for (const item of input.equipmentItems ?? []) {
+    const text = describeStandaloneEquipment(item);
+    if (text) {
+      trackedSegments.push({
+        source: `equipment:${item.id}`,
+        text,
+        trimmed: false,
+      });
+    }
+  }
+
+  // 4. Stack presets in order
   {
     for (const category of PRESET_STACK_ORDER) {
       if (input.mode === 'image-to-video' && !I2V_ALLOWED_CATEGORIES.has(category)) {
@@ -1365,7 +1529,11 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
-  // 4. Collect negative prompts from presets
+  // 5. Collect negative prompts from node text and presets
+  if (input.negativePrompt?.trim()) {
+    negativeSegments.push(input.negativePrompt.trim());
+  }
+
   {
     for (const category of PRESET_STACK_ORDER) {
       const track = effectivePresetTracks?.[category];
@@ -1400,7 +1568,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
-  // 5. Assemble final prompt with word budget trimming
+  // 6. Assemble final prompt with word budget trimming
   const diagnostics: PromptDiagnostic[] = [];
 
   // Conflict detection

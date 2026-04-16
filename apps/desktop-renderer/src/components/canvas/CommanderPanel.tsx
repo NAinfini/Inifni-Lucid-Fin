@@ -72,6 +72,7 @@ export function CommanderPanel() {
   const dispatch = useDispatch();
   const { t } = useI18n();
   const { sendMessage, cancel, isStreaming } = useCommander();
+  const isBackendReady = useSelector((state: RootState) => state.settings.bootstrapped);
   const {
     open,
     minimized,
@@ -245,8 +246,13 @@ export function CommanderPanel() {
       let toolCallCount = 0;
       for (const msg of messages) {
         const contentLen = msg.content?.length ?? 0;
-        if (msg.role === 'user') { userChars += contentLen; userCount++; }
-        else { assistantChars += contentLen; assistantCount++; }
+        if (msg.role === 'user') {
+          userChars += contentLen;
+          userCount++;
+        } else {
+          assistantChars += contentLen;
+          assistantCount++;
+        }
         if (msg.toolCalls) {
           for (const tc of msg.toolCalls) {
             toolCallChars += JSON.stringify(tc.arguments).length;
@@ -341,11 +347,11 @@ export function CommanderPanel() {
     const now = Date.now();
     const cooldownMs = 10_000;
     if (
-      contextUsage?.pct != null
-      && contextUsage.pct >= 95
-      && !autoCompactedRef.current
-      && isStreaming
-      && now - lastCompactTimeRef.current > cooldownMs
+      contextUsage?.pct != null &&
+      contextUsage.pct >= 95 &&
+      !autoCompactedRef.current &&
+      isStreaming &&
+      now - lastCompactTimeRef.current > cooldownMs
     ) {
       autoCompactedRef.current = true;
       lastCompactTimeRef.current = now;
@@ -416,7 +422,9 @@ export function CommanderPanel() {
             delete target.dataset.dragOffsetX;
             delete target.dataset.dragOffsetY;
             // Commit final position to Redux
-            dispatch(setPosition({ x: parseInt(target.style.left), y: parseInt(target.style.top) }));
+            dispatch(
+              setPosition({ x: parseInt(target.style.left), y: parseInt(target.style.top) }),
+            );
             ac.abort();
           };
 
@@ -454,6 +462,7 @@ export function CommanderPanel() {
   };
 
   const handleAddToQueue = () => {
+    if (!isBackendReady) return;
     const value = input.trim();
     if (!value) return;
     dispatch(enqueueMessage(value));
@@ -462,6 +471,7 @@ export function CommanderPanel() {
   };
 
   const handleSendNow = async () => {
+    if (!isBackendReady) return;
     const value = input.trim();
     userScrolledUpRef.current = false;
     if (value) {
@@ -562,7 +572,11 @@ export function CommanderPanel() {
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-2 pb-3">
+      <div
+        ref={scrollRef}
+        data-testid="commander-message-scroll"
+        className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-2 pb-3"
+      >
         <MessageList
           messages={messages}
           liveMessage={liveMessage}
@@ -790,9 +804,7 @@ export function CommanderPanel() {
                   type="button"
                   className={cn(
                     'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs',
-                    i === slashMenuIndex
-                      ? 'bg-primary/10 text-primary'
-                      : 'hover:bg-muted',
+                    i === slashMenuIndex ? 'bg-primary/10 text-primary' : 'hover:bg-muted',
                   )}
                   onMouseEnter={() => setSlashMenuIndex(i)}
                   onMouseDown={(e) => {
@@ -860,6 +872,7 @@ export function CommanderPanel() {
             placeholder={t('commander.sendMessage')}
             className="w-full resize-none border-0 bg-transparent px-3 pt-2.5 pb-1 text-xs outline-none placeholder:text-muted-foreground/60 overflow-y-auto"
             style={{ minHeight: '32px', maxHeight: '120px' }}
+            disabled={!isBackendReady}
           />
 
           {/* Bottom toolbar — like Claude Code */}
@@ -940,68 +953,109 @@ export function CommanderPanel() {
             <div className="flex-1" />
 
             {/* Context usage — click to compact, hover for details */}
-            {contextUsage && (() => {
-              const pct = contextUsage.pct;
-              const r = 6;
-              const circ = 2 * Math.PI * r;
-              const offset = circ - (circ * Math.min(pct, 100)) / 100;
-              const ringColor = pct >= 80 ? 'stroke-red-400' : pct >= 50 ? 'stroke-amber-400' : 'stroke-emerald-400';
-              const fmtK = (n: number) => { if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; } return String(n); };
-              const used = fmtK(contextUsage.estimatedTokens);
-              const total = contextUsage.ctxWindow >= 1_000_000
-                ? `${(contextUsage.ctxWindow / 1_000_000).toFixed(contextUsage.ctxWindow % 1_000_000 === 0 ? 0 : 1)}M`
-                : `${Math.round(contextUsage.ctxWindow / 1000)}K`;
-              const { breakdown: bd, counts: ct } = contextUsage;
-              return (
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => void triggerCompact()}
-                        className="shrink-0 rounded p-0.5 hover:bg-muted transition-colors"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16">
-                          <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2" className="stroke-border" />
-                          {pct > 0 && (
+            {contextUsage &&
+              (() => {
+                const pct = contextUsage.pct;
+                const r = 6;
+                const circ = 2 * Math.PI * r;
+                const offset = circ - (circ * Math.min(pct, 100)) / 100;
+                const ringColor =
+                  pct >= 80
+                    ? 'stroke-red-400'
+                    : pct >= 50
+                      ? 'stroke-amber-400'
+                      : 'stroke-emerald-400';
+                const fmtK = (n: number) => {
+                  if (n >= 1000) {
+                    const v = n / 1000;
+                    return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`;
+                  }
+                  return String(n);
+                };
+                const used = fmtK(contextUsage.estimatedTokens);
+                const total =
+                  contextUsage.ctxWindow >= 1_000_000
+                    ? `${(contextUsage.ctxWindow / 1_000_000).toFixed(contextUsage.ctxWindow % 1_000_000 === 0 ? 0 : 1)}M`
+                    : `${Math.round(contextUsage.ctxWindow / 1000)}K`;
+                const { breakdown: bd, counts: ct } = contextUsage;
+                return (
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => void triggerCompact()}
+                          className="shrink-0 rounded p-0.5 hover:bg-muted transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 16 16">
                             <circle
-                              cx="8" cy="8" r={r} fill="none" strokeWidth="2"
-                              className={ringColor}
-                              strokeDasharray={circ}
-                              strokeDashoffset={offset}
-                              strokeLinecap="round"
-                              transform="rotate(-90 8 8)"
+                              cx="8"
+                              cy="8"
+                              r={r}
+                              fill="none"
+                              strokeWidth="2"
+                              className="stroke-border"
                             />
+                            {pct > 0 && (
+                              <circle
+                                cx="8"
+                                cy="8"
+                                r={r}
+                                fill="none"
+                                strokeWidth="2"
+                                className={ringColor}
+                                strokeDasharray={circ}
+                                strokeDashoffset={offset}
+                                strokeLinecap="round"
+                                transform="rotate(-90 8 8)"
+                              />
+                            )}
+                          </svg>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={8} className="max-w-xs">
+                        <div className="text-[11px] font-medium">
+                          {used} / {total} {t('commander.contextBreakdown.tokens')} ({pct}%)
+                        </div>
+                        <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] text-primary-foreground/70">
+                          <span>{t('commander.contextBreakdown.user')}</span>
+                          <span className="text-right">
+                            {fmtK(bd.user)} ({ct.user})
+                          </span>
+                          <span>{t('commander.contextBreakdown.assistant')}</span>
+                          <span className="text-right">
+                            {fmtK(bd.assistant)} ({ct.assistant})
+                          </span>
+                          <span>{t('commander.contextBreakdown.toolCalls')}</span>
+                          <span className="text-right">
+                            {fmtK(bd.toolCalls)} ({ct.toolCalls})
+                          </span>
+                          <span>{t('commander.contextBreakdown.toolResults')}</span>
+                          <span className="text-right">{fmtK(bd.toolResults)}</span>
+                          {contextUsage.cache.entries > 0 && (
+                            <>
+                              <span>Cache</span>
+                              <span className="text-right">
+                                {fmtK(Math.round(contextUsage.cache.chars / 3.5))} (
+                                {contextUsage.cache.entries})
+                              </span>
+                            </>
                           )}
-                        </svg>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={8} className="max-w-xs">
-                      <div className="text-[11px] font-medium">{used} / {total} {t('commander.contextBreakdown.tokens')} ({pct}%)</div>
-                      <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[10px] text-primary-foreground/70">
-                        <span>{t('commander.contextBreakdown.user')}</span>
-                        <span className="text-right">{fmtK(bd.user)} ({ct.user})</span>
-                        <span>{t('commander.contextBreakdown.assistant')}</span>
-                        <span className="text-right">{fmtK(bd.assistant)} ({ct.assistant})</span>
-                        <span>{t('commander.contextBreakdown.toolCalls')}</span>
-                        <span className="text-right">{fmtK(bd.toolCalls)} ({ct.toolCalls})</span>
-                        <span>{t('commander.contextBreakdown.toolResults')}</span>
-                        <span className="text-right">{fmtK(bd.toolResults)}</span>
-                        {contextUsage.cache.entries > 0 && (<>
-                          <span>Cache</span>
-                          <span className="text-right">{fmtK(Math.round(contextUsage.cache.chars / 3.5))} ({contextUsage.cache.entries})</span>
-                        </>)}
-                        {contextUsage.historyTrimmed > 0 && (<>
-                          <span>Trimmed</span>
-                          <span className="text-right">{contextUsage.historyTrimmed} msgs</span>
-                        </>)}
-                      </div>
-                      <div className="mt-1 text-[10px] text-primary-foreground/50">{t('commander.slashCommand.compact')}</div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              );
-            })()}
+                          {contextUsage.historyTrimmed > 0 && (
+                            <>
+                              <span>Trimmed</span>
+                              <span className="text-right">{contextUsage.historyTrimmed} msgs</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[10px] text-primary-foreground/50">
+                          {t('commander.slashCommand.compact')}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })()}
             <div className="relative" data-dropdown-menu>
               <button
                 type="button"
@@ -1099,9 +1153,10 @@ export function CommanderPanel() {
             {isStreaming && inputHasText ? (
               /* AI running + text in box → Queue message */
               <button
-                className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90"
+                className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
                 onClick={handleAddToQueue}
                 title={t('commander.addToQueue')}
+                disabled={!isBackendReady}
               >
                 <Play className="h-3 w-3" />
                 {t('commander.addToQueue')}
@@ -1120,8 +1175,8 @@ export function CommanderPanel() {
               <button
                 className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
                 onClick={() => void handleSendNow()}
-                disabled={!inputHasText && messageQueue.length === 0}
-                title={t('commander.sendNow')}
+                disabled={!isBackendReady || (!inputHasText && messageQueue.length === 0)}
+                title={isBackendReady ? t('commander.sendNow') : t('commander.backendNotReady')}
               >
                 <Play className="h-3 w-3" />
                 {t('commander.sendNow')}

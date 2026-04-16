@@ -54,6 +54,7 @@ import type {
   ReferenceImage,
   ShotTemplate,
 } from '@lucid-fin/contracts';
+import { normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 
 const TYPE_META: Record<CanvasNodeType, { label: string; icon: LucideIcon; color: string }> = {
   text: { label: 'node.text', icon: FileText, color: 'text-foreground' },
@@ -402,16 +403,27 @@ export function InspectorPanel() {
   }));
   const characterContextItems = nodeCharacterRefs.map((ref) => {
     const character = characterById[ref.characterId];
-    const slotOptions = (character?.referenceImages ?? [])
-      .filter((image: ReferenceImage) => image.assetHash)
-      .map((image: ReferenceImage) => ({
-        value: image.slot,
-        label: localizeSlot(image.slot),
-      }));
+    const slotOptions = Array.from(
+      new Map(
+        (character?.referenceImages ?? [])
+          .filter((image: ReferenceImage) => image.assetHash)
+          .map((image: ReferenceImage) => [
+            normalizeCharacterRefSlot(image.slot),
+            {
+              value: normalizeCharacterRefSlot(image.slot),
+              label: localizeSlot(image.slot),
+            },
+          ]),
+      ).values(),
+    );
+    const thumbnailAssetHash =
+      ref.referenceImageHash ??
+      (character?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
     return {
       id: ref.characterId,
       label: character?.name ?? ref.characterId.slice(0, 8),
-      selectedSlot: ref.angleSlot ?? '',
+      thumbnailAssetHash,
+      selectedSlot: ref.angleSlot ? normalizeCharacterRefSlot(ref.angleSlot) : '',
       slotOptions,
     };
   });
@@ -428,9 +440,13 @@ export function InspectorPanel() {
         value: image.slot,
         label: localizeSlot(image.slot),
       }));
+    const thumbnailAssetHash =
+      ref.referenceImageHash ??
+      (equipment?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
     return {
       id: ref.equipmentId,
       label: equipment?.name ?? ref.equipmentId.slice(0, 8),
+      thumbnailAssetHash,
       selectedSlot: ref.angleSlot ?? '',
       slotOptions,
     };
@@ -441,9 +457,13 @@ export function InspectorPanel() {
   }));
   const locationContextItems = nodeLocationRefs.map((ref) => {
     const location = locationById[ref.locationId];
+    const thumbnailAssetHash =
+      ref.referenceImageHash ??
+      (location?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
     return {
       id: ref.locationId,
       label: location?.name ?? ref.locationId.slice(0, 8),
+      thumbnailAssetHash,
     };
   });
   const videoFramesSection =

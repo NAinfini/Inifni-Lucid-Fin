@@ -9,7 +9,13 @@ import { setEquipment } from '../store/slices/equipment.js';
 import { store } from '../store/index.js';
 import { syncCommanderEntitiesForTool, useCommander } from './useCommander.js';
 import { getAPI, type LucidAPI } from '../utils/api.js';
-import { addCustomProvider, restore as restoreSettings, settingsSlice } from '../store/slices/settings.js';
+import {
+  addCustomProvider,
+  restore as restoreSettings,
+  setBootstrapped,
+  settingsSlice,
+} from '../store/slices/settings.js';
+import { clearLogs } from '../store/slices/logger.js';
 
 vi.mock('../utils/api.js', () => ({
   getAPI: vi.fn(),
@@ -82,6 +88,7 @@ function SendHarness() {
 afterEach(() => {
   cleanup();
   store.dispatch(clearHistory());
+  store.dispatch(clearLogs());
   for (const session of store.getState().commander.sessions) {
     store.dispatch(deleteSession(session.id));
   }
@@ -95,6 +102,63 @@ afterEach(() => {
 });
 
 describe('useCommander stream completion', () => {
+  it('blocks commander chat until backend bootstrap finishes', async () => {
+    const chat = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(getAPI).mockReturnValue({
+      settings: {
+        save: vi.fn().mockResolvedValue(undefined),
+      },
+      commander: {
+        chat,
+        onStream: () => () => {},
+        onCanvasUpdated: () => () => {},
+        onEntitiesUpdated: () => () => {},
+        onSettingsDispatch: () => () => {},
+        onUndoDispatch: () => () => {},
+      },
+    } as never);
+
+    store.dispatch(setCanvases([{
+      id: 'canvas-1',
+      name: 'Main',
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      createdAt: 1,
+      updatedAt: 1,
+      notes: [],
+    }]));
+    store.dispatch(setActiveCanvas('canvas-1'));
+
+    const { getByRole } = render(
+      React.createElement(Provider, {
+        store,
+        children: React.createElement(SendHarness),
+      }),
+    );
+
+    await act(async () => {
+      getByRole('button', { name: 'Send' }).click();
+    });
+
+    await waitFor(() => {
+      expect(chat).not.toHaveBeenCalled();
+      expect(store.getState().commander.error).toBe(
+        'Commander backend is still starting. Wait for the app to finish loading and try again.',
+      );
+      expect(store.getState().logger.entries).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            level: 'error',
+            category: 'commander',
+            message: 'Commander backend is still starting. Wait for the app to finish loading and try again.',
+          }),
+        ]),
+      );
+    });
+  });
+
   it('persists streamed content when the done event completes the session', async () => {
     let onStream: ((data: CommanderStreamEvent) => void) | undefined;
 
@@ -174,6 +238,7 @@ describe('useCommander stream completion', () => {
       notes: [],
     }]));
     store.dispatch(setActiveCanvas('canvas-1'));
+    store.dispatch(setBootstrapped());
     store.dispatch(
       addCustomProvider({
         group: 'llm',
@@ -246,6 +311,7 @@ describe('useCommander stream completion', () => {
       notes: [],
     }]));
     store.dispatch(setActiveCanvas('canvas-1'));
+    store.dispatch(setBootstrapped());
 
     const { getByRole } = render(
       React.createElement(Provider, {
@@ -318,6 +384,7 @@ describe('useCommander stream completion', () => {
       notes: [],
     }]));
     store.dispatch(setActiveCanvas('canvas-1'));
+    store.dispatch(setBootstrapped());
 
     const { getByRole } = render(
       React.createElement(Provider, {
@@ -398,6 +465,7 @@ describe('useCommander stream completion', () => {
       notes: [],
     }]));
     store.dispatch(setActiveCanvas('canvas-1'));
+    store.dispatch(setBootstrapped());
 
     const { getByRole } = render(
       React.createElement(Provider, {

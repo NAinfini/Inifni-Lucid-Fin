@@ -22,6 +22,58 @@ export const STANDARD_ANGLE_SLOTS = [
 ] as const;
 
 export type StandardAngleSlot = (typeof STANDARD_ANGLE_SLOTS)[number];
+export type CharacterReferenceSlot = 'main' | StandardAngleSlot;
+
+const CHARACTER_REF_SLOT_ALIASES: Record<string, CharacterReferenceSlot> = {
+  main: 'main',
+  front: 'main',
+  default: 'main',
+  'default-angle': 'main',
+  'default-view': 'main',
+  primary: 'main',
+  hero: 'main',
+  back: 'back',
+  rear: 'back',
+  'back-view': 'back',
+  left: 'left-side',
+  'left-side': 'left-side',
+  leftside: 'left-side',
+  'left-profile': 'left-side',
+  'profile-left': 'left-side',
+  right: 'right-side',
+  'right-side': 'right-side',
+  rightside: 'right-side',
+  'right-profile': 'right-side',
+  'profile-right': 'right-side',
+  face: 'face-closeup',
+  'face-closeup': 'face-closeup',
+  'face-close-up': 'face-closeup',
+  closeup: 'face-closeup',
+  'close-up': 'face-closeup',
+  'face-closeup-view': 'face-closeup',
+  overhead: 'top-down',
+  topdown: 'top-down',
+  'top-down': 'top-down',
+};
+
+function normalizeSlotKey(slot: string | undefined | null): string {
+  return (slot ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+export function normalizeCharacterRefSlot(slot: string | undefined | null): string {
+  const normalized = normalizeSlotKey(slot);
+  if (!normalized) return 'main';
+  return CHARACTER_REF_SLOT_ALIASES[normalized] ?? normalized;
+}
+
+export function isCharacterReferenceSlotStandard(slot: string | undefined | null): boolean {
+  const normalized = normalizeCharacterRefSlot(slot);
+  return normalized === 'main' || STANDARD_ANGLE_SLOTS.includes(normalized as StandardAngleSlot);
+}
 
 export interface EquipmentLoadout {
   id: string;

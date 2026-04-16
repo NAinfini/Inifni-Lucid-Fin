@@ -246,7 +246,7 @@ describe('compilePrompt', () => {
     expect(result.referenceImages).toBeUndefined();
   });
 
-  it('does not inject entity descriptions into compiled prompt', () => {
+  it('injects visible entity context into compiled prompt', () => {
     const character: Character = {
       id: 'char-1',
       name: 'Alex',
@@ -299,6 +299,7 @@ describe('compilePrompt', () => {
     const result = compilePrompt({
       nodeType: 'image',
       prompt: 'A scene in the city',
+      negativePrompt: 'no crowd',
       characters: [resolved],
       locations: [location],
       equipmentItems: [equipment],
@@ -307,12 +308,15 @@ describe('compilePrompt', () => {
       presetLibrary: [],
     });
 
-    // Entity descriptions should NOT be injected — AI writes the full prompt
+    // Entity descriptions should be merged into the compiled prompt alongside node text.
     expect(result.prompt).toContain('A scene in the city');
-    expect(result.prompt).not.toContain('Alex');
-    expect(result.prompt).not.toContain('The Blue Moon Bar');
-    expect(result.prompt).not.toContain('handgun');
-    expect(result.prompt).not.toContain('Props:');
+    expect(result.prompt).toContain('Alex');
+    expect(result.prompt).toContain('Tall with sharp jawline');
+    expect(result.prompt).toContain('expression reads determined');
+    expect(result.prompt).toContain('The Blue Moon Bar');
+    expect(result.prompt).toContain('dimly lit dive bar with neon signs');
+    expect(result.prompt).toContain('handgun');
+    expect(result.negativePrompt).toContain('no crowd');
   });
 
   it('detects conflicting presets and reports diagnostic', () => {

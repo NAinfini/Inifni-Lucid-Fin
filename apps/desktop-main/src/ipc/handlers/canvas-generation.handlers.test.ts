@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Canvas, GenerationResult } from '@lucid-fin/contracts';
 import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet, type StyleGuide } from '@lucid-fin/contracts';
+import { CAS } from '../../../../../packages/storage/src/cas.js';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -44,6 +45,11 @@ function makeStyleGuide(overrides?: Partial<StyleGuide['global']>): StyleGuide {
     sceneOverrides: {},
   };
 }
+
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9pZ+j9QAAAAASUVORK5CYII=',
+  'base64',
+);
 
 describe('applyStyleGuideDefaultsToEmptyTracks', () => {
   it('fills empty look and scene tracks from style guide defaults', () => {
@@ -482,6 +488,164 @@ describe('startCanvasGeneration progress events', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it('compiles entity context into image prompts and attaches entity reference images', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-image-entity-'));
+    const assetPath = path.join(tmpDir, 'image.png');
+    const charRefPath = path.join(tmpDir, 'char-ref.png');
+    const locRefPath = path.join(tmpDir, 'loc-ref.png');
+    fs.writeFileSync(assetPath, Buffer.from([1, 2, 3, 4]));
+    fs.writeFileSync(charRefPath, Buffer.from([5, 6, 7, 8]));
+    fs.writeFileSync(locRefPath, Buffer.from([9, 10, 11, 12]));
+
+    const now = Date.now();
+    const canvas: Canvas = {
+      id: 'canvas-1',
+      name: 'Test Canvas',
+      nodes: [
+        {
+          id: 'node-1',
+          type: 'image',
+          position: { x: 0, y: 0 },
+          data: {
+            status: 'empty',
+            prompt: 'hero at the bar',
+            negativePrompt: 'no crowd',
+            variants: [],
+            selectedVariantIndex: 0,
+            variantCount: 1,
+            seedLocked: false,
+            presetTracks: createEmptyPresetTrackSet(),
+            characterRefs: [{ characterId: 'char-1', loadoutId: '' }],
+            locationRefs: [{ locationId: 'loc-1' }],
+          },
+          title: 'Hero Shot',
+          status: 'idle',
+          bypassed: false,
+          locked: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      notes: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const generate = vi.fn(async () => ({
+      assetHash: '',
+      assetPath,
+      provider: 'mock-provider',
+    }));
+    const save = vi.fn();
+    const { sender, done } = createSender();
+
+    await startCanvasGeneration(
+      sender,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        variantCount: 1,
+      },
+      {
+        adapterRegistry: {
+          get: vi.fn(() => ({
+            id: 'mock-provider',
+            name: 'Mock Provider',
+            type: 'image',
+            capabilities: ['text-to-image'],
+            maxConcurrent: 1,
+            configure: vi.fn(),
+            validate: vi.fn(async () => true),
+            generate,
+            estimateCost: vi.fn(() => ({
+              estimatedCost: 0,
+              currency: 'USD',
+              provider: 'mock-provider',
+              unit: 'image',
+            })),
+            checkStatus: vi.fn(async () => 'completed'),
+            cancel: vi.fn(async () => undefined),
+          })),
+          list: vi.fn(() => []),
+        },
+        cas: {
+          importAsset: vi.fn(async () => ({
+            ref: { hash: 'hash-image-entity' },
+            meta: {
+              hash: 'hash-image-entity',
+              type: 'image',
+              mimeType: 'image/png',
+              size: 4,
+              width: 1,
+              height: 1,
+              duration: undefined,
+              createdAt: Date.now(),
+            },
+          })),
+          getAssetPath: vi.fn((hash: string, _type: string, ext: string) => {
+            if (hash === 'char-ref-hash' && ext === 'png') return charRefPath;
+            if (hash === 'loc-ref-hash' && ext === 'png') return locRefPath;
+            return path.join(tmpDir, `${hash}.${ext}`);
+          }),
+        },
+        db: {
+          insertAsset: vi.fn(),
+          getCharacter: vi.fn(() => ({
+            id: 'char-1',
+            name: 'Alex',
+            role: 'protagonist',
+            description: 'A grizzled detective',
+            appearance: 'Tall with sharp jawline. Short brown hair. Scar on left cheek.',
+            personality: 'Stoic',
+            costumes: [],
+            tags: [],
+            referenceImages: [{ slot: 'front', assetHash: 'char-ref-hash', isStandard: true }],
+            loadouts: [],
+            defaultLoadoutId: '',
+            createdAt: 0,
+            updatedAt: 0,
+          })),
+          getEquipment: vi.fn(() => undefined),
+          getLocation: vi.fn(() => ({
+            id: 'loc-1',
+            name: 'The Blue Moon Bar',
+            description: 'A dimly lit dive bar with neon signs',
+            timeOfDay: 'night',
+            mood: 'tense',
+            lighting: 'neon, dim',
+            tags: [],
+            referenceImages: [{ slot: 'wide-establishing', assetHash: 'loc-ref-hash', isStandard: true }],
+            createdAt: 0,
+            updatedAt: 0,
+          })),
+        },
+        canvasStore: {
+          get: vi.fn(() => canvas),
+          save,
+        },
+        keychain: {
+          getKey: vi.fn(async () => 'secret-key'),
+        },
+      } as never,
+    );
+
+    await done;
+
+    expect(generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Alex'),
+        negativePrompt: expect.stringContaining('no crowd'),
+        referenceImages: [charRefPath, locRefPath],
+      }),
+    );
+    expect(generate.mock.calls[0]?.[0]?.prompt).toContain('The Blue Moon Bar');
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it('passes ordered first and last frame slot images to video generation requests', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-video-frames-'));
     const assetPath = path.join(tmpDir, 'video.mp4');
@@ -631,7 +795,10 @@ describe('startCanvasGeneration progress events', () => {
 
     expect(generate).toHaveBeenCalledWith(
       expect.objectContaining({
-        referenceImages: [firstFramePath, lastFramePath],
+        frameReferenceImages: {
+          first: firstFramePath,
+          last: lastFramePath,
+        },
       }),
     );
 
@@ -931,6 +1098,88 @@ describe('startCanvasGeneration progress events', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('fails video generation when the provider returns an image asset', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-video-mismatch-'));
+    const assetPath = path.join(tmpDir, 'returned-image.png');
+    fs.writeFileSync(assetPath, ONE_PIXEL_PNG);
+
+    const canvas = makeCanvas('video');
+    const save = vi.fn();
+    const db = {
+      insertAsset: vi.fn(),
+      getCharacter: vi.fn(() => undefined),
+      getEquipment: vi.fn(() => undefined),
+      getLocation: vi.fn(() => undefined),
+    };
+    const { sender, events, done } = createSender();
+
+    await startCanvasGeneration(
+      sender,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        variantCount: 1,
+      },
+      {
+        adapterRegistry: {
+          get: vi.fn(() => ({
+            id: 'mock-provider',
+            name: 'Mock Provider',
+            type: 'video',
+            capabilities: ['text-to-video'],
+            maxConcurrent: 1,
+            configure: vi.fn(),
+            validate: vi.fn(async () => true),
+            generate: vi.fn(async (): Promise<GenerationResult> => ({
+              assetHash: '',
+              assetPath,
+              provider: 'mock-provider',
+            })),
+            estimateCost: vi.fn(() => ({
+              estimatedCost: 0,
+              currency: 'USD',
+              provider: 'mock-provider',
+              unit: 'video',
+            })),
+            checkStatus: vi.fn(async () => 'completed'),
+            cancel: vi.fn(async () => undefined),
+          })),
+          list: vi.fn(() => []),
+        },
+        cas: new CAS(path.join(tmpDir, 'assets')),
+        db,
+        canvasStore: {
+          get: vi.fn(() => canvas),
+          save,
+        },
+        keychain: {
+          getKey: vi.fn(async () => 'secret-key'),
+        },
+      } as never,
+    );
+
+    await done;
+
+    expect(db.insertAsset).not.toHaveBeenCalled();
+    expect(canvas.nodes[0]?.status).toBe('failed');
+    expect((canvas.nodes[0]?.data as { error?: string }).error).toMatch(/expected video asset/i);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          channel: 'canvas:generation:failed',
+          payload: expect.objectContaining({
+            canvasId: 'canvas-1',
+            nodeId: 'node-1',
+            error: expect.stringMatching(/expected video asset/i),
+          }),
+        }),
+      ]),
+    );
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('logs structured failure details when generation fails', async () => {

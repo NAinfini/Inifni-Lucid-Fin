@@ -1,8 +1,12 @@
-import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import {
+  type AdapterError,
+  type GenerationRequest,
+  resolvePrimaryVideoConditioningImage,
+} from '@lucid-fin/contracts';
 import { parseAdapterError } from '../error-utils.js';
 
 export function toKlingRequest(req: GenerationRequest): Record<string, unknown> {
-  const isImg2Vid = req.referenceImages && req.referenceImages.length > 0;
+  const conditioningImage = resolvePrimaryVideoConditioningImage(req);
   return {
     prompt: req.prompt,
     negative_prompt: req.negativePrompt ?? '',
@@ -10,7 +14,7 @@ export function toKlingRequest(req: GenerationRequest): Record<string, unknown> 
     mode: req.quality ?? 'std',
     aspect_ratio: '16:9',
     duration: String(req.duration ?? 5),
-    ...(isImg2Vid ? { image: req.referenceImages![0] } : {}),
+    ...(conditioningImage ? { image: conditioningImage } : {}),
     ...(req.seed != null ? { seed: req.seed } : {}),
     ...(req.audio === true ? { enable_audio: true } : {}),
   };

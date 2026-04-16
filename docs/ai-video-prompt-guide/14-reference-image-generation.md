@@ -16,42 +16,44 @@ Based on industry best practices from:
 ## Character Turnaround Sheet
 
 ### Purpose
-Generate a multi-angle character reference sheet showing front, 3/4, side, and back views in a single image.
+Generate a production-ready character model sheet in a single image: full-body multi-view turnaround plus enlarged facial expression studies.
 
-### Standard Views
-- **Front view**: Character facing camera directly
-- **3/4 view**: Character at 45-degree angle
-- **Side profile**: Character in pure profile
-- **Back view**: Character facing away
+### Standard Layout
+- **Top row**: Front, left profile, right profile, back view
+- **Bottom row**: Enlarged face studies with multiple emotions
+- **Body panels**: Full body visible in every panel, identical scale
+- **Face panels**: Head-and-shoulders only, same face structure in every emotion
 
 ### Best Practices
-- Consistent lighting across all angles
-- Neutral standing pose (no action poses)
+- Consistent lighting across all panels
+- Neutral standing pose for body views
 - White or neutral background
-- Full body visible in all views
-- Same character proportions in all views
-- Aligned horizontally for easy comparison
+- Full body visible in every body panel
+- Same character proportions in all body views
+- Expression panels must keep identical facial structure, hairstyle, and color
+- Explicitly forbid cropped limbs, extra props, extra characters, and scene background clutter
 
 ### Default Prompt Template
 
 ```
-Character turnaround reference sheet, {CHARACTER_DESCRIPTION},
-showing front view, three-quarter view, side profile view, and back view in a single image,
-all views aligned horizontally on white background,
-consistent lighting across all angles, neutral standing pose, full body visible,
-professional character design model sheet, clean lines, detailed costume and features,
-same character from multiple angles, orthographic projection style
+Character turnaround model sheet, {CHARACTER_DESCRIPTION},
+two-row layout on white background,
+top row shows full-body front view, left profile, right profile, and back view at identical scale,
+full body visible in every body panel, neutral standing pose, arms slightly away from body,
+bottom row shows enlarged head-and-shoulders face studies with neutral, happy, sad, angry, surprised, and determined expressions,
+same character in every panel, identical facial structure, hairstyle, costume, proportions, and colors,
+professional character design model sheet, clean lines, even studio lighting, orthographic reference feel
 ```
 
 ### Negative Prompt
 
 ```
-blurry, inconsistent lighting, different poses, different characters, cropped, 
-low quality, perspective distortion, single view only, dynamic pose, action pose
+blurry, inconsistent lighting, different poses, different characters, cropped limbs,
+waist-up only, single view only, dynamic pose, action pose, extra props, background scene clutter
 ```
 
 ### Recommended Settings
-- **Aspect Ratio**: 16:9 (1920x1080)
+- **Aspect Ratio**: 3:2 (2048x1360)
 - **Providers**: Google Imagen 4, OpenAI gpt-image-1
 - **Variant Count**: 3-5 (to get best result)
 
@@ -59,20 +61,20 @@ low quality, perspective distortion, single view only, dynamic pose, action pose
 
 **Example 1: Fantasy Warrior**
 ```
-Character turnaround reference sheet, young female warrior with red armor and long black hair,
-showing front view, three-quarter view, side profile view, and back view in a single image,
-all views aligned horizontally on white background,
-consistent lighting across all angles, neutral standing pose, full body visible,
-professional character design model sheet, clean lines, detailed costume and features
+Character turnaround model sheet, young female warrior with red armor and long black hair,
+two-row layout on white background,
+top row shows full-body front view, left profile, right profile, and back view at identical scale,
+bottom row shows enlarged face studies with neutral, happy, sad, angry, surprised, and determined expressions,
+same character in every panel, consistent lighting, neutral standing pose, full body visible
 ```
 
 **Example 2: Sci-Fi Character**
 ```
-Character turnaround reference sheet, cyberpunk hacker with neon blue jacket and augmented eyes,
-showing front view, three-quarter view, side profile view, and back view in a single image,
-all views aligned horizontally on white background,
-consistent lighting across all angles, neutral standing pose, full body visible,
-professional character design model sheet, clean lines, detailed costume and features
+Character turnaround model sheet, cyberpunk hacker with neon blue jacket and augmented eyes,
+two-row layout on white background,
+top row shows full-body front view, left profile, right profile, and back view at identical scale,
+bottom row shows enlarged face studies with neutral, happy, sad, angry, surprised, and determined expressions,
+same character in every panel, consistent lighting, neutral standing pose, full body visible
 ```
 
 ## Equipment Reference Sheet
@@ -219,10 +221,10 @@ professional environment concept art reference sheet, cinematic composition
 These prompts are integrated into the Character, Equipment, and Location managers. When generating reference images:
 
 1. Select entity type (Character/Equipment/Location)
-2. Choose "Use Reference Template"
-3. System automatically applies appropriate prompt template
-4. Customize description and optional elements
-5. Generate with recommended settings
+2. For standard slots, prefer the built-in slot template instead of hand-writing a custom prompt
+3. Only override prompt when you need a user-approved custom layout or style
+4. Strengthen entity data first, then generate with recommended settings
+5. Review whether the sheet actually proves silhouette, construction, and identity before accepting it
 
 ## Customization
 

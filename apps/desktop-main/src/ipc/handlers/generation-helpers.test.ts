@@ -3,6 +3,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+const ONE_PIXEL_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9pZ+j9QAAAAASUVORK5CYII=';
+const MINIMAL_MP4_BASE64 = Buffer.from([
+  0x00, 0x00, 0x00, 0x18,
+  0x66, 0x74, 0x79, 0x70,
+  0x69, 0x73, 0x6f, 0x6d,
+  0x00, 0x00, 0x02, 0x00,
+  0x69, 0x73, 0x6f, 0x6d,
+  0x69, 0x73, 0x6f, 0x32,
+]).toString('base64');
+
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
   info: vi.fn(),
@@ -787,7 +798,43 @@ describe('materializeGenerationRequest', () => {
         sourceImageHash: 'source-hash',
       };
       const result = materializeGenerationRequest(req, cas as never);
+      expect(result.sourceImagePath).toBe(pngPath);
       expect(result.params?.sourceImagePath).toBe(pngPath);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves frameReferenceImages hashes to file paths via CAS', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-mat-frames-'));
+    const firstPath = path.join(tmpDir, 'first.png');
+    const lastPath = path.join(tmpDir, 'last.png');
+    fs.writeFileSync(firstPath, Buffer.from([1]));
+    fs.writeFileSync(lastPath, Buffer.from([2]));
+
+    const cas = {
+      getAssetPath: vi.fn((hash: string, _type: string, ext: string) => {
+        if (hash === 'first-hash' && ext === 'png') return firstPath;
+        if (hash === 'last-hash' && ext === 'png') return lastPath;
+        return `/missing/${hash}.${ext}`;
+      }),
+    };
+
+    try {
+      const req = {
+        type: 'video' as const,
+        providerId: 'mock',
+        prompt: 'test',
+        frameReferenceImages: {
+          first: 'first-hash',
+          last: 'last-hash',
+        },
+      };
+      const result = materializeGenerationRequest(req, cas as never);
+      expect(result.frameReferenceImages).toEqual({
+        first: firstPath,
+        last: lastPath,
+      });
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -1058,14 +1105,14 @@ describe('buildAdhocAdapter', () => {
     it('extracts assetPath from { data: [{ b64_json }] } format for images', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ data: [{ b64_json: 'abc123' }] }),
+        json: async () => ({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       try {
         const adapter = await buildAdhocAdapter('p1', baseConfig, makeKeychain());
         const result = await adapter.generate({ type: 'image', providerId: 'p1', prompt: 'test' });
-        expect(result.assetPath).toBe('data:image/png;base64,abc123');
+        expect(result.assetPath).toBe(`data:image/png;base64,${ONE_PIXEL_PNG_BASE64}`);
       } finally {
         vi.unstubAllGlobals();
       }
@@ -1074,14 +1121,31 @@ describe('buildAdhocAdapter', () => {
     it('extracts assetPath from { data: [{ b64_json }] } format for video', async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ data: [{ b64_json: 'videobase64' }] }),
+        json: async () => ({ data: [{ b64_json: MINIMAL_MP4_BASE64 }] }),
       });
       vi.stubGlobal('fetch', fetchMock);
 
       try {
         const adapter = await buildAdhocAdapter('p1', baseConfig, makeKeychain(), 'video');
         const result = await adapter.generate({ type: 'video', providerId: 'p1', prompt: 'test' });
-        expect(result.assetPath).toBe('data:video/mp4;base64,videobase64');
+        expect(result.assetPath).toBe(`data:video/mp4;base64,${MINIMAL_MP4_BASE64}`);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('rejects video responses whose b64_json payload decodes to an image', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ b64_json: ONE_PIXEL_PNG_BASE64 }] }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const adapter = await buildAdhocAdapter('p1', baseConfig, makeKeychain(), 'video');
+        await expect(
+          adapter.generate({ type: 'video', providerId: 'p1', prompt: 'test' }),
+        ).rejects.toThrow(/expected video response payload, received image/i);
       } finally {
         vi.unstubAllGlobals();
       }
@@ -1100,6 +1164,25 @@ describe('buildAdhocAdapter', () => {
         const adapter = await buildAdhocAdapter('p1', baseConfig, makeKeychain());
         const result = await adapter.generate({ type: 'image', providerId: 'p1', prompt: 'test' });
         expect(result.assetPath).toBe('https://cdn.example.com/chat-img.png');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('rejects image-only chat payloads for video generation', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { images: [{ image_url: { url: 'https://cdn.example.com/chat-img.png' } }] } }],
+        }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const adapter = await buildAdhocAdapter('p1', baseConfig, makeKeychain(), 'video');
+        await expect(
+          adapter.generate({ type: 'video', providerId: 'p1', prompt: 'test' }),
+        ).rejects.toThrow(/image response field cannot satisfy video generation/i);
       } finally {
         vi.unstubAllGlobals();
       }
@@ -1325,6 +1408,34 @@ describe('buildAdhocAdapter', () => {
         const body = JSON.parse(bodyStr) as Record<string, unknown>;
         expect(body.image).toBe('https://cdn.example.com/ref.png');
       } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('encodes a local materialized video conditioning image into the request body', async () => {
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-adhoc-video-ref-'));
+      const refPath = path.join(tmpDir, 'ref.png');
+      fs.writeFileSync(refPath, Buffer.from(ONE_PIXEL_PNG_BASE64, 'base64'));
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ url: 'https://cdn.example.com/video.mp4' }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      try {
+        const adapter = await buildAdhocAdapter('p1', baseConfig, makeKeychain(), 'video');
+        await adapter.generate({
+          type: 'video',
+          providerId: 'p1',
+          prompt: 'test',
+          sourceImagePath: refPath,
+        });
+        const callArgs = fetchMock.mock.calls[0] as [string, RequestInit];
+        const bodyStr = callArgs[1].body as string;
+        const body = JSON.parse(bodyStr) as Record<string, unknown>;
+        expect(String(body.image)).toContain('data:image/png;base64,');
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
         vi.unstubAllGlobals();
       }
     });

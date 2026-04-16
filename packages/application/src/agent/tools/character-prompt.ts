@@ -1,4 +1,4 @@
-import type { Character } from '@lucid-fin/contracts';
+import { normalizeCharacterRefSlot, type Character } from '@lucid-fin/contracts';
 
 export function buildCharacterAppearancePrompt(entity: Character): string {
   const parts: string[] = [];
@@ -91,15 +91,19 @@ function buildSingleViewPrompt(
 
 export function buildCharacterRefImagePrompt(entity: Character, slot: string): string {
   const appearanceDesc = buildCharacterAppearancePrompt(entity);
-  const normalizedSlot = slot.trim().toLowerCase();
+  const normalizedSlot = normalizeCharacterRefSlot(slot);
 
-  if (normalizedSlot === 'main' || normalizedSlot === 'front') {
+  if (normalizedSlot === 'main') {
     return `Character turnaround sheet for production reference. `
       + `${buildCharacterStudioSetup('Wide landscape composition (3:2 aspect ratio)')} `
       + `Character: ${entity.name}. `
       + (appearanceDesc ? `${appearanceDesc}. ` : '')
-      + `Top row shows matching full-body front view, left profile, rear view at identical scale. `
-      + `Bottom row shows head studies with neutral, focused, stern, relieved, and surprised expressions. `
+      + `Two-row model sheet layout. `
+      + `Top row shows matching full-body front view, left profile, right profile, rear view at identical scale. `
+      + `Full body visible in every body panel with no cropped limbs, feet, or hair tips. `
+      + `Do not collapse the sheet into a single portrait, half-body crop, or hero pose. `
+      + `Bottom row shows enlarged head studies with neutral, happy, sad, angry, surprised, and determined expressions. `
+      + `Expression panels are head-and-shoulders only, with the same face shape, hairstyle, colors, and lighting in every panel. `
       + `Preserve the same wardrobe, silhouette, proportions, and identifying details in every panel.`;
   }
 
@@ -128,11 +132,13 @@ export function buildCharacterRefImagePrompt(entity: Character, slot: string): s
   }
 
   if (normalizedSlot === 'face-closeup') {
-    return `Head-and-shoulders facial reference. `
+    return `Facial expression reference sheet. `
       + `${buildCharacterStudioSetup('Tall portrait composition (2:3 aspect ratio)')} `
       + `Character: ${entity.name}. `
       + (appearanceDesc ? `${appearanceDesc}. ` : '')
-      + `neutral expression, direct gaze, maximum face detail, clean view of the brow, eyes, nose, lips, jawline, and hairline.`;
+      + `Six head-and-shoulders panels with neutral, happy, sad, angry, surprised, and determined expressions. `
+      + `Direct gaze, maximum face detail, clean view of the brow, eyes, nose, lips, jawline, and hairline. `
+      + `Keep the same face shape, same hairstyle, same colors, and same lighting in every panel.`;
   }
 
   if (normalizedSlot === 'top-down') {

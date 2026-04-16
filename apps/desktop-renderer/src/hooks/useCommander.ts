@@ -118,136 +118,149 @@ export function useCommander(): {
 
   const sendMessage = useCallback(
     async (message: string) => {
-      const api = getAPI();
-      if (!api?.commander) {
-        throw new Error(t('commander.apiUnavailable'));
-      }
-
       const trimmed = message.trim();
       if (!trimmed) return;
 
-      // Read fresh state to avoid stale closure values
-      const state = store.getState();
-      const currentCanvasId = state.canvas.activeCanvasId;
-      if (!currentCanvasId) {
-        throw new Error(t('commander.noActiveCanvas'));
-      }
+      try {
+        const api = getAPI();
+        if (!api?.commander) {
+          throw new Error(t('commander.apiUnavailable'));
+        }
 
-      // Sync Commander's canvas binding if it drifted (e.g. cold start)
-      if (state.commander.activeCanvasId !== currentCanvasId) {
-        dispatch(switchCanvas(currentCanvasId));
-      }
+        // Read fresh state to avoid stale closure values
+        const state = store.getState();
+        if (!state.settings.bootstrapped) {
+          throw new Error(t('commander.backendNotReady'));
+        }
+        const currentCanvasId = state.canvas.activeCanvasId;
+        if (!currentCanvasId) {
+          throw new Error(t('commander.noActiveCanvas'));
+        }
 
-      if (state.commander.streaming) {
-        dispatch(addInjectedMessage(trimmed));
-        await api.commander.injectMessage(currentCanvasId, trimmed);
-        return;
-      }
+        // Sync Commander's canvas binding if it drifted (e.g. cold start)
+        if (state.commander.activeCanvasId !== currentCanvasId) {
+          dispatch(switchCanvas(currentCanvasId));
+        }
 
-      // Build rich history with tool call context for LLM continuity
-      const history: Array<Record<string, unknown>> = [];
-      for (const entry of state.commander.messages) {
-        if (entry.role === 'assistant' && entry.toolCalls && entry.toolCalls.length > 0) {
-          const completedCalls = entry.toolCalls.filter((tc) => tc.status === 'done' || tc.status === 'error');
-          if (completedCalls.length > 0) {
-            // Push assistant message with tool calls attached
-            history.push({
-              role: 'assistant',
-              content: entry.content,
-              toolCalls: completedCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
-            });
-            // Push corresponding tool result messages
-            for (const tc of completedCalls) {
-              const resultStr = tc.result != null ? (typeof tc.result === 'string' ? tc.result : JSON.stringify(tc.result)) : '';
+        if (state.commander.streaming) {
+          dispatch(addInjectedMessage(trimmed));
+          await api.commander.injectMessage(currentCanvasId, trimmed);
+          return;
+        }
+
+        // Build rich history with tool call context for LLM continuity
+        const history: Array<Record<string, unknown>> = [];
+        for (const entry of state.commander.messages) {
+          if (entry.role === 'assistant' && entry.toolCalls && entry.toolCalls.length > 0) {
+            const completedCalls = entry.toolCalls.filter(
+              (tc) => tc.status === 'done' || tc.status === 'error',
+            );
+            if (completedCalls.length > 0) {
+              // Push assistant message with tool calls attached
               history.push({
-                role: 'tool',
-                content: resultStr,
-                toolCallId: tc.id,
+                role: 'assistant',
+                content: entry.content,
+                toolCalls: completedCalls.map((tc) => ({
+                  id: tc.id,
+                  name: tc.name,
+                  arguments: tc.arguments,
+                })),
               });
+              // Push corresponding tool result messages
+              for (const tc of completedCalls) {
+                const resultStr =
+                  tc.result != null
+                    ? typeof tc.result === 'string'
+                      ? tc.result
+                      : JSON.stringify(tc.result)
+                    : '';
+                history.push({
+                  role: 'tool',
+                  content: resultStr,
+                  toolCallId: tc.id,
+                });
+              }
+            } else if (entry.content.trim().length > 0) {
+              // All tool calls still pending — treat as plain text message
+              history.push({ role: entry.role, content: entry.content });
             }
           } else if (entry.content.trim().length > 0) {
-            // All tool calls still pending — treat as plain text message
             history.push({ role: entry.role, content: entry.content });
           }
-        } else if (entry.content.trim().length > 0) {
-          history.push({ role: entry.role, content: entry.content });
         }
-      }
-      const promptGuides = selectCommanderPromptGuides(state);
-      const llmSettings = state.settings.llm;
-      const selectedNodeIds = state.canvas.selectedNodeIds;
-      const hasUserMessages = state.commander.messages.some((entry) => entry.role === 'user');
-      const sessionId = state.commander.activeSessionId ?? crypto.randomUUID();
+        const promptGuides = selectCommanderPromptGuides(state);
+        const llmSettings = state.settings.llm;
+        const selectedNodeIds = state.canvas.selectedNodeIds;
+        const hasUserMessages = state.commander.messages.some((entry) => entry.role === 'user');
+        const sessionId = state.commander.activeSessionId ?? crypto.randomUUID();
 
-      if (!state.commander.activeSessionId) {
-        dispatch(ensureActiveSession(sessionId));
-      }
+        if (!state.commander.activeSessionId) {
+          dispatch(ensureActiveSession(sessionId));
+        }
 
-      // Auto-snapshot: capture project state before the first message of a session
-      if (!state.commander.streaming && !hasUserMessages) {
-        try {
-          // Ensure the session row exists so the FK constraint on snapshots is satisfied
-          if (api.session?.upsert) {
-            await api.session.upsert({
-              id: sessionId,
-              canvasId: currentCanvasId,
-              title: '',
-              messages: '[]',
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            });
+        // Auto-snapshot: capture project state before the first message of a session
+        if (!state.commander.streaming && !hasUserMessages) {
+          try {
+            // Ensure the session row exists so the FK constraint on snapshots is satisfied
+            if (api.session?.upsert) {
+              await api.session.upsert({
+                id: sessionId,
+                canvasId: currentCanvasId,
+                title: '',
+                messages: '[]',
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              });
+            }
+            await api.snapshot?.capture(sessionId, 'Before Commander session', 'auto');
+          } catch (err) {
+            // Non-fatal — log and continue
+            dispatch(
+              addLog({
+                level: 'warn',
+                category: 'snapshot',
+                message: 'Auto-snapshot failed',
+                detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
+              }),
+            );
           }
-          await api.snapshot?.capture(sessionId, 'Before Commander session', 'auto');
-        } catch (err) {
-          // Non-fatal — log and continue
-          dispatch(
-            addLog({
-              level: 'warn',
-              category: 'snapshot',
-              message: 'Auto-snapshot failed',
-              detail: err instanceof Error ? err.stack ?? err.message : String(err),
-            }),
-          );
         }
-      }
 
-      // Save current canvas to DB before Commander reads it
-      const { activeCanvasId: canvasId, canvases } = state.canvas;
-      const activeCanvas = canvasId ? canvases.entities[canvasId] : undefined;
-      if (activeCanvas && api.canvas?.save) {
-        await api.canvas.save(activeCanvas).catch(() => {});
-      }
+        // Save current canvas to DB before Commander reads it
+        const { activeCanvasId: canvasId, canvases } = state.canvas;
+        const activeCanvas = canvasId ? canvases.entities[canvasId] : undefined;
+        if (activeCanvas && api.canvas?.save) {
+          await api.canvas.save(activeCanvas).catch(() => {});
+        }
 
-      dispatch(addUserMessage(trimmed));
-      dispatch(startStreaming());
-      dispatch(recordPrompt({ wordCount: trimmed.split(/\s+/).length }));
+        dispatch(addUserMessage(trimmed));
+        dispatch(startStreaming());
+        dispatch(recordPrompt({ wordCount: trimmed.split(/\s+/).length }));
 
-      const llmProviders = llmSettings?.providers ?? [];
-      const activeProvider =
-        llmProviders.find((p) => p.id === state.commander.providerId) ??
-        llmProviders[0];
-      const customLLMProvider = activeProvider
-        ? normalizeLLMProviderRuntimeConfig({
-            id: activeProvider.id,
-            name: activeProvider.name,
-            baseUrl: activeProvider.baseUrl,
-            model: activeProvider.model,
-            protocol: activeProvider.protocol,
-            authStyle: activeProvider.authStyle,
-            contextWindow: activeProvider.contextWindow,
-          })
-        : undefined;
-      const permissionMode = state.commander.permissionMode;
-      const { maxSteps, temperature, maxTokens } = state.commander;
+        const llmProviders = llmSettings?.providers ?? [];
+        const activeProvider =
+          llmProviders.find((p) => p.id === state.commander.providerId) ?? llmProviders[0];
+        const customLLMProvider = activeProvider
+          ? normalizeLLMProviderRuntimeConfig({
+              id: activeProvider.id,
+              name: activeProvider.name,
+              baseUrl: activeProvider.baseUrl,
+              model: activeProvider.model,
+              protocol: activeProvider.protocol,
+              authStyle: activeProvider.authStyle,
+              contextWindow: activeProvider.contextWindow,
+            })
+          : undefined;
+        const permissionMode = state.commander.permissionMode;
+        const { maxSteps, temperature, maxTokens } = state.commander;
 
-      // Build default provider map from settings
-      const defaultProviders: Record<string, string> = {};
-      for (const group of ['image', 'video', 'audio'] as const) {
-        const id = state.settings[group].defaultProviderId;
-        if (id) defaultProviders[group] = id;
-      }
+        // Build default provider map from settings
+        const defaultProviders: Record<string, string> = {};
+        for (const group of ['image', 'video', 'audio'] as const) {
+          const id = state.settings[group].defaultProviderId;
+          if (id) defaultProviders[group] = id;
+        }
 
-      try {
         await api.commander.chat(
           currentCanvasId,
           trimmed,
@@ -270,7 +283,7 @@ export function useCommander(): {
             level: 'error',
             category: 'commander',
             message,
-            detail: error instanceof Error ? error.stack ?? error.message : String(error),
+            detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
           }),
         );
         dispatch(streamError(message));
@@ -319,12 +332,11 @@ export function useCommander(): {
           resolveToolCall({
             id: data.toolCallId,
             result: data.result,
-              error:
-              isError
-                ? typeof resultRecord.error === 'string'
-                  ? resultRecord.error
-                  : t('commander.toolExecutionFailed')
-                : undefined,
+            error: isError
+              ? typeof resultRecord.error === 'string'
+                ? resultRecord.error
+                : t('commander.toolExecutionFailed')
+              : undefined,
             completedAt: data.completedAt,
           }),
         );
@@ -360,7 +372,9 @@ export function useCommander(): {
             typeof resultRecord.data === 'object' &&
             'id' in (resultRecord.data as Record<string, unknown>)
           ) {
-            dispatch(upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition));
+            dispatch(
+              upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition),
+            );
           }
         }
         return;
@@ -394,7 +408,8 @@ export function useCommander(): {
           setPendingQuestion({
             toolCallId: data.toolCallId,
             question: (data as { question?: string }).question ?? '',
-            options: (data as { options?: Array<{ label: string; description?: string }> }).options ?? [],
+            options:
+              (data as { options?: Array<{ label: string; description?: string }> }).options ?? [],
           }),
         );
         return;
@@ -413,19 +428,24 @@ export function useCommander(): {
           historyMessagesTrimmed?: number;
           utilizationRatio?: number;
         };
-        if (typeof payload.estimatedTokensUsed === 'number' && typeof payload.contextWindowTokens === 'number') {
-          dispatch(setBackendContextUsage({
-            estimatedTokensUsed: payload.estimatedTokensUsed,
-            contextWindowTokens: payload.contextWindowTokens,
-            messageCount: payload.messageCount ?? 0,
-            systemPromptChars: payload.systemPromptChars ?? 0,
-            toolSchemaChars: payload.toolSchemaChars ?? 0,
-            messageChars: payload.messageChars ?? 0,
-            cacheChars: payload.cacheChars ?? 0,
-            cacheEntryCount: payload.cacheEntryCount ?? 0,
-            historyMessagesTrimmed: payload.historyMessagesTrimmed ?? 0,
-            utilizationRatio: payload.utilizationRatio ?? 0,
-          }));
+        if (
+          typeof payload.estimatedTokensUsed === 'number' &&
+          typeof payload.contextWindowTokens === 'number'
+        ) {
+          dispatch(
+            setBackendContextUsage({
+              estimatedTokensUsed: payload.estimatedTokensUsed,
+              contextWindowTokens: payload.contextWindowTokens,
+              messageCount: payload.messageCount ?? 0,
+              systemPromptChars: payload.systemPromptChars ?? 0,
+              toolSchemaChars: payload.toolSchemaChars ?? 0,
+              messageChars: payload.messageChars ?? 0,
+              cacheChars: payload.cacheChars ?? 0,
+              cacheEntryCount: payload.cacheEntryCount ?? 0,
+              historyMessagesTrimmed: payload.historyMessagesTrimmed ?? 0,
+              utilizationRatio: payload.utilizationRatio ?? 0,
+            }),
+          );
         }
         return;
       }
@@ -459,14 +479,16 @@ export function useCommander(): {
         if (errSid && errState.commander.messages.length > 0) {
           const errSess = errState.commander.sessions.find((s) => s.id === errSid);
           if (errSess) {
-            api.session?.upsert({
-              id: errSess.id,
-              canvasId: errState.canvas.activeCanvasId ?? null,
-              title: errSess.title,
-              messages: JSON.stringify(errSess.messages),
-              createdAt: errSess.createdAt,
-              updatedAt: errSess.updatedAt,
-            }).catch(() => {});
+            api.session
+              ?.upsert({
+                id: errSess.id,
+                canvasId: errState.canvas.activeCanvasId ?? null,
+                title: errSess.title,
+                messages: JSON.stringify(errSess.messages),
+                createdAt: errSess.createdAt,
+                updatedAt: errSess.updatedAt,
+              })
+              .catch(() => {});
           }
         }
         return;
@@ -481,14 +503,16 @@ export function useCommander(): {
         if (sid && freshState.commander.messages.length > 0) {
           const sess = freshState.commander.sessions.find((s) => s.id === sid);
           if (sess) {
-            api.session?.upsert({
-              id: sess.id,
-              canvasId: freshState.canvas.activeCanvasId ?? null,
-              title: sess.title,
-              messages: JSON.stringify(sess.messages),
-              createdAt: sess.createdAt,
-              updatedAt: sess.updatedAt,
-            }).catch(() => {});
+            api.session
+              ?.upsert({
+                id: sess.id,
+                canvasId: freshState.canvas.activeCanvasId ?? null,
+                title: sess.title,
+                messages: JSON.stringify(sess.messages),
+                createdAt: sess.createdAt,
+                updatedAt: sess.updatedAt,
+              })
+              .catch(() => {});
           }
         }
       }
@@ -513,15 +537,17 @@ export function useCommander(): {
       // Added nodes
       for (const node of incoming.nodes) {
         if (!currentNodeIds.has(node.id)) {
-          dispatch(addNode({
-            id: node.id,
-            type: node.type,
-            title: node.title,
-            position: node.position,
-            data: node.data,
-            width: node.width,
-            height: node.height,
-          }));
+          dispatch(
+            addNode({
+              id: node.id,
+              type: node.type,
+              title: node.title,
+              position: node.position,
+              data: node.data,
+              width: node.width,
+              height: node.height,
+            }),
+          );
         }
       }
 
@@ -601,10 +627,7 @@ export function useCommander(): {
     };
 
     const unsubSettings = api.commander.onSettingsDispatch?.((data) => {
-      if (
-        data.action === 'setProviderId' &&
-        typeof data.payload?.providerId === 'string'
-      ) {
+      if (data.action === 'setProviderId' && typeof data.payload?.providerId === 'string') {
         dispatch(setProviderId(data.payload.providerId));
         return;
       }

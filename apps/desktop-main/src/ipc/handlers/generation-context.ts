@@ -44,6 +44,7 @@ import {
   resolveCharacterEntities,
   resolveLocationEntities,
   resolveReferenceImages,
+  resolveVideoFrameReferenceImageSet,
   resolveVideoFrameReferenceImages,
   resolveStandaloneEquipment,
 } from './generation-prompt-compiler.js';
@@ -83,7 +84,6 @@ export async function buildGenerationContext(
   const nodeData = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
   const variantCount = resolveVariantCount(nodeData, input.requestedVariantCount);
   const baseSeed = resolveBaseSeed(nodeData, input.requestedSeed);
-  const referenceImages = resolveReferenceImages(deps.db, canvas, node);
   const projectStyleGuide = loadCurrentProjectStyleGuide();
 
   const presetTracks =
@@ -101,6 +101,20 @@ export async function buildGenerationContext(
   const resolvedCharacters = resolveCharacterEntities(deps.db, characterRefs);
   const resolvedLocations = resolveLocationEntities(deps.db, locationRefs);
   const resolvedEquipment = resolveStandaloneEquipment(deps.db, equipmentRefs, resolvedCharacters);
+  const referenceImages = resolveReferenceImages(deps.db, canvas, node);
+  const videoFrameReferenceImages = generableNodeType === 'video'
+    ? resolveVideoFrameReferenceImageSet(canvas, node)
+    : undefined;
+  const connectedSourceHash = generableNodeType === 'video'
+    ? findConnectedImageHash(canvas, node.id)
+    : undefined;
+  const sourceNodeData =
+    node.type === 'image' || node.type === 'video'
+      ? (node.data as ImageNodeData | VideoNodeData)
+      : undefined;
+  const sourceImageHash = normalizeOptionalString(
+    sourceNodeData?.sourceImageHash,
+  ) ?? (generableNodeType === 'video' && !videoFrameReferenceImages?.first ? connectedSourceHash : undefined);
 
   // Select the best prompt for this generation type:
   // All nodes: prompt > title
@@ -109,6 +123,7 @@ export async function buildGenerationContext(
   const compiled = compilePrompt({
     nodeType: generableNodeType,
     prompt: effectivePrompt,
+    negativePrompt: normalizeOptionalString(nodeData.negativePrompt),
     presetTracks: presetTracks as PresetTrackSet | undefined,
     characterRefs,
     equipmentRefs,
@@ -167,7 +182,11 @@ export async function buildGenerationContext(
     quality: videoData?.quality,
     params: mergeGenerationParams(compiled.params, fps),
     ...mediaRequest,
-    sourceImageHash: normalizeOptionalString(imageOrVideoData?.sourceImageHash),
+    sourceImageHash,
+    frameReferenceImages:
+      videoFrameReferenceImages?.first || videoFrameReferenceImages?.last
+        ? videoFrameReferenceImages
+        : undefined,
     img2imgStrength: imageOrVideoData?.img2imgStrength,
     steps: imageOrVideoData?.steps,
     cfgScale: imageOrVideoData?.cfgScale,

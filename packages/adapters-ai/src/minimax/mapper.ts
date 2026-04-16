@@ -1,15 +1,20 @@
-import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import {
+  type AdapterError,
+  type GenerationRequest,
+  resolveLastVideoConditioningImage,
+  resolvePrimaryVideoConditioningImage,
+} from '@lucid-fin/contracts';
 import { parseAdapterError } from '../error-utils.js';
 
 export function toMiniMaxRequest(req: GenerationRequest): Record<string, unknown> {
-  const hasImage = req.referenceImages && req.referenceImages.length > 0;
-  const hasLastImage = req.referenceImages && req.referenceImages.length > 1;
+  const firstFrameImage = resolvePrimaryVideoConditioningImage(req);
+  const lastFrameImage = resolveLastVideoConditioningImage(req);
   return {
     prompt: req.prompt,
     model: (req.params?.model as string) ?? 'T2V-02',
     prompt_optimizer: req.params?.prompt_optimizer ?? true,
-    ...(hasImage ? { first_frame_image: req.referenceImages![0] } : {}),
-    ...(hasLastImage ? { last_frame_image: req.referenceImages![1] } : {}),
+    ...(firstFrameImage ? { first_frame_image: firstFrameImage } : {}),
+    ...(lastFrameImage ? { last_frame_image: lastFrameImage } : {}),
     ...(req.duration ? { duration: req.duration } : {}),
     ...(req.width && req.height ? { resolution: `${req.width}x${req.height}` } : {}),
   };

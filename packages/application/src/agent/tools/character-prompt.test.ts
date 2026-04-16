@@ -70,8 +70,20 @@ describe('character prompt builders', () => {
 
     expect(prompt).toContain('Character turnaround sheet for production reference');
     expect(prompt).toContain('Wide landscape composition (3:2 aspect ratio)');
-    expect(prompt).toContain('front view, left profile, rear view');
+    expect(prompt).toContain('front view, left profile, right profile, rear view');
+    expect(prompt).toContain('Two-row model sheet layout');
+    expect(prompt).toContain('Full body visible in every body panel');
+    expect(prompt).toContain('Do not collapse the sheet into a single portrait');
+    expect(prompt).toContain('enlarged head studies');
     expect(prompt).toContain('Solid white background, even studio lighting, single character only');
+  });
+
+  it('treats default-like aliases as the main turnaround sheet slot', () => {
+    const prompt = buildCharacterRefImagePrompt(createCharacter(), 'default');
+
+    expect(prompt).toContain('Character turnaround sheet for production reference');
+    expect(prompt).not.toContain('Single-view character reference');
+    expect(prompt).not.toContain('default angle');
   });
 
   it('builds a back-view prompt for rear-facing slots', () => {
@@ -86,9 +98,10 @@ describe('character prompt builders', () => {
   it('builds a face close-up prompt with neutral expression', () => {
     const prompt = buildCharacterRefImagePrompt(createCharacter(), 'face-closeup');
 
-    expect(prompt).toContain('Head-and-shoulders facial reference');
-    expect(prompt).toContain('neutral expression');
-    expect(prompt).toContain('maximum face detail');
+    expect(prompt).toContain('Facial expression reference sheet');
+    expect(prompt).toContain('Six head-and-shoulders panels');
+    expect(prompt).toContain('neutral, happy, sad, angry, surprised, and determined expressions');
+    expect(prompt).toContain('same face shape, same hairstyle, same colors, and same lighting');
     expect(prompt).toContain('Solid white background, even studio lighting, single character only');
   });
 

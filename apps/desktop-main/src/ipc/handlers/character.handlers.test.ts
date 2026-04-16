@@ -196,6 +196,53 @@ describe("registerCharacterHandlers", () => {
     );
   });
 
+  it("deduplicates front/main aliases when saving referenceImages arrays", async () => {
+    resetCommon();
+    const existing = makeCharacter({
+      referenceImages: [{ slot: "front", assetHash: "old-front", isStandard: true }],
+    });
+    const db = {
+      listCharacters: vi.fn(),
+      getCharacter: vi.fn(() => existing),
+      upsertCharacter: vi.fn(),
+      deleteCharacter: vi.fn(),
+    };
+    const handlers = registerHandlers(db);
+    const save = handlers.get("character:save");
+
+    const result = await save?.({}, {
+      id: "char-1",
+      referenceImages: [
+        { slot: "front", assetHash: "front-hash", isStandard: true, variants: ["front-v1"] },
+        { slot: "main", assetHash: "main-hash", isStandard: true, variants: ["main-v1"] },
+      ],
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "char-1",
+        referenceImages: [
+          {
+            slot: "main",
+            assetHash: "main-hash",
+            isStandard: true,
+            variants: expect.arrayContaining(["front-v1", "main-v1", "front-hash", "main-hash"]),
+          },
+        ],
+      }),
+    );
+    expect(db.upsertCharacter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImages: [
+          expect.objectContaining({
+            slot: "main",
+            assetHash: "main-hash",
+          }),
+        ],
+      }),
+    );
+  });
+
   it("replaces reference images by slot and defaults isStandard to true", async () => {
     resetCommon();
     const db = {
@@ -222,7 +269,7 @@ describe("registerCharacterHandlers", () => {
     });
 
     expect(refImage).toEqual({
-      slot: "front",
+      slot: "main",
       assetHash: "new-front",
       isStandard: true,
     });
@@ -231,7 +278,48 @@ describe("registerCharacterHandlers", () => {
         id: "char-1",
         referenceImages: [
           { slot: "side", assetHash: "keep-side", isStandard: false },
-          { slot: "front", assetHash: "new-front", isStandard: true },
+          { slot: "main", assetHash: "new-front", isStandard: true },
+        ],
+      }),
+    );
+  });
+
+  it("normalizes main-like reference image slots before persisting", async () => {
+    resetCommon();
+    const db = {
+      listCharacters: vi.fn(),
+      getCharacter: vi.fn(() =>
+        makeCharacter({
+          referenceImages: [
+            { slot: "main", assetHash: "old-main", isStandard: true },
+            { slot: "back", assetHash: "keep-back", isStandard: true },
+          ],
+        }),
+      ),
+      upsertCharacter: vi.fn(),
+      deleteCharacter: vi.fn(),
+    };
+    const handlers = registerHandlers(db);
+    const setRefImage = handlers.get("character:setRefImage");
+
+    const refImage = await setRefImage?.({}, {
+      characterId: "char-1",
+      slot: "front",
+      assetHash: "new-main",
+      isStandard: true,
+    });
+
+    expect(refImage).toEqual({
+      slot: "main",
+      assetHash: "new-main",
+      isStandard: true,
+    });
+    expect(db.upsertCharacter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "char-1",
+        referenceImages: [
+          { slot: "back", assetHash: "keep-back", isStandard: true },
+          { slot: "main", assetHash: "new-main", isStandard: true },
         ],
       }),
     );

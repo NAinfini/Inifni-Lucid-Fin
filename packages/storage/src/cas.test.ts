@@ -4,6 +4,11 @@ import path from 'node:path';
 import os from 'node:os';
 import { CAS } from '../src/cas.js';
 
+const PNG_BUFFER = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9pZ+j9QAAAAASUVORK5CYII=',
+  'base64',
+);
+
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-cas-'));
 }
@@ -19,7 +24,7 @@ describe('CAS', () => {
 
     // Create a test source file
     srcFile = path.join(base, 'test-image.png');
-    fs.writeFileSync(srcFile, 'fake-png-content-for-testing');
+    fs.writeFileSync(srcFile, PNG_BUFFER);
   });
 
   afterEach(() => {
@@ -80,5 +85,13 @@ describe('CAS', () => {
 
     expect(fs.existsSync(ref.path)).toBe(false);
     expect(fs.existsSync(metaPath)).toBe(false);
+  });
+
+  it('rejects imports when the declared asset type does not match the detected media type', async () => {
+    await expect(cas.importAsset(srcFile, 'video')).rejects.toThrow(/expected video asset/i);
+  });
+
+  it('rejects buffer imports when the declared asset type does not match the detected media type', async () => {
+    await expect(cas.importBuffer(PNG_BUFFER, 'uploaded.png', 'audio')).rejects.toThrow(/expected audio asset/i);
   });
 });

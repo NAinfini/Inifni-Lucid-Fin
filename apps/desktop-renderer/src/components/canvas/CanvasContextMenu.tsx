@@ -1,4 +1,5 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
+import { Children, isValidElement, type ReactElement } from 'react';
 import { Clipboard, FileText, Image, LayoutTemplate, Redo2, Undo2, Upload, Video, Volume2 } from 'lucide-react';
 import type { CanvasNodeType } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
@@ -27,6 +28,16 @@ export function getContextMenuPosition() {
 const ITEM =
   'flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer outline-none hover:bg-accent hover:text-accent-foreground';
 
+function requireNativeTriggerChild(children: React.ReactNode): ReactElement {
+  const child = Children.only(children);
+  if (!isValidElement(child) || typeof child.type !== 'string') {
+    throw new Error(
+      'CanvasContextMenu requires a single native DOM element child so Radix can attach trigger props and refs safely.',
+    );
+  }
+  return child;
+}
+
 const MENU_ITEMS: Array<{ type: CanvasNodeType; label: string; icon: typeof FileText }> = [
   { type: 'text', label: 'contextMenu.addTextNode', icon: FileText },
   { type: 'image', label: 'contextMenu.addImageNode', icon: Image },
@@ -44,9 +55,11 @@ export function CanvasContextMenu({
   onUploadMedia,
   hasClipboard,
 }: CanvasContextMenuProps) {
+  const triggerChild = requireNativeTriggerChild(children);
+
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
+      <ContextMenu.Trigger asChild>{triggerChild}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className="min-w-[170px] rounded-md border border-border/60 bg-card p-0.5 text-popover-foreground shadow-lg z-50">
           {MENU_ITEMS.map((item) => {

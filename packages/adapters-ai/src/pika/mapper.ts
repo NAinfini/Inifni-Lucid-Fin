@@ -1,7 +1,12 @@
-import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import {
+  type AdapterError,
+  type GenerationRequest,
+  resolvePrimaryVideoConditioningImage,
+} from '@lucid-fin/contracts';
 import { parseAdapterError } from '../error-utils.js';
 
 export function toPikaRequest(req: GenerationRequest): Record<string, unknown> {
+  const conditioningImage = resolvePrimaryVideoConditioningImage(req);
   return {
     promptText: req.prompt,
     negativePrompt: req.negativePrompt ?? '',
@@ -9,7 +14,7 @@ export function toPikaRequest(req: GenerationRequest): Record<string, unknown> {
     resolution: { width: req.width ?? 1280, height: req.height ?? 720 },
     duration: req.duration ?? 5,
     ...(req.seed != null ? { seed: req.seed } : {}),
-    ...(req.referenceImages?.[0] ? { image: req.referenceImages[0] } : {}),
+    ...(conditioningImage ? { image: conditioningImage } : {}),
   };
 }
 

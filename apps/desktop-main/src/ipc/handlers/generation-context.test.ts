@@ -849,6 +849,90 @@ describe('buildGenerationContext', () => {
     expect(ctx.requestBase.params).toMatchObject({ fps: 24 });
   });
 
+  it('separates video frame refs from generic entity refs and forwards negativePrompt to the compiler', async () => {
+    const firstFrameNode = makeImageNode({ assetHash: 'frame-first-hash' });
+    firstFrameNode.id = 'first-frame-node';
+    const videoNode = makeVideoNode({
+      providerId: 'mock-provider',
+      negativePrompt: 'no duplicate people',
+      firstFrameNodeId: 'first-frame-node',
+      lastFrameAssetHash: 'frame-last-hash',
+      characterRefs: [{ characterId: 'char-1', loadoutId: '' }],
+      locationRefs: [{ locationId: 'loc-1' }],
+    } as Record<string, unknown>);
+
+    const canvas = makeCanvas([videoNode, firstFrameNode], [
+      { id: 'edge-1', source: 'first-frame-node', target: 'node-video', data: { status: 'idle' } },
+    ]);
+    const adapter = makeAdapter({ id: 'mock-provider', type: 'video', capabilities: ['text-to-video', 'image-to-video'] });
+    const deps = {
+      adapterRegistry: makeRegistry(adapter),
+      cas: {
+        importAsset: vi.fn(async () => ({
+          ref: { hash: 'hash-out' },
+          meta: { hash: 'hash-out', type: 'video', mimeType: 'video/mp4', size: 4, duration: 1, createdAt: Date.now() },
+        })),
+        getAssetPath: vi.fn(() => '/tmp/asset.png'),
+      },
+      db: {
+        insertAsset: vi.fn(),
+        getCharacter: vi.fn(() => ({
+          id: 'char-1',
+          name: 'Alex',
+          role: 'protagonist',
+          description: 'Detective',
+          appearance: 'short brown hair',
+          personality: 'stoic',
+          costumes: [],
+          tags: [],
+          referenceImages: [{ slot: 'front', assetHash: 'char-ref-hash', isStandard: true }],
+          loadouts: [],
+          defaultLoadoutId: '',
+          createdAt: 0,
+          updatedAt: 0,
+        })),
+        getEquipment: vi.fn(() => undefined),
+        getLocation: vi.fn(() => ({
+          id: 'loc-1',
+          name: 'Blue Moon Bar',
+          description: 'neon bar',
+          tags: [],
+          referenceImages: [{ slot: 'wide-establishing', assetHash: 'loc-ref-hash', isStandard: true }],
+          createdAt: 0,
+          updatedAt: 0,
+        })),
+      },
+      canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
+      keychain: { getKey: vi.fn(async () => 'secret-key') },
+    };
+
+    compilePromptMock.mockReturnValue({
+      prompt: 'compiled prompt',
+      negativePrompt: 'compiled negative',
+      referenceImages: ['char-ref-hash', 'loc-ref-hash'],
+      params: {},
+      wordCount: 3,
+      budget: 100,
+      segments: [],
+      diagnostics: [],
+    });
+
+    const ctx = await buildGenerationContext(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-video',
+    });
+
+    expect(compilePromptMock).toHaveBeenCalledWith(expect.objectContaining({
+      negativePrompt: 'no duplicate people',
+      referenceImages: expect.arrayContaining(['char-ref-hash', 'loc-ref-hash']),
+    }));
+    expect(ctx.requestBase.referenceImages).toEqual(['char-ref-hash', 'loc-ref-hash']);
+    expect(ctx.requestBase.frameReferenceImages).toEqual({
+      first: 'frame-first-hash',
+      last: 'frame-last-hash',
+    });
+  });
+
   it('builds a valid context for an audio (voice) node', async () => {
     const node = makeAudioNode({ providerId: 'mock-provider', audioType: 'voice', duration: 10 });
     const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'voice', capabilities: ['text-to-voice'] });

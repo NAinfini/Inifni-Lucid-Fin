@@ -1,13 +1,18 @@
-import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import {
+  type AdapterError,
+  type GenerationRequest,
+  resolveLastVideoConditioningImage,
+  resolvePrimaryVideoConditioningImage,
+} from '@lucid-fin/contracts';
 import { parseAdapterError } from '../error-utils.js';
 
 export function toLumaRequest(req: GenerationRequest): Record<string, unknown> {
-  const hasStartImage = req.referenceImages && req.referenceImages.length > 0;
-  const hasEndImage = req.referenceImages && req.referenceImages.length > 1;
+  const startImage = resolvePrimaryVideoConditioningImage(req);
+  const endImage = resolveLastVideoConditioningImage(req);
 
   const keyframes: Record<string, unknown> = {};
-  if (hasStartImage) keyframes.frame0 = { type: 'image', url: req.referenceImages![0] };
-  if (hasEndImage) keyframes.frame1 = { type: 'image', url: req.referenceImages![1] };
+  if (startImage) keyframes.frame0 = { type: 'image', url: startImage };
+  if (endImage) keyframes.frame1 = { type: 'image', url: endImage };
 
   return {
     model: 'ray-2',

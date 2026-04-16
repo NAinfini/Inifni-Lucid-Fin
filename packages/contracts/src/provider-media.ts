@@ -1,3 +1,5 @@
+import type { GenerationRequest } from './dto/job.js';
+
 export type BuiltinMediaProviderType = 'image' | 'video';
 export type BuiltinAudioGenerationType = 'voice' | 'music' | 'sfx';
 
@@ -295,4 +297,26 @@ export function resolveVideoReferenceImageField(
   }
 
   return undefined;
+}
+
+function normalizeReferenceValue(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function resolvePrimaryVideoConditioningImage(
+  request: Pick<GenerationRequest, 'frameReferenceImages' | 'sourceImagePath' | 'referenceImages'>,
+): string | undefined {
+  return (
+    normalizeReferenceValue(request.frameReferenceImages?.first) ??
+    normalizeReferenceValue(request.sourceImagePath) ??
+    normalizeReferenceValue(request.referenceImages?.[0])
+  );
+}
+
+export function resolveLastVideoConditioningImage(
+  request: Pick<GenerationRequest, 'frameReferenceImages'>,
+): string | undefined {
+  return normalizeReferenceValue(request.frameReferenceImages?.last);
 }

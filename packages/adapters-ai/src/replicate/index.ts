@@ -11,6 +11,7 @@ import {
   LucidError,
   ErrorCode,
   JobStatus,
+  resolvePrimaryVideoConditioningImage,
   resolveVideoReferenceImageField,
 } from '@lucid-fin/contracts';
 import { createPrediction, getPrediction, cancelPrediction, toJobStatus } from './client.js';
@@ -62,7 +63,7 @@ export class ReplicateAdapter implements AIProviderAdapter {
     if (req.height) input.height = req.height;
     if (req.seed != null) input.seed = req.seed;
     if (req.type === 'video') {
-      const referenceImage = req.referenceImages?.[0];
+      const referenceImage = resolvePrimaryVideoConditioningImage(req);
       const referenceField = resolveVideoReferenceImageField(this.id, activeModel) ?? 'image';
       if (referenceImage) {
         input[referenceField] = referenceImage;

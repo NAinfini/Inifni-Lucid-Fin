@@ -86,6 +86,28 @@ export class ToolResultCache {
     return this.lists.get(cacheKey);
   }
 
+  /**
+   * True when this cache already holds the canonical data for a get/list call.
+   * Used by request construction to avoid sending both raw tool payloads and
+   * the cache snapshot for the same item.
+   */
+  hasCoverage(toolName: string, args: Record<string, unknown> = {}): boolean {
+    const category = getToolCompactionCategory(toolName);
+    if (category === 'list') {
+      return this.getList(toolName, args) !== undefined;
+    }
+    if (category !== 'get') {
+      return false;
+    }
+
+    const entityId = this._extractEntityIdFromArgs(args);
+    if (entityId) {
+      return this.getEntity(toolName, entityId) !== undefined;
+    }
+
+    return this.getEntity(toolName, 'singleton') !== undefined;
+  }
+
   // Payload extraction
 
   /**
@@ -622,8 +644,28 @@ export class ToolResultCache {
         group = [];
         listByDomain.set(domain, group);
       }
-      const itemsSerialized = `[${[...entry.items.values()].map((item) => item.serialized).join(',')}]`;
-      group.push({ key, serialized: itemsSerialized });
+      const domainEntityKeys = new Set<string>();
+      for (const entityKey of this.entities.keys()) {
+        const separatorIndex = entityKey.indexOf(':');
+        if (separatorIndex === -1) continue;
+        if (this._getDomain(entityKey.slice(0, separatorIndex)) !== domain) continue;
+        domainEntityKeys.add(entityKey.slice(separatorIndex + 1));
+      }
+
+      const itemRefs: string[] = [];
+      const inlineItems: string[] = [];
+      for (const [entityKey, item] of entry.items) {
+        itemRefs.push(entityKey);
+        if (!domainEntityKeys.has(entityKey)) {
+          inlineItems.push(item.serialized);
+        }
+      }
+
+      const serializedParts = [`"itemRefs":${JSON.stringify(itemRefs)}`];
+      if (inlineItems.length > 0) {
+        serializedParts.push(`"inlineItems":[${inlineItems.join(',')}]`);
+      }
+      group.push({ key, serialized: `{${serializedParts.join(',')}}` });
     }
 
     const allDomains = new Set([...entityByDomain.keys(), ...listByDomain.keys()]);

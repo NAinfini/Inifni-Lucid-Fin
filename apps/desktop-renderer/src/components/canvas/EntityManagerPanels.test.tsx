@@ -5,7 +5,7 @@ import { configureStore } from '@reduxjs/toolkit';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Character, Equipment, Location } from '@lucid-fin/contracts';
+import type { Character, Equipment, Location, ReferenceImage } from '@lucid-fin/contracts';
 import { setLocale, t } from '../../i18n.js';
 import { getAPI } from '../../utils/api.js';
 import { charactersSlice } from '../../store/slices/characters.js';
@@ -45,6 +45,17 @@ function createCharacter(): Character {
     createdAt: 1,
     updatedAt: 1,
   };
+}
+
+function createReferenceImages(): ReferenceImage[] {
+  return [
+    {
+      slot: 'main',
+      assetHash: 'asset-main',
+      isStandard: true,
+      variants: ['asset-variant-1'],
+    },
+  ];
 }
 
 function createCharacterVariant(
@@ -226,6 +237,108 @@ describe('Entity manager panels', () => {
       const fromAssetsButton = screen.getByText(t('entity.fromAssets'));
 
       expect(referenceHeading.compareDocumentPosition(fromAssetsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    },
+  );
+
+  it.each([
+    {
+      name: 'CharacterManagerPanel',
+      panel: <CharacterManagerPanel />,
+      configureApi: () => ({
+        character: {
+          list: vi.fn().mockResolvedValue([
+            createCharacterVariant('character-1', 'Astra', {
+              referenceImages: createReferenceImages(),
+            }),
+          ]),
+        },
+        equipment: {
+          list: vi.fn().mockResolvedValue([createEquipment()]),
+        },
+        location: {
+          list: vi.fn().mockResolvedValue([createLocation()]),
+        },
+      }),
+      renderOptions: {
+        characters: [
+          createCharacterVariant('character-1', 'Astra', {
+            referenceImages: createReferenceImages(),
+          }),
+        ],
+      },
+    },
+    {
+      name: 'EquipmentManagerPanel',
+      panel: <EquipmentManagerPanel />,
+      configureApi: () => ({
+        character: {
+          list: vi.fn().mockResolvedValue([createCharacter()]),
+        },
+        equipment: {
+          list: vi.fn().mockResolvedValue([
+            createEquipmentVariant('equipment-1', 'Pulse Rifle', {
+              referenceImages: createReferenceImages(),
+            }),
+          ]),
+        },
+        location: {
+          list: vi.fn().mockResolvedValue([createLocation()]),
+        },
+      }),
+      renderOptions: {
+        equipment: [
+          createEquipmentVariant('equipment-1', 'Pulse Rifle', {
+            referenceImages: createReferenceImages(),
+          }),
+        ],
+      },
+    },
+    {
+      name: 'LocationManagerPanel',
+      panel: <LocationManagerPanel />,
+      configureApi: () => ({
+        character: {
+          list: vi.fn().mockResolvedValue([createCharacter()]),
+        },
+        equipment: {
+          list: vi.fn().mockResolvedValue([createEquipment()]),
+        },
+        location: {
+          list: vi.fn().mockResolvedValue([
+            createLocationVariant('location-1', 'Hangar Bay', {
+              referenceImages: createReferenceImages(),
+            }),
+          ]),
+        },
+      }),
+      renderOptions: {
+        locations: [
+          createLocationVariant('location-1', 'Hangar Bay', {
+            referenceImages: createReferenceImages(),
+          }),
+        ],
+      },
+    },
+  ])(
+    'positions the variant delete button fully inside the thumbnail in $name',
+    async ({ panel, configureApi, renderOptions }) => {
+      vi.mocked(getAPI).mockReturnValue(
+        configureApi() as unknown as ReturnType<typeof getAPI>,
+      );
+
+      renderWithStore(panel, renderOptions);
+
+      const deleteButtons = await screen.findAllByRole('button', { name: 'Delete variant' });
+
+      expect(deleteButtons.length).toBeGreaterThan(0);
+
+      for (const deleteButton of deleteButtons) {
+        const className = deleteButton.getAttribute('class') ?? '';
+        expect(className).toContain('top-1');
+        expect(className).toContain('right-1');
+        expect(className).not.toContain('-top-1');
+        expect(className).not.toContain('-right-1');
+      }
     },
   );
 

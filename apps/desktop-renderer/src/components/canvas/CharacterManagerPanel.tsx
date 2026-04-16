@@ -21,6 +21,7 @@ import type {
   ImageNodeData,
   VideoNodeData,
 } from '@lucid-fin/contracts';
+import { normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 import {
   ChevronDown,
   Plus,
@@ -286,7 +287,7 @@ export function CharacterManagerPanel() {
       setError(null);
       try {
         const mainRef =
-          selectedChar.referenceImages.find((r) => r.slot === 'main') ??
+          selectedChar.referenceImages.find((r) => normalizeCharacterRefSlot(r.slot) === 'main') ??
           selectedChar.referenceImages[0];
         if (!mainRef) return;
 
@@ -321,7 +322,7 @@ export function CharacterManagerPanel() {
       setError(null);
       try {
         const mainRef =
-          selectedChar.referenceImages.find((r) => r.slot === 'main') ??
+          selectedChar.referenceImages.find((r) => normalizeCharacterRefSlot(r.slot) === 'main') ??
           selectedChar.referenceImages[0];
         if (!mainRef || !mainRef.variants) return;
 
@@ -425,12 +426,12 @@ export function CharacterManagerPanel() {
                   )}
                 >
                   <div className="flex items-center gap-2">
-                    <ListThumb
-                      hash={
-                        char.referenceImages?.find((r) => r.slot === 'main')?.assetHash ??
-                        char.referenceImages?.[0]?.assetHash
-                      }
-                    />
+                      <ListThumb
+                        hash={
+                          char.referenceImages?.find((r) => normalizeCharacterRefSlot(r.slot) === 'main')?.assetHash ??
+                          char.referenceImages?.[0]?.assetHash
+                        }
+                      />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1">
                         <span className="font-medium truncate">

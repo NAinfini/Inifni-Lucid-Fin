@@ -15,6 +15,7 @@ function createConfig(overrides?: Partial<RefImageFactoryConfig<TestEntity>>): R
     generateImage: vi.fn(async () => ({ assetHash: 'hash-123' })),
     buildPrompt: vi.fn(() => 'test prompt'),
     isStandardSlot: vi.fn((slot) => slot === 'portrait'),
+    normalizeSlot: vi.fn((slot) => slot.trim().toLowerCase()),
     ...overrides,
   };
 }
@@ -86,13 +87,62 @@ describe('createRefImageTools', () => {
       expect(data.slot).toBe('main');
     });
 
-    it('uses AI prompt as primary when provided, ignoring buildPrompt', async () => {
+    it('normalizes the slot before prompt selection, storage, and result reporting', async () => {
+      const config = createConfig({
+        isStandardSlot: vi.fn((slot) => slot === 'main'),
+        normalizeSlot: vi.fn((slot) => (slot === ' Front ' ? 'main' : slot.trim().toLowerCase())),
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      const result = await tool.execute({ id: 'e1', slot: ' Front ' });
+
+      expect(result.success).toBe(true);
+      expect(config.buildPrompt).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), 'main');
+      expect(result.data).toMatchObject({ slot: 'main' });
+      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
+      expect(savedEntity.referenceImages?.[0]).toMatchObject({ slot: 'main', isStandard: true });
+    });
+
+    it('ignores custom prompt for standard slots unless override mode is requested', async () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
       await tool.execute({ id: 'e1', slot: 'portrait', prompt: 'custom prompt from AI' });
 
-      // buildPrompt should NOT be called when AI provides its own prompt
+      expect(config.buildPrompt).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), 'portrait');
+      expect(config.generateImage).toHaveBeenCalledWith(
+        'test prompt',
+        expect.anything(),
+      );
+    });
+
+    it('uses custom prompt for standard slots only when override mode is explicit', async () => {
+      const config = createConfig();
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({
+        id: 'e1',
+        slot: 'portrait',
+        prompt: 'custom prompt from AI',
+        promptMode: 'override',
+      });
+
+      expect(config.buildPrompt).not.toHaveBeenCalled();
+      expect(config.generateImage).toHaveBeenCalledWith(
+        'custom prompt from AI',
+        expect.anything(),
+      );
+    });
+
+    it('still allows custom prompts for non-standard slots in auto mode', async () => {
+      const config = createConfig({
+        isStandardSlot: vi.fn((slot) => slot === 'portrait'),
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({ id: 'e1', slot: 'custom-angle', prompt: 'custom prompt from AI' });
+
+      expect(config.buildPrompt).not.toHaveBeenCalled();
       expect(config.generateImage).toHaveBeenCalledWith(
         'custom prompt from AI',
         expect.anything(),

@@ -31,7 +31,7 @@ export function VariantThumb({ hash, isActive, onClick, onDelete }: VariantThumb
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="absolute -top-1 -right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute top-1 right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Delete variant"
         >
           <X className="h-2.5 w-2.5" />

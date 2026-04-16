@@ -1,5 +1,6 @@
 import {
-  STANDARD_ANGLE_SLOTS,
+  isCharacterReferenceSlotStandard,
+  normalizeCharacterRefSlot,
   type Canvas,
   type Character,
 } from '@lucid-fin/contracts';
@@ -319,7 +320,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     toolNamePrefix: 'character',
     entityLabel: 'character',
     tags: ['character', 'generation'],
-    description: 'Manage a character reference image. Use action=generate to generate a turnaround ref sheet, action=set to assign an existing asset, action=delete to remove a slot, action=setFromNode to pull an asset from a canvas node.',
+    description: 'Manage a character reference image. Use action=generate to create a slot-specific character ref sheet. For slot=main/front, default to a two-row model sheet with full-body front, left, right, and back panels plus enlarged facial expression studies. Use action=set to assign an existing asset, action=delete to remove a slot, and action=setFromNode to pull an asset from a canvas node.',
     getEntity: async (id) => {
       const characters = await deps.listCharacters();
       return characters.find((c) => c.id === id) ?? null;
@@ -328,7 +329,8 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     generateImage: deps.generateImage,
     getCanvas: deps.getCanvas,
     buildPrompt: buildCharacterRefImagePrompt,
-    isStandardSlot: (slot) => STANDARD_ANGLE_SLOTS.includes(slot as (typeof STANDARD_ANGLE_SLOTS)[number]),
+    isStandardSlot: isCharacterReferenceSlotStandard,
+    normalizeSlot: normalizeCharacterRefSlot,
     defaultWidth: 2048,
     defaultHeight: 1360,
   });

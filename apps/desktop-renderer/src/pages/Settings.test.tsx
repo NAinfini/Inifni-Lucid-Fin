@@ -133,9 +133,54 @@ describe('Settings updater UI', () => {
       processPrompt: {
         list: vi.fn().mockResolvedValue([
           {
-            processKey: 'image-node-generation',
-            name: 'Image Node Generation',
-            description: 'Prompt compilation for image nodes.',
+            processKey: 'character-ref-image-generation',
+            name: 'Character Reference Image Generation',
+            description: 'Guidance for character reference image creation.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'location-ref-image-generation',
+            name: 'Location Reference Image Generation',
+            description: 'Guidance for location reference image creation.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'equipment-ref-image-generation',
+            name: 'Equipment Reference Image Generation',
+            description: 'Guidance for equipment reference image creation.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'character-management',
+            name: 'Character Management',
+            description: 'Guidance for character CRUD work.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'node-preset-tracks',
+            name: 'Node Preset Tracks',
+            description: 'Guidance for node-level preset track work.',
+            defaultValue: 'Default rules',
+            customValue: null,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            processKey: 'provider-management',
+            name: 'Provider Management',
+            description: 'Guidance for provider setup and capability checks.',
             defaultValue: 'Default rules',
             customValue: null,
             createdAt: 1,
@@ -162,9 +207,19 @@ describe('Settings updater UI', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Process Guides').length).toBeGreaterThan(0);
       expect(screen.getByText(t('settings.processGuides.subtitle'))).toBeTruthy();
-      expect(screen.getByText('Image Node Generation')).toBeTruthy();
-      expect(screen.getByText(t('settings.processGuides.triggeredBy'))).toBeTruthy();
-      expect(screen.getByText('canvas.generate')).toBeTruthy();
+      expect(screen.getByText('Character Reference Image Generation')).toBeTruthy();
+      expect(screen.getByText('Location Reference Image Generation')).toBeTruthy();
+      expect(screen.getByText('Equipment Reference Image Generation')).toBeTruthy();
+      expect(screen.getByText('Character Management')).toBeTruthy();
+      expect(screen.getByText('Node Preset Tracks')).toBeTruthy();
+      expect(screen.getByText('Provider Management')).toBeTruthy();
+      expect(screen.getAllByText(t('settings.processGuides.triggeredBy'))).toHaveLength(6);
+      expect(screen.getByText('character.generateRefImage')).toBeTruthy();
+      expect(screen.getByText('location.generateRefImage')).toBeTruthy();
+      expect(screen.getByText('equipment.generateRefImage')).toBeTruthy();
+      expect(screen.getByText('character.create')).toBeTruthy();
+      expect(screen.getByText('canvas.writePresetTracksBatch')).toBeTruthy();
+      expect(screen.getByText('provider.list')).toBeTruthy();
     });
   });
 

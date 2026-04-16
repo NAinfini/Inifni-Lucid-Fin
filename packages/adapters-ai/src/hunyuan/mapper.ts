@@ -1,12 +1,16 @@
-import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import {
+  type AdapterError,
+  type GenerationRequest,
+  resolvePrimaryVideoConditioningImage,
+} from '@lucid-fin/contracts';
 import { parseAdapterError } from '../error-utils.js';
 
 export function toHunyuanInput(req: GenerationRequest): Record<string, unknown> {
-  const hasImage = req.referenceImages && req.referenceImages.length > 0;
+  const conditioningImage = resolvePrimaryVideoConditioningImage(req);
   return {
     prompt: req.prompt,
     ...(req.negativePrompt ? { negative_prompt: req.negativePrompt } : {}),
-    ...(hasImage ? { image: req.referenceImages![0] } : {}),
+    ...(conditioningImage ? { image: conditioningImage } : {}),
     ...(req.width ? { width: req.width } : {}),
     ...(req.height ? { height: req.height } : {}),
     ...(req.seed != null ? { seed: req.seed } : {}),

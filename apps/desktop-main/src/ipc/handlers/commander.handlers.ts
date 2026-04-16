@@ -24,6 +24,9 @@ import {
 import type {
   LLMProviderRuntimeConfig,
   Canvas,
+  CanvasNode,
+  ImageNodeData,
+  VideoNodeData,
   PresetDefinition,
   ProviderProfile,
 } from '@lucid-fin/contracts';
@@ -124,20 +127,169 @@ export const entityMutatingToolNames = new Set([
 // ---------------------------------------------------------------------------
 
 const MAX_CONTEXT_SELECTED_NODES = 10;
+const MAX_CONTEXT_SELECTED_NODE_SUMMARIES = 4;
+const MAX_CONTEXT_PROMPT_GUIDES = 8;
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function summarizeCharacterRefIds(refs: unknown): string[] | undefined {
+  if (!Array.isArray(refs) || refs.length === 0) return undefined;
+  const result = refs.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const ref = entry as Record<string, unknown>;
+    const characterId = normalizeOptionalString(ref.characterId);
+    if (!characterId) return [];
+    return [characterId];
+  });
+  return result.length > 0 ? result : undefined;
+}
+
+function summarizeLocationRefIds(refs: unknown): string[] | undefined {
+  if (!Array.isArray(refs) || refs.length === 0) return undefined;
+  const result = refs.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const ref = entry as Record<string, unknown>;
+    const locationId = normalizeOptionalString(ref.locationId);
+    if (!locationId) return [];
+    return [locationId];
+  });
+  return result.length > 0 ? result : undefined;
+}
+
+function summarizeEquipmentRefIds(refs: unknown): string[] | undefined {
+  if (!Array.isArray(refs) || refs.length === 0) return undefined;
+  const result = refs.flatMap((entry) => {
+    if (typeof entry === 'string') {
+      return [entry];
+    }
+    if (!entry || typeof entry !== 'object') return [];
+    const ref = entry as Record<string, unknown>;
+    const equipmentId = normalizeOptionalString(ref.equipmentId);
+    if (!equipmentId) return [];
+    return [equipmentId];
+  });
+  return result.length > 0 ? result : undefined;
+}
+
+function summarizeSelectedNode(node: CanvasNode, _db: SqliteIndex): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    id: node.id,
+    type: node.type,
+    title: node.title,
+    status: node.status,
+  };
+
+  if (node.type === 'text') {
+    const content = normalizeOptionalString((node.data as { content?: unknown }).content);
+    if (content) summary.content = content;
+    return summary;
+  }
+
+  const mediaData = node.data as ImageNodeData | VideoNodeData;
+  const prompt = normalizeOptionalString((mediaData as { prompt?: unknown }).prompt);
+  const negativePrompt = normalizeOptionalString((mediaData as { negativePrompt?: unknown }).negativePrompt);
+  const providerId = normalizeOptionalString((mediaData as { providerId?: unknown }).providerId);
+  const sourceImageHash = normalizeOptionalString((mediaData as { sourceImageHash?: unknown }).sourceImageHash);
+
+  if (prompt) summary.hasPrompt = true;
+  if (negativePrompt) summary.hasNegativePrompt = true;
+  if (providerId) summary.providerId = providerId;
+  if (sourceImageHash) summary.sourceImageHash = sourceImageHash;
+
+  const characterRefIds = summarizeCharacterRefIds((mediaData as { characterRefs?: unknown }).characterRefs);
+  const locationRefIds = summarizeLocationRefIds((mediaData as { locationRefs?: unknown }).locationRefs);
+  const equipmentRefIds = summarizeEquipmentRefIds((mediaData as { equipmentRefs?: unknown }).equipmentRefs);
+  if (characterRefIds) summary.characterRefIds = characterRefIds;
+  if (locationRefIds) summary.locationRefIds = locationRefIds;
+  if (equipmentRefIds) summary.equipmentRefIds = equipmentRefIds;
+
+  if (node.type === 'video') {
+    const videoData = mediaData as VideoNodeData;
+    if (typeof videoData.duration === 'number') summary.duration = videoData.duration;
+    if (typeof videoData.fps === 'number') summary.fps = videoData.fps;
+    const firstFrameNodeId = normalizeOptionalString(videoData.firstFrameNodeId);
+    const lastFrameNodeId = normalizeOptionalString(videoData.lastFrameNodeId);
+    if (firstFrameNodeId) summary.firstFrameNodeId = firstFrameNodeId;
+    if (lastFrameNodeId) summary.lastFrameNodeId = lastFrameNodeId;
+  }
+
+  return summary;
+}
+
+function detectInitialProcessPrompts(
+  canvas: Canvas,
+  selectedNodeIds: string[],
+  userMessage?: string,
+): string[] {
+  const prompts = new Set<string>();
+  const selectedNodes = selectedNodeIds
+    .map((nodeId) => canvas.nodes.find((node) => node.id === nodeId))
+    .filter((node): node is CanvasNode => Boolean(node));
+
+  for (const node of selectedNodes) {
+    if (node.type === 'image' || node.type === 'backdrop') {
+      prompts.add('image-node-generation');
+    } else if (node.type === 'video') {
+      prompts.add('video-node-generation');
+    }
+  }
+
+  const normalizedMessage = userMessage?.toLowerCase() ?? '';
+  const requestsRefImage = /\b(ref(?:erence)?(?:\s+image|\s+sheet)?|model\s+sheet|turnaround|expression\s+sheet)\b/.test(
+    normalizedMessage,
+  ) || /front\s+side\s+back/.test(normalizedMessage);
+  const requestsCharacterRef = /\b(character|person|face|expression)\b/.test(normalizedMessage);
+  const requestsLocationRef = /\b(location|environment|set|background|establishing|key\s+angle)\b/.test(
+    normalizedMessage,
+  );
+  const requestsEquipmentRef = /\b(equipment|prop|object|weapon|tool)\b/.test(normalizedMessage);
+
+  if (requestsRefImage) {
+    if (requestsLocationRef) {
+      prompts.add('location-ref-image-generation');
+    }
+    if (requestsEquipmentRef) {
+      prompts.add('equipment-ref-image-generation');
+    }
+    if (requestsCharacterRef || (!requestsLocationRef && !requestsEquipmentRef)) {
+      prompts.add('character-ref-image-generation');
+    }
+  }
+
+  return Array.from(prompts);
+}
 
 export function buildContext(
   canvas: Canvas,
   _presetLibrary: PresetDefinition[],
   selectedNodeIds: string[],
-  _db: SqliteIndex,
-  _promptGuides?: Array<{ id: string; name: string; content: string }>,
+  db: SqliteIndex,
+  promptGuides?: Array<{ id: string; name: string; content: string }>,
+  userMessage?: string,
 ): AgentContext {
+  const limitedSelectedNodeIds = selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES);
   const extra: Record<string, unknown> = {
     canvasId: canvas.id,
     nodeCount: canvas.nodes.length,
     edgeCount: canvas.edges.length,
-    selectedNodeIds: selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES),
+    selectedNodeIds: limitedSelectedNodeIds,
+    selectedNodes: limitedSelectedNodeIds
+      .slice(0, MAX_CONTEXT_SELECTED_NODE_SUMMARIES)
+      .map((nodeId) => canvas.nodes.find((node) => node.id === nodeId))
+      .filter((node): node is CanvasNode => Boolean(node))
+      .map((node) => summarizeSelectedNode(node, db)),
   };
+  const initialProcessPrompts = detectInitialProcessPrompts(canvas, limitedSelectedNodeIds, userMessage);
+  if (initialProcessPrompts.length > 0) {
+    extra.initialProcessPrompts = initialProcessPrompts;
+  }
+  if (Array.isArray(promptGuides) && promptGuides.length > 0) {
+    extra.availablePromptGuides = promptGuides
+      .slice(0, MAX_CONTEXT_PROMPT_GUIDES)
+      .map(({ id, name }) => ({ id, name }));
+  }
   return { page: 'canvas', extra };
 }
 
@@ -330,7 +482,14 @@ export function registerCommanderHandlers(
         session = { aborted: false, canvasId: args.canvasId, orchestrator, lastActivity: Date.now() };
         runningSessions.set(args.canvasId, session);
 
-        const context = buildContext(canvas, deps.presetLibrary, args.selectedNodeIds, deps.db, args.promptGuides);
+        const context = buildContext(
+          canvas,
+          deps.presetLibrary,
+          args.selectedNodeIds,
+          deps.db,
+          args.promptGuides,
+          args.message,
+        );
         if (args.locale && typeof args.locale === 'string') {
           const extra = context.extra as Record<string, unknown>;
           extra['Current language'] = args.locale;

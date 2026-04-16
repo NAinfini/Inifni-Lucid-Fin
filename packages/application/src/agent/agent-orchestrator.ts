@@ -83,6 +83,43 @@ export interface AgentLLMRequestDiagnostics {
 }
 
 const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOKEN);
+const INITIAL_PROCESS_CATEGORIES: readonly ProcessCategory[] = [
+  'character-ref-image-generation',
+  'location-ref-image-generation',
+  'equipment-ref-image-generation',
+  'image-node-generation',
+  'video-node-generation',
+  'audio-generation',
+  'node-preset-tracks',
+  'preset-definition-management',
+  'shot-template-management',
+  'color-style-management',
+  'character-management',
+  'location-management',
+  'equipment-management',
+  'canvas-structure',
+  'canvas-graph-and-layout',
+  'canvas-node-editing',
+  'provider-management',
+  'node-provider-selection',
+  'image-config',
+  'video-config',
+  'audio-config',
+  'script-development',
+  'vision-analysis',
+  'snapshot-and-rollback',
+  'render-and-export',
+  'workflow-orchestration',
+  'series-management',
+  'prompt-template-management',
+  'asset-library-management',
+  'job-control',
+];
+
+function isProcessCategory(value: unknown): value is ProcessCategory {
+  return typeof value === 'string'
+    && INITIAL_PROCESS_CATEGORIES.includes(value as ProcessCategory);
+}
 
 export class AgentOrchestrator {
   private adapter: LLMAdapter;
@@ -227,8 +264,9 @@ export class AgentOrchestrator {
       toolLastUsedStep.set(name, 0);
     }
 
-    this.activeMessages = messages;
     this.activeProcessPromptSteps.clear();
+    this.activateInitialProcessPrompts(messages, context);
+    this.activeMessages = messages;
 
     // Compact history on load
     truncateOldToolResults(messages);
@@ -539,6 +577,25 @@ export class AgentOrchestrator {
       messages.push({
         role: 'system',
         content: this.buildProcessPromptMessage(processKey, prompt.trim()),
+      });
+    }
+  }
+
+  private activateInitialProcessPrompts(messages: LLMMessage[], context: AgentContext): void {
+    if (!this.resolveProcessPrompt) return;
+
+    const requested = (context.extra as { initialProcessPrompts?: unknown } | undefined)?.initialProcessPrompts;
+    if (!Array.isArray(requested) || requested.length === 0) return;
+
+    for (const entry of requested) {
+      if (!isProcessCategory(entry)) continue;
+      if (messages.some((message) => this.isProcessPromptMessage(message, entry))) continue;
+      const prompt = this.resolveProcessPrompt(entry);
+      if (!prompt?.trim()) continue;
+      this.activeProcessPromptSteps.set(entry, 0);
+      messages.splice(1, 0, {
+        role: 'system',
+        content: this.buildProcessPromptMessage(entry, prompt.trim()),
       });
     }
   }

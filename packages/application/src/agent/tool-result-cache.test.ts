@@ -328,6 +328,21 @@ describe('ToolResultCache', () => {
       expect(output).toContain('n1');
       expect(output).toContain('Alice');
     });
+
+    it('keeps a single canonical copy when an item exists in both entity and list cache', () => {
+      const cache = new ToolResultCache();
+      cache.absorbResult('canvas.getNode', { nodeId: 'n1' }, ok({ id: 'n1', title: 'Alpha' }), 1);
+      cache.absorbResult(
+        'canvas.listNodes',
+        {},
+        ok({ total: 2, nodes: [{ id: 'n1', title: 'Alpha' }, { id: 'n2', title: 'Beta' }] }),
+        1,
+      );
+
+      const output = cache.serialize();
+      expect(output.match(/"title":"Alpha"/g)?.length ?? 0).toBe(1);
+      expect(output).toContain('"itemRefs":["n1","n2"]');
+    });
   });
 
   // ---------- eviction ----------

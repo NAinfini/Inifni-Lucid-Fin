@@ -6,12 +6,35 @@ import type {
   ReferenceImage,
   EquipmentLoadout,
 } from '@lucid-fin/contracts';
+import { isCharacterReferenceSlotStandard, normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
 
 const VALID_ROLES: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
 const VALID_GENDERS: CharacterGender[] = ['male', 'female', 'non-binary', 'other'];
 
 export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
+  const normalizeReferenceImages = (referenceImages: ReferenceImage[] | undefined): ReferenceImage[] => {
+    const bySlot = new Map<string, ReferenceImage>();
+    for (const image of referenceImages ?? []) {
+      const slot = normalizeCharacterRefSlot(image.slot);
+      const existing = bySlot.get(slot);
+      const variants = new Set<string>([
+        ...(existing?.variants ?? []),
+        ...(image.variants ?? []),
+      ]);
+      if (existing?.assetHash) variants.add(existing.assetHash);
+      if (image.assetHash) variants.add(image.assetHash);
+      bySlot.set(slot, {
+        ...existing,
+        ...image,
+        slot,
+        isStandard: isCharacterReferenceSlotStandard(slot),
+        ...(variants.size > 0 ? { variants: Array.from(variants) } : {}),
+      });
+    }
+    return Array.from(bySlot.values());
+  };
+
   ipcMain.handle('character:list', async () => {
     return db.listCharacters();
   });
@@ -61,8 +84,8 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       gender,
       voice: typeof args.voice === 'string' ? args.voice : existing?.voice,
       referenceImages: Array.isArray(args.referenceImages)
-        ? args.referenceImages
-        : (existing?.referenceImages ?? []),
+        ? normalizeReferenceImages(args.referenceImages)
+        : normalizeReferenceImages(existing?.referenceImages),
       loadouts: Array.isArray(args.loadouts) ? args.loadouts : (existing?.loadouts ?? []),
       defaultLoadoutId:
         typeof args.defaultLoadoutId === 'string'
@@ -107,20 +130,21 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       if (!args || typeof args.characterId !== 'string') throw new Error('characterId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
       if (typeof args.assetHash !== 'string') throw new Error('assetHash is required');
+      const slot = normalizeCharacterRefSlot(args.slot);
 
       const char = db.getCharacter(args.characterId);
       if (!char) throw new Error(`Character not found: ${args.characterId}`);
 
       // Preserve existing variants when swapping the active image
-      const existing = char.referenceImages.find((r) => r.slot === args.slot);
+      const existing = char.referenceImages.find((r) => normalizeCharacterRefSlot(r.slot) === slot);
       const refImage: ReferenceImage = {
-        slot: args.slot,
+        slot,
         assetHash: args.assetHash,
-        isStandard: args.isStandard ?? true,
+        isStandard: args.isStandard ?? isCharacterReferenceSlotStandard(slot),
         ...(existing?.variants ? { variants: existing.variants } : {}),
       };
 
-      const refs = char.referenceImages.filter((r) => r.slot !== args.slot);
+      const refs = char.referenceImages.filter((r) => normalizeCharacterRefSlot(r.slot) !== slot);
       refs.push(refImage);
 
       db.upsertCharacter({
@@ -138,11 +162,12 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     async (_e, args: { characterId: string; slot: string }) => {
       if (!args || typeof args.characterId !== 'string') throw new Error('characterId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
+      const slot = normalizeCharacterRefSlot(args.slot);
 
       const char = db.getCharacter(args.characterId);
       if (!char) throw new Error(`Character not found: ${args.characterId}`);
 
-      const refs = char.referenceImages.filter((r) => r.slot !== args.slot);
+      const refs = char.referenceImages.filter((r) => normalizeCharacterRefSlot(r.slot) !== slot);
 
       db.upsertCharacter({
         ...char,

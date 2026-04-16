@@ -129,7 +129,7 @@ export const Markdown = memo(function Markdown({ content, onNodeClick }: Markdow
   if (!cleaned && thinkBlocks.length === 0) return null;
 
   return (
-    <div data-testid="markdown" className="commander-markdown">
+    <div data-testid="markdown" className="commander-markdown min-w-0 break-words">
       {thinkBlocks.length > 0 && (
         <details className="my-1 rounded border border-border/40 bg-muted/20 text-xs">
           <summary className="cursor-pointer px-2 py-1 text-muted-foreground select-none">

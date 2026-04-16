@@ -749,6 +749,21 @@ describe('resolveReferenceImages', () => {
     expect(result).toContain('front-slot-hash');
   });
 
+  it('resolves character refs across main/front slot aliases', () => {
+    const char = makeCharacter('char-1', {
+      referenceImages: [{ slot: 'main', assetHash: 'main-slot-hash', isStandard: true }],
+    });
+    const db = makeDb({ getCharacter: vi.fn(() => char) });
+    const imgNode = makeImageNode('img-1', {
+      characterRefs: [{ characterId: 'char-1', loadoutId: '', angleSlot: 'front' }],
+    });
+    const canvas = makeCanvas({ nodes: [imgNode] });
+
+    const result = resolveReferenceImages(db, canvas, imgNode);
+
+    expect(result).toContain('main-slot-hash');
+  });
+
   it('collects all character.referenceImages when no slot or explicit hash', () => {
     const char = makeCharacter('char-1', {
       referenceImages: [
@@ -816,6 +831,47 @@ describe('resolveReferenceImages', () => {
     expect(result).toContain('eq-b');
   });
 
+  it('includes location explicit referenceImageHash', () => {
+    const loc = makeLocation('loc-1');
+    const db = makeDb({ getLocation: vi.fn(() => loc) });
+    const imgNode = makeImageNode('img-1', {
+      locationRefs: [{ locationId: 'loc-1', referenceImageHash: 'loc-explicit-hash' }],
+    });
+    const canvas = makeCanvas({ nodes: [imgNode] });
+    const result = resolveReferenceImages(db, canvas, imgNode);
+    expect(result).toContain('loc-explicit-hash');
+  });
+
+  it('resolves location angleSlot when no explicit hash', () => {
+    const loc = makeLocation('loc-1', {
+      referenceImages: [{ slot: 'wide-establishing', assetHash: 'loc-wide-hash', isStandard: true }],
+    });
+    const db = makeDb({ getLocation: vi.fn(() => loc) });
+    const imgNode = makeImageNode('img-1', {
+      locationRefs: [{ locationId: 'loc-1', angleSlot: 'wide-establishing' }],
+    });
+    const canvas = makeCanvas({ nodes: [imgNode] });
+    const result = resolveReferenceImages(db, canvas, imgNode);
+    expect(result).toContain('loc-wide-hash');
+  });
+
+  it('collects all location referenceImages when no slot or explicit hash', () => {
+    const loc = makeLocation('loc-1', {
+      referenceImages: [
+        { slot: 'wide-establishing', assetHash: 'loc-a', isStandard: true },
+        { slot: 'atmosphere', assetHash: 'loc-b', isStandard: true },
+      ],
+    });
+    const db = makeDb({ getLocation: vi.fn(() => loc) });
+    const imgNode = makeImageNode('img-1', {
+      locationRefs: [{ locationId: 'loc-1' }],
+    });
+    const canvas = makeCanvas({ nodes: [imgNode] });
+    const result = resolveReferenceImages(db, canvas, imgNode);
+    expect(result).toContain('loc-a');
+    expect(result).toContain('loc-b');
+  });
+
   it('handles equipment refs given as plain string IDs (legacy format)', () => {
     const eq = makeEquipment('eq-legacy', {
       referenceImages: [{ slot: 'front', assetHash: 'legacy-eq-hash', isStandard: true }],
@@ -856,43 +912,6 @@ describe('resolveReferenceImages', () => {
     expect(result.filter((h) => h === 'shared-hash')).toHaveLength(1);
   });
 
-  // --- Video-specific paths ---
-
-  it('includes video sourceImageHash when set', () => {
-    const db = makeDb();
-    const vidNode = makeVideoNode('vid-1', { sourceImageHash: 'source-video-hash' });
-    const canvas = makeCanvas({ nodes: [vidNode] });
-    const result = resolveReferenceImages(db, canvas, vidNode);
-    expect(result).toContain('source-video-hash');
-  });
-
-  it('uses frame hashes for video nodes and skips connected image lookup when frames found', () => {
-    const db = makeDb();
-    const imgNode = makeImageNode('img-connected', { assetHash: 'connected-hash' });
-    const vidNode = makeVideoNode('vid-1', {
-      firstFrameAssetHash: 'first-frame-hash',
-    });
-    const canvas = makeCanvas({
-      nodes: [imgNode, vidNode],
-      edges: [{ id: 'e1', source: 'img-connected', target: 'vid-1', data: { status: 'idle' } }],
-    });
-    const result = resolveReferenceImages(db, canvas, vidNode);
-    expect(result).toContain('first-frame-hash');
-    // connected image should NOT be included because frame was found
-    expect(result).not.toContain('connected-hash');
-  });
-
-  it('falls back to connected image when video has no frame hashes', () => {
-    const db = makeDb();
-    const imgNode = makeImageNode('img-src', { assetHash: 'connected-img-hash' });
-    const vidNode = makeVideoNode('vid-1');
-    const canvas = makeCanvas({
-      nodes: [imgNode, vidNode],
-      edges: [{ id: 'e1', source: 'img-src', target: 'vid-1', data: { status: 'idle' } }],
-    });
-    const result = resolveReferenceImages(db, canvas, vidNode);
-    expect(result).toContain('connected-img-hash');
-  });
 });
 
 // ===========================================================================

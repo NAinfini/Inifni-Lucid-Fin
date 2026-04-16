@@ -1,4 +1,8 @@
-import type { AdapterError, GenerationRequest } from '@lucid-fin/contracts';
+import {
+  type AdapterError,
+  type GenerationRequest,
+  resolvePrimaryVideoConditioningImage,
+} from '@lucid-fin/contracts';
 import { parseAdapterError } from '../error-utils.js';
 
 export function toRunwayRequest(req: GenerationRequest): Record<string, unknown> {
@@ -9,7 +13,8 @@ export function toRunwayRequest(req: GenerationRequest): Record<string, unknown>
     duration: req.duration ?? 5,
   };
   if (req.seed != null) body.seed = req.seed;
-  if (req.referenceImages?.[0]) body.promptImage = req.referenceImages[0];
+  const promptImage = resolvePrimaryVideoConditioningImage(req);
+  if (promptImage) body.promptImage = promptImage;
   return body;
 }
 

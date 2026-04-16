@@ -1,6 +1,7 @@
 import { memo, type DragEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
-import { MapPin, Package, Plus, Search, Trash2, Upload, User } from 'lucide-react';
+import { MapPin, Package, Plus, Search, Trash2, Upload, User, type LucideIcon } from 'lucide-react';
 import type { CanvasNodeType } from '@lucid-fin/contracts';
+import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 
 type Translate = (key: string) => string;
 
@@ -19,6 +20,7 @@ interface ReferenceItem {
   id: string;
   label: string;
   description?: string;
+  thumbnailAssetHash?: string;
   selectedSlot?: string;
   slotOptions?: SlotOption[];
 }
@@ -198,22 +200,11 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {characterItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noCharacters')}</div>
         ) : (
-          <div className="space-y-1">
-            {characterItems.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-md border border-border/60 bg-card px-2.5 py-1.5"
-              >
-                <span className="text-xs truncate min-w-0 flex-1">{item.label}</span>
-                <button
-                  onClick={() => onRemoveCharacter(item.id)}
-                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/40 hover:border-destructive/60 hover:text-destructive shrink-0 ml-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
+          <ReferenceItemList
+            items={characterItems}
+            icon={User}
+            onRemove={onRemoveCharacter}
+          />
         )}
       </div>
 
@@ -267,22 +258,11 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {equipmentItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noEquipment')}</div>
         ) : (
-          <div className="space-y-1">
-            {equipmentItems.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-md border border-border/60 bg-card px-2.5 py-1.5"
-              >
-                <span className="text-xs truncate min-w-0 flex-1">{item.label}</span>
-                <button
-                  onClick={() => onRemoveEquipment(item.id)}
-                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/40 hover:border-destructive/60 hover:text-destructive shrink-0 ml-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
+          <ReferenceItemList
+            items={equipmentItems}
+            icon={Package}
+            onRemove={onRemoveEquipment}
+          />
         )}
       </div>
 
@@ -336,32 +316,80 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {locationItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noLocations')}</div>
         ) : (
-          <div className="space-y-1">
-            {locationItems.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-md border border-border/60 bg-card px-2.5 py-1.5"
-              >
-                <div className="min-w-0 flex-1">
-                  <span className="text-xs truncate block">{item.label}</span>
-                  {item.description ? (
-                    <span className="text-[10px] text-muted-foreground">{item.description}</span>
-                  ) : null}
-                </div>
-                <button
-                  onClick={() => onRemoveLocation(item.id)}
-                  className="p-0.5 rounded-md border border-border/60 hover:bg-destructive/40 hover:border-destructive/60 hover:text-destructive shrink-0 ml-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
-          </div>
+          <ReferenceItemList
+            items={locationItems}
+            icon={MapPin}
+            onRemove={onRemoveLocation}
+          />
         )}
       </div>
     </>
   );
 });
+
+interface ReferenceItemListProps {
+  items: ReferenceItem[];
+  icon: LucideIcon;
+  onRemove: (id: string) => void;
+}
+
+function ReferenceItemList({ items, icon, onRemove }: ReferenceItemListProps) {
+  return (
+    <div className="space-y-1">
+      {items.map((item) => (
+        <ReferenceItemRow
+          key={item.id}
+          item={item}
+          icon={icon}
+          onRemove={() => onRemove(item.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface ReferenceItemRowProps {
+  item: ReferenceItem;
+  icon: LucideIcon;
+  onRemove: () => void;
+}
+
+function ReferenceItemRow({ item, icon: Icon, onRemove }: ReferenceItemRowProps) {
+  const { url, markFailed } = useAssetUrl(item.thumbnailAssetHash, 'image', 'png');
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-card px-2 py-1.5">
+      <div
+        data-testid={`reference-thumb-${item.id}`}
+        className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted/30"
+      >
+        {url ? (
+          <img
+            src={url}
+            alt={item.label}
+            className="h-full w-full object-cover"
+            onError={markFailed}
+          />
+        ) : (
+          <Icon className="h-4 w-4 text-muted-foreground/50" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <span className="block truncate text-xs">{item.label}</span>
+        {item.description ? (
+          <span className="block truncate text-[10px] text-muted-foreground">{item.description}</span>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="ml-1 shrink-0 rounded-md border border-border/60 p-0.5 transition-colors hover:border-destructive/60 hover:bg-destructive/40 hover:text-destructive"
+      >
+        <Trash2 className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
 
 interface VideoFrameSlotSectionProps {
   label: string;

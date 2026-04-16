@@ -8,8 +8,10 @@ import {
   commanderSlice,
   finishStreaming,
   minimizeCommander,
+  resolveQuestion,
   resolveToolCall,
   setCommanderOpen,
+  setPendingQuestion,
   setProviderId,
   setPosition,
   setSize,
@@ -245,5 +247,46 @@ describe('commander slice', () => {
       expect(userMsgs[1].content).toBe('mid-stream');
       expect(state.pendingInjectedMessages).toHaveLength(0);
     });
+  });
+
+  it('resolveQuestion stores structured question history before the user answer', () => {
+    let state = commanderSlice.reducer(
+      undefined,
+      setPendingQuestion({
+        toolCallId: 'question-1',
+        question: 'Which direction should we use?',
+        options: [
+          { label: 'Campus Yuri', description: 'Light and gentle' },
+          { label: 'Urban Yuri', description: 'Adult and restrained' },
+        ],
+      }),
+    );
+
+    state = commanderSlice.reducer(state, resolveQuestion({ answer: 'Campus Yuri' }));
+
+    expect(state.messages).toHaveLength(2);
+    expect(state.messages[0]).toEqual(
+      expect.objectContaining({
+        role: 'assistant',
+        content:
+          'Which direction should we use?\n\n- Campus Yuri: Light and gentle\n- Urban Yuri: Adult and restrained',
+      }),
+    );
+    expect(
+      (state.messages[0] as {
+        questionMeta?: {
+          question: string;
+          options: Array<{ label: string; description?: string }>;
+        };
+      }).questionMeta,
+    ).toEqual({
+      question: 'Which direction should we use?',
+      options: [
+        { label: 'Campus Yuri', description: 'Light and gentle' },
+        { label: 'Urban Yuri', description: 'Adult and restrained' },
+      ],
+    });
+    expect(state.messages[1]).toEqual(expect.objectContaining({ role: 'user', content: 'Campus Yuri' }));
+    expect(state.pendingQuestion).toBeNull();
   });
 });

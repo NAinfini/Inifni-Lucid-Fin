@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { TaskKind, TaskRunStatus, STANDARD_ANGLE_SLOTS, LOCATION_STANDARD_SLOTS } from '@lucid-fin/contracts';
+import {
+  TaskKind,
+  TaskRunStatus,
+  LOCATION_STANDARD_SLOTS,
+  isCharacterReferenceSlotStandard,
+  normalizeCharacterRefSlot,
+} from '@lucid-fin/contracts';
 import type { WorkflowTaskHandler } from '@lucid-fin/application';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 import type { CAS } from '@lucid-fin/storage';
@@ -37,9 +43,11 @@ export function createRefImageWorkflowHandlers(options: {
         if (!character.name) {
           throw new Error('Character must have a name');
         }
-        const slot = typeof context.taskRun.input.slot === 'string'
-          ? context.taskRun.input.slot
-          : 'main';
+        const slot = normalizeCharacterRefSlot(
+          typeof context.taskRun.input.slot === 'string'
+            ? context.taskRun.input.slot
+            : 'main',
+        );
 
         return {
           status: TaskRunStatus.Completed,
@@ -105,7 +113,7 @@ export function createRefImageWorkflowHandlers(options: {
         }
 
         const referenceImages = [...(character.referenceImages ?? [])];
-        const existingIndex = referenceImages.findIndex((img) => img.slot === slot);
+        const existingIndex = referenceImages.findIndex((img) => normalizeCharacterRefSlot(img.slot) === slot);
         if (existingIndex >= 0) {
           const existing = referenceImages[existingIndex];
           const prevVariants = [...(existing.variants ?? [])];
@@ -117,7 +125,7 @@ export function createRefImageWorkflowHandlers(options: {
           }
           referenceImages[existingIndex] = { ...existing, assetHash, variants: prevVariants };
         } else {
-          const isStandard = STANDARD_ANGLE_SLOTS.includes(slot as (typeof STANDARD_ANGLE_SLOTS)[number]);
+          const isStandard = isCharacterReferenceSlotStandard(slot);
           referenceImages.push({ slot, assetHash, isStandard, variants: [assetHash] });
         }
 

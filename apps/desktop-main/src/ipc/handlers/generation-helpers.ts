@@ -7,6 +7,7 @@ import type {
 import type { PromptMode } from '@lucid-fin/application';
 import type {
   AIProviderAdapter,
+  AssetType,
   Canvas,
   CanvasNode,
   Capability,
@@ -15,7 +16,11 @@ import type {
   StyleGuide,
   SubscribeCallbacks,
 } from '@lucid-fin/contracts';
-import { JobStatus, resolveVideoReferenceImageField } from '@lucid-fin/contracts';
+import {
+  JobStatus,
+  resolvePrimaryVideoConditioningImage,
+  resolveVideoReferenceImageField,
+} from '@lucid-fin/contracts';
 import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import type { CanvasStore } from './canvas.handlers.js';
@@ -224,6 +229,202 @@ export function inferRemoteExtension(url: string, contentType: string | null): s
   }
 }
 
+function mapGenerationTypeToExpectedAssetType(generationType: GenerationType): AssetType {
+  if (generationType === 'image') return 'image';
+  if (generationType === 'video') return 'video';
+  return 'audio';
+}
+
+function inferAssetTypeFromMimeType(mimeType: string): AssetType | undefined {
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return undefined;
+}
+
+function inferAssetTypeFromUrl(url: string): AssetType | undefined {
+  const ext = extensionFromUrl(url);
+  if (!ext) return undefined;
+
+  switch (ext) {
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'webp':
+    case 'gif':
+    case 'bmp':
+    case 'tiff':
+      return 'image';
+    case 'mp4':
+    case 'mov':
+    case 'webm':
+      return 'video';
+    case 'mp3':
+    case 'wav':
+    case 'ogg':
+    case 'flac':
+    case 'aac':
+    case 'm4a':
+      return 'audio';
+    default:
+      return undefined;
+  }
+}
+
+function assertExpectedResponseMediaType(
+  actualType: AssetType,
+  expectedType: AssetType,
+  sourceLabel: string,
+): void {
+  if (actualType !== expectedType) {
+    throw new Error(`Expected ${expectedType} response payload, received ${actualType} from ${sourceLabel}`);
+  }
+}
+
+function validateAssetUrlForGeneration(
+  assetUrl: string,
+  generationType: GenerationType,
+  sourceLabel: string,
+): string {
+  const expectedType = mapGenerationTypeToExpectedAssetType(generationType);
+  const actualType = inferAssetTypeFromUrl(assetUrl);
+  if (actualType) {
+    assertExpectedResponseMediaType(actualType, expectedType, sourceLabel);
+  }
+  return assetUrl;
+}
+
+function validateDataUrlForGeneration(
+  dataUrl: string,
+  generationType: GenerationType,
+  sourceLabel: string,
+): string {
+  const expectedType = mapGenerationTypeToExpectedAssetType(generationType);
+  const match = dataUrl.match(/^data:([^;,]+)(;base64)?,(.*)$/i);
+  if (!match) {
+    return dataUrl;
+  }
+
+  const mimeType = match[1].trim().toLowerCase();
+  const mimeAssetType = inferAssetTypeFromMimeType(mimeType);
+  if (mimeAssetType) {
+    assertExpectedResponseMediaType(mimeAssetType, expectedType, sourceLabel);
+  }
+
+  if (match[2]) {
+    const inspection = inspectBufferMedia(Buffer.from(match[3], 'base64'));
+    if (inspection) {
+      assertExpectedResponseMediaType(inspection.type, expectedType, sourceLabel);
+      return `data:${inspection.mimeType};base64,${match[3]}`;
+    }
+  }
+
+  return dataUrl;
+}
+
+function buildTypedBase64DataUrl(
+  base64Value: string,
+  generationType: GenerationType,
+  sourceLabel: string,
+): string {
+  const inspection = inspectBufferMedia(Buffer.from(base64Value, 'base64'));
+  if (!inspection) {
+    throw new Error(`Could not determine media type from ${sourceLabel}`);
+  }
+
+  const expectedType = mapGenerationTypeToExpectedAssetType(generationType);
+  assertExpectedResponseMediaType(inspection.type, expectedType, sourceLabel);
+  return `data:${inspection.mimeType};base64,${base64Value}`;
+}
+
+function inspectBufferMedia(buffer: Buffer): { type: AssetType; mimeType: string } | undefined {
+  if (buffer.length < 2) {
+    return undefined;
+  }
+
+  if (hasBinaryPrefix(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    return { type: 'image', mimeType: 'image/png' };
+  }
+  if (hasBinaryPrefix(buffer, [0xff, 0xd8, 0xff])) {
+    return { type: 'image', mimeType: 'image/jpeg' };
+  }
+  if (hasAsciiPrefix(buffer, 0, 'GIF87a') || hasAsciiPrefix(buffer, 0, 'GIF89a')) {
+    return { type: 'image', mimeType: 'image/gif' };
+  }
+  if (hasAsciiPrefix(buffer, 0, 'BM')) {
+    return { type: 'image', mimeType: 'image/bmp' };
+  }
+  if (
+    hasBinaryPrefix(buffer, [0x49, 0x49, 0x2a, 0x00]) ||
+    hasBinaryPrefix(buffer, [0x4d, 0x4d, 0x00, 0x2a])
+  ) {
+    return { type: 'image', mimeType: 'image/tiff' };
+  }
+  if (hasAsciiPrefix(buffer, 0, 'RIFF') && hasAsciiPrefix(buffer, 8, 'WEBP')) {
+    return { type: 'image', mimeType: 'image/webp' };
+  }
+  if (hasAsciiPrefix(buffer, 0, 'RIFF') && hasAsciiPrefix(buffer, 8, 'WAVE')) {
+    return { type: 'audio', mimeType: 'audio/wav' };
+  }
+  if (hasAsciiPrefix(buffer, 0, 'fLaC')) {
+    return { type: 'audio', mimeType: 'audio/flac' };
+  }
+  if (hasAsciiPrefix(buffer, 0, 'OggS')) {
+    return { type: 'audio', mimeType: 'audio/ogg' };
+  }
+  if (looksLikeAdtsAac(buffer)) {
+    return { type: 'audio', mimeType: 'audio/aac' };
+  }
+  if (hasAsciiPrefix(buffer, 0, 'ID3') || looksLikeMp3Frame(buffer)) {
+    return { type: 'audio', mimeType: 'audio/mpeg' };
+  }
+  if (looksLikeWebm(buffer)) {
+    return { type: 'video', mimeType: 'video/webm' };
+  }
+  if (buffer.length >= 12 && hasAsciiPrefix(buffer, 4, 'ftyp')) {
+    const brand = buffer.toString('ascii', 8, 12);
+    if (brand === 'qt  ') {
+      return { type: 'video', mimeType: 'video/quicktime' };
+    }
+    if (brand === 'M4A ' || brand === 'M4B ' || brand === 'M4P ' || brand === 'isma') {
+      return { type: 'audio', mimeType: 'audio/mp4' };
+    }
+    return { type: 'video', mimeType: 'video/mp4' };
+  }
+
+  return undefined;
+}
+
+function hasBinaryPrefix(buffer: Buffer, prefix: number[]): boolean {
+  if (buffer.length < prefix.length) {
+    return false;
+  }
+  return prefix.every((value, index) => buffer[index] === value);
+}
+
+function hasAsciiPrefix(buffer: Buffer, start: number, expected: string): boolean {
+  return buffer.toString('ascii', start, Math.min(buffer.length, start + expected.length)) === expected;
+}
+
+function looksLikeWebm(buffer: Buffer): boolean {
+  return hasBinaryPrefix(buffer, [0x1a, 0x45, 0xdf, 0xa3]) &&
+    buffer.toString('ascii', 0, Math.min(buffer.length, 64)).toLowerCase().includes('webm');
+}
+
+function looksLikeAdtsAac(buffer: Buffer): boolean {
+  return buffer.length >= 2 && buffer[0] === 0xff && (buffer[1] & 0xf6) === 0xf0;
+}
+
+function looksLikeMp3Frame(buffer: Buffer): boolean {
+  if (buffer.length < 2) {
+    return false;
+  }
+  if (buffer[0] !== 0xff || (buffer[1] & 0xe0) !== 0xe0) {
+    return false;
+  }
+  return ((buffer[1] >> 1) & 0x03) !== 0;
+}
+
 // ---------------------------------------------------------------------------
 // Argument validators
 // ---------------------------------------------------------------------------
@@ -360,6 +561,7 @@ export function resolveImg2ImgSourcePath(hash: string, cas: CAS): string | undef
 /**
  * Materialize a GenerationRequest for adapter consumption:
  * - Resolves sourceImageHash → sourceImagePath via CAS
+ * - Resolves frameReferenceImages → local file paths via CAS
  * - Resolves faceReferenceHashes → referenceImages file paths via CAS
  * - Merges steps / cfgScale / scheduler into params
  */
@@ -384,6 +586,17 @@ export function materializeGenerationRequest(
       });
     }
   }
+
+  const frameReferenceImages = request.frameReferenceImages
+    ? {
+        first: request.frameReferenceImages.first
+          ? resolveImg2ImgSourcePath(request.frameReferenceImages.first, cas)
+          : undefined,
+        last: request.frameReferenceImages.last
+          ? resolveImg2ImgSourcePath(request.frameReferenceImages.last, cas)
+          : undefined,
+      }
+    : undefined;
 
   let referenceImages: string[] | undefined;
 
@@ -413,6 +626,11 @@ export function materializeGenerationRequest(
   const hasExtra = Object.keys(extraParams).length > 0;
   return {
     ...request,
+    sourceImagePath,
+    frameReferenceImages:
+      frameReferenceImages?.first || frameReferenceImages?.last
+        ? frameReferenceImages
+        : undefined,
     referenceImages,
     params: hasExtra
       ? { ...(request.params ?? {}), ...extraParams }
@@ -455,11 +673,16 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       body = { prompt: req.prompt, n: 1, size: '1024x1024', response_format: 'url' };
     } else if (genType === 'video') {
       body = { prompt: req.prompt, duration: req.duration ?? 5 };
-      const firstRef = req.referenceImages?.[0];
+      const firstRef = resolvePrimaryVideoConditioningImage(req);
       if (firstRef) {
         const referenceField = resolveVideoReferenceImageField(id, model) ?? 'image';
         if (firstRef.startsWith('http') || firstRef.startsWith('data:')) {
           body[referenceField] = firstRef;
+        } else if (fs.existsSync(firstRef)) {
+          const ext = path.extname(firstRef).slice(1).toLowerCase() || 'png';
+          const buf = fs.readFileSync(firstRef);
+          const mime = ext === 'jpg' ? 'jpeg' : ext;
+          body[referenceField] = `data:image/${mime};base64,${buf.toString('base64')}`;
         } else if (cas) {
           for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
             const filePath = cas.getAssetPath(firstRef, 'image', ext);
@@ -481,23 +704,71 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
 
   function extractAssetPath(json: Record<string, unknown>): string | undefined {
     const dataArr = json.data as Array<{ url?: string; b64_json?: string }> | undefined;
-    if (dataArr?.[0]?.url) return dataArr[0].url;
+    if (dataArr?.[0]?.url) {
+      return validateAssetUrlForGeneration(dataArr[0].url, genType, 'data[0].url');
+    }
     if (dataArr?.[0]?.b64_json) {
-      const mime = genType === 'video' ? 'video/mp4' : 'image/png';
-      return `data:${mime};base64,${dataArr[0].b64_json}`;
+      return buildTypedBase64DataUrl(dataArr[0].b64_json, genType, 'data[0].b64_json');
     }
 
     const choices = json.choices as Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }> | undefined;
     const msg = choices?.[0]?.message;
-    if (msg?.images?.[0]?.image_url?.url) return msg.images[0].image_url.url;
+    if (msg?.images?.[0]?.image_url?.url) {
+      if (mapGenerationTypeToExpectedAssetType(genType) !== 'image') {
+        throw new Error(`Image response field cannot satisfy ${genType} generation`);
+      }
+      return validateAssetUrlForGeneration(
+        msg.images[0].image_url.url,
+        genType,
+        'choices[0].message.images[0].image_url.url',
+      );
+    }
     const content = msg?.content ?? '';
-    if (content.startsWith('data:')) return content;
+    if (content.startsWith('data:')) {
+      return validateDataUrlForGeneration(content, genType, 'choices[0].message.content');
+    }
     const mediaUrlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|mp4|mov|webm)\S*)/i);
-    if (mediaUrlMatch?.[1]) return mediaUrlMatch[1];
-    if (content.startsWith('http')) return content.trim();
+    if (mediaUrlMatch?.[1]) {
+      return validateAssetUrlForGeneration(mediaUrlMatch[1], genType, 'choices[0].message.content');
+    }
+    if (content.startsWith('http')) {
+      return validateAssetUrlForGeneration(content.trim(), genType, 'choices[0].message.content');
+    }
 
-    const directUrl = json.url ?? json.video_url ?? json.audio_url ?? json.output ?? json.download_url;
-    return typeof directUrl === 'string' ? directUrl : undefined;
+    const videoUrl = normalizeOptionalString(json.video_url);
+    if (videoUrl) {
+      assertExpectedResponseMediaType('video', mapGenerationTypeToExpectedAssetType(genType), 'video_url');
+      return validateAssetUrlForGeneration(videoUrl, genType, 'video_url');
+    }
+
+    const audioUrl = normalizeOptionalString(json.audio_url);
+    if (audioUrl) {
+      assertExpectedResponseMediaType('audio', mapGenerationTypeToExpectedAssetType(genType), 'audio_url');
+      return validateAssetUrlForGeneration(audioUrl, genType, 'audio_url');
+    }
+
+    const directUrl = normalizeOptionalString(json.url);
+    if (directUrl) {
+      if (directUrl.startsWith('data:')) {
+        return validateDataUrlForGeneration(directUrl, genType, 'url');
+      }
+      return validateAssetUrlForGeneration(directUrl, genType, 'url');
+    }
+
+    const outputUrl = normalizeOptionalString(json.output);
+    if (outputUrl) {
+      if (outputUrl.startsWith('data:')) {
+        return validateDataUrlForGeneration(outputUrl, genType, 'output');
+      }
+      return validateAssetUrlForGeneration(outputUrl, genType, 'output');
+    }
+
+    const downloadUrl = normalizeOptionalString(json.download_url);
+    if (downloadUrl) {
+      return validateAssetUrlForGeneration(downloadUrl, genType, 'download_url');
+    }
+
+    return undefined;
   }
 
   function extractAsyncSubmission(json: Record<string, unknown>): {
@@ -602,6 +873,20 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
     configure(key: string) { void key; },
     async validate() { return true; },
     async generate(req: GenerationRequest): Promise<import('@lucid-fin/contracts').GenerationResult> {
+      const json = await submit(req);
+      const assetPath = extractAssetPath(json);
+      if (assetPath) {
+        return { assetHash: '', assetPath, provider: id };
+      }
+
+      const asyncSubmission = extractAsyncSubmission(json);
+      if (asyncSubmission.taskId) {
+        throw new Error(`Generation submitted to provider (task: ${asyncSubmission.taskId}). Video is being generated on the provider's servers -- check your provider dashboard to download the result.`);
+      }
+
+      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
+
+      /*
       // Build request body based on endpoint type and generation type
       let body: Record<string, unknown>;
       if (isChatEndpoint) {
@@ -687,6 +972,7 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       if (typeof directUrl === 'string') return { assetHash: '', assetPath: directUrl, provider: id };
 
       throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
+      */
     },
     async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
       const json = await submit(req);
