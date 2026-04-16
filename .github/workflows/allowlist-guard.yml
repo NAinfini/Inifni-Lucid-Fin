@@ -1,0 +1,40 @@
+name: Allowlist Guard
+on:
+  pull_request:
+    paths: ['eslint.legacy.json']
+  push:
+    branches: [main]
+    paths: ['eslint.legacy.json']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Monotonic decrease check
+        run: |
+          # If eslint.legacy.json doesn't exist yet, pass.
+          if [ ! -f eslint.legacy.json ]; then
+            echo "✓ No legacy allowlist yet — nothing to check."
+            exit 0
+          fi
+
+          CURRENT=$(wc -l < eslint.legacy.json)
+
+          # Compare against the base branch (PR) or previous commit (push)
+          if [ -n "$GITHUB_BASE_REF" ]; then
+            git show "origin/$GITHUB_BASE_REF:eslint.legacy.json" > /tmp/base.json 2>/dev/null || echo "[]" > /tmp/base.json
+          else
+            git show "HEAD~1:eslint.legacy.json" > /tmp/base.json 2>/dev/null || echo "[]" > /tmp/base.json
+          fi
+          PREVIOUS=$(wc -l < /tmp/base.json)
+
+          echo "Previous: $PREVIOUS lines, Current: $CURRENT lines"
+
+          if [ "$CURRENT" -gt "$PREVIOUS" ]; then
+            echo "::error::eslint.legacy.json grew from $PREVIOUS to $CURRENT lines. Allowlist must monotonically decrease."
+            exit 1
+          fi
+          echo "✓ Allowlist is monotonically decreasing ($PREVIOUS → $CURRENT)."
