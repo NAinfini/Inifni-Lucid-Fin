@@ -49,6 +49,52 @@ export default tseslint.config(
       ],
     },
   },
+
+  // ── Phase A: Redline rules ─────────────────────────────────────
+
+  // Redline: renderer must not import from contracts-parse (zod stays out of renderer)
+  {
+    files: ['apps/desktop-renderer/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@lucid-fin/contracts-parse', '@lucid-fin/contracts-parse/*'],
+              message:
+                'Renderer must not import from contracts-parse — it pulls zod into the renderer bundle. Import types from @lucid-fin/contracts instead.',
+            },
+            {
+              group: ['@lucid-fin/application/dist/*', '@lucid-fin/application/dist/**'],
+              message:
+                'Renderer must not deep-import from application/dist/. Use @lucid-fin/shared-utils or @lucid-fin/contracts.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // Redline: contracts must not import zod (zero-runtime pact)
+  {
+    files: ['packages/contracts/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['zod', 'zod/*'],
+              message:
+                'packages/contracts is type-only — zero zod by pact. Runtime schemas go in @lucid-fin/contracts-parse.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   {
     files: ['**/*.{test,spec}.{ts,tsx,mts,cts}'],
     languageOptions: {

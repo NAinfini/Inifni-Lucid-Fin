@@ -10,8 +10,6 @@
  * zod schemas live in `@lucid-fin/contracts-parse`.
  */
 
-import type { IpcChannelBrand, IpcInvocationId } from './brands.js';
-
 /** A typed invoke channel: renderer → main, request/response + optional events. */
 export interface InvokeChannelType<
   Channel extends string = string,
