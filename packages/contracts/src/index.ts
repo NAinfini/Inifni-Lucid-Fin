@@ -66,3 +66,23 @@ export {
   type MediaNodeKind,
   type GenerationIntent,
 } from './types/node-kinds.js';
+
+// Channel type shapes (pure types — factories in contracts-parse)
+export type {
+  InvokeChannelType,
+  PushChannelType,
+  ReplyChannelType,
+  AnyChannelType,
+} from './types/channel-types.js';
+
+// Tool definition type shape (pure type — factory in contracts-parse)
+export type {
+  ToolDefinitionType,
+  UiEffect,
+} from './types/tool-types.js';
+
+// Table definition type shape (pure type — factory in contracts-parse)
+export type {
+  TableDef,
+  ColumnDef,
+} from './types/table-types.js';
