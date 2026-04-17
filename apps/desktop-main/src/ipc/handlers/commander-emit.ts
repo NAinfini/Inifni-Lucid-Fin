@@ -38,24 +38,6 @@ export type { CommanderStreamPayload };
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * @deprecated Prefer `RendererPushGateway.emit(channelDef, payload)` directly
- * at call sites. Retained only while remaining callers in
- * `commander-tool-deps.ts` and `commander.handlers.ts` are migrated in
- * Phase F-split-8b. Will be removed once those sites land.
- */
-export function emitToWindow(
-  getWindow: () => BrowserWindow | null,
-  channel: string,
-  payload: unknown,
-): void {
-  const win = getWindow();
-  if (!win || win.isDestroyed()) {
-    return;
-  }
-  win.webContents.send(channel, payload);
-}
-
 export function safeStringifyForLog(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);

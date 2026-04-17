@@ -648,6 +648,11 @@ describe('registerCommanderHandlers logging', () => {
           messageChars: 32,
           systemPromptChars: 128,
           promptGuideChars: 0,
+          estimatedTokensUsed: 100,
+          contextWindowTokens: 8192,
+          cacheChars: 0,
+          cacheEntryCount: 0,
+          utilizationRatio: 0.01,
         });
 
         emit({
