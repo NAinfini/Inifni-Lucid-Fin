@@ -52,11 +52,16 @@ describe('registerJobHandlers', () => {
       result: { assetHash: 'hash-1' },
       error: undefined,
     };
+    const jobsList = vi.fn((args?: { status?: string }) => {
+      if (args?.status === 'completed') return { rows: [completedJob], degradedCount: 0 };
+      return { rows: [completedJob], degradedCount: 0 };
+    });
     const db = {
-      listJobs: vi.fn((args?: { status?: string }) => {
-        if (args?.status === 'completed') return [completedJob];
-        return [completedJob];
-      }),
+      repos: {
+        jobs: {
+          list: jobsList,
+        },
+      },
     };
 
     registerJobHandlers(

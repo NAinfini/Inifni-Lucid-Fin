@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { JobQueue } from '../src/job-queue.js';
 import { JobStatus } from '@lucid-fin/contracts';
-import type { GenerationResult, AIProviderAdapter } from '@lucid-fin/contracts';
+import type { GenerationResult, AIProviderAdapter, JobId } from '@lucid-fin/contracts';
 import { SqliteIndex } from '@lucid-fin/storage';
 import { AdapterRegistry } from '@lucid-fin/adapters-ai';
 
@@ -46,7 +46,7 @@ describe('JobQueue', () => {
     db = new SqliteIndex(path.join(base, 'test.db'));
     registry = new AdapterRegistry();
     registry.register(mockAdapter());
-    queue = new JobQueue(db, registry, 3);
+    queue = new JobQueue(db.repos.jobs, registry, 3);
   });
 
   afterEach(() => {
@@ -63,7 +63,7 @@ describe('JobQueue', () => {
         prompt: 'a cat',
       });
       expect(id).toMatch(/^[\w-]{36}$/);
-      const job = db.getJob(id);
+      const job = db.repos.jobs.get(id as JobId);
       expect(job).toBeDefined();
       expect(job!.status).toBe(JobStatus.Queued);
       expect(job!.prompt).toBe('a cat');
@@ -75,7 +75,7 @@ describe('JobQueue', () => {
         providerId: 'mock',
         prompt: 'provider mapping',
       });
-      const job = db.getJob(id);
+      const job = db.repos.jobs.get(id as JobId);
       expect(job!.provider).toBe('mock');
     });
   });
@@ -88,7 +88,7 @@ describe('JobQueue', () => {
         prompt: 'test',
       });
       queue.cancel(id);
-      const job = db.getJob(id);
+      const job = db.repos.jobs.get(id as JobId);
       expect(job!.status).toBe(JobStatus.Cancelled);
     });
 
@@ -111,13 +111,13 @@ describe('JobQueue', () => {
         prompt: 'test',
       });
       // Manually set to running to test pause
-      db.updateJob(id, { status: JobStatus.Running, startedAt: Date.now() });
+      db.repos.jobs.update(id as JobId, { status: JobStatus.Running, startedAt: Date.now() });
 
       queue.pause(id);
-      expect(db.getJob(id)!.status).toBe(JobStatus.Paused);
+      expect(db.repos.jobs.get(id as JobId)!.status).toBe(JobStatus.Paused);
 
       queue.resume(id);
-      expect(db.getJob(id)!.status).toBe(JobStatus.Queued);
+      expect(db.repos.jobs.get(id as JobId)!.status).toBe(JobStatus.Queued);
     });
   });
 
@@ -128,10 +128,10 @@ describe('JobQueue', () => {
         providerId: 'mock',
         prompt: 'test',
       });
-      db.updateJob(id, { status: JobStatus.Running, startedAt: Date.now() });
+      db.repos.jobs.update(id as JobId, { status: JobStatus.Running, startedAt: Date.now() });
 
       await queue.recover();
-      const job = db.getJob(id);
+      const job = db.repos.jobs.get(id as JobId);
       expect(job!.status).toBe(JobStatus.Completed);
     });
 
@@ -141,10 +141,10 @@ describe('JobQueue', () => {
         providerId: 'unknown',
         prompt: 'test',
       });
-      db.updateJob(id, { status: JobStatus.Running, startedAt: Date.now(), attempts: 3 });
+      db.repos.jobs.update(id as JobId, { status: JobStatus.Running, startedAt: Date.now(), attempts: 3 });
 
       await queue.recover();
-      const job = db.getJob(id);
+      const job = db.repos.jobs.get(id as JobId);
       expect(job!.status).toBe(JobStatus.Dead);
     });
 
@@ -160,7 +160,7 @@ describe('JobQueue', () => {
         providerId: 'mock',
         prompt: 'test',
       });
-      db.updateJob(id, { status: JobStatus.Running, startedAt: Date.now() });
+      db.repos.jobs.update(id as JobId, { status: JobStatus.Running, startedAt: Date.now() });
 
       // Simulate that the job is already being executed locally
       const runningMap = (queue as unknown as { running: Map<string, AbortController> }).running;
@@ -171,7 +171,7 @@ describe('JobQueue', () => {
       // checkStatus should NOT have been called for this job
       expect(adapter.checkStatus).not.toHaveBeenCalled();
       // Job should remain Running (not overwritten to Completed)
-      const job = db.getJob(id);
+      const job = db.repos.jobs.get(id as JobId);
       expect(job!.status).toBe(JobStatus.Running);
     });
   });
@@ -203,7 +203,7 @@ describe('JobQueue', () => {
           estimatedWaitTime: 9,
           jobId: 'provider-job-1',
         });
-        expect(db.getJob(id)?.currentStep).toContain('Queued');
+        expect(db.repos.jobs.get(id as JobId)?.currentStep).toContain('Queued');
 
         callbacks.onProgress?.({
           type: 'progress',
@@ -211,8 +211,8 @@ describe('JobQueue', () => {
           currentStep: 'rendering',
           jobId: 'provider-job-1',
         });
-        expect(db.getJob(id)?.progress).toBe(65);
-        expect(db.getJob(id)?.currentStep).toBe('rendering');
+        expect(db.repos.jobs.get(id as JobId)?.progress).toBe(65);
+        expect(db.repos.jobs.get(id as JobId)?.currentStep).toBe('rendering');
 
         return {
           assetHash: 'abc123',
@@ -238,7 +238,7 @@ describe('JobQueue', () => {
       await (queue as unknown as { tick(): Promise<void> }).tick();
 
       expect(subscribe).toHaveBeenCalledOnce();
-      const job = db.getJob(id);
+      const job = db.repos.jobs.get(id as JobId);
       expect(job).toEqual(
         expect.objectContaining({
           status: JobStatus.Completed,

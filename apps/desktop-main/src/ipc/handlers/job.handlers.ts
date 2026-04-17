@@ -46,7 +46,7 @@ export function registerJobHandlers(
   );
 
   ipcMain.handle('job:list', async (_e, args: { status?: string }) => {
-    return db.listJobs(args);
+    return db.repos.jobs.list(args).rows;
   });
 
   ipcMain.handle('job:cancel', async (_e, args: { jobId: string }) => {
@@ -87,7 +87,7 @@ export function registerJobHandlers(
   queue.on('job:completed', (data: { id: string; status: string }) => {
     if (notifiedJobs.has(data.id)) return;
     notifiedJobs.add(data.id);
-    const job = db.listJobs({ status: 'completed' }).find((j) => j.id === data.id);
+    const job = db.repos.jobs.list({ status: 'completed' }).rows.find((j) => j.id === data.id);
     gateway.emit(jobCompleteChannel, {
       jobId: data.id,
       success: true,

@@ -284,7 +284,7 @@ app.whenReady().then(async () => {
       : null;
 
     // Single JobQueue instance — shared across recovery and IPC handlers
-    const jobQueue = new JobQueue(db, adapterRegistry);
+    const jobQueue = new JobQueue(db.repos.jobs, adapterRegistry);
     await jobQueue.recover();
     jobQueue.start();
     logJobQueueRecovered();

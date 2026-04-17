@@ -1,7 +1,6 @@
 import type {
   AssetMeta,
   Canvas,
-  Job,
   Character,
   Equipment,
   Location,
@@ -20,9 +19,6 @@ import type {
   upsertEquipment as _upsertEquipment,
   upsertLocation as _upsertLocation,
 } from './sqlite-entities.js';
-import type {
-  updateJob as _updateJob,
-} from './sqlite-jobs.js';
 import type {
   updateWorkflowRun as _updateWorkflowRun,
   updateWorkflowStageRun as _updateWorkflowStageRun,
@@ -51,13 +47,12 @@ export interface IEmbeddingStore {
   clearEmbeddings(): void;
 }
 
-/** Job queue persistence */
-export interface IJobStore {
-  insertJob(job: Job): void;
-  updateJob(jobId: string, updates: Parameters<typeof _updateJob>[2]): void;
-  getJob(jobId: string): Job | undefined;
-  listJobs(filter?: { status?: string }): Job[];
-}
+/** Job queue persistence — migrated to SqliteIndex.repos.jobs (G1-4.5).
+ *  `JobQueue` now takes `JobRepository` directly. Interface kept as an empty
+ *  marker for callers that still reference the type alias; can be deleted in
+ *  a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IJobStore {}
 
 /** Canvas persistence */
 export interface ICanvasStore {
@@ -177,7 +172,6 @@ export interface IWorkflowStore {
 export interface IStorageLayer extends
   IAssetStore,
   IEmbeddingStore,
-  IJobStore,
   ICanvasStore,
   IEntityStore,
   ISeriesStore,
