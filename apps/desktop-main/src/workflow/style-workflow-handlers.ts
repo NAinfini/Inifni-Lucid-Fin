@@ -77,12 +77,12 @@ export function createStyleWorkflowHandlers(
       async execute(context) {
         const assetHash = requireString(context.taskRun.input.assetHash, 'assetHash');
         const assetType = requireAssetType(context.taskRun.input.assetType);
-        const asset = context.db
-          .queryAssets({
+        const asset = context.db.repos.assets
+          .query({
             type: assetType,
             limit: 10_000,
           })
-          .find((entry) => entry.hash === assetHash);
+          .rows.find((entry) => entry.hash === assetHash);
 
         if (!asset) {
           throw new Error(`Asset not found in DB: ${assetHash}`);

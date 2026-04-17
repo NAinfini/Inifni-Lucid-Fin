@@ -92,7 +92,7 @@ export function makeGenerateImage(deps: {
           // Register in asset library so the image appears in the asset browser
           if (deps.db) {
             try {
-              deps.db.insertAsset({
+              deps.db.repos.assets.insert({
                 hash: ref.hash,
                 type: 'image',
                 format: ref.format,

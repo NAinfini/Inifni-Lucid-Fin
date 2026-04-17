@@ -5,6 +5,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { CAS, SqliteIndex, Keychain } from '@lucid-fin/storage';
 import type { AssetType } from '@lucid-fin/contracts';
+import { parseAssetHash } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
 import { assertValidAssetType } from '../validation.js';
 import { generateEmbeddingForAsset } from './embedding.handlers.js';
@@ -68,7 +69,7 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       throw new Error('filePath is required');
     assertValidAssetType(args.type);
     const { ref, meta } = await cas.importAsset(args.filePath, args.type);
-    db.insertAsset({ ...meta });
+    db.repos.assets.insert({ ...meta });
     log.info('Asset imported', {
       category: 'asset',
       type: args.type,
@@ -88,7 +89,7 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     assertValidAssetType(args.type);
     const buf = Buffer.from(args.buffer);
     const { ref, meta } = await cas.importBuffer(buf, args.fileName, args.type);
-    db.insertAsset({ ...meta });
+    db.repos.assets.insert({ ...meta });
     log.info('Asset imported from buffer', {
       category: 'asset',
       type: args.type,
@@ -120,7 +121,7 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     }
     const filePath = result.filePaths[0];
     const { ref, meta } = await cas.importAsset(filePath, args.type);
-    db.insertAsset({ ...meta });
+    db.repos.assets.insert({ ...meta });
     log.info('Asset picked and imported', {
       category: 'asset',
       type: args.type,
@@ -142,13 +143,13 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       args: { type?: string; tags?: string[]; search?: string; limit?: number; offset?: number },
     ) => {
       if (args.search) {
-        return db.searchAssets(args.search, args.limit);
+        return db.repos.assets.search(args.search, args.limit).rows;
       }
-      return db.queryAssets({
+      return db.repos.assets.query({
         type: args.type,
         limit: args.limit,
         offset: args.offset,
-      });
+      }).rows;
     },
   );
 
@@ -168,7 +169,7 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       if (!args.hash || typeof args.hash !== 'string') throw new Error('hash is required');
       try {
         cas.deleteAsset(args.hash);
-        db.deleteAsset(args.hash);
+        db.repos.assets.delete(parseAssetHash(args.hash));
         log.info('Asset deleted', {
           category: 'asset',
           hash: args.hash,
@@ -271,7 +272,9 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
   );
 
   // One-time startup repair: backfill file_size for legacy assets with 0 or NULL
-  const repaired = db.repairAssetSizes((hash, type, format) => cas.getAssetPath(hash, type as AssetType, format));
+  const repaired = db.repos.assets.repairSizes((hash, type, format) =>
+    cas.getAssetPath(hash, type as AssetType, format),
+  );
   if (repaired > 0) {
     log.info('Repaired asset file sizes', { category: 'asset', repairedCount: repaired });
   }

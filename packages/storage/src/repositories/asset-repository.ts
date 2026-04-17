@@ -30,6 +30,7 @@ import {
 import type { Tx } from '../transactions.js';
 import {
   normalizeAssetMeta,
+  repairAssetSizes as _repairAssetSizes,
   type AssetMetaInput,
   type EmbeddingRecord,
   type SemanticSearchResult,
@@ -246,6 +247,16 @@ export class AssetRepository {
       .prepare(`SELECT ${EC.hash.sqlName} FROM ${ET}`)
       .all() as Array<{ hash: string }>;
     return rows.map((r) => r.hash as AssetHash);
+  }
+
+  /**
+   * Startup-time repair: backfills `file_size` for legacy rows where the
+   * column was never populated. Delegates to the legacy helper (which owns
+   * the fs + transaction logic); kept here so consumers don't need the raw
+   * `BetterSqlite3.Database` handle.
+   */
+  repairSizes(resolveAssetPath: (hash: string, type: string, format: string) => string): number {
+    return _repairAssetSizes(this.db, resolveAssetPath);
   }
 }
 

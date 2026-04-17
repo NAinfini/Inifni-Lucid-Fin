@@ -1,7 +1,6 @@
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import type {
-  AssetMeta,
   ScriptDocument,
   ColorStyle,
   WorkflowRun,
@@ -12,12 +11,6 @@ import type {
 } from '@lucid-fin/contracts';
 import type BetterSqlite3 from 'better-sqlite3';
 
-import {
-  type AssetMetaInput,
-  repairAssetSizes as _repairAssetSizes,
-  type EmbeddingRecord,
-  type SemanticSearchResult,
-} from './sqlite-assets.js';
 import {
   upsertScript as _upsertScript,
   getScript as _getScript,
@@ -68,7 +61,7 @@ import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { AssetHash, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
+import type { WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -568,28 +561,11 @@ export class SqliteIndex implements IStorageLayer {
     this.workflows = new WorkflowRepository(this.db);
   }
 
-  // --- Assets ---
-  insertAsset(meta: AssetMetaInput): void { this.assets.insert(meta); }
-  deleteAsset(hash: string): void { this.assets.delete(hash as AssetHash); }
-  queryAssets(filter: { type?: string; limit?: number; offset?: number }): AssetMeta[] {
-    return this.assets.query(filter).rows;
-  }
-  searchAssets(query: string, limit = 50): AssetMeta[] {
-    return this.assets.search(query, limit).rows;
-  }
-  repairAssetSizes(resolveAssetPath: (hash: string, type: string, format: string) => string): number { return _repairAssetSizes(this.db, resolveAssetPath); }
-
-  // --- Asset Embeddings ---
-  insertEmbedding(hash: string, description: string, tokens: string[], model: string): void {
-    this.assets.insertEmbedding(hash as AssetHash, description, tokens, model);
-  }
-  queryEmbeddingByHash(hash: string): EmbeddingRecord | undefined {
-    return this.assets.queryEmbeddingByHash(hash as AssetHash);
-  }
-  searchByTokens(queryTokens: string[], limit: number): SemanticSearchResult[] {
-    return this.assets.searchByTokens(queryTokens, limit);
-  }
-  getAllEmbeddedHashes(): string[] { return this.assets.getAllEmbeddedHashes(); }
+  // --- Assets / Asset Embeddings ---
+  // Migrated to `this.repos.assets.*` (Phase G1-4.8). Facade methods removed;
+  // callers use `db.repos.assets.{insert,delete,query,search,repairSizes,
+  // insertEmbedding,queryEmbeddingByHash,searchByTokens,getAllEmbeddedHashes}`
+  // directly (passing AssetHash brand via parseAssetHash).
 
   // --- Jobs ---
   // Migrated to `this.repos.jobs.*` (Phase G1-4.5). Facade methods removed;
