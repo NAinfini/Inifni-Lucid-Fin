@@ -52,6 +52,7 @@ import { selectActiveTemplates } from '../store/slices/promptTemplates.js';
 import { addLog } from '../store/slices/logger.js';
 import { t, getLocale } from '../i18n.js';
 import { getAPI, type LucidAPI } from '../utils/api.js';
+import { buildCommanderHistory } from '../commander/service/history-builder.js';
 
 type CommanderEntityAPI = Pick<NonNullable<LucidAPI>, 'character' | 'equipment' | 'location'>;
 type CommanderPromptGuide = { id: string; name: string; content: string };
@@ -149,45 +150,7 @@ export function useCommander(): {
         }
 
         // Build rich history with tool call context for LLM continuity
-        const history: Array<Record<string, unknown>> = [];
-        for (const entry of state.commander.messages) {
-          if (entry.role === 'assistant' && entry.toolCalls && entry.toolCalls.length > 0) {
-            const completedCalls = entry.toolCalls.filter(
-              (tc) => tc.status === 'done' || tc.status === 'error',
-            );
-            if (completedCalls.length > 0) {
-              // Push assistant message with tool calls attached
-              history.push({
-                role: 'assistant',
-                content: entry.content,
-                toolCalls: completedCalls.map((tc) => ({
-                  id: tc.id,
-                  name: tc.name,
-                  arguments: tc.arguments,
-                })),
-              });
-              // Push corresponding tool result messages
-              for (const tc of completedCalls) {
-                const resultStr =
-                  tc.result != null
-                    ? typeof tc.result === 'string'
-                      ? tc.result
-                      : JSON.stringify(tc.result)
-                    : '';
-                history.push({
-                  role: 'tool',
-                  content: resultStr,
-                  toolCallId: tc.id,
-                });
-              }
-            } else if (entry.content.trim().length > 0) {
-              // All tool calls still pending — treat as plain text message
-              history.push({ role: entry.role, content: entry.content });
-            }
-          } else if (entry.content.trim().length > 0) {
-            history.push({ role: entry.role, content: entry.content });
-          }
-        }
+        const history = buildCommanderHistory(state.commander.messages);
         const promptGuides = selectCommanderPromptGuides(state);
         const llmSettings = state.settings.llm;
         const selectedNodeIds = state.canvas.selectedNodeIds;
