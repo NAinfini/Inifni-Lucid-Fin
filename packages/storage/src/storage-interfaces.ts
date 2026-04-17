@@ -17,7 +17,6 @@ import type {
 } from '@lucid-fin/contracts';
 
 import type { AssetMetaInput, EmbeddingRecord, SemanticSearchResult } from './sqlite-assets.js';
-import type { StoredSession, StoredSnapshot } from './sqlite-snapshots.js';
 import type {
   upsertCharacter as _upsertCharacter,
   upsertEquipment as _upsertEquipment,
@@ -132,25 +131,17 @@ export interface IPresetStore {
   deleteCustomShotTemplate(templateId: string): void;
 }
 
-/** Commander sessions */
-export interface ISessionStore {
-  upsertSession(s: StoredSession): void;
-  getSession(id: string): StoredSession | undefined;
-  listSessions(limit?: number): StoredSession[];
-  deleteSession(id: string): void;
-}
+/** Commander sessions — migrated to SqliteIndex.repos.sessions (G1-4.2).
+ *  Interface kept as an empty marker for callers that still reference the
+ *  type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface ISessionStore {}
 
-/** Snapshots (capture / restore) */
-export interface ISnapshotStore {
-  insertSnapshot(s: StoredSnapshot): void;
-  getSnapshot(id: string): StoredSnapshot | undefined;
-  listSnapshots(sessionId: string): StoredSnapshot[];
-  deleteSnapshot(id: string): void;
-  pruneSnapshots(sessionId: string, maxKeep: number): void;
-  pruneSnapshotsTiered(): void;
-  captureSnapshot(sessionId: string, label: string, trigger: 'auto' | 'manual'): StoredSnapshot;
-  restoreSnapshot(snapshotId: string): void;
-}
+/** Snapshots (capture / restore) — migrated to SqliteIndex.repos.snapshots
+ *  (G1-4.2). Interface kept as an empty marker for callers that still
+ *  reference the type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface ISnapshotStore {}
 
 /** Workflow runs, stage runs, task runs, task dependencies, artifacts, summaries, aggregates */
 export interface IWorkflowStore {
@@ -205,8 +196,6 @@ export interface IStorageLayer extends
   IEntityStore,
   ISeriesStore,
   IPresetStore,
-  ISessionStore,
-  ISnapshotStore,
   IWorkflowStore {
   /** Close the database connection */
   close(): void;

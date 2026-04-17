@@ -80,7 +80,22 @@ describe('registerAllHandlers', () => {
   it('logs registration start and completion with handler context', () => {
     const getWindow = () => null;
     const deps = {
-      db: { tag: 'db' },
+      db: {
+        tag: 'db',
+        repos: {
+          sessions: { upsert: vi.fn(), get: vi.fn(), list: vi.fn(() => ({ rows: [], degradedCount: 0 })), delete: vi.fn() },
+          snapshots: {
+            insert: vi.fn(),
+            get: vi.fn(),
+            list: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+            delete: vi.fn(),
+            prune: vi.fn(),
+            pruneTiered: vi.fn(),
+            capture: vi.fn(),
+            restore: vi.fn(),
+          },
+        },
+      },
       cas: { tag: 'cas' },
       keychain: { tag: 'keychain' },
       registry: { tag: 'registry' },
