@@ -162,7 +162,13 @@ describe('electron startup observability', () => {
       | undefined;
     expect(forwarder).toBeTypeOf('function');
 
-    forwarder?.({ id: 'log-1' } as never);
+    forwarder?.({
+      id: 'log-1',
+      timestamp: 1_700_000_000_000,
+      level: 'info',
+      category: 'startup',
+      message: 'hello',
+    } as never);
     expect(send).toHaveBeenCalledWith('logger:entry', expect.objectContaining({ id: 'log-1' }));
   });
 

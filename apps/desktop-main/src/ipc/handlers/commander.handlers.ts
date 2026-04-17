@@ -45,7 +45,9 @@ import {
 // Extracted modules
 import { requireCanvas, type ToolRegistrationDeps } from './commander-tool-deps.js';
 import { registerAllTools } from './commander-tool-deps.js';
-import { createEmitHandler, formatErrorDetail, emitToWindow } from './commander-emit.js';
+import { createEmitHandler, formatErrorDetail } from './commander-emit.js';
+import { commanderStreamChannel } from '@lucid-fin/contracts-parse';
+import { createRendererPushGateway } from '../../features/ipc/push-gateway.js';
 
 // Re-exported here so existing imports (tests, etc.) continue to resolve.
 export { canvasSyncMutatingToolNames, entityMutatingToolNames };
@@ -331,6 +333,11 @@ export function registerCommanderHandlers(
     resolveProcessPrompt: (processKey: string) => string | null;
   },
 ): void {
+  // Shared gateway for all push sends originating from commander handlers.
+  // Individual call sites pass typed channel defs from
+  // `@lucid-fin/contracts-parse` so payload drift throws loudly in main.
+  const gateway = createRendererPushGateway({ getWindow });
+
   ipcMain.handle(
     'commander:chat',
     async (
@@ -412,6 +419,7 @@ export function registerCommanderHandlers(
           compactRef,
           args.sessionId ?? args.canvasId,
           args.defaultProviders as Record<string, string> | undefined,
+          gateway,
         );
         setLastToolRegistry(registry);
 
@@ -456,6 +464,7 @@ export function registerCommanderHandlers(
           deps.canvasStore,
           canvasSyncMutatingToolNames,
           entityMutatingToolNames,
+          gateway,
         );
 
         await orchestrator.execute(args.message, context, emit, {
@@ -483,7 +492,7 @@ export function registerCommanderHandlers(
               cacheEntryCount: diagnostics.cacheEntryCount,
               utilizationRatio: diagnostics.utilizationRatio,
             });
-            emitToWindow(getWindow, 'commander:stream', {
+            gateway.emit(commanderStreamChannel, {
               type: 'context_usage',
               estimatedTokensUsed: diagnostics.estimatedTokensUsed,
               contextWindowTokens: diagnostics.contextWindowTokens,
@@ -511,7 +520,7 @@ export function registerCommanderHandlers(
           providerAuthStyle: args.customLLMProvider?.authStyle,
           detail: formatErrorDetail(error),
         });
-        emitToWindow(getWindow, 'commander:stream', {
+        gateway.emit(commanderStreamChannel, {
           type: 'error',
           error: error instanceof Error ? error.message : String(error),
         });

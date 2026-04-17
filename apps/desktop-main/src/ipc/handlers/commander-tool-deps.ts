@@ -34,6 +34,14 @@ import {
 } from '@lucid-fin/application';
 import { parseScript } from '@lucid-fin/domain';
 import {
+  settingsProviderKeyUpdatedChannel,
+  refimageStartChannel,
+  refimageCompleteChannel,
+  refimageFailedChannel,
+  commanderSettingsDispatchChannel,
+  commanderUndoDispatchChannel,
+} from '@lucid-fin/contracts-parse';
+import {
   BUILT_IN_SHOT_TEMPLATES,
   createEmptyPresetTrackSet,
   type Canvas,
@@ -54,7 +62,10 @@ import { startCanvasGeneration, cancelCanvasGeneration } from './canvas-generati
 import { getCachedProviders } from '../settings-cache.js';
 import { getBufferedLogs } from '../../logger.js';
 import { makeGenerateImage } from './commander-image-gen.js';
-import { emitToWindow } from './commander-emit.js';
+import {
+  createRendererPushGateway,
+  type RendererPushGateway,
+} from '../../features/ipc/push-gateway.js';
 import type { BrowserWindow } from 'electron';
 import { createVideoTools } from './video-tools.js';
 import { detectScenes, extractFrameAtTime } from '@lucid-fin/media-engine';
@@ -152,18 +163,25 @@ export function registerAllTools(
   compactRef?: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> },
   sessionId?: string,
   defaultProviders?: Record<string, string>,
+  pushGateway?: RendererPushGateway,
 ): void {
   const mergedPromptGuides = mergePromptGuidesWithBuiltIns(promptGuides);
+  // `settings:providerKeyUpdated` is a typed push channel — route it through
+  // the gateway so payload drift surfaces loudly in main instead of silently
+  // in the renderer. Fall back to a locally-constructed gateway when callers
+  // predate Phase F-split-4.
+  const gateway =
+    pushGateway ?? createRendererPushGateway({ getWindow });
   const generateImage = makeGenerateImage({
     ...deps,
     onStart: (jobId, provider, width, height) => {
-      emitToWindow(getWindow, 'refimage:start', { jobId, provider, width, height });
+      gateway.emit(refimageStartChannel, { jobId, provider, width, height });
     },
     onComplete: (jobId, assetHash) => {
-      emitToWindow(getWindow, 'refimage:complete', { jobId, assetHash });
+      gateway.emit(refimageCompleteChannel, { jobId, assetHash });
     },
     onFailed: (jobId, error) => {
-      emitToWindow(getWindow, 'refimage:failed', { jobId, error });
+      gateway.emit(refimageFailedChannel, { jobId, error });
     },
   });
 
@@ -386,7 +404,7 @@ export function registerAllTools(
       if (!adapter) throw new Error(`LLM provider not found: ${providerId}`);
       const win = getWindow();
       if (win) {
-        emitToWindow(getWindow, 'commander:settings:dispatch', {
+        gateway.emit(commanderSettingsDispatchChannel, {
           action: 'setProviderId',
           payload: { providerId },
         });
@@ -398,10 +416,11 @@ export function registerAllTools(
       const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
       if (llmProvider) llmProvider.configure(apiKey);
       await deps.keychain.setKey(providerId, apiKey);
-      const win = getWindow();
-      if (win) {
-        win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: true });
-      }
+      gateway.emit(settingsProviderKeyUpdatedChannel, {
+        group: 'provider',
+        providerId,
+        hasKey: true,
+      });
     },
     deleteProviderKey: async (providerId: string) => {
       await deps.keychain.deleteKey(providerId);
@@ -409,10 +428,11 @@ export function registerAllTools(
       if (mediaAdapter) mediaAdapter.configure('');
       const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
       if (llmProvider) llmProvider.configure('');
-      const win = getWindow();
-      if (win) {
-        win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: false });
-      }
+      gateway.emit(settingsProviderKeyUpdatedChannel, {
+        group: 'provider',
+        providerId,
+        hasKey: false,
+      });
     },
     isProviderKeyConfigured: async (providerId: string) => {
       try {
@@ -469,10 +489,10 @@ export function registerAllTools(
     updateNote: async () => {},
     deleteNote: async () => {},
     undo: async () => {
-      emitToWindow(getWindow, 'commander:undo:dispatch', { action: 'undo' });
+      gateway.emit(commanderUndoDispatchChannel, { action: 'undo' });
     },
     redo: async () => {
-      emitToWindow(getWindow, 'commander:undo:dispatch', { action: 'redo' });
+      gateway.emit(commanderUndoDispatchChannel, { action: 'redo' });
     },
     importWorkflow: async (canvasId: string, _json: string): Promise<Canvas> => {
       return requireCanvas(deps.canvasStore, canvasId);
@@ -740,10 +760,8 @@ export function registerAllTools(
       return providers[0]?.id ?? null;
     },
     setActiveProvider: async (group: string, providerId: string) => {
-      const win = getWindow();
-      if (!win) return;
       if (group === 'llm') {
-        emitToWindow(getWindow, 'commander:settings:dispatch', {
+        gateway.emit(commanderSettingsDispatchChannel, {
           action: 'setProviderId',
           payload: { providerId },
         });
@@ -754,25 +772,19 @@ export function registerAllTools(
       );
     },
     setProviderBaseUrl: async (group: string, providerId: string, baseUrl: string) => {
-      const win = getWindow();
-      if (!win) return;
-      emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setProviderBaseUrl', payload: { group, provider: providerId, baseUrl } });
+      gateway.emit(commanderSettingsDispatchChannel, { action: 'setProviderBaseUrl', payload: { group, provider: providerId, baseUrl } });
     },
     setProviderModel: async (group: string, providerId: string, model: string) => {
-      const win = getWindow();
-      if (!win) return;
-      emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setProviderModel', payload: { group, provider: providerId, model } });
+      gateway.emit(commanderSettingsDispatchChannel, { action: 'setProviderModel', payload: { group, provider: providerId, model } });
     },
     setProviderName: async (group: string, providerId: string, name: string) => {
-      const win = getWindow();
-      if (!win) return;
-      emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'setProviderName', payload: { group, provider: providerId, name } });
+      gateway.emit(commanderSettingsDispatchChannel, { action: 'setProviderName', payload: { group, provider: providerId, name } });
     },
     addCustomProvider: async (group: string, id: string, name: string, baseUrl?: string, model?: string) => {
-      emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'addCustomProvider', payload: { group, id, name, baseUrl, model } });
+      gateway.emit(commanderSettingsDispatchChannel, { action: 'addCustomProvider', payload: { group, id, name, baseUrl, model } });
     },
     removeCustomProvider: async (group: string, providerId: string) => {
-      emitToWindow(getWindow, 'commander:settings:dispatch', { action: 'removeCustomProvider', payload: { group, provider: providerId } });
+      gateway.emit(commanderSettingsDispatchChannel, { action: 'removeCustomProvider', payload: { group, provider: providerId } });
     },
     setProviderApiKey: async (providerId: string, apiKey: string) => {
       const mediaAdapter = deps.adapterRegistry.get(providerId);
@@ -780,10 +792,11 @@ export function registerAllTools(
       const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
       if (llmProvider) llmProvider.configure(apiKey);
       await deps.keychain.setKey(providerId, apiKey);
-      const win = getWindow();
-      if (win) {
-        win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: true });
-      }
+      gateway.emit(settingsProviderKeyUpdatedChannel, {
+        group: 'provider',
+        providerId,
+        hasKey: true,
+      });
     },
   })) {
     registry.register(tool);

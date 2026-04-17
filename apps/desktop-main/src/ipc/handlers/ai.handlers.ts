@@ -1,14 +1,26 @@
 import type { IpcMain, BrowserWindow } from 'electron';
+import { aiStreamChannel, aiEventChannel } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
 import type { AgentOrchestrator, AgentEvent } from '@lucid-fin/application';
 import type { PromptStore } from '@lucid-fin/storage';
+import {
+  createRendererPushGateway,
+  type RendererPushGateway,
+} from '../../features/ipc/push-gateway.js';
 
 export function registerAiHandlers(
   ipcMain: IpcMain,
   getWindow: () => BrowserWindow | null,
   agent: AgentOrchestrator | null,
   promptStore: PromptStore,
+  pushGateway?: RendererPushGateway,
 ): void {
+  // `ai:stream` and `ai:event` are typed push channels; route them through
+  // the gateway so payload drift surfaces loudly in main instead of silently
+  // in the renderer. Fall back to a locally-constructed gateway when callers
+  // predate Phase F-split-6.
+  const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
+
   ipcMain.handle(
     'ai:chat',
     async (
@@ -26,14 +38,11 @@ export function registerAiHandlers(
         throw new Error('No LLM adapter configured. Please set an API key in Settings.');
       }
 
-      const win = getWindow();
-
       const emit = (event: AgentEvent) => {
-        if (!win || win.isDestroyed()) return;
         if (event.type === 'stream_chunk' && event.content) {
-          win.webContents.send('ai:stream', event.content);
+          gateway.emit(aiStreamChannel, event.content);
         }
-        win.webContents.send('ai:event', event);
+        gateway.emit(aiEventChannel, event);
       };
 
       try {
@@ -46,7 +55,7 @@ export function registerAiHandlers(
       } catch (err) {
         log.error('AI agent error:', err);
         const msg = err instanceof Error ? err.message : 'AI agent failed';
-        if (win && !win.isDestroyed()) win.webContents.send('ai:stream', msg);
+        gateway.emit(aiStreamChannel, msg);
         return msg;
       }
     },
