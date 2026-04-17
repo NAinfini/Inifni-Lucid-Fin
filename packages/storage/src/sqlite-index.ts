@@ -32,20 +32,6 @@ import {
   listJobs as _listJobs,
 } from './sqlite-jobs.js';
 import {
-  upsertCharacter as _upsertCharacter,
-  getCharacter as _getCharacter,
-  listCharacters as _listCharacters,
-  deleteCharacter as _deleteCharacter,
-  upsertEquipment as _upsertEquipment,
-  getEquipment as _getEquipment,
-  listEquipment as _listEquipment,
-  deleteEquipment as _deleteEquipment,
-  upsertLocation as _upsertLocation,
-  getLocation as _getLocation,
-  listLocations as _listLocations,
-  deleteLocation as _deleteLocation,
-} from './sqlite-entities.js';
-import {
   upsertScript as _upsertScript,
   getScript as _getScript,
   deleteScript as _deleteScript,
@@ -110,7 +96,13 @@ import { SessionRepository } from './repositories/session-repository.js';
 import { JobRepository } from './repositories/job-repository.js';
 import { AssetRepository } from './repositories/asset-repository.js';
 import { CanvasRepository } from './repositories/canvas-repository.js';
-import type { SessionId, JobId, AssetHash, CanvasId } from '@lucid-fin/contracts';
+import {
+  EntityRepository,
+  type CharacterUpsertInput,
+  type EquipmentUpsertInput,
+  type LocationUpsertInput,
+} from './repositories/entity-repository.js';
+import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -484,6 +476,7 @@ export class SqliteIndex implements IStorageLayer {
   private jobs!: JobRepository;
   private assets!: AssetRepository;
   private canvases!: CanvasRepository;
+  private entities!: EntityRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -508,6 +501,7 @@ export class SqliteIndex implements IStorageLayer {
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
+    this.entities = new EntityRepository(this.db);
   }
 
   close(): void {
@@ -567,6 +561,7 @@ export class SqliteIndex implements IStorageLayer {
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
+    this.entities = new EntityRepository(this.db);
   }
 
   // --- Assets ---
@@ -610,22 +605,22 @@ export class SqliteIndex implements IStorageLayer {
   deleteCanvas(id: string): void { this.canvases.delete(id as CanvasId); }
 
   // --- Characters ---
-  upsertCharacter(char: Parameters<typeof _upsertCharacter>[1]): void { _upsertCharacter(this.db, char); }
-  getCharacter(id: string): Character | undefined { return _getCharacter(this.db, id); }
-  listCharacters(): Character[] { return _listCharacters(this.db); }
-  deleteCharacter(id: string): void { _deleteCharacter(this.db, id); }
+  upsertCharacter(char: CharacterUpsertInput): void { this.entities.upsertCharacter(char); }
+  getCharacter(id: string): Character | undefined { return this.entities.getCharacter(id as CharacterId); }
+  listCharacters(): Character[] { return this.entities.listCharacters().rows; }
+  deleteCharacter(id: string): void { this.entities.deleteCharacter(id as CharacterId); }
 
   // --- Equipment ---
-  upsertEquipment(equip: Parameters<typeof _upsertEquipment>[1]): void { _upsertEquipment(this.db, equip); }
-  getEquipment(id: string): Equipment | undefined { return _getEquipment(this.db, id); }
-  listEquipment(type?: string): Equipment[] { return _listEquipment(this.db, type); }
-  deleteEquipment(id: string): void { _deleteEquipment(this.db, id); }
+  upsertEquipment(equip: EquipmentUpsertInput): void { this.entities.upsertEquipment(equip); }
+  getEquipment(id: string): Equipment | undefined { return this.entities.getEquipment(id as EquipmentId); }
+  listEquipment(type?: string): Equipment[] { return this.entities.listEquipment(type).rows; }
+  deleteEquipment(id: string): void { this.entities.deleteEquipment(id as EquipmentId); }
 
   // --- Locations ---
-  upsertLocation(loc: Parameters<typeof _upsertLocation>[1]): void { _upsertLocation(this.db, loc); }
-  getLocation(id: string): Location | undefined { return _getLocation(this.db, id); }
-  listLocations(type?: string): Location[] { return _listLocations(this.db, type); }
-  deleteLocation(id: string): void { _deleteLocation(this.db, id); }
+  upsertLocation(loc: LocationUpsertInput): void { this.entities.upsertLocation(loc); }
+  getLocation(id: string): Location | undefined { return this.entities.getLocation(id as LocationId); }
+  listLocations(type?: string): Location[] { return this.entities.listLocations(type).rows; }
+  deleteLocation(id: string): void { this.entities.deleteLocation(id as LocationId); }
 
   // --- Scripts ---
   upsertScript(doc: ScriptDocument): void { _upsertScript(this.db, doc); }
