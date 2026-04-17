@@ -19,6 +19,9 @@ import type {
   EntityRef,
 } from '@lucid-fin/contracts';
 import type { ContextGraph } from './context-graph.js';
+import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
+
+const DEDUP_SAFE_CATEGORIES = new Set(['get', 'list', 'query']);
 
 type ToolResultIdentityKey = string;
 
@@ -64,10 +67,14 @@ export function evaluate(graph: ContextGraph, policy: CompactionPolicy): Compact
   // ── Step 1: identity-dedup (always run first) ──────────────
 
   // Find tool-result items. For each (toolKey, paramsHash) pair, keep only the
-  // newest (last in insertion order). Earlier ones are superseded.
+  // newest (last in insertion order). Earlier ones are superseded — but ONLY
+  // for read-only/idempotent tool categories. Mutations and logs must not
+  // dedup: distinct calls represent distinct state changes.
   const toolResultByKey = new Map<ToolResultIdentityKey, Extract<ContextItem, { kind: 'tool-result' }>[]>();
   for (const item of items) {
     if (item.kind !== 'tool-result') continue;
+    const category = getToolCompactionCategory(String(item.toolKey));
+    if (!category || !DEDUP_SAFE_CATEGORIES.has(category)) continue;
     const key = toolResultKey(item);
     let arr = toolResultByKey.get(key);
     if (!arr) {

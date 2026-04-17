@@ -109,8 +109,8 @@ describe('ContextGraph', () => {
   describe('tool-result dedup', () => {
     it('supersedes an earlier tool-result with same toolKey+paramsHash', () => {
       const graph = new ContextGraph();
-      const old = mkToolResult('character.get', 'hash1', 1, { id: 'c1', name: 'Alice' });
-      const newer = mkToolResult('character.get', 'hash1', 2, { id: 'c1', name: 'Alice (updated)' });
+      const old = mkToolResult('canvas.getNode', 'hash1', 1, { id: 'c1', name: 'Alice' });
+      const newer = mkToolResult('canvas.getNode', 'hash1', 2, { id: 'c1', name: 'Alice (updated)' });
       graph.add(old);
       graph.add(newer);
       // old item must be gone
@@ -123,8 +123,8 @@ describe('ContextGraph', () => {
 
     it('keeps two tool-results with different paramsHash', () => {
       const graph = new ContextGraph();
-      const r1 = mkToolResult('character.get', 'hash1', 1);
-      const r2 = mkToolResult('character.get', 'hash2', 2);
+      const r1 = mkToolResult('canvas.getNode', 'hash1', 1);
+      const r2 = mkToolResult('canvas.getNode', 'hash2', 2);
       graph.add(r1);
       graph.add(r2);
       expect(graph.size().items).toBe(2);
@@ -132,11 +132,23 @@ describe('ContextGraph', () => {
 
     it('keeps two tool-results with different toolKey', () => {
       const graph = new ContextGraph();
-      const r1 = mkToolResult('character.get', 'hash1', 1);
-      const r2 = mkToolResult('location.get', 'hash1', 2);
+      const r1 = mkToolResult('canvas.getNode', 'hash1', 1);
+      const r2 = mkToolResult('canvas.getState', 'hash1', 2);
       graph.add(r1);
       graph.add(r2);
       expect(graph.size().items).toBe(2);
+    });
+
+    it('does NOT dedup mutating tool results (different toolCallIds)', () => {
+      const graph = new ContextGraph();
+      // canvas.addNode is a 'mutation' category — each call is a distinct state change
+      const r1 = mkToolResult('canvas.addNode', 'hash1', 1, { id: 'n1' });
+      const r2 = mkToolResult('canvas.addNode', 'hash1', 2, { id: 'n2' });
+      graph.add(r1);
+      graph.add(r2);
+      expect(graph.size().items).toBe(2);
+      expect(graph.get(r1.itemId)).toBeDefined();
+      expect(graph.get(r2.itemId)).toBeDefined();
     });
   });
 
@@ -157,7 +169,7 @@ describe('ContextGraph', () => {
 
     it('cascades to tool-result items with matching entityRef', () => {
       const graph = new ContextGraph();
-      const result = mkToolResult('character.get', 'h1', 1, {}, charRef);
+      const result = mkToolResult('canvas.getNode', 'h1', 1, {}, charRef);
       graph.add(result);
       const dropped = graph.invalidateByEntity(charRef);
       expect(dropped).toContain(result.itemId);
@@ -166,7 +178,7 @@ describe('ContextGraph', () => {
 
     it('does not drop tool-results with different entityRef', () => {
       const graph = new ContextGraph();
-      const result = mkToolResult('location.get', 'h2', 1, {}, { entityType: 'location', entityId: 'l1' });
+      const result = mkToolResult('canvas.getState', 'h2', 1, {}, { entityType: 'location', entityId: 'l1' });
       graph.add(result);
       const dropped = graph.invalidateByEntity(charRef);
       expect(dropped).toHaveLength(0);
@@ -205,8 +217,8 @@ describe('ContextGraph', () => {
 
     it('hydrate rebuilds tool-result dedup index', () => {
       const graph = new ContextGraph();
-      const old = mkToolResult('character.get', 'h1', 1, { name: 'v1' });
-      const newer = mkToolResult('character.get', 'h1', 2, { name: 'v2' });
+      const old = mkToolResult('canvas.getNode', 'h1', 1, { name: 'v1' });
+      const newer = mkToolResult('canvas.getNode', 'h1', 2, { name: 'v2' });
       graph.add(old);
       graph.add(newer);
 

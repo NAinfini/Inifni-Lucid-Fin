@@ -32,8 +32,9 @@ import {
 } from './process-detection.js';
 import { ToolCatalog } from './tool-catalog.js';
 import { ContextGraph } from './graph/context-graph.js';
+import { serializeForOpenAI } from './graph/serializers/openai.js';
 import { freshContextItemId } from '@lucid-fin/contracts-parse';
-import type { ContextItem, ToolKey } from '@lucid-fin/contracts';
+import type { ContextItem, ToolKey, LLMToolDefinition } from '@lucid-fin/contracts';
 
 // Re-export types so consumers don't break
 export type { AgentContext, HistoryEntry };
@@ -93,7 +94,38 @@ const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOK
  * legacy ContextManager + ToolResultCache path (OpenAI provider only).
  * Default: off. Enable by setting env var LUCID_CONTEXT_GRAPH=1.
  */
-const CONTEXT_GRAPH_ENABLED = process.env['LUCID_CONTEXT_GRAPH'] === '1';
+/**
+ * Feature flag: ContextGraph cutover path (Phase G2b).
+ * Default: off. Enable by setting env var LUCID_CONTEXT_GRAPH=1.
+ * Read at call time (not module init) so tests can toggle it.
+ */
+function isContextGraphEnabled(): boolean {
+  return process.env['LUCID_CONTEXT_GRAPH'] === '1';
+}
+
+/**
+ * Strip context-injected parameters from a tool schema. Matches the helper
+ * in message-constructor.ts — needed locally for the graph serializer path.
+ */
+function stripInjectedParamsFromTool(
+  tool: LLMToolDefinition,
+  params: string[],
+): LLMToolDefinition {
+  const props = tool.parameters.properties;
+  const hasAny = params.some((p) => p in props);
+  if (!hasAny) return tool;
+  const newProps = { ...props };
+  for (const p of params) delete newProps[p];
+  const newRequired = tool.parameters.required?.filter((r) => !params.includes(r));
+  return {
+    ...tool,
+    parameters: {
+      ...tool.parameters,
+      properties: newProps,
+      required: newRequired?.length ? newRequired : undefined,
+    },
+  };
+}
 
 function isProcessCategory(value: unknown): value is ProcessCategory {
   if (typeof value !== 'string') return false;
@@ -286,8 +318,9 @@ export class AgentOrchestrator {
     // immediately before serialization. This keeps the graph in sync with
     // mid-loop mutations (system prompt refresh, injected process prompts,
     // batch warnings, new user messages) without tracking them twice.
-    const useGraphPath = CONTEXT_GRAPH_ENABLED && this.adapter.id === 'openai';
-    if (CONTEXT_GRAPH_ENABLED && !useGraphPath) {
+    const graphFlagOn = isContextGraphEnabled();
+    const useGraphPath = graphFlagOn && this.adapter.id === 'openai';
+    if (graphFlagOn && !useGraphPath) {
       console.warn('[ContextGraph] Feature flag enabled but provider is not openai — falling back to legacy path.');
     }
     if (useGraphPath) {
@@ -362,16 +395,30 @@ export class AgentOrchestrator {
           injectedParams: injectedParams.length > 0 ? injectedParams : undefined,
           // reserveTokensForOutput defaults to 4096 inside buildMessagesForRequest
         };
-        const { wireMessages: legacyWireMessages, wireTools, buildCtx } = buildMessagesForRequest(messageBuildInput);
+        const { wireMessages: legacyWireMessages, wireTools: legacyWireTools, buildCtx } = buildMessagesForRequest(messageBuildInput);
 
-        // G2a-6: When graph path is active, build the graph alongside `messages`
-        // but do NOT replace `wireMessages`. The graph is observation-only in
-        // G2a — it shadows the legacy path so we land the typed data structure,
-        // persistence, and migration infra safely. G2b will cut over to using
-        // the graph as the source for wireMessages once it reaches parity.
-        const wireMessages = legacyWireMessages;
+        // G2b-1: When graph path is active, rebuild the graph from `messages`
+        // and produce wireMessages + wireTools via the graph serializer.
+        // The legacy path output is still computed above (for buildCtx) but
+        // ignored when the flag is on.
+        let wireMessages = legacyWireMessages;
+        let wireTools = legacyWireTools;
+        let graphReverseMap: Map<string, string> | undefined;
         if (useGraphPath && this.contextGraph) {
           this.rebuildGraphFromMessages(messages, steps);
+          const graphToolsInput = injectedParams.length > 0
+            ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
+            : availableTools;
+          const graphOut = serializeForOpenAI({
+            graph: this.contextGraph,
+            contextWindowTokens: effectiveCtx ?? 200000,
+            tools: graphToolsInput,
+            profile: this.profile,
+            cache: this.resultCache ?? undefined,
+          });
+          wireMessages = graphOut.wireMessages;
+          wireTools = graphOut.wireTools;
+          graphReverseMap = graphOut.toolNameReverseMap;
         }
 
         const ctxWindow = effectiveCtx ?? 200000;
@@ -411,7 +458,12 @@ export class AgentOrchestrator {
         });
 
         // --- Message Destructor: un-sanitize tool names + dedup ---
-        lastResult = destructLLMResponse(rawResult, buildCtx);
+        // When graph path is on, use the graph serializer's reverse map so
+        // tool names sanitized by the graph path are un-sanitized correctly.
+        const destructCtx = graphReverseMap
+          ? { ...buildCtx, toolNameReverseMap: graphReverseMap }
+          : buildCtx;
+        lastResult = destructLLMResponse(rawResult, destructCtx);
 
         if (lastResult.reasoning) {
           wrappedEmit({ type: 'thinking', content: lastResult.reasoning });
