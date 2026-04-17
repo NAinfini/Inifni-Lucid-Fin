@@ -74,16 +74,16 @@ describe('workflow run storage api', () => {
       updatedAt: 1,
     };
 
-    db.insertWorkflowRun(run);
+    db.repos.workflows.insertRun(run);
 
-    const fetched = db.getWorkflowRun(run.id);
+    const fetched = db.repos.workflows.getRun(run.id);
     expect(fetched).toEqual(run);
 
-    const listed = db.listWorkflowRuns({ status: 'queued' });
+    const listed = db.repos.workflows.listRuns({ status: 'queued' }).rows;
     expect(listed).toHaveLength(1);
     expect(listed[0]).toEqual(run);
 
-    db.updateWorkflowRun(run.id, {
+    db.repos.workflows.updateRun(run.id, {
       status: WorkflowRunStatus.Running,
       progress: 25,
       summary: 'running',
@@ -92,7 +92,7 @@ describe('workflow run storage api', () => {
       updatedAt: 2,
     });
 
-    const updated = db.getWorkflowRun(run.id);
+    const updated = db.repos.workflows.getRun(run.id);
     expect(updated).toMatchObject({
       id: 'wf-1',
       status: WorkflowRunStatus.Running,

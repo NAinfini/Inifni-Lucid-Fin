@@ -24,7 +24,7 @@ describe('workflow aggregate recomputation', () => {
   });
 
   it('recomputes stage and workflow aggregates through ready, running, and mixed terminal states', () => {
-    db.insertWorkflowRun({
+    db.repos.workflows.insertRun({
       id: 'wf-agg',
       workflowType: 'storyboard.generate',
       entityType: 'scene',
@@ -44,7 +44,7 @@ describe('workflow aggregate recomputation', () => {
       updatedAt: 1,
     });
 
-    db.insertWorkflowStageRun({
+    db.repos.workflows.insertStageRun({
       id: 'stage-ready',
       workflowRunId: 'wf-agg',
       stageId: 'prepare',
@@ -57,7 +57,7 @@ describe('workflow aggregate recomputation', () => {
       metadata: {},
       updatedAt: 2,
     });
-    db.insertWorkflowStageRun({
+    db.repos.workflows.insertStageRun({
       id: 'stage-final',
       workflowRunId: 'wf-agg',
       stageId: 'render',
@@ -71,7 +71,7 @@ describe('workflow aggregate recomputation', () => {
       updatedAt: 3,
     });
 
-    db.insertWorkflowTaskRun({
+    db.repos.workflows.insertTaskRun({
       id: 'task-ready',
       workflowRunId: 'wf-agg',
       stageRunId: 'stage-ready',
@@ -87,7 +87,7 @@ describe('workflow aggregate recomputation', () => {
       progress: 0,
       updatedAt: 10,
     });
-    db.insertWorkflowTaskRun({
+    db.repos.workflows.insertTaskRun({
       id: 'task-running',
       workflowRunId: 'wf-agg',
       stageRunId: 'stage-ready',
@@ -103,7 +103,7 @@ describe('workflow aggregate recomputation', () => {
       progress: 50,
       updatedAt: 20,
     });
-    db.insertWorkflowTaskRun({
+    db.repos.workflows.insertTaskRun({
       id: 'task-failed',
       workflowRunId: 'wf-agg',
       stageRunId: 'stage-final',
@@ -121,11 +121,11 @@ describe('workflow aggregate recomputation', () => {
       updatedAt: 30,
     });
 
-    db.recomputeStageAggregate('stage-ready');
-    db.recomputeStageAggregate('stage-final');
-    db.recomputeWorkflowAggregate('wf-agg');
+    db.repos.workflows.recomputeStageAggregate('stage-ready');
+    db.repos.workflows.recomputeStageAggregate('stage-final');
+    db.repos.workflows.recomputeWorkflowAggregate('wf-agg');
 
-    expect(db.listWorkflowStageRuns('wf-agg')).toEqual([
+    expect(db.repos.workflows.listStageRuns('wf-agg').rows).toEqual([
       expect.objectContaining({
         id: 'stage-ready',
         status: StageRunStatus.Running,
@@ -141,7 +141,7 @@ describe('workflow aggregate recomputation', () => {
         progress: 100,
       }),
     ]);
-    expect(db.getWorkflowRun('wf-agg')).toMatchObject({
+    expect(db.repos.workflows.getRun('wf-agg')).toMatchObject({
       id: 'wf-agg',
       status: WorkflowRunStatus.Running,
       currentStageId: 'stage-ready',
@@ -154,30 +154,30 @@ describe('workflow aggregate recomputation', () => {
       updatedAt: 30,
     });
 
-    db.updateWorkflowTaskRun('task-running', {
+    db.repos.workflows.updateTaskRun('task-running', {
       status: TaskRunStatus.Completed,
       progress: 100,
       completedAt: 31,
       updatedAt: 31,
     });
-    db.updateWorkflowTaskRun('task-ready', {
+    db.repos.workflows.updateTaskRun('task-ready', {
       status: TaskRunStatus.Completed,
       progress: 100,
       completedAt: 32,
       updatedAt: 32,
     });
-    db.updateWorkflowTaskRun('task-failed', {
+    db.repos.workflows.updateTaskRun('task-failed', {
       status: TaskRunStatus.Completed,
       progress: 100,
       completedAt: 33,
       updatedAt: 33,
     });
 
-    db.recomputeStageAggregate('stage-ready');
-    db.recomputeStageAggregate('stage-final');
-    db.recomputeWorkflowAggregate('wf-agg');
+    db.repos.workflows.recomputeStageAggregate('stage-ready');
+    db.repos.workflows.recomputeStageAggregate('stage-final');
+    db.repos.workflows.recomputeWorkflowAggregate('wf-agg');
 
-    expect(db.listWorkflowStageRuns('wf-agg')).toEqual([
+    expect(db.repos.workflows.listStageRuns('wf-agg').rows).toEqual([
       expect.objectContaining({
         id: 'stage-ready',
         status: StageRunStatus.Completed,
@@ -193,7 +193,7 @@ describe('workflow aggregate recomputation', () => {
         progress: 100,
       }),
     ]);
-    expect(db.getWorkflowRun('wf-agg')).toMatchObject({
+    expect(db.repos.workflows.getRun('wf-agg')).toMatchObject({
       id: 'wf-agg',
       status: WorkflowRunStatus.Completed,
       currentStageId: undefined,
