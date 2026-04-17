@@ -163,3 +163,21 @@ export {
   StoredSnapshotSchema,
   type StoredSnapshotDto,
 } from './dto/snapshot.js';
+
+// ── Phase G1-2.11: Workflow-domain ID parsers + run/stage/task DTOs ─
+export {
+  parseWorkflowRunId,
+  tryWorkflowRunId,
+  parseWorkflowStageId,
+  tryWorkflowStageId,
+  parseWorkflowTaskId,
+  tryWorkflowTaskId,
+} from './brands/workflow-ids.js';
+export {
+  WorkflowRunRecordSchema,
+  WorkflowStageRunRecordSchema,
+  WorkflowTaskRunRecordSchema,
+  type WorkflowRunRecordDto,
+  type WorkflowStageRunRecordDto,
+  type WorkflowTaskRunRecordDto,
+} from './dto/workflow.js';

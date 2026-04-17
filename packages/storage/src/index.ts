@@ -81,3 +81,6 @@ export { ShotTemplateRepository } from './repositories/shot-template-repository.
 
 // ── Phase G1-2.10: SnapshotRepository ──────────────────────────
 export { SnapshotRepository } from './repositories/snapshot-repository.js';
+
+// ── Phase G1-2.11: WorkflowRepository ──────────────────────────
+export { WorkflowRepository } from './repositories/workflow-repository.js';
