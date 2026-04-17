@@ -52,3 +52,6 @@ export * from './ipc/channels/batch-03.js';
 
 // Batch 4 — asset + storage
 export * from './ipc/channels/batch-04.js';
+
+// Batch 5 — job
+export * from './ipc/channels/batch-05.js';

@@ -16,6 +16,7 @@ import {
   colorStyleChannels,
 } from './channels/batch-03.js';
 import { assetChannels, storageChannels } from './channels/batch-04.js';
+import { jobChannels } from './channels/batch-05.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
 export type {
@@ -35,6 +36,9 @@ export * from './channels/batch-03.js';
 // Batch 4 — asset + storage
 export * from './channels/batch-04.js';
 
+// Batch 5 — job (first batch with push channels)
+export * from './channels/batch-05.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
@@ -48,4 +52,5 @@ export const allChannels = [
   ...colorStyleChannels,
   ...assetChannels,
   ...storageChannels,
+  ...jobChannels,
 ] as const;

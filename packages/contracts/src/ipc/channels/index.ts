@@ -12,3 +12,4 @@ export type * from './batch-01.js';
 export type * from './batch-02.js';
 export type * from './batch-03.js';
 export type * from './batch-04.js';
+export type * from './batch-05.js';
