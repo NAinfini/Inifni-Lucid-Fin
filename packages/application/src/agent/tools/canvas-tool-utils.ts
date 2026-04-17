@@ -10,6 +10,7 @@ import {
   type PresetTrackEntry,
   type PresetTrackSet,
 } from '@lucid-fin/contracts';
+import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
 import type { AgentTool } from '../tool-registry.js';
 export { ok, fail, requireString, requireText, requireNumber, requireStringArray, requireBoolean } from './tool-result-helpers.js';
 
@@ -247,7 +248,7 @@ export function requireMediaNode(
   node: CanvasNode,
   message = `Node type "${node.type}" does not support this operation`,
 ): void {
-  if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
+  if (!isGeneratableMedia(node.type)) {
     throw new Error(message);
   }
 }
@@ -256,7 +257,7 @@ export function requireVisualGenerationNode(
   node: CanvasNode,
   message = `Node type "${node.type}" does not support this operation`,
 ): void {
-  if (node.type !== 'image' && node.type !== 'video') {
+  if (!isVisualMedia(node.type)) {
     throw new Error(message);
   }
 }

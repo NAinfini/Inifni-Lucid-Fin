@@ -7,7 +7,7 @@ import { dialog } from 'electron';
 import archiver from 'archiver';
 import PDFDocument from 'pdfkit';
 import type { CAS } from '@lucid-fin/storage';
-import type { AssetType, CanvasNode, VideoNodeData } from '@lucid-fin/contracts';
+import type { AssetType, CanvasNode, NodeKind, VideoNodeData } from '@lucid-fin/contracts';
 import log from '../../logger.js';
 import {
   exportFCPXML,
@@ -19,6 +19,7 @@ import {
   type NLEProject,
   type SubtitleCue,
 } from '@lucid-fin/media-engine';
+import { matchNode } from '@lucid-fin/shared-utils';
 import type { CanvasStore } from './canvas.handlers.js';
 
 const FALLBACK_EXTS: Record<string, string[]> = {
@@ -559,7 +560,13 @@ export function registerExportHandlers(ipcMain: IpcMain, cas?: CAS, canvasStore?
       for (const node of args.nodes) {
         const assetPath = findAssetFileForExport(cas, node.assetHash);
         if (!assetPath) continue;
-        const assetType = node.type === 'audio' ? 'audio' : node.type === 'video' ? 'video' : 'image';
+        const assetType = matchNode(node.type as NodeKind, {
+          audio:    () => 'audio' as const,
+          video:    () => 'video' as const,
+          image:    () => 'image' as const,
+          text:     () => 'image' as const,
+          backdrop: () => 'image' as const,
+        });
         clips.push({
           title: node.title,
           assetPath,

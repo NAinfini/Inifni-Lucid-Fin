@@ -1,0 +1,26 @@
+name: Bundle Size Guard
+on:
+  pull_request:
+    paths: ['apps/desktop-renderer/**', 'packages/**']
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - name: Verify renderer chunk is zod-free
+        run: |
+          if grep -rn 'ZodType\|ZodObject\|ZodString\|z\.string\|z\.object\|z\.number' \
+            apps/desktop-renderer/dist/assets/*.js 2>/dev/null; then
+            echo "::error::Zod detected in renderer bundle. Renderer must not import from @lucid-fin/contracts-parse."
+            exit 1
+          fi
+          echo "✓ Renderer chunk is zod-free."

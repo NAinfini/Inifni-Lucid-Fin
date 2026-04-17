@@ -8,6 +8,8 @@ import { setNodeProgress, clearNodeGenerationStatus } from '../../store/slices/c
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { getAPI } from '../../utils/api.js';
+import { matchNode } from '@lucid-fin/shared-utils';
+import type { NodeKind } from '@lucid-fin/contracts';
 
 const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   empty: ListTodo,
@@ -347,10 +349,13 @@ function TaskItem({
   }, [node.status]);
   const Icon = STATUS_ICON[node.status] ?? ListTodo;
   const colorClass = STATUS_COLOR[node.status];
-  const localizedNodeType =
-    node.type === 'image' || node.type === 'video' || node.type === 'audio' || node.type === 'text'
-      ? t(`canvas.nodeType.${node.type}`)
-      : node.type;
+  const localizedNodeType = matchNode(node.type as NodeKind, {
+    image:    () => t(`canvas.nodeType.${node.type}`),
+    video:    () => t(`canvas.nodeType.${node.type}`),
+    audio:    () => t(`canvas.nodeType.${node.type}`),
+    text:     () => t(`canvas.nodeType.${node.type}`),
+    backdrop: () => node.type,
+  });
   const localizedStatus = STATUS_LABEL_KEY[node.status]
     ? t(STATUS_LABEL_KEY[node.status])
     : t('generationQueue.unknown');

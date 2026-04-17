@@ -20,6 +20,7 @@ import {
   replaceNodePreservingEdges,
 } from './canvas-tool-utils.js';
 import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
 
 const AUDIO_CAPABLE_VIDEO_PROVIDER_IDS = listBuiltinVideoProvidersWithAudio().join(', ');
 const KLING_QUALITY_TIERS =
@@ -223,7 +224,7 @@ For generation parameters, use canvas.setNodeGenParams. For layout, use canvas.s
         for (const { nodeId, set } of workItems) {
           const { node } = await requireNode(deps, canvasId, nodeId);
           const data: Record<string, unknown> = {};
-          const isMedia = node.type === 'image' || node.type === 'video' || node.type === 'audio';
+          const isMedia = isGeneratableMedia(node.type);
 
           if (typeof set.title === 'string') {
             const title = (set.title as string).trim();
@@ -360,8 +361,8 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
         for (const nodeId of ids) {
           const { node } = await requireNode(deps, canvasId, nodeId);
           const data: Record<string, unknown> = {};
-          const isMedia = node.type === 'image' || node.type === 'video' || node.type === 'audio';
-          const isVisual = node.type === 'image' || node.type === 'video';
+          const isMedia = isGeneratableMedia(node.type);
+          const isVisual = isVisualMedia(node.type);
 
           if (isMedia && typeof set.providerId === 'string') data.providerId = (set.providerId as string).trim();
           if (isMedia && typeof set.seed === 'number') data.seed = Math.round(set.seed as number);

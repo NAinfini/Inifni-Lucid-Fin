@@ -1,4 +1,5 @@
 import type { Canvas, ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
+import { isVisualMedia, matchNode } from '@lucid-fin/shared-utils';
 
 function readLegacyNegativePrompt(data: ImageNodeData | VideoNodeData): string | undefined {
   if (
@@ -30,24 +31,30 @@ export function buildExternalAIPrompt(
   lines.push(`## Node: ${node.title} (${node.type})`);
 
   // Node-specific data
-  if (node.type === 'image') {
-    const data = node.data as ImageNodeData;
-    if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
-    const negativePrompt = readLegacyNegativePrompt(data);
-    if (negativePrompt) lines.push(`**Negative Prompt:** ${negativePrompt}`);
-  } else if (node.type === 'video') {
-    const data = node.data as VideoNodeData;
-    if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
-    const negativePrompt = readLegacyNegativePrompt(data);
-    if (negativePrompt) lines.push(`**Negative Prompt:** ${negativePrompt}`);
-    if (data.duration) lines.push(`**Duration:** ${data.duration}s`);
-  } else if (node.type === 'audio') {
-    const data = node.data as AudioNodeData;
-    if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
-  } else if (node.type === 'text') {
-    const data = node.data as { content?: string };
-    if (data.content) lines.push(`**Content:** ${data.content}`);
-  }
+  matchNode(node.type, {
+    image: () => {
+      const data = node.data as ImageNodeData;
+      if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
+      const negativePrompt = readLegacyNegativePrompt(data);
+      if (negativePrompt) lines.push(`**Negative Prompt:** ${negativePrompt}`);
+    },
+    video: () => {
+      const data = node.data as VideoNodeData;
+      if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
+      const negativePrompt = readLegacyNegativePrompt(data);
+      if (negativePrompt) lines.push(`**Negative Prompt:** ${negativePrompt}`);
+      if (data.duration) lines.push(`**Duration:** ${data.duration}s`);
+    },
+    audio: () => {
+      const data = node.data as AudioNodeData;
+      if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
+    },
+    text: () => {
+      const data = node.data as { content?: string };
+      if (data.content) lines.push(`**Content:** ${data.content}`);
+    },
+    backdrop: () => {},
+  });
 
   // Preset summary
   const presetSummary = presetSummaryByNodeId?.[nodeId];
@@ -78,7 +85,7 @@ export function buildExternalAIPrompt(
   lines.push('## Instructions');
   lines.push('Please generate a detailed prompt for this node. You can output in this tagged format so I can paste it back:');
   lines.push('```');
-  if (node.type === 'image' || node.type === 'video') {
+  if (isVisualMedia(node.type)) {
     lines.push('[prompt] Your detailed generation prompt here...');
     lines.push('[negative] Things to avoid...');
     if (node.type === 'video') {
