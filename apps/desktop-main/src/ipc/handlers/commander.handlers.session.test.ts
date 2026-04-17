@@ -70,7 +70,6 @@ describe('registerCommanderHandlers session wiring', () => {
       formatErrorDetail: vi.fn((error: unknown) =>
         error instanceof Error ? error.message : String(error),
       ),
-      emitToWindow: vi.fn(),
     }));
 
     vi.doMock('./commander-meta.handlers.js', () => ({
@@ -142,6 +141,7 @@ describe('registerCommanderHandlers session wiring', () => {
       expect.anything(),
       'session-7',
       undefined,
+      expect.anything(),
     );
     expect(agentConstructor).toHaveBeenCalledWith(
       selectedAdapter,
