@@ -67,6 +67,13 @@ export {
   type GenerationIntent,
 } from './types/node-kinds.js';
 
+// Phase D-1: Generation subject + strategy key
+export {
+  generationStrategyKey,
+  type GenerationSubject,
+  type GenerationStrategyKey,
+} from './types/generation-subject.js';
+
 // Channel type shapes (pure types — factories in contracts-parse)
 export type {
   InvokeChannelType,

@@ -108,3 +108,13 @@ export {
   type AppToolKey,
   type AppProcessCategory,
 } from './agent/tool-catalog.js';
+
+// Phase D-1: Generation application service scaffold
+export {
+  GenerationApplicationService,
+  STRATEGIES,
+  selectStrategy,
+  type PipelineRequest,
+  type GenerationEvent,
+  type GenerationStrategy,
+} from './generation/application-service.js';
