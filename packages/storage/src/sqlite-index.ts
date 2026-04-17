@@ -1,21 +1,7 @@
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
-import type {
-  ScriptDocument,
-  ColorStyle,
-} from '@lucid-fin/contracts';
 import type BetterSqlite3 from 'better-sqlite3';
 
-import {
-  upsertScript as _upsertScript,
-  getScript as _getScript,
-  deleteScript as _deleteScript,
-  upsertColorStyle as _upsertColorStyle,
-  listColorStyles as _listColorStyles,
-  deleteColorStyle as _deleteColorStyle,
-  addDependency as _addDependency,
-  getDependents as _getDependents,
-} from './sqlite-content.js';
 import type { IStorageLayer, RepoBundle } from './storage-interfaces.js';
 import { runMigrations, getCurrentVersion } from './migrations/runner.js';
 import { migrations } from './migrations/index.js';
@@ -29,6 +15,9 @@ import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
+import { ScriptRepository } from './repositories/script-repository.js';
+import { ColorStyleRepository } from './repositories/color-style-repository.js';
+import { DependencyRepository } from './repositories/dependency-repository.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -408,6 +397,9 @@ export class SqliteIndex implements IStorageLayer {
   private shotTemplates!: ShotTemplateRepository;
   private snapshots!: SnapshotRepository;
   private workflows!: WorkflowRepository;
+  private scripts!: ScriptRepository;
+  private colorStyles!: ColorStyleRepository;
+  private dependencies!: DependencyRepository;
 
   /**
    * Public repository bundle — G1-4.1 strangler surface.
@@ -429,6 +421,9 @@ export class SqliteIndex implements IStorageLayer {
       shotTemplates: this.shotTemplates,
       snapshots: this.snapshots,
       workflows: this.workflows,
+      scripts: this.scripts,
+      colorStyles: this.colorStyles,
+      dependencies: this.dependencies,
     };
   }
 
@@ -461,6 +456,9 @@ export class SqliteIndex implements IStorageLayer {
     this.shotTemplates = new ShotTemplateRepository(this.db);
     this.snapshots = new SnapshotRepository(this.db);
     this.workflows = new WorkflowRepository(this.db);
+    this.scripts = new ScriptRepository(this.db);
+    this.colorStyles = new ColorStyleRepository(this.db);
+    this.dependencies = new DependencyRepository(this.db);
   }
 
   close(): void {
@@ -526,6 +524,9 @@ export class SqliteIndex implements IStorageLayer {
     this.shotTemplates = new ShotTemplateRepository(this.db);
     this.snapshots = new SnapshotRepository(this.db);
     this.workflows = new WorkflowRepository(this.db);
+    this.scripts = new ScriptRepository(this.db);
+    this.colorStyles = new ColorStyleRepository(this.db);
+    this.dependencies = new DependencyRepository(this.db);
   }
 
   // --- Assets / Asset Embeddings ---
@@ -551,18 +552,16 @@ export class SqliteIndex implements IStorageLayer {
   // parseEquipmentId / parseLocationId).
 
   // --- Scripts ---
-  upsertScript(doc: ScriptDocument): void { _upsertScript(this.db, doc); }
-  getScript(): ScriptDocument | null { return _getScript(this.db); }
-  deleteScript(id: string): void { _deleteScript(this.db, id); }
+  // Migrated to `this.repos.scripts.*` (Phase G1-4.10). Facade methods
+  // removed; callers use `db.repos.scripts.{upsert,get,delete}` directly.
 
   // --- Color Styles ---
-  upsertColorStyle(cs: ColorStyle): void { _upsertColorStyle(this.db, cs); }
-  listColorStyles(): ColorStyle[] { return _listColorStyles(this.db); }
-  deleteColorStyle(id: string): void { _deleteColorStyle(this.db, id); }
+  // Migrated to `this.repos.colorStyles.*` (Phase G1-4.10). Facade methods
+  // removed; callers use `db.repos.colorStyles.{upsert,list,delete}` directly.
 
   // --- Dependencies ---
-  addDependency(sourceType: string, sourceId: string, targetType: string, targetId: string): void { _addDependency(this.db, sourceType, sourceId, targetType, targetId); }
-  getDependents(sourceType: string, sourceId: string): Array<{ targetType: string; targetId: string }> { return _getDependents(this.db, sourceType, sourceId); }
+  // Migrated to `this.repos.dependencies.*` (Phase G1-4.10). Facade methods
+  // removed; callers use `db.repos.dependencies.{add,listDependents}` directly.
 
   // --- Series & Episodes ---
   // Migrated to `this.repos.series.*` (Phase G1-4.4). Facade methods

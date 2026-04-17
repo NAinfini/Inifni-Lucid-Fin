@@ -49,7 +49,7 @@ describe('SqliteIndex', () => {
         createdAt: Date.now(),
       });
       db.repos.entities.upsertCharacter({ id: 'c1', name: 'Hero' });
-      db.addDependency('scene', 's1', 'asset', 'a1');
+      db.repos.dependencies.add('scene', 's1', 'asset', 'a1');
       // No throw = all tables exist
     });
   });

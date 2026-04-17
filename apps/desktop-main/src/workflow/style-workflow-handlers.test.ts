@@ -127,7 +127,7 @@ describe('createStyleWorkflowHandlers', () => {
     });
 
     await workflowEngine.waitForAutoPump();
-    const styles = db.listColorStyles();
+    const styles = db.repos.colorStyles.list();
     const workflow = workflowEngine.get(workflowRunId);
     const persistArtifacts = db.repos.workflows.listArtifactsByTaskRun('task-persist');
 

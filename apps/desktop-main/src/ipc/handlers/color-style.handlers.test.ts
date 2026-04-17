@@ -76,6 +76,6 @@ describe('registerColorStyleHandlers', () => {
         },
       }),
     );
-    expect(db.listColorStyles()).toHaveLength(0);
+    expect(db.repos.colorStyles.list()).toHaveLength(0);
   });
 });

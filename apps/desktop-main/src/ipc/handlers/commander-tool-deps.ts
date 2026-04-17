@@ -119,7 +119,7 @@ function saveScriptDocument(
   format: 'fountain' | 'fdx' | 'plaintext',
 ) {
   const parsedScenes = parseScript(content, format);
-  const existing = db.getScript();
+  const existing = db.repos.scripts.get();
   const now = Date.now();
   const doc = {
     id: existing?.id ?? crypto.randomUUID(),
@@ -129,7 +129,7 @@ function saveScriptDocument(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
-  db.upsertScript(doc);
+  db.repos.scripts.upsert(doc);
   return doc;
 }
 
@@ -513,7 +513,7 @@ export function registerAllTools(
   for (const tool of createScriptTools({
     loadScript: async (filePath?: string) => {
       if (!filePath) {
-        return deps.db.getScript();
+        return deps.db.repos.scripts.get();
       }
       const resolved = path.resolve(filePath);
       if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
@@ -731,7 +731,7 @@ export function registerAllTools(
 
   // ---- Color style tools ----
   registerToolModule(registry, colorStyleToolModule, {
-    listColorStyles: async () => deps.db.listColorStyles(),
+    listColorStyles: async () => deps.db.repos.colorStyles.list(),
     saveColorStyle: async (style: Record<string, unknown>) => {
       if (
         typeof style.id !== 'string' ||
@@ -741,10 +741,12 @@ export function registerAllTools(
       ) {
         throw new Error('style.id and style.name are required');
       }
-      deps.db.upsertColorStyle(style as unknown as Parameters<typeof deps.db.upsertColorStyle>[0]);
+      deps.db.repos.colorStyles.upsert(
+        style as unknown as Parameters<typeof deps.db.repos.colorStyles.upsert>[0],
+      );
     },
     deleteColorStyle: async (id: string) => {
-      deps.db.deleteColorStyle(id);
+      deps.db.repos.colorStyles.delete(id);
     },
   });
 
