@@ -7,7 +7,6 @@ import type {
   Location,
   ScriptDocument,
   ColorStyle,
-  Series,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
@@ -21,10 +20,6 @@ import type {
   upsertEquipment as _upsertEquipment,
   upsertLocation as _upsertLocation,
 } from './sqlite-entities.js';
-import type {
-  upsertEpisode as _upsertEpisode,
-  listEpisodes as _listEpisodes,
-} from './sqlite-content.js';
 import type {
   updateJob as _updateJob,
 } from './sqlite-jobs.js';
@@ -108,15 +103,11 @@ export interface IEntityStore {
   getDependents(sourceType: string, sourceId: string): Array<{ targetType: string; targetId: string }>;
 }
 
-/** Series and episodes */
-export interface ISeriesStore {
-  upsertSeries(series: Series): void;
-  getSeries(id: string): Series | undefined;
-  deleteSeries(id: string): void;
-  upsertEpisode(episode: Parameters<typeof _upsertEpisode>[1]): void;
-  listEpisodes(seriesId: string): ReturnType<typeof _listEpisodes>;
-  deleteEpisode(id: string): void;
-}
+/** Series and episodes — migrated to SqliteIndex.repos.series (G1-4.4).
+ *  Interface kept as an empty marker for callers that still reference the
+ *  type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface ISeriesStore {}
 
 /** Preset overrides and custom shot templates */
 /** Preset overrides and custom shot templates — migrated to
