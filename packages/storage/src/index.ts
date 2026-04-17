@@ -85,3 +85,9 @@ export { SnapshotRepository } from './repositories/snapshot-repository.js';
 
 // ── Phase G1-2.11: WorkflowRepository ──────────────────────────
 export { WorkflowRepository } from './repositories/workflow-repository.js';
+
+// ── Phase G1-4.10: Script / ColorStyle / Dependency repos ──────
+export { ScriptRepository } from './repositories/script-repository.js';
+export { ColorStyleRepository } from './repositories/color-style-repository.js';
+export { DependencyRepository } from './repositories/dependency-repository.js';
+export type { Dependent } from './repositories/dependency-repository.js';

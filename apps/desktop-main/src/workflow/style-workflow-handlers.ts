@@ -195,7 +195,7 @@ export function createStyleWorkflowHandlers(
           updatedAt: timestamp,
         };
 
-        context.db.upsertColorStyle(colorStyle);
+        context.db.repos.colorStyles.upsert(colorStyle);
 
         context.db.repos.workflows.insertArtifact({
           id: nextId(),

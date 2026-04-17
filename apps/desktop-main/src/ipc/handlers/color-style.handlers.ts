@@ -78,7 +78,7 @@ export function registerColorStyleHandlers(
   workflowEngine: WorkflowEngine,
 ): void {
   safeHandle(ipcMain, 'colorStyle:list', () => {
-    return db.listColorStyles();
+    return db.repos.colorStyles.list();
   });
 
   safeHandle(ipcMain, 'colorStyle:save', (_e, data: ColorStyle) => {
@@ -92,13 +92,13 @@ export function registerColorStyleHandlers(
       updatedAt: now,
       createdAt: data.createdAt || now,
     };
-    db.upsertColorStyle(cs);
+    db.repos.colorStyles.upsert(cs);
     return cs;
   });
 
   safeHandle(ipcMain, 'colorStyle:delete', (_e, args: { id: string }) => {
     if (!args?.id) throw new Error('id is required');
-    db.deleteColorStyle(args.id);
+    db.repos.colorStyles.delete(args.id);
   });
 
   safeHandle(ipcMain,

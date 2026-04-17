@@ -1,8 +1,3 @@
-import type {
-  ScriptDocument,
-  ColorStyle,
-} from '@lucid-fin/contracts';
-
 import type { SessionRepository } from './repositories/session-repository.js';
 import type { JobRepository } from './repositories/job-repository.js';
 import type { AssetRepository } from './repositories/asset-repository.js';
@@ -13,6 +8,9 @@ import type { PresetRepository } from './repositories/preset-repository.js';
 import type { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import type { SnapshotRepository } from './repositories/snapshot-repository.js';
 import type { WorkflowRepository } from './repositories/workflow-repository.js';
+import type { ScriptRepository } from './repositories/script-repository.js';
+import type { ColorStyleRepository } from './repositories/color-style-repository.js';
+import type { DependencyRepository } from './repositories/dependency-repository.js';
 
 /**
  * Repository bundle exposed by `SqliteIndex.repos`. Represents the strangler
@@ -30,6 +28,9 @@ export interface RepoBundle {
   shotTemplates: ShotTemplateRepository;
   snapshots: SnapshotRepository;
   workflows: WorkflowRepository;
+  scripts: ScriptRepository;
+  colorStyles: ColorStyleRepository;
+  dependencies: DependencyRepository;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,24 +62,13 @@ export interface IJobStore {}
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ICanvasStore {}
 
-/** Entity CRUD — scripts, color styles, dependencies.
+/** Scripts / color styles / dependencies — migrated to
+ *  SqliteIndex.repos.scripts / colorStyles / dependencies (G1-4.10).
  *  Characters / equipment / locations migrated to SqliteIndex.repos.entities
- *  (G1-4.7); those methods no longer live on this interface. */
-export interface IEntityStore {
-  // Scripts
-  upsertScript(doc: ScriptDocument): void;
-  getScript(): ScriptDocument | null;
-  deleteScript(id: string): void;
-
-  // Color Styles
-  upsertColorStyle(cs: ColorStyle): void;
-  listColorStyles(): ColorStyle[];
-  deleteColorStyle(id: string): void;
-
-  // Dependencies
-  addDependency(sourceType: string, sourceId: string, targetType: string, targetId: string): void;
-  getDependents(sourceType: string, sourceId: string): Array<{ targetType: string; targetId: string }>;
-}
+ *  (G1-4.7). Interface kept as an empty marker for callers that still
+ *  reference the type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IEntityStore {}
 
 /** Series and episodes — migrated to SqliteIndex.repos.series (G1-4.4).
  *  Interface kept as an empty marker for callers that still reference the
