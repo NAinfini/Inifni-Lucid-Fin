@@ -900,11 +900,10 @@ describe('AgentOrchestrator', () => {
     ).toBe(false);
   });
 
-  // ── G2a-6: ContextGraph path (LUCID_CONTEXT_GRAPH=1 + openai adapter) ───
+  // ── G2b-1: ContextGraph cutover (LUCID_CONTEXT_GRAPH=1 + openai adapter) ───
 
-  it('graph path: builds ContextGraph alongside legacy wire messages when flag on + openai adapter (observation-only)', async () => {
-    // Temporarily enable the flag for this test by mocking the module constant.
-    // We inject an openai-id adapter and verify the LLM receives graph-serialized messages.
+  it('graph path: cutover replaces wireMessages via serializeForOpenAI when flag on + openai adapter', async () => {
+    const capturedRequests: unknown[][] = [];
     const openaiAdapter: import('@lucid-fin/contracts').LLMAdapter = {
       id: 'openai',
       name: 'OpenAI',
@@ -913,33 +912,35 @@ describe('AgentOrchestrator', () => {
       validate: vi.fn(async () => true),
       complete: vi.fn(async () => ''),
       stream: vi.fn(async function* () { yield ''; }),
-      completeWithTools: vi.fn(async () => ({
-        content: 'Graph path response.',
-        toolCalls: [],
-        finishReason: 'stop' as const,
-      })),
+      completeWithTools: vi.fn(async (messages: unknown[]) => {
+        capturedRequests.push(messages);
+        return {
+          content: 'Graph path response.',
+          toolCalls: [],
+          finishReason: 'stop' as const,
+        };
+      }),
     };
 
-    // Monkey-patch process.env before constructing the orchestrator
     const original = process.env['LUCID_CONTEXT_GRAPH'];
     process.env['LUCID_CONTEXT_GRAPH'] = '1';
 
-    // Re-import to pick up env at module scope. Since the flag is read at
-    // module init time, we test indirectly: the graph is initialized when
-    // adapter.id === 'openai'. We verify the behavior by ensuring execution
-    // completes without error and returns the expected content.
-    const agent = new AgentOrchestrator(openaiAdapter, toolRegistry, resolvePrompt);
-    const events: unknown[] = [];
-    const result = await agent.execute('Hello from graph path', {}, (e) => events.push(e));
+    try {
+      const agent = new AgentOrchestrator(openaiAdapter, toolRegistry, resolvePrompt);
+      const events: unknown[] = [];
+      const result = await agent.execute('Hello from graph path', {}, (e) => events.push(e));
 
-    // Clean up env
-    if (original === undefined) {
-      delete process.env['LUCID_CONTEXT_GRAPH'];
-    } else {
-      process.env['LUCID_CONTEXT_GRAPH'] = original;
+      expect(result.content).toBe('Graph path response.');
+      expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
+
+      // Verify the LLM adapter was invoked with a non-empty messages array
+      // and that the first kept message is a system prompt.
+      expect(capturedRequests.length).toBeGreaterThan(0);
+      const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
+      expect(firstRequest[0]!.role).toBe('system');
+    } finally {
+      if (original === undefined) delete process.env['LUCID_CONTEXT_GRAPH'];
+      else process.env['LUCID_CONTEXT_GRAPH'] = original;
     }
-
-    expect(result.content).toBe('Graph path response.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
   });
 });

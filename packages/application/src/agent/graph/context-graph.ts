@@ -21,6 +21,15 @@ import type {
   CompactionResult,
 } from '@lucid-fin/contracts';
 import { evaluate } from './compaction.js';
+import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
+
+/**
+ * Tool categories where identity-based dedup is SAFE. These are read-only
+ * (idempotent) operations — the newest result always supersedes prior calls
+ * with the same args. Mutations/logs must NOT dedup: two `create` calls with
+ * identical args are two distinct state changes the model needs to see.
+ */
+const DEDUP_SAFE_CATEGORIES = new Set(['get', 'list', 'query']);
 
 /** Approximate token count for a single ContextItem (content chars / chars-per-token). */
 function estimateItemChars(item: ContextItem): number {
@@ -209,10 +218,17 @@ export class ContextGraph {
   // ── Internal helpers ───────────────────────────────────────
 
   private _addToolResult(item: ToolResultItem): void {
+    // Only dedup tools whose category is safe — read-only / idempotent.
+    // Mutations and logs must accumulate: two `character.create` calls with
+    // identical args are two distinct state changes the model needs to see.
+    const category = getToolCompactionCategory(String(item.toolKey));
+    if (!category || !DEDUP_SAFE_CATEGORIES.has(category)) {
+      this._mapSet(item);
+      return;
+    }
     const dedupKey = this._toolResultDedupKey(item);
     const existingId = this._toolResultIndex.get(dedupKey);
     if (existingId !== undefined) {
-      // Remove the superseded item from map and order
       this._mapDelete(existingId);
     }
     this._toolResultIndex.set(dedupKey, item.itemId);

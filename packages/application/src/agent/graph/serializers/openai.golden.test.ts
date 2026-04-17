@@ -1,25 +1,26 @@
 /**
- * OpenAI serializer golden tests — Phase G2a-4.
+ * OpenAI serializer golden tests — Phase G2b-1.
  *
- * Builds a graph with 1 user, 1 assistant, 2 tool results,
- * 1 entity snapshot, 1 guide; asserts the exact message array shape.
+ * Tests the new parity-preserving signature that mirrors
+ * `buildMessagesForRequest` (contextWindowTokens + tools + profile + cache).
  */
 
 import { describe, it, expect } from 'vitest';
 import { serializeForOpenAI } from './openai.js';
 import { ContextGraph } from '../context-graph.js';
-import type { ContextItem, ToolKey, TokenBudget } from '@lucid-fin/contracts';
+import type { ContextItem, ToolKey, LLMToolDefinition } from '@lucid-fin/contracts';
 import { freshContextItemId } from '@lucid-fin/contracts-parse';
 
 function mkId() {
   return freshContextItemId();
 }
 
+const EMPTY_TOOLS: LLMToolDefinition[] = [];
+
 describe('serializeForOpenAI', () => {
   it('golden test: 1 guide + 1 user + 1 assistant + 2 tool-results + 1 entity-snapshot', () => {
     const graph = new ContextGraph();
 
-    // Guide — should appear first as a system message
     const guideItem: ContextItem = {
       kind: 'guide',
       itemId: mkId(),
@@ -28,7 +29,6 @@ describe('serializeForOpenAI', () => {
       content: 'Always check canvas state before modifying nodes.',
     };
 
-    // User message
     const userItem: ContextItem = {
       kind: 'user-message',
       itemId: mkId(),
@@ -36,7 +36,6 @@ describe('serializeForOpenAI', () => {
       content: 'Update the scene.',
     };
 
-    // Assistant turn with 2 tool calls
     const assistantItem: ContextItem = {
       kind: 'assistant-turn',
       itemId: mkId(),
@@ -48,7 +47,6 @@ describe('serializeForOpenAI', () => {
       ],
     };
 
-    // Tool result 1
     const toolResult1: ContextItem = {
       kind: 'tool-result',
       itemId: mkId(),
@@ -60,7 +58,6 @@ describe('serializeForOpenAI', () => {
       toolCallId: 'tc1',
     };
 
-    // Tool result 2
     const toolResult2: ContextItem = {
       kind: 'tool-result',
       itemId: mkId(),
@@ -72,7 +69,6 @@ describe('serializeForOpenAI', () => {
       toolCallId: 'tc2',
     };
 
-    // Entity snapshot
     const snapshotItem: ContextItem = {
       kind: 'entity-snapshot',
       itemId: mkId(),
@@ -88,8 +84,11 @@ describe('serializeForOpenAI', () => {
     graph.add(toolResult2);
     graph.add(snapshotItem);
 
-    const budget: TokenBudget = { tokens: 100000, charsPerToken: 4 };
-    const messages = serializeForOpenAI(graph, budget);
+    const { wireMessages: messages } = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 100000,
+      tools: EMPTY_TOOLS,
+    });
 
     // Guide must be first and is a system message
     expect(messages[0]).toStrictEqual({ role: 'system', content: guideItem.content });
@@ -141,7 +140,6 @@ describe('serializeForOpenAI', () => {
       content: 'guide',
     });
 
-    // Add many large user messages
     for (let i = 0; i < 10; i++) {
       graph.add({
         kind: 'user-message',
@@ -151,15 +149,16 @@ describe('serializeForOpenAI', () => {
       });
     }
 
-    // Tiny budget: only the guide + 1 user message should fit
-    const budget: TokenBudget = { tokens: 300, charsPerToken: 4 };
-    const messages = serializeForOpenAI(graph, budget);
+    // Tiny context window — after subtracting output reserve + tool schema,
+    // only the guide + 1 user message should fit
+    const { wireMessages: messages } = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 5000, // 5000 - 4096 reserve = 904 tokens for rest
+      tools: EMPTY_TOOLS,
+    });
 
-    // Guide always present
     expect(messages[0]).toMatchObject({ role: 'system', content: 'guide' });
-    // At least something fits after the guide
     expect(messages.length).toBeGreaterThanOrEqual(1);
-    // Not all 10 user messages should be included (budget too tight)
     const userMsgs = messages.filter((m) => m.role === 'user');
     expect(userMsgs.length).toBeLessThan(10);
   });
@@ -183,10 +182,12 @@ describe('serializeForOpenAI', () => {
     graph.add(userItem);
     graph.add(refItem);
 
-    const budget: TokenBudget = { tokens: 100000, charsPerToken: 4 };
-    const messages = serializeForOpenAI(graph, budget);
+    const { wireMessages: messages } = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 100000,
+      tools: EMPTY_TOOLS,
+    });
 
-    // The reference should render as the referenced user message (content duplicated)
     const userMessages = messages.filter((m) => m.role === 'user');
     expect(userMessages.length).toBe(2);
     expect(userMessages[0]!.content).toBe('original message');
@@ -204,12 +205,95 @@ describe('serializeForOpenAI', () => {
       content: 'Earlier: checked canvas, added 3 nodes.',
     });
 
-    const budget: TokenBudget = { tokens: 100000, charsPerToken: 4 };
-    const messages = serializeForOpenAI(graph, budget);
+    const { wireMessages: messages } = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 100000,
+      tools: EMPTY_TOOLS,
+    });
 
     expect(messages).toHaveLength(1);
     expect(messages[0]!.role).toBe('system');
     expect(messages[0]!.content).toContain('<summary>');
     expect(messages[0]!.content).toContain('Earlier: checked canvas');
+  });
+
+  it('process-prompt system-messages sit between primary system and history', () => {
+    const graph = new ContextGraph();
+    graph.add({
+      kind: 'guide',
+      itemId: mkId(),
+      producedAtStep: 0,
+      guideKey: 'root',
+      content: 'ROOT SYSTEM',
+    });
+    graph.add({
+      kind: 'user-message',
+      itemId: mkId(),
+      producedAtStep: 1,
+      content: 'first user',
+    });
+    graph.add({
+      kind: 'system-message',
+      itemId: mkId(),
+      producedAtStep: 2,
+      content: '[[process-prompt:image-gen]]\nProcess details',
+    });
+    graph.add({
+      kind: 'user-message',
+      itemId: mkId(),
+      producedAtStep: 3,
+      content: 'second user',
+    });
+
+    const { wireMessages: messages } = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 100000,
+      tools: EMPTY_TOOLS,
+    });
+
+    // Order: primary-system, process-prompt(s), history…
+    expect(messages[0]!.role).toBe('system');
+    expect(messages[0]!.content).toContain('ROOT SYSTEM');
+    expect(messages[1]!.role).toBe('system');
+    expect(messages[1]!.content).toContain('[[process-prompt:image-gen]]');
+    const userMsgs = messages.filter((m) => m.role === 'user');
+    expect(userMsgs.map((m) => m.content)).toEqual(['first user', 'second user']);
+  });
+
+  it('tool name sanitization when profile.sanitizeToolNames is true', () => {
+    const graph = new ContextGraph();
+    graph.add({
+      kind: 'assistant-turn',
+      itemId: mkId(),
+      producedAtStep: 1,
+      content: 'calling tool',
+      toolCalls: [{ id: 'tc1', name: 'canvas.getNode', arguments: {} }],
+    });
+    graph.add({
+      kind: 'tool-result',
+      itemId: mkId(),
+      producedAtStep: 1,
+      toolKey: 'canvas.getNode' as ToolKey,
+      paramsHash: '{}',
+      content: { ok: true },
+      schemaVersion: 1,
+      toolCallId: 'tc1',
+    });
+
+    const tools: LLMToolDefinition[] = [
+      { name: 'canvas.getNode', description: 'Get a node', parameters: { type: 'object', properties: {} } },
+    ];
+
+    const result = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 100000,
+      tools,
+      profile: { providerId: 'openai', charsPerToken: 4, sanitizeToolNames: true, outputReserveTokens: 4096 },
+    });
+
+    const assistantMsg = result.wireMessages.find((m) => m.role === 'assistant');
+    expect(assistantMsg!.toolCalls![0]!.name).toBe('canvas_getNode');
+    expect(result.wireTools[0]!.name).toBe('canvas_getNode');
+    expect(result.toolNameReverseMap.get('canvas_getNode')).toBe('canvas.getNode');
   });
 });
