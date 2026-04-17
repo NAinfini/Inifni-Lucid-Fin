@@ -68,3 +68,10 @@ export type {
   EpisodeRecord,
   EpisodeUpsertInput,
 } from './repositories/series-repository.js';
+
+// ── Phase G1-2.8: PresetRepository ─────────────────────────────
+export { PresetRepository } from './repositories/preset-repository.js';
+export type {
+  PresetOverrideRecord,
+  PresetOverrideUpsertInput,
+} from './repositories/preset-repository.js';

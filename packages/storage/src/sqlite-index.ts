@@ -40,9 +40,6 @@ import {
   deleteColorStyle as _deleteColorStyle,
   addDependency as _addDependency,
   getDependents as _getDependents,
-  upsertPresetOverride as _upsertPresetOverride,
-  listPresetOverrides as _listPresetOverrides,
-  deletePresetOverride as _deletePresetOverride,
 } from './sqlite-content.js';
 import {
   insertSnapshot as _insertSnapshot,
@@ -101,7 +98,12 @@ import {
   type EpisodeRecord,
   type EpisodeUpsertInput,
 } from './repositories/series-repository.js';
-import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId } from '@lucid-fin/contracts';
+import {
+  PresetRepository,
+  type PresetOverrideRecord,
+  type PresetOverrideUpsertInput,
+} from './repositories/preset-repository.js';
+import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -477,6 +479,7 @@ export class SqliteIndex implements IStorageLayer {
   private canvases!: CanvasRepository;
   private entities!: EntityRepository;
   private seriesRepo!: SeriesRepository;
+  private presets!: PresetRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -503,6 +506,7 @@ export class SqliteIndex implements IStorageLayer {
     this.canvases = new CanvasRepository(this.db);
     this.entities = new EntityRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
+    this.presets = new PresetRepository(this.db);
   }
 
   close(): void {
@@ -564,6 +568,7 @@ export class SqliteIndex implements IStorageLayer {
     this.canvases = new CanvasRepository(this.db);
     this.entities = new EntityRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
+    this.presets = new PresetRepository(this.db);
   }
 
   // --- Assets ---
@@ -647,9 +652,9 @@ export class SqliteIndex implements IStorageLayer {
   deleteEpisode(id: string): void { this.seriesRepo.deleteEpisode(id as EpisodeId); }
 
   // --- Preset Overrides ---
-  upsertPresetOverride(override: Parameters<typeof _upsertPresetOverride>[1]): void { _upsertPresetOverride(this.db, override); }
-  listPresetOverrides(): ReturnType<typeof _listPresetOverrides> { return _listPresetOverrides(this.db); }
-  deletePresetOverride(id: string): void { _deletePresetOverride(this.db, id); }
+  upsertPresetOverride(override: PresetOverrideUpsertInput): void { this.presets.upsertOverride(override); }
+  listPresetOverrides(): PresetOverrideRecord[] { return this.presets.listOverrides().rows; }
+  deletePresetOverride(id: string): void { this.presets.deleteOverride(id as PresetId); }
 
   // --- Sessions ---
   // Delegated to `SessionRepository` (Phase G1-2.1). Legacy `string` IDs are
