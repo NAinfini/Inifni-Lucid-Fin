@@ -40,3 +40,6 @@ export {
   type HealthPingRequest,
   type HealthPingResponse,
 } from './ipc/index.js';
+
+// Batch 1 — settings + script
+export * from './ipc/channels/batch-01.js';

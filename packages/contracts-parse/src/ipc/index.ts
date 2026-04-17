@@ -7,6 +7,7 @@
  * the preload bundle and the pure-type `LucidAPI` interface.
  */
 import { healthChannels } from './channels/health.js';
+import { settingsChannels, scriptChannels } from './channels/batch-01.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
 export type {
@@ -14,8 +15,12 @@ export type {
   HealthPingResponse,
 } from './channels/health.js';
 
+// Batch 1 — settings + script
+export * from './channels/batch-01.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
-  // Phase B-1 batches append here.
+  ...settingsChannels,
+  ...scriptChannels,
 ] as const;
