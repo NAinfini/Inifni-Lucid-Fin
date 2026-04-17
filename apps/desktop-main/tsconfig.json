@@ -9,6 +9,7 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/contracts" },
+    { "path": "../../packages/contracts-parse" },
     { "path": "../../packages/storage" },
     { "path": "../../packages/adapters-ai" },
     { "path": "../../packages/application" }

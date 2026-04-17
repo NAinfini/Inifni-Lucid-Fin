@@ -12,7 +12,7 @@ export * from './dto/script.js';
 export * from './dto/color-style.js';
 export * from './dto/workflow.js';
 export * from './dto/canvas.js';
-export * from './dto/presets.js';
+export * from './dto/presets/index.js';
 export * from './llm-provider.js';
 export * from './provider-media.js';
 
@@ -86,3 +86,11 @@ export type {
   TableDef,
   ColumnDef,
 } from './types/table-types.js';
+
+// ── Phase B: IPC single source of truth ────────────────────────
+// The generated `LucidAPI` interface — emitted by scripts/gen-preload.ts
+// from the channel registry in contracts-parse. Pure types, zero zod.
+export type {
+  LucidAPI,
+  LucidAPIInfrastructure,
+} from './ipc/lucid-api.generated.js';

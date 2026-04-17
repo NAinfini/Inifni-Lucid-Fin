@@ -1,3 +1,17 @@
+/**
+ * Last-resort IPC error wrapper (Phase B-5).
+ *
+ * The typed registrar in `features/ipc/registrar.ts` is the preferred
+ * entry point for new channels — it already converts validation failures,
+ * aborts, and unknown throws into `LucidError`. This module remains for
+ * hand-written `ipcMain.handle` call sites that have not yet been migrated
+ * to the registrar. Its only job is to guarantee that every non-registrar
+ * handler still serializes its error as an `IpcErrorPayload` with a
+ * `LucidError`-derived `code`.
+ *
+ * Do not call this from new code. Add the channel to the registry and use
+ * `registerInvoke` / `registerReply` / `registerPush` instead.
+ */
 import log from '../logger.js';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
@@ -14,24 +28,25 @@ export interface IpcErrorPayload {
   details?: Record<string, unknown>;
 }
 
-function toIpcError(error: unknown, _channel: string): IpcErrorPayload {
-  if (error instanceof LucidError) {
-    return {
-      __ipcError: true,
-      code: error.code,
-      message: error.message,
-      retryable: (error.details as Record<string, unknown> | undefined)?.retryable === true,
-      details: error.details as Record<string, unknown> | undefined,
-    };
-  }
-
-  const message = error instanceof Error ? error.message : String(error);
+/**
+ * Convert any thrown value into the renderer-facing `IpcErrorPayload`
+ * envelope. Shared between the typed registrar and legacy `safeHandle`.
+ */
+export function toIpcErrorPayload(error: unknown): IpcErrorPayload {
+  const lucid =
+    error instanceof LucidError ? error : LucidError.fromUnknown(error, ErrorCode.Unknown);
+  const details = lucid.details as Record<string, unknown> | undefined;
   return {
     __ipcError: true,
-    code: ErrorCode.Unknown,
-    message,
-    retryable: false,
+    code: lucid.code,
+    message: lucid.message,
+    retryable: details?.retryable === true,
+    details,
   };
+}
+
+function toIpcError(error: unknown, _channel: string): IpcErrorPayload {
+  return toIpcErrorPayload(error);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- must match Electron's own IpcMain.handle signature
