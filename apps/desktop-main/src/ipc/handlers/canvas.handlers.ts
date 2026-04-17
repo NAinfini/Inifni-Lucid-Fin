@@ -4,6 +4,7 @@ import log from '../../logger.js';
 import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
 import { LRUCache } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { parseCanvasId } from '@lucid-fin/contracts-parse';
 
 interface CanvasPatch {
   canvasId: string;
@@ -65,24 +66,31 @@ export interface CanvasStore {
 
 export function createCanvasStore(db: SqliteIndex): CanvasStore {
   const cache = new LRUCache<string, Canvas>(50);
+  const { canvases } = db.repos;
 
   return {
     get: (id) => {
-      const cached = cache.get(id);
+      const canvasId = parseCanvasId(id);
+      const cached = cache.get(canvasId);
       if (cached) return cached;
-      const fromDb = db.getCanvas(id);
-      if (fromDb) cache.set(id, fromDb);
+      const fromDb = canvases.get(canvasId);
+      if (fromDb) cache.set(canvasId, fromDb);
       return fromDb;
     },
     save: (canvas) => {
-      cache.set(canvas.id, canvas);
-      db.upsertCanvas(canvas);
+      // Canonicalize before persistence so cache, DB, and subsequent
+      // get()/delete() calls all key off the same normalized id.
+      const canvasId = parseCanvasId(canvas.id);
+      canvas.id = canvasId;
+      cache.set(canvasId, canvas);
+      canvases.upsert(canvas);
     },
     delete: (id) => {
-      cache.delete(id);
-      db.deleteCanvas(id);
+      const canvasId = parseCanvasId(id);
+      cache.delete(canvasId);
+      canvases.delete(canvasId);
     },
-    list: () => db.listCanvases(),
+    list: () => canvases.list(),
   };
 }
 
