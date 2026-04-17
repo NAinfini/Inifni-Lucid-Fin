@@ -10,6 +10,7 @@ import {
   type PresetResetRequest,
 } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { parsePresetId } from '@lucid-fin/contracts-parse';
 
 interface ProjectPresetState {
   builtInOverrides: Map<string, PresetDefinition>;
@@ -30,7 +31,7 @@ function getPresetState(): ProjectPresetState {
   };
   // Hydrate from SQLite
   if (_db) {
-    const overrides = _db.listPresetOverrides();
+    const overrides = _db.repos.presets.listOverrides().rows;
     for (const row of overrides) {
       const preset: PresetDefinition = {
         id: row.isUser ? row.id : row.presetId,
@@ -57,7 +58,7 @@ function getPresetState(): ProjectPresetState {
 function persistOverride(preset: PresetDefinition, isUser: boolean): void {
   if (!_db) return;
   const now = Date.now();
-  _db.upsertPresetOverride({
+  _db.repos.presets.upsertOverride({
     id: isUser ? preset.id : `override:${preset.id}`,
     presetId: preset.id,
     category: preset.category,
@@ -75,7 +76,7 @@ function persistOverride(preset: PresetDefinition, isUser: boolean): void {
 function removePersistedOverride(presetId: string, isUser: boolean): void {
   if (!_db) return;
   const id = isUser ? presetId : `override:${presetId}`;
-  _db.deletePresetOverride(id);
+  _db.repos.presets.deleteOverride(parsePresetId(id));
 }
 
 function clonePreset(preset: PresetDefinition): PresetDefinition {
