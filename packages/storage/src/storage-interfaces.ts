@@ -8,7 +8,6 @@ import type {
   ScriptDocument,
   ColorStyle,
   Series,
-  ShotTemplate,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
@@ -25,8 +24,6 @@ import type {
 import type {
   upsertEpisode as _upsertEpisode,
   listEpisodes as _listEpisodes,
-  upsertPresetOverride as _upsertPresetOverride,
-  listPresetOverrides as _listPresetOverrides,
 } from './sqlite-content.js';
 import type {
   updateJob as _updateJob,
@@ -122,14 +119,12 @@ export interface ISeriesStore {
 }
 
 /** Preset overrides and custom shot templates */
-export interface IPresetStore {
-  upsertPresetOverride(override: Parameters<typeof _upsertPresetOverride>[1]): void;
-  listPresetOverrides(): ReturnType<typeof _listPresetOverrides>;
-  deletePresetOverride(id: string): void;
-  listCustomShotTemplates(): ShotTemplate[];
-  upsertCustomShotTemplate(template: ShotTemplate): void;
-  deleteCustomShotTemplate(templateId: string): void;
-}
+/** Preset overrides and custom shot templates — migrated to
+ *  SqliteIndex.repos.presets / SqliteIndex.repos.shotTemplates (G1-4.3).
+ *  Interface kept as an empty marker for callers that still reference the
+ *  type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IPresetStore {}
 
 /** Commander sessions — migrated to SqliteIndex.repos.sessions (G1-4.2).
  *  Interface kept as an empty marker for callers that still reference the

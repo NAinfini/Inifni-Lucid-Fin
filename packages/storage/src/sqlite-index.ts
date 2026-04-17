@@ -10,7 +10,6 @@ import type {
   ScriptDocument,
   ColorStyle,
   Series,
-  ShotTemplate,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
@@ -86,15 +85,11 @@ import {
   type EpisodeRecord,
   type EpisodeUpsertInput,
 } from './repositories/series-repository.js';
-import {
-  PresetRepository,
-  type PresetOverrideRecord,
-  type PresetOverrideUpsertInput,
-} from './repositories/preset-repository.js';
+import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
+import type { JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -686,9 +681,9 @@ export class SqliteIndex implements IStorageLayer {
   deleteEpisode(id: string): void { this.seriesRepo.deleteEpisode(id as EpisodeId); }
 
   // --- Preset Overrides ---
-  upsertPresetOverride(override: PresetOverrideUpsertInput): void { this.presets.upsertOverride(override); }
-  listPresetOverrides(): PresetOverrideRecord[] { return this.presets.listOverrides().rows; }
-  deletePresetOverride(id: string): void { this.presets.deleteOverride(id as PresetId); }
+  // Migrated to `this.repos.presets.*` (Phase G1-4.3). Facade methods
+  // removed; callers use `db.repos.presets.upsertOverride/listOverrides/
+  // deleteOverride` directly.
 
   // --- Workflow Runs ---
   insertWorkflowRun(run: WorkflowRun): void { this.workflows.insertRun(run); }
@@ -727,22 +722,10 @@ export class SqliteIndex implements IStorageLayer {
   recomputeStageAggregate(stageRunId: string): void { this.workflows.recomputeStageAggregate(stageRunId as WorkflowStageId); }
   recomputeWorkflowAggregate(workflowRunId: string): void { this.workflows.recomputeWorkflowAggregate(workflowRunId as WorkflowRunId); }
 
-
   // ---------------------------------------------------------------------------
-  // Custom shot templates
+  // Custom shot templates — migrated to `this.repos.shotTemplates.*`
+  // (Phase G1-4.3). Facade methods removed.
   // ---------------------------------------------------------------------------
-
-  listCustomShotTemplates(): ShotTemplate[] {
-    return this.shotTemplates.list().rows;
-  }
-
-  upsertCustomShotTemplate(template: ShotTemplate): void {
-    this.shotTemplates.upsert(template);
-  }
-
-  deleteCustomShotTemplate(templateId: string): void {
-    this.shotTemplates.delete(templateId as ShotTemplateId);
-  }
 
   // ---------------------------------------------------------------------------
   // Storage management
