@@ -149,3 +149,10 @@ export {
   PresetOverrideSchema,
   type PresetOverrideDto,
 } from './dto/preset.js';
+
+// ── Phase G1-2.9: ShotTemplateId parser + ShotTemplate DTO ─────
+export { parseShotTemplateId, tryShotTemplateId } from './brands/shot-template-id.js';
+export {
+  ShotTemplateSchema,
+  type ShotTemplateDto,
+} from './dto/shot-template.js';
