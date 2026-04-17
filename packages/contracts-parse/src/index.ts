@@ -156,3 +156,10 @@ export {
   ShotTemplateSchema,
   type ShotTemplateDto,
 } from './dto/shot-template.js';
+
+// ── Phase G1-2.10: SnapshotId parser + StoredSnapshot DTO ──────
+export { parseSnapshotId, trySnapshotId } from './brands/snapshot-id.js';
+export {
+  StoredSnapshotSchema,
+  type StoredSnapshotDto,
+} from './dto/snapshot.js';

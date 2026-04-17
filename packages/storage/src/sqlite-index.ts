@@ -42,14 +42,6 @@ import {
   getDependents as _getDependents,
 } from './sqlite-content.js';
 import {
-  insertSnapshot as _insertSnapshot,
-  getSnapshot as _getSnapshot,
-  listSnapshots as _listSnapshots,
-  deleteSnapshot as _deleteSnapshot,
-  pruneSnapshots as _pruneSnapshots,
-  pruneSnapshotsTiered as _pruneSnapshotsTiered,
-  captureSnapshot as _captureSnapshot,
-  restoreSnapshot as _restoreSnapshot,
   type StoredSession,
   type StoredSnapshot,
 } from './sqlite-snapshots.js';
@@ -104,7 +96,8 @@ import {
   type PresetOverrideUpsertInput,
 } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
-import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId } from '@lucid-fin/contracts';
+import { SnapshotRepository } from './repositories/snapshot-repository.js';
+import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId, SnapshotId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -482,6 +475,7 @@ export class SqliteIndex implements IStorageLayer {
   private seriesRepo!: SeriesRepository;
   private presets!: PresetRepository;
   private shotTemplates!: ShotTemplateRepository;
+  private snapshots!: SnapshotRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -510,6 +504,7 @@ export class SqliteIndex implements IStorageLayer {
     this.seriesRepo = new SeriesRepository(this.db);
     this.presets = new PresetRepository(this.db);
     this.shotTemplates = new ShotTemplateRepository(this.db);
+    this.snapshots = new SnapshotRepository(this.db);
   }
 
   close(): void {
@@ -573,6 +568,7 @@ export class SqliteIndex implements IStorageLayer {
     this.seriesRepo = new SeriesRepository(this.db);
     this.presets = new PresetRepository(this.db);
     this.shotTemplates = new ShotTemplateRepository(this.db);
+    this.snapshots = new SnapshotRepository(this.db);
   }
 
   // --- Assets ---
@@ -678,16 +674,16 @@ export class SqliteIndex implements IStorageLayer {
   }
 
   // --- Snapshots ---
-  insertSnapshot(s: StoredSnapshot): void { _insertSnapshot(this.db, s); }
-  getSnapshot(id: string): StoredSnapshot | undefined { return _getSnapshot(this.db, id); }
-  listSnapshots(sessionId: string): StoredSnapshot[] { return _listSnapshots(this.db, sessionId); }
-  deleteSnapshot(id: string): void { _deleteSnapshot(this.db, id); }
-  pruneSnapshots(sessionId: string, maxKeep: number): void { _pruneSnapshots(this.db, sessionId, maxKeep); }
-  pruneSnapshotsTiered(): void { _pruneSnapshotsTiered(this.db); }
+  insertSnapshot(s: StoredSnapshot): void { this.snapshots.insert(s); }
+  getSnapshot(id: string): StoredSnapshot | undefined { return this.snapshots.get(id as SnapshotId); }
+  listSnapshots(sessionId: string): StoredSnapshot[] { return this.snapshots.list(sessionId as SessionId).rows; }
+  deleteSnapshot(id: string): void { this.snapshots.delete(id as SnapshotId); }
+  pruneSnapshots(sessionId: string, maxKeep: number): void { this.snapshots.prune(sessionId as SessionId, maxKeep); }
+  pruneSnapshotsTiered(): void { this.snapshots.pruneTiered(); }
   captureSnapshot(sessionId: string, label: string, trigger: 'auto' | 'manual'): StoredSnapshot {
-    return _captureSnapshot(this.db, sessionId, label, trigger);
+    return this.snapshots.capture(sessionId as SessionId, label, trigger);
   }
-  restoreSnapshot(snapshotId: string): void { _restoreSnapshot(this.db, snapshotId); }
+  restoreSnapshot(snapshotId: string): void { this.snapshots.restore(snapshotId as SnapshotId); }
 
   // --- Workflow Runs ---
   insertWorkflowRun(run: WorkflowRun): void { _insertWorkflowRun(this.db, run); }
