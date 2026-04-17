@@ -21,6 +21,12 @@ import { initCrashReporter } from './crash-reporter.js';
 import { mark, logStartupMetrics } from './startup-metrics.js';
 import { configureUserDataPath } from './user-data-path.js';
 import { updateSettingsCache } from './ipc/settings-cache.js';
+import { createRendererPushGateway } from './features/ipc/push-gateway.js';
+import {
+  loggerEntryChannel,
+  appReadyChannel,
+  appInitErrorChannel,
+} from '@lucid-fin/contracts-parse';
 import {
   initAutoUpdater,
   checkForUpdates,
@@ -41,6 +47,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 let earlyIpcRegistered = false;
+
+// Module-scope gateway bound to the current `mainWindow`. Used for the
+// app-level push channels (`app:ready`, `app:init-error`) that fire during
+// boot/teardown. `logger:entry` uses its own short-lived gateway per
+// `attachWindowLogForwarder` call because it captures a specific window.
+const mainWindowGateway = createRendererPushGateway({
+  getWindow: () => mainWindow,
+});
 
 function registerEarlyIpcHandlers(): void {
   if (earlyIpcRegistered) return;
@@ -80,9 +94,11 @@ export function logWindowCreated(): void {
 }
 
 export function attachWindowLogForwarder(window: BrowserWindow | null): void {
+  // Route `logger:entry` pushes through the typed gateway so payload drift
+  // surfaces loudly in main rather than in the renderer.
+  const gateway = createRendererPushGateway({ getWindow: () => window });
   setLogForwarder((entry) => {
-    if (!window || window.isDestroyed()) return;
-    window.webContents.send('logger:entry', entry);
+    gateway.emit(loggerEntryChannel, entry);
   });
   log.debug('Logger forwarder attached', {
     category: 'startup',
@@ -346,14 +362,12 @@ app.whenReady().then(async () => {
 
     // Notify renderer that backend is ready
     mark('fully-loaded');
-    mainWindow.webContents.send('app:ready');
+    mainWindowGateway.emit(appReadyChannel, undefined);
     log.info('Lucid Fin initialized successfully');
     logStartupMetrics();
   } catch (err) {
     log.error('Initialization failed:', err);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('app:init-error', String(err));
-    }
+    mainWindowGateway.emit(appInitErrorChannel, String(err));
   }
 });
 
