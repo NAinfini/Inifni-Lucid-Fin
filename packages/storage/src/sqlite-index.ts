@@ -32,13 +32,6 @@ import {
   listJobs as _listJobs,
 } from './sqlite-jobs.js';
 import {
-  upsertCanvas as _upsertCanvas,
-  getCanvas as _getCanvas,
-  listCanvases as _listCanvases,
-  listCanvasesFull as _listCanvasesFull,
-  deleteCanvas as _deleteCanvas,
-} from './sqlite-canvases.js';
-import {
   upsertCharacter as _upsertCharacter,
   getCharacter as _getCharacter,
   listCharacters as _listCharacters,
@@ -116,7 +109,8 @@ import { migrations } from './migrations/index.js';
 import { SessionRepository } from './repositories/session-repository.js';
 import { JobRepository } from './repositories/job-repository.js';
 import { AssetRepository } from './repositories/asset-repository.js';
-import type { SessionId, JobId, AssetHash } from '@lucid-fin/contracts';
+import { CanvasRepository } from './repositories/canvas-repository.js';
+import type { SessionId, JobId, AssetHash, CanvasId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -489,6 +483,7 @@ export class SqliteIndex implements IStorageLayer {
   private sessions!: SessionRepository;
   private jobs!: JobRepository;
   private assets!: AssetRepository;
+  private canvases!: CanvasRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -512,6 +507,7 @@ export class SqliteIndex implements IStorageLayer {
     this.sessions = new SessionRepository(this.db);
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
+    this.canvases = new CanvasRepository(this.db);
   }
 
   close(): void {
@@ -570,6 +566,7 @@ export class SqliteIndex implements IStorageLayer {
     this.sessions = new SessionRepository(this.db);
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
+    this.canvases = new CanvasRepository(this.db);
   }
 
   // --- Assets ---
@@ -604,11 +601,13 @@ export class SqliteIndex implements IStorageLayer {
   listJobs(filter?: { status?: string }): Job[] { return this.jobs.list(filter).rows; }
 
   // --- Canvases ---
-  upsertCanvas(canvas: Canvas): void { _upsertCanvas(this.db, canvas); }
-  getCanvas(id: string): Canvas | undefined { return _getCanvas(this.db, id); }
-  listCanvases(): Array<{ id: string; name: string; updatedAt: number }> { return _listCanvases(this.db); }
-  listCanvasesFull(): Canvas[] { return _listCanvasesFull(this.db); }
-  deleteCanvas(id: string): void { _deleteCanvas(this.db, id); }
+  upsertCanvas(canvas: Canvas): void { this.canvases.upsert(canvas); }
+  getCanvas(id: string): Canvas | undefined { return this.canvases.get(id as CanvasId); }
+  listCanvases(): Array<{ id: string; name: string; updatedAt: number }> {
+    return this.canvases.list();
+  }
+  listCanvasesFull(): Canvas[] { return this.canvases.listFull().rows; }
+  deleteCanvas(id: string): void { this.canvases.delete(id as CanvasId); }
 
   // --- Characters ---
   upsertCharacter(char: Parameters<typeof _upsertCharacter>[1]): void { _upsertCharacter(this.db, char); }
