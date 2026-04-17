@@ -13,6 +13,8 @@ const ignores = [
   '**/.turbo/**',
   '**/*.d.ts',
   '**/*.tsbuildinfo',
+  '**/*.generated.ts',
+  '**/*.generated.cts',
 ];
 
 export default tseslint.config(

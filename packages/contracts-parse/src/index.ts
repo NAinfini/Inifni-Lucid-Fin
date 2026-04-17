@@ -31,3 +31,12 @@ export {
 
 // Table factory
 export { defineTable, col } from './tables.js';
+
+// Channel registry (seed — Phase B batches append here)
+export {
+  allChannels,
+  healthPingChannel,
+  healthChannels,
+  type HealthPingRequest,
+  type HealthPingResponse,
+} from './ipc/index.js';

@@ -86,3 +86,11 @@ export type {
   TableDef,
   ColumnDef,
 } from './types/table-types.js';
+
+// ── Phase B: IPC single source of truth ────────────────────────
+// The generated `LucidAPI` interface — emitted by scripts/gen-preload.ts
+// from the channel registry in contracts-parse. Pure types, zero zod.
+export type {
+  LucidAPI,
+  LucidAPIInfrastructure,
+} from './ipc/lucid-api.generated.js';
