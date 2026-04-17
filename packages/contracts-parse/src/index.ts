@@ -98,3 +98,7 @@ export {
   ProcessPromptRecordSchema,
   type ProcessPromptRecordDto,
 } from './dto/process-prompt-record.js';
+
+// ── Phase G1-2.3: JobId parser + Job DTO ───────────────────────
+export { parseJobId, tryJobId } from './brands/job-id.js';
+export { JobSchema, type JobDto } from './dto/job.js';
