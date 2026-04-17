@@ -80,10 +80,6 @@ import {
   deletePresetOverride as _deletePresetOverride,
 } from './sqlite-content.js';
 import {
-  upsertSession as _upsertSession,
-  getSession as _getSession,
-  listSessions as _listSessions,
-  deleteSession as _deleteSession,
   insertSnapshot as _insertSnapshot,
   getSnapshot as _getSnapshot,
   listSnapshots as _listSnapshots,
@@ -125,6 +121,8 @@ import {
 import type { IStorageLayer } from './storage-interfaces.js';
 import { runMigrations, getCurrentVersion } from './migrations/runner.js';
 import { migrations } from './migrations/index.js';
+import { SessionRepository } from './repositories/session-repository.js';
+import type { SessionId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -494,6 +492,7 @@ END;
 
 export class SqliteIndex implements IStorageLayer {
   private db: BetterSqlite3.Database;
+  private sessions!: SessionRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -513,6 +512,8 @@ export class SqliteIndex implements IStorageLayer {
       runMigrations(this.db, migrations);
     }
     // Else: DB is up-to-date — skip schema and migrations entirely
+
+    this.sessions = new SessionRepository(this.db);
   }
 
   close(): void {
@@ -566,6 +567,9 @@ export class SqliteIndex implements IStorageLayer {
     } catch { /* backup DB unreadable — fresh DB is still valid */
       /* backup unreadable -- fresh DB is still valid */
     }
+
+    // Repo handles pin to the live db — rebuild after the swap above.
+    this.sessions = new SessionRepository(this.db);
   }
 
   // --- Assets ---
@@ -640,10 +644,21 @@ export class SqliteIndex implements IStorageLayer {
   deletePresetOverride(id: string): void { _deletePresetOverride(this.db, id); }
 
   // --- Sessions ---
-  upsertSession(s: StoredSession): void { _upsertSession(this.db, s); }
-  getSession(id: string): StoredSession | undefined { return _getSession(this.db, id); }
-  listSessions(limit?: number): StoredSession[] { return _listSessions(this.db, limit); }
-  deleteSession(id: string): void { _deleteSession(this.db, id); }
+  // Delegated to `SessionRepository` (Phase G1-2.1). Legacy `string` IDs are
+  // re-branded at this boundary; Phase G1-5 consumer migration will lift
+  // branding into the handlers themselves, removing these casts.
+  upsertSession(s: StoredSession): void {
+    this.sessions.upsert({ ...s, id: s.id as SessionId });
+  }
+  getSession(id: string): StoredSession | undefined {
+    return this.sessions.get(id as SessionId);
+  }
+  listSessions(limit?: number): StoredSession[] {
+    return this.sessions.list(limit).rows;
+  }
+  deleteSession(id: string): void {
+    this.sessions.delete(id as SessionId);
+  }
 
   // --- Snapshots ---
   insertSnapshot(s: StoredSnapshot): void { _insertSnapshot(this.db, s); }
