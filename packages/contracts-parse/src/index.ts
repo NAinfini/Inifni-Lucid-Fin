@@ -55,3 +55,6 @@ export * from './ipc/channels/batch-04.js';
 
 // Batch 5 — job
 export * from './ipc/channels/batch-05.js';
+
+// Batch 6 — workflow
+export * from './ipc/channels/batch-06.js';
