@@ -12,7 +12,7 @@ export * from './dto/script.js';
 export * from './dto/color-style.js';
 export * from './dto/workflow.js';
 export * from './dto/canvas.js';
-export * from './dto/presets.js';
+export * from './dto/presets/index.js';
 export * from './llm-provider.js';
 export * from './provider-media.js';
 

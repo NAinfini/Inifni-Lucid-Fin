@@ -22,7 +22,7 @@ import type {
   PresetLibraryExportRequest,
   PresetLibraryImportPayload,
   PresetResetRequest,
-} from './dto/presets.js';
+} from './dto/presets/index.js';
 import type { LLMProviderRuntimeConfig, LLMProviderRuntimeInput } from './llm-provider.js';
 
 /** Session stored in SQLite — lightweight chat-history record. */

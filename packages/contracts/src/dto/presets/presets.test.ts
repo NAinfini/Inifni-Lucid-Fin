@@ -4,7 +4,7 @@ import {
   BUILT_IN_SHOT_TEMPLATES,
   PRESET_CATEGORIES,
   createEmptyPresetTrackSet,
-} from "./presets.js";
+} from "./index.js";
 
 describe("presets DTO", () => {
   it("exports all preset categories in a stable order", () => {
