@@ -14,10 +14,7 @@ export interface ToolDef<
     readonly params: ZodType<Params>;
     readonly result: ZodType<Result>;
   };
-  readonly run: (
-    ctx: ToolRunContext,
-    params: Params,
-  ) => AsyncIterable<ToolEvent<Result>>;
+  run(ctx: ToolRunContext, params: Params): AsyncIterable<ToolEvent<Result>>;
 }
 
 export interface ToolRunContext {
@@ -56,6 +53,40 @@ export function defineTool<Name extends string, Params, Result>(config: {
     uiEffects: config.uiEffects,
     schemas: { params: config.params, result: config.result },
     run: config.run,
+    _types: undefined as never,
+  };
+}
+
+/**
+ * Metadata-only tool declaration — used during Phase C migration while the
+ * legacy `AgentTool` (JSON-Schema + `execute()`) pattern remains the source
+ * of truth for runtime execution. The catalog only reads metadata fields
+ * (`name`, `process`, `category`, `permission`, `uiEffects`) for its derived
+ * views; `schemas` and `run` are not populated.
+ *
+ * Structurally equivalent to `ToolDef<Name, never, never>` — `createCatalog`
+ * accepts both `defineTool()` and `defineToolMeta()` outputs.
+ */
+export function defineToolMeta<Name extends string>(config: {
+  name: Name;
+  version?: number;
+  process: string;
+  category: 'query' | 'mutation' | 'meta';
+  permission?: {
+    require: 'confirm' | 'auto';
+    prompt?: (params: never) => string;
+  };
+  uiEffects?: readonly UiEffect[];
+}): ToolDef<Name, never, never> {
+  return {
+    name: config.name,
+    version: config.version ?? 1,
+    process: config.process,
+    category: config.category,
+    permission: config.permission,
+    uiEffects: config.uiEffects,
+    schemas: undefined as never,
+    run: undefined as never,
     _types: undefined as never,
   };
 }

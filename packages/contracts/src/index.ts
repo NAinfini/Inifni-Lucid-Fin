@@ -94,3 +94,12 @@ export type {
   LucidAPI,
   LucidAPIInfrastructure,
 } from './ipc/lucid-api.generated.js';
+
+// ── Phase C-1: Tool catalog aggregator (pure types) ────────────
+// `ToolKey` is re-exported as `CatalogToolKey` to avoid colliding with the
+// legacy branded `ToolKey` above. Consumers that want the agent namespace
+// should import from '@lucid-fin/contracts/agent' (via dist) or pick names
+// explicitly. The branded `ToolKey` is slated for removal in a later phase.
+export type { ToolCatalog, ProcessCategory } from './agent/tool-catalog-type.js';
+export type { ToolKey as CatalogToolKey } from './agent/tool-catalog-type.js';
+export { ENTITY_REFRESH_TOOL_ENTITY } from './agent/entity-refresh-map.js';

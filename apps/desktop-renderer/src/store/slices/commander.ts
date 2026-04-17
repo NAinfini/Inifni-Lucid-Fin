@@ -1,6 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-// eslint-disable-next-line no-restricted-imports -- Phase C (tool-compaction-class relocation) will fix this
-import { getToolCompactionCategory } from '@lucid-fin/application/dist/agent/tool-compaction-class.js';
+import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 
 export interface CommanderToolCall {
   name: string;

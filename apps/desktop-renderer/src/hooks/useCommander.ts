@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { normalizeLLMProviderRuntimeConfig } from '@lucid-fin/contracts';
+import { normalizeLLMProviderRuntimeConfig, ENTITY_REFRESH_TOOL_ENTITY } from '@lucid-fin/contracts';
 import { store, type AppDispatch, type RootState } from '../store/index.js';
 import {
   addToolCall,
@@ -353,14 +353,18 @@ export function useCommander(): {
             dispatch(recordProjectActivity({ nodesCreated: 1 }));
           } else if (data.toolName === 'edge.create') {
             dispatch(recordProjectActivity({ edgesCreated: 1 }));
-          } else if (data.toolName === 'character.create') {
-            dispatch(recordEntityCreate({ entityType: 'character' }));
-          } else if (data.toolName === 'location.create') {
-            dispatch(recordEntityCreate({ entityType: 'location' }));
-          } else if (data.toolName === 'equipment.create') {
-            dispatch(recordEntityCreate({ entityType: 'equipment' }));
           } else if (data.toolName === 'prop.create') {
             dispatch(recordEntityCreate({ entityType: 'prop' }));
+          } else if (toolName.endsWith('.create')) {
+            // Catalog-driven: the `.create` tools of entity domains
+            // (character/location/equipment) map to their refresh bucket via
+            // `ENTITY_REFRESH_TOOL_ENTITY`. Any future entity domain that
+            // adds a `.create` tool AND an `entity.refresh` uiEffect
+            // automatically records its creation here — no branch edit.
+            const bucket = ENTITY_REFRESH_TOOL_ENTITY[toolName];
+            if (bucket === 'character' || bucket === 'location' || bucket === 'equipment') {
+              dispatch(recordEntityCreate({ entityType: bucket }));
+            }
           }
           // Sync AI-created/updated presets to Redux so inspector shows names
           if (

@@ -30,6 +30,7 @@ import {
   getProcessCategoryName,
   type ProcessCategory,
 } from './process-detection.js';
+import { ToolCatalog } from './tool-catalog.js';
 
 // Re-export types so consumers don't break
 export type { AgentContext, HistoryEntry };
@@ -83,42 +84,14 @@ export interface AgentLLMRequestDiagnostics {
 }
 
 const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOKEN);
-const INITIAL_PROCESS_CATEGORIES: readonly ProcessCategory[] = [
-  'character-ref-image-generation',
-  'location-ref-image-generation',
-  'equipment-ref-image-generation',
-  'image-node-generation',
-  'video-node-generation',
-  'audio-generation',
-  'node-preset-tracks',
-  'preset-definition-management',
-  'shot-template-management',
-  'color-style-management',
-  'character-management',
-  'location-management',
-  'equipment-management',
-  'canvas-structure',
-  'canvas-graph-and-layout',
-  'canvas-node-editing',
-  'provider-management',
-  'node-provider-selection',
-  'image-config',
-  'video-config',
-  'audio-config',
-  'script-development',
-  'vision-analysis',
-  'snapshot-and-rollback',
-  'render-and-export',
-  'workflow-orchestration',
-  'series-management',
-  'prompt-template-management',
-  'asset-library-management',
-  'job-control',
-];
 
 function isProcessCategory(value: unknown): value is ProcessCategory {
-  return typeof value === 'string'
-    && INITIAL_PROCESS_CATEGORIES.includes(value as ProcessCategory);
+  if (typeof value !== 'string') return false;
+  // Catalog-derived: every distinct `process` declared via defineToolMeta
+  // shows up as a key of `byProcess`. The meta bucket ('meta') exists there
+  // too, but callers here only pass domain categories, so no extra filter
+  // is needed.
+  return value in ToolCatalog.byProcess && value !== 'meta';
 }
 
 export class AgentOrchestrator {

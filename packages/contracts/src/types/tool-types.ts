@@ -6,7 +6,10 @@
  * can reference it without pulling zod.
  *
  * The runtime `defineTool` factory in `@lucid-fin/contracts-parse` produces
- * values conforming to this shape.
+ * values conforming to this shape. For tools that haven't been rewritten to
+ * the full `defineTool(schema + run)` contract yet, `defineToolMeta` produces
+ * a metadata-only value with `_types: never` and no `run` — sufficient for
+ * catalog-derived views (`byProcess`, `mutatingKeys`, `uiEffectsByKey`).
  */
 
 /** UI effects a tool can declare — renderer dispatches these on tool completion. */
@@ -27,7 +30,7 @@ export interface ToolDefinitionType<
   readonly category: 'query' | 'mutation' | 'meta';
   readonly permission?: {
     readonly require: 'confirm' | 'auto';
-    readonly prompt?: (params: Params) => string;
+    prompt?(params: Params): string;
   };
   readonly uiEffects?: readonly UiEffect[];
   readonly _types: {

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentToolRegistry } from './tool-registry.js';
 import { registerAgentTools, type AllToolDeps } from './register-agent-tools.js';
+import { ToolCatalog } from './tool-catalog.js';
+import { ENTITY_REFRESH_TOOL_ENTITY } from '@lucid-fin/contracts';
 import type { AssetRef, Equipment, PresetDefinition } from '@lucid-fin/contracts';
 
 function createMockDeps(): AllToolDeps {
@@ -208,5 +210,34 @@ describe('registerAgentTools', () => {
 
     const storyboardContextTools = registry.forContext('storyboard');
     expect(storyboardContextTools.some((t) => t.name.startsWith('canvas.'))).toBe(false);
+  });
+
+  it('every registered tool has a matching ToolCatalog entry', () => {
+    // Cross-check: the master ToolCatalog metadata must cover every tool the
+    // legacy `registerAgentTools` wires up. If this fails, a new tool was
+    // added to the registry without a matching `defineToolMeta` entry in
+    // `tool-catalog.ts` — and catalog-derived views (byProcess, mutatingKeys,
+    // uiEffectsByKey) would silently miss it.
+    const registry = new AgentToolRegistry();
+    registerAgentTools(registry, createMockDeps());
+    const registeredNames = registry.list().map((t) => t.name);
+    const catalogNames = new Set(Object.keys(ToolCatalog.byKey));
+    const missing = registeredNames.filter((name) => !catalogNames.has(name));
+    expect(missing).toEqual([]);
+  });
+
+  it('ENTITY_REFRESH_TOOL_ENTITY matches catalog uiEffects', () => {
+    // The renderer consumes a pure-data map (`ENTITY_REFRESH_TOOL_ENTITY`)
+    // instead of pulling the full catalog through the main-only
+    // `@lucid-fin/application` package. The two must stay in lock-step.
+    const uiEffectsByKey = ToolCatalog.uiEffectsByKey as Readonly<
+      Record<string, readonly { kind: string; entity?: string }[]>
+    >;
+    const catalogEntries: Record<string, string> = {};
+    for (const [name, effects] of Object.entries(uiEffectsByKey)) {
+      const refresh = effects.find((e) => e.kind === 'entity.refresh');
+      if (refresh?.entity) catalogEntries[name] = refresh.entity;
+    }
+    expect(catalogEntries).toEqual(ENTITY_REFRESH_TOOL_ENTITY);
   });
 });
