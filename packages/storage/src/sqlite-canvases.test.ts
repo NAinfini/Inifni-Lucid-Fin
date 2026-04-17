@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { SqliteIndex } from './sqlite-index.js';
 import type { Canvas, CanvasNode, CanvasEdge, CanvasViewport, CanvasNote } from '@lucid-fin/contracts';
+import { parseCanvasId } from '@lucid-fin/contracts-parse';
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvases-'));
@@ -85,9 +86,9 @@ describe('sqlite-canvases', () => {
   describe('upsertCanvas / getCanvas', () => {
     it('inserts a canvas and retrieves it by id', () => {
       const canvas = makeCanvas();
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved).toBeDefined();
       expect(retrieved!.id).toBe('canvas-1');
       expect(retrieved!.name).toBe('My Canvas');
@@ -97,16 +98,16 @@ describe('sqlite-canvases', () => {
     });
 
     it('returns undefined for a non-existent canvas id', () => {
-      const result = db.getCanvas('does-not-exist');
+      const result = db.repos.canvases.get(parseCanvasId('does-not-exist'));
       expect(result).toBeUndefined();
     });
 
     it('stores and restores nodes as JSON', () => {
       const node = makeImageNode('node-1');
       const canvas = makeCanvas({ nodes: [node] });
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.nodes).toHaveLength(1);
       expect(retrieved!.nodes[0].id).toBe('node-1');
       expect(retrieved!.nodes[0].type).toBe('image');
@@ -118,9 +119,9 @@ describe('sqlite-canvases', () => {
       const node2 = makeImageNode('n2');
       const edge = makeEdge('edge-1', 'n1', 'n2');
       const canvas = makeCanvas({ nodes: [node1, node2], edges: [edge] });
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.edges).toHaveLength(1);
       expect(retrieved!.edges[0].id).toBe('edge-1');
       expect(retrieved!.edges[0].source).toBe('n1');
@@ -129,18 +130,18 @@ describe('sqlite-canvases', () => {
 
     it('stores and restores viewport', () => {
       const canvas = makeCanvas({ viewport: { x: 50, y: 75, zoom: 1.5 } });
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.viewport).toEqual({ x: 50, y: 75, zoom: 1.5 });
     });
 
     it('stores and restores notes as JSON', () => {
       const note = makeNote('note-1');
       const canvas = makeCanvas({ notes: [note] });
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.notes).toHaveLength(1);
       expect(retrieved!.notes[0].id).toBe('note-1');
       expect(retrieved!.notes[0].content).toBe('Note note-1');
@@ -148,9 +149,9 @@ describe('sqlite-canvases', () => {
 
     it('defaults nodes/edges/notes to empty arrays when not provided', () => {
       const canvas = makeCanvas({ nodes: undefined, edges: undefined, notes: undefined });
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.nodes).toEqual([]);
       expect(retrieved!.edges).toEqual([]);
       expect(retrieved!.notes).toEqual([]);
@@ -158,9 +159,9 @@ describe('sqlite-canvases', () => {
 
     it('defaults viewport to {x:0, y:0, zoom:1} when not provided', () => {
       const canvas = makeCanvas({ viewport: undefined });
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.viewport).toEqual({ x: 0, y: 0, zoom: 1 });
     });
   });
@@ -172,34 +173,34 @@ describe('sqlite-canvases', () => {
   describe('upsertCanvas -- update on conflict', () => {
     it('updates name and nodes when called again with the same id', () => {
       const original = makeCanvas({ name: 'Original', nodes: [] });
-      db.upsertCanvas(original);
+      db.repos.canvases.upsert(original);
 
       const updated = makeCanvas({
         name: 'Renamed',
         nodes: [makeImageNode('n1')],
         updatedAt: 9999,
       });
-      db.upsertCanvas(updated);
+      db.repos.canvases.upsert(updated);
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.name).toBe('Renamed');
       expect(retrieved!.nodes).toHaveLength(1);
       expect(retrieved!.updatedAt).toBe(9999);
     });
 
     it('preserves createdAt from the original insert on conflict', () => {
-      db.upsertCanvas(makeCanvas({ createdAt: 100, updatedAt: 200 }));
-      db.upsertCanvas(makeCanvas({ createdAt: 999, updatedAt: 300 }));
+      db.repos.canvases.upsert(makeCanvas({ createdAt: 100, updatedAt: 200 }));
+      db.repos.canvases.upsert(makeCanvas({ createdAt: 999, updatedAt: 300 }));
 
-      const retrieved = db.getCanvas('canvas-1');
+      const retrieved = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(retrieved!.updatedAt).toBe(300);
     });
 
     it('does not duplicate canvases on repeated upserts', () => {
-      db.upsertCanvas(makeCanvas());
-      db.upsertCanvas(makeCanvas({ name: 'Second upsert' }));
+      db.repos.canvases.upsert(makeCanvas());
+      db.repos.canvases.upsert(makeCanvas({ name: 'Second upsert' }));
 
-      const all = db.listCanvases();
+      const all = db.repos.canvases.list();
       expect(all).toHaveLength(1);
     });
   });
@@ -210,38 +211,38 @@ describe('sqlite-canvases', () => {
 
   describe('listCanvases', () => {
     it('returns empty array when no canvases exist', () => {
-      const result = db.listCanvases();
+      const result = db.repos.canvases.list();
       expect(result).toEqual([]);
     });
 
     it('returns summary rows (id, name, updatedAt)', () => {
-      db.upsertCanvas(makeCanvas({ id: 'c1', name: 'Canvas A', updatedAt: 1000 }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1', name: 'Canvas A', updatedAt: 1000 }));
 
-      const result = db.listCanvases();
+      const result = db.repos.canvases.list();
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({ id: 'c1', name: 'Canvas A', updatedAt: 1000 });
     });
 
     it('returns all canvases', () => {
-      db.upsertCanvas(makeCanvas({ id: 'c1', name: 'P1 Canvas' }));
-      db.upsertCanvas(makeCanvas({ id: 'c2', name: 'P2 Canvas' }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1', name: 'P1 Canvas' }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c2', name: 'P2 Canvas' }));
 
-      const result = db.listCanvases();
+      const result = db.repos.canvases.list();
       expect(result).toHaveLength(2);
     });
 
     it('returns canvases ordered by updatedAt descending', () => {
-      db.upsertCanvas(makeCanvas({ id: 'c1', name: 'Old', updatedAt: 100 }));
-      db.upsertCanvas(makeCanvas({ id: 'c2', name: 'Newer', updatedAt: 300 }));
-      db.upsertCanvas(makeCanvas({ id: 'c3', name: 'Middle', updatedAt: 200 }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1', name: 'Old', updatedAt: 100 }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c2', name: 'Newer', updatedAt: 300 }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c3', name: 'Middle', updatedAt: 200 }));
 
-      const result = db.listCanvases();
+      const result = db.repos.canvases.list();
       expect(result.map((r) => r.id)).toEqual(['c2', 'c3', 'c1']);
     });
 
     it('summary rows do not include nodes, edges, or notes fields', () => {
-      db.upsertCanvas(makeCanvas({ nodes: [makeImageNode('n1')] }));
-      const result = db.listCanvases();
+      db.repos.canvases.upsert(makeCanvas({ nodes: [makeImageNode('n1')] }));
+      const result = db.repos.canvases.list();
       const row = result[0] as Record<string, unknown>;
       expect(row.nodes).toBeUndefined();
       expect(row.edges).toBeUndefined();
@@ -255,14 +256,14 @@ describe('sqlite-canvases', () => {
 
   describe('listCanvasesFull', () => {
     it('returns empty array when no canvases exist', () => {
-      expect(db.listCanvasesFull()).toEqual([]);
+      expect(db.repos.canvases.listFull().rows).toEqual([]);
     });
 
     it('returns full Canvas objects', () => {
       const node = makeImageNode('n1');
-      db.upsertCanvas(makeCanvas({ nodes: [node], notes: [makeNote('note-1')] }));
+      db.repos.canvases.upsert(makeCanvas({ nodes: [node], notes: [makeNote('note-1')] }));
 
-      const result = db.listCanvasesFull();
+      const result = db.repos.canvases.listFull().rows;
       expect(result).toHaveLength(1);
       expect(result[0].nodes).toHaveLength(1);
       expect(result[0].nodes[0].id).toBe('n1');
@@ -270,21 +271,21 @@ describe('sqlite-canvases', () => {
     });
 
     it('returns canvases ordered by updatedAt descending', () => {
-      db.upsertCanvas(makeCanvas({ id: 'c1', updatedAt: 100 }));
-      db.upsertCanvas(makeCanvas({ id: 'c2', updatedAt: 500 }));
-      db.upsertCanvas(makeCanvas({ id: 'c3', updatedAt: 300 }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1', updatedAt: 100 }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c2', updatedAt: 500 }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c3', updatedAt: 300 }));
 
-      const result = db.listCanvasesFull();
+      const result = db.repos.canvases.listFull().rows;
       expect(result.map((r) => r.id)).toEqual(['c2', 'c3', 'c1']);
     });
 
     it('returns multiple full canvases with correct data', () => {
       const nodeA = makeImageNode('nA');
       const nodeB = makeImageNode('nB');
-      db.upsertCanvas(makeCanvas({ id: 'c1', name: 'Alpha', updatedAt: 200, nodes: [nodeA] }));
-      db.upsertCanvas(makeCanvas({ id: 'c2', name: 'Beta', updatedAt: 100, nodes: [nodeB] }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1', name: 'Alpha', updatedAt: 200, nodes: [nodeA] }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c2', name: 'Beta', updatedAt: 100, nodes: [nodeB] }));
 
-      const result = db.listCanvasesFull();
+      const result = db.repos.canvases.listFull().rows;
       expect(result).toHaveLength(2);
       expect(result[0].name).toBe('Alpha');
       expect(result[0].nodes[0].id).toBe('nA');
@@ -299,33 +300,33 @@ describe('sqlite-canvases', () => {
 
   describe('deleteCanvas', () => {
     it('removes a canvas so getCanvas returns undefined', () => {
-      db.upsertCanvas(makeCanvas({ id: 'c1' }));
-      db.deleteCanvas('c1');
-      expect(db.getCanvas('c1')).toBeUndefined();
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1' }));
+      db.repos.canvases.delete(parseCanvasId('c1'));
+      expect(db.repos.canvases.get(parseCanvasId('c1'))).toBeUndefined();
     });
 
     it('removes a canvas from list results', () => {
-      db.upsertCanvas(makeCanvas({ id: 'c1' }));
-      db.upsertCanvas(makeCanvas({ id: 'c2' }));
-      db.deleteCanvas('c1');
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1' }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c2' }));
+      db.repos.canvases.delete(parseCanvasId('c1'));
 
-      const list = db.listCanvases();
+      const list = db.repos.canvases.list();
       expect(list).toHaveLength(1);
       expect(list[0].id).toBe('c2');
     });
 
     it('removes a canvas from listCanvasesFull results', () => {
-      db.upsertCanvas(makeCanvas({ id: 'c1' }));
-      db.upsertCanvas(makeCanvas({ id: 'c2' }));
-      db.deleteCanvas('c1');
+      db.repos.canvases.upsert(makeCanvas({ id: 'c1' }));
+      db.repos.canvases.upsert(makeCanvas({ id: 'c2' }));
+      db.repos.canvases.delete(parseCanvasId('c1'));
 
-      const full = db.listCanvasesFull();
+      const full = db.repos.canvases.listFull().rows;
       expect(full).toHaveLength(1);
       expect(full[0].id).toBe('c2');
     });
 
     it('does not throw when deleting a non-existent canvas id', () => {
-      expect(() => db.deleteCanvas('does-not-exist')).not.toThrow();
+      expect(() => db.repos.canvases.delete(parseCanvasId('does-not-exist'))).not.toThrow();
     });
   });
 
@@ -343,9 +344,9 @@ describe('sqlite-canvases', () => {
         targetHandle: 'top',
         data: { label: 'flow', status: 'done', autoLabel: true },
       };
-      db.upsertCanvas(makeCanvas({ edges: [edge] }));
+      db.repos.canvases.upsert(makeCanvas({ edges: [edge] }));
 
-      const result = db.getCanvas('canvas-1');
+      const result = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(result!.edges[0].sourceHandle).toBe('bottom');
       expect(result!.edges[0].targetHandle).toBe('top');
       expect(result!.edges[0].data.label).toBe('flow');
@@ -366,9 +367,9 @@ describe('sqlite-canvases', () => {
         createdAt: 500,
         updatedAt: 500,
       };
-      db.upsertCanvas(makeCanvas({ nodes: [imgNode, textNode] }));
+      db.repos.canvases.upsert(makeCanvas({ nodes: [imgNode, textNode] }));
 
-      const result = db.getCanvas('canvas-1');
+      const result = db.repos.canvases.get(parseCanvasId('canvas-1'));
       expect(result!.nodes).toHaveLength(2);
       const types = result!.nodes.map((n) => n.type).sort();
       expect(types).toEqual(['image', 'text']);
@@ -382,9 +383,9 @@ describe('sqlite-canvases', () => {
         updatedAt: 22222,
         viewport: { x: -50, y: 100, zoom: 0.75 },
       });
-      db.upsertCanvas(canvas);
+      db.repos.canvases.upsert(canvas);
 
-      const result = db.getCanvas('c-rt');
+      const result = db.repos.canvases.get(parseCanvasId('c-rt'));
       expect(result).toMatchObject({
         id: 'c-rt',
         name: 'Round-trip Canvas',

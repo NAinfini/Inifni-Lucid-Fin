@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { parseCanvasId } from '@lucid-fin/contracts-parse';
 import log from './logger.js';
 
 export interface ApiServerDeps {
@@ -68,12 +69,22 @@ function handleHealth(res: http.ServerResponse): void {
 }
 
 function handleListCanvases(res: http.ServerResponse, db: SqliteIndex): void {
-  const canvases = db.listCanvases();
+  const canvases = db.repos.canvases.list();
   send(res, 200, canvases);
 }
 
 function handleGetCanvas(res: http.ServerResponse, db: SqliteIndex, id: string): void {
-  const canvas = db.getCanvas(id);
+  let canvasId;
+  try {
+    canvasId = parseCanvasId(id);
+  } catch {
+    // Malformed IDs surface as 404 (same as the pre-G1-4.6 behavior where
+    // a bad ID simply missed the SQL lookup). Keeps client-caused errors
+    // from being reported as 500.
+    sendError(res, 404, `Canvas not found: ${id}`);
+    return;
+  }
+  const canvas = db.repos.canvases.get(canvasId);
   if (!canvas) {
     sendError(res, 404, `Canvas not found: ${id}`);
     return;
