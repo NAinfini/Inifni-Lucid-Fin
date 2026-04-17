@@ -1,47 +1,49 @@
 /**
  * Commander event emission helpers.
  *
- * Maps AgentEvent → CommanderStreamPayload and sends to the renderer
- * via the BrowserWindow's webContents.  Also handles structured logging.
+ * Maps AgentEvent → CommanderStreamPayload and sends to the renderer via
+ * the typed `RendererPushGateway`. Also handles structured logging.
+ *
+ * Phase F-split-8a: the payload mapper for `commander:stream` now shapes
+ * each variant to satisfy the strict discriminated-union schema in
+ * `@lucid-fin/contracts-parse`. Optional `AgentEvent` fields that are
+ * required in the schema (e.g. `content` on `chunk` / `thinking` / `done`;
+ * `toolName` / `toolCallId` / `arguments` / `startedAt` / `completedAt` on
+ * tool_* variants) are defaulted with sentinel values rather than left
+ * `undefined`, so payload drift throws loudly in main instead of silently
+ * in the renderer.
  */
 import type { BrowserWindow } from 'electron';
+import {
+  commanderStreamChannel,
+  commanderCanvasDispatchChannel,
+  commanderEntitiesUpdatedChannel,
+  type CommanderStreamPayload,
+} from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
 import type { AgentEvent } from '@lucid-fin/application';
 import type { CanvasStore } from './canvas.handlers.js';
+import {
+  createRendererPushGateway,
+  type RendererPushGateway,
+} from '../../features/ipc/push-gateway.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type CommanderStreamPayload = {
-  type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question' | 'context_usage' | 'thinking';
-  content?: string;
-  toolName?: string;
-  toolCallId?: string;
-  arguments?: Record<string, unknown>;
-  result?: unknown;
-  error?: string;
-  tier?: number;
-  question?: string;
-  options?: Array<{ label: string; description?: string }>;
-  startedAt?: number;
-  completedAt?: number;
-  estimatedTokensUsed?: number;
-  contextWindowTokens?: number;
-  messageCount?: number;
-  systemPromptChars?: number;
-  toolSchemaChars?: number;
-  messageChars?: number;
-  cacheChars?: number;
-  cacheEntryCount?: number;
-  historyMessagesTrimmed?: number;
-  utilizationRatio?: number;
-};
+export type { CommanderStreamPayload };
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * @deprecated Prefer `RendererPushGateway.emit(channelDef, payload)` directly
+ * at call sites. Retained only while remaining callers in
+ * `commander-tool-deps.ts` and `commander.handlers.ts` are migrated in
+ * Phase F-split-8b. Will be removed once those sites land.
+ */
 export function emitToWindow(
   getWindow: () => BrowserWindow | null,
   channel: string,
@@ -101,6 +103,74 @@ export function formatErrorDetail(error: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
+// AgentEvent → CommanderStreamPayload mapper
+// ---------------------------------------------------------------------------
+
+/**
+ * Map an AgentEvent to the strict `commander:stream` discriminated-union
+ * schema. Fields that are optional on AgentEvent but required in the
+ * schema get default sentinels (empty string / 0 / empty object) so the
+ * payload passes `parseStrict` without hiding the missing data.
+ *
+ * The defaults are deliberate: upstream emitters in
+ * `agent-orchestrator.ts` always supply these fields for their respective
+ * event types, so the sentinels are defensive padding, not real data.
+ * If they ever start appearing in live streams that's a genuine upstream
+ * bug worth surfacing — the gateway will then reject before send.
+ */
+function mapAgentEventToStreamPayload(event: AgentEvent): CommanderStreamPayload {
+  switch (event.type) {
+    case 'stream_chunk':
+      return { type: 'chunk', content: event.content ?? '' };
+    case 'tool_call':
+      return {
+        type: 'tool_call',
+        toolName: event.toolName ?? '',
+        toolCallId: event.toolCallId ?? '',
+        arguments: event.arguments ?? {},
+        startedAt: event.startedAt ?? 0,
+      };
+    case 'tool_result':
+      return {
+        type: 'tool_result',
+        toolName: event.toolName ?? '',
+        toolCallId: event.toolCallId ?? '',
+        result: event.result,
+        startedAt: event.startedAt ?? 0,
+        completedAt: event.completedAt ?? 0,
+      };
+    case 'tool_confirm':
+      return {
+        type: 'tool_confirm',
+        toolName: event.toolName ?? '',
+        toolCallId: event.toolCallId ?? '',
+        arguments: event.arguments ?? {},
+        tier: event.tier ?? 0,
+      };
+    case 'tool_question':
+      return {
+        type: 'tool_question',
+        toolName: event.toolName ?? '',
+        toolCallId: event.toolCallId ?? '',
+        question: event.question ?? '',
+        options: event.options ?? [],
+      };
+    case 'thinking':
+      return { type: 'thinking', content: event.content ?? '' };
+    case 'done':
+      return { type: 'done', content: event.content ?? '' };
+    case 'error':
+      return {
+        type: 'error',
+        toolCallId: event.toolCallId,
+        error: event.error ?? '',
+        startedAt: event.startedAt,
+        completedAt: event.completedAt,
+      };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Event → payload mapper + logging
 // ---------------------------------------------------------------------------
 
@@ -110,57 +180,13 @@ export function createEmitHandler(
   canvasStore: CanvasStore,
   mutatingToolNames: ReadonlySet<string>,
   entityMutatingToolNames: ReadonlySet<string>,
+  pushGateway?: RendererPushGateway,
 ): (event: AgentEvent) => void {
-  return (event: AgentEvent) => {
-    const payload: CommanderStreamPayload =
-      event.type === 'stream_chunk'
-        ? { type: 'chunk', content: event.content }
-        : event.type === 'tool_call'
-          ? {
-              type: 'tool_call',
-              toolName: event.toolName,
-              toolCallId: event.toolCallId,
-              arguments: event.arguments,
-              startedAt: event.startedAt,
-            }
-          : event.type === 'tool_result'
-            ? {
-                type: 'tool_result',
-                toolName: event.toolName,
-                toolCallId: event.toolCallId,
-                result: event.result,
-                startedAt: event.startedAt,
-                completedAt: event.completedAt,
-              }
-            : event.type === 'tool_confirm'
-              ? {
-                  type: 'tool_confirm',
-                  toolName: event.toolName,
-                  toolCallId: event.toolCallId,
-                  arguments: event.arguments,
-                  tier: event.tier,
-                }
-              : event.type === 'tool_question'
-                ? {
-                    type: 'tool_question',
-                    toolName: event.toolName,
-                    toolCallId: event.toolCallId,
-                    question: event.question,
-                    options: event.options,
-                  }
-                : event.type === 'thinking'
-                  ? { type: 'thinking', content: event.content }
-                  : event.type === 'done'
-                  ? { type: 'done', content: event.content }
-                  : {
-                      type: 'error',
-                      toolCallId: event.toolCallId,
-                      error: event.error,
-                      startedAt: event.startedAt,
-                      completedAt: event.completedAt,
-                    };
+  const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
 
-    emitToWindow(getWindow, 'commander:stream', payload);
+  return (event: AgentEvent) => {
+    const payload = mapAgentEventToStreamPayload(event);
+    gateway.emit(commanderStreamChannel, payload);
 
     // Structured logging
     if (event.type === 'tool_call') {
@@ -197,7 +223,7 @@ export function createEmitHandler(
     if (event.type === 'tool_result' && event.toolName && mutatingToolNames.has(event.toolName)) {
       const canvas = canvasStore.get(canvasId);
       if (canvas) {
-        emitToWindow(getWindow, 'commander:canvas:dispatch', {
+        gateway.emit(commanderCanvasDispatchChannel, {
           canvasId,
           canvas,
         });
@@ -206,7 +232,7 @@ export function createEmitHandler(
 
     // Dispatch entity sync for entity-mutating tools
     if (event.type === 'tool_result' && event.toolName && entityMutatingToolNames.has(event.toolName)) {
-      emitToWindow(getWindow, 'commander:entities:updated', { toolName: event.toolName });
+      gateway.emit(commanderEntitiesUpdatedChannel, { toolName: event.toolName });
     }
   };
 }
