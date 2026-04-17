@@ -5,6 +5,7 @@ import type {
   ReferenceImage,
   VideoNodeData,
 } from '@lucid-fin/contracts';
+import { tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool } from '../tool-registry.js';
 import { requireString } from './tool-result-helpers.js';
 
@@ -114,7 +115,7 @@ export function createRefImageTools<T extends RefImageEntity>(config: RefImageFa
 
           const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : defaultWidth;
           const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : defaultHeight;
-          const providerId = typeof args.providerId === 'string' && args.providerId ? args.providerId : undefined;
+          const providerId = tryProviderId(args.providerId);
           const result = await config.generateImage(finalPrompt, { width: reqWidth, height: reqHeight, ...(providerId !== undefined && { providerId }) });
 
           const referenceImages = [...(entity.referenceImages ?? [])];

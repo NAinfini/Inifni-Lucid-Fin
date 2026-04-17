@@ -1,4 +1,5 @@
 import type { AgentTool } from '../tool-registry.js';
+import { tryProviderId } from '@lucid-fin/contracts-parse';
 import { ok, fail } from './tool-result-helpers.js';
 
 export interface VisionToolDeps {
@@ -55,7 +56,7 @@ export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
         if (!nodeId) throw new Error('nodeId is required');
 
         const style = typeof args.style === 'string' ? args.style : 'prompt';
-        const providerId = typeof args.providerId === 'string' ? args.providerId.trim() : undefined;
+        const providerId = tryProviderId(args.providerId);
 
         // Resolve asset hash from node
         let assetHash: string | null = null;

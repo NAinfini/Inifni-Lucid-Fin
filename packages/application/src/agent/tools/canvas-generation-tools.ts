@@ -3,6 +3,7 @@ import {
   listBuiltinVideoProvidersWithAudio,
   type CanvasEdge,
 } from '@lucid-fin/contracts';
+import { tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
 import {
   CANVAS_CONTEXT,
@@ -65,10 +66,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
         const canvasId = requireString(args, 'canvasId');
         const nodeId = requireString(args, 'nodeId');
         await requireNode(deps, canvasId, nodeId);
-        const providerId =
-          typeof args.providerId === 'string' && args.providerId.trim().length > 0
-            ? args.providerId.trim()
-            : undefined;
+        const providerId = tryProviderId(args.providerId);
         const variantCount =
           typeof args.variantCount === 'number' ? Math.round(args.variantCount) : undefined;
         await deps.triggerGeneration(canvasId, nodeId, providerId, variantCount);

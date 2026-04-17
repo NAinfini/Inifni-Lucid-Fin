@@ -78,3 +78,6 @@ export * from './ipc/channels/batch-10.js';
 // `defineTool` and its types are re-exported above from `./tools.js`; the
 // agent barrel adds `createCatalog` on top without duplicating them.
 export { createCatalog } from './agent/catalog.js';
+
+// ── Phase D-2: Branded-ID parsers ──────────────────────────────
+export { parseProviderId, tryProviderId } from './brands/provider-id.js';

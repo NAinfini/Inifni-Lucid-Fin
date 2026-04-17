@@ -1,4 +1,5 @@
 import type { CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
+import { tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
 import {
   CANVAS_CONTEXT,
@@ -100,9 +101,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           const mediaData = node.data as Record<string, unknown>;
           if (typeof args.prompt === 'string') mediaData.prompt = args.prompt;
           // Auto-assign provider: explicit arg > default from settings > none
-          const providerId = typeof args.providerId === 'string'
-            ? args.providerId
-            : deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
+          const providerId = tryProviderId(args.providerId)
+            ?? deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
           if (providerId) mediaData.providerId = providerId;
           if (Array.isArray(args.characterIds)) {
             mediaData.characterRefs = (args.characterIds as string[]).map((id) => ({ characterId: id }));
