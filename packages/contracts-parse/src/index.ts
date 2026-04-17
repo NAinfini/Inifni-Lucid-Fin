@@ -111,3 +111,11 @@ export {
   type AssetMetaDto,
   type EmbeddingRecordDto,
 } from './dto/asset.js';
+
+// ── Phase G1-2.5: CanvasId parser + Canvas DTO ─────────────────
+export { parseCanvasId, tryCanvasId } from './brands/canvas-id.js';
+export {
+  CanvasSchema,
+  CanvasViewportSchema,
+  type CanvasDto,
+} from './dto/canvas.js';

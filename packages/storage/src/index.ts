@@ -49,3 +49,7 @@ export type { JobUpdates } from './repositories/job-repository.js';
 
 // ── Phase G1-2.4: AssetRepository ──────────────────────────────
 export { AssetRepository } from './repositories/asset-repository.js';
+
+// ── Phase G1-2.5: CanvasRepository ─────────────────────────────
+export { CanvasRepository } from './repositories/canvas-repository.js';
+export type { CanvasSummary } from './repositories/canvas-repository.js';
