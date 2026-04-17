@@ -4,7 +4,7 @@ import {
   setDegradeReporter,
   type DegradeReporter,
 } from '@lucid-fin/contracts-parse';
-import type { SessionId } from '@lucid-fin/contracts';
+import type { SessionId, ContextItem, ToolKey } from '@lucid-fin/contracts';
 import { SessionRepository, type StoredSession } from './session-repository.js';
 
 const SCHEMA = `
@@ -13,6 +13,7 @@ CREATE TABLE commander_sessions (
   canvas_id   TEXT,
   title       TEXT NOT NULL DEFAULT '',
   messages    TEXT NOT NULL DEFAULT '[]',
+  context_graph_json TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
@@ -123,5 +124,54 @@ describe('SessionRepository', () => {
     });
     tx();
     expect(repo.get('tx-session' as SessionId)?.title).toBe('tx');
+  });
+
+  // ── G2a-5: ContextGraph persistence round-trip ─────────────
+
+  it('getContextGraph returns null when no graph has been saved', () => {
+    repo.upsert(mkSession('s1'));
+    expect(repo.getContextGraph('s1' as SessionId)).toBeNull();
+  });
+
+  it('saveContextGraph and getContextGraph round-trip items', () => {
+    repo.upsert(mkSession('s1'));
+
+    const items: ContextItem[] = [
+      {
+        kind: 'user-message',
+        itemId: 'item-1' as import('@lucid-fin/contracts').ContextItemId,
+        producedAtStep: 0,
+        content: 'Hello',
+      },
+      {
+        kind: 'tool-result',
+        itemId: 'item-2' as import('@lucid-fin/contracts').ContextItemId,
+        producedAtStep: 1,
+        toolKey: 'canvas.getState' as ToolKey,
+        paramsHash: '{}',
+        content: { success: true },
+        schemaVersion: 1,
+      },
+    ];
+
+    repo.saveContextGraph('s1' as SessionId, items);
+    const loaded = repo.getContextGraph('s1' as SessionId);
+    expect(loaded).not.toBeNull();
+    expect(loaded).toHaveLength(2);
+    expect(loaded![0]!.kind).toBe('user-message');
+    expect(loaded![1]!.kind).toBe('tool-result');
+  });
+
+  it('getContextGraph returns null on malformed JSON (fail-soft)', () => {
+    repo.upsert(mkSession('bad-graph'));
+    // Inject corrupt JSON directly
+    db.prepare(
+      `UPDATE commander_sessions SET context_graph_json = ? WHERE id = ?`,
+    ).run('not valid json {{{{', 'bad-graph');
+    expect(repo.getContextGraph('bad-graph' as SessionId)).toBeNull();
+  });
+
+  it('getContextGraph returns null when id does not exist', () => {
+    expect(repo.getContextGraph('nonexistent' as SessionId)).toBeNull();
   });
 });

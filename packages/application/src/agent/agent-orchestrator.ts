@@ -31,6 +31,9 @@ import {
   type ProcessCategory,
 } from './process-detection.js';
 import { ToolCatalog } from './tool-catalog.js';
+import { ContextGraph } from './graph/context-graph.js';
+import { freshContextItemId } from '@lucid-fin/contracts-parse';
+import type { ContextItem, ToolKey } from '@lucid-fin/contracts';
 
 // Re-export types so consumers don't break
 export type { AgentContext, HistoryEntry };
@@ -85,6 +88,13 @@ export interface AgentLLMRequestDiagnostics {
 
 const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOKEN);
 
+/**
+ * Feature flag: when truthy, the ContextGraph path is used instead of the
+ * legacy ContextManager + ToolResultCache path (OpenAI provider only).
+ * Default: off. Enable by setting env var LUCID_CONTEXT_GRAPH=1.
+ */
+const CONTEXT_GRAPH_ENABLED = process.env['LUCID_CONTEXT_GRAPH'] === '1';
+
 function isProcessCategory(value: unknown): value is ProcessCategory {
   if (typeof value !== 'string') return false;
   // Catalog-derived: every distinct `process` declared via defineToolMeta
@@ -114,6 +124,9 @@ export class AgentOrchestrator {
 
   private contextManager: ContextManager;
   private toolExecutor: ToolExecutor;
+
+  /** Active ContextGraph for the current execute() session (graph-path only). */
+  private contextGraph: ContextGraph | null = null;
 
   private injectedMessageCount = 0;
   private readonly resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
@@ -268,6 +281,20 @@ export class AgentOrchestrator {
 
     this.resultCache.warmFromHistory(messages, this.transcriptIndex);
 
+    // ── G2a-6: Initialize ContextGraph (graph path only) ─────────────────
+    // The graph is rebuilt each step from the canonical `messages` array
+    // immediately before serialization. This keeps the graph in sync with
+    // mid-loop mutations (system prompt refresh, injected process prompts,
+    // batch warnings, new user messages) without tracking them twice.
+    const useGraphPath = CONTEXT_GRAPH_ENABLED && this.adapter.id === 'openai';
+    if (CONTEXT_GRAPH_ENABLED && !useGraphPath) {
+      console.warn('[ContextGraph] Feature flag enabled but provider is not openai — falling back to legacy path.');
+    }
+    if (useGraphPath) {
+      this.contextGraph = new ContextGraph();
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     // Wrap emit to absorb raw tool results into cache
     // toolCallArgsMap is populated before each tool execution round
     const toolCallArgsMap = new Map<string, Record<string, unknown>>();
@@ -335,7 +362,17 @@ export class AgentOrchestrator {
           injectedParams: injectedParams.length > 0 ? injectedParams : undefined,
           // reserveTokensForOutput defaults to 4096 inside buildMessagesForRequest
         };
-        const { wireMessages, wireTools, buildCtx } = buildMessagesForRequest(messageBuildInput);
+        const { wireMessages: legacyWireMessages, wireTools, buildCtx } = buildMessagesForRequest(messageBuildInput);
+
+        // G2a-6: When graph path is active, build the graph alongside `messages`
+        // but do NOT replace `wireMessages`. The graph is observation-only in
+        // G2a — it shadows the legacy path so we land the typed data structure,
+        // persistence, and migration infra safely. G2b will cut over to using
+        // the graph as the source for wireMessages once it reaches parity.
+        const wireMessages = legacyWireMessages;
+        if (useGraphPath && this.contextGraph) {
+          this.rebuildGraphFromMessages(messages, steps);
+        }
 
         const ctxWindow = effectiveCtx ?? 200000;
         const estimatedTokens = buildCtx.estimatedTokensUsed;
@@ -503,6 +540,7 @@ export class AgentOrchestrator {
       this.activeMessages = null;
       this.resultCache = null;
       this.transcriptIndex.clear();
+      this.contextGraph = null;
     }
   }
 
@@ -604,5 +642,99 @@ export class AgentOrchestrator {
 
   private isProcessPromptMessage(message: LLMMessage, processKey: ProcessCategory): boolean {
     return message.role === 'system' && message.content.startsWith(`[[process-prompt:${processKey}]]`);
+  }
+
+  /**
+   * G2a-6: Rebuild the ContextGraph from the canonical `messages` array.
+   *
+   * Runs before every LLM call in graph-mode. This keeps the graph in lock-step
+   * with any `messages` mutations (system-prompt refresh, process-prompt
+   * injection, batch-warning inserts, etc.) without requiring each mutation
+   * site to know about the graph.
+   *
+   * Tool-result identity:
+   *   - Real tool calls executed this session have their args tracked via the
+   *     TranscriptIndex + ToolResultCache, so `(toolKey, paramsHash)` is stable.
+   *   - For seeded/historical tool messages without known args (e.g. rehydrated
+   *     from a resumed session), the `toolCallId` is folded into `paramsHash`
+   *     to give each message a unique identity (no accidental dedup).
+   */
+  private rebuildGraphFromMessages(messages: LLMMessage[], step: number): void {
+    if (!this.contextGraph) return;
+    this.contextGraph = new ContextGraph();
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]!;
+      if (m.role === 'system') {
+        // The FIRST system message is the top-level system prompt → guide.
+        // Subsequent system messages (injected process prompts, batch warnings,
+        // new-user-message notices) are position-sensitive runtime instructions
+        // that must remain where they were inserted, so they ride as
+        // `system-message` items which the serializer emits inline at their
+        // original position.
+        if (i === 0) {
+          this.contextGraph.add({
+            kind: 'guide',
+            itemId: freshContextItemId(),
+            producedAtStep: step,
+            guideKey: 'system-root',
+            content: m.content,
+          } satisfies ContextItem);
+        } else {
+          this.contextGraph.add({
+            kind: 'system-message',
+            itemId: freshContextItemId(),
+            producedAtStep: step,
+            content: m.content,
+          } satisfies ContextItem);
+        }
+      } else if (m.role === 'user') {
+        this.contextGraph.add({
+          kind: 'user-message',
+          itemId: freshContextItemId(),
+          producedAtStep: step,
+          content: m.content,
+        } satisfies ContextItem);
+      } else if (m.role === 'assistant') {
+        this.contextGraph.add({
+          kind: 'assistant-turn',
+          itemId: freshContextItemId(),
+          producedAtStep: step,
+          content: m.content,
+          toolCalls: m.toolCalls?.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments,
+          })),
+        } satisfies ContextItem);
+      } else if (m.role === 'tool') {
+        // Recover the originating tool call name + args by scanning prior
+        // assistant turns in the array. Falls back to a unique-per-message
+        // identity when args aren't known (e.g. seeded tool messages).
+        let toolKey: ToolKey = 'unknown' as ToolKey;
+        let paramsHash = m.toolCallId ?? `msg-${i}`;
+        if (m.toolCallId) {
+          for (let j = i - 1; j >= 0; j--) {
+            const prev = messages[j]!;
+            if (prev.role !== 'assistant' || !prev.toolCalls) continue;
+            const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
+            if (call) {
+              toolKey = call.name as ToolKey;
+              paramsHash = safeStringify(call.arguments);
+              break;
+            }
+          }
+        }
+        this.contextGraph.add({
+          kind: 'tool-result',
+          itemId: freshContextItemId(),
+          producedAtStep: step,
+          toolKey,
+          paramsHash,
+          content: m.content,
+          schemaVersion: 1,
+          toolCallId: m.toolCallId,
+        } satisfies ContextItem);
+      }
+    }
   }
 }

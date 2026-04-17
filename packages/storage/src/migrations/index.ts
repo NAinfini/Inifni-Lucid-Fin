@@ -11,7 +11,9 @@
  */
 import type { Migration } from './runner.js';
 import { migration001 } from './001-consolidated.js';
+import { migration002 } from './002-add-context-graph-json.js';
 
 export const migrations: Migration[] = [
   migration001,
+  migration002,
 ];

@@ -12,14 +12,19 @@
  * reduction) will switch `snapshot.handlers.ts` from calling
  * `SqliteIndex.upsertSession(...)` to calling this repository directly.
  * Until then `SqliteIndex` delegates its legacy session methods here.
+ *
+ * Phase G2a-5: added `getContextGraph` / `saveContextGraph` for
+ * ContextGraph persistence behind the `context_graph_json` column.
  */
 
 import type BetterSqlite3 from 'better-sqlite3';
-import type { SessionId } from '@lucid-fin/contracts';
+import type { SessionId, ContextItem } from '@lucid-fin/contracts';
 import {
   CommanderSessionsTable,
   StoredSessionSchema,
   parseOrDegrade,
+  ContextItemSchema,
+  z,
 } from '@lucid-fin/contracts-parse';
 import type { Tx } from '../transactions.js';
 
@@ -54,6 +59,9 @@ type RawRow = {
 
 const TBL = CommanderSessionsTable.tableName;
 const C = CommanderSessionsTable.cols;
+
+/** Zod schema for the persisted ContextItem array. */
+const ContextGraphArraySchema = z.array(ContextItemSchema);
 
 export class SessionRepository {
   constructor(private readonly db: BetterSqlite3.Database) {}
@@ -131,6 +139,53 @@ export class SessionRepository {
     d.prepare(
       `DELETE FROM ${TBL} WHERE ${C.id.sqlName} = ?`,
     ).run(id);
+  }
+
+  /**
+   * Read the serialized ContextGraph for a session.
+   * Returns null if no graph has been persisted (new or legacy session)
+   * or if the persisted JSON fails schema validation (fail-soft via parseOrDegrade).
+   */
+  getContextGraph(id: SessionId, tx?: Tx): ContextItem[] | null {
+    const d = tx ?? this.db;
+    const row = d
+      .prepare(
+        `SELECT ${C.contextGraphJson.sqlName}
+         FROM ${TBL}
+         WHERE ${C.id.sqlName} = ?`,
+      )
+      .get(id) as { context_graph_json: string | null } | undefined;
+
+    if (!row || row.context_graph_json == null) return null;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.context_graph_json);
+    } catch {
+      return null;
+    }
+
+    const result = parseOrDegrade(
+      ContextGraphArraySchema,
+      parsed,
+      null as unknown as ContextItem[],
+      { ctx: { name: 'ContextGraph' } },
+    );
+
+    return result as ContextItem[] | null;
+  }
+
+  /**
+   * Persist the serialized ContextGraph for a session.
+   * Stores the items array as JSON in the `context_graph_json` column.
+   * Does NOT update `updated_at` — graph persistence is a side-channel update.
+   */
+  saveContextGraph(id: SessionId, items: ContextItem[], tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${TBL} SET ${C.contextGraphJson.sqlName} = ?
+       WHERE ${C.id.sqlName} = ?`,
+    ).run(JSON.stringify(items), id);
   }
 }
 

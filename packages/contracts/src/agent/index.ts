@@ -18,3 +18,22 @@ export type {
 export type { ToolDefinitionType, UiEffect } from '../types/tool-types.js';
 
 export { ENTITY_REFRESH_TOOL_ENTITY } from './entity-refresh-map.js';
+
+// ── Phase G2a-1: ContextItem DU + supporting types ─────────────
+export type {
+  ContextItemId,
+  EntityRef,
+  UserMessageItem,
+  AssistantTurnItem,
+  ToolResultItem,
+  EntitySnapshotItem,
+  GuideItem,
+  SessionSummaryItem,
+  ReferenceItem,
+  ContextItem,
+  CompactionKeepRules,
+  CompactStrategy,
+  CompactionPolicy,
+  TokenBudget,
+  CompactionResult,
+} from './context-graph.js';

@@ -319,6 +319,7 @@ CREATE TABLE IF NOT EXISTS commander_sessions (
   canvas_id   TEXT,
   title       TEXT NOT NULL DEFAULT '',
   messages    TEXT NOT NULL DEFAULT '[]',
+  context_graph_json TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );

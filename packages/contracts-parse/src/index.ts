@@ -181,3 +181,14 @@ export {
   type WorkflowStageRunRecordDto,
   type WorkflowTaskRunRecordDto,
 } from './dto/workflow.js';
+
+// ── Phase G2a-1: ContextItemId brand parsers + ContextItemSchema ─
+export {
+  parseContextItemId,
+  tryContextItemId,
+  freshContextItemId,
+} from './brands/context-item-id.js';
+export {
+  ContextItemSchema,
+  type ContextItemSchemaType,
+} from './storage/schemas/context-graph.js';
