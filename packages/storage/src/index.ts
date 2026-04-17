@@ -61,3 +61,10 @@ export type {
   EquipmentUpsertInput,
   LocationUpsertInput,
 } from './repositories/entity-repository.js';
+
+// ── Phase G1-2.7: SeriesRepository ─────────────────────────────
+export { SeriesRepository } from './repositories/series-repository.js';
+export type {
+  EpisodeRecord,
+  EpisodeUpsertInput,
+} from './repositories/series-repository.js';

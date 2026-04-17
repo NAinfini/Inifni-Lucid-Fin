@@ -45,6 +45,8 @@ export type PresetId = string & { readonly __brand: 'PresetId' };
 export type ShotTemplateId = string & { readonly __brand: 'ShotTemplateId' };
 export type ProcessPromptKey = string & { readonly __brand: 'ProcessPromptKey' };
 export type PromptCode = string & { readonly __brand: 'PromptCode' };
+export type SeriesId = string & { readonly __brand: 'SeriesId' };
+export type EpisodeId = string & { readonly __brand: 'EpisodeId' };
 
 // ── IPC (Phase B will replace the existing IpcChannel type alias) ───
 // These brands are declared here but NOT re-exported from the barrel

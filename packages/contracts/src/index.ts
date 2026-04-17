@@ -49,6 +49,8 @@ export type {
   ShotTemplateId,
   ProcessPromptKey,
   PromptCode,
+  SeriesId,
+  EpisodeId,
   IpcInvocationId,
   ToolKey,
   // IpcChannelBrand — not exported yet; Phase B replaces old IpcChannel
