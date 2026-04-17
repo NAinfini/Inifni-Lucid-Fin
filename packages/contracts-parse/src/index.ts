@@ -132,3 +132,13 @@ export {
   type EquipmentDto,
   type LocationDto,
 } from './dto/entity.js';
+
+// ── Phase G1-2.7: SeriesId + EpisodeId parsers + Series/Episode DTOs ─
+export { parseSeriesId, trySeriesId } from './brands/series-id.js';
+export { parseEpisodeId, tryEpisodeId } from './brands/episode-id.js';
+export {
+  SeriesSchema,
+  EpisodeSchema,
+  type SeriesDto,
+  type EpisodeDto,
+} from './dto/series.js';

@@ -40,12 +40,6 @@ import {
   deleteColorStyle as _deleteColorStyle,
   addDependency as _addDependency,
   getDependents as _getDependents,
-  upsertSeries as _upsertSeries,
-  getSeries as _getSeries,
-  deleteSeries as _deleteSeries,
-  upsertEpisode as _upsertEpisode,
-  listEpisodes as _listEpisodes,
-  deleteEpisode as _deleteEpisode,
   upsertPresetOverride as _upsertPresetOverride,
   listPresetOverrides as _listPresetOverrides,
   deletePresetOverride as _deletePresetOverride,
@@ -102,7 +96,12 @@ import {
   type EquipmentUpsertInput,
   type LocationUpsertInput,
 } from './repositories/entity-repository.js';
-import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId } from '@lucid-fin/contracts';
+import {
+  SeriesRepository,
+  type EpisodeRecord,
+  type EpisodeUpsertInput,
+} from './repositories/series-repository.js';
+import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -477,6 +476,7 @@ export class SqliteIndex implements IStorageLayer {
   private assets!: AssetRepository;
   private canvases!: CanvasRepository;
   private entities!: EntityRepository;
+  private seriesRepo!: SeriesRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -502,6 +502,7 @@ export class SqliteIndex implements IStorageLayer {
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
     this.entities = new EntityRepository(this.db);
+    this.seriesRepo = new SeriesRepository(this.db);
   }
 
   close(): void {
@@ -562,6 +563,7 @@ export class SqliteIndex implements IStorageLayer {
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
     this.entities = new EntityRepository(this.db);
+    this.seriesRepo = new SeriesRepository(this.db);
   }
 
   // --- Assets ---
@@ -637,12 +639,12 @@ export class SqliteIndex implements IStorageLayer {
   getDependents(sourceType: string, sourceId: string): Array<{ targetType: string; targetId: string }> { return _getDependents(this.db, sourceType, sourceId); }
 
   // --- Series & Episodes ---
-  upsertSeries(series: Series): void { _upsertSeries(this.db, series); }
-  getSeries(id: string): Series | undefined { return _getSeries(this.db, id); }
-  deleteSeries(id: string): void { _deleteSeries(this.db, id); }
-  upsertEpisode(episode: Parameters<typeof _upsertEpisode>[1]): void { _upsertEpisode(this.db, episode); }
-  listEpisodes(seriesId: string): ReturnType<typeof _listEpisodes> { return _listEpisodes(this.db, seriesId); }
-  deleteEpisode(id: string): void { _deleteEpisode(this.db, id); }
+  upsertSeries(series: Series): void { this.seriesRepo.upsertSeries(series); }
+  getSeries(id: string): Series | undefined { return this.seriesRepo.getSeries(id as SeriesId); }
+  deleteSeries(id: string): void { this.seriesRepo.deleteSeries(id as SeriesId); }
+  upsertEpisode(episode: EpisodeUpsertInput): void { this.seriesRepo.upsertEpisode(episode); }
+  listEpisodes(seriesId: string): EpisodeRecord[] { return this.seriesRepo.listEpisodes(seriesId as SeriesId).rows; }
+  deleteEpisode(id: string): void { this.seriesRepo.deleteEpisode(id as EpisodeId); }
 
   // --- Preset Overrides ---
   upsertPresetOverride(override: Parameters<typeof _upsertPresetOverride>[1]): void { _upsertPresetOverride(this.db, override); }
