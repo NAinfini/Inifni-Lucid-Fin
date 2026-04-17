@@ -56,6 +56,25 @@ export type {
   // IpcChannelBrand — not exported yet; Phase B replaces old IpcChannel
 } from './types/brands.js';
 
+// ── Phase G2a-1: ContextItem types ────────────────────────────
+export type {
+  ContextItemId,
+  EntityRef,
+  UserMessageItem,
+  AssistantTurnItem,
+  ToolResultItem,
+  EntitySnapshotItem,
+  GuideItem,
+  SessionSummaryItem,
+  ReferenceItem,
+  ContextItem,
+  CompactionKeepRules,
+  CompactStrategy,
+  CompactionPolicy,
+  TokenBudget,
+  CompactionResult,
+} from './agent/context-graph.js';
+
 // Node-kind taxonomy
 export {
   NODE_KINDS,

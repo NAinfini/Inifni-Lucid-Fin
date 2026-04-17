@@ -12,6 +12,7 @@ export const CommanderSessionsTable = defineTable('commander_sessions', {
   canvasId: col<CanvasId | null>('canvas_id'),
   title: col<string>('title'),
   messages: col<string>('messages'),
+  contextGraphJson: col<string | null>('context_graph_json'),
   createdAt: col<number>('created_at'),
   updatedAt: col<number>('updated_at'),
 });
