@@ -27,3 +27,5 @@ export type { ProcessPromptRecord, ProcessPromptDefault } from './process-prompt
 export type { StoredSession, StoredSnapshot, SnapshotData } from './sqlite-snapshots.js';
 export { runMigrations, getCurrentVersion } from './migrations/runner.js';
 export type { Migration } from './migrations/runner.js';
+export { withTx } from './transactions.js';
+export type { Tx } from './transactions.js';
