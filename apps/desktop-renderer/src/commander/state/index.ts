@@ -13,3 +13,4 @@ export * from './run-summary.js';
 export * from './session-persistence.js';
 export * from './settings-persistence.js';
 export * from './compactor.js';
+export * from './context-usage.js';
