@@ -43,3 +43,6 @@ export {
 
 // Batch 1 — settings + script
 export * from './ipc/channels/batch-01.js';
+
+// Batch 2 — character + equipment
+export * from './ipc/channels/batch-02.js';
