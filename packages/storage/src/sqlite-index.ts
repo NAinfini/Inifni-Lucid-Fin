@@ -97,7 +97,8 @@ import {
 } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
-import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId, SnapshotId } from '@lucid-fin/contracts';
+import { WorkflowRepository } from './repositories/workflow-repository.js';
+import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId, SnapshotId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -476,6 +477,7 @@ export class SqliteIndex implements IStorageLayer {
   private presets!: PresetRepository;
   private shotTemplates!: ShotTemplateRepository;
   private snapshots!: SnapshotRepository;
+  private workflows!: WorkflowRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -505,6 +507,7 @@ export class SqliteIndex implements IStorageLayer {
     this.presets = new PresetRepository(this.db);
     this.shotTemplates = new ShotTemplateRepository(this.db);
     this.snapshots = new SnapshotRepository(this.db);
+    this.workflows = new WorkflowRepository(this.db);
   }
 
   close(): void {
@@ -569,6 +572,7 @@ export class SqliteIndex implements IStorageLayer {
     this.presets = new PresetRepository(this.db);
     this.shotTemplates = new ShotTemplateRepository(this.db);
     this.snapshots = new SnapshotRepository(this.db);
+    this.workflows = new WorkflowRepository(this.db);
   }
 
   // --- Assets ---
@@ -686,41 +690,41 @@ export class SqliteIndex implements IStorageLayer {
   restoreSnapshot(snapshotId: string): void { this.snapshots.restore(snapshotId as SnapshotId); }
 
   // --- Workflow Runs ---
-  insertWorkflowRun(run: WorkflowRun): void { _insertWorkflowRun(this.db, run); }
-  getWorkflowRun(id: string): WorkflowRun | undefined { return _getWorkflowRun(this.db, id); }
-  listWorkflowRuns(filter?: { status?: string; workflowType?: string; entityType?: string }): WorkflowRun[] { return _listWorkflowRuns(this.db, filter); }
-  updateWorkflowRun(id: string, updates: Parameters<typeof _updateWorkflowRun>[2]): void { _updateWorkflowRun(this.db, id, updates); }
+  insertWorkflowRun(run: WorkflowRun): void { this.workflows.insertRun(run); }
+  getWorkflowRun(id: string): WorkflowRun | undefined { return this.workflows.getRun(id as WorkflowRunId); }
+  listWorkflowRuns(filter?: { status?: string; workflowType?: string; entityType?: string }): WorkflowRun[] { return this.workflows.listRuns(filter).rows; }
+  updateWorkflowRun(id: string, updates: Parameters<typeof _updateWorkflowRun>[2]): void { this.workflows.updateRun(id as WorkflowRunId, updates); }
 
   // --- Workflow Stage Runs ---
-  insertWorkflowStageRun(stageRun: WorkflowStageRun): void { _insertWorkflowStageRun(this.db, stageRun); }
-  listWorkflowStageRuns(workflowRunId: string): WorkflowStageRun[] { return _listWorkflowStageRuns(this.db, workflowRunId); }
-  getWorkflowStageRun(id: string): WorkflowStageRun | undefined { return _getWorkflowStageRun(this.db, id); }
-  updateWorkflowStageRun(id: string, updates: Parameters<typeof _updateWorkflowStageRun>[2]): void { _updateWorkflowStageRun(this.db, id, updates); }
+  insertWorkflowStageRun(stageRun: WorkflowStageRun): void { this.workflows.insertStageRun(stageRun); }
+  listWorkflowStageRuns(workflowRunId: string): WorkflowStageRun[] { return this.workflows.listStageRuns(workflowRunId as WorkflowRunId).rows; }
+  getWorkflowStageRun(id: string): WorkflowStageRun | undefined { return this.workflows.getStageRun(id as WorkflowStageId); }
+  updateWorkflowStageRun(id: string, updates: Parameters<typeof _updateWorkflowStageRun>[2]): void { this.workflows.updateStageRun(id as WorkflowStageId, updates); }
 
   // --- Workflow Task Runs ---
-  insertWorkflowTaskRun(taskRun: WorkflowTaskRun): void { _insertWorkflowTaskRun(this.db, taskRun); }
-  listWorkflowTaskRuns(workflowRunId: string): WorkflowTaskRun[] { return _listWorkflowTaskRuns(this.db, workflowRunId); }
-  listWorkflowTaskRunsByStage(stageRunId: string): WorkflowTaskRun[] { return _listWorkflowTaskRunsByStage(this.db, stageRunId); }
-  listReadyWorkflowTasks(workflowRunId?: string): WorkflowTaskRun[] { return _listReadyWorkflowTasks(this.db, workflowRunId); }
-  listAwaitingProviderTasks(workflowRunId?: string): WorkflowTaskRun[] { return _listAwaitingProviderTasks(this.db, workflowRunId); }
-  getWorkflowTaskRun(id: string): WorkflowTaskRun | undefined { return _getWorkflowTaskRun(this.db, id); }
-  updateWorkflowTaskRun(id: string, updates: Parameters<typeof _updateWorkflowTaskRun>[2]): void { _updateWorkflowTaskRun(this.db, id, updates); }
+  insertWorkflowTaskRun(taskRun: WorkflowTaskRun): void { this.workflows.insertTaskRun(taskRun); }
+  listWorkflowTaskRuns(workflowRunId: string): WorkflowTaskRun[] { return this.workflows.listTaskRuns(workflowRunId as WorkflowRunId).rows; }
+  listWorkflowTaskRunsByStage(stageRunId: string): WorkflowTaskRun[] { return this.workflows.listTaskRunsByStage(stageRunId as WorkflowStageId).rows; }
+  listReadyWorkflowTasks(workflowRunId?: string): WorkflowTaskRun[] { return this.workflows.listReadyTasks(workflowRunId as WorkflowRunId).rows; }
+  listAwaitingProviderTasks(workflowRunId?: string): WorkflowTaskRun[] { return this.workflows.listAwaitingProviderTasks(workflowRunId as WorkflowRunId).rows; }
+  getWorkflowTaskRun(id: string): WorkflowTaskRun | undefined { return this.workflows.getTaskRun(id as WorkflowTaskId); }
+  updateWorkflowTaskRun(id: string, updates: Parameters<typeof _updateWorkflowTaskRun>[2]): void { this.workflows.updateTaskRun(id as WorkflowTaskId, updates); }
 
   // --- Task Dependencies ---
-  insertWorkflowTaskDependency(taskRunId: string, dependsOnTaskRunId: string): void { _insertWorkflowTaskDependency(this.db, taskRunId, dependsOnTaskRunId); }
-  listTaskDependencies(taskRunId: string): string[] { return _listTaskDependencies(this.db, taskRunId); }
-  listTaskDependents(dependsOnTaskRunId: string): string[] { return _listTaskDependents(this.db, dependsOnTaskRunId); }
+  insertWorkflowTaskDependency(taskRunId: string, dependsOnTaskRunId: string): void { this.workflows.insertTaskDependency(taskRunId as WorkflowTaskId, dependsOnTaskRunId as WorkflowTaskId); }
+  listTaskDependencies(taskRunId: string): string[] { return this.workflows.listTaskDependencies(taskRunId as WorkflowTaskId); }
+  listTaskDependents(dependsOnTaskRunId: string): string[] { return this.workflows.listTaskDependents(dependsOnTaskRunId as WorkflowTaskId); }
 
   // --- Workflow Artifacts ---
-  insertWorkflowArtifact(artifact: WorkflowArtifact): void { _insertWorkflowArtifact(this.db, artifact); }
-  listWorkflowArtifacts(workflowRunId: string): WorkflowArtifact[] { return _listWorkflowArtifacts(this.db, workflowRunId); }
-  listEntityArtifacts(entityType: string, entityId: string): WorkflowArtifact[] { return _listEntityArtifacts(this.db, entityType, entityId); }
-  listWorkflowArtifactsByTaskRun(taskRunId: string): WorkflowArtifact[] { return _listWorkflowArtifactsByTaskRun(this.db, taskRunId); }
+  insertWorkflowArtifact(artifact: WorkflowArtifact): void { this.workflows.insertArtifact(artifact); }
+  listWorkflowArtifacts(workflowRunId: string): WorkflowArtifact[] { return this.workflows.listArtifacts(workflowRunId as WorkflowRunId); }
+  listEntityArtifacts(entityType: string, entityId: string): WorkflowArtifact[] { return this.workflows.listEntityArtifacts(entityType, entityId); }
+  listWorkflowArtifactsByTaskRun(taskRunId: string): WorkflowArtifact[] { return this.workflows.listArtifactsByTaskRun(taskRunId as WorkflowTaskId); }
 
   // --- Task Summaries & Aggregation ---
-  listWorkflowTaskSummaries(filter?: Parameters<typeof _listWorkflowTaskSummaries>[1]): WorkflowTaskSummary[] { return _listWorkflowTaskSummaries(this.db, filter); }
-  recomputeStageAggregate(stageRunId: string): void { _recomputeStageAggregate(this.db, stageRunId); }
-  recomputeWorkflowAggregate(workflowRunId: string): void { _recomputeWorkflowAggregate(this.db, workflowRunId); }
+  listWorkflowTaskSummaries(filter?: Parameters<typeof _listWorkflowTaskSummaries>[1]): WorkflowTaskSummary[] { return this.workflows.listTaskSummaries(filter); }
+  recomputeStageAggregate(stageRunId: string): void { this.workflows.recomputeStageAggregate(stageRunId as WorkflowStageId); }
+  recomputeWorkflowAggregate(workflowRunId: string): void { this.workflows.recomputeWorkflowAggregate(workflowRunId as WorkflowRunId); }
 
 
   // ---------------------------------------------------------------------------
