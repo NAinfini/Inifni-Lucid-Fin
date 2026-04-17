@@ -16,6 +16,8 @@ import { registerCommanderMetaHandlers } from './commander-meta.handlers.js';
 import {
   AgentOrchestrator,
   AgentToolRegistry,
+  canvasSyncMutatingToolNames,
+  entityMutatingToolNames,
   type JobQueue,
   type WorkflowEngine,
   type AgentContext,
@@ -45,83 +47,16 @@ import { requireCanvas, type ToolRegistrationDeps } from './commander-tool-deps.
 import { registerAllTools } from './commander-tool-deps.js';
 import { createEmitHandler, formatErrorDetail, emitToWindow } from './commander-emit.js';
 
-// ---------------------------------------------------------------------------
-// Mutating tool name sets (used by emit handler for sync dispatch)
-// ---------------------------------------------------------------------------
+// Re-exported here so existing imports (tests, etc.) continue to resolve.
+export { canvasSyncMutatingToolNames, entityMutatingToolNames };
 
-export const mutatingToolNames = new Set([
-  'canvas.addNode',
-  'canvas.renameCanvas',
-  'canvas.deleteCanvas',
-  'canvas.connectNodes',
-  'canvas.layout',
-  'canvas.generate',
-  'canvas.cancelGeneration',
-  'canvas.deleteNode',
-  'canvas.deleteEdge',
-  'canvas.updateNodes',
-  'canvas.setNodeLayout',
-  'canvas.setNodeProvider',
-  'canvas.setImageParams',
-  'canvas.setVideoParams',
-  'canvas.setAudioParams',
-  'canvas.setNodeRefs',
-  'canvas.batchCreate',
-  'canvas.writeNodePresetTracks',
-  'canvas.writePresetTracksBatch',
-  'canvas.updateBackdrop',
-  'canvas.addPresetEntry',
-  'canvas.removePresetEntry',
-  'canvas.updatePresetEntry',
-  'canvas.applyShotTemplate',
-  'canvas.setVideoFrames',
-  'canvas.swapEdgeDirection',
-  'canvas.disconnectNode',
-  'canvas.selectVariant',
-  'canvas.addNote',
-  'canvas.updateNote',
-  'canvas.deleteNote',
-  'canvas.undo',
-  'canvas.redo',
-  'preset.create',
-  'preset.update',
-  'shotTemplate.create',
-  'shotTemplate.update',
-  'shotTemplate.delete',
-  'render.start',
-  'render.cancel',
-  'series.update',
-]);
-
-export const entityMutatingToolNames = new Set([
-  'character.create',
-  'character.update',
-  'character.delete',
-  'character.generateRefImage',
-  'character.setRefImage',
-  'character.deleteRefImage',
-  'character.setRefImageFromNode',
-  'equipment.create',
-  'equipment.update',
-  'equipment.delete',
-  'equipment.generateRefImage',
-  'equipment.setRefImage',
-  'equipment.deleteRefImage',
-  'equipment.setRefImageFromNode',
-  'location.create',
-  'location.update',
-  'location.delete',
-  'location.generateRefImage',
-  'location.setRefImage',
-  'location.deleteRefImage',
-  'location.setRefImageFromNode',
-  'scene.create',
-  'scene.update',
-  'scene.delete',
-  'scene.setRefImage',
-  'scene.deleteRefImage',
-  'scene.setRefImageFromNode',
-]);
+// ---------------------------------------------------------------------------
+// Mutating tool name sets — derived from `ToolCatalog` in `@lucid-fin/application`.
+// `canvasSyncMutatingToolNames` drives canvas subtree re-broadcast; it's the
+// set of all mutating tools minus those tagged with a `uiEffect.entity.refresh`.
+// `entityMutatingToolNames` drives entity list refresh (character/location/
+// equipment).
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Context builder
@@ -519,7 +454,7 @@ export function registerCommanderHandlers(
           getWindow,
           args.canvasId,
           deps.canvasStore,
-          mutatingToolNames,
+          canvasSyncMutatingToolNames,
           entityMutatingToolNames,
         );
 

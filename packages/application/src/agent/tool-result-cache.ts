@@ -12,7 +12,7 @@
 
 import type { LLMMessage } from '@lucid-fin/contracts';
 import type { ToolResult } from './tool-registry.js';
-import { getToolCompactionCategory } from './tool-compaction-class.js';
+import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import type { TranscriptIndex } from './transcript-index.js';
 
 // ---------------------------------------------------------------------------

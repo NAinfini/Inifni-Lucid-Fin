@@ -108,8 +108,8 @@ export function createEmitHandler(
   getWindow: () => BrowserWindow | null,
   canvasId: string,
   canvasStore: CanvasStore,
-  mutatingToolNames: Set<string>,
-  entityMutatingToolNames: Set<string>,
+  mutatingToolNames: ReadonlySet<string>,
+  entityMutatingToolNames: ReadonlySet<string>,
 ): (event: AgentEvent) => void {
   return (event: AgentEvent) => {
     const payload: CommanderStreamPayload =

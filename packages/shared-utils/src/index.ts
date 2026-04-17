@@ -22,3 +22,8 @@ export {
   mapErr,
   type Result,
 } from './result.js';
+export {
+  getToolCompactionCategory,
+  getClassifiedToolNames,
+  type ToolCompactionCategory,
+} from './tool-compaction.js';
