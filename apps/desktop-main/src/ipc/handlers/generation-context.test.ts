@@ -2,6 +2,27 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Canvas, CanvasNode } from '@lucid-fin/contracts';
 import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 
+/**
+ * Wrap flat entity spies into the new `.repos.entities` shape (Phase G1-4.7).
+ */
+function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
+  repos: { entities: Record<string, unknown> };
+} {
+  return {
+    ...flat,
+    repos: {
+      entities: {
+        getCharacter: flat.getCharacter,
+        getEquipment: flat.getEquipment,
+        getLocation: flat.getLocation,
+        upsertCharacter: flat.upsertCharacter,
+        upsertEquipment: flat.upsertEquipment,
+        upsertLocation: flat.upsertLocation,
+      },
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Hoist mocks before any imports that pull in the mocked modules
 // ---------------------------------------------------------------------------
@@ -253,12 +274,12 @@ function makeDepsWithNode(node: CanvasNode, adapterOverrides: Partial<Parameters
         })),
         getAssetPath: vi.fn(() => '/tmp/asset.png'),
       },
-      db: {
+      db: withEntityRepos({
         insertAsset: vi.fn(),
         getCharacter: vi.fn(() => undefined),
         getEquipment: vi.fn(() => undefined),
         getLocation: vi.fn(() => undefined),
-      },
+      }),
       canvasStore: {
         get: vi.fn(() => canvas),
         save: vi.fn(),
@@ -802,7 +823,7 @@ describe('buildGenerationContext', () => {
     const deps = {
       adapterRegistry: makeRegistry(adapter),
       cas: { importAsset: vi.fn(), getAssetPath: vi.fn() },
-      db: { insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) },
+      db: withEntityRepos({ insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
     };
@@ -874,7 +895,7 @@ describe('buildGenerationContext', () => {
         })),
         getAssetPath: vi.fn(() => '/tmp/asset.png'),
       },
-      db: {
+      db: withEntityRepos({
         insertAsset: vi.fn(),
         getCharacter: vi.fn(() => ({
           id: 'char-1',
@@ -901,7 +922,7 @@ describe('buildGenerationContext', () => {
           createdAt: 0,
           updatedAt: 0,
         })),
-      },
+      }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'secret-key') },
     };
@@ -960,7 +981,7 @@ describe('buildGenerationContext', () => {
         list: vi.fn(() => [adapter]),
       },
       cas: { importAsset: vi.fn(), getAssetPath: vi.fn() },
-      db: { insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) },
+      db: withEntityRepos({ insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
     };
@@ -1162,7 +1183,7 @@ describe('buildGenerationContext', () => {
         list: vi.fn(() => [adapter]),
       },
       cas: { importAsset: vi.fn(), getAssetPath: vi.fn() },
-      db: { insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) },
+      db: withEntityRepos({ insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
     };

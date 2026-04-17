@@ -17,6 +17,7 @@ export type {
   ISessionStore,
   ISnapshotStore,
   IWorkflowStore,
+  RepoBundle,
 } from './storage-interfaces.js';
 export { Keychain } from './keychain.js';
 export type { KeychainOptions } from './keychain.js';
