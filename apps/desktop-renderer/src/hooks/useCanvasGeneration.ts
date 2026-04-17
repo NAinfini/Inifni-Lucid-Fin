@@ -12,6 +12,7 @@ import { addLog } from '../store/slices/logger.js';
 import { setAssets, type Asset } from '../store/slices/assets.js';
 import { recordGeneration, recordError } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
+import { matchNode } from '@lucid-fin/shared-utils';
 
 type ProviderConfigOverride = {
   baseUrl: string;
@@ -44,12 +45,13 @@ function resolveNodeProviderConfig(
   const providerId = requestedProviderId ?? nodeData.providerId;
   if (!providerId) return undefined;
 
-  const providerCollection =
-    node.type === 'audio'
-      ? state.settings?.audio.providers
-      : node.type === 'video'
-        ? state.settings?.video.providers
-        : state.settings?.image.providers;
+  const providerCollection = matchNode(node.type, {
+    audio: () => state.settings?.audio.providers,
+    video: () => state.settings?.video.providers,
+    image: () => state.settings?.image.providers,
+    text: () => state.settings?.image.providers,
+    backdrop: () => state.settings?.image.providers,
+  });
 
   const provider = providerCollection?.find((entry) => entry.id === providerId);
   if (!provider) return undefined;

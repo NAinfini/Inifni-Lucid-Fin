@@ -31,6 +31,7 @@ import type {
   ProviderProfile,
 } from '@lucid-fin/contracts';
 import { DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
+import { matchNode } from '@lucid-fin/shared-utils';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
 import {
@@ -181,41 +182,49 @@ function summarizeSelectedNode(node: CanvasNode, _db: SqliteIndex): Record<strin
     status: node.status,
   };
 
-  if (node.type === 'text') {
-    const content = normalizeOptionalString((node.data as { content?: unknown }).content);
-    if (content) summary.content = content;
+  return matchNode(node.type, {
+    text: () => {
+      const content = normalizeOptionalString((node.data as { content?: unknown }).content);
+      if (content) summary.content = content;
+      return summary;
+    },
+    image: addMediaFields,
+    video: () => {
+      addMediaFields();
+      const videoData = node.data as VideoNodeData;
+      if (typeof videoData.duration === 'number') summary.duration = videoData.duration;
+      if (typeof videoData.fps === 'number') summary.fps = videoData.fps;
+      const firstFrameNodeId = normalizeOptionalString(videoData.firstFrameNodeId);
+      const lastFrameNodeId = normalizeOptionalString(videoData.lastFrameNodeId);
+      if (firstFrameNodeId) summary.firstFrameNodeId = firstFrameNodeId;
+      if (lastFrameNodeId) summary.lastFrameNodeId = lastFrameNodeId;
+      return summary;
+    },
+    audio: addMediaFields,
+    backdrop: addMediaFields,
+  });
+
+  function addMediaFields(): Record<string, unknown> {
+    const mediaData = node.data as ImageNodeData | VideoNodeData;
+    const prompt = normalizeOptionalString((mediaData as { prompt?: unknown }).prompt);
+    const negativePrompt = normalizeOptionalString((mediaData as { negativePrompt?: unknown }).negativePrompt);
+    const providerId = normalizeOptionalString((mediaData as { providerId?: unknown }).providerId);
+    const sourceImageHash = normalizeOptionalString((mediaData as { sourceImageHash?: unknown }).sourceImageHash);
+
+    if (prompt) summary.hasPrompt = true;
+    if (negativePrompt) summary.hasNegativePrompt = true;
+    if (providerId) summary.providerId = providerId;
+    if (sourceImageHash) summary.sourceImageHash = sourceImageHash;
+
+    const characterRefIds = summarizeCharacterRefIds((mediaData as { characterRefs?: unknown }).characterRefs);
+    const locationRefIds = summarizeLocationRefIds((mediaData as { locationRefs?: unknown }).locationRefs);
+    const equipmentRefIds = summarizeEquipmentRefIds((mediaData as { equipmentRefs?: unknown }).equipmentRefs);
+    if (characterRefIds) summary.characterRefIds = characterRefIds;
+    if (locationRefIds) summary.locationRefIds = locationRefIds;
+    if (equipmentRefIds) summary.equipmentRefIds = equipmentRefIds;
+
     return summary;
   }
-
-  const mediaData = node.data as ImageNodeData | VideoNodeData;
-  const prompt = normalizeOptionalString((mediaData as { prompt?: unknown }).prompt);
-  const negativePrompt = normalizeOptionalString((mediaData as { negativePrompt?: unknown }).negativePrompt);
-  const providerId = normalizeOptionalString((mediaData as { providerId?: unknown }).providerId);
-  const sourceImageHash = normalizeOptionalString((mediaData as { sourceImageHash?: unknown }).sourceImageHash);
-
-  if (prompt) summary.hasPrompt = true;
-  if (negativePrompt) summary.hasNegativePrompt = true;
-  if (providerId) summary.providerId = providerId;
-  if (sourceImageHash) summary.sourceImageHash = sourceImageHash;
-
-  const characterRefIds = summarizeCharacterRefIds((mediaData as { characterRefs?: unknown }).characterRefs);
-  const locationRefIds = summarizeLocationRefIds((mediaData as { locationRefs?: unknown }).locationRefs);
-  const equipmentRefIds = summarizeEquipmentRefIds((mediaData as { equipmentRefs?: unknown }).equipmentRefs);
-  if (characterRefIds) summary.characterRefIds = characterRefIds;
-  if (locationRefIds) summary.locationRefIds = locationRefIds;
-  if (equipmentRefIds) summary.equipmentRefIds = equipmentRefIds;
-
-  if (node.type === 'video') {
-    const videoData = mediaData as VideoNodeData;
-    if (typeof videoData.duration === 'number') summary.duration = videoData.duration;
-    if (typeof videoData.fps === 'number') summary.fps = videoData.fps;
-    const firstFrameNodeId = normalizeOptionalString(videoData.firstFrameNodeId);
-    const lastFrameNodeId = normalizeOptionalString(videoData.lastFrameNodeId);
-    if (firstFrameNodeId) summary.firstFrameNodeId = firstFrameNodeId;
-    if (lastFrameNodeId) summary.lastFrameNodeId = lastFrameNodeId;
-  }
-
-  return summary;
 }
 
 function detectInitialProcessPrompts(
@@ -229,11 +238,13 @@ function detectInitialProcessPrompts(
     .filter((node): node is CanvasNode => Boolean(node));
 
   for (const node of selectedNodes) {
-    if (node.type === 'image' || node.type === 'backdrop') {
-      prompts.add('image-node-generation');
-    } else if (node.type === 'video') {
-      prompts.add('video-node-generation');
-    }
+    matchNode(node.type, {
+      image:    () => { prompts.add('image-node-generation'); },
+      backdrop: () => { prompts.add('image-node-generation'); },
+      video:    () => { prompts.add('video-node-generation'); },
+      audio:    () => {},
+      text:     () => {},
+    });
   }
 
   const normalizedMessage = userMessage?.toLowerCase() ?? '';

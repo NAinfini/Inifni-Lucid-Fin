@@ -1,0 +1,23 @@
+name: Zod-in-Contracts Guard
+on:
+  pull_request:
+    paths: ['packages/contracts/src/**']
+  push:
+    branches: [main]
+    paths: ['packages/contracts/src/**']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify zero zod imports in contracts
+        run: |
+          if grep -rn "from 'zod'" packages/contracts/src/ \
+             || grep -rn 'from "zod"' packages/contracts/src/ \
+             || grep -rn "require('zod')" packages/contracts/src/ \
+             || grep -rn "import { z" packages/contracts/src/; then
+            echo "::error::packages/contracts must not import zod. Move runtime code to @lucid-fin/contracts-parse."
+            exit 1
+          fi
+          echo "✓ No zod imports in packages/contracts/src/"

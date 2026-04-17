@@ -5,6 +5,7 @@ import type { RootState } from '../index.js';
 import type { Canvas } from '@lucid-fin/contracts';
 import { diffCanvas, shouldUsePatch } from './canvas-differ.js';
 import { buildSparseSettings } from '../slices/settings.js';
+// eslint-disable-next-line no-restricted-imports -- Phase C (LRUCache relocation to shared-utils) will fix this
 import { LRUCache } from '@lucid-fin/application/dist/lru-cache.js';
 
 // Canvas actions that mutate node/edge data and need canvas:save

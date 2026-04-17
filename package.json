@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "dev": "npm run build --workspaces --if-present && npm run build:dev --workspace=apps/desktop-renderer && npm run dev --workspace=apps/desktop-main",
-    "build": "npm run build --workspace=packages/contracts && npm run build --workspace=packages/storage --workspace=packages/adapters-ai --workspace=packages/domain --workspace=packages/media-engine && npm run build --workspace=packages/application && npm run build --workspace=apps/desktop-renderer && npm run build --workspace=apps/desktop-main",
+    "build": "npm run build --workspace=packages/shared-utils && npm run build --workspace=packages/contracts && npm run build --workspace=packages/contracts-parse && npm run build --workspace=packages/storage --workspace=packages/adapters-ai --workspace=packages/domain --workspace=packages/media-engine && npm run build --workspace=packages/application && npm run build --workspace=apps/desktop-renderer && npm run build --workspace=apps/desktop-main",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "test:coverage:critical": "vitest run --root apps/desktop-main src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/canvas-generation.handlers.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/workflow.handlers.test.ts src/ipc/handlers/job.handlers.test.ts --coverage",
