@@ -1,4 +1,4 @@
-import type { PresetTrackSet } from './presets.js';
+import type { PresetTrackSet } from './presets/index.js';
 import type { CharacterRef } from './character.js';
 import type { EquipmentRef } from './equipment.js';
 import type { LocationRef } from './location.js';
