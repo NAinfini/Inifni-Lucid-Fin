@@ -61,3 +61,6 @@ export * from './ipc/channels/batch-06.js';
 
 // Batch 7 — canvas core (non-generation)
 export * from './ipc/channels/batch-07.js';
+
+// Batch 8 — canvas generation + preset
+export * from './ipc/channels/batch-08.js';
