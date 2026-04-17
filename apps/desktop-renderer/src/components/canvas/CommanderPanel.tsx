@@ -45,6 +45,7 @@ import { QuestionCard } from './commander/QuestionCard.js';
 import { useSlashCommands } from './commander/useSlashCommands.js';
 import { usePanelDrag } from './commander/usePanelDrag.js';
 import { MessageList } from './commander/MessageList.js';
+import { computeContextUsage } from '../../commander/state/context-usage.js';
 
 const SAFE_Y = 56;
 
@@ -229,115 +230,21 @@ export function CommanderPanel() {
 
   usePanelDrag({ panelRef: sectionRef, open, size });
 
-  // Estimate context usage with per-category breakdown
-  const contextUsage = useMemo(() => {
-    // Use backend-reported numbers when available (accurate: includes system prompt + tool schemas)
-    if (backendContextUsage) {
-      const { estimatedTokensUsed, contextWindowTokens } = backendContextUsage;
-      const pct = Math.min(100, Math.round((estimatedTokensUsed / contextWindowTokens) * 100));
-
-      // Local breakdown for per-category display (best-effort from Redux messages)
-      let userChars = 0;
-      let assistantChars = 0;
-      let toolCallChars = 0;
-      let toolResultChars = 0;
-      let userCount = 0;
-      let assistantCount = 0;
-      let toolCallCount = 0;
-      for (const msg of messages) {
-        const contentLen = msg.content?.length ?? 0;
-        if (msg.role === 'user') {
-          userChars += contentLen;
-          userCount++;
-        } else {
-          assistantChars += contentLen;
-          assistantCount++;
-        }
-        if (msg.toolCalls) {
-          for (const tc of msg.toolCalls) {
-            toolCallChars += JSON.stringify(tc.arguments).length;
-            toolCallCount++;
-            if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
-          }
-        }
-      }
-      assistantChars += currentStreamContent?.length ?? 0;
-      for (const tc of currentToolCalls) {
-        toolCallChars += JSON.stringify(tc.arguments).length;
-        toolCallCount++;
-        if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
-      }
-      const toTokens = (c: number) => Math.round(c / 3.5);
-      return {
-        pct,
-        estimatedTokens: estimatedTokensUsed,
-        ctxWindow: contextWindowTokens,
-        breakdown: {
-          user: toTokens(userChars),
-          assistant: toTokens(assistantChars),
-          toolCalls: toTokens(toolCallChars),
-          toolResults: toTokens(toolResultChars),
-        },
-        counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
-        cache: {
-          chars: backendContextUsage.cacheChars,
-          entries: backendContextUsage.cacheEntryCount,
-        },
-        historyTrimmed: backendContextUsage.historyMessagesTrimmed,
-      };
-    }
-
-    // Fallback: local estimate (less accurate — missing system prompt + tool schemas)
-    let userChars = 0;
-    let assistantChars = 0;
-    let toolCallChars = 0;
-    let toolResultChars = 0;
-    let userCount = 0;
-    let assistantCount = 0;
-    let toolCallCount = 0;
-    for (const msg of messages) {
-      const contentLen = msg.content?.length ?? 0;
-      if (msg.role === 'user') {
-        userChars += contentLen;
-        userCount++;
-      } else {
-        assistantChars += contentLen;
-        assistantCount++;
-      }
-      if (msg.toolCalls) {
-        for (const tc of msg.toolCalls) {
-          toolCallChars += JSON.stringify(tc.arguments).length;
-          toolCallCount++;
-          if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
-        }
-      }
-    }
-    assistantChars += currentStreamContent?.length ?? 0;
-    for (const tc of currentToolCalls) {
-      toolCallChars += JSON.stringify(tc.arguments).length;
-      toolCallCount++;
-      if (tc.result !== undefined) toolResultChars += JSON.stringify(tc.result).length;
-    }
-    const totalChars = userChars + assistantChars + toolCallChars + toolResultChars;
-    const toTokens = (c: number) => Math.round(c / 3.5);
-    const estimatedTokens = toTokens(totalChars);
-    const ctxWindow = maxTokens;
-    const pct = Math.min(100, Math.round((estimatedTokens / ctxWindow) * 100));
-    return {
-      pct,
-      estimatedTokens,
-      ctxWindow,
-      breakdown: {
-        user: toTokens(userChars),
-        assistant: toTokens(assistantChars),
-        toolCalls: toTokens(toolCallChars),
-        toolResults: toTokens(toolResultChars),
-      },
-      counts: { user: userCount, assistant: assistantCount, toolCalls: toolCallCount },
-      cache: { chars: 0, entries: 0 },
-      historyTrimmed: 0,
-    };
-  }, [maxTokens, messages, currentStreamContent, currentToolCalls, backendContextUsage]);
+  // Estimate context usage with per-category breakdown. When the main
+  // process has reported a `context_usage` payload those numbers are
+  // authoritative; otherwise we estimate locally. See
+  // `commander/state/context-usage.ts` for the shared helper.
+  const contextUsage = useMemo(
+    () =>
+      computeContextUsage({
+        messages,
+        currentStreamContent,
+        currentToolCalls,
+        maxTokens,
+        backendContextUsage,
+      }),
+    [maxTokens, messages, currentStreamContent, currentToolCalls, backendContextUsage],
+  );
 
   // Auto-compact when context reaches 95%, with 10s cooldown
   // Triggers DURING active session (isStreaming) so the backend session still exists.
