@@ -11,6 +11,7 @@ vi.mock('electron', () => ({
 function createWindow(isFocused = false) {
   return {
     isFocused: vi.fn(() => isFocused),
+    isDestroyed: vi.fn(() => false),
     webContents: {
       send: vi.fn(),
     },
