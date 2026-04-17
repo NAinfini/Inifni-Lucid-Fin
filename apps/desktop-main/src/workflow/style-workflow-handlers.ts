@@ -15,6 +15,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { TaskKind, TaskRunStatus } from '@lucid-fin/contracts';
 import type { CAS } from '@lucid-fin/storage';
+import { parseWorkflowRunId } from '@lucid-fin/contracts-parse';
 
 const EXTRACT_PROMPT = `Analyze this image and extract its color/style profile as JSON. Return ONLY valid JSON with this exact structure:
 {
@@ -196,7 +197,7 @@ export function createStyleWorkflowHandlers(
 
         context.db.upsertColorStyle(colorStyle);
 
-        context.db.insertWorkflowArtifact({
+        context.db.repos.workflows.insertArtifact({
           id: nextId(),
           workflowRunId: context.workflowRun.id,
           taskRunId: context.taskRun.id,
@@ -211,7 +212,7 @@ export function createStyleWorkflowHandlers(
           createdAt: timestamp,
         });
 
-        context.db.updateWorkflowRun(context.workflowRun.id, {
+        context.db.repos.workflows.updateRun(parseWorkflowRunId(context.workflowRun.id), {
           output: {
             ...context.workflowRun.output,
             colorStyleId: colorStyle.id,
@@ -240,9 +241,9 @@ function getTaskOutput(
   context: WorkflowTaskExecutionContext,
   taskId: string,
 ): Record<string, unknown> {
-  const taskRun = context.db
-    .listWorkflowTaskRuns(context.workflowRun.id)
-    .find((entry) => entry.taskId === taskId);
+  const taskRun = context.db.repos.workflows
+    .listTaskRuns(parseWorkflowRunId(context.workflowRun.id))
+    .rows.find((entry) => entry.taskId === taskId);
 
   if (!taskRun) {
     throw new Error(`Workflow task "${taskId}" not found in run ${context.workflowRun.id}`);

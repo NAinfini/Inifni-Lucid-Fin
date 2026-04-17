@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { WorkflowTaskSummary } from '@lucid-fin/contracts';
 import { StageRunStatus, TaskKind, TaskRunStatus, WorkflowRunStatus } from '@lucid-fin/contracts';
 import { SqliteIndex } from './sqlite-index.js';
 
@@ -25,7 +24,7 @@ describe('workflow activity projections', () => {
   });
 
   it('builds renderer-facing task summaries with workflow context, filters, and produced artifacts', () => {
-    db.insertWorkflowRun({
+    db.repos.workflows.insertRun({
       id: 'wf-1',
       workflowType: 'storyboard.generate',
       entityType: 'scene',
@@ -53,7 +52,7 @@ describe('workflow activity projections', () => {
       createdAt: 1,
       updatedAt: 1,
     });
-    db.insertWorkflowRun({
+    db.repos.workflows.insertRun({
       id: 'wf-2',
       workflowType: 'style.extract',
       entityType: 'asset',
@@ -77,7 +76,7 @@ describe('workflow activity projections', () => {
       updatedAt: 2,
     });
 
-    db.insertWorkflowStageRun({
+    db.repos.workflows.insertStageRun({
       id: 'stage-1',
       workflowRunId: 'wf-1',
       stageId: 'render',
@@ -90,7 +89,7 @@ describe('workflow activity projections', () => {
       metadata: {},
       updatedAt: 10,
     });
-    db.insertWorkflowStageRun({
+    db.repos.workflows.insertStageRun({
       id: 'stage-2',
       workflowRunId: 'wf-2',
       stageId: 'extract',
@@ -104,7 +103,7 @@ describe('workflow activity projections', () => {
       updatedAt: 20,
     });
 
-    db.insertWorkflowTaskRun({
+    db.repos.workflows.insertTaskRun({
       id: 'task-older',
       workflowRunId: 'wf-1',
       stageRunId: 'stage-1',
@@ -129,7 +128,7 @@ describe('workflow activity projections', () => {
       progress: 0,
       updatedAt: 100,
     });
-    db.insertWorkflowTaskRun({
+    db.repos.workflows.insertTaskRun({
       id: 'task-newer',
       workflowRunId: 'wf-1',
       stageRunId: 'stage-1',
@@ -155,7 +154,7 @@ describe('workflow activity projections', () => {
       currentStep: 'rendering',
       updatedAt: 200,
     });
-    db.insertWorkflowTaskRun({
+    db.repos.workflows.insertTaskRun({
       id: 'task-other-project',
       workflowRunId: 'wf-2',
       stageRunId: 'stage-2',
@@ -175,7 +174,7 @@ describe('workflow activity projections', () => {
       updatedAt: 150,
     });
 
-    db.insertWorkflowArtifact({
+    db.repos.workflows.insertArtifact({
       id: 'artifact-1',
       workflowRunId: 'wf-1',
       taskRunId: 'task-newer',
@@ -188,16 +187,7 @@ describe('workflow activity projections', () => {
       createdAt: 300,
     });
 
-    const helpers = db as SqliteIndex & {
-      listWorkflowTaskSummaries: (filter?: {
-        workflowRunId?: string;
-        status?: string;
-        limit?: number;
-        offset?: number;
-      }) => WorkflowTaskSummary[];
-    };
-
-    expect(helpers.listWorkflowTaskSummaries({ workflowRunId: 'wf-1' })).toEqual([
+    expect(db.repos.workflows.listTaskSummaries({ workflowRunId: 'wf-1' })).toEqual([
       {
         id: 'task-newer',
         workflowRunId: 'wf-1',
@@ -262,7 +252,7 @@ describe('workflow activity projections', () => {
     ]);
 
     expect(
-      helpers.listWorkflowTaskSummaries({
+      db.repos.workflows.listTaskSummaries({
         workflowRunId: 'wf-1',
         status: TaskRunStatus.Running,
         limit: 1,

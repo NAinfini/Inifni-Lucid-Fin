@@ -1,10 +1,13 @@
 import {
   TaskRunStatus,
   type WorkflowRun,
+  type WorkflowRunId,
+  type WorkflowStageId,
   type WorkflowStageRun,
+  type WorkflowTaskId,
   type WorkflowTaskRun,
 } from '@lucid-fin/contracts';
-import type { IStorageLayer } from '@lucid-fin/storage';
+import type { IStorageLayer, WorkflowRepository } from '@lucid-fin/storage';
 import type { WorkflowTaskExecutionResult, WorkflowTaskHandler } from './task-handler.js';
 import { WorkflowPlanner } from './workflow-planner.js';
 import type { WorkflowRegistry } from './workflow-registry.js';
@@ -69,6 +72,23 @@ export class WorkflowEngine {
     this.maxConcurrentTasks = options.maxConcurrentTasks ?? 5;
   }
 
+  private get wf(): WorkflowRepository {
+    return this.options.db.repos.workflows;
+  }
+
+  // Engine-internal ID cast helpers. The engine only ever round-trips IDs that
+  // the database itself generated, so we brand them at the access boundary
+  // rather than threading brand types through every method signature.
+  private runId(id: string | undefined): WorkflowRunId | undefined {
+    return id as WorkflowRunId | undefined;
+  }
+  private stageId(id: string): WorkflowStageId {
+    return id as WorkflowStageId;
+  }
+  private taskId(id: string): WorkflowTaskId {
+    return id as WorkflowTaskId;
+  }
+
   start(request: WorkflowStartRequest): string {
     const definition = this.options.registry.get(request.workflowType);
     if (!definition) {
@@ -86,12 +106,12 @@ export class WorkflowEngine {
       idFactory: this.idFactory,
     });
 
-    this.options.db.insertWorkflowRun(planned.workflowRun);
+    this.wf.insertRun(planned.workflowRun);
     for (const stageRun of planned.stageRuns) {
-      this.options.db.insertWorkflowStageRun(stageRun);
+      this.wf.insertStageRun(stageRun);
     }
     for (const taskRun of planned.taskRuns) {
-      this.options.db.insertWorkflowTaskRun(taskRun);
+      this.wf.insertTaskRun(taskRun);
     }
 
     // Auto-pump: begin executing the workflow immediately so callers don't need
@@ -106,30 +126,30 @@ export class WorkflowEngine {
     workflowType?: string;
     entityType?: string;
   }): WorkflowRun[] {
-    return this.options.db.listWorkflowRuns(filter);
+    return this.wf.listRuns(filter).rows;
   }
 
   get(id: string): WorkflowRun | undefined {
-    return this.options.db.getWorkflowRun(id);
+    return this.wf.getRun(this.runId(id) as WorkflowRunId);
   }
 
   getStages(workflowRunId: string): WorkflowStageRun[] {
-    return this.options.db.listWorkflowStageRuns(workflowRunId);
+    return this.wf.listStageRuns(this.runId(workflowRunId) as WorkflowRunId).rows;
   }
 
   getTasks(workflowRunId: string): WorkflowTaskRun[] {
-    return this.options.db.listWorkflowTaskRuns(workflowRunId);
+    return this.wf.listTaskRuns(this.runId(workflowRunId) as WorkflowRunId).rows;
   }
 
   async pause(workflowRunId: string): Promise<void> {
-    this.options.db.updateWorkflowRun(workflowRunId, {
+    this.wf.updateRun(this.runId(workflowRunId) as WorkflowRunId, {
       status: 'paused',
       updatedAt: this.nextTimestamp(),
     });
   }
 
   async resume(workflowRunId: string): Promise<void> {
-    this.options.db.updateWorkflowRun(workflowRunId, {
+    this.wf.updateRun(this.runId(workflowRunId) as WorkflowRunId, {
       status: 'ready',
       updatedAt: this.nextTimestamp(),
     });
@@ -137,15 +157,15 @@ export class WorkflowEngine {
   }
 
   async cancel(workflowRunId: string): Promise<void> {
-    const tasks = this.options.db.listWorkflowTaskRuns(workflowRunId);
-    const stages = this.options.db.listWorkflowStageRuns(workflowRunId);
+    const tasks = this.wf.listTaskRuns(this.runId(workflowRunId) as WorkflowRunId).rows;
+    const stages = this.wf.listStageRuns(this.runId(workflowRunId) as WorkflowRunId).rows;
 
     for (const task of tasks) {
       if (TASK_TERMINAL_STATUSES.has(task.status)) {
         continue;
       }
 
-      this.options.db.updateWorkflowTaskRun(task.id, {
+      this.wf.updateTaskRun(this.taskId(task.id), {
         status: TaskRunStatus.Cancelled,
         completedAt: this.nextTimestamp(),
         updatedAt: this.nextTimestamp(),
@@ -153,9 +173,9 @@ export class WorkflowEngine {
     }
 
     for (const stage of stages) {
-      this.options.db.recomputeStageAggregate(stage.id);
+      this.wf.recomputeStageAggregate(this.stageId(stage.id));
     }
-    this.options.db.recomputeWorkflowAggregate(workflowRunId);
+    this.wf.recomputeWorkflowAggregate(this.runId(workflowRunId) as WorkflowRunId);
   }
 
   async retryTask(taskRunId: string): Promise<void> {
@@ -164,7 +184,7 @@ export class WorkflowEngine {
       return;
     }
 
-    this.options.db.updateWorkflowTaskRun(taskRunId, {
+    this.wf.updateTaskRun(this.taskId(taskRunId), {
       status: TaskRunStatus.Blocked,
       updatedAt: this.nextTimestamp(),
     });
@@ -172,17 +192,17 @@ export class WorkflowEngine {
   }
 
   async retryStage(stageRunId: string): Promise<void> {
-    const stageRun = this.options.db.getWorkflowStageRun(stageRunId);
+    const stageRun = this.wf.getStageRun(this.stageId(stageRunId));
     if (!stageRun) {
       throw new Error(`Workflow stage "${stageRunId}" not found`);
     }
 
-    for (const task of this.options.db.listWorkflowTaskRunsByStage(stageRunId)) {
+    for (const task of this.wf.listTaskRunsByStage(this.stageId(stageRunId)).rows) {
       if (!TASK_TERMINAL_STATUSES.has(task.status)) {
         continue;
       }
 
-      this.options.db.updateWorkflowTaskRun(task.id, {
+      this.wf.updateTaskRun(this.taskId(task.id), {
         status: TaskRunStatus.Blocked,
         updatedAt: this.nextTimestamp(),
       });
@@ -192,12 +212,12 @@ export class WorkflowEngine {
   }
 
   async retryWorkflow(workflowRunId: string): Promise<void> {
-    for (const task of this.options.db.listWorkflowTaskRuns(workflowRunId)) {
+    for (const task of this.wf.listTaskRuns(this.runId(workflowRunId) as WorkflowRunId).rows) {
       if (!TASK_TERMINAL_STATUSES.has(task.status)) {
         continue;
       }
 
-      this.options.db.updateWorkflowTaskRun(task.id, {
+      this.wf.updateTaskRun(this.taskId(task.id), {
         status: TaskRunStatus.Blocked,
         updatedAt: this.nextTimestamp(),
       });
@@ -212,7 +232,7 @@ export class WorkflowEngine {
 
     for (;;) {
       if (this.activeTasks >= this.maxConcurrentTasks) return executed;
-      const readyTasks = this.options.db.listReadyWorkflowTasks(workflowRunId);
+      const readyTasks = this.wf.listReadyTasks(this.runId(workflowRunId)).rows;
       const task = readyTasks[0];
       if (!task) {
         return executed;
@@ -254,7 +274,7 @@ export class WorkflowEngine {
     const handler = this.resolveHandler(record.taskRun);
     const attempts = record.taskRun.attempts + 1;
 
-    this.options.db.updateWorkflowTaskRun(taskRunId, {
+    this.wf.updateTaskRun(this.taskId(taskRunId), {
       status: TaskRunStatus.Running,
       attempts,
       startedAt: record.taskRun.startedAt ?? this.nextTimestamp(),
@@ -292,12 +312,12 @@ export class WorkflowEngine {
 
     if (!handler.recover) {
       if (record.taskRun.status === TaskRunStatus.Running) {
-        this.options.db.updateWorkflowTaskRun(taskRunId, {
+        this.wf.updateTaskRun(this.taskId(taskRunId), {
           status: TaskRunStatus.Ready,
           updatedAt: this.nextTimestamp(),
         });
-        this.options.db.recomputeStageAggregate(record.stageRun.id);
-        this.options.db.recomputeWorkflowAggregate(record.workflowRun.id);
+        this.wf.recomputeStageAggregate(this.stageId(record.stageRun.id));
+        this.wf.recomputeWorkflowAggregate(this.runId(record.workflowRun.id) as WorkflowRunId);
         await this.refreshAvailability(record.workflowRun.id);
       }
       return;
@@ -312,12 +332,12 @@ export class WorkflowEngine {
 
     if (!result) {
       if (record.taskRun.status === TaskRunStatus.Running) {
-        this.options.db.updateWorkflowTaskRun(taskRunId, {
+        this.wf.updateTaskRun(this.taskId(taskRunId), {
           status: TaskRunStatus.Ready,
           updatedAt: this.nextTimestamp(),
         });
-        this.options.db.recomputeStageAggregate(record.stageRun.id);
-        this.options.db.recomputeWorkflowAggregate(record.workflowRun.id);
+        this.wf.recomputeStageAggregate(this.stageId(record.stageRun.id));
+        this.wf.recomputeWorkflowAggregate(this.runId(record.workflowRun.id) as WorkflowRunId);
         await this.refreshAvailability(record.workflowRun.id);
       }
       return;
@@ -331,7 +351,7 @@ export class WorkflowEngine {
     const status = result.status;
     const isTerminal = TASK_TERMINAL_STATUSES.has(status);
 
-    this.options.db.updateWorkflowTaskRun(taskRun.id, {
+    this.wf.updateTaskRun(this.taskId(taskRun.id), {
       status,
       output: result.output ?? taskRun.output,
       error: result.error,
@@ -343,18 +363,18 @@ export class WorkflowEngine {
       updatedAt: this.nextTimestamp(),
     });
 
-    this.options.db.recomputeStageAggregate(taskRun.stageRunId);
-    this.options.db.recomputeWorkflowAggregate(taskRun.workflowRunId);
+    this.wf.recomputeStageAggregate(this.stageId(taskRun.stageRunId));
+    this.wf.recomputeWorkflowAggregate(this.runId(taskRun.workflowRunId) as WorkflowRunId);
   }
 
   private async refreshAvailability(workflowRunId?: string): Promise<void> {
     const workflowIds = workflowRunId
       ? [workflowRunId]
-      : this.options.db.listWorkflowRuns().map((workflow) => workflow.id);
+      : this.wf.listRuns().rows.map((workflow) => workflow.id);
 
     for (const id of workflowIds) {
-      const stages = this.options.db.listWorkflowStageRuns(id);
-      const tasks = this.options.db.listWorkflowTaskRuns(id);
+      const stages = this.wf.listStageRuns(this.runId(id) as WorkflowRunId).rows;
+      const tasks = this.wf.listTaskRuns(this.runId(id) as WorkflowRunId).rows;
       const stageByRunId = new Map(stages.map((stage) => [stage.id, stage]));
       const stageByStageId = new Map(stages.map((stage) => [stage.stageId, stage]));
       const taskByRunId = new Map(tasks.map((task) => [task.id, task]));
@@ -380,7 +400,7 @@ export class WorkflowEngine {
           continue;
         }
 
-        this.options.db.updateWorkflowTaskRun(task.id, {
+        this.wf.updateTaskRun(this.taskId(task.id), {
           status: TaskRunStatus.Ready,
           updatedAt: this.nextTimestamp(),
         });
@@ -390,9 +410,9 @@ export class WorkflowEngine {
 
       if (changed) {
         for (const stage of stages) {
-          this.options.db.recomputeStageAggregate(stage.id);
+          this.wf.recomputeStageAggregate(this.stageId(stage.id));
         }
-        this.options.db.recomputeWorkflowAggregate(id);
+        this.wf.recomputeWorkflowAggregate(this.runId(id) as WorkflowRunId);
       }
     }
   }
@@ -424,17 +444,17 @@ export class WorkflowEngine {
   }
 
   private getRecord(taskRunId: string): WorkflowStateRecord {
-    const taskRun = this.options.db.getWorkflowTaskRun(taskRunId);
+    const taskRun = this.wf.getTaskRun(this.taskId(taskRunId));
     if (!taskRun) {
       throw new Error(`Workflow task "${taskRunId}" not found`);
     }
 
-    const stageRun = this.options.db.getWorkflowStageRun(taskRun.stageRunId);
+    const stageRun = this.wf.getStageRun(this.stageId(taskRun.stageRunId));
     if (!stageRun) {
       throw new Error(`Workflow stage "${taskRun.stageRunId}" not found`);
     }
 
-    const workflowRun = this.options.db.getWorkflowRun(taskRun.workflowRunId);
+    const workflowRun = this.wf.getRun(this.runId(taskRun.workflowRunId) as WorkflowRunId);
     if (!workflowRun) {
       throw new Error(`Workflow run "${taskRun.workflowRunId}" not found`);
     }
@@ -459,10 +479,10 @@ export class WorkflowEngine {
 
   private getRecoverableTasks(workflowRunId?: string): WorkflowTaskRun[] {
     const tasks = workflowRunId
-      ? this.options.db.listWorkflowTaskRuns(workflowRunId)
-      : this.options.db
-          .listWorkflowRuns()
-          .flatMap((workflow) => this.options.db.listWorkflowTaskRuns(workflow.id));
+      ? this.wf.listTaskRuns(this.runId(workflowRunId) as WorkflowRunId).rows
+      : this.wf
+          .listRuns()
+          .rows.flatMap((workflow) => this.wf.listTaskRuns(this.runId(workflow.id) as WorkflowRunId).rows);
 
     return tasks
       .filter(
