@@ -88,3 +88,13 @@ export { parseProviderId, tryProviderId } from './brands/provider-id.js';
 // ── Phase G1-2.1: SessionId parser + StoredSession DTO ─────────
 export { parseSessionId, trySessionId } from './brands/session-id.js';
 export { StoredSessionSchema, type StoredSessionDto } from './dto/stored-session.js';
+
+// ── Phase G1-2.2: ProcessPromptKey parser + ProcessPromptRecord DTO ─
+export {
+  parseProcessPromptKey,
+  tryProcessPromptKey,
+} from './brands/process-prompt-key.js';
+export {
+  ProcessPromptRecordSchema,
+  type ProcessPromptRecordDto,
+} from './dto/process-prompt-record.js';
