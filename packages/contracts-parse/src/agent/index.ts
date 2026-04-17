@@ -8,5 +8,5 @@
 
 export { createCatalog } from './catalog.js';
 
-export { defineTool } from '../tools.js';
+export { defineTool, defineToolMeta } from '../tools.js';
 export type { ToolDef, ToolRunContext, ToolEvent } from '../tools.js';

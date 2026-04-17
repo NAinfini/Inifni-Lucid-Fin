@@ -24,6 +24,7 @@ export {
 // Tool factory
 export {
   defineTool,
+  defineToolMeta,
   type ToolDef,
   type ToolRunContext,
   type ToolEvent,

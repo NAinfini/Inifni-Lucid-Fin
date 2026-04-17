@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 
-import { defineTool } from '../tools.js';
+import { defineTool, defineToolMeta } from '../tools.js';
 import { createCatalog } from './catalog.js';
 
 // ── Test fixtures ──────────────────────────────────────────────
@@ -115,5 +115,24 @@ describe('createCatalog', () => {
     expect(() => createCatalog([queryTool, dup] as const)).toThrow(
       /duplicate tool name "test\.query"/,
     );
+  });
+
+  it('accepts defineToolMeta metadata-only entries alongside defineTool', () => {
+    // Phase C migration: legacy AgentTool-backed tools get a metadata-only
+    // catalog entry so byProcess/mutatingKeys/uiEffectsByKey populate without
+    // requiring a full zod+run rewrite.
+    const metaOnly = defineToolMeta({
+      name: 'legacy.create',
+      process: 'entity-create',
+      category: 'mutation',
+      uiEffects: [{ kind: 'entity.refresh', entity: 'character' }] as const,
+    });
+    const catalog = createCatalog([queryTool, metaOnly] as const);
+    expect(catalog.byKey['legacy.create']).toBe(metaOnly);
+    expect(catalog.mutatingKeys).toEqual(['legacy.create']);
+    expect(catalog.byProcess['entity-create']).toEqual([metaOnly]);
+    expect(catalog.uiEffectsByKey['legacy.create']).toEqual([
+      { kind: 'entity.refresh', entity: 'character' },
+    ]);
   });
 });
