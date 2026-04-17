@@ -42,10 +42,6 @@ import {
   getDependents as _getDependents,
 } from './sqlite-content.js';
 import {
-  type StoredSession,
-  type StoredSnapshot,
-} from './sqlite-snapshots.js';
-import {
   insertWorkflowRun as _insertWorkflowRun,
   getWorkflowRun as _getWorkflowRun,
   listWorkflowRuns as _listWorkflowRuns,
@@ -98,7 +94,7 @@ import {
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId, SnapshotId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
+import type { JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -693,35 +689,6 @@ export class SqliteIndex implements IStorageLayer {
   upsertPresetOverride(override: PresetOverrideUpsertInput): void { this.presets.upsertOverride(override); }
   listPresetOverrides(): PresetOverrideRecord[] { return this.presets.listOverrides().rows; }
   deletePresetOverride(id: string): void { this.presets.deleteOverride(id as PresetId); }
-
-  // --- Sessions ---
-  // Delegated to `SessionRepository` (Phase G1-2.1). Legacy `string` IDs are
-  // re-branded at this boundary; Phase G1-5 consumer migration will lift
-  // branding into the handlers themselves, removing these casts.
-  upsertSession(s: StoredSession): void {
-    this.sessions.upsert({ ...s, id: s.id as SessionId });
-  }
-  getSession(id: string): StoredSession | undefined {
-    return this.sessions.get(id as SessionId);
-  }
-  listSessions(limit?: number): StoredSession[] {
-    return this.sessions.list(limit).rows;
-  }
-  deleteSession(id: string): void {
-    this.sessions.delete(id as SessionId);
-  }
-
-  // --- Snapshots ---
-  insertSnapshot(s: StoredSnapshot): void { this.snapshots.insert(s); }
-  getSnapshot(id: string): StoredSnapshot | undefined { return this.snapshots.get(id as SnapshotId); }
-  listSnapshots(sessionId: string): StoredSnapshot[] { return this.snapshots.list(sessionId as SessionId).rows; }
-  deleteSnapshot(id: string): void { this.snapshots.delete(id as SnapshotId); }
-  pruneSnapshots(sessionId: string, maxKeep: number): void { this.snapshots.prune(sessionId as SessionId, maxKeep); }
-  pruneSnapshotsTiered(): void { this.snapshots.pruneTiered(); }
-  captureSnapshot(sessionId: string, label: string, trigger: 'auto' | 'manual'): StoredSnapshot {
-    return this.snapshots.capture(sessionId as SessionId, label, trigger);
-  }
-  restoreSnapshot(snapshotId: string): void { this.snapshots.restore(snapshotId as SnapshotId); }
 
   // --- Workflow Runs ---
   insertWorkflowRun(run: WorkflowRun): void { this.workflows.insertRun(run); }
