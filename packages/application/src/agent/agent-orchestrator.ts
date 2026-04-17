@@ -318,10 +318,15 @@ export class AgentOrchestrator {
     // immediately before serialization. This keeps the graph in sync with
     // mid-loop mutations (system prompt refresh, injected process prompts,
     // batch warnings, new user messages) without tracking them twice.
+    // The graph path now supports both openai and claude adapters — the
+    // `serializeForOpenAI` serializer produces the unified `LLMMessage[]`
+    // wire format that both adapters consume. Adapter-specific wire
+    // conversion (e.g. Claude's content blocks) happens inside each adapter.
     const graphFlagOn = isContextGraphEnabled();
-    const useGraphPath = graphFlagOn && this.adapter.id === 'openai';
+    const GRAPH_SUPPORTED_ADAPTERS = new Set(['openai', 'claude']);
+    const useGraphPath = graphFlagOn && GRAPH_SUPPORTED_ADAPTERS.has(this.adapter.id);
     if (graphFlagOn && !useGraphPath) {
-      console.warn('[ContextGraph] Feature flag enabled but provider is not openai — falling back to legacy path.');
+      console.warn(`[ContextGraph] Feature flag enabled but provider '${this.adapter.id}' is not supported — falling back to legacy path.`);
     }
     if (useGraphPath) {
       this.contextGraph = new ContextGraph();

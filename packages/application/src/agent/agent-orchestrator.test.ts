@@ -943,4 +943,52 @@ describe('AgentOrchestrator', () => {
       else process.env['LUCID_CONTEXT_GRAPH'] = original;
     }
   });
+
+  // ── G2b-2: ContextGraph path widens to Claude adapter ───────────
+
+  it('graph path: activates for claude adapter when flag on', async () => {
+    const capturedRequests: unknown[][] = [];
+    const claudeAdapter: import('@lucid-fin/contracts').LLMAdapter = {
+      id: 'claude',
+      name: 'Claude',
+      capabilities: ['text-generation'],
+      configure: vi.fn(),
+      validate: vi.fn(async () => true),
+      complete: vi.fn(async () => ''),
+      stream: vi.fn(async function* () { yield ''; }),
+      completeWithTools: vi.fn(async (messages: unknown[]) => {
+        capturedRequests.push(messages);
+        return {
+          content: 'Claude graph response.',
+          toolCalls: [],
+          finishReason: 'stop' as const,
+        };
+      }),
+      profile: {
+        providerId: 'claude',
+        charsPerToken: 3.5,
+        sanitizeToolNames: true,
+        maxUtilization: 0.90,
+        outputReserveTokens: 4096,
+      },
+    };
+
+    const original = process.env['LUCID_CONTEXT_GRAPH'];
+    process.env['LUCID_CONTEXT_GRAPH'] = '1';
+
+    try {
+      const agent = new AgentOrchestrator(claudeAdapter, toolRegistry, resolvePrompt);
+      const events: unknown[] = [];
+      const result = await agent.execute('Hello Claude', {}, (e) => events.push(e));
+
+      expect(result.content).toBe('Claude graph response.');
+      expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
+      expect(capturedRequests.length).toBeGreaterThan(0);
+      const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
+      expect(firstRequest[0]!.role).toBe('system');
+    } finally {
+      if (original === undefined) delete process.env['LUCID_CONTEXT_GRAPH'];
+      else process.env['LUCID_CONTEXT_GRAPH'] = original;
+    }
+  });
 });
