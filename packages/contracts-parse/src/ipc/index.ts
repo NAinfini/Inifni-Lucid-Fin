@@ -23,6 +23,10 @@ import {
   canvasGenerationChannels,
   presetChannels,
 } from './channels/batch-08.js';
+import {
+  commanderChannels,
+  commanderPushChannels,
+} from './channels/batch-09.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
 export type {
@@ -54,6 +58,9 @@ export * from './channels/batch-07.js';
 // Batch 8 — canvas generation + preset
 export * from './channels/batch-08.js';
 
+// Batch 9 — commander:* (invoke + push)
+export * from './channels/batch-09.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
@@ -72,4 +79,6 @@ export const allChannels = [
   ...canvasChannels,
   ...canvasGenerationChannels,
   ...presetChannels,
+  ...commanderChannels,
+  ...commanderPushChannels,
 ] as const;

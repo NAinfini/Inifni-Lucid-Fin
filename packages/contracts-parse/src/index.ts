@@ -64,3 +64,6 @@ export * from './ipc/channels/batch-07.js';
 
 // Batch 8 — canvas generation + preset
 export * from './ipc/channels/batch-08.js';
+
+// Batch 9 — commander:* (invoke + push)
+export * from './ipc/channels/batch-09.js';
