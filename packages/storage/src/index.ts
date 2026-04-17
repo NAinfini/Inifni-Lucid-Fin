@@ -7,16 +7,6 @@ export {
 export { SqliteIndex } from './sqlite-index.js';
 export type {
   IStorageLayer,
-  IAssetStore,
-  IEmbeddingStore,
-  IJobStore,
-  ICanvasStore,
-  IEntityStore,
-  ISeriesStore,
-  IPresetStore,
-  ISessionStore,
-  ISnapshotStore,
-  IWorkflowStore,
   RepoBundle,
 } from './storage-interfaces.js';
 export { Keychain } from './keychain.js';
