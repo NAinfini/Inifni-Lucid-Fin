@@ -3,11 +3,6 @@ import fs from 'node:fs';
 import type {
   ScriptDocument,
   ColorStyle,
-  WorkflowRun,
-  WorkflowStageRun,
-  WorkflowTaskRun,
-  WorkflowArtifact,
-  WorkflowTaskSummary,
 } from '@lucid-fin/contracts';
 import type BetterSqlite3 from 'better-sqlite3';
 
@@ -21,33 +16,6 @@ import {
   addDependency as _addDependency,
   getDependents as _getDependents,
 } from './sqlite-content.js';
-import {
-  insertWorkflowRun as _insertWorkflowRun,
-  getWorkflowRun as _getWorkflowRun,
-  listWorkflowRuns as _listWorkflowRuns,
-  updateWorkflowRun as _updateWorkflowRun,
-  insertWorkflowStageRun as _insertWorkflowStageRun,
-  listWorkflowStageRuns as _listWorkflowStageRuns,
-  getWorkflowStageRun as _getWorkflowStageRun,
-  updateWorkflowStageRun as _updateWorkflowStageRun,
-  insertWorkflowTaskRun as _insertWorkflowTaskRun,
-  listWorkflowTaskRuns as _listWorkflowTaskRuns,
-  listWorkflowTaskRunsByStage as _listWorkflowTaskRunsByStage,
-  listReadyWorkflowTasks as _listReadyWorkflowTasks,
-  listAwaitingProviderTasks as _listAwaitingProviderTasks,
-  getWorkflowTaskRun as _getWorkflowTaskRun,
-  updateWorkflowTaskRun as _updateWorkflowTaskRun,
-  insertWorkflowTaskDependency as _insertWorkflowTaskDependency,
-  listTaskDependencies as _listTaskDependencies,
-  listTaskDependents as _listTaskDependents,
-  insertWorkflowArtifact as _insertWorkflowArtifact,
-  listWorkflowArtifacts as _listWorkflowArtifacts,
-  listEntityArtifacts as _listEntityArtifacts,
-  listWorkflowArtifactsByTaskRun as _listWorkflowArtifactsByTaskRun,
-  listWorkflowTaskSummaries as _listWorkflowTaskSummaries,
-  recomputeStageAggregate as _recomputeStageAggregate,
-  recomputeWorkflowAggregate as _recomputeWorkflowAggregate,
-} from './sqlite-workflows.js';
 import type { IStorageLayer, RepoBundle } from './storage-interfaces.js';
 import { runMigrations, getCurrentVersion } from './migrations/runner.js';
 import { migrations } from './migrations/index.js';
@@ -61,7 +29,6 @@ import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -607,42 +574,16 @@ export class SqliteIndex implements IStorageLayer {
   // removed; callers use `db.repos.presets.upsertOverride/listOverrides/
   // deleteOverride` directly.
 
-  // --- Workflow Runs ---
-  insertWorkflowRun(run: WorkflowRun): void { this.workflows.insertRun(run); }
-  getWorkflowRun(id: string): WorkflowRun | undefined { return this.workflows.getRun(id as WorkflowRunId); }
-  listWorkflowRuns(filter?: { status?: string; workflowType?: string; entityType?: string }): WorkflowRun[] { return this.workflows.listRuns(filter).rows; }
-  updateWorkflowRun(id: string, updates: Parameters<typeof _updateWorkflowRun>[2]): void { this.workflows.updateRun(id as WorkflowRunId, updates); }
-
-  // --- Workflow Stage Runs ---
-  insertWorkflowStageRun(stageRun: WorkflowStageRun): void { this.workflows.insertStageRun(stageRun); }
-  listWorkflowStageRuns(workflowRunId: string): WorkflowStageRun[] { return this.workflows.listStageRuns(workflowRunId as WorkflowRunId).rows; }
-  getWorkflowStageRun(id: string): WorkflowStageRun | undefined { return this.workflows.getStageRun(id as WorkflowStageId); }
-  updateWorkflowStageRun(id: string, updates: Parameters<typeof _updateWorkflowStageRun>[2]): void { this.workflows.updateStageRun(id as WorkflowStageId, updates); }
-
-  // --- Workflow Task Runs ---
-  insertWorkflowTaskRun(taskRun: WorkflowTaskRun): void { this.workflows.insertTaskRun(taskRun); }
-  listWorkflowTaskRuns(workflowRunId: string): WorkflowTaskRun[] { return this.workflows.listTaskRuns(workflowRunId as WorkflowRunId).rows; }
-  listWorkflowTaskRunsByStage(stageRunId: string): WorkflowTaskRun[] { return this.workflows.listTaskRunsByStage(stageRunId as WorkflowStageId).rows; }
-  listReadyWorkflowTasks(workflowRunId?: string): WorkflowTaskRun[] { return this.workflows.listReadyTasks(workflowRunId as WorkflowRunId).rows; }
-  listAwaitingProviderTasks(workflowRunId?: string): WorkflowTaskRun[] { return this.workflows.listAwaitingProviderTasks(workflowRunId as WorkflowRunId).rows; }
-  getWorkflowTaskRun(id: string): WorkflowTaskRun | undefined { return this.workflows.getTaskRun(id as WorkflowTaskId); }
-  updateWorkflowTaskRun(id: string, updates: Parameters<typeof _updateWorkflowTaskRun>[2]): void { this.workflows.updateTaskRun(id as WorkflowTaskId, updates); }
-
-  // --- Task Dependencies ---
-  insertWorkflowTaskDependency(taskRunId: string, dependsOnTaskRunId: string): void { this.workflows.insertTaskDependency(taskRunId as WorkflowTaskId, dependsOnTaskRunId as WorkflowTaskId); }
-  listTaskDependencies(taskRunId: string): string[] { return this.workflows.listTaskDependencies(taskRunId as WorkflowTaskId); }
-  listTaskDependents(dependsOnTaskRunId: string): string[] { return this.workflows.listTaskDependents(dependsOnTaskRunId as WorkflowTaskId); }
-
-  // --- Workflow Artifacts ---
-  insertWorkflowArtifact(artifact: WorkflowArtifact): void { this.workflows.insertArtifact(artifact); }
-  listWorkflowArtifacts(workflowRunId: string): WorkflowArtifact[] { return this.workflows.listArtifacts(workflowRunId as WorkflowRunId); }
-  listEntityArtifacts(entityType: string, entityId: string): WorkflowArtifact[] { return this.workflows.listEntityArtifacts(entityType, entityId); }
-  listWorkflowArtifactsByTaskRun(taskRunId: string): WorkflowArtifact[] { return this.workflows.listArtifactsByTaskRun(taskRunId as WorkflowTaskId); }
-
-  // --- Task Summaries & Aggregation ---
-  listWorkflowTaskSummaries(filter?: Parameters<typeof _listWorkflowTaskSummaries>[1]): WorkflowTaskSummary[] { return this.workflows.listTaskSummaries(filter); }
-  recomputeStageAggregate(stageRunId: string): void { this.workflows.recomputeStageAggregate(stageRunId as WorkflowStageId); }
-  recomputeWorkflowAggregate(workflowRunId: string): void { this.workflows.recomputeWorkflowAggregate(workflowRunId as WorkflowRunId); }
+  // --- Workflows / Stages / Tasks / Dependencies / Artifacts / Summaries ---
+  // Migrated to `this.repos.workflows.*` (Phase G1-4.9). Facade methods
+  // removed; callers use `db.repos.workflows.{insertRun,getRun,listRuns,
+  // updateRun,insertStageRun,listStageRuns,getStageRun,updateStageRun,
+  // insertTaskRun,listTaskRuns,listTaskRunsByStage,listReadyTasks,
+  // listAwaitingProviderTasks,getTaskRun,updateTaskRun,insertTaskDependency,
+  // listTaskDependencies,listTaskDependents,insertArtifact,listArtifacts,
+  // listEntityArtifacts,listArtifactsByTaskRun,listTaskSummaries,
+  // recomputeStageAggregate,recomputeWorkflowAggregate}` directly (passing
+  // brands via parseWorkflowRunId / parseWorkflowStageId / parseWorkflowTaskId).
 
   // ---------------------------------------------------------------------------
   // Custom shot templates — migrated to `this.repos.shotTemplates.*`

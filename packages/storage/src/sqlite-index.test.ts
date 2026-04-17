@@ -112,7 +112,7 @@ describe('SqliteIndex', () => {
 
   describe('workflow runs CRUD', () => {
     it('inserts, gets, lists, and updates a workflow run', () => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-1',
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -133,7 +133,7 @@ describe('SqliteIndex', () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-2',
         workflowType: 'style.extract',
         entityType: 'asset',
@@ -152,7 +152,7 @@ describe('SqliteIndex', () => {
         updatedAt: 3,
       });
 
-      const fetched = db.getWorkflowRun('wf-1');
+      const fetched = db.repos.workflows.getRun('wf-1');
       expect(fetched).toEqual({
         id: 'wf-1',
         workflowType: 'storyboard.generate',
@@ -175,15 +175,15 @@ describe('SqliteIndex', () => {
         updatedAt: 1,
       });
 
-      const listed = db.listWorkflowRuns({
+      const listed = db.repos.workflows.listRuns({
         workflowType: 'style.extract',
         entityType: 'asset',
         status: 'running',
-      });
+      }).rows;
       expect(listed).toHaveLength(1);
       expect(listed[0]?.id).toBe('wf-2');
 
-      db.updateWorkflowRun('wf-1', {
+      db.repos.workflows.updateRun('wf-1', {
         status: 'running',
         progress: 25,
         summary: 'running',
@@ -192,7 +192,7 @@ describe('SqliteIndex', () => {
         updatedAt: 2,
       });
 
-      const updated = db.getWorkflowRun('wf-1');
+      const updated = db.repos.workflows.getRun('wf-1');
       expect(updated).toMatchObject({
         id: 'wf-1',
         status: 'running',
@@ -203,7 +203,7 @@ describe('SqliteIndex', () => {
         updatedAt: 2,
       });
 
-      const nullables = db.getWorkflowRun('wf-2');
+      const nullables = db.repos.workflows.getRun('wf-2');
       expect(nullables?.entityId).toBeUndefined();
       expect(nullables?.currentStageId).toBeUndefined();
       expect(nullables?.currentTaskId).toBeUndefined();
@@ -258,8 +258,8 @@ describe('SqliteIndex', () => {
     });
 
     it('inserts, lists, and updates stage runs', () => {
-      db.insertWorkflowStageRun(makeStageRun());
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(makeStageRun());
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-2',
           stageId: 'render',
@@ -277,7 +277,7 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      const listed = db.listWorkflowStageRuns('wf-1');
+      const listed = db.repos.workflows.listStageRuns('wf-1').rows;
       expect(listed).toEqual([
         {
           id: 'stage-1',
@@ -310,7 +310,7 @@ describe('SqliteIndex', () => {
         },
       ]);
 
-      db.updateWorkflowStageRun('stage-1', {
+      db.repos.workflows.updateStageRun('stage-1', {
         status: 'completed',
         progress: 100,
         completedTasks: 2,
@@ -319,7 +319,7 @@ describe('SqliteIndex', () => {
         updatedAt: 5,
       });
 
-      expect(db.listWorkflowStageRuns('wf-1')[0]).toEqual({
+      expect(db.repos.workflows.listStageRuns('wf-1').rows[0]).toEqual({
         id: 'stage-1',
         workflowRunId: 'wf-1',
         stageId: 'validate',
@@ -336,8 +336,8 @@ describe('SqliteIndex', () => {
     });
 
     it('hydrates task dependencyIds from dependency edges for get/list queries', () => {
-      db.insertWorkflowTaskRun(makeTaskRun());
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(makeTaskRun());
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-2',
           stageRunId: 'stage-2',
@@ -362,13 +362,13 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      db.updateWorkflowTaskRun('task-2', {
+      db.repos.workflows.updateTaskRun('task-2', {
         dependencyIds: ['stale-task'],
         updatedAt: 13,
       });
-      db.insertWorkflowTaskDependency('task-2', 'task-1');
+      db.repos.workflows.insertTaskDependency('task-2', 'task-1');
 
-      expect(db.getWorkflowTaskRun('task-2')).toEqual({
+      expect(db.repos.workflows.getTaskRun('task-2')).toEqual({
         id: 'task-2',
         workflowRunId: 'wf-1',
         stageRunId: 'stage-2',
@@ -393,31 +393,31 @@ describe('SqliteIndex', () => {
       });
 
       expect(
-        db
-          .listWorkflowTaskRuns('wf-1')
-          .map((task) => ({ id: task.id, dependencyIds: task.dependencyIds })),
+        db.repos.workflows
+          .listTaskRuns('wf-1')
+          .rows.map((task) => ({ id: task.id, dependencyIds: task.dependencyIds })),
       ).toEqual([
         { id: 'task-2', dependencyIds: ['stale-task', 'task-1'] },
         { id: 'task-1', dependencyIds: [] },
       ]);
       expect(
-        db
-          .listWorkflowTaskRunsByStage('stage-1')
-          .map((task) => ({ id: task.id, dependencyIds: task.dependencyIds })),
+        db.repos.workflows
+          .listTaskRunsByStage('stage-1')
+          .rows.map((task) => ({ id: task.id, dependencyIds: task.dependencyIds })),
       ).toEqual([{ id: 'task-1', dependencyIds: [] }]);
       expect(
-        db
-          .listWorkflowTaskRunsByStage('stage-2')
-          .map((task) => ({ id: task.id, dependencyIds: ['stale-task', 'task-1'] })),
+        db.repos.workflows
+          .listTaskRunsByStage('stage-2')
+          .rows.map((task) => ({ id: task.id, dependencyIds: ['stale-task', 'task-1'] })),
       ).toEqual([{ id: 'task-2', dependencyIds: ['stale-task', 'task-1'] }]);
-      expect(db.listTaskDependencies('task-2')).toEqual(['stale-task', 'task-1']);
-      expect(db.listTaskDependents('task-1')).toEqual(['task-2']);
-      expect(db.listTaskDependents('stale-task')).toEqual(['task-2']);
+      expect(db.repos.workflows.listTaskDependencies('task-2')).toEqual(['stale-task', 'task-1']);
+      expect(db.repos.workflows.listTaskDependents('task-1')).toEqual(['task-2']);
+      expect(db.repos.workflows.listTaskDependents('stale-task')).toEqual(['task-2']);
     });
 
     it('keeps task dependency reads aligned after updateWorkflowTaskRun changes dependencyIds', () => {
-      db.insertWorkflowTaskRun(makeTaskRun());
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(makeTaskRun());
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-2',
           stageRunId: 'stage-2',
@@ -429,7 +429,7 @@ describe('SqliteIndex', () => {
           updatedAt: 12,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-0',
           stageRunId: 'stage-0',
@@ -440,9 +440,9 @@ describe('SqliteIndex', () => {
           updatedAt: 2,
         }),
       );
-      db.insertWorkflowTaskDependency('task-2', 'task-1');
+      db.repos.workflows.insertTaskDependency('task-2', 'task-1');
 
-      db.updateWorkflowTaskRun('task-2', {
+      db.repos.workflows.updateTaskRun('task-2', {
         status: 'completed',
         dependencyIds: ['task-0'],
         output: { ok: true },
@@ -450,7 +450,7 @@ describe('SqliteIndex', () => {
         updatedAt: 20,
       });
 
-      expect(db.getWorkflowTaskRun('task-2')).toEqual({
+      expect(db.repos.workflows.getTaskRun('task-2')).toEqual({
         id: 'task-2',
         workflowRunId: 'wf-1',
         stageRunId: 'stage-2',
@@ -467,21 +467,21 @@ describe('SqliteIndex', () => {
         completedAt: 20,
         updatedAt: 20,
       });
-      expect(db.listTaskDependencies('task-2')).toEqual(['task-0']);
-      expect(db.listTaskDependents('task-1')).toEqual([]);
-      expect(db.listTaskDependents('task-0')).toEqual(['task-2']);
+      expect(db.repos.workflows.listTaskDependencies('task-2')).toEqual(['task-0']);
+      expect(db.repos.workflows.listTaskDependents('task-1')).toEqual([]);
+      expect(db.repos.workflows.listTaskDependents('task-0')).toEqual(['task-2']);
     });
 
     it('stores task dependency edges in both directions', () => {
-      db.insertWorkflowTaskDependency('task-2', 'task-1');
-      db.insertWorkflowTaskDependency('task-3', 'task-1');
+      db.repos.workflows.insertTaskDependency('task-2', 'task-1');
+      db.repos.workflows.insertTaskDependency('task-3', 'task-1');
 
-      expect(db.listTaskDependencies('task-2')).toEqual(['task-1']);
-      expect(db.listTaskDependents('task-1')).toEqual(['task-2', 'task-3']);
+      expect(db.repos.workflows.listTaskDependencies('task-2')).toEqual(['task-1']);
+      expect(db.repos.workflows.listTaskDependents('task-1')).toEqual(['task-2', 'task-3']);
     });
 
     it('inserts and lists workflow artifacts by workflow and entity', () => {
-      db.insertWorkflowArtifact(
+      db.repos.workflows.insertArtifact(
         makeArtifact({
           id: 'artifact-1',
           artifactType: 'preview',
@@ -493,7 +493,7 @@ describe('SqliteIndex', () => {
           createdAt: 1,
         }),
       );
-      db.insertWorkflowArtifact(
+      db.repos.workflows.insertArtifact(
         makeArtifact({
           id: 'artifact-2',
           taskRunId: 'task-2',
@@ -504,7 +504,7 @@ describe('SqliteIndex', () => {
           createdAt: 2,
         }),
       );
-      db.insertWorkflowArtifact(
+      db.repos.workflows.insertArtifact(
         makeArtifact({
           id: 'artifact-3',
           workflowRunId: 'wf-2',
@@ -517,7 +517,7 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      expect(db.listWorkflowArtifacts('wf-1')).toEqual([
+      expect(db.repos.workflows.listArtifacts('wf-1')).toEqual([
         {
           id: 'artifact-2',
           workflowRunId: 'wf-1',
@@ -542,7 +542,7 @@ describe('SqliteIndex', () => {
         },
       ]);
 
-      expect(db.listEntityArtifacts('scene', 'scene-1')).toEqual([
+      expect(db.repos.workflows.listEntityArtifacts('scene', 'scene-1')).toEqual([
         {
           id: 'artifact-2',
           workflowRunId: 'wf-1',
@@ -569,7 +569,7 @@ describe('SqliteIndex', () => {
     });
 
     it('recomputes stage aggregates from task rows', () => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-agg-stage',
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -587,7 +587,7 @@ describe('SqliteIndex', () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-agg',
           workflowRunId: 'wf-agg-stage',
@@ -597,7 +597,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-agg-1',
           workflowRunId: 'wf-agg-stage',
@@ -606,7 +606,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-agg-2',
           workflowRunId: 'wf-agg-stage',
@@ -618,8 +618,8 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      db.recomputeStageAggregate('stage-agg');
-      expect(db.listWorkflowStageRuns('wf-agg-stage')[0]).toMatchObject({
+      db.repos.workflows.recomputeStageAggregate('stage-agg');
+      expect(db.repos.workflows.listStageRuns('wf-agg-stage').rows[0]).toMatchObject({
         id: 'stage-agg',
         status: 'pending',
         totalTasks: 2,
@@ -627,9 +627,9 @@ describe('SqliteIndex', () => {
         progress: 0,
       });
 
-      db.updateWorkflowTaskRun('task-agg-1', { status: 'running', progress: 25, updatedAt: 3 });
-      db.recomputeStageAggregate('stage-agg');
-      expect(db.listWorkflowStageRuns('wf-agg-stage')[0]).toMatchObject({
+      db.repos.workflows.updateTaskRun('task-agg-1', { status: 'running', progress: 25, updatedAt: 3 });
+      db.repos.workflows.recomputeStageAggregate('stage-agg');
+      expect(db.repos.workflows.listStageRuns('wf-agg-stage').rows[0]).toMatchObject({
         id: 'stage-agg',
         status: 'running',
         totalTasks: 2,
@@ -637,9 +637,9 @@ describe('SqliteIndex', () => {
         progress: 13,
       });
 
-      db.updateWorkflowTaskRun('task-agg-2', { status: 'running', progress: 50, updatedAt: 4 });
-      db.recomputeStageAggregate('stage-agg');
-      expect(db.listWorkflowStageRuns('wf-agg-stage')[0]).toMatchObject({
+      db.repos.workflows.updateTaskRun('task-agg-2', { status: 'running', progress: 50, updatedAt: 4 });
+      db.repos.workflows.recomputeStageAggregate('stage-agg');
+      expect(db.repos.workflows.listStageRuns('wf-agg-stage').rows[0]).toMatchObject({
         id: 'stage-agg',
         status: 'running',
         totalTasks: 2,
@@ -647,14 +647,14 @@ describe('SqliteIndex', () => {
         progress: 38,
       });
 
-      db.updateWorkflowTaskRun('task-agg-1', {
+      db.repos.workflows.updateTaskRun('task-agg-1', {
         status: 'completed',
         progress: 100,
         completedAt: 5,
         updatedAt: 5,
       });
-      db.recomputeStageAggregate('stage-agg');
-      expect(db.listWorkflowStageRuns('wf-agg-stage')[0]).toMatchObject({
+      db.repos.workflows.recomputeStageAggregate('stage-agg');
+      expect(db.repos.workflows.listStageRuns('wf-agg-stage').rows[0]).toMatchObject({
         id: 'stage-agg',
         status: 'running',
         totalTasks: 2,
@@ -662,14 +662,14 @@ describe('SqliteIndex', () => {
         progress: 75,
       });
 
-      db.updateWorkflowTaskRun('task-agg-2', {
+      db.repos.workflows.updateTaskRun('task-agg-2', {
         status: 'completed',
         progress: 100,
         completedAt: 6,
         updatedAt: 6,
       });
-      db.recomputeStageAggregate('stage-agg');
-      expect(db.listWorkflowStageRuns('wf-agg-stage')[0]).toMatchObject({
+      db.repos.workflows.recomputeStageAggregate('stage-agg');
+      expect(db.repos.workflows.listStageRuns('wf-agg-stage').rows[0]).toMatchObject({
         id: 'stage-agg',
         status: 'completed',
         totalTasks: 2,
@@ -679,7 +679,7 @@ describe('SqliteIndex', () => {
     });
 
     it('marks a stage completed_with_errors when tasks finish with mixed outcomes', () => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-agg-stage-errors',
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -697,7 +697,7 @@ describe('SqliteIndex', () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-agg-errors',
           workflowRunId: 'wf-agg-stage-errors',
@@ -706,7 +706,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-agg-errors-1',
           workflowRunId: 'wf-agg-stage-errors',
@@ -717,7 +717,7 @@ describe('SqliteIndex', () => {
           updatedAt: 2,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-agg-errors-2',
           workflowRunId: 'wf-agg-stage-errors',
@@ -732,9 +732,9 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      db.recomputeStageAggregate('stage-agg-errors');
+      db.repos.workflows.recomputeStageAggregate('stage-agg-errors');
 
-      expect(db.listWorkflowStageRuns('wf-agg-stage-errors')[0]).toMatchObject({
+      expect(db.repos.workflows.listStageRuns('wf-agg-stage-errors').rows[0]).toMatchObject({
         id: 'stage-agg-errors',
         status: 'completed_with_errors',
         totalTasks: 2,
@@ -744,7 +744,7 @@ describe('SqliteIndex', () => {
     });
 
     it('marks a workflow completed_with_errors when stages finish with mixed outcomes', () => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-agg-workflow-errors',
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -762,7 +762,7 @@ describe('SqliteIndex', () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-wf-errors-1',
           workflowRunId: 'wf-agg-workflow-errors',
@@ -774,7 +774,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-wf-errors-2',
           workflowRunId: 'wf-agg-workflow-errors',
@@ -786,7 +786,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-wf-errors-1',
           workflowRunId: 'wf-agg-workflow-errors',
@@ -799,7 +799,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-wf-errors-2',
           workflowRunId: 'wf-agg-workflow-errors',
@@ -812,7 +812,7 @@ describe('SqliteIndex', () => {
           updatedAt: 2,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-wf-errors-3',
           workflowRunId: 'wf-agg-workflow-errors',
@@ -827,11 +827,11 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      db.recomputeStageAggregate('stage-wf-errors-1');
-      db.recomputeStageAggregate('stage-wf-errors-2');
-      db.recomputeWorkflowAggregate('wf-agg-workflow-errors');
+      db.repos.workflows.recomputeStageAggregate('stage-wf-errors-1');
+      db.repos.workflows.recomputeStageAggregate('stage-wf-errors-2');
+      db.repos.workflows.recomputeWorkflowAggregate('wf-agg-workflow-errors');
 
-      expect(db.getWorkflowRun('wf-agg-workflow-errors')).toMatchObject({
+      expect(db.repos.workflows.getRun('wf-agg-workflow-errors')).toMatchObject({
         id: 'wf-agg-workflow-errors',
         status: 'completed_with_errors',
         totalStages: 2,
@@ -846,7 +846,7 @@ describe('SqliteIndex', () => {
     });
 
     it('updates stage updatedAt when recomputeStageAggregate changes derived state', () => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-stage-updated-at',
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -864,7 +864,7 @@ describe('SqliteIndex', () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-updated-at',
           workflowRunId: 'wf-stage-updated-at',
@@ -873,7 +873,7 @@ describe('SqliteIndex', () => {
           updatedAt: 10,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-stage-updated-at',
           workflowRunId: 'wf-stage-updated-at',
@@ -884,9 +884,9 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      db.recomputeStageAggregate('stage-updated-at');
+      db.repos.workflows.recomputeStageAggregate('stage-updated-at');
 
-      expect(db.listWorkflowStageRuns('wf-stage-updated-at')[0]).toMatchObject({
+      expect(db.repos.workflows.listStageRuns('wf-stage-updated-at').rows[0]).toMatchObject({
         id: 'stage-updated-at',
         status: 'running',
         progress: 25,
@@ -897,7 +897,7 @@ describe('SqliteIndex', () => {
     });
 
     it('updates workflow updatedAt and forces terminal progress to 100 when recomputeWorkflowAggregate changes derived state', () => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-workflow-updated-at',
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -915,7 +915,7 @@ describe('SqliteIndex', () => {
         createdAt: 1,
         updatedAt: 10,
       });
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-workflow-updated-at-1',
           workflowRunId: 'wf-workflow-updated-at',
@@ -929,7 +929,7 @@ describe('SqliteIndex', () => {
           updatedAt: 40,
         }),
       );
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-workflow-updated-at-2',
           workflowRunId: 'wf-workflow-updated-at',
@@ -943,7 +943,7 @@ describe('SqliteIndex', () => {
           updatedAt: 50,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-workflow-updated-at-1',
           workflowRunId: 'wf-workflow-updated-at',
@@ -956,7 +956,7 @@ describe('SqliteIndex', () => {
           updatedAt: 40,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-workflow-updated-at-2',
           workflowRunId: 'wf-workflow-updated-at',
@@ -969,7 +969,7 @@ describe('SqliteIndex', () => {
           updatedAt: 45,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-workflow-updated-at-3',
           workflowRunId: 'wf-workflow-updated-at',
@@ -984,9 +984,9 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      db.recomputeWorkflowAggregate('wf-workflow-updated-at');
+      db.repos.workflows.recomputeWorkflowAggregate('wf-workflow-updated-at');
 
-      expect(db.getWorkflowRun('wf-workflow-updated-at')).toMatchObject({
+      expect(db.repos.workflows.getRun('wf-workflow-updated-at')).toMatchObject({
         id: 'wf-workflow-updated-at',
         status: 'completed_with_errors',
         progress: 100,
@@ -1002,7 +1002,7 @@ describe('SqliteIndex', () => {
     });
 
     it('recomputes workflow aggregates from stage and task rows', () => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id: 'wf-agg-workflow',
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -1020,7 +1020,7 @@ describe('SqliteIndex', () => {
         createdAt: 1,
         updatedAt: 1,
       });
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-wf-1',
           workflowRunId: 'wf-agg-workflow',
@@ -1032,7 +1032,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowStageRun(
+      db.repos.workflows.insertStageRun(
         makeStageRun({
           id: 'stage-wf-2',
           workflowRunId: 'wf-agg-workflow',
@@ -1044,7 +1044,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-wf-1',
           workflowRunId: 'wf-agg-workflow',
@@ -1057,7 +1057,7 @@ describe('SqliteIndex', () => {
           updatedAt: 1,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-wf-2',
           workflowRunId: 'wf-agg-workflow',
@@ -1069,7 +1069,7 @@ describe('SqliteIndex', () => {
           updatedAt: 2,
         }),
       );
-      db.insertWorkflowTaskRun(
+      db.repos.workflows.insertTaskRun(
         makeTaskRun({
           id: 'task-wf-3',
           workflowRunId: 'wf-agg-workflow',
@@ -1081,11 +1081,11 @@ describe('SqliteIndex', () => {
         }),
       );
 
-      db.recomputeStageAggregate('stage-wf-1');
-      db.recomputeStageAggregate('stage-wf-2');
-      db.recomputeWorkflowAggregate('wf-agg-workflow');
+      db.repos.workflows.recomputeStageAggregate('stage-wf-1');
+      db.repos.workflows.recomputeStageAggregate('stage-wf-2');
+      db.repos.workflows.recomputeWorkflowAggregate('wf-agg-workflow');
 
-      expect(db.getWorkflowRun('wf-agg-workflow')).toMatchObject({
+      expect(db.repos.workflows.getRun('wf-agg-workflow')).toMatchObject({
         id: 'wf-agg-workflow',
         status: 'running',
         totalStages: 2,
@@ -1098,11 +1098,11 @@ describe('SqliteIndex', () => {
         summary: 'running 1/2 stages, 1/3 tasks',
       });
 
-      db.updateWorkflowTaskRun('task-wf-3', { status: 'running', progress: 25, updatedAt: 4 });
-      db.recomputeStageAggregate('stage-wf-2');
-      db.recomputeWorkflowAggregate('wf-agg-workflow');
+      db.repos.workflows.updateTaskRun('task-wf-3', { status: 'running', progress: 25, updatedAt: 4 });
+      db.repos.workflows.recomputeStageAggregate('stage-wf-2');
+      db.repos.workflows.recomputeWorkflowAggregate('wf-agg-workflow');
 
-      expect(db.getWorkflowRun('wf-agg-workflow')).toMatchObject({
+      expect(db.repos.workflows.getRun('wf-agg-workflow')).toMatchObject({
         id: 'wf-agg-workflow',
         status: 'running',
         totalStages: 2,
@@ -1115,22 +1115,22 @@ describe('SqliteIndex', () => {
         summary: 'running 1/2 stages, 1/3 tasks',
       });
 
-      db.updateWorkflowTaskRun('task-wf-2', {
+      db.repos.workflows.updateTaskRun('task-wf-2', {
         status: 'completed',
         progress: 100,
         completedAt: 5,
         updatedAt: 5,
       });
-      db.updateWorkflowTaskRun('task-wf-3', {
+      db.repos.workflows.updateTaskRun('task-wf-3', {
         status: 'completed',
         progress: 100,
         completedAt: 6,
         updatedAt: 6,
       });
-      db.recomputeStageAggregate('stage-wf-2');
-      db.recomputeWorkflowAggregate('wf-agg-workflow');
+      db.repos.workflows.recomputeStageAggregate('stage-wf-2');
+      db.repos.workflows.recomputeWorkflowAggregate('wf-agg-workflow');
 
-      expect(db.getWorkflowRun('wf-agg-workflow')).toMatchObject({
+      expect(db.repos.workflows.getRun('wf-agg-workflow')).toMatchObject({
         id: 'wf-agg-workflow',
         status: 'completed',
         totalStages: 2,
@@ -1147,7 +1147,7 @@ describe('SqliteIndex', () => {
 
   describe('workflow scheduler queries', () => {
     const insertWorkflowRun = (id: string, createdAt: number, updatedAt: number) => {
-      db.insertWorkflowRun({
+      db.repos.workflows.insertRun({
         id,
         workflowType: 'storyboard.generate',
         entityType: 'scene',
@@ -1173,7 +1173,7 @@ describe('SqliteIndex', () => {
       order: number,
       updatedAt: number,
     ) => {
-      db.insertWorkflowStageRun({
+      db.repos.workflows.insertStageRun({
         id,
         workflowRunId,
         stageId: `stage-${order}`,
@@ -1195,7 +1195,7 @@ describe('SqliteIndex', () => {
       status: WorkflowTaskRun['status'],
       updatedAt: number,
     ) => {
-      db.insertWorkflowTaskRun({
+      db.repos.workflows.insertTaskRun({
         id,
         workflowRunId,
         stageRunId,
@@ -1224,7 +1224,7 @@ describe('SqliteIndex', () => {
       insertTaskRun('task-ready-c', 'wf-ready-2', 'stage-ready-2', 'ready', 200);
       insertTaskRun('task-running', 'wf-ready-2', 'stage-ready-2', 'running', 50);
 
-      expect(db.listReadyWorkflowTasks().map((task) => task.id)).toEqual([
+      expect(db.repos.workflows.listReadyTasks().rows.map((task) => task.id)).toEqual([
         'task-ready-a',
         'task-ready-b',
         'task-ready-c',
@@ -1242,7 +1242,7 @@ describe('SqliteIndex', () => {
       insertTaskRun('task-await-c', 'wf-await-2', 'stage-await-2', 'awaiting_provider', 200);
       insertTaskRun('task-completed', 'wf-await-2', 'stage-await-2', 'completed', 50);
 
-      expect(db.listAwaitingProviderTasks().map((task) => task.id)).toEqual([
+      expect(db.repos.workflows.listAwaitingProviderTasks().rows.map((task) => task.id)).toEqual([
         'task-await-a',
         'task-await-b',
         'task-await-c',
@@ -1271,10 +1271,10 @@ describe('SqliteIndex', () => {
         400,
       );
 
-      expect(db.listReadyWorkflowTasks('wf-filter-2').map((task) => task.id)).toEqual([
+      expect(db.repos.workflows.listReadyTasks('wf-filter-2').rows.map((task) => task.id)).toEqual([
         'task-filter-ready-2',
       ]);
-      expect(db.listAwaitingProviderTasks('wf-filter-1').map((task) => task.id)).toEqual([
+      expect(db.repos.workflows.listAwaitingProviderTasks('wf-filter-1').rows.map((task) => task.id)).toEqual([
         'task-filter-await-1',
       ]);
     });
@@ -1287,13 +1287,13 @@ describe('SqliteIndex', () => {
       insertTaskRun('task-tie-a', 'wf-tie-1', 'stage-tie-1', 'ready', 100);
       insertTaskRun('task-tie-b', 'wf-tie-1', 'stage-tie-1', 'ready', 100);
 
-      expect(db.listReadyWorkflowTasks().map((t) => t.id)).toEqual([
+      expect(db.repos.workflows.listReadyTasks().rows.map((t) => t.id)).toEqual([
         'task-tie-a',
         'task-tie-b',
         'task-tie-c',
       ]);
       // Filtered by workflowRunId must produce the same deterministic order
-      expect(db.listReadyWorkflowTasks('wf-tie-1').map((t) => t.id)).toEqual([
+      expect(db.repos.workflows.listReadyTasks('wf-tie-1').rows.map((t) => t.id)).toEqual([
         'task-tie-a',
         'task-tie-b',
         'task-tie-c',
@@ -1325,12 +1325,12 @@ describe('SqliteIndex', () => {
         100,
       );
 
-      expect(db.listAwaitingProviderTasks().map((t) => t.id)).toEqual([
+      expect(db.repos.workflows.listAwaitingProviderTasks().rows.map((t) => t.id)).toEqual([
         'task-await-tie-a',
         'task-await-tie-b',
         'task-await-tie-c',
       ]);
-      expect(db.listAwaitingProviderTasks('wf-tie-await-1').map((t) => t.id)).toEqual([
+      expect(db.repos.workflows.listAwaitingProviderTasks('wf-tie-await-1').rows.map((t) => t.id)).toEqual([
         'task-await-tie-a',
         'task-await-tie-b',
         'task-await-tie-c',
@@ -1343,10 +1343,10 @@ describe('SqliteIndex', () => {
       insertTaskRun('task-empty-running', 'wf-empty-ready', 'stage-empty-ready', 'running', 10);
       insertTaskRun('task-empty-completed', 'wf-empty-ready', 'stage-empty-ready', 'completed', 20);
 
-      expect(db.listReadyWorkflowTasks()).toEqual([]);
-      expect(db.listReadyWorkflowTasks('wf-empty-ready')).toEqual([]);
+      expect(db.repos.workflows.listReadyTasks().rows).toEqual([]);
+      expect(db.repos.workflows.listReadyTasks('wf-empty-ready').rows).toEqual([]);
       // Non-existent workflow run also returns empty
-      expect(db.listReadyWorkflowTasks('wf-does-not-exist')).toEqual([]);
+      expect(db.repos.workflows.listReadyTasks('wf-does-not-exist').rows).toEqual([]);
     });
 
     it('returns empty array from listAwaitingProviderTasks when no awaiting tasks exist', () => {
@@ -1355,9 +1355,9 @@ describe('SqliteIndex', () => {
       insertTaskRun('task-empty-ready', 'wf-empty-await', 'stage-empty-await', 'ready', 10);
       insertTaskRun('task-empty-running', 'wf-empty-await', 'stage-empty-await', 'running', 20);
 
-      expect(db.listAwaitingProviderTasks()).toEqual([]);
-      expect(db.listAwaitingProviderTasks('wf-empty-await')).toEqual([]);
-      expect(db.listAwaitingProviderTasks('wf-does-not-exist')).toEqual([]);
+      expect(db.repos.workflows.listAwaitingProviderTasks().rows).toEqual([]);
+      expect(db.repos.workflows.listAwaitingProviderTasks('wf-empty-await').rows).toEqual([]);
+      expect(db.repos.workflows.listAwaitingProviderTasks('wf-does-not-exist').rows).toEqual([]);
     });
   });
 

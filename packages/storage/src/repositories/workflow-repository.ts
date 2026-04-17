@@ -184,7 +184,7 @@ export class WorkflowRepository {
     );
   }
 
-  listReadyTasks(workflowRunId: WorkflowRunId): ListResult<WorkflowTaskRun> {
+  listReadyTasks(workflowRunId?: WorkflowRunId): ListResult<WorkflowTaskRun> {
     return filterDegraded<WorkflowTaskRun>(
       _listReadyWorkflowTasks(this.db, workflowRunId),
       WorkflowTaskRunRecordSchema,
@@ -193,7 +193,7 @@ export class WorkflowRepository {
     );
   }
 
-  listAwaitingProviderTasks(workflowRunId: WorkflowRunId): ListResult<WorkflowTaskRun> {
+  listAwaitingProviderTasks(workflowRunId?: WorkflowRunId): ListResult<WorkflowTaskRun> {
     return filterDegraded<WorkflowTaskRun>(
       _listAwaitingProviderTasks(this.db, workflowRunId),
       WorkflowTaskRunRecordSchema,

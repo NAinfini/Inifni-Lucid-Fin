@@ -1,19 +1,8 @@
 import type {
   ScriptDocument,
   ColorStyle,
-  WorkflowRun,
-  WorkflowStageRun,
-  WorkflowTaskRun,
-  WorkflowArtifact,
-  WorkflowTaskSummary,
 } from '@lucid-fin/contracts';
 
-import type {
-  updateWorkflowRun as _updateWorkflowRun,
-  updateWorkflowStageRun as _updateWorkflowStageRun,
-  updateWorkflowTaskRun as _updateWorkflowTaskRun,
-  listWorkflowTaskSummaries as _listWorkflowTaskSummaries,
-} from './sqlite-workflows.js';
 import type { SessionRepository } from './repositories/session-repository.js';
 import type { JobRepository } from './repositories/job-repository.js';
 import type { AssetRepository } from './repositories/asset-repository.js';
@@ -117,45 +106,11 @@ export interface ISessionStore {}
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ISnapshotStore {}
 
-/** Workflow runs, stage runs, task runs, task dependencies, artifacts, summaries, aggregates */
-export interface IWorkflowStore {
-  // Workflow runs
-  insertWorkflowRun(run: WorkflowRun): void;
-  getWorkflowRun(id: string): WorkflowRun | undefined;
-  listWorkflowRuns(filter?: { status?: string; workflowType?: string; entityType?: string }): WorkflowRun[];
-  updateWorkflowRun(id: string, updates: Parameters<typeof _updateWorkflowRun>[2]): void;
-
-  // Stage runs
-  insertWorkflowStageRun(stageRun: WorkflowStageRun): void;
-  listWorkflowStageRuns(workflowRunId: string): WorkflowStageRun[];
-  getWorkflowStageRun(id: string): WorkflowStageRun | undefined;
-  updateWorkflowStageRun(id: string, updates: Parameters<typeof _updateWorkflowStageRun>[2]): void;
-
-  // Task runs
-  insertWorkflowTaskRun(taskRun: WorkflowTaskRun): void;
-  listWorkflowTaskRuns(workflowRunId: string): WorkflowTaskRun[];
-  listWorkflowTaskRunsByStage(stageRunId: string): WorkflowTaskRun[];
-  listReadyWorkflowTasks(workflowRunId?: string): WorkflowTaskRun[];
-  listAwaitingProviderTasks(workflowRunId?: string): WorkflowTaskRun[];
-  getWorkflowTaskRun(id: string): WorkflowTaskRun | undefined;
-  updateWorkflowTaskRun(id: string, updates: Parameters<typeof _updateWorkflowTaskRun>[2]): void;
-
-  // Task dependencies
-  insertWorkflowTaskDependency(taskRunId: string, dependsOnTaskRunId: string): void;
-  listTaskDependencies(taskRunId: string): string[];
-  listTaskDependents(dependsOnTaskRunId: string): string[];
-
-  // Artifacts
-  insertWorkflowArtifact(artifact: WorkflowArtifact): void;
-  listWorkflowArtifacts(workflowRunId: string): WorkflowArtifact[];
-  listEntityArtifacts(entityType: string, entityId: string): WorkflowArtifact[];
-  listWorkflowArtifactsByTaskRun(taskRunId: string): WorkflowArtifact[];
-
-  // Task summaries & aggregation
-  listWorkflowTaskSummaries(filter?: Parameters<typeof _listWorkflowTaskSummaries>[1]): WorkflowTaskSummary[];
-  recomputeStageAggregate(stageRunId: string): void;
-  recomputeWorkflowAggregate(workflowRunId: string): void;
-}
+/** Workflow persistence — migrated to SqliteIndex.repos.workflows (G1-4.9).
+ *  Interface kept as an empty marker for callers that still reference the
+ *  type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IWorkflowStore {}
 
 // ---------------------------------------------------------------------------
 // Composite interface

@@ -129,7 +129,7 @@ describe('createStyleWorkflowHandlers', () => {
     await workflowEngine.waitForAutoPump();
     const styles = db.listColorStyles();
     const workflow = workflowEngine.get(workflowRunId);
-    const persistArtifacts = db.listWorkflowArtifactsByTaskRun('task-persist');
+    const persistArtifacts = db.repos.workflows.listArtifactsByTaskRun('task-persist');
 
     expect(styles).toEqual([
       expect.objectContaining({
