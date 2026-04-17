@@ -102,3 +102,12 @@ export {
 // ── Phase G1-2.3: JobId parser + Job DTO ───────────────────────
 export { parseJobId, tryJobId } from './brands/job-id.js';
 export { JobSchema, type JobDto } from './dto/job.js';
+
+// ── Phase G1-2.4: AssetHash parser + AssetMeta / Embedding DTOs ─
+export { parseAssetHash, tryAssetHash } from './brands/asset-hash.js';
+export {
+  AssetMetaSchema,
+  EmbeddingRecordSchema,
+  type AssetMetaDto,
+  type EmbeddingRecordDto,
+} from './dto/asset.js';

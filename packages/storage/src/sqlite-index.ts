@@ -21,15 +21,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 
 import {
   type AssetMetaInput,
-  insertAsset as _insertAsset,
-  deleteAsset as _deleteAsset,
-  queryAssets as _queryAssets,
-  searchAssets as _searchAssets,
   repairAssetSizes as _repairAssetSizes,
-  insertEmbedding as _insertEmbedding,
-  queryEmbeddingByHash as _queryEmbeddingByHash,
-  searchByTokens as _searchByTokens,
-  getAllEmbeddedHashes as _getAllEmbeddedHashes,
   type EmbeddingRecord,
   type SemanticSearchResult,
 } from './sqlite-assets.js';
@@ -123,7 +115,8 @@ import { runMigrations, getCurrentVersion } from './migrations/runner.js';
 import { migrations } from './migrations/index.js';
 import { SessionRepository } from './repositories/session-repository.js';
 import { JobRepository } from './repositories/job-repository.js';
-import type { SessionId, JobId } from '@lucid-fin/contracts';
+import { AssetRepository } from './repositories/asset-repository.js';
+import type { SessionId, JobId, AssetHash } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -495,6 +488,7 @@ export class SqliteIndex implements IStorageLayer {
   private db: BetterSqlite3.Database;
   private sessions!: SessionRepository;
   private jobs!: JobRepository;
+  private assets!: AssetRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -517,6 +511,7 @@ export class SqliteIndex implements IStorageLayer {
 
     this.sessions = new SessionRepository(this.db);
     this.jobs = new JobRepository(this.db);
+    this.assets = new AssetRepository(this.db);
   }
 
   close(): void {
@@ -574,20 +569,31 @@ export class SqliteIndex implements IStorageLayer {
     // Repo handles pin to the live db — rebuild after the swap above.
     this.sessions = new SessionRepository(this.db);
     this.jobs = new JobRepository(this.db);
+    this.assets = new AssetRepository(this.db);
   }
 
   // --- Assets ---
-  insertAsset(meta: AssetMetaInput): void { _insertAsset(this.db, meta); }
-  deleteAsset(hash: string): void { _deleteAsset(this.db, hash); }
-  queryAssets(filter: { type?: string; limit?: number; offset?: number }): AssetMeta[] { return _queryAssets(this.db, filter); }
-  searchAssets(query: string, limit = 50): AssetMeta[] { return _searchAssets(this.db, query, limit); }
+  insertAsset(meta: AssetMetaInput): void { this.assets.insert(meta); }
+  deleteAsset(hash: string): void { this.assets.delete(hash as AssetHash); }
+  queryAssets(filter: { type?: string; limit?: number; offset?: number }): AssetMeta[] {
+    return this.assets.query(filter).rows;
+  }
+  searchAssets(query: string, limit = 50): AssetMeta[] {
+    return this.assets.search(query, limit).rows;
+  }
   repairAssetSizes(resolveAssetPath: (hash: string, type: string, format: string) => string): number { return _repairAssetSizes(this.db, resolveAssetPath); }
 
   // --- Asset Embeddings ---
-  insertEmbedding(hash: string, description: string, tokens: string[], model: string): void { _insertEmbedding(this.db, hash, description, tokens, model); }
-  queryEmbeddingByHash(hash: string): EmbeddingRecord | undefined { return _queryEmbeddingByHash(this.db, hash); }
-  searchByTokens(queryTokens: string[], limit: number): SemanticSearchResult[] { return _searchByTokens(this.db, queryTokens, limit); }
-  getAllEmbeddedHashes(): string[] { return _getAllEmbeddedHashes(this.db); }
+  insertEmbedding(hash: string, description: string, tokens: string[], model: string): void {
+    this.assets.insertEmbedding(hash as AssetHash, description, tokens, model);
+  }
+  queryEmbeddingByHash(hash: string): EmbeddingRecord | undefined {
+    return this.assets.queryEmbeddingByHash(hash as AssetHash);
+  }
+  searchByTokens(queryTokens: string[], limit: number): SemanticSearchResult[] {
+    return this.assets.searchByTokens(queryTokens, limit);
+  }
+  getAllEmbeddedHashes(): string[] { return this.assets.getAllEmbeddedHashes(); }
 
   // --- Jobs ---
   insertJob(job: Job): void { this.jobs.insert(job); }
