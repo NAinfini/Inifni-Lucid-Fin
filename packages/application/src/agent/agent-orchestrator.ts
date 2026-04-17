@@ -96,11 +96,17 @@ const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOK
  */
 /**
  * Feature flag: ContextGraph cutover path (Phase G2b).
- * Default: off. Enable by setting env var LUCID_CONTEXT_GRAPH=1.
+ *
+ * Default: ON as of Phase G2b-3. The graph path is now the default wire-
+ * messages source for supported adapters (openai, claude). To force the
+ * legacy path (for rollback during incidents), set `LUCID_CONTEXT_GRAPH=0`.
+ *
  * Read at call time (not module init) so tests can toggle it.
  */
 function isContextGraphEnabled(): boolean {
-  return process.env['LUCID_CONTEXT_GRAPH'] === '1';
+  const flag = process.env['LUCID_CONTEXT_GRAPH'];
+  if (flag === '0') return false; // explicit opt-out
+  return true; // default on
 }
 
 /**
