@@ -203,7 +203,7 @@ describe('sqlite-snapshots', () => {
 
   it('captureSnapshot serialises all mutable tables', () => {
     // Pre-populate some data
-    db.upsertCharacter({ id: 'c1', name: 'Hero' });
+    db.repos.entities.upsertCharacter({ id: 'c1', name: 'Hero' });
     db.repos.sessions.upsert(SESSION);
 
     const snap = db.repos.snapshots.capture(parseSessionId('sess-1'), 'test', 'manual');
@@ -212,17 +212,17 @@ describe('sqlite-snapshots', () => {
   });
 
   it('restoreSnapshot replaces entity table data', () => {
-    db.upsertCharacter({ id: 'c1', name: 'Before' });
+    db.repos.entities.upsertCharacter({ id: 'c1', name: 'Before' });
     db.repos.sessions.upsert(SESSION);
     const snap = db.repos.snapshots.capture(parseSessionId('sess-1'), 'checkpoint', 'manual');
 
     // Mutate after snapshot
-    db.upsertCharacter({ id: 'c2', name: 'After' });
-    expect(db.listCharacters()).toHaveLength(2);
+    db.repos.entities.upsertCharacter({ id: 'c2', name: 'After' });
+    expect(db.repos.entities.listCharacters().rows).toHaveLength(2);
 
     db.repos.snapshots.restore(parseSnapshotId(snap.id));
 
-    const chars = db.listCharacters();
+    const chars = db.repos.entities.listCharacters().rows;
     expect(chars).toHaveLength(1);
     expect(chars[0].name).toBe('Before');
   });

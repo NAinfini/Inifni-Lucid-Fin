@@ -173,12 +173,25 @@ function makeLocation(id: string, overrides?: Partial<Location>): Location {
 }
 
 function makeDb(overrides?: Partial<SqliteIndex>): SqliteIndex {
-  return {
+  const flat = {
     getCharacter: vi.fn(() => undefined),
     getEquipment: vi.fn(() => undefined),
     getLocation: vi.fn(() => undefined),
     insertAsset: vi.fn(),
     ...overrides,
+  };
+  // Expose the entity spies under the new `.repos.entities` shape so handlers
+  // that have been migrated to `db.repos.entities.*` still land on the same
+  // mocks. Tests can continue to pass overrides flat.
+  return {
+    ...flat,
+    repos: {
+      entities: {
+        getCharacter: flat.getCharacter,
+        getEquipment: flat.getEquipment,
+        getLocation: flat.getLocation,
+      },
+    },
   } as unknown as SqliteIndex;
 }
 

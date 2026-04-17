@@ -118,7 +118,7 @@ describe('snapshot.handlers', () => {
   });
 
   it('snapshot:restore replaces entity data', async () => {
-    db.upsertCharacter({ id: 'c1', name: 'Before' });
+    db.repos.entities.upsertCharacter({ id: 'c1', name: 'Before' });
     await ipc.invoke('session:upsert', {
       id: 's1', canvasId: null, title: 'T', messages: '[]', createdAt: 1000, updatedAt: 1000,
     });
@@ -126,12 +126,12 @@ describe('snapshot.handlers', () => {
       sessionId: 's1', label: '', trigger: 'auto',
     }) as { id: string };
 
-    db.upsertCharacter({ id: 'c2', name: 'After' });
-    expect(db.listCharacters()).toHaveLength(2);
+    db.repos.entities.upsertCharacter({ id: 'c2', name: 'After' });
+    expect(db.repos.entities.listCharacters().rows).toHaveLength(2);
 
     await ipc.invoke('snapshot:restore', { snapshotId: snap.id });
-    expect(db.listCharacters()).toHaveLength(1);
-    expect(db.listCharacters()[0].name).toBe('Before');
+    expect(db.repos.entities.listCharacters().rows).toHaveLength(1);
+    expect(db.repos.entities.listCharacters().rows[0].name).toBe('Before');
   });
 
   it('snapshot:delete removes the snapshot', async () => {

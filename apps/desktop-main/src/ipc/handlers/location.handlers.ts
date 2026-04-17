@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { Location, ReferenceImage } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { parseLocationId } from '@lucid-fin/contracts-parse';
 import { safeHandle } from '../ipc-error-handler.js';
 
 const VALID_LOCATION_TYPES = new Set<Location['type']>(['interior', 'exterior', 'int-ext']);
@@ -21,12 +22,12 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       args && typeof args === 'object' && typeof args.type === 'string'
         ? args.type
         : undefined;
-    return db.listLocations(typeFilter);
+    return db.repos.entities.listLocations(typeFilter).rows;
   });
 
   safeHandle(ipcMain, 'location:get', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    const loc = db.getLocation(args.id);
+    const loc = db.repos.entities.getLocation(parseLocationId(args.id));
     if (!loc) throw new Error(`Location not found: ${args.id}`);
     return loc;
   });
@@ -35,14 +36,17 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     if (!args || (typeof args.name !== 'string' && typeof args.id !== 'string')) {
       throw new Error('name or id is required');
     }
-    const existing = typeof args.id === 'string' ? db.getLocation(args.id) : undefined;
+    const existing =
+      typeof args.id === 'string' && args.id
+        ? db.repos.entities.getLocation(parseLocationId(args.id))
+        : undefined;
     const now = Date.now();
 
     const name = (typeof args.name === 'string' ? args.name : (existing?.name ?? '')).trim();
     if (!name) throw new Error('name is required');
 
     const loc: Location = {
-      id: existing?.id ?? (typeof args.id === 'string' && args.id ? args.id : randomUUID()),
+      id: existing?.id ?? (typeof args.id === 'string' && args.id ? parseLocationId(args.id) : randomUUID()),
       name,
       type: normalizeLocationType(args.type, existing?.type ?? 'interior'),
       subLocation:
@@ -73,7 +77,7 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       updatedAt: now,
     };
 
-    db.upsertLocation({
+    db.repos.entities.upsertLocation({
       id: loc.id,
       name: loc.name,
       type: loc.type,
@@ -97,7 +101,7 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
 
   safeHandle(ipcMain, 'location:delete', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    db.deleteLocation(args.id);
+    db.repos.entities.deleteLocation(parseLocationId(args.id));
   });
 
   safeHandle(ipcMain,
@@ -111,7 +115,7 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       if (typeof args.slot !== 'string') throw new Error('slot is required');
       if (typeof args.assetHash !== 'string') throw new Error('assetHash is required');
 
-      const loc = db.getLocation(args.locationId);
+      const loc = db.repos.entities.getLocation(parseLocationId(args.locationId));
       if (!loc) throw new Error(`Location not found: ${args.locationId}`);
 
       const existing = loc.referenceImages.find((r) => r.slot === args.slot);
@@ -125,7 +129,7 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       const refs = loc.referenceImages.filter((r) => r.slot !== args.slot);
       refs.push(refImage);
 
-      db.upsertLocation({
+      db.repos.entities.upsertLocation({
         ...loc,
         referenceImages: refs,
         updatedAt: Date.now(),
@@ -142,12 +146,12 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
         throw new Error('locationId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
 
-      const loc = db.getLocation(args.locationId);
+      const loc = db.repos.entities.getLocation(parseLocationId(args.locationId));
       if (!loc) throw new Error(`Location not found: ${args.locationId}`);
 
       const refs = loc.referenceImages.filter((r) => r.slot !== args.slot);
 
-      db.upsertLocation({
+      db.repos.entities.upsertLocation({
         ...loc,
         referenceImages: refs,
         updatedAt: Date.now(),
