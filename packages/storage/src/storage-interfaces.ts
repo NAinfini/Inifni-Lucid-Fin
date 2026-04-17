@@ -13,9 +13,9 @@ import type { ColorStyleRepository } from './repositories/color-style-repository
 import type { DependencyRepository } from './repositories/dependency-repository.js';
 
 /**
- * Repository bundle exposed by `SqliteIndex.repos`. Represents the strangler
- * surface during G1-4.x: consumers migrate from `db.xxx()` facade methods to
- * `db.repos.xxx.yyy()` direct-to-repository calls.
+ * Repository bundle exposed by `SqliteIndex.repos`. The strangler
+ * migration (G1-4.x) finished with G1-4.10: every domain now lives
+ * on its own repository; the flat `db.xxx()` facade is gone.
  */
 export interface RepoBundle {
   sessions: SessionRepository;
@@ -33,93 +33,15 @@ export interface RepoBundle {
   dependencies: DependencyRepository;
 }
 
-// ---------------------------------------------------------------------------
-// Domain store interfaces
-// ---------------------------------------------------------------------------
-
-/** Asset storage operations — migrated to SqliteIndex.repos.assets (G1-4.8).
- *  Interface kept as an empty marker for callers that still reference the
- *  type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface IAssetStore {}
-
-/** Embedding / semantic search operations — migrated to SqliteIndex.repos.assets
- *  (G1-4.8). Interface kept as an empty marker for callers that still reference
- *  the type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface IEmbeddingStore {}
-
-/** Job queue persistence — migrated to SqliteIndex.repos.jobs (G1-4.5).
- *  `JobQueue` now takes `JobRepository` directly. Interface kept as an empty
- *  marker for callers that still reference the type alias; can be deleted in
- *  a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface IJobStore {}
-
-/** Canvas persistence — migrated to SqliteIndex.repos.canvases (G1-4.6).
- *  Interface kept as an empty marker for callers that still reference the
- *  type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ICanvasStore {}
-
-/** Scripts / color styles / dependencies — migrated to
- *  SqliteIndex.repos.scripts / colorStyles / dependencies (G1-4.10).
- *  Characters / equipment / locations migrated to SqliteIndex.repos.entities
- *  (G1-4.7). Interface kept as an empty marker for callers that still
- *  reference the type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface IEntityStore {}
-
-/** Series and episodes — migrated to SqliteIndex.repos.series (G1-4.4).
- *  Interface kept as an empty marker for callers that still reference the
- *  type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ISeriesStore {}
-
-/** Preset overrides and custom shot templates */
-/** Preset overrides and custom shot templates — migrated to
- *  SqliteIndex.repos.presets / SqliteIndex.repos.shotTemplates (G1-4.3).
- *  Interface kept as an empty marker for callers that still reference the
- *  type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface IPresetStore {}
-
-/** Commander sessions — migrated to SqliteIndex.repos.sessions (G1-4.2).
- *  Interface kept as an empty marker for callers that still reference the
- *  type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ISessionStore {}
-
-/** Snapshots (capture / restore) — migrated to SqliteIndex.repos.snapshots
- *  (G1-4.2). Interface kept as an empty marker for callers that still
- *  reference the type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface ISnapshotStore {}
-
-/** Workflow persistence — migrated to SqliteIndex.repos.workflows (G1-4.9).
- *  Interface kept as an empty marker for callers that still reference the
- *  type alias; can be deleted in a later cleanup. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface IWorkflowStore {}
-
-// ---------------------------------------------------------------------------
-// Composite interface
-// ---------------------------------------------------------------------------
-
-/** Complete storage layer -- union of all domain stores */
-export interface IStorageLayer extends
-  IEntityStore,
-  ISeriesStore,
-  IPresetStore,
-  IWorkflowStore {
-  /** Repository bundle (strangler surface — G1-4.x). */
+/**
+ * Storage layer contract — everything a consumer needs to interact
+ * with persisted state. Domain operations live behind `repos`;
+ * lifecycle + integrity management stays on the top-level interface.
+ */
+export interface IStorageLayer {
   readonly repos: RepoBundle;
-  /** Close the database connection */
   close(): void;
-  /** Run integrity check -- throws if DB is corrupted */
   healthCheck(): void;
-  /** Attempt to repair by exporting to SQL and reimporting into a fresh DB */
   repair(): void;
-  /** Vacuum the database */
   vacuum(): void;
 }
