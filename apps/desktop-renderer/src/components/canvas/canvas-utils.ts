@@ -19,6 +19,7 @@ import type {
   TextNodeData,
   VideoNodeData,
 } from '@lucid-fin/contracts';
+import { isGeneratableMedia } from '@lucid-fin/shared-utils';
 import type { CanvasClipboardPayload } from '../../store/slices/canvas.js';
 import type { LinkEdgeData } from './edges/LinkEdge.js';
 import type { FlowVisualState, PresetTrackNodeData } from './canvas-flow-types.js';
@@ -121,7 +122,7 @@ export function collectNodeSearchText(node: CanvasNodeDTO): string {
   if (node.type === 'text') {
     fragments.push((node.data as TextNodeData).content);
   }
-  if (node.type === 'image' || node.type === 'video' || node.type === 'audio') {
+  if (isGeneratableMedia(node.type)) {
     const generationData = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
     fragments.push(
       generationData.prompt,

@@ -14,6 +14,7 @@ import type {
   SubscribeCallbacks,
   VideoNodeData,
 } from '@lucid-fin/contracts';
+import { matchNode } from '@lucid-fin/shared-utils';
 
 import type {
   CanvasGenerationDeps,
@@ -336,22 +337,26 @@ async function executeGeneration(args: {
     });
     touchCanvas(canvas, deps);
 
-    if (node.type === 'video') {
-      void autoChainVideoFrame(canvas, node, deps.cas)
-        .then(() => touchCanvas(canvas, deps))
-        .catch((err) => {
-          log.warn('[canvas:generation] auto-chain frame extraction failed', { error: String(err) });
-        });
-    }
+    matchNode(node.type, {
+      video: () => {
+        void autoChainVideoFrame(canvas, node, deps.cas)
+          .then(() => touchCanvas(canvas, deps))
+          .catch((err) => {
+            log.warn('[canvas:generation] auto-chain frame extraction failed', { error: String(err) });
+          });
 
-    if (node.type === 'video') {
-      const videoData = node.data as VideoNodeData;
-      if (videoData.lipSyncEnabled) {
-        void runLipSyncPostProcess(canvas, node, deps).catch((err) => {
-          log.warn('[canvas:generation] lip-sync post-processing failed', { error: String(err) });
-        });
-      }
-    }
+        const videoData = node.data as VideoNodeData;
+        if (videoData.lipSyncEnabled) {
+          void runLipSyncPostProcess(canvas, node, deps).catch((err) => {
+            log.warn('[canvas:generation] lip-sync post-processing failed', { error: String(err) });
+          });
+        }
+      },
+      image: () => {},
+      audio: () => {},
+      text: () => {},
+      backdrop: () => {},
+    });
 
     sendProgress(sender, runningJob.canvasId, runningJob.nodeId, 100, 'completed');
     log.info('Canvas generation completed', {

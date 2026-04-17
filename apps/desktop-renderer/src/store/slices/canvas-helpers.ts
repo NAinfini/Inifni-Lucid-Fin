@@ -15,6 +15,7 @@ import {
   type VideoNodeData,
   type AudioNodeData,
 } from '@lucid-fin/contracts';
+import { isGeneratableMedia } from '@lucid-fin/shared-utils';
 import { t } from '../../i18n.js';
 import type { CanvasClipboardPayload, CanvasSliceState } from './canvas.js';
 
@@ -347,7 +348,7 @@ export function normalizeTrackEntries(track: { entries: PresetTrackEntry[] }, ca
 }
 
 export function getGenerationNodeData(node: CanvasNode): GenerationNodeData | undefined {
-  if (node.type === 'image' || node.type === 'video' || node.type === 'audio') {
+  if (isGeneratableMedia(node.type)) {
     return node.data as GenerationNodeData;
   }
   return undefined;
