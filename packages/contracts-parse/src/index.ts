@@ -33,6 +33,9 @@ export {
 // Table factory
 export { defineTable, col } from './tables.js';
 
+// Storage table constants (Phase G1-1)
+export * from './storage/tables/index.js';
+
 // Channel registry (seed — Phase B batches append here)
 export {
   allChannels,
