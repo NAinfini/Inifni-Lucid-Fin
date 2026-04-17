@@ -40,6 +40,8 @@ import {
   refimageFailedChannel,
   commanderSettingsDispatchChannel,
   commanderUndoDispatchChannel,
+  parseSessionId,
+  parseSnapshotId,
 } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
@@ -1040,9 +1042,9 @@ export function registerAllTools(
   // ---- Snapshot tools ----
   if (sessionId) {
     for (const tool of createSnapshotTools({
-      captureSnapshot: (sid, label, trigger) => deps.db.captureSnapshot(sid, label, trigger),
-      listSnapshots: (sid) => deps.db.listSnapshots(sid).map(({ data: _d, ...meta }) => meta),
-      restoreSnapshot: (snapshotId) => deps.db.restoreSnapshot(snapshotId),
+      captureSnapshot: (sid, label, trigger) => deps.db.repos.snapshots.capture(parseSessionId(sid), label, trigger),
+      listSnapshots: (sid) => deps.db.repos.snapshots.list(parseSessionId(sid)).rows.map(({ data: _d, ...meta }) => meta),
+      restoreSnapshot: (snapshotId) => deps.db.repos.snapshots.restore(parseSnapshotId(snapshotId)),
       getSessionId: () => sessionId,
     })) {
       registry.register(tool);
