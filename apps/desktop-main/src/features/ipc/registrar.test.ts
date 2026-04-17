@@ -105,14 +105,16 @@ describe('registrar', () => {
       });
     });
 
-    it('wraps arbitrary thrown errors as LucidError', async () => {
+    it('wraps arbitrary thrown errors into the IpcErrorPayload envelope', async () => {
       const { deps, ipcMain } = makeDeps();
       registerInvoke(deps, pingChannel, async () => {
         throw new Error('oops');
       });
-      await expect(ipcMain.__invoke('health:ping', { nonce: 'a' })).rejects.toBeInstanceOf(
-        LucidError,
-      );
+      await expect(ipcMain.__invoke('health:ping', { nonce: 'a' })).rejects.toMatchObject({
+        __ipcError: true,
+        code: ErrorCode.Unknown,
+        message: expect.stringContaining('oops'),
+      });
     });
 
     it('does not re-wrap LucidError — preserves code/details', async () => {

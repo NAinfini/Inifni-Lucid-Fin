@@ -42,6 +42,7 @@ import {
   type ReplyChannelDef,
 } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
+import { toIpcErrorPayload } from '../../ipc/ipc-error-handler.js';
 
 // ---------------------------------------------------------------------------
 // Context passed to invoke/reply handlers
@@ -154,7 +155,7 @@ export function registerInvoke<
         name: `${channelName}.response`,
       });
     } catch (error) {
-      throw toLucidError(error, channelName, controller?.signal);
+      throw toIpcErrorPayload(toLucidError(error, channelName, controller?.signal));
     } finally {
       if (controller) {
         abortControllers.delete(invocationId);
@@ -185,7 +186,7 @@ export function registerReply<Channel extends string, Req, Res>(
         name: `${channelName}.response`,
       });
     } catch (error) {
-      throw toLucidError(error, channelName);
+      throw toIpcErrorPayload(toLucidError(error, channelName));
     }
   });
 }

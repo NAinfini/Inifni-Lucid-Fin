@@ -66,4 +66,86 @@ export class LucidError extends Error {
     }
     return le;
   }
+
+  // ── Semantic factories ───────────────────────────────────────
+  // Keep call-sites terse: `throw LucidError.notFound('character', id)`
+  // reads better than `throw new LucidError(ErrorCode.ResourceNotFound, ...)`.
+
+  /** The request validated but the named entity does not exist. */
+  static notFound(
+    resource: string,
+    id: string,
+    details?: Record<string, unknown>,
+  ): LucidError {
+    return new LucidError(
+      ErrorCode.ResourceNotFound,
+      `${resource} not found: ${id}`,
+      { resource, id, ...details },
+    );
+  }
+
+  /** Caller provided semantically bad input that parseStrict can't catch. */
+  static validation(
+    message: string,
+    details?: Record<string, unknown>,
+  ): LucidError {
+    return new LucidError(ErrorCode.ValidationFailed, message, details);
+  }
+
+  /** Optimistic-concurrency / state-mismatch errors. */
+  static conflict(
+    message: string,
+    details?: Record<string, unknown>,
+  ): LucidError {
+    return new LucidError(ErrorCode.Conflict, message, details);
+  }
+
+  /** Provider API key / config missing — user-actionable in Settings. */
+  static providerUnconfigured(
+    providerId: string,
+    details?: Record<string, unknown>,
+  ): LucidError {
+    return new LucidError(
+      ErrorCode.ProviderUnconfigured,
+      `Provider '${providerId}' is not configured`,
+      { providerId, ...details },
+    );
+  }
+
+  /** Provider returned rate-limit / billing error — retryable after delay. */
+  static providerQuota(
+    providerId: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ): LucidError {
+    return new LucidError(
+      ErrorCode.ProviderQuota,
+      `Provider '${providerId}' quota/rate-limit: ${message}`,
+      { providerId, retryable: true, ...details },
+    );
+  }
+
+  /** User-initiated cancellation. The registrar already converts AbortError. */
+  static cancelled(
+    message = 'Operation cancelled',
+    details?: Record<string, unknown>,
+  ): LucidError {
+    return new LucidError(ErrorCode.Cancelled, message, details);
+  }
+
+  /**
+   * A persisted read degraded to a fallback. Non-fatal — typically surfaced
+   * alongside the (possibly partial) response so the renderer can show a
+   * warning banner. Use `parseOrDegrade` to produce the value itself.
+   */
+  static degradedRead(
+    resource: string,
+    details?: Record<string, unknown>,
+  ): LucidError {
+    return new LucidError(
+      ErrorCode.DegradedRead,
+      `Degraded read for ${resource}`,
+      { resource, ...details },
+    );
+  }
 }
