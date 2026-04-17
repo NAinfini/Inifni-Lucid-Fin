@@ -19,11 +19,18 @@ import type { ToolCatalog, UiEffect } from '@lucid-fin/contracts';
 
 import type { ToolDef } from '../tools.js';
 
-export function createCatalog<const T extends readonly ToolDef[]>(
+// The constraint uses `any` for Params/Result so `defineTool`
+// (concrete params/result) and `defineToolMeta` (`never`/`never`) are
+// both acceptable. The aggregator only reads metadata fields, never
+// the `run` signature, so variance doesn't matter at this layer.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyToolDef = ToolDef<string, any, any>;
+
+export function createCatalog<const T extends readonly AnyToolDef[]>(
   tools: T,
 ): ToolCatalog<T> {
-  const byKey: Record<string, ToolDef> = {};
-  const byProcess: Record<string, ToolDef[]> = {};
+  const byKey: Record<string, AnyToolDef> = {};
+  const byProcess: Record<string, AnyToolDef[]> = {};
   const mutatingKeys: string[] = [];
   const metaKeys: string[] = [];
   const uiEffectsByKey: Record<string, readonly UiEffect[]> = {};
@@ -46,7 +53,7 @@ export function createCatalog<const T extends readonly ToolDef[]>(
 
   // Freeze nested arrays so downstream consumers can't mutate them.
   for (const key of Object.keys(byProcess)) {
-    byProcess[key] = Object.freeze(byProcess[key]!) as ToolDef[];
+    byProcess[key] = Object.freeze(byProcess[key]!) as AnyToolDef[];
   }
   for (const key of Object.keys(uiEffectsByKey)) {
     uiEffectsByKey[key] = Object.freeze(

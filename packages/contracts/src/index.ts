@@ -102,3 +102,4 @@ export type {
 // explicitly. The branded `ToolKey` is slated for removal in a later phase.
 export type { ToolCatalog, ProcessCategory } from './agent/tool-catalog-type.js';
 export type { ToolKey as CatalogToolKey } from './agent/tool-catalog-type.js';
+export { ENTITY_REFRESH_TOOL_ENTITY } from './agent/entity-refresh-map.js';

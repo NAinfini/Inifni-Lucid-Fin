@@ -30,7 +30,7 @@ export interface ToolDefinitionType<
   readonly category: 'query' | 'mutation' | 'meta';
   readonly permission?: {
     readonly require: 'confirm' | 'auto';
-    readonly prompt?: (params: Params) => string;
+    prompt?(params: Params): string;
   };
   readonly uiEffects?: readonly UiEffect[];
   readonly _types: {

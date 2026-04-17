@@ -14,10 +14,7 @@ export interface ToolDef<
     readonly params: ZodType<Params>;
     readonly result: ZodType<Result>;
   };
-  readonly run: (
-    ctx: ToolRunContext,
-    params: Params,
-  ) => AsyncIterable<ToolEvent<Result>>;
+  run(ctx: ToolRunContext, params: Params): AsyncIterable<ToolEvent<Result>>;
 }
 
 export interface ToolRunContext {

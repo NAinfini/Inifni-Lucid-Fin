@@ -16,3 +16,5 @@ export type {
 } from './tool-catalog-type.js';
 
 export type { ToolDefinitionType, UiEffect } from '../types/tool-types.js';
+
+export { ENTITY_REFRESH_TOOL_ENTITY } from './entity-refresh-map.js';

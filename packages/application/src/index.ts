@@ -100,3 +100,11 @@ export {
   getClassifiedToolNames,
   type ToolCompactionCategory,
 } from '@lucid-fin/shared-utils';
+export {
+  ToolCatalog,
+  entityMutatingToolNames,
+  canvasSyncMutatingToolNames,
+  type AppToolCatalog,
+  type AppToolKey,
+  type AppProcessCategory,
+} from './agent/tool-catalog.js';
