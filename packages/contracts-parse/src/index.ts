@@ -142,3 +142,10 @@ export {
   type SeriesDto,
   type EpisodeDto,
 } from './dto/series.js';
+
+// ── Phase G1-2.8: PresetId parser + PresetOverride DTO ─────────
+export { parsePresetId, tryPresetId } from './brands/preset-id.js';
+export {
+  PresetOverrideSchema,
+  type PresetOverrideDto,
+} from './dto/preset.js';
