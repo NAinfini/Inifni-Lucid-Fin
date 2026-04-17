@@ -44,6 +44,8 @@ import {
   parseSnapshotId,
   parsePresetId,
   parseShotTemplateId,
+  parseSeriesId,
+  parseEpisodeId,
 } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
@@ -602,12 +604,12 @@ export function registerAllTools(
 
   const ensureCommanderSeriesId = () => {
     if (activeSeriesId) {
-      const existing = deps.db.getSeries(activeSeriesId);
+      const existing = deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId));
       if (existing) return { seriesId: activeSeriesId };
     }
     const now = Date.now();
     const seriesId = crypto.randomUUID();
-    deps.db.upsertSeries({
+    deps.db.repos.series.upsertSeries({
       id: seriesId,
       title: 'Untitled Series',
       description: '',
@@ -623,21 +625,21 @@ export function registerAllTools(
   registerToolModule(registry, seriesToolModule, {
     getSeries: async () => {
       if (!activeSeriesId) return null;
-      return deps.db.getSeries(activeSeriesId) ?? null;
+      return deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId)) ?? null;
     },
     saveSeries: async (data: Record<string, unknown>) => {
       const existingId =
         typeof data.id === 'string' && data.id.trim().length > 0
           ? data.id.trim()
           : activeSeriesId;
-      const existingSeries = existingId ? deps.db.getSeries(existingId) : undefined;
+      const existingSeries = existingId ? deps.db.repos.series.getSeries(parseSeriesId(existingId)) : undefined;
       const now = Date.now();
       const seriesId = existingId ?? crypto.randomUUID();
       const episodeIds = Array.isArray(data.episodeIds)
         ? data.episodeIds.filter((entry): entry is string => typeof entry === 'string')
-        : existingSeries?.episodeIds ?? deps.db.listEpisodes(seriesId).map((episode) => episode.id);
+        : existingSeries?.episodeIds ?? deps.db.repos.series.listEpisodes(parseSeriesId(seriesId)).rows.map((episode) => episode.id);
 
-      deps.db.upsertSeries({
+      deps.db.repos.series.upsertSeries({
         id: seriesId,
         title:
           typeof data.title === 'string'
@@ -660,11 +662,11 @@ export function registerAllTools(
       });
 
       activeSeriesId = seriesId;
-      return deps.db.getSeries(seriesId) ?? null;
+      return deps.db.repos.series.getSeries(parseSeriesId(seriesId)) ?? null;
     },
     listEpisodes: async () => {
       if (!activeSeriesId) return [];
-      return deps.db.listEpisodes(activeSeriesId).map((episode) => ({
+      return deps.db.repos.series.listEpisodes(parseSeriesId(activeSeriesId)).rows.map((episode) => ({
         id: episode.id,
         title: episode.title,
         canvasId: undefined,
@@ -672,10 +674,10 @@ export function registerAllTools(
     },
     addEpisode: async (title: string, _canvasId?: string) => {
       const { seriesId } = ensureCommanderSeriesId();
-      const existingEpisodes = deps.db.listEpisodes(seriesId);
+      const existingEpisodes = deps.db.repos.series.listEpisodes(parseSeriesId(seriesId)).rows;
       const now = Date.now();
       const episodeId = crypto.randomUUID();
-      deps.db.upsertEpisode({
+      deps.db.repos.series.upsertEpisode({
         id: episodeId,
         seriesId,
         title,
@@ -685,9 +687,9 @@ export function registerAllTools(
         updatedAt: now,
       });
 
-      const series = deps.db.getSeries(seriesId);
+      const series = deps.db.repos.series.getSeries(parseSeriesId(seriesId));
       if (series) {
-        deps.db.upsertSeries({
+        deps.db.repos.series.upsertSeries({
           ...series,
           episodeIds: [...new Set([...series.episodeIds, episodeId])],
           updatedAt: now,
@@ -697,10 +699,10 @@ export function registerAllTools(
       return { id: episodeId };
     },
     removeEpisode: async (episodeId: string) => {
-      const series = activeSeriesId ? deps.db.getSeries(activeSeriesId) : undefined;
-      deps.db.deleteEpisode(episodeId);
+      const series = activeSeriesId ? deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId)) : undefined;
+      deps.db.repos.series.deleteEpisode(parseEpisodeId(episodeId));
       if (series) {
-        deps.db.upsertSeries({
+        deps.db.repos.series.upsertSeries({
           ...series,
           episodeIds: series.episodeIds.filter((id) => id !== episodeId),
           updatedAt: Date.now(),
@@ -709,18 +711,18 @@ export function registerAllTools(
     },
     reorderEpisodes: async (episodeIds: string[]) => {
       if (!activeSeriesId) return [];
-      const episodes = deps.db.listEpisodes(activeSeriesId);
+      const episodes = deps.db.repos.series.listEpisodes(parseSeriesId(activeSeriesId)).rows;
       for (let index = 0; index < episodeIds.length; index += 1) {
         const episode = episodes.find((entry) => entry.id === episodeIds[index]);
         if (episode) {
-          deps.db.upsertEpisode({
+          deps.db.repos.series.upsertEpisode({
             ...episode,
             order: index,
             updatedAt: Date.now(),
           });
         }
       }
-      return deps.db.listEpisodes(activeSeriesId);
+      return deps.db.repos.series.listEpisodes(parseSeriesId(activeSeriesId)).rows;
     },
   });
 
