@@ -88,7 +88,7 @@ describe('entityMutatingToolNames', () => {
 });
 
 describe('buildContext', () => {
-  function makeDb(overrides?: Partial<SqliteIndex>): SqliteIndex {
+  function makeDb(_overrides?: Partial<SqliteIndex>): SqliteIndex {
     return {
       getCharacter: vi.fn(() => undefined),
       getLocation: vi.fn(() => undefined),
