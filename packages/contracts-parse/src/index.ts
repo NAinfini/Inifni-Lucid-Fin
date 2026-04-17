@@ -46,3 +46,6 @@ export * from './ipc/channels/batch-01.js';
 
 // Batch 2 — character + equipment
 export * from './ipc/channels/batch-02.js';
+
+// Batch 3 — location + style + entity + colorStyle
+export * from './ipc/channels/batch-03.js';

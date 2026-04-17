@@ -10,3 +10,4 @@ export type { HealthPingRequest, HealthPingResponse } from './health.js';
 // Phase B-1 batches
 export type * from './batch-01.js';
 export type * from './batch-02.js';
+export type * from './batch-03.js';

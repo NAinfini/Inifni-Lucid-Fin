@@ -9,6 +9,12 @@
 import { healthChannels } from './channels/health.js';
 import { settingsChannels, scriptChannels } from './channels/batch-01.js';
 import { characterChannels, equipmentChannels } from './channels/batch-02.js';
+import {
+  locationChannels,
+  styleChannels,
+  entityChannels,
+  colorStyleChannels,
+} from './channels/batch-03.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
 export type {
@@ -22,6 +28,9 @@ export * from './channels/batch-01.js';
 // Batch 2 — character + equipment
 export * from './channels/batch-02.js';
 
+// Batch 3 — location + style + entity + colorStyle
+export * from './channels/batch-03.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
@@ -29,4 +38,8 @@ export const allChannels = [
   ...scriptChannels,
   ...characterChannels,
   ...equipmentChannels,
+  ...locationChannels,
+  ...styleChannels,
+  ...entityChannels,
+  ...colorStyleChannels,
 ] as const;
