@@ -1,5 +1,7 @@
 import { createRequire } from 'node:module';
 import type BetterSqlite3 from 'better-sqlite3';
+import type { ProcessPromptKey } from '@lucid-fin/contracts';
+import { ProcessPromptRepository } from './repositories/process-prompt-repository.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -255,6 +257,7 @@ const LEGACY_PROCESS_PROMPT_SPLITS = [
 export class ProcessPromptStore {
   private db: BetterSqlite3.Database;
   private defaults = new Map<string, ProcessPromptDefault>();
+  private repo!: ProcessPromptRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -263,6 +266,9 @@ export class ProcessPromptStore {
       this.defaults.set(entry.processKey, entry);
     }
     this.init();
+    // Repo must exist before seed/migrate because both helpers delegate
+    // through `this.get` / `this.repo`.
+    this.repo = new ProcessPromptRepository(this.db);
     this.seedDefaults(PROCESS_PROMPT_DEFAULTS);
     this.migrateLegacyProcessPrompts();
   }
@@ -330,6 +336,7 @@ export class ProcessPromptStore {
 
     const migrate = this.db.transaction(() => {
       for (const entry of LEGACY_PROCESS_PROMPT_SPLITS) {
+        // Legacy keys bypass brand validation — they exist only in old DBs.
         const legacy = this.get(entry.legacyKey);
         if (!legacy) continue;
 
@@ -348,61 +355,28 @@ export class ProcessPromptStore {
   }
 
   list(): ProcessPromptRecord[] {
-    return this.db.prepare(`
-      SELECT
-        id,
-        process_key AS processKey,
-        name,
-        description,
-        default_value AS defaultValue,
-        custom_value AS customValue,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM process_prompts
-      ORDER BY id ASC
-    `).all() as ProcessPromptRecord[];
+    return this.repo.list().rows;
   }
 
+  /**
+   * Looks up a process prompt by key. Accepts raw string for back-compat with
+   * IPC handlers + legacy migration; the typed path (`ProcessPromptRepository`)
+   * enforces the brand at compile time.
+   */
   get(processKey: string): ProcessPromptRecord | null {
-    const record = this.db.prepare(`
-      SELECT
-        id,
-        process_key AS processKey,
-        name,
-        description,
-        default_value AS defaultValue,
-        custom_value AS customValue,
-        created_at AS createdAt,
-        updated_at AS updatedAt
-      FROM process_prompts
-      WHERE process_key = ?
-    `).get(processKey) as ProcessPromptRecord | undefined;
-    return record ?? null;
+    return this.repo.get(processKey as ProcessPromptKey);
   }
 
   getEffectiveValue(processKey: string): string | null {
-    const record = this.get(processKey);
-    return record ? (record.customValue ?? record.defaultValue) : null;
+    return this.repo.getEffectiveValue(processKey as ProcessPromptKey);
   }
 
   setCustom(processKey: string, value: string): void {
-    const existing = this.get(processKey);
-    if (!existing) throw new Error(`Process prompt not found: ${processKey}`);
-    this.db.prepare(`
-      UPDATE process_prompts
-      SET custom_value = ?, updated_at = ?
-      WHERE process_key = ?
-    `).run(value, Date.now(), processKey);
+    this.repo.setCustom(processKey as ProcessPromptKey, value);
   }
 
   resetToDefault(processKey: string): void {
-    const existing = this.get(processKey);
-    if (!existing) throw new Error(`Process prompt not found: ${processKey}`);
-    this.db.prepare(`
-      UPDATE process_prompts
-      SET custom_value = NULL, updated_at = ?
-      WHERE process_key = ?
-    `).run(Date.now(), processKey);
+    this.repo.resetToDefault(processKey as ProcessPromptKey);
   }
 
   close(): void {
