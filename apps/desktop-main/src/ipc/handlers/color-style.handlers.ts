@@ -106,10 +106,10 @@ export function registerColorStyleHandlers(
     async (_e, args: { assetHash: string; assetType: 'image' | 'video' }) => {
       if (!args?.assetHash) throw new Error('assetHash is required');
 
-      const assets = db.queryAssets({
+      const assets = db.repos.assets.query({
         type: args.assetType,
         limit: 10000,
-      });
+      }).rows;
       const asset = assets.find((a) => a.hash === args.assetHash);
       if (!asset) throw new Error(`Asset not found in DB: ${args.assetHash}`);
       const workflowRunId = workflowEngine.start({

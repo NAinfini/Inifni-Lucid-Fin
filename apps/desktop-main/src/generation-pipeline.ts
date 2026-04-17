@@ -30,7 +30,7 @@ export async function generateAndImport(
     const assetType = request.type === 'image' ? 'image' : request.type === 'video' ? 'video' : 'audio';
     const { ref, meta } = await deps.cas.importAsset(materialized.filePath, assetType);
 
-    deps.db.insertAsset({
+    deps.db.repos.assets.insert({
       ...meta,
       prompt: options.prompt ?? request.prompt,
       provider: options.provider ?? deps.adapter.id,

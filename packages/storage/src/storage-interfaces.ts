@@ -1,5 +1,4 @@
 import type {
-  AssetMeta,
   ScriptDocument,
   ColorStyle,
   WorkflowRun,
@@ -9,7 +8,6 @@ import type {
   WorkflowTaskSummary,
 } from '@lucid-fin/contracts';
 
-import type { AssetMetaInput, EmbeddingRecord, SemanticSearchResult } from './sqlite-assets.js';
 import type {
   updateWorkflowRun as _updateWorkflowRun,
   updateWorkflowStageRun as _updateWorkflowStageRun,
@@ -49,22 +47,17 @@ export interface RepoBundle {
 // Domain store interfaces
 // ---------------------------------------------------------------------------
 
-/** Asset storage operations */
-export interface IAssetStore {
-  insertAsset(meta: AssetMetaInput): void;
-  deleteAsset(hash: string): void;
-  queryAssets(filter: { type?: string; limit?: number; offset?: number }): AssetMeta[];
-  searchAssets(query: string, limit?: number): AssetMeta[];
-}
+/** Asset storage operations — migrated to SqliteIndex.repos.assets (G1-4.8).
+ *  Interface kept as an empty marker for callers that still reference the
+ *  type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IAssetStore {}
 
-/** Embedding / semantic search operations */
-export interface IEmbeddingStore {
-  insertEmbedding(hash: string, description: string, tokens: string[], model: string): void;
-  queryEmbeddingByHash(hash: string): EmbeddingRecord | undefined;
-  searchByTokens(queryTokens: string[], limit: number): SemanticSearchResult[];
-  getAllEmbeddedHashes(): string[];
-  clearEmbeddings(): void;
-}
+/** Embedding / semantic search operations — migrated to SqliteIndex.repos.assets
+ *  (G1-4.8). Interface kept as an empty marker for callers that still reference
+ *  the type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IEmbeddingStore {}
 
 /** Job queue persistence — migrated to SqliteIndex.repos.jobs (G1-4.5).
  *  `JobQueue` now takes `JobRepository` directly. Interface kept as an empty
@@ -170,8 +163,6 @@ export interface IWorkflowStore {
 
 /** Complete storage layer -- union of all domain stores */
 export interface IStorageLayer extends
-  IAssetStore,
-  IEmbeddingStore,
   IEntityStore,
   ISeriesStore,
   IPresetStore,

@@ -19,7 +19,7 @@ describe('registerColorStyleHandlers', () => {
     db = new SqliteIndex(path.join(base, 'test.db'));
     handlers = new Map();
 
-    db.insertAsset({
+    db.repos.assets.insert({
       hash: 'asset-hash',
       type: 'image',
       format: 'png',

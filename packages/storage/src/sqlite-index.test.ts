@@ -39,7 +39,7 @@ describe('SqliteIndex', () => {
     it('creates all tables + FTS5', () => {
       // If schema failed, constructor would throw
       // Verify by inserting into each table
-      db.insertAsset({
+      db.repos.assets.insert({
         hash: 'abc',
         type: 'image',
         format: 'png',
@@ -1363,7 +1363,7 @@ describe('SqliteIndex', () => {
 
   describe('assets + FTS5', () => {
     it('inserts and queries assets by type', () => {
-      db.insertAsset({
+      db.repos.assets.insert({
         hash: 'h1',
         type: 'image',
         format: 'png',
@@ -1373,7 +1373,7 @@ describe('SqliteIndex', () => {
         prompt: 'a fluffy cat',
         createdAt: Date.now(),
       });
-      db.insertAsset({
+      db.repos.assets.insert({
         hash: 'h2',
         type: 'video',
         format: 'mp4',
@@ -1384,13 +1384,13 @@ describe('SqliteIndex', () => {
         createdAt: Date.now(),
       });
 
-      const images = db.queryAssets({ type: 'image' });
+      const images = db.repos.assets.query({ type: 'image' }).rows;
       expect(images.length).toBe(1);
       expect(images[0].hash).toBe('h1');
     });
 
     it('searches assets via FTS5', () => {
-      db.insertAsset({
+      db.repos.assets.insert({
         hash: 'h1',
         type: 'image',
         format: 'png',
@@ -1400,7 +1400,7 @@ describe('SqliteIndex', () => {
         prompt: 'golden sunset over ocean',
         createdAt: Date.now(),
       });
-      db.insertAsset({
+      db.repos.assets.insert({
         hash: 'h2',
         type: 'image',
         format: 'png',
@@ -1411,7 +1411,7 @@ describe('SqliteIndex', () => {
         createdAt: Date.now(),
       });
 
-      const results = db.searchAssets('sunset');
+      const results = db.repos.assets.search('sunset').rows;
       expect(results.length).toBe(1);
       expect(results[0].hash).toBe('h1');
     });

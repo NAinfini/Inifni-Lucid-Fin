@@ -129,7 +129,7 @@ export async function runLipSyncPostProcess(
     const { ref, meta } = await cas.importAsset(tmpOutput, 'video');
     const lipSyncHash = ref.hash;
 
-    db.insertAsset({
+    db.repos.assets.insert({
       ...meta,
       tags: [
         'canvas',
