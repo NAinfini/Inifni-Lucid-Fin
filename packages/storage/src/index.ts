@@ -29,3 +29,10 @@ export { runMigrations, getCurrentVersion } from './migrations/runner.js';
 export type { Migration } from './migrations/runner.js';
 export { withTx } from './transactions.js';
 export type { Tx } from './transactions.js';
+
+// ── Phase G1-2.1: SessionRepository ────────────────────────────
+export { SessionRepository } from './repositories/session-repository.js';
+export type {
+  StoredSession as RepoStoredSession,
+  ListResult as RepoListResult,
+} from './repositories/session-repository.js';

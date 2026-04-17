@@ -84,3 +84,7 @@ export { createCatalog } from './agent/catalog.js';
 
 // ── Phase D-2: Branded-ID parsers ──────────────────────────────
 export { parseProviderId, tryProviderId } from './brands/provider-id.js';
+
+// ── Phase G1-2.1: SessionId parser + StoredSession DTO ─────────
+export { parseSessionId, trySessionId } from './brands/session-id.js';
+export { StoredSessionSchema, type StoredSessionDto } from './dto/stored-session.js';
