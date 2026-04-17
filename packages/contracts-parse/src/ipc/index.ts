@@ -18,6 +18,7 @@ import {
 import { assetChannels, storageChannels } from './channels/batch-04.js';
 import { jobChannels } from './channels/batch-05.js';
 import { workflowChannels } from './channels/batch-06.js';
+import { canvasChannels } from './channels/batch-07.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
 export type {
@@ -43,6 +44,9 @@ export * from './channels/batch-05.js';
 // Batch 6 — workflow
 export * from './channels/batch-06.js';
 
+// Batch 7 — canvas core (non-generation)
+export * from './channels/batch-07.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
@@ -58,4 +62,5 @@ export const allChannels = [
   ...storageChannels,
   ...jobChannels,
   ...workflowChannels,
+  ...canvasChannels,
 ] as const;

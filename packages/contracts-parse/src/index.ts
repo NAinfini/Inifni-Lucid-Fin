@@ -58,3 +58,6 @@ export * from './ipc/channels/batch-05.js';
 
 // Batch 6 — workflow
 export * from './ipc/channels/batch-06.js';
+
+// Batch 7 — canvas core (non-generation)
+export * from './ipc/channels/batch-07.js';
