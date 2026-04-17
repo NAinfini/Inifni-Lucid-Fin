@@ -46,6 +46,9 @@ import {
   parseShotTemplateId,
   parseSeriesId,
   parseEpisodeId,
+  parseCharacterId,
+  parseEquipmentId,
+  parseLocationId,
 } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
@@ -542,12 +545,12 @@ export function registerAllTools(
   // ---- Entity tools ----
   for (const tool of createCharacterTools({
     listCharacters: async () => {
-      return deps.db.listCharacters();
+      return deps.db.repos.entities.listCharacters().rows;
     },
     saveCharacter: async (c) => {
-      deps.db.upsertCharacter({ ...c });
+      deps.db.repos.entities.upsertCharacter({ ...c });
     },
-    deleteCharacter: async (id) => deps.db.deleteCharacter(id),
+    deleteCharacter: async (id) => deps.db.repos.entities.deleteCharacter(parseCharacterId(id)),
     generateImage,
     getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
   })) {
@@ -555,24 +558,24 @@ export function registerAllTools(
   }
   for (const tool of createLocationTools({
     listLocations: async () => {
-      return deps.db.listLocations();
+      return deps.db.repos.entities.listLocations().rows;
     },
     saveLocation: async (l) => {
-      deps.db.upsertLocation({ ...l });
+      deps.db.repos.entities.upsertLocation({ ...l });
     },
-    deleteLocation: async (id) => deps.db.deleteLocation(id),
+    deleteLocation: async (id) => deps.db.repos.entities.deleteLocation(parseLocationId(id)),
     generateImage,
   })) {
     registry.register(tool);
   }
   for (const tool of createEquipmentTools({
     listEquipment: async () => {
-      return deps.db.listEquipment();
+      return deps.db.repos.entities.listEquipment().rows;
     },
     saveEquipment: async (e) => {
-      deps.db.upsertEquipment({ ...e });
+      deps.db.repos.entities.upsertEquipment({ ...e });
     },
-    deleteEquipment: async (id) => deps.db.deleteEquipment(id),
+    deleteEquipment: async (id) => deps.db.repos.entities.deleteEquipment(parseEquipmentId(id)),
     generateImage,
     getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
   })) {

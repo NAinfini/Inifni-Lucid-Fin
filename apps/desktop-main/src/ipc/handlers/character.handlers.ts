@@ -8,6 +8,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { isCharacterReferenceSlotStandard, normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { parseCharacterId } from '@lucid-fin/contracts-parse';
 
 const VALID_ROLES: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
 const VALID_GENDERS: CharacterGender[] = ['male', 'female', 'non-binary', 'other'];
@@ -36,12 +37,12 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
   };
 
   ipcMain.handle('character:list', async () => {
-    return db.listCharacters();
+    return db.repos.entities.listCharacters().rows;
   });
 
   ipcMain.handle('character:get', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    const char = db.getCharacter(args.id);
+    const char = db.repos.entities.getCharacter(parseCharacterId(args.id));
     if (!char) throw new Error(`Character not found: ${args.id}`);
     return char;
   });
@@ -50,7 +51,10 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     if (!args || (typeof args.name !== 'string' && typeof args.id !== 'string')) {
       throw new Error('name or id is required');
     }
-    const existing = typeof args.id === 'string' ? db.getCharacter(args.id) : undefined;
+    const existing =
+      typeof args.id === 'string' && args.id
+        ? db.repos.entities.getCharacter(parseCharacterId(args.id))
+        : undefined;
     const now = Date.now();
 
     const name = (typeof args.name === 'string' ? args.name : (existing?.name ?? '')).trim();
@@ -67,7 +71,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
         : existing?.gender;
 
     const char: Character = {
-      id: existing?.id ?? (typeof args.id === 'string' && args.id ? args.id : randomUUID()),
+      id: existing?.id ?? (typeof args.id === 'string' && args.id ? parseCharacterId(args.id) : randomUUID()),
       name,
       role,
       description:
@@ -95,7 +99,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       updatedAt: now,
     };
 
-    db.upsertCharacter({
+    db.repos.entities.upsertCharacter({
       id: char.id,
       name: char.name,
       role: char.role,
@@ -118,7 +122,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
   ipcMain.handle('character:delete', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    db.deleteCharacter(args.id);
+    db.repos.entities.deleteCharacter(parseCharacterId(args.id));
   });
 
   ipcMain.handle(
@@ -132,7 +136,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       if (typeof args.assetHash !== 'string') throw new Error('assetHash is required');
       const slot = normalizeCharacterRefSlot(args.slot);
 
-      const char = db.getCharacter(args.characterId);
+      const char = db.repos.entities.getCharacter(parseCharacterId(args.characterId));
       if (!char) throw new Error(`Character not found: ${args.characterId}`);
 
       // Preserve existing variants when swapping the active image
@@ -147,7 +151,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       const refs = char.referenceImages.filter((r) => normalizeCharacterRefSlot(r.slot) !== slot);
       refs.push(refImage);
 
-      db.upsertCharacter({
+      db.repos.entities.upsertCharacter({
         ...char,
         referenceImages: refs,
         updatedAt: Date.now(),
@@ -164,12 +168,12 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       if (typeof args.slot !== 'string') throw new Error('slot is required');
       const slot = normalizeCharacterRefSlot(args.slot);
 
-      const char = db.getCharacter(args.characterId);
+      const char = db.repos.entities.getCharacter(parseCharacterId(args.characterId));
       if (!char) throw new Error(`Character not found: ${args.characterId}`);
 
       const refs = char.referenceImages.filter((r) => normalizeCharacterRefSlot(r.slot) !== slot);
 
-      db.upsertCharacter({
+      db.repos.entities.upsertCharacter({
         ...char,
         referenceImages: refs,
         updatedAt: Date.now(),
@@ -184,7 +188,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       if (!args.loadout || typeof args.loadout.name !== 'string')
         throw new Error('loadout with name is required');
 
-      const char = db.getCharacter(args.characterId);
+      const char = db.repos.entities.getCharacter(parseCharacterId(args.characterId));
       if (!char) throw new Error(`Character not found: ${args.characterId}`);
 
       const loadout: EquipmentLoadout = {
@@ -198,7 +202,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
       const defaultLoadoutId = char.defaultLoadoutId || loadout.id;
 
-      db.upsertCharacter({
+      db.repos.entities.upsertCharacter({
         id: char.id,
         name: char.name,
         loadouts,
@@ -216,7 +220,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       if (!args || typeof args.characterId !== 'string') throw new Error('characterId is required');
       if (typeof args.loadoutId !== 'string') throw new Error('loadoutId is required');
 
-      const char = db.getCharacter(args.characterId);
+      const char = db.repos.entities.getCharacter(parseCharacterId(args.characterId));
       if (!char) throw new Error(`Character not found: ${args.characterId}`);
 
       const loadouts = char.loadouts.filter((l) => l.id !== args.loadoutId);
@@ -225,7 +229,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
           ? (loadouts[0]?.id ?? '')
           : char.defaultLoadoutId;
 
-      db.upsertCharacter({
+      db.repos.entities.upsertCharacter({
         id: char.id,
         name: char.name,
         loadouts,

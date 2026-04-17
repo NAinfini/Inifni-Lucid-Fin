@@ -36,18 +36,38 @@ function makeLocation(overrides?: Record<string, unknown>) {
 function registerHandlers(db?: Record<string, unknown>) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
+  const entities = db
+    ? {
+      listLocations: vi.fn((type?: string) => {
+        const fn = db.listLocations as ((t?: string) => unknown[]) | undefined;
+        return { rows: fn ? fn(type) : [], degradedCount: 0 };
+      }),
+      getLocation: db.getLocation,
+      upsertLocation: db.upsertLocation,
+      deleteLocation: db.deleteLocation,
+    }
+    : {
+      listLocations: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+      getLocation: vi.fn(),
+      upsertLocation: vi.fn(),
+      deleteLocation: vi.fn(),
+    };
+
   registerLocationHandlers(
     {
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
     } as never,
-    (db ?? {
-      listLocations: vi.fn(),
-      getLocation: vi.fn(),
-      upsertLocation: vi.fn(),
-      deleteLocation: vi.fn(),
-    }) as never,
+    {
+      ...(db ?? {
+        listLocations: vi.fn(),
+        getLocation: vi.fn(),
+        upsertLocation: vi.fn(),
+        deleteLocation: vi.fn(),
+      }),
+      repos: { entities },
+    } as never,
   );
 
   return handlers;

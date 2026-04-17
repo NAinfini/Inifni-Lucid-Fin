@@ -33,18 +33,38 @@ function makeEquipment(overrides?: Record<string, unknown>) {
 function registerHandlers(db?: Record<string, unknown>) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
+  const entities = db
+    ? {
+      listEquipment: vi.fn((type?: string) => {
+        const fn = db.listEquipment as ((t?: string) => unknown[]) | undefined;
+        return { rows: fn ? fn(type) : [], degradedCount: 0 };
+      }),
+      getEquipment: db.getEquipment,
+      upsertEquipment: db.upsertEquipment,
+      deleteEquipment: db.deleteEquipment,
+    }
+    : {
+      listEquipment: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+      getEquipment: vi.fn(),
+      upsertEquipment: vi.fn(),
+      deleteEquipment: vi.fn(),
+    };
+
   registerEquipmentHandlers(
     {
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
     } as never,
-    (db ?? {
-      listEquipment: vi.fn(),
-      getEquipment: vi.fn(),
-      upsertEquipment: vi.fn(),
-      deleteEquipment: vi.fn(),
-    }) as never,
+    {
+      ...(db ?? {
+        listEquipment: vi.fn(),
+        getEquipment: vi.fn(),
+        upsertEquipment: vi.fn(),
+        deleteEquipment: vi.fn(),
+      }),
+      repos: { entities },
+    } as never,
   );
 
   return handlers;

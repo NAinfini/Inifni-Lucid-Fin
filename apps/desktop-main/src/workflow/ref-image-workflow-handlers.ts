@@ -9,6 +9,7 @@ import {
 import type { WorkflowTaskHandler } from '@lucid-fin/application';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 import type { CAS } from '@lucid-fin/storage';
+import { parseCharacterId, parseLocationId } from '@lucid-fin/contracts-parse';
 import { makeGenerateImage } from '../ipc/handlers/commander-image-gen.js';
 import { buildCharacterRefImagePrompt } from '@lucid-fin/application';
 import { buildLocationRefImagePrompt } from '@lucid-fin/application';
@@ -36,7 +37,7 @@ export function createRefImageWorkflowHandlers(options: {
         if (!characterId) {
           throw new Error('characterId is required');
         }
-        const character = context.db.getCharacter(characterId);
+        const character = context.db.repos.entities.getCharacter(parseCharacterId(characterId));
         if (!character) {
           throw new Error(`Character not found: ${characterId}`);
         }
@@ -73,7 +74,7 @@ export function createRefImageWorkflowHandlers(options: {
         const characterId = requireString(validated.characterId, 'characterId');
         const slot = requireString(validated.slot, 'slot');
 
-        const character = context.db.getCharacter(characterId);
+        const character = context.db.repos.entities.getCharacter(parseCharacterId(characterId));
         if (!character) {
           throw new Error(`Character not found: ${characterId}`);
         }
@@ -107,7 +108,7 @@ export function createRefImageWorkflowHandlers(options: {
         const slot = requireString(generated.slot, 'slot');
         const assetHash = requireString(generated.assetHash, 'assetHash');
 
-        const character = context.db.getCharacter(characterId);
+        const character = context.db.repos.entities.getCharacter(parseCharacterId(characterId));
         if (!character) {
           throw new Error(`Character not found: ${characterId}`);
         }
@@ -130,7 +131,7 @@ export function createRefImageWorkflowHandlers(options: {
         }
 
         const updated = { ...character, referenceImages, updatedAt: Date.now() };
-        context.db.upsertCharacter(updated);
+        context.db.repos.entities.upsertCharacter(updated);
 
         const timestamp = Date.now();
         context.db.insertWorkflowArtifact({
@@ -171,7 +172,7 @@ export function createRefImageWorkflowHandlers(options: {
         if (!locationId) {
           throw new Error('locationId is required');
         }
-        const location = context.db.getLocation(locationId);
+        const location = context.db.repos.entities.getLocation(parseLocationId(locationId));
         if (!location) {
           throw new Error(`Location not found: ${locationId}`);
         }
@@ -206,7 +207,7 @@ export function createRefImageWorkflowHandlers(options: {
         const locationId = requireString(validated.locationId, 'locationId');
         const slot = requireString(validated.slot, 'slot');
 
-        const location = context.db.getLocation(locationId);
+        const location = context.db.repos.entities.getLocation(parseLocationId(locationId));
         if (!location) {
           throw new Error(`Location not found: ${locationId}`);
         }
@@ -240,7 +241,7 @@ export function createRefImageWorkflowHandlers(options: {
         const slot = requireString(generated.slot, 'slot');
         const assetHash = requireString(generated.assetHash, 'assetHash');
 
-        const location = context.db.getLocation(locationId);
+        const location = context.db.repos.entities.getLocation(parseLocationId(locationId));
         if (!location) {
           throw new Error(`Location not found: ${locationId}`);
         }
@@ -263,7 +264,7 @@ export function createRefImageWorkflowHandlers(options: {
         }
 
         const updated = { ...location, referenceImages, updatedAt: Date.now() };
-        context.db.upsertLocation(updated);
+        context.db.repos.entities.upsertLocation(updated);
 
         const timestamp = Date.now();
         context.db.insertWorkflowArtifact({

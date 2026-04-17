@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 import type { ReferenceImage } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
+import { parseCharacterId, parseEquipmentId, parseLocationId } from '@lucid-fin/contracts-parse';
 import { generateAndImport } from '../../generation-pipeline.js';
 
 type EntityGenerationDeps = {
@@ -46,17 +47,17 @@ export function registerEntityHandlers(ipcMain: IpcMain, deps: EntityGenerationD
     }));
 
     if (entityType === 'character') {
-      const entity = deps.db.getCharacter(entityId);
+      const entity = deps.db.repos.entities.getCharacter(parseCharacterId(entityId));
       if (!entity) throw new Error(`Character not found: ${entityId}`);
-      deps.db.upsertCharacter({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.repos.entities.upsertCharacter({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
     } else if (entityType === 'equipment') {
-      const entity = deps.db.getEquipment(entityId);
+      const entity = deps.db.repos.entities.getEquipment(parseEquipmentId(entityId));
       if (!entity) throw new Error(`Equipment not found: ${entityId}`);
-      deps.db.upsertEquipment({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.repos.entities.upsertEquipment({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
     } else {
-      const entity = deps.db.getLocation(entityId);
+      const entity = deps.db.repos.entities.getLocation(parseLocationId(entityId));
       if (!entity) throw new Error(`Location not found: ${entityId}`);
-      deps.db.upsertLocation({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.repos.entities.upsertLocation({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
     }
 
     return { variants: hashes };

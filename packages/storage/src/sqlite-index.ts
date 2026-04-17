@@ -2,9 +2,6 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import type {
   AssetMeta,
-  Character,
-  Equipment,
-  Location,
   ScriptDocument,
   ColorStyle,
   WorkflowRun,
@@ -58,25 +55,20 @@ import {
   recomputeStageAggregate as _recomputeStageAggregate,
   recomputeWorkflowAggregate as _recomputeWorkflowAggregate,
 } from './sqlite-workflows.js';
-import type { IStorageLayer } from './storage-interfaces.js';
+import type { IStorageLayer, RepoBundle } from './storage-interfaces.js';
 import { runMigrations, getCurrentVersion } from './migrations/runner.js';
 import { migrations } from './migrations/index.js';
 import { SessionRepository } from './repositories/session-repository.js';
 import { JobRepository } from './repositories/job-repository.js';
 import { AssetRepository } from './repositories/asset-repository.js';
 import { CanvasRepository } from './repositories/canvas-repository.js';
-import {
-  EntityRepository,
-  type CharacterUpsertInput,
-  type EquipmentUpsertInput,
-  type LocationUpsertInput,
-} from './repositories/entity-repository.js';
+import { EntityRepository } from './repositories/entity-repository.js';
 import { SeriesRepository } from './repositories/series-repository.js';
 import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { AssetHash, CharacterId, EquipmentId, LocationId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
+import type { AssetHash, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -465,18 +457,7 @@ export class SqliteIndex implements IStorageLayer {
    * follow-up PRs (G1-4.2+). The facade methods stay intact for now to
    * keep this PR backwards-compatible and side-effect-free.
    */
-  get repos(): {
-    sessions: SessionRepository;
-    jobs: JobRepository;
-    assets: AssetRepository;
-    canvases: CanvasRepository;
-    entities: EntityRepository;
-    series: SeriesRepository;
-    presets: PresetRepository;
-    shotTemplates: ShotTemplateRepository;
-    snapshots: SnapshotRepository;
-    workflows: WorkflowRepository;
-  } {
+  get repos(): RepoBundle {
     return {
       sessions: this.sessions,
       jobs: this.jobs,
@@ -620,23 +601,11 @@ export class SqliteIndex implements IStorageLayer {
   // removed; callers use `db.repos.canvases.{upsert,get,list,listFull,delete}`
   // directly (passing CanvasId brand via parseCanvasId).
 
-  // --- Characters ---
-  upsertCharacter(char: CharacterUpsertInput): void { this.entities.upsertCharacter(char); }
-  getCharacter(id: string): Character | undefined { return this.entities.getCharacter(id as CharacterId); }
-  listCharacters(): Character[] { return this.entities.listCharacters().rows; }
-  deleteCharacter(id: string): void { this.entities.deleteCharacter(id as CharacterId); }
-
-  // --- Equipment ---
-  upsertEquipment(equip: EquipmentUpsertInput): void { this.entities.upsertEquipment(equip); }
-  getEquipment(id: string): Equipment | undefined { return this.entities.getEquipment(id as EquipmentId); }
-  listEquipment(type?: string): Equipment[] { return this.entities.listEquipment(type).rows; }
-  deleteEquipment(id: string): void { this.entities.deleteEquipment(id as EquipmentId); }
-
-  // --- Locations ---
-  upsertLocation(loc: LocationUpsertInput): void { this.entities.upsertLocation(loc); }
-  getLocation(id: string): Location | undefined { return this.entities.getLocation(id as LocationId); }
-  listLocations(type?: string): Location[] { return this.entities.listLocations(type).rows; }
-  deleteLocation(id: string): void { this.entities.deleteLocation(id as LocationId); }
+  // --- Characters / Equipment / Locations ---
+  // Migrated to `this.repos.entities.*` (Phase G1-4.7). Facade methods
+  // removed; callers use `db.repos.entities.{upsert,get,list,delete}{Character,
+  // Equipment,Location}` directly (passing brand via parseCharacterId /
+  // parseEquipmentId / parseLocationId).
 
   // --- Scripts ---
   upsertScript(doc: ScriptDocument): void { _upsertScript(this.db, doc); }

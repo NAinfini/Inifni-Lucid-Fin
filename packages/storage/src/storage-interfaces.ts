@@ -1,8 +1,5 @@
 import type {
   AssetMeta,
-  Character,
-  Equipment,
-  Location,
   ScriptDocument,
   ColorStyle,
   WorkflowRun,
@@ -14,16 +11,39 @@ import type {
 
 import type { AssetMetaInput, EmbeddingRecord, SemanticSearchResult } from './sqlite-assets.js';
 import type {
-  upsertCharacter as _upsertCharacter,
-  upsertEquipment as _upsertEquipment,
-  upsertLocation as _upsertLocation,
-} from './sqlite-entities.js';
-import type {
   updateWorkflowRun as _updateWorkflowRun,
   updateWorkflowStageRun as _updateWorkflowStageRun,
   updateWorkflowTaskRun as _updateWorkflowTaskRun,
   listWorkflowTaskSummaries as _listWorkflowTaskSummaries,
 } from './sqlite-workflows.js';
+import type { SessionRepository } from './repositories/session-repository.js';
+import type { JobRepository } from './repositories/job-repository.js';
+import type { AssetRepository } from './repositories/asset-repository.js';
+import type { CanvasRepository } from './repositories/canvas-repository.js';
+import type { EntityRepository } from './repositories/entity-repository.js';
+import type { SeriesRepository } from './repositories/series-repository.js';
+import type { PresetRepository } from './repositories/preset-repository.js';
+import type { ShotTemplateRepository } from './repositories/shot-template-repository.js';
+import type { SnapshotRepository } from './repositories/snapshot-repository.js';
+import type { WorkflowRepository } from './repositories/workflow-repository.js';
+
+/**
+ * Repository bundle exposed by `SqliteIndex.repos`. Represents the strangler
+ * surface during G1-4.x: consumers migrate from `db.xxx()` facade methods to
+ * `db.repos.xxx.yyy()` direct-to-repository calls.
+ */
+export interface RepoBundle {
+  sessions: SessionRepository;
+  jobs: JobRepository;
+  assets: AssetRepository;
+  canvases: CanvasRepository;
+  entities: EntityRepository;
+  series: SeriesRepository;
+  presets: PresetRepository;
+  shotTemplates: ShotTemplateRepository;
+  snapshots: SnapshotRepository;
+  workflows: WorkflowRepository;
+}
 
 // ---------------------------------------------------------------------------
 // Domain store interfaces
@@ -59,26 +79,10 @@ export interface IJobStore {}
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ICanvasStore {}
 
-/** Entity CRUD -- characters, equipment, locations, scripts, color styles, dependencies */
+/** Entity CRUD — scripts, color styles, dependencies.
+ *  Characters / equipment / locations migrated to SqliteIndex.repos.entities
+ *  (G1-4.7); those methods no longer live on this interface. */
 export interface IEntityStore {
-  // Characters
-  upsertCharacter(char: Parameters<typeof _upsertCharacter>[1]): void;
-  getCharacter(id: string): Character | undefined;
-  listCharacters(): Character[];
-  deleteCharacter(id: string): void;
-
-  // Equipment
-  upsertEquipment(equip: Parameters<typeof _upsertEquipment>[1]): void;
-  getEquipment(id: string): Equipment | undefined;
-  listEquipment(type?: string): Equipment[];
-  deleteEquipment(id: string): void;
-
-  // Locations
-  upsertLocation(loc: Parameters<typeof _upsertLocation>[1]): void;
-  getLocation(id: string): Location | undefined;
-  listLocations(type?: string): Location[];
-  deleteLocation(id: string): void;
-
   // Scripts
   upsertScript(doc: ScriptDocument): void;
   getScript(): ScriptDocument | null;
@@ -172,6 +176,8 @@ export interface IStorageLayer extends
   ISeriesStore,
   IPresetStore,
   IWorkflowStore {
+  /** Repository bundle (strangler surface — G1-4.x). */
+  readonly repos: RepoBundle;
   /** Close the database connection */
   close(): void;
   /** Run integrity check -- throws if DB is corrupted */

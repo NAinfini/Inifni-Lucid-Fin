@@ -2,6 +2,7 @@ import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { Equipment, EquipmentType, ReferenceImage } from '@lucid-fin/contracts';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { parseEquipmentId } from '@lucid-fin/contracts-parse';
 
 const VALID_TYPES: EquipmentType[] = [
   'weapon',
@@ -19,12 +20,12 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     const typeFilter = args && typeof args === 'object' && typeof args.type === 'string'
       ? args.type
       : undefined;
-    return db.listEquipment(typeFilter);
+    return db.repos.entities.listEquipment(typeFilter).rows;
   });
 
   ipcMain.handle('equipment:get', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    const equip = db.getEquipment(args.id);
+    const equip = db.repos.entities.getEquipment(parseEquipmentId(args.id));
     if (!equip) throw new Error(`Equipment not found: ${args.id}`);
     return equip;
   });
@@ -33,7 +34,10 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     if (!args || (typeof args.name !== 'string' && typeof args.id !== 'string')) {
       throw new Error('name or id is required');
     }
-    const existing = typeof args.id === 'string' ? db.getEquipment(args.id) : undefined;
+    const existing =
+      typeof args.id === 'string' && args.id
+        ? db.repos.entities.getEquipment(parseEquipmentId(args.id))
+        : undefined;
     const now = Date.now();
 
     const name = (typeof args.name === 'string' ? args.name : (existing?.name ?? '')).trim();
@@ -45,7 +49,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
         : (existing?.type ?? 'other');
 
     const equip: Equipment = {
-      id: existing?.id ?? (typeof args.id === 'string' && args.id ? args.id : randomUUID()),
+      id: existing?.id ?? (typeof args.id === 'string' && args.id ? parseEquipmentId(args.id) : randomUUID()),
       name,
       type,
       subtype: typeof args.subtype === 'string' ? args.subtype : existing?.subtype,
@@ -62,7 +66,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       updatedAt: now,
     };
 
-    db.upsertEquipment({
+    db.repos.entities.upsertEquipment({
       id: equip.id,
       name: equip.name,
       type: equip.type,
@@ -79,7 +83,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
   ipcMain.handle('equipment:delete', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    db.deleteEquipment(args.id);
+    db.repos.entities.deleteEquipment(parseEquipmentId(args.id));
   });
 
   ipcMain.handle(
@@ -93,7 +97,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       if (typeof args.slot !== 'string') throw new Error('slot is required');
       if (typeof args.assetHash !== 'string') throw new Error('assetHash is required');
 
-      const equip = db.getEquipment(args.equipmentId);
+      const equip = db.repos.entities.getEquipment(parseEquipmentId(args.equipmentId));
       if (!equip) throw new Error(`Equipment not found: ${args.equipmentId}`);
 
       const existing = equip.referenceImages.find((r) => r.slot === args.slot);
@@ -107,7 +111,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       const refs = equip.referenceImages.filter((r) => r.slot !== args.slot);
       refs.push(refImage);
 
-      db.upsertEquipment({
+      db.repos.entities.upsertEquipment({
         ...equip,
         referenceImages: refs,
         updatedAt: Date.now(),
@@ -124,12 +128,12 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
         throw new Error('equipmentId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
 
-      const equip = db.getEquipment(args.equipmentId);
+      const equip = db.repos.entities.getEquipment(parseEquipmentId(args.equipmentId));
       if (!equip) throw new Error(`Equipment not found: ${args.equipmentId}`);
 
       const refs = equip.referenceImages.filter((r) => r.slot !== args.slot);
 
-      db.upsertEquipment({
+      db.repos.entities.upsertEquipment({
         ...equip,
         referenceImages: refs,
         updatedAt: Date.now(),
