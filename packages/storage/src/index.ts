@@ -53,3 +53,11 @@ export { AssetRepository } from './repositories/asset-repository.js';
 // ── Phase G1-2.5: CanvasRepository ─────────────────────────────
 export { CanvasRepository } from './repositories/canvas-repository.js';
 export type { CanvasSummary } from './repositories/canvas-repository.js';
+
+// ── Phase G1-2.6: EntityRepository ─────────────────────────────
+export { EntityRepository } from './repositories/entity-repository.js';
+export type {
+  CharacterUpsertInput,
+  EquipmentUpsertInput,
+  LocationUpsertInput,
+} from './repositories/entity-repository.js';

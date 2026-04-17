@@ -119,3 +119,16 @@ export {
   CanvasViewportSchema,
   type CanvasDto,
 } from './dto/canvas.js';
+
+// ── Phase G1-2.6: Entity-domain ID parsers + DTOs ──────────────
+export { parseCharacterId, tryCharacterId } from './brands/character-id.js';
+export { parseEquipmentId, tryEquipmentId } from './brands/equipment-id.js';
+export { parseLocationId, tryLocationId } from './brands/location-id.js';
+export {
+  CharacterSchema,
+  EquipmentSchema,
+  LocationSchema,
+  type CharacterDto,
+  type EquipmentDto,
+  type LocationDto,
+} from './dto/entity.js';
