@@ -70,8 +70,8 @@ describe('SqliteIndex', () => {
 
     it('inserts and retrieves a job', () => {
       const job = makeJob();
-      db.insertJob(job);
-      const retrieved = db.getJob('j1');
+      db.repos.jobs.insert(job);
+      const retrieved = db.repos.jobs.get('j1' as JobId);
       expect(retrieved).toBeDefined();
       expect(retrieved!.id).toBe('j1');
       expect(retrieved!.prompt).toBe('a cat');
@@ -79,31 +79,31 @@ describe('SqliteIndex', () => {
     });
 
     it('updates job status', () => {
-      db.insertJob(makeJob());
-      db.updateJob('j1', { status: JobStatus.Running, startedAt: Date.now() });
-      const job = db.getJob('j1');
+      db.repos.jobs.insert(makeJob());
+      db.repos.jobs.update('j1' as JobId, { status: JobStatus.Running, startedAt: Date.now() });
+      const job = db.repos.jobs.get('j1' as JobId);
       expect(job!.status).toBe(JobStatus.Running);
       expect(job!.startedAt).toBeDefined();
     });
 
     it('lists jobs with filters', () => {
-      db.insertJob(makeJob({ id: 'j1', status: JobStatus.Queued }));
-      db.insertJob(makeJob({ id: 'j2', status: JobStatus.Running }));
-      db.insertJob(makeJob({ id: 'j3', status: JobStatus.Queued }));
+      db.repos.jobs.insert(makeJob({ id: 'j1', status: JobStatus.Queued }));
+      db.repos.jobs.insert(makeJob({ id: 'j2', status: JobStatus.Running }));
+      db.repos.jobs.insert(makeJob({ id: 'j3', status: JobStatus.Queued }));
 
-      const queued = db.listJobs({ status: JobStatus.Queued });
+      const queued = db.repos.jobs.list({ status: JobStatus.Queued }).rows;
       expect(queued.length).toBe(2);
 
-      const all = db.listJobs();
+      const all = db.repos.jobs.list().rows;
       expect(all.length).toBe(3);
     });
 
     it('query performance < 50ms for 100 jobs', () => {
       for (let i = 0; i < 100; i++) {
-        db.insertJob(makeJob({ id: `j${i}`, priority: i % 5 }));
+        db.repos.jobs.insert(makeJob({ id: `j${i}`, priority: i % 5 }));
       }
       const start = performance.now();
-      const jobs = db.listJobs();
+      const jobs = db.repos.jobs.list().rows;
       const elapsed = performance.now() - start;
       expect(jobs.length).toBe(100);
       expect(elapsed).toBeLessThan(50);

@@ -7,7 +7,8 @@ import type {
   QueueUpdate,
 } from '@lucid-fin/contracts';
 import { JobStatus, LucidError, ErrorCode } from '@lucid-fin/contracts';
-import type { IJobStore } from '@lucid-fin/storage';
+import { parseJobId } from '@lucid-fin/contracts-parse';
+import type { JobRepository } from '@lucid-fin/storage';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
@@ -32,7 +33,7 @@ export class JobQueue extends EventEmitter {
   private tickQueued = false;
 
   constructor(
-    private readonly db: IJobStore,
+    private readonly db: JobRepository,
     private readonly registry: AdapterRegistry,
     private readonly maxConcurrent = 3,
   ) {
@@ -81,7 +82,7 @@ export class JobQueue extends EventEmitter {
       maxRetries: 3,
       createdAt: Date.now(),
     };
-    this.db.insertJob(job);
+    this.db.insert(job);
     this.emit('job:submitted', { id, status: 'queued' });
     this.requestTick();
     return id;
@@ -105,7 +106,7 @@ export class JobQueue extends EventEmitter {
     this.running.get(jobId)?.abort();
     this.running.delete(jobId);
 
-    this.db.updateJob(jobId, { status: JobStatus.Cancelled, completedAt: Date.now() });
+    this.db.update(parseJobId(jobId), { status: JobStatus.Cancelled, completedAt: Date.now() });
     this.emit('job:cancelled', { id: jobId, status: 'cancelled' });
   }
 
@@ -117,20 +118,20 @@ export class JobQueue extends EventEmitter {
     this.running.get(jobId)?.abort();
     this.running.delete(jobId);
 
-    this.db.updateJob(jobId, { status: JobStatus.Paused });
+    this.db.update(parseJobId(jobId), { status: JobStatus.Paused });
     this.emit('job:paused', { id: jobId, status: 'paused' });
   }
 
   resume(jobId: string): void {
     const job = this.getJobOrThrow(jobId);
     this.assertTransition(job.status, JobStatus.Queued);
-    this.db.updateJob(jobId, { status: JobStatus.Queued });
+    this.db.update(parseJobId(jobId), { status: JobStatus.Queued });
     this.emit('job:resumed', { id: jobId, status: 'queued' });
     this.requestTick();
   }
 
   async recover(): Promise<void> {
-    const runningJobs = this.db.listJobs({ status: JobStatus.Running });
+    const runningJobs = this.db.list({ status: JobStatus.Running }).rows;
 
     for (const job of runningJobs) {
       // Skip jobs already tracked locally — they are actively executing
@@ -149,7 +150,7 @@ export class JobQueue extends EventEmitter {
         const providerStatus = await adapter.checkStatus(providerTaskId);
 
         if (providerStatus === JobStatus.Completed) {
-          this.db.updateJob(job.id, {
+          this.db.update(parseJobId(job.id), {
             status: JobStatus.Completed,
             progress: 100,
             totalSteps: job.totalSteps ?? 1,
@@ -160,7 +161,7 @@ export class JobQueue extends EventEmitter {
         } else if (providerStatus === JobStatus.Failed) {
           this.markFailedOrDead(job);
         } else if (providerStatus === JobStatus.Cancelled) {
-          this.db.updateJob(job.id, {
+          this.db.update(parseJobId(job.id), {
             status: JobStatus.Cancelled,
             completedAt: Date.now(),
           });
@@ -184,7 +185,7 @@ export class JobQueue extends EventEmitter {
     if (this.running.size >= this.maxConcurrent) return;
 
     const slots = this.maxConcurrent - this.running.size;
-    const queued = this.db.listJobs({ status: JobStatus.Queued });
+    const queued = this.db.list({ status: JobStatus.Queued }).rows;
     const toRun = queued.filter((j) => !this.running.has(j.id)).slice(0, slots);
 
     for (const job of toRun) {
@@ -193,7 +194,7 @@ export class JobQueue extends EventEmitter {
   }
 
   private async pollAsyncJobs(): Promise<void> {
-    const runningJobs = this.db.listJobs({ status: JobStatus.Running });
+    const runningJobs = this.db.list({ status: JobStatus.Running }).rows;
     for (const job of runningJobs) {
       const taskId = job.result?.metadata?.taskId as string;
       if (!taskId) continue; // Not an async job
@@ -204,7 +205,7 @@ export class JobQueue extends EventEmitter {
       try {
         const status = await adapter.checkStatus(taskId);
         if (status === JobStatus.Completed) {
-          this.db.updateJob(job.id, {
+          this.db.update(parseJobId(job.id), {
             status: JobStatus.Completed,
             progress: 100,
             completedSteps: job.totalSteps ?? 1,
@@ -219,7 +220,7 @@ export class JobQueue extends EventEmitter {
           this.running.delete(job.id);
           this.emit('job:failed', { id: job.id, status: 'failed' });
         } else if (status === JobStatus.Cancelled) {
-          this.db.updateJob(job.id, {
+          this.db.update(parseJobId(job.id), {
             status: JobStatus.Cancelled,
             completedAt: Date.now(),
           });
@@ -236,7 +237,7 @@ export class JobQueue extends EventEmitter {
   private async executeJob(job: Job): Promise<void> {
     const adapter = this.registry.get(job.provider);
     if (!adapter) {
-      this.db.updateJob(job.id, {
+      this.db.update(parseJobId(job.id), {
         status: JobStatus.Failed,
         error: `Adapter ${job.provider} not found`,
       });
@@ -244,7 +245,7 @@ export class JobQueue extends EventEmitter {
     }
 
     this.assertTransition(job.status, JobStatus.Running);
-    this.db.updateJob(job.id, {
+    this.db.update(parseJobId(job.id), {
       status: JobStatus.Running,
       startedAt: Date.now(),
       attempts: job.attempts + 1,
@@ -268,13 +269,13 @@ export class JobQueue extends EventEmitter {
       const result = adapter.subscribe
         ? await adapter.subscribe(request, {
             onQueueUpdate: (update) => {
-              const current = this.db.getJob(job.id) ?? job;
-              this.db.updateJob(job.id, buildQueueUpdatePatch(current, update));
+              const current = this.db.get(parseJobId(job.id)) ?? job;
+              this.db.update(parseJobId(job.id), buildQueueUpdatePatch(current, update));
             },
             onProgress: (update) => {
-              const current = this.db.getJob(job.id) ?? job;
-              this.db.updateJob(job.id, buildProgressUpdatePatch(current, update));
-              const updated = this.db.getJob(job.id) ?? current;
+              const current = this.db.get(parseJobId(job.id)) ?? job;
+              this.db.update(parseJobId(job.id), buildProgressUpdatePatch(current, update));
+              const updated = this.db.get(parseJobId(job.id)) ?? current;
               this.emit('job:progress', {
                 jobId: job.id,
                 progress: Math.max(0, Math.min(100, Math.round(update.percentage))),
@@ -285,7 +286,7 @@ export class JobQueue extends EventEmitter {
               });
             },
             onLog: (log) => {
-              this.db.updateJob(job.id, { currentStep: log });
+              this.db.update(parseJobId(job.id), { currentStep: log });
             },
           })
         : await adapter.generate(request);
@@ -296,14 +297,14 @@ export class JobQueue extends EventEmitter {
       // Keep job as Running — tick() will poll via checkStatus
       const isAsync = !result.assetPath && result.metadata?.taskId;
       if (isAsync) {
-        this.db.updateJob(job.id, { result });
+        this.db.update(parseJobId(job.id), { result });
         keepInRunning = true;
         return;
       }
 
-      this.db.updateJob(job.id, {
+      this.db.update(parseJobId(job.id), {
         status: JobStatus.Completed,
-        result: mergeGenerationResult(this.db.getJob(job.id)?.result, result),
+        result: mergeGenerationResult(this.db.get(parseJobId(job.id))?.result, result),
         cost: result.cost,
         progress: 100,
         completedSteps: 1,
@@ -317,7 +318,7 @@ export class JobQueue extends EventEmitter {
       if (controller.signal.aborted) return;
 
       const message = err instanceof Error ? err.message : String(err);
-      const updatedJob = this.db.getJob(job.id);
+      const updatedJob = this.db.get(parseJobId(job.id));
       if (updatedJob) {
         this.markFailedOrDead({ ...updatedJob, error: message });
       }
@@ -334,7 +335,7 @@ export class JobQueue extends EventEmitter {
     const currentAttempts = job.attempts;
 
     if (currentAttempts >= job.maxRetries) {
-      this.db.updateJob(job.id, {
+      this.db.update(parseJobId(job.id), {
         status: JobStatus.Dead,
         error: job.error ?? 'Max retries exceeded',
         completedAt: Date.now(),
@@ -342,17 +343,17 @@ export class JobQueue extends EventEmitter {
     } else {
       // Transition to Queued for auto-retry (attempts already incremented in executeJob)
       // SQLite ops are synchronous so no race between these two writes
-      this.db.updateJob(job.id, {
+      this.db.update(parseJobId(job.id), {
         status: JobStatus.Failed,
         error: job.error ?? 'Unknown failure',
         attempts: currentAttempts,
       });
-      this.db.updateJob(job.id, { status: JobStatus.Queued });
+      this.db.update(parseJobId(job.id), { status: JobStatus.Queued });
     }
   }
 
   private getJobOrThrow(jobId: string): Job {
-    const job = this.db.getJob(jobId);
+    const job = this.db.get(parseJobId(jobId));
     if (!job) throw new LucidError(ErrorCode.NotFound, `Job ${jobId} not found`);
     return job;
   }
