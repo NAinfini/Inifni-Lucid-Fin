@@ -46,3 +46,6 @@ export type {
 // ── Phase G1-2.3: JobRepository ────────────────────────────────
 export { JobRepository } from './repositories/job-repository.js';
 export type { JobUpdates } from './repositories/job-repository.js';
+
+// ── Phase G1-2.4: AssetRepository ──────────────────────────────
+export { AssetRepository } from './repositories/asset-repository.js';
