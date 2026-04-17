@@ -33,6 +33,7 @@ import {
   WORKFLOW_GUIDES,
 } from '@lucid-fin/application';
 import { parseScript } from '@lucid-fin/domain';
+import { settingsProviderKeyUpdatedChannel } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
   createEmptyPresetTrackSet,
@@ -55,6 +56,10 @@ import { getCachedProviders } from '../settings-cache.js';
 import { getBufferedLogs } from '../../logger.js';
 import { makeGenerateImage } from './commander-image-gen.js';
 import { emitToWindow } from './commander-emit.js';
+import {
+  createRendererPushGateway,
+  type RendererPushGateway,
+} from '../../features/ipc/push-gateway.js';
 import type { BrowserWindow } from 'electron';
 import { createVideoTools } from './video-tools.js';
 import { detectScenes, extractFrameAtTime } from '@lucid-fin/media-engine';
@@ -152,8 +157,15 @@ export function registerAllTools(
   compactRef?: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> },
   sessionId?: string,
   defaultProviders?: Record<string, string>,
+  pushGateway?: RendererPushGateway,
 ): void {
   const mergedPromptGuides = mergePromptGuidesWithBuiltIns(promptGuides);
+  // `settings:providerKeyUpdated` is a typed push channel — route it through
+  // the gateway so payload drift surfaces loudly in main instead of silently
+  // in the renderer. Fall back to a locally-constructed gateway when callers
+  // predate Phase F-split-4.
+  const gateway =
+    pushGateway ?? createRendererPushGateway({ getWindow });
   const generateImage = makeGenerateImage({
     ...deps,
     onStart: (jobId, provider, width, height) => {
@@ -398,10 +410,11 @@ export function registerAllTools(
       const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
       if (llmProvider) llmProvider.configure(apiKey);
       await deps.keychain.setKey(providerId, apiKey);
-      const win = getWindow();
-      if (win) {
-        win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: true });
-      }
+      gateway.emit(settingsProviderKeyUpdatedChannel, {
+        group: 'provider',
+        providerId,
+        hasKey: true,
+      });
     },
     deleteProviderKey: async (providerId: string) => {
       await deps.keychain.deleteKey(providerId);
@@ -409,10 +422,11 @@ export function registerAllTools(
       if (mediaAdapter) mediaAdapter.configure('');
       const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
       if (llmProvider) llmProvider.configure('');
-      const win = getWindow();
-      if (win) {
-        win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: false });
-      }
+      gateway.emit(settingsProviderKeyUpdatedChannel, {
+        group: 'provider',
+        providerId,
+        hasKey: false,
+      });
     },
     isProviderKeyConfigured: async (providerId: string) => {
       try {
@@ -780,10 +794,11 @@ export function registerAllTools(
       const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
       if (llmProvider) llmProvider.configure(apiKey);
       await deps.keychain.setKey(providerId, apiKey);
-      const win = getWindow();
-      if (win) {
-        win.webContents.send('settings:providerKeyUpdated', { group: 'provider', providerId, hasKey: true });
-      }
+      gateway.emit(settingsProviderKeyUpdatedChannel, {
+        group: 'provider',
+        providerId,
+        hasKey: true,
+      });
     },
   })) {
     registry.register(tool);
