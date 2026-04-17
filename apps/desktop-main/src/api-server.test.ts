@@ -177,8 +177,13 @@ describe('api server', () => {
 
   it('rejects requests without the bearer token before route matching', async () => {
     const { handler, startApiServer } = await loadModule();
+    const listSpy = vi.fn();
     const db = {
-      listCanvases: vi.fn(),
+      repos: {
+        canvases: {
+          list: listSpy,
+        },
+      },
     };
 
     startApiServer({ db } as never);
@@ -189,7 +194,7 @@ describe('api server', () => {
 
     expect(res.statusCode).toBe(401);
     expect(parseJson(res)).toEqual({ error: 'Unauthorized' });
-    expect(db.listCanvases).not.toHaveBeenCalled();
+    expect(listSpy).not.toHaveBeenCalled();
   });
 
   it('serves the health route for authenticated requests', async () => {
@@ -210,8 +215,13 @@ describe('api server', () => {
 
   it('lists all canvases', async () => {
     const { handler, startApiServer } = await loadModule();
+    const listSpy = vi.fn(() => [{ id: 'canvas-1' }]);
     const db = {
-      listCanvases: vi.fn(() => [{ id: 'canvas-1' }]),
+      repos: {
+        canvases: {
+          list: listSpy,
+        },
+      },
     };
 
     startApiServer({ db } as never);
@@ -224,18 +234,23 @@ describe('api server', () => {
       url: '/api/canvases',
       headers: authHeaders,
     });
-    expect(db.listCanvases).toHaveBeenCalledWith();
+    expect(listSpy).toHaveBeenCalledWith();
     expect(success.statusCode).toBe(200);
     expect(parseJson(success)).toEqual([{ id: 'canvas-1' }]);
   });
 
   it('matches the canvas detail route, decodes ids, and returns 404 for missing canvases', async () => {
     const { handler, startApiServer } = await loadModule();
+    const getSpy = vi
+      .fn()
+      .mockReturnValueOnce({ id: 'canvas/1', title: 'Storyboard' })
+      .mockReturnValueOnce(undefined);
     const db = {
-      getCanvas: vi
-        .fn()
-        .mockReturnValueOnce({ id: 'canvas/1', title: 'Storyboard' })
-        .mockReturnValueOnce(undefined),
+      repos: {
+        canvases: {
+          get: getSpy,
+        },
+      },
     };
 
     startApiServer({ db } as never);
@@ -248,7 +263,7 @@ describe('api server', () => {
       url: '/api/canvas/canvas%2F1',
       headers,
     });
-    expect(db.getCanvas).toHaveBeenNthCalledWith(1, 'canvas/1');
+    expect(getSpy).toHaveBeenNthCalledWith(1, 'canvas/1');
     expect(found.statusCode).toBe(200);
     expect(parseJson(found)).toEqual({ id: 'canvas/1', title: 'Storyboard' });
 
@@ -342,9 +357,13 @@ describe('api server', () => {
   it('returns 404 for unmatched routes and 500 when a handler throws', async () => {
     const { handler, startApiServer } = await loadModule();
     const db = {
-      listCanvases: vi.fn(() => {
-        throw new Error('db down');
-      }),
+      repos: {
+        canvases: {
+          list: vi.fn(() => {
+            throw new Error('db down');
+          }),
+        },
+      },
     };
 
     startApiServer({ db } as never);

@@ -2,7 +2,6 @@ import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import type {
   AssetMeta,
-  Canvas,
   Character,
   Equipment,
   Location,
@@ -77,7 +76,7 @@ import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
+import type { AssetHash, CharacterId, EquipmentId, LocationId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -617,13 +616,9 @@ export class SqliteIndex implements IStorageLayer {
   // now takes `JobRepository` in its constructor rather than `IJobStore`.
 
   // --- Canvases ---
-  upsertCanvas(canvas: Canvas): void { this.canvases.upsert(canvas); }
-  getCanvas(id: string): Canvas | undefined { return this.canvases.get(id as CanvasId); }
-  listCanvases(): Array<{ id: string; name: string; updatedAt: number }> {
-    return this.canvases.list();
-  }
-  listCanvasesFull(): Canvas[] { return this.canvases.listFull().rows; }
-  deleteCanvas(id: string): void { this.canvases.delete(id as CanvasId); }
+  // Migrated to `this.repos.canvases.*` (Phase G1-4.6). Facade methods
+  // removed; callers use `db.repos.canvases.{upsert,get,list,listFull,delete}`
+  // directly (passing CanvasId brand via parseCanvasId).
 
   // --- Characters ---
   upsertCharacter(char: CharacterUpsertInput): void { this.entities.upsertCharacter(char); }

@@ -1,6 +1,5 @@
 import type {
   AssetMeta,
-  Canvas,
   Character,
   Equipment,
   Location,
@@ -54,14 +53,11 @@ export interface IEmbeddingStore {
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IJobStore {}
 
-/** Canvas persistence */
-export interface ICanvasStore {
-  upsertCanvas(canvas: Canvas): void;
-  getCanvas(id: string): Canvas | undefined;
-  listCanvases(): Array<{ id: string; name: string; updatedAt: number }>;
-  listCanvasesFull(): Canvas[];
-  deleteCanvas(id: string): void;
-}
+/** Canvas persistence — migrated to SqliteIndex.repos.canvases (G1-4.6).
+ *  Interface kept as an empty marker for callers that still reference the
+ *  type alias; can be deleted in a later cleanup. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface ICanvasStore {}
 
 /** Entity CRUD -- characters, equipment, locations, scripts, color styles, dependencies */
 export interface IEntityStore {
@@ -172,7 +168,6 @@ export interface IWorkflowStore {
 export interface IStorageLayer extends
   IAssetStore,
   IEmbeddingStore,
-  ICanvasStore,
   IEntityStore,
   ISeriesStore,
   IPresetStore,
