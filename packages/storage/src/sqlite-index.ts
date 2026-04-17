@@ -9,7 +9,6 @@ import type {
   Location,
   ScriptDocument,
   ColorStyle,
-  Series,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
@@ -80,16 +79,12 @@ import {
   type EquipmentUpsertInput,
   type LocationUpsertInput,
 } from './repositories/entity-repository.js';
-import {
-  SeriesRepository,
-  type EpisodeRecord,
-  type EpisodeUpsertInput,
-} from './repositories/series-repository.js';
+import { SeriesRepository } from './repositories/series-repository.js';
 import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
+import type { JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -673,12 +668,9 @@ export class SqliteIndex implements IStorageLayer {
   getDependents(sourceType: string, sourceId: string): Array<{ targetType: string; targetId: string }> { return _getDependents(this.db, sourceType, sourceId); }
 
   // --- Series & Episodes ---
-  upsertSeries(series: Series): void { this.seriesRepo.upsertSeries(series); }
-  getSeries(id: string): Series | undefined { return this.seriesRepo.getSeries(id as SeriesId); }
-  deleteSeries(id: string): void { this.seriesRepo.deleteSeries(id as SeriesId); }
-  upsertEpisode(episode: EpisodeUpsertInput): void { this.seriesRepo.upsertEpisode(episode); }
-  listEpisodes(seriesId: string): EpisodeRecord[] { return this.seriesRepo.listEpisodes(seriesId as SeriesId).rows; }
-  deleteEpisode(id: string): void { this.seriesRepo.deleteEpisode(id as EpisodeId); }
+  // Migrated to `this.repos.series.*` (Phase G1-4.4). Facade methods
+  // removed; callers use `db.repos.series.{upsertSeries,getSeries,
+  // deleteSeries,upsertEpisode,listEpisodes,deleteEpisode}` directly.
 
   // --- Preset Overrides ---
   // Migrated to `this.repos.presets.*` (Phase G1-4.3). Facade methods
