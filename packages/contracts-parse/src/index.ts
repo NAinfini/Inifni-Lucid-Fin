@@ -67,3 +67,8 @@ export * from './ipc/channels/batch-08.js';
 
 // Batch 9 — commander:* (invoke + push)
 export * from './ipc/channels/batch-09.js';
+
+// Batch 10 — tail of Phase B-1 (app/ai/asset/clipboard/export/ffmpeg/
+// import/ipc/keychain/lipsync/logger/render/session/shell/snapshot/
+// updater/video/vision + refimage push + settings push)
+export * from './ipc/channels/batch-10.js';

@@ -27,6 +27,32 @@ import {
   commanderChannels,
   commanderPushChannels,
 } from './channels/batch-09.js';
+import {
+  appChannels,
+  aiChannels,
+  assetBatch10Channels,
+  clipboardChannels,
+  exportChannels,
+  ffmpegChannels,
+  importChannels,
+  keychainChannels,
+  lipsyncChannels,
+  loggerChannels,
+  renderChannels,
+  sessionChannels,
+  shellChannels,
+  snapshotChannels,
+  updaterChannels,
+  videoChannels,
+  visionChannels,
+  aiPushChannels,
+  appPushChannels,
+  clipboardPushChannels,
+  loggerPushChannels,
+  refimagePushChannels,
+  settingsPushChannels,
+  updaterPushChannels,
+} from './channels/batch-10.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
 export type {
@@ -61,6 +87,11 @@ export * from './channels/batch-08.js';
 // Batch 9 — commander:* (invoke + push)
 export * from './channels/batch-09.js';
 
+// Batch 10 — tail (app/ai/asset/clipboard/export/ffmpeg/import/ipc/
+// keychain/lipsync/logger/render/session/shell/snapshot/updater/video/
+// vision + refimage + settings push)
+export * from './channels/batch-10.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
@@ -81,4 +112,30 @@ export const allChannels = [
   ...presetChannels,
   ...commanderChannels,
   ...commanderPushChannels,
+  // Batch 10 — invoke
+  ...appChannels,
+  ...aiChannels,
+  ...assetBatch10Channels,
+  ...clipboardChannels,
+  ...exportChannels,
+  ...ffmpegChannels,
+  ...importChannels,
+  ...keychainChannels,
+  ...lipsyncChannels,
+  ...loggerChannels,
+  ...renderChannels,
+  ...sessionChannels,
+  ...shellChannels,
+  ...snapshotChannels,
+  ...updaterChannels,
+  ...videoChannels,
+  ...visionChannels,
+  // Batch 10 — push
+  ...aiPushChannels,
+  ...appPushChannels,
+  ...clipboardPushChannels,
+  ...loggerPushChannels,
+  ...refimagePushChannels,
+  ...settingsPushChannels,
+  ...updaterPushChannels,
 ] as const;
