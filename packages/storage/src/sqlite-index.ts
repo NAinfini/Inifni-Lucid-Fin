@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import type {
   AssetMeta,
   Canvas,
-  Job,
   Character,
   Equipment,
   Location,
@@ -23,12 +22,6 @@ import {
   type EmbeddingRecord,
   type SemanticSearchResult,
 } from './sqlite-assets.js';
-import {
-  insertJob as _insertJob,
-  updateJob as _updateJob,
-  getJob as _getJob,
-  listJobs as _listJobs,
-} from './sqlite-jobs.js';
 import {
   upsertScript as _upsertScript,
   getScript as _getScript,
@@ -84,7 +77,7 @@ import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import { SnapshotRepository } from './repositories/snapshot-repository.js';
 import { WorkflowRepository } from './repositories/workflow-repository.js';
-import type { JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
+import type { AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, WorkflowRunId, WorkflowStageId, WorkflowTaskId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -619,12 +612,9 @@ export class SqliteIndex implements IStorageLayer {
   getAllEmbeddedHashes(): string[] { return this.assets.getAllEmbeddedHashes(); }
 
   // --- Jobs ---
-  insertJob(job: Job): void { this.jobs.insert(job); }
-  updateJob(jobId: string, updates: Parameters<typeof _updateJob>[2]): void {
-    this.jobs.update(jobId as JobId, updates);
-  }
-  getJob(jobId: string): Job | undefined { return this.jobs.get(jobId as JobId); }
-  listJobs(filter?: { status?: string }): Job[] { return this.jobs.list(filter).rows; }
+  // Migrated to `this.repos.jobs.*` (Phase G1-4.5). Facade methods removed;
+  // callers use `db.repos.jobs.{insert,update,get,list}` directly. `JobQueue`
+  // now takes `JobRepository` in its constructor rather than `IJobStore`.
 
   // --- Canvases ---
   upsertCanvas(canvas: Canvas): void { this.canvases.upsert(canvas); }

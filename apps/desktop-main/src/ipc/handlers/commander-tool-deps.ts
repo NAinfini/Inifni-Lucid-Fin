@@ -582,7 +582,7 @@ export function registerAllTools(
   // ---- Job tools ----
   registerToolModule(registry, jobToolModule, {
     listJobs: async () => {
-      return deps.db.listJobs().map((job) => ({
+      return deps.db.repos.jobs.list().rows.map((job) => ({
         id: job.id,
         status: job.status,
         nodeId:
