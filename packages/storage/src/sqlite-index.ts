@@ -103,7 +103,8 @@ import {
   type PresetOverrideRecord,
   type PresetOverrideUpsertInput,
 } from './repositories/preset-repository.js';
-import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId } from '@lucid-fin/contracts';
+import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
+import type { SessionId, JobId, AssetHash, CanvasId, CharacterId, EquipmentId, LocationId, SeriesId, EpisodeId, PresetId, ShotTemplateId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -480,6 +481,7 @@ export class SqliteIndex implements IStorageLayer {
   private entities!: EntityRepository;
   private seriesRepo!: SeriesRepository;
   private presets!: PresetRepository;
+  private shotTemplates!: ShotTemplateRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -507,6 +509,7 @@ export class SqliteIndex implements IStorageLayer {
     this.entities = new EntityRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
     this.presets = new PresetRepository(this.db);
+    this.shotTemplates = new ShotTemplateRepository(this.db);
   }
 
   close(): void {
@@ -569,6 +572,7 @@ export class SqliteIndex implements IStorageLayer {
     this.entities = new EntityRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
     this.presets = new PresetRepository(this.db);
+    this.shotTemplates = new ShotTemplateRepository(this.db);
   }
 
   // --- Assets ---
@@ -728,30 +732,15 @@ export class SqliteIndex implements IStorageLayer {
   // ---------------------------------------------------------------------------
 
   listCustomShotTemplates(): ShotTemplate[] {
-    const rows = this.db.prepare(
-      'SELECT id, name, description, tracks_json, created_at FROM custom_shot_templates'
-    ).all() as Array<{ id: string; name: string; description: string; tracks_json: string; created_at: number }>;
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      builtIn: false,
-      tracks: JSON.parse(row.tracks_json),
-      createdAt: row.created_at,
-    }));
+    return this.shotTemplates.list().rows;
   }
 
   upsertCustomShotTemplate(template: ShotTemplate): void {
-    this.db.prepare(`
-      INSERT INTO custom_shot_templates (id, name, description, tracks_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET name = excluded.name, description = excluded.description,
-        tracks_json = excluded.tracks_json, updated_at = excluded.updated_at
-    `).run(template.id, template.name, template.description, JSON.stringify(template.tracks), template.createdAt ?? Date.now(), Date.now());
+    this.shotTemplates.upsert(template);
   }
 
   deleteCustomShotTemplate(templateId: string): void {
-    this.db.prepare('DELETE FROM custom_shot_templates WHERE id = ?').run(templateId);
+    this.shotTemplates.delete(templateId as ShotTemplateId);
   }
 
   // ---------------------------------------------------------------------------

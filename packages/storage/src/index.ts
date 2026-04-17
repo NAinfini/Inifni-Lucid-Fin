@@ -75,3 +75,6 @@ export type {
   PresetOverrideRecord,
   PresetOverrideUpsertInput,
 } from './repositories/preset-repository.js';
+
+// ── Phase G1-2.9: ShotTemplateRepository ───────────────────────
+export { ShotTemplateRepository } from './repositories/shot-template-repository.js';
