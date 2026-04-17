@@ -2,6 +2,19 @@ import type { IpcMain, BrowserWindow } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { GenerationRequest } from '@lucid-fin/contracts';
 import type { JobQueue } from '@lucid-fin/application';
+import {
+  jobSubmittedChannel,
+  jobProgressChannel,
+  jobCompleteChannel,
+  jobFailedChannel,
+  jobCancelledChannel,
+  jobPausedChannel,
+  jobResumedChannel,
+} from '@lucid-fin/contracts-parse';
+import {
+  createRendererPushGateway,
+  type RendererPushGateway,
+} from '../../features/ipc/push-gateway.js';
 import log from '../../logger.js';
 
 export function registerJobHandlers(
@@ -9,7 +22,14 @@ export function registerJobHandlers(
   getWindow: () => BrowserWindow | null,
   db: SqliteIndex,
   queue: JobQueue,
+  pushGateway?: RendererPushGateway,
 ): void {
+  // All 7 job lifecycle channels are typed push channels; route them through
+  // the gateway so payload drift surfaces loudly in main instead of silently
+  // in the renderer. Fall back to a locally-constructed gateway when callers
+  // predate Phase F-split-5.
+  const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
+
   ipcMain.handle(
     'job:submit',
     async (_e, args: GenerationRequest & { segmentId?: string }) => {
@@ -57,24 +77,18 @@ export function registerJobHandlers(
 
   // Event-driven IPC notifications — replaces 2s poll loop
   queue.on('job:submitted', (data: { id: string; status: string }) => {
-    const win = getWindow();
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send('job:submitted', data);
+    gateway.emit(jobSubmittedChannel, data);
   });
 
   queue.on('job:progress', (data: { jobId: string; progress: number; completedSteps?: number; totalSteps?: number; currentStep?: string; message?: string }) => {
-    const win = getWindow();
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send('job:progress', data);
+    gateway.emit(jobProgressChannel, data);
   });
 
   queue.on('job:completed', (data: { id: string; status: string }) => {
-    const win = getWindow();
-    if (!win || win.isDestroyed()) return;
     if (notifiedJobs.has(data.id)) return;
     notifiedJobs.add(data.id);
     const job = db.listJobs({ status: 'completed' }).find((j) => j.id === data.id);
-    win.webContents.send('job:complete', {
+    gateway.emit(jobCompleteChannel, {
       jobId: data.id,
       success: true,
       result: job?.result,
@@ -82,33 +96,25 @@ export function registerJobHandlers(
   });
 
   queue.on('job:failed', (data: { id: string; status: string; error?: string }) => {
-    const win = getWindow();
-    if (!win || win.isDestroyed()) return;
     if (notifiedJobs.has(data.id)) return;
     notifiedJobs.add(data.id);
-    win.webContents.send('job:complete', {
+    gateway.emit(jobCompleteChannel, {
       jobId: data.id,
       success: false,
       error: data.error,
     });
-    win.webContents.send('job:failed', data);
+    gateway.emit(jobFailedChannel, data);
   });
 
   queue.on('job:cancelled', (data: { id: string; status: string }) => {
-    const win = getWindow();
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send('job:cancelled', data);
+    gateway.emit(jobCancelledChannel, data);
   });
 
   queue.on('job:paused', (data: { id: string; status: string }) => {
-    const win = getWindow();
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send('job:paused', data);
+    gateway.emit(jobPausedChannel, data);
   });
 
   queue.on('job:resumed', (data: { id: string; status: string }) => {
-    const win = getWindow();
-    if (!win || win.isDestroyed()) return;
-    win.webContents.send('job:resumed', data);
+    gateway.emit(jobResumedChannel, data);
   });
 }
