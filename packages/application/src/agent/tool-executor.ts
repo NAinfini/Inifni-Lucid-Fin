@@ -2,7 +2,7 @@ import type { LLMToolCall } from '@lucid-fin/contracts';
 import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
 import type { AgentEvent } from './agent-orchestrator.js';
 import type { ToolResultCache } from './tool-result-cache.js';
-import { getToolCompactionCategory } from './tool-compaction-class.js';
+import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
 
 // ---------------------------------------------------------------------------

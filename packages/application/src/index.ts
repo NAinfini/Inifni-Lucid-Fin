@@ -99,4 +99,4 @@ export {
   getToolCompactionCategory,
   getClassifiedToolNames,
   type ToolCompactionCategory,
-} from './agent/tool-compaction-class.js';
+} from '@lucid-fin/shared-utils';
