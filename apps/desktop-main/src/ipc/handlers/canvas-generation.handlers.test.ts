@@ -32,14 +32,15 @@ import { mergeGenerationParams } from './generation-context.js';
 import { buildAdhocAdapter } from './generation-helpers.js';
 
 /**
- * Wrap a flat entity-spies db shape into the new `.repos.entities` shape
- * expected by handlers migrated in Phase G1-4.7. The same spies are reachable
- * via both the legacy flat keys AND via `db.repos.entities.*`, so existing
- * tests that read/write the flat spies keep working.
+ * Wrap a flat db mock into the `.repos.{entities,assets}` shape expected by
+ * handlers migrated in Phase G1-4.7 / G1-4.8. The same spies remain reachable
+ * via both the legacy flat keys AND via `db.repos.*`, so existing tests that
+ * read/write the flat spies keep working.
  */
 function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
-  repos: { entities: Record<string, unknown> };
+  repos: { entities: Record<string, unknown>; assets: Record<string, unknown> };
 } {
+  const insertAsset = flat.insertAsset as ReturnType<typeof vi.fn> | undefined;
   return {
     ...flat,
     repos: {
@@ -50,6 +51,17 @@ function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
         upsertCharacter: flat.upsertCharacter,
         upsertEquipment: flat.upsertEquipment,
         upsertLocation: flat.upsertLocation,
+      },
+      assets: {
+        insert: insertAsset ?? vi.fn(),
+        delete: vi.fn(),
+        query: vi.fn(() => ({ rows: [] })),
+        search: vi.fn(() => ({ rows: [] })),
+        repairSizes: vi.fn().mockReturnValue(0),
+        insertEmbedding: vi.fn(),
+        queryEmbeddingByHash: vi.fn(),
+        searchByTokens: vi.fn(() => []),
+        getAllEmbeddedHashes: vi.fn(() => []),
       },
     },
   };
