@@ -122,7 +122,8 @@ import type { IStorageLayer } from './storage-interfaces.js';
 import { runMigrations, getCurrentVersion } from './migrations/runner.js';
 import { migrations } from './migrations/index.js';
 import { SessionRepository } from './repositories/session-repository.js';
-import type { SessionId } from '@lucid-fin/contracts';
+import { JobRepository } from './repositories/job-repository.js';
+import type { SessionId, JobId } from '@lucid-fin/contracts';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -493,6 +494,7 @@ END;
 export class SqliteIndex implements IStorageLayer {
   private db: BetterSqlite3.Database;
   private sessions!: SessionRepository;
+  private jobs!: JobRepository;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -514,6 +516,7 @@ export class SqliteIndex implements IStorageLayer {
     // Else: DB is up-to-date — skip schema and migrations entirely
 
     this.sessions = new SessionRepository(this.db);
+    this.jobs = new JobRepository(this.db);
   }
 
   close(): void {
@@ -570,6 +573,7 @@ export class SqliteIndex implements IStorageLayer {
 
     // Repo handles pin to the live db — rebuild after the swap above.
     this.sessions = new SessionRepository(this.db);
+    this.jobs = new JobRepository(this.db);
   }
 
   // --- Assets ---
@@ -586,10 +590,12 @@ export class SqliteIndex implements IStorageLayer {
   getAllEmbeddedHashes(): string[] { return _getAllEmbeddedHashes(this.db); }
 
   // --- Jobs ---
-  insertJob(job: Job): void { _insertJob(this.db, job); }
-  updateJob(jobId: string, updates: Parameters<typeof _updateJob>[2]): void { _updateJob(this.db, jobId, updates); }
-  getJob(jobId: string): Job | undefined { return _getJob(this.db, jobId); }
-  listJobs(filter?: { status?: string }): Job[] { return _listJobs(this.db, filter); }
+  insertJob(job: Job): void { this.jobs.insert(job); }
+  updateJob(jobId: string, updates: Parameters<typeof _updateJob>[2]): void {
+    this.jobs.update(jobId as JobId, updates);
+  }
+  getJob(jobId: string): Job | undefined { return this.jobs.get(jobId as JobId); }
+  listJobs(filter?: { status?: string }): Job[] { return this.jobs.list(filter).rows; }
 
   // --- Canvases ---
   upsertCanvas(canvas: Canvas): void { _upsertCanvas(this.db, canvas); }

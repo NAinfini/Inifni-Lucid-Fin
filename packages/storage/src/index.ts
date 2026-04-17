@@ -42,3 +42,7 @@ export { ProcessPromptRepository } from './repositories/process-prompt-repositor
 export type {
   ProcessPromptRecord as RepoProcessPromptRecord,
 } from './repositories/process-prompt-repository.js';
+
+// ── Phase G1-2.3: JobRepository ────────────────────────────────
+export { JobRepository } from './repositories/job-repository.js';
+export type { JobUpdates } from './repositories/job-repository.js';
