@@ -4,6 +4,7 @@ import type { AgentEvent } from './agent-orchestrator.js';
 import type { ToolResultCache } from './tool-result-cache.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
+import { ToolCatalog } from './tool-catalog.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -18,8 +19,6 @@ const MUTATION_ACTION_PREFIXES = [
   'rename', 'reorder', 'restore', 'resume', 'retry', 'save',
   'select', 'set', 'toggle', 'update',
 ];
-/** Meta tools must never be truncated. */
-const META_TOOL_PREFIXES = ['tool.', 'guide.'];
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -108,7 +107,8 @@ export function summarizeToolResult(toolName: string, result: ToolResult, maxRes
   if (serialized.length <= SMALL_RESULT_LIMIT) return serialized;
 
   // Never truncate meta tool results
-  if (META_TOOL_PREFIXES.some((prefix) => toolName.startsWith(prefix))) return serialized;
+  const entry = (ToolCatalog.byKey as Readonly<Record<string, { category: string }>>)[toolName];
+  if (entry?.category === 'meta') return serialized;
 
   const hardLimit = maxResultChars ?? RESULT_HARD_LIMIT;
 
