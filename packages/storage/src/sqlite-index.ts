@@ -479,6 +479,40 @@ export class SqliteIndex implements IStorageLayer {
   private snapshots!: SnapshotRepository;
   private workflows!: WorkflowRepository;
 
+  /**
+   * Public repository bundle — G1-4.1 strangler surface.
+   *
+   * Consumers should migrate from `sqliteIndex.xxx()` facade methods to
+   * `sqliteIndex.repos.xxx.yyy()` to unlock SqliteIndex shrinkage in the
+   * follow-up PRs (G1-4.2+). The facade methods stay intact for now to
+   * keep this PR backwards-compatible and side-effect-free.
+   */
+  get repos(): {
+    sessions: SessionRepository;
+    jobs: JobRepository;
+    assets: AssetRepository;
+    canvases: CanvasRepository;
+    entities: EntityRepository;
+    series: SeriesRepository;
+    presets: PresetRepository;
+    shotTemplates: ShotTemplateRepository;
+    snapshots: SnapshotRepository;
+    workflows: WorkflowRepository;
+  } {
+    return {
+      sessions: this.sessions,
+      jobs: this.jobs,
+      assets: this.assets,
+      canvases: this.canvases,
+      entities: this.entities,
+      series: this.seriesRepo,
+      presets: this.presets,
+      shotTemplates: this.shotTemplates,
+      snapshots: this.snapshots,
+      workflows: this.workflows,
+    };
+  }
+
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
