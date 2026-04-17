@@ -72,3 +72,8 @@ export * from './ipc/channels/batch-09.js';
 // import/ipc/keychain/lipsync/logger/render/session/shell/snapshot/
 // updater/video/vision + refimage push + settings push)
 export * from './ipc/channels/batch-10.js';
+
+// ── Phase C-1: Agent / tool catalog ────────────────────────────
+// `defineTool` and its types are re-exported above from `./tools.js`; the
+// agent barrel adds `createCatalog` on top without duplicating them.
+export { createCatalog } from './agent/catalog.js';
