@@ -42,6 +42,8 @@ import {
   commanderUndoDispatchChannel,
   parseSessionId,
   parseSnapshotId,
+  parsePresetId,
+  parseShotTemplateId,
 } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
@@ -198,7 +200,7 @@ export function registerAllTools(
     } else {
       deps.presetLibrary.push(preset);
     }
-    deps.db.upsertPresetOverride({
+    deps.db.repos.presets.upsertOverride({
       id: preset.id,
       presetId: preset.id,
       category: preset.category,
@@ -223,7 +225,7 @@ export function registerAllTools(
       throw new Error(`Only custom presets can be deleted: ${presetId}`);
     }
     deps.presetLibrary.splice(presetIndex, 1);
-    deps.db.deletePresetOverride(presetId);
+    deps.db.repos.presets.deleteOverride(parsePresetId(presetId));
   };
 
   // ---- Canvas generation deps ----
@@ -341,19 +343,15 @@ export function registerAllTools(
     listPresets: listCommanderPresets,
     savePreset: persistCommanderPreset,
     listShotTemplates: async (): Promise<ShotTemplate[]> => {
-      const custom = deps.db.listCustomShotTemplates?.() ?? [];
+      const custom = deps.db.repos.shotTemplates.list().rows;
       return [...BUILT_IN_SHOT_TEMPLATES, ...custom];
     },
     saveShotTemplate: async (template: ShotTemplate): Promise<ShotTemplate> => {
-      if (deps.db.upsertCustomShotTemplate) {
-        deps.db.upsertCustomShotTemplate(template);
-      }
+      deps.db.repos.shotTemplates.upsert(template);
       return template;
     },
     deleteShotTemplate: async (templateId: string): Promise<void> => {
-      if (deps.db.deleteCustomShotTemplate) {
-        deps.db.deleteCustomShotTemplate(templateId);
-      }
+      deps.db.repos.shotTemplates.delete(parseShotTemplateId(templateId));
     },
     removeCharacterRef: async (canvasId: string, nodeId: string, characterId: string) => {
       const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);

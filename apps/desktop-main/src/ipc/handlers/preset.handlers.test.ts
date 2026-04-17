@@ -46,10 +46,23 @@ function makeUserPreset(id: string, category = "look") {
 }
 
 function makeDb(overrides?: Array<Record<string, unknown>>) {
+  const listOverrides = vi.fn(() => ({ rows: overrides ?? [], degradedCount: 0 }));
+  const upsertOverride = vi.fn();
+  const deleteOverride = vi.fn();
   return {
-    listPresetOverrides: vi.fn(() => overrides ?? []),
-    upsertPresetOverride: vi.fn(),
-    deletePresetOverride: vi.fn(),
+    listOverrides,
+    upsertOverride,
+    deleteOverride,
+    // G1-4.3: preset.handlers.ts now reads `db.repos.presets.*` instead of
+    // the legacy facade methods. Expose the same spies under both shapes so
+    // the existing `expect(db.upsertOverride)` assertions keep working.
+    repos: {
+      presets: {
+        listOverrides,
+        upsertOverride,
+        deleteOverride,
+      },
+    },
   };
 }
 
@@ -114,7 +127,7 @@ describe("registerPresetHandlers", () => {
         defaultParams: builtInPreset.defaultParams ?? builtInPreset.defaults,
       }),
     );
-    expect(db.upsertPresetOverride).toHaveBeenCalledWith(
+    expect(db.upsertOverride).toHaveBeenCalledWith(
       expect.objectContaining({
         id: `override:${builtInPreset.id}`,
         presetId: builtInPreset.id,
@@ -149,14 +162,14 @@ describe("registerPresetHandlers", () => {
         modified: false,
       }),
     );
-    expect(db.upsertPresetOverride).toHaveBeenCalledWith(
+    expect(db.upsertOverride).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "user-preset-1",
         presetId: "user-preset-1",
         isUser: true,
       }),
     );
-    expect(db.deletePresetOverride).toHaveBeenCalledWith("user-preset-1");
+    expect(db.deleteOverride).toHaveBeenCalledWith("user-preset-1");
   });
 
   it("resets prompt-only built-in overrides without deleting the whole override", async () => {
@@ -182,8 +195,8 @@ describe("registerPresetHandlers", () => {
         modified: true,
       }),
     );
-    expect(db.deletePresetOverride).not.toHaveBeenCalled();
-    expect(db.upsertPresetOverride).toHaveBeenCalledTimes(2);
+    expect(db.deleteOverride).not.toHaveBeenCalled();
+    expect(db.upsertOverride).toHaveBeenCalledTimes(2);
     expect(logger.info).toHaveBeenCalledWith(
       "[preset] reset",
       expect.objectContaining({
@@ -284,7 +297,7 @@ describe("registerPresetHandlers", () => {
         presets: [expect.objectContaining({ id: "user-imported-1", category: builtInPreset.category })],
       }),
     );
-    expect(db.upsertPresetOverride).toHaveBeenCalledTimes(2);
+    expect(db.upsertOverride).toHaveBeenCalledTimes(2);
   });
 
   it("rejects invalid delete, reset, import, and export payloads", async () => {
