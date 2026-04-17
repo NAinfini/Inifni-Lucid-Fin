@@ -55,6 +55,29 @@ export interface IpcProcessPrompt {
   updatedAt: number;
 }
 
+/**
+ * @deprecated Since Phase B the single source of truth for channels is the
+ * registry in `@lucid-fin/contracts-parse` (`allChannels` — 169 entries).
+ *
+ * This map is frozen and retained only for:
+ *  - Legacy typecheck tests (`workflow-ipc.test.ts`,
+ *    `workflow-projections.test.ts`, `workflow-projections.typecheck.ts`)
+ *    that assert handler response shapes.
+ *  - Backward compatibility with any out-of-tree consumer still importing
+ *    `IpcChannelMap` / `IpcRequest<C>` / `IpcResponse<C>`.
+ *
+ * New code MUST NOT extend this map. Add zod channels to the appropriate
+ * `packages/contracts-parse/src/ipc/channels/batch-NN.ts` and mirror the
+ * pure-type shape in `packages/contracts/src/ipc/channels/batch-NN.ts`.
+ *
+ * Deletion is gated on the preload runtime cutover: renderer must first
+ * migrate from the hand-written `apps/desktop-main/src/preload.cts` to
+ * `preload.generated.cts` (positional-arg → single-object-arg form) and
+ * from the hand-written `apps/desktop-renderer/src/types/global.d.ts`
+ * shape to `LucidAPI` from `lucid-api.generated.ts`. That migration is
+ * scope-disproportionate to the channel registration PR chain and is
+ * tracked as a follow-up task.
+ */
 export interface IpcChannelMap {
   // --- Settings ---
   'settings:load': {
