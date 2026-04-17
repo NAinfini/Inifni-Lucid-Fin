@@ -36,3 +36,9 @@ export type {
   StoredSession as RepoStoredSession,
   ListResult as RepoListResult,
 } from './repositories/session-repository.js';
+
+// ── Phase G1-2.2: ProcessPromptRepository ──────────────────────
+export { ProcessPromptRepository } from './repositories/process-prompt-repository.js';
+export type {
+  ProcessPromptRecord as RepoProcessPromptRecord,
+} from './repositories/process-prompt-repository.js';
