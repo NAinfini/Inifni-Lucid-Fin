@@ -11,6 +11,13 @@ import {
   setLocationsLoading,
   setLocationRefImage,
   removeLocationRefImage,
+  setFolders,
+  addFolder,
+  updateFolder,
+  removeFolder,
+  setCurrentFolder,
+  setFoldersLoading,
+  moveItemToFolder,
 } from '../../store/slices/locations.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
@@ -24,6 +31,9 @@ import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { MapPin, Plus, Search, Trash2, Save, Upload, Image, ImageOff, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useEntityManager } from '../../hooks/useEntityManager.js';
+import { useEntityFolders } from '../../hooks/useEntityFolders.js';
+import { FolderTree } from './folders/FolderTree.js';
+import { FolderBreadcrumb } from './folders/FolderBreadcrumb.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 
@@ -75,15 +85,34 @@ export function LocationManagerPanel() {
   });
 
   const selectedLoc = useMemo(() => items.find((l) => l.id === selectedId), [items, selectedId]);
+  const [foldersOpen, setFoldersOpen] = useState(true);
+
+  const folderApi = useEntityFolders({
+    kind: 'location',
+    selectFolders: (s) => s.locations.folders,
+    selectCurrentFolderId: (s) => s.locations.currentFolderId,
+    selectFoldersLoading: (s) => s.locations.foldersLoading,
+    actions: {
+      setFolders,
+      addFolder,
+      updateFolder,
+      removeFolder,
+      setCurrentFolder,
+      setFoldersLoading,
+    },
+  });
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return items.filter((l) => {
+      if (folderApi.currentFolderId !== null && l.folderId !== folderApi.currentFolderId) {
+        return false;
+      }
       if (!keyword) return true;
       const blob = `${l.name} ${l.description} ${l.tags.join(' ')}`.toLowerCase();
       return blob.includes(keyword);
     });
-  }, [items, search]);
+  }, [items, search, folderApi.currentFolderId]);
 
   const canvases = useSelector(selectAllCanvases);
 
@@ -152,6 +181,7 @@ export function LocationManagerPanel() {
         description: '',
         tags: [],
         referenceImages: [],
+        folderId: folderApi.currentFolderId,
       };
       if (api?.location) {
         const saved = (await api.location.save(data as Record<string, unknown>)) as Location;
@@ -161,7 +191,21 @@ export function LocationManagerPanel() {
     } catch (reason) {
       reportError(reason, 'createNewLocation');
     }
-  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t, folderApi.currentFolderId]);
+
+  const handleMoveLocationToFolder = useCallback(
+    async (locationId: string, folderId: string | null) => {
+      const api = getAPI();
+      if (!api?.location) return;
+      try {
+        await api.location.setFolder(locationId, folderId);
+        dispatch(moveItemToFolder({ id: locationId, folderId }));
+      } catch (reason) {
+        reportError(reason, 'handleMoveLocationToFolder');
+      }
+    },
+    [dispatch, reportError],
+  );
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedLoc) return;
@@ -355,6 +399,14 @@ export function LocationManagerPanel() {
             <MapPin className="w-3.5 h-3.5" />
             {t('locationManager.title')}
           </div>
+          <button
+            type="button"
+            onClick={() => setFoldersOpen((v) => !v)}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+            title={t('folders.toggle') as string}
+          >
+            {foldersOpen ? '▾' : '▸'} {t('folders.label') as string}
+          </button>
         </div>
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2 top-2 text-muted-foreground" />
@@ -365,7 +417,34 @@ export function LocationManagerPanel() {
             className="w-full rounded bg-muted pl-7 pr-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
+        <FolderBreadcrumb
+          breadcrumb={folderApi.breadcrumb}
+          onNavigate={folderApi.setCurrentFolder}
+          rootLabel={t('folders.all') as string}
+        />
       </div>
+
+      {foldersOpen && (
+        <div className="border-b border-border/60 max-h-40 overflow-auto p-1.5">
+          <FolderTree
+            folders={folderApi.folders}
+            currentFolderId={folderApi.currentFolderId}
+            onSelect={folderApi.setCurrentFolder}
+            onCreate={folderApi.createFolder}
+            onRename={folderApi.renameFolder}
+            onDelete={folderApi.deleteFolder}
+            onDropItem={(folderId, payload) => void handleMoveLocationToFolder(payload, folderId)}
+            dropItemKey="application/lucid-entity-id"
+            labels={{
+              rootLabel: t('folders.all') as string,
+              newFolderPlaceholder: t('folders.newPlaceholder') as string,
+              createFolder: t('folders.createFolder') as string,
+              rename: t('action.rename') as string,
+              delete: t('action.delete') as string,
+            }}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-[40%_60%] h-full min-h-0">
         <div className="border-r min-h-0 overflow-auto">
@@ -408,6 +487,11 @@ export function LocationManagerPanel() {
                 <button
                   key={loc.id}
                   onClick={() => void handleSelectLocation(loc.id)}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('application/lucid-entity-id', loc.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
                   className={cn(
                     'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === loc.id

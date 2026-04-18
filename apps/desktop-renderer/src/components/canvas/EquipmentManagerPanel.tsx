@@ -12,6 +12,13 @@ import {
   setLoading,
   setEquipmentRefImage,
   removeEquipmentRefImage,
+  setFolders,
+  addFolder,
+  updateFolder,
+  removeFolder,
+  setCurrentFolder,
+  setFoldersLoading,
+  moveItemToFolder,
 } from '../../store/slices/equipment.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
@@ -27,6 +34,9 @@ import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { Plus, Search, Trash2, Save, Upload, Package, Image, ImageOff, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useEntityManager } from '../../hooks/useEntityManager.js';
+import { useEntityFolders } from '../../hooks/useEntityFolders.js';
+import { FolderTree } from './folders/FolderTree.js';
+import { FolderBreadcrumb } from './folders/FolderBreadcrumb.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 
@@ -85,16 +95,35 @@ export function EquipmentManagerPanel() {
   });
 
   const selectedEquip = useMemo(() => items.find((e) => e.id === selectedId), [items, selectedId]);
+  const [foldersOpen, setFoldersOpen] = useState(true);
+
+  const folderApi = useEntityFolders({
+    kind: 'equipment',
+    selectFolders: (s) => s.equipment.folders,
+    selectCurrentFolderId: (s) => s.equipment.currentFolderId,
+    selectFoldersLoading: (s) => s.equipment.foldersLoading,
+    actions: {
+      setFolders,
+      addFolder,
+      updateFolder,
+      removeFolder,
+      setCurrentFolder,
+      setFoldersLoading,
+    },
+  });
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return items.filter((e) => {
+      if (folderApi.currentFolderId !== null && e.folderId !== folderApi.currentFolderId) {
+        return false;
+      }
       if (filterType !== 'all' && e.type !== filterType) return false;
       if (!keyword) return true;
       const blob = `${e.name} ${e.description} ${e.tags.join(' ')}`.toLowerCase();
       return blob.includes(keyword);
     });
-  }, [items, search, filterType]);
+  }, [items, search, filterType, folderApi.currentFolderId]);
 
   const canvases = useSelector(selectAllCanvases);
 
@@ -165,6 +194,7 @@ export function EquipmentManagerPanel() {
         description: '',
         tags: [],
         referenceImages: [],
+        folderId: folderApi.currentFolderId,
       };
       if (api?.equipment) {
         const saved = (await api.equipment.save(data as Record<string, unknown>)) as Equipment;
@@ -174,7 +204,21 @@ export function EquipmentManagerPanel() {
     } catch (reason) {
       reportError(reason, 'createNewEquipment');
     }
-  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t, folderApi.currentFolderId]);
+
+  const handleMoveEquipmentToFolder = useCallback(
+    async (equipmentId: string, folderId: string | null) => {
+      const api = getAPI();
+      if (!api?.equipment) return;
+      try {
+        await api.equipment.setFolder(equipmentId, folderId);
+        dispatch(moveItemToFolder({ id: equipmentId, folderId }));
+      } catch (reason) {
+        reportError(reason, 'handleMoveEquipmentToFolder');
+      }
+    },
+    [dispatch, reportError],
+  );
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedEquip) return;
@@ -368,6 +412,14 @@ export function EquipmentManagerPanel() {
             <Package className="w-3.5 h-3.5" />
             {t('equipmentManager.title')}
           </div>
+          <button
+            type="button"
+            onClick={() => setFoldersOpen((v) => !v)}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+            title={t('folders.toggle') as string}
+          >
+            {foldersOpen ? '▾' : '▸'} {t('folders.label') as string}
+          </button>
         </div>
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2 top-2 text-muted-foreground" />
@@ -390,7 +442,34 @@ export function EquipmentManagerPanel() {
             </option>
           ))}
         </select>
+        <FolderBreadcrumb
+          breadcrumb={folderApi.breadcrumb}
+          onNavigate={folderApi.setCurrentFolder}
+          rootLabel={t('folders.all') as string}
+        />
       </div>
+
+      {foldersOpen && (
+        <div className="border-b border-border/60 max-h-40 overflow-auto p-1.5">
+          <FolderTree
+            folders={folderApi.folders}
+            currentFolderId={folderApi.currentFolderId}
+            onSelect={folderApi.setCurrentFolder}
+            onCreate={folderApi.createFolder}
+            onRename={folderApi.renameFolder}
+            onDelete={folderApi.deleteFolder}
+            onDropItem={(folderId, payload) => void handleMoveEquipmentToFolder(payload, folderId)}
+            dropItemKey="application/lucid-entity-id"
+            labels={{
+              rootLabel: t('folders.all') as string,
+              newFolderPlaceholder: t('folders.newPlaceholder') as string,
+              createFolder: t('folders.createFolder') as string,
+              rename: t('action.rename') as string,
+              delete: t('action.delete') as string,
+            }}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-[40%_60%] h-full min-h-0">
         <div className="border-r min-h-0 overflow-auto">
@@ -433,6 +512,11 @@ export function EquipmentManagerPanel() {
                 <button
                   key={equip.id}
                   onClick={() => void handleSelectEquipment(equip.id)}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('application/lucid-entity-id', equip.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
                   className={cn(
                     'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === equip.id
