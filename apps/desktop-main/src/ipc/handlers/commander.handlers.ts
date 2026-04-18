@@ -31,6 +31,7 @@ import type {
   VideoNodeData,
   PresetDefinition,
   ProviderProfile,
+  SessionId,
 } from '@lucid-fin/contracts';
 import { DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
 import { matchNode } from '@lucid-fin/shared-utils';
@@ -376,6 +377,9 @@ export function registerCommanderHandlers(
       }
 
       let session: RunningCommanderSession | undefined;
+      // Hoisted so the `finally` block can access them for G2-5 graph save.
+      let orchestrator: AgentOrchestrator | undefined;
+      let persistedSessionId: SessionId | null = null;
       try {
         const canvas = requireCanvas(deps.canvasStore, args.canvasId);
         log.debug('Commander chat request received', {
@@ -425,16 +429,43 @@ export function registerCommanderHandlers(
 
         // Create orchestrator
         const adapterProfile: ProviderProfile = llmAdapter.profile ?? DEFAULT_PROVIDER_PROFILE;
-        const orchestrator = new AgentOrchestrator(llmAdapter, registry, deps.resolvePrompt, {
+        const orchestratorInstance = new AgentOrchestrator(llmAdapter, registry, deps.resolvePrompt, {
           maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : undefined,
           temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
           maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
           profile: adapterProfile,
           resolveProcessPrompt: deps.resolveProcessPrompt,
         });
-        compactRef.compact = (instructions?: string) => orchestrator.compactNow(instructions);
-        session = { aborted: false, canvasId: args.canvasId, orchestrator, lastActivity: Date.now() };
+        orchestrator = orchestratorInstance;
+        compactRef.compact = (instructions?: string) => orchestratorInstance.compactNow(instructions);
+        session = { aborted: false, canvasId: args.canvasId, orchestrator: orchestratorInstance, lastActivity: Date.now() };
         runningSessions.set(args.canvasId, session);
+
+        // G2-5: rehydrate ContextGraph from storage. Seeds graph-only items
+        // (entity-snapshot, session-summary) that aren't derivable from the
+        // message history — cache warm-up on resume without replaying raw
+        // messages. No-op when the session is brand-new or has no saved
+        // graph yet; fail-soft on malformed JSON (SessionRepository returns
+        // null via parseOrDegrade in that case).
+        const persistedSessionIdLocal: SessionId | null =
+          typeof args.sessionId === 'string' && args.sessionId.length > 0
+            ? (args.sessionId as SessionId)
+            : null;
+        persistedSessionId = persistedSessionIdLocal;
+        if (persistedSessionIdLocal) {
+          try {
+            const persistedGraph = deps.db.repos.sessions.getContextGraph(persistedSessionIdLocal);
+            if (persistedGraph && persistedGraph.length > 0) {
+              orchestratorInstance.seedContextGraph(persistedGraph);
+            }
+          } catch (err) {
+            log.warn('ContextGraph rehydrate skipped', {
+              category: 'commander',
+              sessionId: persistedSessionIdLocal,
+              detail: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
 
         const context = buildContext(
           canvas,
@@ -467,7 +498,7 @@ export function registerCommanderHandlers(
           gateway,
         );
 
-        await orchestrator.execute(args.message, context, emit, {
+        await orchestratorInstance.execute(args.message, context, emit, {
           history: args.history,
           isAborted: () => session?.aborted ?? false,
           permissionMode: args.permissionMode ?? 'normal',
@@ -525,6 +556,33 @@ export function registerCommanderHandlers(
           error: error instanceof Error ? error.message : String(error),
         });
       } finally {
+        // G2-5: persist the serialized ContextGraph side-channel so the
+        // next resume can warm up cache without replaying messages. Runs
+        // on BOTH success and error paths — a crash mid-turn should still
+        // save whatever items have accumulated. Wrapped in try/catch so a
+        // persistence failure cannot mask the original error.
+        //
+        // Skip the save when the orchestrator produced an empty snapshot:
+        // early-abort / construction-time failures leave
+        // `getSerializedContextGraph()` empty, and overwriting persisted
+        // warm-up state with `[]` would lose prior-session data
+        // (entity-snapshots, session-summaries). The orchestrator already
+        // falls back to the seed on early abort, so `items.length > 0`
+        // captures both real results AND preserved-seed cases.
+        if (persistedSessionId && orchestrator) {
+          try {
+            const items = orchestrator.getSerializedContextGraph();
+            if (items.length > 0) {
+              deps.db.repos.sessions.saveContextGraph(persistedSessionId, items);
+            }
+          } catch (err) {
+            log.warn('ContextGraph save failed', {
+              category: 'commander',
+              sessionId: persistedSessionId,
+              detail: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
         runningSessions.delete(args.canvasId);
       }
     },

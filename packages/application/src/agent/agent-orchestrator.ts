@@ -182,6 +182,18 @@ export class AgentOrchestrator {
   private readonly resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
   private activeProcessPromptSteps = new Map<ProcessCategory, number>();
 
+  /**
+   * G2-5: graph-only items carried across sessions via SessionRepository.
+   * The active `contextGraph` is rebuilt from messages every step, so
+   * items that are NOT derivable from messages (`entity-snapshot`,
+   * `session-summary`, and superseded `tool-result` items already
+   * compacted out of history) are preserved here and re-merged into the
+   * freshly rebuilt graph each step. Empty until `seedContextGraph` runs.
+   */
+  private pendingGraphSeed: ContextItem[] = [];
+  /** Snapshot of the last execute() graph for `getSerializedContextGraph`. */
+  private lastSerializedGraph: ContextItem[] = [];
+
   constructor(
     adapter: LLMAdapter,
     tools: AgentToolRegistry,
@@ -217,6 +229,32 @@ export class AgentOrchestrator {
       this.pendingQuestionResolvers.delete(toolCallId);
       resolver(answer);
     }
+  }
+
+  /**
+   * G2-5: seed the orchestrator with a persisted ContextGraph before
+   * `execute()` runs. Call this on session resume with the items returned
+   * by `SessionRepository.getContextGraph(sessionId)`. Items are merged
+   * into the freshly rebuilt graph each step (only kinds that aren't
+   * derivable from the messages array survive the merge — see
+   * `rebuildGraphFromMessages`).
+   *
+   * Safe to call with an empty array (no-op) or before the first
+   * `execute()` (stored until the next run begins).
+   */
+  seedContextGraph(items: readonly ContextItem[]): void {
+    this.pendingGraphSeed = [...items];
+  }
+
+  /**
+   * G2-5: return the most-recently-serialized ContextGraph from the last
+   * `execute()` call. Callers persist this via
+   * `SessionRepository.saveContextGraph(sessionId, items)`.
+   *
+   * Returns an empty array if `execute()` has not been run yet.
+   */
+  getSerializedContextGraph(): ContextItem[] {
+    return this.lastSerializedGraph;
   }
 
   /** Cancel the running agent. Resolves all pending promises so the loop unblocks. */
@@ -642,6 +680,18 @@ export class AgentOrchestrator {
       wrappedEmit({ type: 'done', content: finalContent });
       return lastResult;
     } finally {
+      // G2-5: snapshot the final graph BEFORE clearing so
+      // `getSerializedContextGraph()` remains callable after execute() returns.
+      //
+      // If the graph was never built (e.g. early abort before the first
+      // iteration's `rebuildGraphFromMessages`), fall back to the seed so
+      // callers don't overwrite previously-persisted warm-up data with an
+      // empty snapshot.
+      const serialized = this.contextGraph?.serialize() ?? [];
+      this.lastSerializedGraph = serialized.length > 0 ? serialized : [...this.pendingGraphSeed];
+      // Seed is single-use — once consumed by this execute(), drop it so a
+      // second call without a fresh seed doesn't re-merge stale items.
+      this.pendingGraphSeed = [];
       this.activeMessages = null;
       this.transcriptIndex.clear();
       this.contextGraph = null;
@@ -766,6 +816,17 @@ export class AgentOrchestrator {
   private rebuildGraphFromMessages(messages: LLMMessage[], step: number): void {
     if (!this.contextGraph) return;
     this.contextGraph = new ContextGraph();
+    // G2-5: re-merge graph-only persisted items (seeded on resume). Only
+    // kinds that are NOT reconstructable from the `messages` array are
+    // merged — other kinds would duplicate what the loop below rebuilds.
+    // Today that means `entity-snapshot` + `session-summary`. Guide, user,
+    // assistant, tool-result, system-message, and reference items are all
+    // re-derived from messages so they stay authoritative.
+    for (const seed of this.pendingGraphSeed) {
+      if (seed.kind === 'entity-snapshot' || seed.kind === 'session-summary') {
+        this.contextGraph.add(seed);
+      }
+    }
     // Counter of how many times each `(callId, toolKey, paramsHash)` has
     // been seen so far in this pass — lets us disambiguate adapter
     // fallback ids (`tool-call-0`) that repeat across turns with the
