@@ -900,9 +900,9 @@ describe('AgentOrchestrator', () => {
     ).toBe(false);
   });
 
-  // ── G2b-1: ContextGraph cutover (LUCID_CONTEXT_GRAPH=1 + openai adapter) ───
+  // ── ContextGraph path (openai adapter) ───
 
-  it('graph path: cutover replaces wireMessages via serializeForOpenAI when flag on + openai adapter', async () => {
+  it('graph path: wireMessages produced via ContextGraph serializer for openai adapter', async () => {
     const capturedRequests: unknown[][] = [];
     const openaiAdapter: import('@lucid-fin/contracts').LLMAdapter = {
       id: 'openai',
@@ -922,31 +922,23 @@ describe('AgentOrchestrator', () => {
       }),
     };
 
-    const original = process.env['LUCID_CONTEXT_GRAPH'];
-    process.env['LUCID_CONTEXT_GRAPH'] = '1';
+    const agent = new AgentOrchestrator(openaiAdapter, toolRegistry, resolvePrompt);
+    const events: unknown[] = [];
+    const result = await agent.execute('Hello from graph path', {}, (e) => events.push(e));
 
-    try {
-      const agent = new AgentOrchestrator(openaiAdapter, toolRegistry, resolvePrompt);
-      const events: unknown[] = [];
-      const result = await agent.execute('Hello from graph path', {}, (e) => events.push(e));
+    expect(result.content).toBe('Graph path response.');
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
 
-      expect(result.content).toBe('Graph path response.');
-      expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
-
-      // Verify the LLM adapter was invoked with a non-empty messages array
-      // and that the first kept message is a system prompt.
-      expect(capturedRequests.length).toBeGreaterThan(0);
-      const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
-      expect(firstRequest[0]!.role).toBe('system');
-    } finally {
-      if (original === undefined) delete process.env['LUCID_CONTEXT_GRAPH'];
-      else process.env['LUCID_CONTEXT_GRAPH'] = original;
-    }
+    // Verify the LLM adapter was invoked with a non-empty messages array
+    // and that the first kept message is a system prompt.
+    expect(capturedRequests.length).toBeGreaterThan(0);
+    const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
+    expect(firstRequest[0]!.role).toBe('system');
   });
 
-  // ── G2b-2: ContextGraph path widens to Claude adapter ───────────
+  // ── ContextGraph path (claude adapter) ───
 
-  it('graph path: activates for claude adapter when flag on', async () => {
+  it('graph path: activates for claude adapter', async () => {
     const capturedRequests: unknown[][] = [];
     const claudeAdapter: import('@lucid-fin/contracts').LLMAdapter = {
       id: 'claude',
@@ -973,22 +965,14 @@ describe('AgentOrchestrator', () => {
       },
     };
 
-    const original = process.env['LUCID_CONTEXT_GRAPH'];
-    process.env['LUCID_CONTEXT_GRAPH'] = '1';
+    const agent = new AgentOrchestrator(claudeAdapter, toolRegistry, resolvePrompt);
+    const events: unknown[] = [];
+    const result = await agent.execute('Hello Claude', {}, (e) => events.push(e));
 
-    try {
-      const agent = new AgentOrchestrator(claudeAdapter, toolRegistry, resolvePrompt);
-      const events: unknown[] = [];
-      const result = await agent.execute('Hello Claude', {}, (e) => events.push(e));
-
-      expect(result.content).toBe('Claude graph response.');
-      expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
-      expect(capturedRequests.length).toBeGreaterThan(0);
-      const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
-      expect(firstRequest[0]!.role).toBe('system');
-    } finally {
-      if (original === undefined) delete process.env['LUCID_CONTEXT_GRAPH'];
-      else process.env['LUCID_CONTEXT_GRAPH'] = original;
-    }
+    expect(result.content).toBe('Claude graph response.');
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
+    expect(capturedRequests.length).toBeGreaterThan(0);
+    const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
+    expect(firstRequest[0]!.role).toBe('system');
   });
 });
