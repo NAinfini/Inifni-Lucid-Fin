@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@lucid-fin/contracts": "*",
+    "@lucid-fin/contracts-parse": "*",
+    "@lucid-fin/shared-utils": "*",
     "@lucid-fin/storage": "*",
     "@lucid-fin/adapters-ai": "*"
   },
