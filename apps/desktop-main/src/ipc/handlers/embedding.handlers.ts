@@ -1,5 +1,6 @@
 import type { IpcMain } from 'electron';
 import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
+import { parseAssetHash } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
 import { describeImageAsset } from './vision.handlers.js';
 
@@ -27,7 +28,7 @@ export async function generateEmbeddingForAsset(
   const description = await describeImageAsset(cas, keychain, assetHash, 'description');
   const tokens = tokenize(description);
   const model = 'vision-description';
-  db.insertEmbedding(assetHash, description, tokens, model);
+  db.repos.assets.insertEmbedding(parseAssetHash(assetHash), description, tokens, model);
   log.info('Embedding generated', {
     category: 'embedding',
     assetHash,
@@ -68,7 +69,7 @@ export function registerEmbeddingHandlers(
       }
       const queryTokens = tokenize(args.query);
       const limit = typeof args.limit === 'number' && args.limit > 0 ? args.limit : 20;
-      const results = db.searchByTokens(queryTokens, limit);
+      const results = db.repos.assets.searchByTokens(queryTokens, limit);
       log.info('Semantic search', {
         category: 'embedding',
         query: args.query,
@@ -82,8 +83,8 @@ export function registerEmbeddingHandlers(
   ipcMain.handle(
     'asset:reindexEmbeddings',
     async () => {
-      const allAssets = db.queryAssets({ type: 'image', limit: 5000 });
-      const embeddedHashes = new Set(db.getAllEmbeddedHashes());
+      const allAssets = db.repos.assets.query({ type: 'image', limit: 5000 }).rows;
+      const embeddedHashes = new Set<string>(db.repos.assets.getAllEmbeddedHashes());
       const toIndex = allAssets.filter((a) => !embeddedHashes.has(a.hash));
 
       log.info('Reindex embeddings started', {

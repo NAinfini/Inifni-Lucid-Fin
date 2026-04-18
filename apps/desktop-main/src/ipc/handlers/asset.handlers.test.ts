@@ -39,11 +39,44 @@ function resetCommon() {
   showSaveDialog.mockReset();
 }
 
+function wrapAssetRepo(flatDb: Record<string, unknown>): Record<string, unknown> {
+  const insert = flatDb.insertAsset as ReturnType<typeof vi.fn> | undefined;
+  const del = flatDb.deleteAsset as ReturnType<typeof vi.fn> | undefined;
+  const search = flatDb.searchAssets as ReturnType<typeof vi.fn> | undefined;
+  const query = flatDb.queryAssets as ReturnType<typeof vi.fn> | undefined;
+  const repair = flatDb.repairAssetSizes as ReturnType<typeof vi.fn> | undefined;
+  return {
+    ...flatDb,
+    repos: {
+      assets: {
+        insert: insert ?? vi.fn(),
+        delete: del ?? vi.fn(),
+        // Handlers call `.rows` on query/search results; wrap the flat array
+        // spies so existing `toHaveBeenCalledWith(...)` assertions keep working
+        // while the handler receives { rows } shape.
+        query: search || query ? vi.fn((...args: unknown[]) => ({ rows: query ? (query(...args) ?? []) : [] })) : vi.fn(() => ({ rows: [] })),
+        search: search ? vi.fn((...args: unknown[]) => ({ rows: search(...args) ?? [] })) : vi.fn(() => ({ rows: [] })),
+        repairSizes: repair ?? vi.fn().mockReturnValue(0),
+      },
+    },
+  };
+}
+
 function registerHandlers(
   cas?: Record<string, unknown>,
   db?: Record<string, unknown>,
 ) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
+
+  const effectiveDb =
+    db ??
+    {
+      insertAsset: vi.fn(),
+      deleteAsset: vi.fn(),
+      searchAssets: vi.fn(),
+      queryAssets: vi.fn(),
+      repairAssetSizes: vi.fn().mockReturnValue(0),
+    };
 
   registerAssetHandlers(
     {
@@ -57,13 +90,7 @@ function registerHandlers(
       getAssetPath: vi.fn(),
       deleteAsset: vi.fn(),
     }) as never,
-    (db ?? {
-      insertAsset: vi.fn(),
-      deleteAsset: vi.fn(),
-      searchAssets: vi.fn(),
-      queryAssets: vi.fn(),
-      repairAssetSizes: vi.fn().mockReturnValue(0),
-    }) as never,
+    wrapAssetRepo(effectiveDb) as never,
   );
 
   return handlers;

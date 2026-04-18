@@ -30,7 +30,7 @@ describe('createStyleWorkflowHandlers', () => {
     assetPath = path.join(base, 'reference.png');
     fs.writeFileSync(assetPath, 'fake-image-bytes');
 
-    db.insertAsset({
+    db.repos.assets.insert({
       hash: 'asset-hash',
       type: 'image',
       format: 'png',
@@ -127,9 +127,9 @@ describe('createStyleWorkflowHandlers', () => {
     });
 
     await workflowEngine.waitForAutoPump();
-    const styles = db.listColorStyles();
+    const styles = db.repos.colorStyles.list();
     const workflow = workflowEngine.get(workflowRunId);
-    const persistArtifacts = db.listWorkflowArtifactsByTaskRun('task-persist');
+    const persistArtifacts = db.repos.workflows.listArtifactsByTaskRun('task-persist');
 
     expect(styles).toEqual([
       expect.objectContaining({
@@ -166,7 +166,7 @@ describe('createStyleWorkflowHandlers', () => {
   it('extracts a video frame before calling the LLM for video assets', async () => {
     const videoPath = path.join(base, 'clip.mp4');
     fs.writeFileSync(videoPath, 'fake-video-bytes');
-    db.insertAsset({
+    db.repos.assets.insert({
       hash: 'video-hash',
       type: 'video',
       format: 'mp4',

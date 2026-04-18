@@ -15,17 +15,40 @@ function resetCommon() {
 function registerHandlers(deps?: Record<string, unknown>) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
+  // Wrap the flat `db` mock into the new `.repos.entities` shape so handler
+  // code that calls `db.repos.entities.xxx(...)` still lands on the same spies.
+  let effectiveDeps = deps ?? {
+    adapterRegistry: { get: vi.fn() },
+    cas: {},
+    db: {},
+  };
+  if (deps && typeof deps.db === 'object' && deps.db !== null) {
+    const flatDb = deps.db as Record<string, unknown>;
+    effectiveDeps = {
+      ...deps,
+      db: {
+        ...flatDb,
+        repos: {
+          entities: {
+            getCharacter: flatDb.getCharacter,
+            getEquipment: flatDb.getEquipment,
+            getLocation: flatDb.getLocation,
+            upsertCharacter: flatDb.upsertCharacter,
+            upsertEquipment: flatDb.upsertEquipment,
+            upsertLocation: flatDb.upsertLocation,
+          },
+        },
+      },
+    };
+  }
+
   registerEntityHandlers(
     {
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
     } as never,
-    (deps ?? {
-      adapterRegistry: { get: vi.fn() },
-      cas: {},
-      db: {},
-    }) as never,
+    effectiveDeps as never,
   );
 
   return handlers;

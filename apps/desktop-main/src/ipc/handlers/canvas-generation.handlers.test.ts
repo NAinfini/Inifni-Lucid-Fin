@@ -31,6 +31,42 @@ import {
 import { mergeGenerationParams } from './generation-context.js';
 import { buildAdhocAdapter } from './generation-helpers.js';
 
+/**
+ * Wrap a flat db mock into the `.repos.{entities,assets}` shape expected by
+ * handlers migrated in Phase G1-4.7 / G1-4.8. The same spies remain reachable
+ * via both the legacy flat keys AND via `db.repos.*`, so existing tests that
+ * read/write the flat spies keep working.
+ */
+function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
+  repos: { entities: Record<string, unknown>; assets: Record<string, unknown> };
+} {
+  const insertAsset = flat.insertAsset as ReturnType<typeof vi.fn> | undefined;
+  return {
+    ...flat,
+    repos: {
+      entities: {
+        getCharacter: flat.getCharacter,
+        getEquipment: flat.getEquipment,
+        getLocation: flat.getLocation,
+        upsertCharacter: flat.upsertCharacter,
+        upsertEquipment: flat.upsertEquipment,
+        upsertLocation: flat.upsertLocation,
+      },
+      assets: {
+        insert: insertAsset ?? vi.fn(),
+        delete: vi.fn(),
+        query: vi.fn(() => ({ rows: [] })),
+        search: vi.fn(() => ({ rows: [] })),
+        repairSizes: vi.fn().mockReturnValue(0),
+        insertEmbedding: vi.fn(),
+        queryEmbeddingByHash: vi.fn(),
+        searchByTokens: vi.fn(() => []),
+        getAllEmbeddedHashes: vi.fn(() => []),
+      },
+    },
+  };
+}
+
 function makeStyleGuide(overrides?: Partial<StyleGuide['global']>): StyleGuide {
   return {
     global: {
@@ -258,12 +294,12 @@ function makeDeps(
           },
         })),
       },
-      db: {
+      db: withEntityRepos({
         insertAsset: vi.fn(),
         getCharacter: vi.fn(() => undefined),
         getEquipment: vi.fn(() => undefined),
         getLocation: vi.fn(() => undefined),
-      },
+      }),
       canvasStore: {
         get: vi.fn(() => canvas),
         save,
@@ -591,7 +627,7 @@ describe('startCanvasGeneration progress events', () => {
             return path.join(tmpDir, `${hash}.${ext}`);
           }),
         },
-        db: {
+        db: withEntityRepos({
           insertAsset: vi.fn(),
           getCharacter: vi.fn(() => ({
             id: 'char-1',
@@ -621,7 +657,7 @@ describe('startCanvasGeneration progress events', () => {
             createdAt: 0,
             updatedAt: 0,
           })),
-        },
+        }),
         canvasStore: {
           get: vi.fn(() => canvas),
           save,
@@ -775,12 +811,12 @@ describe('startCanvasGeneration progress events', () => {
             return path.join(tmpDir, `${hash}.${ext}`);
           }),
         },
-        db: {
+        db: withEntityRepos({
           insertAsset: vi.fn(),
           getCharacter: vi.fn(() => undefined),
           getEquipment: vi.fn(() => undefined),
           getLocation: vi.fn(() => undefined),
-        },
+        }),
         canvasStore: {
           get: vi.fn(() => canvas),
           save,
@@ -966,12 +1002,12 @@ describe('startCanvasGeneration progress events', () => {
             },
           })),
         },
-        db: {
+        db: withEntityRepos({
           insertAsset: vi.fn(),
           getCharacter: vi.fn(() => undefined),
           getEquipment: vi.fn(() => undefined),
           getLocation: vi.fn(() => undefined),
-        },
+        }),
         canvasStore: {
           get: vi.fn(() => canvas),
           save,
@@ -1060,12 +1096,12 @@ describe('startCanvasGeneration progress events', () => {
               },
             })),
           },
-          db: {
+          db: withEntityRepos({
             insertAsset: vi.fn(),
             getCharacter: vi.fn(() => undefined),
             getEquipment: vi.fn(() => undefined),
             getLocation: vi.fn(() => undefined),
-          },
+          }),
           canvasStore: {
             get: vi.fn(() => canvas),
             save,
@@ -1107,12 +1143,12 @@ describe('startCanvasGeneration progress events', () => {
 
     const canvas = makeCanvas('video');
     const save = vi.fn();
-    const db = {
+    const db = withEntityRepos({
       insertAsset: vi.fn(),
       getCharacter: vi.fn(() => undefined),
       getEquipment: vi.fn(() => undefined),
       getLocation: vi.fn(() => undefined),
-    };
+    });
     const { sender, events, done } = createSender();
 
     await startCanvasGeneration(

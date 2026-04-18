@@ -40,6 +40,15 @@ import {
   refimageFailedChannel,
   commanderSettingsDispatchChannel,
   commanderUndoDispatchChannel,
+  parseSessionId,
+  parseSnapshotId,
+  parsePresetId,
+  parseShotTemplateId,
+  parseSeriesId,
+  parseEpisodeId,
+  parseCharacterId,
+  parseEquipmentId,
+  parseLocationId,
 } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
@@ -110,7 +119,7 @@ function saveScriptDocument(
   format: 'fountain' | 'fdx' | 'plaintext',
 ) {
   const parsedScenes = parseScript(content, format);
-  const existing = db.getScript();
+  const existing = db.repos.scripts.get();
   const now = Date.now();
   const doc = {
     id: existing?.id ?? crypto.randomUUID(),
@@ -120,7 +129,7 @@ function saveScriptDocument(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
-  db.upsertScript(doc);
+  db.repos.scripts.upsert(doc);
   return doc;
 }
 
@@ -196,7 +205,7 @@ export function registerAllTools(
     } else {
       deps.presetLibrary.push(preset);
     }
-    deps.db.upsertPresetOverride({
+    deps.db.repos.presets.upsertOverride({
       id: preset.id,
       presetId: preset.id,
       category: preset.category,
@@ -221,7 +230,7 @@ export function registerAllTools(
       throw new Error(`Only custom presets can be deleted: ${presetId}`);
     }
     deps.presetLibrary.splice(presetIndex, 1);
-    deps.db.deletePresetOverride(presetId);
+    deps.db.repos.presets.deleteOverride(parsePresetId(presetId));
   };
 
   // ---- Canvas generation deps ----
@@ -339,19 +348,15 @@ export function registerAllTools(
     listPresets: listCommanderPresets,
     savePreset: persistCommanderPreset,
     listShotTemplates: async (): Promise<ShotTemplate[]> => {
-      const custom = deps.db.listCustomShotTemplates?.() ?? [];
+      const custom = deps.db.repos.shotTemplates.list().rows;
       return [...BUILT_IN_SHOT_TEMPLATES, ...custom];
     },
     saveShotTemplate: async (template: ShotTemplate): Promise<ShotTemplate> => {
-      if (deps.db.upsertCustomShotTemplate) {
-        deps.db.upsertCustomShotTemplate(template);
-      }
+      deps.db.repos.shotTemplates.upsert(template);
       return template;
     },
     deleteShotTemplate: async (templateId: string): Promise<void> => {
-      if (deps.db.deleteCustomShotTemplate) {
-        deps.db.deleteCustomShotTemplate(templateId);
-      }
+      deps.db.repos.shotTemplates.delete(parseShotTemplateId(templateId));
     },
     removeCharacterRef: async (canvasId: string, nodeId: string, characterId: string) => {
       const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
@@ -508,7 +513,7 @@ export function registerAllTools(
   for (const tool of createScriptTools({
     loadScript: async (filePath?: string) => {
       if (!filePath) {
-        return deps.db.getScript();
+        return deps.db.repos.scripts.get();
       }
       const resolved = path.resolve(filePath);
       if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
@@ -540,12 +545,12 @@ export function registerAllTools(
   // ---- Entity tools ----
   for (const tool of createCharacterTools({
     listCharacters: async () => {
-      return deps.db.listCharacters();
+      return deps.db.repos.entities.listCharacters().rows;
     },
     saveCharacter: async (c) => {
-      deps.db.upsertCharacter({ ...c });
+      deps.db.repos.entities.upsertCharacter({ ...c });
     },
-    deleteCharacter: async (id) => deps.db.deleteCharacter(id),
+    deleteCharacter: async (id) => deps.db.repos.entities.deleteCharacter(parseCharacterId(id)),
     generateImage,
     getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
   })) {
@@ -553,24 +558,24 @@ export function registerAllTools(
   }
   for (const tool of createLocationTools({
     listLocations: async () => {
-      return deps.db.listLocations();
+      return deps.db.repos.entities.listLocations().rows;
     },
     saveLocation: async (l) => {
-      deps.db.upsertLocation({ ...l });
+      deps.db.repos.entities.upsertLocation({ ...l });
     },
-    deleteLocation: async (id) => deps.db.deleteLocation(id),
+    deleteLocation: async (id) => deps.db.repos.entities.deleteLocation(parseLocationId(id)),
     generateImage,
   })) {
     registry.register(tool);
   }
   for (const tool of createEquipmentTools({
     listEquipment: async () => {
-      return deps.db.listEquipment();
+      return deps.db.repos.entities.listEquipment().rows;
     },
     saveEquipment: async (e) => {
-      deps.db.upsertEquipment({ ...e });
+      deps.db.repos.entities.upsertEquipment({ ...e });
     },
-    deleteEquipment: async (id) => deps.db.deleteEquipment(id),
+    deleteEquipment: async (id) => deps.db.repos.entities.deleteEquipment(parseEquipmentId(id)),
     generateImage,
     getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
   })) {
@@ -580,7 +585,7 @@ export function registerAllTools(
   // ---- Job tools ----
   registerToolModule(registry, jobToolModule, {
     listJobs: async () => {
-      return deps.db.listJobs().map((job) => ({
+      return deps.db.repos.jobs.list().rows.map((job) => ({
         id: job.id,
         status: job.status,
         nodeId:
@@ -602,12 +607,12 @@ export function registerAllTools(
 
   const ensureCommanderSeriesId = () => {
     if (activeSeriesId) {
-      const existing = deps.db.getSeries(activeSeriesId);
+      const existing = deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId));
       if (existing) return { seriesId: activeSeriesId };
     }
     const now = Date.now();
     const seriesId = crypto.randomUUID();
-    deps.db.upsertSeries({
+    deps.db.repos.series.upsertSeries({
       id: seriesId,
       title: 'Untitled Series',
       description: '',
@@ -623,21 +628,21 @@ export function registerAllTools(
   registerToolModule(registry, seriesToolModule, {
     getSeries: async () => {
       if (!activeSeriesId) return null;
-      return deps.db.getSeries(activeSeriesId) ?? null;
+      return deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId)) ?? null;
     },
     saveSeries: async (data: Record<string, unknown>) => {
       const existingId =
         typeof data.id === 'string' && data.id.trim().length > 0
           ? data.id.trim()
           : activeSeriesId;
-      const existingSeries = existingId ? deps.db.getSeries(existingId) : undefined;
+      const existingSeries = existingId ? deps.db.repos.series.getSeries(parseSeriesId(existingId)) : undefined;
       const now = Date.now();
       const seriesId = existingId ?? crypto.randomUUID();
       const episodeIds = Array.isArray(data.episodeIds)
         ? data.episodeIds.filter((entry): entry is string => typeof entry === 'string')
-        : existingSeries?.episodeIds ?? deps.db.listEpisodes(seriesId).map((episode) => episode.id);
+        : existingSeries?.episodeIds ?? deps.db.repos.series.listEpisodes(parseSeriesId(seriesId)).rows.map((episode) => episode.id);
 
-      deps.db.upsertSeries({
+      deps.db.repos.series.upsertSeries({
         id: seriesId,
         title:
           typeof data.title === 'string'
@@ -660,11 +665,11 @@ export function registerAllTools(
       });
 
       activeSeriesId = seriesId;
-      return deps.db.getSeries(seriesId) ?? null;
+      return deps.db.repos.series.getSeries(parseSeriesId(seriesId)) ?? null;
     },
     listEpisodes: async () => {
       if (!activeSeriesId) return [];
-      return deps.db.listEpisodes(activeSeriesId).map((episode) => ({
+      return deps.db.repos.series.listEpisodes(parseSeriesId(activeSeriesId)).rows.map((episode) => ({
         id: episode.id,
         title: episode.title,
         canvasId: undefined,
@@ -672,10 +677,10 @@ export function registerAllTools(
     },
     addEpisode: async (title: string, _canvasId?: string) => {
       const { seriesId } = ensureCommanderSeriesId();
-      const existingEpisodes = deps.db.listEpisodes(seriesId);
+      const existingEpisodes = deps.db.repos.series.listEpisodes(parseSeriesId(seriesId)).rows;
       const now = Date.now();
       const episodeId = crypto.randomUUID();
-      deps.db.upsertEpisode({
+      deps.db.repos.series.upsertEpisode({
         id: episodeId,
         seriesId,
         title,
@@ -685,9 +690,9 @@ export function registerAllTools(
         updatedAt: now,
       });
 
-      const series = deps.db.getSeries(seriesId);
+      const series = deps.db.repos.series.getSeries(parseSeriesId(seriesId));
       if (series) {
-        deps.db.upsertSeries({
+        deps.db.repos.series.upsertSeries({
           ...series,
           episodeIds: [...new Set([...series.episodeIds, episodeId])],
           updatedAt: now,
@@ -697,10 +702,10 @@ export function registerAllTools(
       return { id: episodeId };
     },
     removeEpisode: async (episodeId: string) => {
-      const series = activeSeriesId ? deps.db.getSeries(activeSeriesId) : undefined;
-      deps.db.deleteEpisode(episodeId);
+      const series = activeSeriesId ? deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId)) : undefined;
+      deps.db.repos.series.deleteEpisode(parseEpisodeId(episodeId));
       if (series) {
-        deps.db.upsertSeries({
+        deps.db.repos.series.upsertSeries({
           ...series,
           episodeIds: series.episodeIds.filter((id) => id !== episodeId),
           updatedAt: Date.now(),
@@ -709,24 +714,24 @@ export function registerAllTools(
     },
     reorderEpisodes: async (episodeIds: string[]) => {
       if (!activeSeriesId) return [];
-      const episodes = deps.db.listEpisodes(activeSeriesId);
+      const episodes = deps.db.repos.series.listEpisodes(parseSeriesId(activeSeriesId)).rows;
       for (let index = 0; index < episodeIds.length; index += 1) {
         const episode = episodes.find((entry) => entry.id === episodeIds[index]);
         if (episode) {
-          deps.db.upsertEpisode({
+          deps.db.repos.series.upsertEpisode({
             ...episode,
             order: index,
             updatedAt: Date.now(),
           });
         }
       }
-      return deps.db.listEpisodes(activeSeriesId);
+      return deps.db.repos.series.listEpisodes(parseSeriesId(activeSeriesId)).rows;
     },
   });
 
   // ---- Color style tools ----
   registerToolModule(registry, colorStyleToolModule, {
-    listColorStyles: async () => deps.db.listColorStyles(),
+    listColorStyles: async () => deps.db.repos.colorStyles.list(),
     saveColorStyle: async (style: Record<string, unknown>) => {
       if (
         typeof style.id !== 'string' ||
@@ -736,10 +741,12 @@ export function registerAllTools(
       ) {
         throw new Error('style.id and style.name are required');
       }
-      deps.db.upsertColorStyle(style as unknown as Parameters<typeof deps.db.upsertColorStyle>[0]);
+      deps.db.repos.colorStyles.upsert(
+        style as unknown as Parameters<typeof deps.db.repos.colorStyles.upsert>[0],
+      );
     },
     deleteColorStyle: async (id: string) => {
-      deps.db.deleteColorStyle(id);
+      deps.db.repos.colorStyles.delete(id);
     },
   });
 
@@ -1040,9 +1047,9 @@ export function registerAllTools(
   // ---- Snapshot tools ----
   if (sessionId) {
     for (const tool of createSnapshotTools({
-      captureSnapshot: (sid, label, trigger) => deps.db.captureSnapshot(sid, label, trigger),
-      listSnapshots: (sid) => deps.db.listSnapshots(sid).map(({ data: _d, ...meta }) => meta),
-      restoreSnapshot: (snapshotId) => deps.db.restoreSnapshot(snapshotId),
+      captureSnapshot: (sid, label, trigger) => deps.db.repos.snapshots.capture(parseSessionId(sid), label, trigger),
+      listSnapshots: (sid) => deps.db.repos.snapshots.list(parseSessionId(sid)).rows.map(({ data: _d, ...meta }) => meta),
+      restoreSnapshot: (snapshotId) => deps.db.repos.snapshots.restore(parseSnapshotId(snapshotId)),
       getSessionId: () => sessionId,
     })) {
       registry.register(tool);

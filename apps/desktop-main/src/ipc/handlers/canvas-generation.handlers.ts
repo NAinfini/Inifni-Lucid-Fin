@@ -289,7 +289,7 @@ async function executeGeneration(args: {
           metaFileSize: meta.fileSize,
           metaOriginalName: meta.originalName,
         });
-        deps.db.insertAsset({
+        deps.db.repos.assets.insert({
           ...meta,
           prompt: requestBase.prompt,
           provider: adapter.id,

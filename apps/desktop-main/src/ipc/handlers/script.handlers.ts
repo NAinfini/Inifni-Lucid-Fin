@@ -27,7 +27,7 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
       const parsedScenes = Array.isArray(args.parsedScenes)
         ? (args.parsedScenes as ParsedScene[])
         : parseScript(args.content, format);
-      const existing = db.getScript();
+      const existing = db.repos.scripts.get();
       const now = Date.now();
       const doc: ScriptDocument = {
         id: existing?.id ?? randomUUID(),
@@ -37,12 +37,12 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
-      db.upsertScript(doc);
+      db.repos.scripts.upsert(doc);
     },
   );
 
   ipcMain.handle('script:load', async () => {
-    return db.getScript();
+    return db.repos.scripts.get();
   });
 
   ipcMain.handle('script:import', async (_e, args: { filePath: string }) => {
@@ -62,7 +62,7 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
           ? ('fdx' as const)
           : ('plaintext' as const);
     const parsedScenes = parseScript(content, format);
-    const existing = db.getScript();
+    const existing = db.repos.scripts.get();
     const now = Date.now();
     const doc: ScriptDocument = {
       id: existing?.id ?? randomUUID(),
@@ -72,7 +72,7 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    db.upsertScript(doc);
+    db.repos.scripts.upsert(doc);
     return doc;
   });
 }

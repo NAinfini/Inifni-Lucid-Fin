@@ -19,7 +19,9 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   ],
   'image-node-generation': ['canvas.generate'],
   'video-node-generation': ['canvas.generate'],
-  'audio-generation': ['canvas.generate'],
+  'audio-voice': ['canvas.generate'],
+  'audio-music': ['canvas.generate'],
+  'audio-sfx': ['canvas.generate'],
   'node-preset-tracks': [
     'canvas.readNodePresetTracks',
     'canvas.writeNodePresetTracks',
@@ -78,7 +80,9 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
 const PROCESS_PROMPT_TRIGGER_NOTES: Record<string, string | undefined> = {
   'image-node-generation': 'nodeType === image',
   'video-node-generation': 'nodeType === video',
-  'audio-generation': 'nodeType === audio',
+  'audio-voice': 'nodeType === audio && (audioType === voice || missing)',
+  'audio-music': 'nodeType === audio && audioType === music',
+  'audio-sfx': 'nodeType === audio && audioType === sfx',
 };
 
 export function getProcessPromptTriggerTools(processKey: string): string[] {

@@ -120,13 +120,13 @@ describe('WorkflowRecovery', () => {
       entityType: 'asset',
       entityId: 'asset-2',
     });
-    db.updateWorkflowTaskRun('task-2', {
+    db.repos.workflows.updateTaskRun('task-2', {
       status: TaskRunStatus.Running,
       startedAt: 1010,
       updatedAt: 1010,
     });
-    db.recomputeStageAggregate('stage-2');
-    db.recomputeWorkflowAggregate('wf-2');
+    db.repos.workflows.recomputeStageAggregate('stage-2');
+    db.repos.workflows.recomputeWorkflowAggregate('wf-2');
 
     const recovered = await recovery.recover();
 

@@ -39,18 +39,42 @@ function makeCharacter(overrides?: Record<string, unknown>) {
 function registerHandlers(db?: Record<string, unknown>) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
+  // Build the `.repos.entities.*` shape expected by the handler.
+  // - list methods return a `ListResult<T>` shape ({rows, degradedCount}).
+  // - get/delete methods accept a branded id (the brand is just a string at
+  //   runtime); pass-through to the test-provided spy.
+  const entities = db
+    ? {
+      listCharacters: vi.fn(() => {
+        const fn = db.listCharacters as ((...args: unknown[]) => unknown[]) | undefined;
+        return { rows: fn ? fn() : [], degradedCount: 0 };
+      }),
+      getCharacter: db.getCharacter,
+      upsertCharacter: db.upsertCharacter,
+      deleteCharacter: db.deleteCharacter,
+    }
+    : {
+      listCharacters: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+      getCharacter: vi.fn(),
+      upsertCharacter: vi.fn(),
+      deleteCharacter: vi.fn(),
+    };
+
   registerCharacterHandlers(
     {
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
     } as never,
-    (db ?? {
-      listCharacters: vi.fn(),
-      getCharacter: vi.fn(),
-      upsertCharacter: vi.fn(),
-      deleteCharacter: vi.fn(),
-    }) as never,
+    {
+      ...(db ?? {
+        listCharacters: vi.fn(),
+        getCharacter: vi.fn(),
+        upsertCharacter: vi.fn(),
+        deleteCharacter: vi.fn(),
+      }),
+      repos: { entities },
+    } as never,
   );
 
   return handlers;

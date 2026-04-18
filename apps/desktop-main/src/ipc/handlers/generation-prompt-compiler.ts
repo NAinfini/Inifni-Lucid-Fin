@@ -17,6 +17,7 @@ import type {
 import { createEmptyPresetTrackSet, normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 import type { ResolvedCharacter } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { tryCharacterId, tryEquipmentId, tryLocationId } from '@lucid-fin/contracts-parse';
 import {
   DEFAULT_STYLE_GUIDE,
   STYLE_GUIDE_LIGHTING_PRESETS,
@@ -128,7 +129,9 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
 
   const withCharacterRefs = node.data as ImageNodeData | VideoNodeData;
   for (const ref of withCharacterRefs.characterRefs ?? []) {
-    const character = db.getCharacter(ref.characterId);
+    const characterId = tryCharacterId(ref.characterId);
+    if (!characterId) continue;
+    const character = db.repos.entities.getCharacter(characterId);
     if (!character) continue;
 
     // Prefer explicit hash on ref, then angle slot lookup, then legacy single image, then all images
@@ -157,7 +160,9 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
 
   for (const rawRef of (withCharacterRefs as { equipmentRefs?: Array<EquipmentRef | string> }).equipmentRefs ?? []) {
     const ref: EquipmentRef = typeof rawRef === 'string' ? { equipmentId: rawRef } : rawRef;
-    const equipment = db.getEquipment(ref.equipmentId);
+    const equipmentId = tryEquipmentId(ref.equipmentId);
+    if (!equipmentId) continue;
+    const equipment = db.repos.entities.getEquipment(equipmentId);
     if (!equipment) continue;
 
     const explicitHash = normalizeOptionalString(ref.referenceImageHash);
@@ -180,7 +185,9 @@ export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: Ca
   }
 
   for (const ref of withCharacterRefs.locationRefs ?? []) {
-    const location = db.getLocation(ref.locationId);
+    const locationId = tryLocationId(ref.locationId);
+    if (!locationId) continue;
+    const location = db.repos.entities.getLocation(locationId);
     if (!location) continue;
 
     const explicitHash = normalizeOptionalString(ref.referenceImageHash);
@@ -312,14 +319,18 @@ export function resolveCharacterEntities(
   if (!refs?.length) return [];
   const result: ResolvedCharacter[] = [];
   for (const ref of refs) {
-    const character = db.getCharacter(ref.characterId);
+    const characterId = tryCharacterId(ref.characterId);
+    if (!characterId) continue;
+    const character = db.repos.entities.getCharacter(characterId);
     if (!character) continue;
     const loadout = character.loadouts.find((l) => l.id === ref.loadoutId)
       ?? character.loadouts.find((l) => l.id === character.defaultLoadoutId);
     const equipment: Equipment[] = [];
     if (loadout) {
       for (const eqId of loadout.equipmentIds) {
-        const eq = db.getEquipment(eqId);
+        const equipmentId = tryEquipmentId(eqId);
+        if (!equipmentId) continue;
+        const eq = db.repos.entities.getEquipment(equipmentId);
         if (eq) equipment.push(eq);
       }
     }
@@ -341,7 +352,9 @@ export function resolveLocationEntities(
   if (!refs?.length) return [];
   const result: Location[] = [];
   for (const ref of refs) {
-    const location = db.getLocation(ref.locationId);
+    const locationId = tryLocationId(ref.locationId);
+    if (!locationId) continue;
+    const location = db.repos.entities.getLocation(locationId);
     if (location) result.push(location);
   }
   return result;
@@ -363,7 +376,9 @@ export function resolveStandaloneEquipment(
   for (const rawRef of refs) {
     const eqId = typeof rawRef === 'string' ? rawRef : rawRef.equipmentId;
     if (loadoutEquipmentIds.has(eqId)) continue;
-    const equipment = db.getEquipment(eqId);
+    const equipmentId = tryEquipmentId(eqId);
+    if (!equipmentId) continue;
+    const equipment = db.repos.entities.getEquipment(equipmentId);
     if (equipment) result.push(equipment);
   }
   return result;
