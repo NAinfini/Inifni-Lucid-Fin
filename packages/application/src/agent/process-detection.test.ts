@@ -36,7 +36,28 @@ describe('detectProcess', () => {
     expect(detectProcess('canvas.generate', { nodeType: 'video' })).toBe(
       'video-node-generation',
     );
-    expect(detectProcess('canvas.generate', { nodeType: 'audio' })).toBe('audio-generation');
+    // Audio without audioType defaults to audio-voice.
+    expect(detectProcess('canvas.generate', { nodeType: 'audio' })).toBe('audio-voice');
+  });
+
+  it('routes canvas.generate audio by audioType argument', () => {
+    expect(
+      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'voice' }),
+    ).toBe('audio-voice');
+    expect(
+      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'music' }),
+    ).toBe('audio-music');
+    expect(
+      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'sfx' }),
+    ).toBe('audio-sfx');
+    // Unknown audioType falls back to audio-voice.
+    expect(
+      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'unknown' }),
+    ).toBe('audio-voice');
+    // audioType without audio nodeType is ignored.
+    expect(
+      detectProcess('canvas.generate', { nodeType: 'image', audioType: 'music' }),
+    ).toBe('image-node-generation');
   });
 
   it('defaults canvas.generate to image-node-generation when nodeType is missing or unknown', () => {

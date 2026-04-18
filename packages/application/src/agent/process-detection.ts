@@ -6,7 +6,9 @@ export type ProcessCategory =
   | 'equipment-ref-image-generation'
   | 'image-node-generation'
   | 'video-node-generation'
-  | 'audio-generation'
+  | 'audio-voice'
+  | 'audio-music'
+  | 'audio-sfx'
   | 'node-preset-tracks'
   | 'preset-definition-management'
   | 'shot-template-management'
@@ -38,7 +40,9 @@ const PROCESS_CATEGORY_NAMES: Record<ProcessCategory, string> = {
   'equipment-ref-image-generation': 'Equipment Reference Image Generation',
   'image-node-generation': 'Image Node Generation',
   'video-node-generation': 'Video Node Generation',
-  'audio-generation': 'Audio Generation',
+  'audio-voice': 'Audio Voice Generation',
+  'audio-music': 'Audio Music Generation',
+  'audio-sfx': 'Audio SFX Generation',
   'node-preset-tracks': 'Node Preset Tracks',
   'preset-definition-management': 'Preset Definition Management',
   'shot-template-management': 'Shot Template Management',
@@ -71,6 +75,14 @@ function normalizeNodeType(args?: Record<string, unknown>): 'image' | 'video' | 
   return null;
 }
 
+function normalizeAudioType(
+  args?: Record<string, unknown>,
+): 'voice' | 'music' | 'sfx' | null {
+  const raw = typeof args?.audioType === 'string' ? args.audioType.trim().toLowerCase() : '';
+  if (raw === 'voice' || raw === 'music' || raw === 'sfx') return raw;
+  return null;
+}
+
 export function detectProcess(
   toolName: string,
   args?: Record<string, unknown>,
@@ -80,7 +92,13 @@ export function detectProcess(
   if (toolName === 'canvas.generate') {
     const nodeType = normalizeNodeType(args);
     if (nodeType === 'video') return 'video-node-generation';
-    if (nodeType === 'audio') return 'audio-generation';
+    if (nodeType === 'audio') {
+      const audioType = normalizeAudioType(args);
+      if (audioType === 'music') return 'audio-music';
+      if (audioType === 'sfx') return 'audio-sfx';
+      // Default when audioType is voice, missing, or unrecognized.
+      return 'audio-voice';
+    }
     return 'image-node-generation';
   }
 
