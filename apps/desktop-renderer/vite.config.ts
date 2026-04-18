@@ -22,7 +22,29 @@ export function desktopRendererManualChunks(id: string) {
     return 'vendor-radix';
   }
 
+  // Markdown rendering stack (react-markdown + remark-* + rehype-katex
+  // + katex CSS) — ~500KB transitive, only needed when commander
+  // renders formatted message content. Routed into its own vendor
+  // chunk and lazy-loaded via Markdown.tsx's React.lazy wrapper.
+  if (
+    normalizedId.includes('/react-markdown/') ||
+    normalizedId.includes('/remark-') ||
+    normalizedId.includes('/rehype-') ||
+    normalizedId.includes('/katex/') ||
+    normalizedId.includes('/micromark') ||
+    normalizedId.includes('/mdast-') ||
+    normalizedId.includes('/hast-')
+  ) {
+    return 'vendor-markdown';
+  }
+
   // ---- Panel-level code splitting ----
+
+  // MarkdownInner is lazy-loaded via Markdown.tsx; keep it alongside
+  // its heavy vendor deps so the runtime only touches one extra chunk.
+  if (normalizedId.includes('/components/canvas/commander/MarkdownInner.')) {
+    return 'vendor-markdown';
+  }
 
   if (normalizedId.includes('/components/canvas/CommanderPanel.')
     || normalizedId.includes('/hooks/useCommander.')

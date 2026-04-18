@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/react';
-import { Markdown } from './Markdown.js';
+// Test the implementation directly; the public `Markdown.tsx` wraps
+// this in a React.lazy boundary for code-splitting and adds no logic
+// of its own worth testing here.
+import Markdown from './MarkdownInner.js';
 
 afterEach(() => {
   cleanup();
