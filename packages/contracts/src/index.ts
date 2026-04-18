@@ -118,6 +118,19 @@ export type {
 // ── Phase B: IPC single source of truth ────────────────────────
 // The generated `LucidAPI` interface — emitted by scripts/gen-preload.ts
 // from the channel registry in contracts-parse. Pure types, zero zod.
+//
+// ⚠️ RUNTIME DRIFT WARNING — the runtime preload
+// (apps/desktop-main/src/preload.cts, compiled to preload.cjs) is still
+// hand-written and uses positional signatures for several APIs
+// (e.g. `commander.chat(canvasId, message, ...)`). The generated
+// `preload.generated.cts` uses object-style `method(req)` calls to match
+// this type, but is NOT the active preload at runtime.
+//
+// Consumers that want the LIVE runtime shape MUST use
+// `typeof window.lucidAPI` (see `apps/desktop-renderer/src/utils/api.ts`),
+// NOT this generated type, until the runtime preload cutover completes.
+// Importing `LucidAPI` from here and calling methods object-style will
+// produce malformed IPC payloads that fail schema validation at runtime.
 export type {
   LucidAPI,
   LucidAPIInfrastructure,
