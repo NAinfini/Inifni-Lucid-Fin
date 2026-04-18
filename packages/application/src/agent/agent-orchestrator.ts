@@ -21,7 +21,6 @@ import {
   safeStringify,
 } from './context-manager.js';
 import { ToolExecutor } from './tool-executor.js';
-import { buildMessagesForRequest, destructLLMResponse } from './message-constructor.js';
 import { ToolResultCache } from './tool-result-cache.js';
 import { TranscriptIndex } from './transcript-index.js';
 import type { ToolResult } from './tool-registry.js';
@@ -90,28 +89,10 @@ export interface AgentLLMRequestDiagnostics {
 const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOKEN);
 
 /**
- * Feature flag: when truthy, the ContextGraph path is used instead of the
- * legacy ContextManager + ToolResultCache path (OpenAI provider only).
- * Default: off. Enable by setting env var LUCID_CONTEXT_GRAPH=1.
- */
-/**
- * Feature flag: ContextGraph cutover path (Phase G2b).
- *
- * Default: ON as of Phase G2b-3. The graph path is now the default wire-
- * messages source for supported adapters (openai, claude). To force the
- * legacy path (for rollback during incidents), set `LUCID_CONTEXT_GRAPH=0`.
- *
- * Read at call time (not module init) so tests can toggle it.
- */
-function isContextGraphEnabled(): boolean {
-  const flag = process.env['LUCID_CONTEXT_GRAPH'];
-  if (flag === '0') return false; // explicit opt-out
-  return true; // default on
-}
-
-/**
- * Strip context-injected parameters from a tool schema. Matches the helper
- * in message-constructor.ts — needed locally for the graph serializer path.
+ * Strip context-injected parameters from a tool schema. These parameters are
+ * auto-supplied by the tool executor at runtime, so the LLM shouldn't see or
+ * fill them — saves tokens and eliminates a class of "required field missing"
+ * errors.
  */
 function stripInjectedParamsFromTool(
   tool: LLMToolDefinition,
@@ -131,6 +112,27 @@ function stripInjectedParamsFromTool(
       required: newRequired?.length ? newRequired : undefined,
     },
   };
+}
+
+/**
+ * Un-sanitize tool names and dedup tool call IDs in an LLM response.
+ * Mirrors the previous `destructLLMResponse` helper; co-located here so the
+ * graph serializer's reverse map feeds it directly.
+ */
+function destructResponse(
+  raw: LLMCompletionResult,
+  reverseMap: ReadonlyMap<string, string>,
+): LLMCompletionResult {
+  if (!raw.toolCalls || raw.toolCalls.length === 0) return raw;
+  const seenIds = new Set<string>();
+  const deduped: LLMCompletionResult['toolCalls'] = [];
+  for (const tc of raw.toolCalls) {
+    if (seenIds.has(tc.id)) continue;
+    seenIds.add(tc.id);
+    const name = reverseMap.size > 0 ? (reverseMap.get(tc.name) ?? tc.name) : tc.name;
+    deduped.push({ ...tc, name });
+  }
+  return { ...raw, toolCalls: deduped };
 }
 
 function isProcessCategory(value: unknown): value is ProcessCategory {
@@ -319,25 +321,15 @@ export class AgentOrchestrator {
 
     this.resultCache.warmFromHistory(messages, this.transcriptIndex);
 
-    // ── G2a-6: Initialize ContextGraph (graph path only) ─────────────────
+    // ── G2a-6: Initialize ContextGraph ───────────────────────────────────
     // The graph is rebuilt each step from the canonical `messages` array
     // immediately before serialization. This keeps the graph in sync with
     // mid-loop mutations (system prompt refresh, injected process prompts,
     // batch warnings, new user messages) without tracking them twice.
-    // The graph path now supports both openai and claude adapters — the
-    // `serializeForOpenAI` serializer produces the unified `LLMMessage[]`
-    // wire format that both adapters consume. Adapter-specific wire
-    // conversion (e.g. Claude's content blocks) happens inside each adapter.
-    const graphFlagOn = isContextGraphEnabled();
-    const GRAPH_SUPPORTED_ADAPTERS = new Set(['openai', 'claude']);
-    const useGraphPath = graphFlagOn && GRAPH_SUPPORTED_ADAPTERS.has(this.adapter.id);
-    if (graphFlagOn && !useGraphPath) {
-      console.warn(`[ContextGraph] Feature flag enabled but provider '${this.adapter.id}' is not supported — falling back to legacy path.`);
-    }
-    if (useGraphPath) {
-      this.contextGraph = new ContextGraph();
-    }
-    // ─────────────────────────────────────────────────────────────────────
+    // `serializeForOpenAI` produces the unified `LLMMessage[]` wire format
+    // that every adapter consumes. Adapter-specific wire conversion
+    // (e.g. Claude's content blocks) happens inside each adapter.
+    this.contextGraph = new ContextGraph();
 
     // Wrap emit to absorb raw tool results into cache
     // toolCallArgsMap is populated before each tool execution round
@@ -393,47 +385,41 @@ export class AgentOrchestrator {
         availableTools = compactedTools;
         for (const evicted of evictedNames) discoveredToolNames.delete(evicted);
 
-        // --- Message Constructor: budget enforcement + tool name sanitization ---
+        // Build wire payload via ContextGraph serializer.
+        // The graph is rebuilt from the canonical `messages` array each step
+        // (covers system-prompt refresh, injected process prompts, batch
+        // warnings, new user messages). Serialization handles budget
+        // enforcement, tool-name sanitization, stub/cache skipping, and
+        // dangling-tool/pairing guards.
         const injectedParams: string[] = [];
         if (canvasId) injectedParams.push('canvasId');
-        const messageBuildInput = {
-          messages,
-          tools: availableTools,
-          profile: this.profile,
-          contextWindowTokens: effectiveCtx ?? 200000,
-          cache: this.resultCache ?? undefined,
-          transcriptIndex: this.transcriptIndex,
-          injectedParams: injectedParams.length > 0 ? injectedParams : undefined,
-          // reserveTokensForOutput defaults to 4096 inside buildMessagesForRequest
-        };
-        const { wireMessages: legacyWireMessages, wireTools: legacyWireTools, buildCtx } = buildMessagesForRequest(messageBuildInput);
 
-        // G2b-1: When graph path is active, rebuild the graph from `messages`
-        // and produce wireMessages + wireTools via the graph serializer.
-        // The legacy path output is still computed above (for buildCtx) but
-        // ignored when the flag is on.
-        let wireMessages = legacyWireMessages;
-        let wireTools = legacyWireTools;
-        let graphReverseMap: Map<string, string> | undefined;
-        if (useGraphPath && this.contextGraph) {
-          this.rebuildGraphFromMessages(messages, steps);
-          const graphToolsInput = injectedParams.length > 0
-            ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
-            : availableTools;
-          const graphOut = serializeForOpenAI({
-            graph: this.contextGraph,
-            contextWindowTokens: effectiveCtx ?? 200000,
-            tools: graphToolsInput,
-            profile: this.profile,
-            cache: this.resultCache ?? undefined,
-          });
-          wireMessages = graphOut.wireMessages;
-          wireTools = graphOut.wireTools;
-          graphReverseMap = graphOut.toolNameReverseMap;
+        this.rebuildGraphFromMessages(messages, steps);
+        const graphToolsInput = injectedParams.length > 0
+          ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
+          : availableTools;
+        if (!this.contextGraph) {
+          throw new Error('ContextGraph missing — execute() was not initialized correctly.');
         }
+        const {
+          wireMessages,
+          wireTools,
+          toolNameReverseMap: graphReverseMap,
+          estimatedTokensUsed,
+        } = serializeForOpenAI({
+          graph: this.contextGraph,
+          contextWindowTokens: effectiveCtx ?? 200000,
+          tools: graphToolsInput,
+          profile: this.profile,
+          cache: this.resultCache ?? undefined,
+        });
 
         const ctxWindow = effectiveCtx ?? 200000;
-        const estimatedTokens = buildCtx.estimatedTokensUsed;
+        // History-trim approximation: how many source messages didn't make it
+        // into the wire window. Loses the exact "old-trim vs orphan-drop"
+        // distinction the legacy constructor tracked, but preserves the same
+        // "are we losing history?" diagnostic signal.
+        const historyMessagesTrimmed = Math.max(0, messages.length - wireMessages.length);
 
         // Cache tool schema serialization — only re-serialize when tool count changes
         if (availableTools.length !== this._lastToolCount) {
@@ -450,12 +436,12 @@ export class AgentOrchestrator {
           messageChars: measureMessageChars(messages),
           systemPromptChars: systemPrompt.length,
           promptGuideChars: typeof context.extra?.promptGuides === 'string' ? context.extra.promptGuides.length : 0,
-          estimatedTokensUsed: estimatedTokens,
+          estimatedTokensUsed: estimatedTokensUsed,
           contextWindowTokens: ctxWindow,
           cacheChars: this.resultCache?.sizeChars ?? 0,
           cacheEntryCount: this.resultCache?.entryCount ?? 0,
-          historyMessagesTrimmed: buildCtx.historyMessagesTrimmed,
-          utilizationRatio: ctxWindow > 0 ? estimatedTokens / ctxWindow : 0,
+          historyMessagesTrimmed,
+          utilizationRatio: ctxWindow > 0 ? estimatedTokensUsed / ctxWindow : 0,
         });
 
         // Clear previous thinking before new LLM call
@@ -468,13 +454,9 @@ export class AgentOrchestrator {
           maxTokens: this.maxTokens,
         });
 
-        // --- Message Destructor: un-sanitize tool names + dedup ---
-        // When graph path is on, use the graph serializer's reverse map so
-        // tool names sanitized by the graph path are un-sanitized correctly.
-        const destructCtx = graphReverseMap
-          ? { ...buildCtx, toolNameReverseMap: graphReverseMap }
-          : buildCtx;
-        lastResult = destructLLMResponse(rawResult, destructCtx);
+        // Un-sanitize tool names and dedup tool call IDs using the graph
+        // serializer's reverse map.
+        lastResult = destructResponse(rawResult, graphReverseMap);
 
         if (lastResult.reasoning) {
           wrappedEmit({ type: 'thinking', content: lastResult.reasoning });
@@ -569,7 +551,7 @@ export class AgentOrchestrator {
 
         // Predictive pre-compaction: trigger BEFORE next LLM call based on utilization
         const ctxTokens = effectiveCtx ?? 200000;
-        const utilizationRatio = buildCtx.estimatedTokensUsed / ctxTokens;
+        const utilizationRatio = estimatedTokensUsed / ctxTokens;
         if (utilizationRatio > 0.90) {
           // Critical: full compaction (Phase 1 + Phase 2 LLM summarization)
           await this.contextManager.compactWithLLM(messages, inLoopCharBudget, this.resultCache ?? undefined);
