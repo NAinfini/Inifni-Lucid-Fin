@@ -765,9 +765,27 @@ export const entityMutatingToolNames: ReadonlySet<string> = new Set(
 
 /**
  * Tool names that trigger a canvas-state re-broadcast (canvas.*,
- * render.*, series.update, preset/shotTemplate mutations). Derived
- * from all catalog mutations minus the entity-refresh bucket.
+ * render.*, series.update, preset/shotTemplate/snapshot mutations).
+ *
+ * Derived by prefix/name match against the catalog's mutating set so
+ * non-canvas mutations (provider.*, asset.*, script.*, job.*,
+ * workflow.*, etc.) do NOT trigger an unnecessary canvas rebroadcast.
+ * The previous "all-mutations-except-entity-refresh" rule swept in
+ * unrelated tools and could overwrite renderer-side edits with stale
+ * main-side snapshots.
+ *
+ * Long-term fix: add a `canvas.sync` uiEffect kind to the catalog
+ * schema and annotate these tools directly (discriminated-union
+ * source-of-truth). Until then, the prefix match mirrors the JSDoc
+ * intent exactly.
  */
+const CANVAS_SYNC_DOMAIN_PREFIXES = ['canvas.', 'render.', 'preset.', 'shotTemplate.'] as const;
+const CANVAS_SYNC_EXACT_NAMES = new Set<string>(['series.update', 'snapshot.restore']);
+
 export const canvasSyncMutatingToolNames: ReadonlySet<string> = new Set(
-  ToolCatalog.mutatingKeys.filter((name) => !entityMutatingToolNames.has(name)),
+  ToolCatalog.mutatingKeys.filter((name) => {
+    if (entityMutatingToolNames.has(name)) return false;
+    if (CANVAS_SYNC_DOMAIN_PREFIXES.some((p) => name.startsWith(p))) return true;
+    return CANVAS_SYNC_EXACT_NAMES.has(name);
+  }),
 );
