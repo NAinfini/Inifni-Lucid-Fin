@@ -67,39 +67,41 @@ afterEach(() => {
 describe('ProcessPromptStore', () => {
   it('ships compact, substantive defaults for every process category', () => {
     const expectedSnippets: Record<string, string[]> = {
-      'character-ref-image-generation': ['two-row model sheet', 'front, profile, back'],
-      'location-ref-image-generation': ['spatial readability', 'wide-establishing'],
-      'equipment-ref-image-generation': ['orthographic', 'material transitions'],
-      'image-node-generation': ['compiled prompt', 'canvas.setNodeRefs'],
-      'video-node-generation': ['single action arc', 'canvas.setVideoFrames'],
-      'audio-generation': ['voice, music, or sound effect', 'provider capability'],
+      'character-ref-image-generation': ['two-row model sheet', 'anti-collapse'],
+      'location-ref-image-generation': ['wide-establishing', 'No characters, no people'],
+      'equipment-ref-image-generation': ['orthographic', 'silhouette'],
+      'image-node-generation': ['five elements', 'canvas.setNodeRefs'],
+      'video-node-generation': ['three-part', 'canvas.setVideoFrames'],
+      'audio-voice': ['emotionVector', 'bracketed'],
+      'audio-music': ['Genre anchor', 'BPM'],
+      'audio-sfx': ['Environment acoustics', 'seamless loop'],
       'node-preset-tracks': ['canvas.writePresetTracksBatch', 'category'],
-      'preset-definition-management': ['preset.create', 'meta-prompt'],
+      'preset-definition-management': ['preset.create', 'category'],
       'shot-template-management': ['canvas.applyShotTemplate', 'shotTemplate.create'],
       'color-style-management': ['colorStyle.save', 'palette'],
       'character-management': ['character.create', 'durable identity'],
-      'location-management': ['location.create', 'durable place'],
-      'equipment-management': ['equipment.create', 'real object'],
+      'location-management': ['location.create', 'durable place identity'],
+      'equipment-management': ['equipment.create', 'durable object identity'],
       'canvas-structure': ['canvas.addNode', 'canvas.batchCreate'],
-      'canvas-graph-and-layout': ['canvas.connectNodes', 'left-to-right'],
+      'canvas-graph-and-layout': ['canvas.connectNodes', 'Left-to-right'],
       'canvas-node-editing': ['canvas.updateNodes', 'canvas.setNodeRefs'],
       'provider-management': ['provider.list', 'provider.getCapabilities'],
       'node-provider-selection': ['canvas.setNodeProvider', 'providerId'],
-      'image-config': ['canvas.setImageParams', 'width and height'],
+      'image-config': ['canvas.setImageParams', 'width'],
       'video-config': ['canvas.setVideoParams', 'duration'],
-      'audio-config': ['canvas.setAudioParams', 'sample rate'],
-      'script-development': ['script.write', 'structured scenes'],
-      'vision-analysis': ['vision.describeImage', 'observable evidence'],
+      'audio-config': ['canvas.setAudioParams', 'emotionVector'],
+      'script-development': ['script.write', 'Fountain'],
+      'vision-analysis': ['vision.describeImage', 'intent'],
       'snapshot-and-rollback': ['snapshot.restore', 'commander.askUser'],
       'render-and-export': ['render.start', 'render.exportBundle'],
       'workflow-orchestration': ['workflow.expandIdea', 'workflow.control'],
-      'series-management': ['series.update', 'episode order'],
-      'prompt-template-management': ['prompt.setCustom', 'template code'],
+      'series-management': ['series.update', 'episode'],
+      'prompt-template-management': ['prompt.setCustom', 'process-prompt store'],
       'asset-library-management': ['asset.import', 'asset.list'],
-      'job-control': ['job.control', 'cancel, pause, or resume'],
+      'job-control': ['job.control', 'pause'],
     };
 
-    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(30);
+    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(32);
 
     for (const entry of PROCESS_PROMPT_DEFAULTS) {
       expect(entry.defaultValue.length).toBeGreaterThan(220);
@@ -257,6 +259,21 @@ describe('ProcessPromptStore', () => {
     expect(second.get('image-config')?.customValue).toBe('Legacy provider rules');
     expect(second.get('video-config')?.customValue).toBe('Legacy provider rules');
     expect(second.get('audio-config')?.customValue).toBe('Legacy provider rules');
+    second.close();
+  });
+
+  it('migrates legacy audio-generation custom prompts into split audio keys', () => {
+    const dbPath = createTempDbPath();
+    const first = new ProcessPromptStore(dbPath);
+    insertLegacyPrompt(first, 'audio-generation', 'Audio Generation', 'Legacy audio rules');
+    first.close();
+
+    const second = new ProcessPromptStore(dbPath);
+
+    expect(second.get('audio-generation')).toBeNull();
+    expect(second.get('audio-voice')?.customValue).toBe('Legacy audio rules');
+    expect(second.get('audio-music')?.customValue).toBe('Legacy audio rules');
+    expect(second.get('audio-sfx')?.customValue).toBe('Legacy audio rules');
     second.close();
   });
 

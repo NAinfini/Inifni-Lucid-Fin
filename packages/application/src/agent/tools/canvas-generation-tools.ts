@@ -55,6 +55,11 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           description: 'Optional node type hint for orchestration context: "image", "video", or "audio".',
           enum: ['image', 'video', 'audio'],
         },
+        audioType: {
+          type: 'string',
+          description: 'Optional audio subtype hint (only used when nodeType is "audio"): "voice", "music", or "sfx". Routes the process-bound prompt. Defaults to "voice" when nodeType is "audio" and audioType is omitted.',
+          enum: ['voice', 'music', 'sfx'],
+        },
         providerId: { type: 'string', description: 'Optional provider override.' },
         variantCount: { type: 'number', description: 'Optional number of variants to generate.' },
         wait: { type: 'boolean', description: 'If true, block until generation completes (up to 5 min). Default: false (fire-and-forget).' },
