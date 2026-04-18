@@ -9,12 +9,12 @@
  *     before trimming history.
  *  2. Process prompts have their own budget (30k chars), take priority over
  *     history, and sit between the primary system prompt and history.
- *  3. The `ToolResultCache` summary (when present) is appended to the primary
- *     system prompt. Counted against budget.
+ *  3. The graph's entity-cache projection (when non-empty) is appended to
+ *     the primary system prompt. Counted against budget.
  *  4. Fully-stubbed assistant+tool groups (every result === `{"_cached":true}`)
  *     are skipped atomically.
- *  5. Fully-cached assistant+tool groups (every tool call has
- *     `cache.hasCoverage`) are also skipped.
+ *  5. Fully-cached assistant+tool groups (every tool call's result is still
+ *     in the graph's tool-result index) are also skipped.
  *  6. No dangling tool message at the start of the retained window.
  *  7. If the first kept assistant has `toolCalls`, every referenced tool
  *     result must be present later — otherwise drop the broken exchange.
@@ -29,12 +29,12 @@ import type {
   ProviderProfile,
 } from '@lucid-fin/contracts';
 import { DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
+import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import type {
   ContextItem,
   ContextItemId,
 } from '@lucid-fin/contracts';
 import type { ContextGraph } from '../context-graph.js';
-import type { ToolResultCache } from '../../tool-result-cache.js';
 
 const STUB_CONTENT = '{"_cached":true}';
 const PROCESS_PROMPT_BUDGET_CHARS = 30_000;
@@ -49,8 +49,6 @@ export interface SerializeInput {
   profile?: ProviderProfile;
   /** Override for reserved output tokens (else profile.outputReserveTokens). */
   reserveTokensForOutput?: number;
-  /** Optional ToolResultCache — its serialized summary is appended to the primary system prompt. */
-  cache?: ToolResultCache;
 }
 
 export interface SerializeResult {
@@ -266,6 +264,16 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
     return true;
   };
 
+  // ── 5a. Entity-cache projection (injected into primary system prompt) ─
+  // Compute BEFORE the skip loop so `allCached` can gate on what
+  // actually fit into the non-truncated addendum. Skipping a group whose
+  // data is only in the dedup index — but got trimmed out of the text
+  // the model sees — would silently drop context.
+  const cacheProjection = input.graph.projectEntityCache();
+  const cacheContent = cacheProjection.content;
+  const cacheCoveredKeys = cacheProjection.coveredKeys;
+  const cacheTokens = cacheContent ? estimateTokens(cacheContent.length, cpt) : 0;
+
   const skippedToolCallIds = new Set<string>();
   for (let i = 0; i < bodyItems.length; i++) {
     const a = bodyItems[i]!;
@@ -282,9 +290,18 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
       return false;
     });
 
-    const allCached = !!input.cache && a.toolCalls.every((tc) =>
-      input.cache!.hasCoverage(tc.name, tc.arguments as Record<string, unknown>),
-    );
+    // A group is fully-cached only when every tool call is a projected-
+    // cache category (get/list) AND its identity made it into the
+    // non-truncated entity-cache block the model will actually see.
+    // Query-category calls are never indexed; dedup-only membership is
+    // insufficient because `serializeEntityCache` may truncate at its
+    // char cap, and entries dropped during truncation must not cause
+    // the original tool-result to be skipped.
+    const allCached = a.toolCalls.every((tc) => {
+      const cat = getToolCompactionCategory(tc.name);
+      if (cat !== 'get' && cat !== 'list') return false;
+      return cacheCoveredKeys.has(`${tc.name}|${safeStringify(tc.arguments)}`);
+    });
 
     // Legacy parity:
     //  - Trailing fully-cached group: PRESERVED (newest execution context).
@@ -296,10 +313,6 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
       for (const tc of a.toolCalls) skippedToolCallIds.add(tc.id);
     }
   }
-
-  // ── 6. Cache summary chars (injected into primary system prompt) ─
-  const cacheContent = input.cache?.entryCount ? input.cache.serialize() : '';
-  const cacheTokens = cacheContent ? estimateTokens(cacheContent.length, cpt) : 0;
 
   // ── 7. Primary system (guides concatenated) tokens ───────────
   const primarySystemContent = guideContent.join('\n\n');
@@ -393,8 +406,8 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
   // ── 12. Assemble wire messages ────────────────────────────────
   const wireMessages: LLMMessage[] = [];
 
-  // Primary system prompt (all guides concatenated + cache summary).
-  // Parity with legacy: cache is only injected when a primary system exists.
+  // Primary system prompt (all guides concatenated + entity cache).
+  // Parity with legacy: cache block is only injected when a primary system exists.
   if (primarySystemContent) {
     const systemContent = cacheContent
       ? `${primarySystemContent}\n\n${cacheContent}`

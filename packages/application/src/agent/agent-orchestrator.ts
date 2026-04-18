@@ -6,6 +6,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { LucidError, DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
 import type { AgentToolRegistry } from './tool-registry.js';
+import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import {
   type AgentContext,
   type HistoryEntry,
@@ -21,9 +22,7 @@ import {
   safeStringify,
 } from './context-manager.js';
 import { ToolExecutor } from './tool-executor.js';
-import { ToolResultCache } from './tool-result-cache.js';
 import { TranscriptIndex } from './transcript-index.js';
-import type { ToolResult } from './tool-registry.js';
 import {
   detectProcess,
   getProcessCategoryName,
@@ -155,7 +154,6 @@ export class AgentOrchestrator {
   private pendingQuestionResolvers = new Map<string, (answer: string) => void>();
   private activeMessages: LLMMessage[] | null = null;
   private _cancelled = false;
-  private resultCache: ToolResultCache | null = null;
   private transcriptIndex: TranscriptIndex;
   /** Cached tool schema JSON to avoid re-serialization each step. */
   private _lastToolSchemaJson = '';
@@ -167,6 +165,18 @@ export class AgentOrchestrator {
 
   /** Active ContextGraph for the current execute() session (graph-path only). */
   private contextGraph: ContextGraph | null = null;
+
+  /**
+   * Invalidation / identity watermarks. Keys use the composite
+   * `${toolCallId}|${toolKey}|${paramsHash}` because some adapters emit
+   * deterministic fallback ids (`tool-call-0`, `cohere-tc-0`) that repeat
+   * across turns. Keying on the composite means a later call that reuses
+   * the same id but with different tool/args is treated as a distinct
+   * entry, not accidentally re-invalidated.
+   */
+  private invalidatedToolCallKeys = new Set<string>();
+  private snapshotPreRestoreToolCallKeys = new Set<string>();
+  private toolCallKeyToOriginStep = new Map<string, number>();
 
   private injectedMessageCount = 0;
   private readonly resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
@@ -224,7 +234,7 @@ export class AgentOrchestrator {
    * Trigger context compaction from outside (e.g. tool.compact, UI button).
    */
   async compactNow(instructions?: string): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
-    return this.contextManager.compactNow(this.activeMessages, instructions, this.resultCache ?? undefined);
+    return this.contextManager.compactNow(this.activeMessages, instructions);
   }
 
   injectMessage(content: string): void {
@@ -299,17 +309,9 @@ export class AgentOrchestrator {
     this.injectedMessageCount = 0;
     this._cancelled = false;
 
-    // Initialize tool result cache + prewarm from history
-    this.resultCache = new ToolResultCache();
     this.transcriptIndex = new TranscriptIndex();
 
-    // Create tool executor with cache reference (must be after cache init)
     const canvasId = typeof context.extra?.canvasId === 'string' ? context.extra.canvasId : undefined;
-    this.toolExecutor = new ToolExecutor(this.tools, {
-      permissionMode: options?.permissionMode,
-      cache: this.resultCache,
-      canvasId,
-    });
 
     // Pre-populate transcript index from history messages
     for (let i = 0; i < messages.length; i++) {
@@ -318,8 +320,6 @@ export class AgentOrchestrator {
         this.transcriptIndex.registerAssistantToolCalls(i, msg.toolCalls);
       }
     }
-
-    this.resultCache.warmFromHistory(messages, this.transcriptIndex);
 
     // ── G2a-6: Initialize ContextGraph ───────────────────────────────────
     // The graph is rebuilt each step from the canonical `messages` array
@@ -330,20 +330,20 @@ export class AgentOrchestrator {
     // that every adapter consumes. Adapter-specific wire conversion
     // (e.g. Claude's content blocks) happens inside each adapter.
     this.contextGraph = new ContextGraph();
+    this.invalidatedToolCallKeys = new Set<string>();
+    this.snapshotPreRestoreToolCallKeys = new Set<string>();
+    this.toolCallKeyToOriginStep = new Map<string, number>();
 
-    // Wrap emit to absorb raw tool results into cache
-    // toolCallArgsMap is populated before each tool execution round
-    const toolCallArgsMap = new Map<string, Record<string, unknown>>();
+    // Create tool executor with graph reference (read-through cache comes
+    // from the graph's tool-result index; mutation invalidation is driven
+    // by the graph below).
+    this.toolExecutor = new ToolExecutor(this.tools, {
+      permissionMode: options?.permissionMode,
+      contextGraph: this.contextGraph,
+      canvasId,
+    });
+
     const wrappedEmit: typeof emit = (event) => {
-      if (event.type === 'tool_result' && event.result && event.toolName && event.toolCallId) {
-        const args = toolCallArgsMap.get(event.toolCallId) ?? {};
-        this.resultCache!.absorbResult(
-          event.toolName,
-          args,
-          event.result as ToolResult,
-          steps,
-        );
-      }
       emit(event);
     };
 
@@ -368,7 +368,7 @@ export class AgentOrchestrator {
         // Predictive pre-compaction based on utilization ratio from previous step
         // (first step still uses the old totalChars > budget check)
         if (steps === 1) {
-          await this.contextManager.compactWithLLM(messages, inLoopCharBudget, this.resultCache ?? undefined);
+          await this.contextManager.compactWithLLM(messages, inLoopCharBudget);
         }
 
         // Merge tool sets
@@ -395,6 +395,13 @@ export class AgentOrchestrator {
         if (canvasId) injectedParams.push('canvasId');
 
         this.rebuildGraphFromMessages(messages, steps);
+        // After rebuild, `this.contextGraph` is a NEW instance — keep the
+        // tool-executor's read-through cache pointed at it. Without this
+        // re-binding, the executor would hold a stale graph and miss every
+        // post-rebuild cache entry.
+        if (this.contextGraph) {
+          this.toolExecutor.opts.contextGraph = this.contextGraph;
+        }
         const graphToolsInput = injectedParams.length > 0
           ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
           : availableTools;
@@ -411,7 +418,6 @@ export class AgentOrchestrator {
           contextWindowTokens: effectiveCtx ?? 200000,
           tools: graphToolsInput,
           profile: this.profile,
-          cache: this.resultCache ?? undefined,
         });
 
         const ctxWindow = effectiveCtx ?? 200000;
@@ -428,6 +434,11 @@ export class AgentOrchestrator {
           this._lastToolCount = availableTools.length;
         }
 
+        // Graph entity-cache projection chars — used for diagnostics only;
+        // the serializer computes the authoritative figure internally.
+        const entityCacheBlock = this.contextGraph.serializeEntityCache();
+        const graphToolResultCount = this.contextGraph.countToolResults();
+
         options?.onLLMRequest?.({
           step: steps,
           toolCount: availableTools.length,
@@ -438,8 +449,8 @@ export class AgentOrchestrator {
           promptGuideChars: typeof context.extra?.promptGuides === 'string' ? context.extra.promptGuides.length : 0,
           estimatedTokensUsed: estimatedTokensUsed,
           contextWindowTokens: ctxWindow,
-          cacheChars: this.resultCache?.sizeChars ?? 0,
-          cacheEntryCount: this.resultCache?.entryCount ?? 0,
+          cacheChars: entityCacheBlock.length,
+          cacheEntryCount: graphToolResultCount,
           historyMessagesTrimmed,
           utilizationRatio: ctxWindow > 0 ? estimatedTokensUsed / ctxWindow : 0,
         });
@@ -485,7 +496,6 @@ export class AgentOrchestrator {
 
         for (const tc of lastResult.toolCalls) {
           toolLastUsedStep.set(tc.name, steps);
-          toolCallArgsMap.set(tc.id, tc.arguments as Record<string, unknown>);
         }
 
         // Delegate tool execution to ToolExecutor
@@ -514,8 +524,58 @@ export class AgentOrchestrator {
           }
         }
 
-        // Stub old cached messages + invalidate for mutations
-        this.resultCache!.processRound(messages, steps, this.transcriptIndex);
+        // Mutation invalidation: when this step's tool calls include
+        // mutations, drop stale entity-cache entries in the graph. Mirrors
+        // the legacy ToolResultCache.processRound behaviour. snapshot.restore
+        // wipes every tool-result because the entire state space may have
+        // shifted. The persistent `invalidatedToolCallIds` watermark is
+        // consulted by `rebuildGraphFromMessages` on subsequent iterations
+        // so stale tool-results are not re-added from `messages` history.
+        // The watermark keys on `toolCallId`, so fresh post-mutation reads
+        // (different call-id, even if same toolKey/paramsHash) are NOT
+        // suppressed.
+        {
+          const graph = this.contextGraph;
+          // Tool calls execute in parallel within a turn, so a same-turn
+          // read may run BEFORE a same-turn mutation completes. The
+          // mutation watermark therefore must not exempt same-turn reads
+          // — they could hold pre-mutation state. The one exception is
+          // `snapshot.restore` itself: its own tool-result must remain
+          // visible so the model sees the restore outcome.
+          const snapshotRestoreCallIds = new Set<string>();
+          for (const tc of lastResult.toolCalls) {
+            if (tc.name === 'snapshot.restore') snapshotRestoreCallIds.add(tc.id);
+          }
+          const hasSnapshotRestore = snapshotRestoreCallIds.size > 0;
+          if (hasSnapshotRestore) {
+            graph.clearToolResults();
+            for (let i = 0; i < messages.length; i++) {
+              const m = messages[i]!;
+              if (m.role !== 'tool' || !m.toolCallId) continue;
+              if (snapshotRestoreCallIds.has(m.toolCallId)) continue;
+              const key = this.composeToolCallKey(messages, i);
+              if (key) this.snapshotPreRestoreToolCallKeys.add(key);
+            }
+            this.invalidatedToolCallKeys.clear();
+          } else {
+            for (const tc of lastResult.toolCalls) {
+              const category = getToolCompactionCategory(tc.name);
+              if (category !== 'mutation') continue;
+              const args = (tc.arguments as Record<string, unknown>) ?? {};
+              graph.invalidateForMutation(tc.name, args);
+              this.recordMutationWatermark(messages, tc.name, args);
+            }
+          }
+        }
+
+        // Post-round message shrink: stub the content of historical get/list
+        // tool-results that are either (a) fully covered by the graph's
+        // entity-cache projection or (b) invalidated by snapshot.restore /
+        // mutation. Mirrors the legacy `ToolResultCache.processRound` payload
+        // rewrite — prevents unbounded `messages` growth in long sessions
+        // without changing what the wire payload looks like (the serializer
+        // already drops fully-cached / stubbed groups).
+        this.shrinkCoveredToolMessages(messages);
 
         // Batching hints: detect repetitive tool patterns and inject efficiency hint
         const toolCallCounts = new Map<string, number>();
@@ -554,7 +614,7 @@ export class AgentOrchestrator {
         const utilizationRatio = estimatedTokensUsed / ctxTokens;
         if (utilizationRatio > 0.90) {
           // Critical: full compaction (Phase 1 + Phase 2 LLM summarization)
-          await this.contextManager.compactWithLLM(messages, inLoopCharBudget, this.resultCache ?? undefined);
+          await this.contextManager.compactWithLLM(messages, inLoopCharBudget);
         } else if (utilizationRatio > 0.80) {
           // Proactive: fast rule-based compaction only
           this.contextManager.compactPhase1(messages);
@@ -583,7 +643,6 @@ export class AgentOrchestrator {
       return lastResult;
     } finally {
       this.activeMessages = null;
-      this.resultCache = null;
       this.transcriptIndex.clear();
       this.contextGraph = null;
     }
@@ -699,7 +758,7 @@ export class AgentOrchestrator {
    *
    * Tool-result identity:
    *   - Real tool calls executed this session have their args tracked via the
-   *     TranscriptIndex + ToolResultCache, so `(toolKey, paramsHash)` is stable.
+   *     TranscriptIndex, so `(toolKey, paramsHash)` is stable.
    *   - For seeded/historical tool messages without known args (e.g. rehydrated
    *     from a resumed session), the `toolCallId` is folded into `paramsHash`
    *     to give each message a unique identity (no accidental dedup).
@@ -707,6 +766,12 @@ export class AgentOrchestrator {
   private rebuildGraphFromMessages(messages: LLMMessage[], step: number): void {
     if (!this.contextGraph) return;
     this.contextGraph = new ContextGraph();
+    // Counter of how many times each `(callId, toolKey, paramsHash)` has
+    // been seen so far in this pass — lets us disambiguate adapter
+    // fallback ids (`tool-call-0`) that repeat across turns with the
+    // same args. Each occurrence gets its own `#n` suffix in the
+    // watermark keys.
+    const compositeOccurrence = new Map<string, number>();
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i]!;
       if (m.role === 'system') {
@@ -769,10 +834,33 @@ export class AgentOrchestrator {
             }
           }
         }
+        // Honor persistent invalidation watermarks. The composite key is
+        // `callId|toolKey|paramsHash#occurrence` — the occurrence counter
+        // disambiguates adapters that reuse fallback ids (`tool-call-0`)
+        // across turns with identical args, so a later fresh read is not
+        // suppressed by an earlier same-shape invalidation.
+        let compositeKey: string | undefined;
+        if (m.toolCallId) {
+          const base = `${m.toolCallId}|${toolKey}|${paramsHash}`;
+          const n = (compositeOccurrence.get(base) ?? 0) + 1;
+          compositeOccurrence.set(base, n);
+          compositeKey = `${base}#${n}`;
+        }
+        if (compositeKey && this.snapshotPreRestoreToolCallKeys.has(compositeKey)) continue;
+        if (compositeKey && this.invalidatedToolCallKeys.has(compositeKey)) continue;
+        let originStep = step;
+        if (compositeKey) {
+          const remembered = this.toolCallKeyToOriginStep.get(compositeKey);
+          if (remembered !== undefined) {
+            originStep = remembered;
+          } else {
+            this.toolCallKeyToOriginStep.set(compositeKey, step);
+          }
+        }
         this.contextGraph.add({
           kind: 'tool-result',
           itemId: freshContextItemId(),
-          producedAtStep: step,
+          producedAtStep: originStep,
           toolKey,
           paramsHash,
           content: m.content,
@@ -782,4 +870,162 @@ export class AgentOrchestrator {
       }
     }
   }
+
+  /**
+   * Record `toolCallId`s of historical get/list results invalidated by a
+   * mutation into the persistent watermark. Mirrors the domain/entity-
+   * scoping rules applied to the in-memory graph so rebuilds skip those
+   * exact pre-mutation tool-results.
+   * Scoping:
+   *   - Only touches get/list results whose tool domain matches the mutation.
+   *   - When the mutation carries an entityId, only entity-specific gets
+   *     that include that id in their paramsHash are invalidated; list
+   *     results for the same domain are always dropped (they may be stale).
+   * Keying by `toolCallId` (not `toolKey|paramsHash`) lets a subsequent
+   * fresh read for the same identity flow through — its call-id is new.
+   */
+  private recordMutationWatermark(
+    messages: LLMMessage[],
+    mutationToolName: string,
+    mutationArgs: Record<string, unknown>,
+  ): void {
+    const domain = mutationToolName.split('.')[0];
+    if (!domain) return;
+    const entityId = extractEntityIdFromArgs(mutationArgs);
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]!;
+      if (m.role !== 'tool' || !m.toolCallId) continue;
+      let callName: string | undefined;
+      let callArgs: unknown;
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = messages[j]!;
+        if (prev.role !== 'assistant' || !prev.toolCalls) continue;
+        const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
+        if (call) { callName = call.name; callArgs = call.arguments; break; }
+      }
+      if (!callName) continue;
+      const itemDomain = callName.split('.')[0];
+      if (itemDomain !== domain) continue;
+      const cat = getToolCompactionCategory(callName);
+      if (cat !== 'get' && cat !== 'list') continue;
+      const paramsHash = safeStringify(callArgs);
+      if (!entityId || cat === 'list' || paramsHash.includes(entityId)) {
+        const key = this.composeToolCallKey(messages, i);
+        if (key) this.invalidatedToolCallKeys.add(key);
+      }
+    }
+  }
+
+  /**
+   * Replace the content of historical get/list tool messages whose payloads
+   * are redundant (covered by the graph's entity-cache projection OR
+   * invalidated by mutation / snapshot.restore watermarks) with a compact
+   * stub marker. The serializer already treats the stub content as a
+   * cache-skip signal, so wire output is unchanged — this only shrinks the
+   * in-memory `messages` array so long sessions don't pay linear scan cost
+   * over megabytes of stale JSON every rebuild.
+   *
+   * The most recent tool message for a given (toolKey, paramsHash) pair is
+   * preserved (never stubbed) so the model still has at least one copy of
+   * the current payload available if the cache block is later truncated.
+   */
+  private shrinkCoveredToolMessages(messages: LLMMessage[]): void {
+    if (!this.contextGraph) return;
+    const STUB = '{"_cached":true}';
+    // Walk from newest → oldest so we can keep the FIRST encountered
+    // (newest) instance per identity and stub older duplicates.
+    const kept = new Set<string>();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]!;
+      if (m.role !== 'tool' || !m.toolCallId) continue;
+      if (m.content === STUB) continue;
+      // Discover the originating tool call.
+      let callName: string | undefined;
+      let callArgs: unknown;
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = messages[j]!;
+        if (prev.role !== 'assistant' || !prev.toolCalls) continue;
+        const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
+        if (call) { callName = call.name; callArgs = call.arguments; break; }
+      }
+      if (!callName) continue;
+      const paramsHash = safeStringify(callArgs);
+      const compositeKey = this.composeToolCallKey(messages, i);
+      const isInvalidated = compositeKey !== undefined && (
+        this.snapshotPreRestoreToolCallKeys.has(compositeKey) ||
+        this.invalidatedToolCallKeys.has(compositeKey)
+      );
+      const cat = getToolCompactionCategory(callName);
+      if (cat !== 'get' && cat !== 'list') {
+        if (isInvalidated) messages[i] = { ...m, content: STUB };
+        continue;
+      }
+      const identity = `${callName}|${paramsHash}`;
+      if (isInvalidated) {
+        messages[i] = { ...m, content: STUB };
+        continue;
+      }
+      const covered = this.contextGraph.hasToolResult(callName, paramsHash);
+      if (!covered) continue;
+      if (!kept.has(identity)) {
+        kept.add(identity);
+        continue;
+      }
+      messages[i] = { ...m, content: STUB };
+    }
+  }
+
+  /**
+   * Compose the composite watermark key (`callId|toolKey|paramsHash#n`) for
+   * a tool message at the given index. The occurrence suffix disambiguates
+   * adapters that reuse fallback ids across turns with identical args.
+   * Walks `messages` once to compute occurrence counts up to `i`.
+   */
+  private composeToolCallKey(messages: LLMMessage[], i: number): string | undefined {
+    const m = messages[i]!;
+    if (m.role !== 'tool' || !m.toolCallId) return undefined;
+    let callName = 'unknown';
+    let paramsHashLocal = m.toolCallId;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = messages[j]!;
+      if (prev.role !== 'assistant' || !prev.toolCalls) continue;
+      const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
+      if (call) {
+        callName = call.name;
+        paramsHashLocal = safeStringify(call.arguments);
+        break;
+      }
+    }
+    const base = `${m.toolCallId}|${callName}|${paramsHashLocal}`;
+    // Count occurrences up to and including i (matches the rebuild walk).
+    let n = 0;
+    for (let k = 0; k <= i; k++) {
+      const mk = messages[k]!;
+      if (mk.role !== 'tool' || mk.toolCallId !== m.toolCallId) continue;
+      let kCallName = 'unknown';
+      let kParamsHash = mk.toolCallId;
+      for (let j = k - 1; j >= 0; j--) {
+        const prev = messages[j]!;
+        if (prev.role !== 'assistant' || !prev.toolCalls) continue;
+        const call = prev.toolCalls.find((tc) => tc.id === mk.toolCallId);
+        if (call) { kCallName = call.name; kParamsHash = safeStringify(call.arguments); break; }
+      }
+      if (`${mk.toolCallId}|${kCallName}|${kParamsHash}` === base) n++;
+    }
+    return `${base}#${n}`;
+  }
+}
+
+/** Extract an entity id from mutation args. Keep this field list in sync
+ * with `ContextGraph._extractEntityIdFromArgs` so the orchestrator's
+ * rebuild-watermark scoping matches the in-memory graph's invalidation. */
+function extractEntityIdFromArgs(args: Record<string, unknown>): string | undefined {
+  for (const field of [
+    'id', 'nodeId', 'characterId', 'equipmentId', 'locationId',
+    'presetId', 'templateId',
+  ] as const) {
+    const value = args[field];
+    if (typeof value === 'string' && value) return value;
+  }
+  return undefined;
 }
