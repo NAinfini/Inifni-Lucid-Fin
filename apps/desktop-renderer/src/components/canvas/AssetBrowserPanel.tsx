@@ -7,12 +7,23 @@ import {
   setFilterType,
   setSearchQuery,
   updateAsset,
+  setFolders,
+  addFolder,
+  updateFolder,
+  removeFolder,
+  setCurrentFolder,
+  setFoldersLoading,
+  moveItemToFolder,
   type Asset,
 } from '../../store/slices/assets.js';
 import { t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 import { useAssetOperations } from '../../hooks/useAssetOperations.js';
+import { useEntityFolders } from '../../hooks/useEntityFolders.js';
+import { getAPI } from '../../utils/api.js';
+import { FolderTree } from './folders/FolderTree.js';
+import { FolderBreadcrumb } from './folders/FolderBreadcrumb.js';
 import {
   Dialog,
   DialogContent,
@@ -58,6 +69,36 @@ export function AssetBrowserPanel() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isDragOver, setIsDragOver] = useState(false);
   const [semanticMode, setSemanticMode] = useState(false);
+  const [foldersOpen, setFoldersOpen] = useState(true);
+
+  const folderApi = useEntityFolders({
+    kind: 'asset',
+    selectFolders: (s) => s.assets.folders,
+    selectCurrentFolderId: (s) => s.assets.currentFolderId,
+    selectFoldersLoading: (s) => s.assets.foldersLoading,
+    actions: {
+      setFolders,
+      addFolder,
+      updateFolder,
+      removeFolder,
+      setCurrentFolder,
+      setFoldersLoading,
+    },
+  });
+
+  const handleMoveAssetToFolder = useCallback(
+    async (hash: string, folderId: string | null) => {
+      const api = getAPI();
+      if (!api?.asset) return;
+      try {
+        await api.asset.setFolder(hash, folderId);
+        dispatch(moveItemToFolder({ hash, folderId }));
+      } catch {
+        /* swallow — user can retry; keep browsing experience uninterrupted */
+      }
+    },
+    [dispatch],
+  );
 
   // --- Refs ---
   const [dragSelect, setDragSelect] = useState<{ startX: number; startY: number } | null>(null);
@@ -72,6 +113,9 @@ export function AssetBrowserPanel() {
   // --- Sorted / filtered grid assets ---
   const gridAssets = useMemo(() => {
     if (semanticMode) {
+      // Folder filter is intentionally skipped in semantic mode — the search
+      // intent is global, and filtering would surprise users expecting a
+      // full-corpus ranking.
       return ops.semanticResults
         .map((r) => {
           const asset = allAssets.find((a) => a.hash === r.hash);
@@ -79,7 +123,11 @@ export function AssetBrowserPanel() {
         })
         .filter((a): a is Asset & { _semanticScore: number } => a !== null);
     }
-    const sorted = [...filteredAssets].sort((a, b) => {
+    const byFolder =
+      folderApi.currentFolderId === null
+        ? filteredAssets
+        : filteredAssets.filter((a) => a.folderId === folderApi.currentFolderId);
+    const sorted = [...byFolder].sort((a, b) => {
       let cmp = 0;
       if (sortBy === 'date') cmp = a.createdAt - b.createdAt;
       else if (sortBy === 'name') cmp = a.name.localeCompare(b.name);
@@ -87,7 +135,7 @@ export function AssetBrowserPanel() {
       return sortOrder === 'desc' ? -cmp : cmp;
     });
     return sorted.slice(0, 200);
-  }, [semanticMode, ops.semanticResults, allAssets, filteredAssets, sortBy, sortOrder]);
+  }, [semanticMode, ops.semanticResults, allAssets, filteredAssets, sortBy, sortOrder, folderApi.currentFolderId]);
 
   // --- Drag over / drop ---
   const handlePanelDragOver = useCallback((e: React.DragEvent) => {
@@ -285,12 +333,53 @@ export function AssetBrowserPanel() {
     <div ref={panelRef} className="flex h-full flex-col bg-card" tabIndex={-1}>
       {/* Panel title */}
       <div className="border-b border-border/60 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <FolderSearch className="h-3.5 w-3.5 text-primary" />
-          <h2 className="text-xs font-semibold">{t('panels.assetBrowser')}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <FolderSearch className="h-3.5 w-3.5 text-primary" />
+            <h2 className="text-xs font-semibold">{t('panels.assetBrowser')}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFoldersOpen((v) => !v)}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+            title={t('folders.toggle') as string}
+          >
+            {foldersOpen ? '▾' : '▸'} {t('folders.label') as string}
+          </button>
         </div>
         <p className="mt-0.5 text-[11px] text-muted-foreground">{t('assetBrowser.emptyHint')}</p>
+        {!semanticMode && (
+          <div className="mt-1">
+            <FolderBreadcrumb
+              breadcrumb={folderApi.breadcrumb}
+              onNavigate={folderApi.setCurrentFolder}
+              rootLabel={t('folders.all') as string}
+            />
+          </div>
+        )}
       </div>
+
+      {foldersOpen && !semanticMode && (
+        <div className="border-b border-border/60 max-h-40 overflow-auto p-1.5">
+          <FolderTree
+            folders={folderApi.folders}
+            currentFolderId={folderApi.currentFolderId}
+            onSelect={folderApi.setCurrentFolder}
+            onCreate={folderApi.createFolder}
+            onRename={folderApi.renameFolder}
+            onDelete={folderApi.deleteFolder}
+            onDropItem={(folderId, payload) => void handleMoveAssetToFolder(payload, folderId)}
+            dropItemKey="application/lucid-entity-id"
+            labels={{
+              rootLabel: t('folders.all') as string,
+              newFolderPlaceholder: t('folders.newPlaceholder') as string,
+              createFolder: t('folders.createFolder') as string,
+              rename: t('action.rename') as string,
+              delete: t('action.delete') as string,
+            }}
+          />
+        </div>
+      )}
 
       <AssetToolbar
         filterType={filterType}
