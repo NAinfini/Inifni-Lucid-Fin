@@ -11,6 +11,13 @@ import {
   setLoading,
   setCharacterRefImage,
   removeCharacterRefImage,
+  setFolders,
+  addFolder,
+  updateFolder,
+  removeFolder,
+  setCurrentFolder,
+  setFoldersLoading,
+  moveItemToFolder,
 } from '../../store/slices/characters.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
@@ -32,6 +39,9 @@ import {
 } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useEntityManager } from '../../hooks/useEntityManager.js';
+import { useEntityFolders } from '../../hooks/useEntityFolders.js';
+import { FolderTree } from './folders/FolderTree.js';
+import { FolderBreadcrumb } from './folders/FolderBreadcrumb.js';
 import { createDraft, type CharacterDraft } from './character-manager/utils.js';
 import { SingleReferenceImage } from './character-manager/SingleReferenceImage.js';
 import { ListThumb, StructField } from './character-manager/StructField.js';
@@ -39,6 +49,7 @@ import { AssetPickerDialog } from './character-manager/AssetPickerDialog.js';
 
 const ROLE_OPTIONS: Character['role'][] = ['protagonist', 'antagonist', 'supporting', 'extra'];
 const GENDER_OPTIONS: CharacterGender[] = ['male', 'female', 'non-binary', 'other'];
+const DND_MIME = 'application/lucid-entity-id';
 
 export function CharacterManagerPanel() {
   const { t } = useI18n();
@@ -62,17 +73,37 @@ export function CharacterManagerPanel() {
   });
 
   const [structuredOpen, setStructuredOpen] = useState(false);
+  const [foldersOpen, setFoldersOpen] = useState(true);
+
+  const folderApi = useEntityFolders({
+    kind: 'character',
+    selectFolders: (s) => s.characters.folders,
+    selectCurrentFolderId: (s) => s.characters.currentFolderId,
+    selectFoldersLoading: (s) => s.characters.foldersLoading,
+    actions: {
+      setFolders,
+      addFolder,
+      updateFolder,
+      removeFolder,
+      setCurrentFolder,
+      setFoldersLoading,
+    },
+  });
 
   const selectedChar = useMemo(() => items.find((c) => c.id === selectedId), [items, selectedId]);
 
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    if (!keyword) return items;
-    return items.filter((c) => {
+    const inFolder =
+      folderApi.currentFolderId === null
+        ? items
+        : items.filter((c) => c.folderId === folderApi.currentFolderId);
+    if (!keyword) return inFolder;
+    return inFolder.filter((c) => {
       const blob = `${c.name} ${c.description} ${c.tags.join(' ')}`.toLowerCase();
       return blob.includes(keyword);
     });
-  }, [items, search]);
+  }, [items, search, folderApi.currentFolderId]);
 
   const canvases = useSelector(selectAllCanvases);
 
@@ -146,6 +177,7 @@ export function CharacterManagerPanel() {
         referenceImages: [],
         loadouts: [],
         defaultLoadoutId: '',
+        folderId: folderApi.currentFolderId,
       };
       if (api?.character) {
         const saved = (await api.character.save(data as Record<string, unknown>)) as Character;
@@ -155,7 +187,7 @@ export function CharacterManagerPanel() {
     } catch (reason) {
       reportError(reason, 'createNewCharacter');
     }
-  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t, folderApi.currentFolderId]);
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedChar) return;
@@ -218,6 +250,20 @@ export function CharacterManagerPanel() {
       reportError(reason, 'deleteSelected');
     }
   }, [confirm, dispatch, reportError, selectedChar, setError, t]);
+
+  const handleMoveCharacterToFolder = useCallback(
+    async (characterId: string, folderId: string | null) => {
+      const api = getAPI();
+      if (!api?.character) return;
+      try {
+        await api.character.setFolder(characterId, folderId);
+        dispatch(moveItemToFolder({ id: characterId, folderId }));
+      } catch (reason) {
+        reportError(reason, 'handleMoveCharacterToFolder');
+      }
+    },
+    [dispatch, reportError],
+  );
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -365,6 +411,14 @@ export function CharacterManagerPanel() {
             <User className="w-3.5 h-3.5" />
             {t('characterManager.title')}
           </div>
+          <button
+            type="button"
+            onClick={() => setFoldersOpen((v) => !v)}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+            title={t('folders.toggle') as string}
+          >
+            {foldersOpen ? '▾' : '▸'} {t('folders.label') as string}
+          </button>
         </div>
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2 top-2 text-muted-foreground" />
@@ -375,7 +429,34 @@ export function CharacterManagerPanel() {
             className="w-full rounded bg-muted pl-7 pr-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
           />
         </div>
+        <FolderBreadcrumb
+          breadcrumb={folderApi.breadcrumb}
+          onNavigate={folderApi.setCurrentFolder}
+          rootLabel={t('folders.all') as string}
+        />
       </div>
+
+      {foldersOpen && (
+        <div className="border-b border-border/60 max-h-40 overflow-auto p-1.5">
+          <FolderTree
+            folders={folderApi.folders}
+            currentFolderId={folderApi.currentFolderId}
+            onSelect={folderApi.setCurrentFolder}
+            onCreate={folderApi.createFolder}
+            onRename={folderApi.renameFolder}
+            onDelete={folderApi.deleteFolder}
+            onDropItem={(folderId, payload) => void handleMoveCharacterToFolder(payload, folderId)}
+            dropItemKey={DND_MIME}
+            labels={{
+              rootLabel: t('folders.all') as string,
+              newFolderPlaceholder: t('folders.newPlaceholder') as string,
+              createFolder: t('folders.createFolder') as string,
+              rename: t('action.rename') as string,
+              delete: t('action.delete') as string,
+            }}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-[40%_60%] h-full min-h-0">
         <div className="border-r min-h-0 overflow-auto">
@@ -418,6 +499,11 @@ export function CharacterManagerPanel() {
                 <button
                   key={char.id}
                   onClick={() => void handleSelectCharacter(char.id)}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(DND_MIME, char.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
                   className={cn(
                     'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
                     selectedId === char.id
