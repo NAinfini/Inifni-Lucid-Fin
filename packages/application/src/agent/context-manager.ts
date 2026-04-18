@@ -614,7 +614,7 @@ export class ContextManager {
   /**
    * Full-replacement context compaction -- modeled after Claude Code / Codex CLI.
    */
-  async compactWithLLM(messages: LLMMessage[], charBudget: number, _cache?: unknown): Promise<boolean> {
+  async compactWithLLM(messages: LLMMessage[], charBudget: number): Promise<boolean> {
     const totalChars = measureMessageChars(messages);
     if (totalChars <= charBudget) return false;
     if (!this._canCompact(false)) return false;
@@ -709,7 +709,6 @@ export class ContextManager {
   async compactNow(
     messages: LLMMessage[] | null,
     instructions?: string,
-    _cache?: unknown,
   ): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
     if (!messages || messages.length === 0) {
       return { freedChars: 0, messageCount: 0, toolCount: 0 };

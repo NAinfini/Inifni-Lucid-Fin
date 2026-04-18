@@ -238,4 +238,98 @@ describe('ContextGraph', () => {
       expect(graph.size().tokens).toBeGreaterThan(0);
     });
   });
+
+  describe('tool-result index integrity (G2b-5)', () => {
+    it('excludes success:false get results from the dedup index', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, { success: false, error: 'not found' }));
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(false);
+      expect(graph.findLatestToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBeUndefined();
+    });
+
+    it('excludes legacy stub {"_cached":true} payloads from the dedup index', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, '{"_cached":true}'));
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(false);
+    });
+
+    it('indexes successful get results and supersedes earlier ones', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, { success: true, data: { v: 1 } }));
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 2, { success: true, data: { v: 2 } }));
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(true);
+      const got = graph.findLatestToolResult('canvas.getNode', '{"nodeId":"n1"}');
+      expect(got).toContain('"v":2');
+    });
+  });
+
+  describe('invalidateForMutation (G2b-5)', () => {
+    it('drops same-domain get result when mutation targets the same entity', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, { success: true, data: { v: 1 } }));
+      graph.invalidateForMutation('canvas.updateNodeData', { nodeId: 'n1' });
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(false);
+    });
+
+    it('preserves get results for other entities in the same domain', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, { success: true, data: { v: 1 } }));
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n2"}', 1, { success: true, data: { v: 2 } }));
+      graph.invalidateForMutation('canvas.updateNodeData', { nodeId: 'n1' });
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(false);
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n2"}')).toBe(true);
+    });
+
+    it('always drops list results in the mutated domain', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.listNodes', '{}', 1, { success: true, data: [] }));
+      graph.invalidateForMutation('canvas.updateNodeData', { nodeId: 'n1' });
+      expect(graph.hasToolResult('canvas.listNodes', '{}')).toBe(false);
+    });
+
+    it('does not touch other domains', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('character.list', '{}', 1, { success: true, data: [] }));
+      graph.invalidateForMutation('canvas.updateNodeData', { nodeId: 'n1' });
+      expect(graph.hasToolResult('character.list', '{}')).toBe(true);
+    });
+  });
+
+  describe('clearToolResults (G2b-5)', () => {
+    it('removes every tool-result including non-indexed ones', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, { success: true }));
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n2"}', 1, { success: false }));
+      graph.clearToolResults();
+      expect(graph.countToolResults()).toBe(0);
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(false);
+    });
+  });
+
+  describe('serializeEntityCache (G2b-5)', () => {
+    it('returns empty string when no tool-results exist', () => {
+      const graph = new ContextGraph();
+      expect(graph.serializeEntityCache()).toBe('');
+    });
+
+    it('emits a block containing tool keys of cached entries', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, { success: true, data: { id: 'n1' } }));
+      const out = graph.serializeEntityCache();
+      expect(out).toContain('[Entity Cache');
+      expect(out).toContain('canvas.getNode');
+    });
+
+    it('excludes failed and stub tool-results from the cache block', () => {
+      const graph = new ContextGraph();
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n-fail"}', 1, { success: false, error: 'nope' }));
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n-stub"}', 1, '{"_cached":true}'));
+      graph.add(mkToolResult('canvas.getNode', '{"nodeId":"n-ok"}', 1, { success: true, data: { id: 'n-ok' } }));
+      const out = graph.serializeEntityCache();
+      expect(out).toContain('n-ok');
+      expect(out).not.toContain('n-fail');
+      expect(out).not.toContain('n-stub');
+      expect(out).not.toContain('_cached');
+    });
+  });
 });

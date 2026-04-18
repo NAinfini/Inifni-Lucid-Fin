@@ -62,7 +62,6 @@ export {
 export { detectProcess, getProcessCategoryName, type ProcessCategory } from './agent/process-detection.js';
 export { ContextManager } from './agent/context-manager.js';
 export { ToolExecutor } from './agent/tool-executor.js';
-export { ToolResultCache, type CacheColdState } from './agent/tool-result-cache.js';
 export { TranscriptIndex } from './agent/transcript-index.js';
 export { registerAgentTools, type AllToolDeps } from './agent/register-agent-tools.js';
 export { createCanvasTools, type CanvasToolDeps } from './agent/tools/canvas-tools.js';

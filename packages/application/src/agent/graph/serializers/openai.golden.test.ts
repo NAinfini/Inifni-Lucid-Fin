@@ -90,43 +90,27 @@ describe('serializeForOpenAI', () => {
       tools: EMPTY_TOOLS,
     });
 
-    // Guide must be first and is a system message
-    expect(messages[0]).toStrictEqual({ role: 'system', content: guideItem.content });
+    // Guide is first and is a system message. With G2b-5 the graph's
+    // Entity Cache projection is appended to the primary system prompt,
+    // so we match the prefix instead of strict-equal.
+    expect(messages[0]!.role).toBe('system');
+    expect(messages[0]!.content.startsWith(guideItem.content)).toBe(true);
+    expect(messages[0]!.content).toContain('[Entity Cache');
+    expect(messages[0]!.content).toContain('canvas.getState');
+    expect(messages[0]!.content).toContain('canvas.getNode');
 
     // User message
     expect(messages[1]).toStrictEqual({ role: 'user', content: userItem.content });
 
-    // Assistant turn with tool_calls
-    expect(messages[2]).toMatchObject({
-      role: 'assistant',
-      content: assistantItem.content,
-    });
-    expect(messages[2]!.toolCalls).toHaveLength(2);
-    expect(messages[2]!.toolCalls![0]!.name).toBe('canvas.getState');
-    expect(messages[2]!.toolCalls![1]!.name).toBe('canvas.getNode');
+    // The assistant+tool group is fully-cached (both tool calls live in
+    // the graph's tool-result index) AND non-trailing (a non-tool-result
+    // entity-snapshot follows), so per legacy parity it is skipped.
+    // Entity snapshot becomes a system message right after the user turn.
+    expect(messages[2]).toMatchObject({ role: 'system' });
+    expect(messages[2]!.content).toContain('[Entity snapshot]');
 
-    // Tool result 1
-    expect(messages[3]).toMatchObject({
-      role: 'tool',
-      toolCallId: 'tc1',
-    });
-    const tc1Content = JSON.parse(messages[3]!.content);
-    expect(tc1Content.success).toBe(true);
-
-    // Tool result 2
-    expect(messages[4]).toMatchObject({
-      role: 'tool',
-      toolCallId: 'tc2',
-    });
-
-    // Entity snapshot becomes a system message
-    expect(messages[5]).toMatchObject({
-      role: 'system',
-    });
-    expect(messages[5]!.content).toContain('[Entity snapshot]');
-
-    // Total: 6 messages
-    expect(messages).toHaveLength(6);
+    // Total: primary system + user + entity-snapshot system = 3 messages
+    expect(messages).toHaveLength(3);
   });
 
   it('respects token budget — drops oldest non-guide items when over budget', () => {

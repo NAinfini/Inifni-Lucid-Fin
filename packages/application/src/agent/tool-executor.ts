@@ -1,7 +1,7 @@
 import type { LLMToolCall } from '@lucid-fin/contracts';
 import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
 import type { AgentEvent } from './agent-orchestrator.js';
-import type { ToolResultCache } from './tool-result-cache.js';
+import type { ContextGraph } from './graph/context-graph.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
 import { ToolCatalog } from './tool-catalog.js';
@@ -146,15 +146,23 @@ export interface ToolExecutionEntry {
 
 export interface ToolExecutorOptions {
   permissionMode?: 'auto' | 'normal' | 'strict';
-  /** Tool result cache for read-through. */
-  cache?: ToolResultCache;
-  /** Current step number for cache freshness checks. */
+  /**
+   * ContextGraph used as read-through cache for idempotent get/list tools.
+   * When present, a matching tool-result in the graph's dedup index is
+   * served directly without re-executing the tool.
+   */
+  contextGraph?: ContextGraph;
+  /** Current step number — drives the read-through cache freshness gate. */
   currentStep?: number;
   /** Auto-injected into tool arguments so the LLM never needs to provide it. */
   canvasId?: string;
 }
 
-/** Max step age for read-through cache hits per tool category. */
+/**
+ * Max step age for read-through cache hits per tool name. Tighter for
+ * canvas state which the model mutates aggressively; looser for stable
+ * reference data. Defaults apply to anything not in this table.
+ */
 const CACHE_MAX_AGE: Record<string, number> = {
   'canvas.getState': 1,
   'canvas.getNode': 3,
@@ -203,18 +211,31 @@ export class ToolExecutor {
 
     const startedAt = Date.now();
 
-    // Read-through cache: serve from cache if fresh enough
-    const cache = this.opts?.cache;
+    // Read-through cache via graph projection: idempotent get/list calls whose
+    // (toolKey, paramsHash) identity is already in the graph are served
+    // without re-executing the tool. A step-age freshness gate bounds how
+    // long a cache entry can serve hits — important when external state
+    // (UI edits, background updates, provider state) changes outside the
+    // agent's mutation tools and the orchestrator's invalidation cannot
+    // see those changes. Mutation invalidation in the orchestrator handles
+    // agent-driven staleness.
+    const graph = this.opts?.contextGraph;
     const currentStep = this.opts?.currentStep ?? 0;
-    if (cache) {
+    if (graph) {
       const category = getToolCompactionCategory(tc.name);
       if (category === 'get' || category === 'list') {
+        const paramsHash = safeStringify(tc.arguments);
+        const entry = graph.findLatestToolResultEntry(tc.name, paramsHash);
         const maxAge = CACHE_MAX_AGE[tc.name]
           ?? (category === 'get' ? CACHE_MAX_AGE_DEFAULT_GET : CACHE_MAX_AGE_DEFAULT_LIST);
-        const cached = this._lookupCache(cache, tc.name, tc.arguments as Record<string, unknown>, currentStep, maxAge);
-        if (cached) {
+        if (entry && (currentStep - entry.producedAtStep) <= maxAge) {
           const completedAt = Date.now();
-          const cachedResult: ToolResult = { success: true, data: cached };
+          let parsed: unknown = entry.content;
+          try { parsed = JSON.parse(entry.content); } catch { /* keep raw string */ }
+          const cachedResult: ToolResult =
+            typeof parsed === 'object' && parsed !== null && 'success' in (parsed as object)
+              ? (parsed as ToolResult)
+              : { success: true, data: parsed };
           const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
           const resultContent = summarizeToolResult(tc.name, cachedResult, toolMaxResult);
           emit({ type: 'tool_call', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, startedAt });
@@ -428,46 +449,5 @@ export class ToolExecutor {
     const tool = this.tools.get(tc.name);
     const tier = tool?.tier ?? 1;
     return needsConfirmation(tier, mode);
-  }
-
-  /**
-   * Look up a cached value for a get/list tool call.
-   * Returns the parsed data if fresh enough, or undefined if not cached or stale.
-   */
-  private _lookupCache(
-    cache: ToolResultCache,
-    toolName: string,
-    args: Record<string, unknown>,
-    currentStep: number,
-    maxAge: number,
-  ): unknown | undefined {
-    // For 'get' tools: look up by entity key from args
-    const category = getToolCompactionCategory(toolName);
-    if (category === 'get') {
-      const entityId = this._extractIdFromArgs(args);
-      if (entityId) {
-        const entry = cache.getEntity(toolName, entityId);
-        if (entry && (currentStep - entry.lastAccessStep) <= maxAge) {
-          cache.touchEntry(toolName, entityId, currentStep);
-          return JSON.parse(entry.serialized);
-        }
-      }
-    }
-    // For 'list' tools: check if we have a list entry
-    if (category === 'list') {
-      const listEntry = cache.getList(toolName, args);
-      if (listEntry && (currentStep - listEntry.lastAccessStep) <= maxAge) {
-        return undefined; // Lists change with pagination args — don't serve from cache
-      }
-    }
-    return undefined;
-  }
-
-  private _extractIdFromArgs(args: Record<string, unknown>): string | undefined {
-    for (const field of ['id', 'nodeId', 'characterId', 'equipmentId', 'locationId', 'presetId']) {
-      const value = args[field];
-      if (typeof value === 'string' && value) return value;
-    }
-    return undefined;
   }
 }
