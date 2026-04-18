@@ -158,6 +158,9 @@ function renderWithStore(
       items: characters,
       selectedId: selectedCharacterId,
       loading: false,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     }),
   );
   store.dispatch(
@@ -166,6 +169,9 @@ function renderWithStore(
       selectedId: selectedEquipmentId,
       filterType: 'all',
       loading: false,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     }),
   );
   store.dispatch(
@@ -174,6 +180,9 @@ function renderWithStore(
       selectedId: selectedLocationId,
       loading: false,
       search: '',
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     }),
   );
 

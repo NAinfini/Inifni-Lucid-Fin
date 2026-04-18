@@ -178,6 +178,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('character:saveLoadout', { characterId, loadout }),
     deleteLoadout: (characterId: string, loadoutId: string) =>
       invoke('character:deleteLoadout', { characterId, loadoutId }),
+    setFolder: (id: string, folderId: string | null) =>
+      invoke<void>('character:setFolder', { id, folderId }),
   },
 
   // Equipment
@@ -191,6 +193,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('equipment:setRefImage', { equipmentId, slot, assetHash, isStandard }),
     removeRefImage: (equipmentId: string, slot: string) =>
       invoke('equipment:removeRefImage', { equipmentId, slot }),
+    setFolder: (id: string, folderId: string | null) =>
+      invoke<void>('equipment:setFolder', { id, folderId }),
   },
 
   // Location
@@ -204,6 +208,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('location:setRefImage', { locationId, slot, assetHash, isStandard }),
     removeRefImage: (locationId: string, slot: string) =>
       invoke('location:removeRefImage', { locationId, slot }),
+    setFolder: (id: string, folderId: string | null) =>
+      invoke<void>('location:setFolder', { id, folderId }),
   },
   entity: {
     generateReferenceImage: (request: {
@@ -245,6 +251,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     exportBatch: (args: { items: Array<{ hash: string; type: string; name?: string }> }) =>
       invoke('asset:exportBatch', args),
     delete: (hash: string) => invoke('asset:delete', { hash }),
+    setFolder: (hash: string, folderId: string | null) =>
+      invoke<void>('asset:setFolder', { hash, folderId }),
   },
 
   // Jobs
@@ -318,6 +326,50 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setCustom: (processKey: string, value: string) =>
       typedInvoke('processPrompt:setCustom', { processKey, value }),
     reset: (processKey: string) => typedInvoke('processPrompt:reset', { processKey }),
+  },
+
+  // Folders (per-kind CRUD for character/equipment/location/asset)
+  folder: {
+    character: {
+      list: () => invoke('folder.character:list'),
+      create: (parentId: string | null, name: string) =>
+        invoke('folder.character:create', { parentId, name }),
+      rename: (id: string, name: string) =>
+        invoke('folder.character:rename', { id, name }),
+      move: (id: string, newParentId: string | null) =>
+        invoke('folder.character:move', { id, newParentId }),
+      delete: (id: string) => invoke<void>('folder.character:delete', { id }),
+    },
+    equipment: {
+      list: () => invoke('folder.equipment:list'),
+      create: (parentId: string | null, name: string) =>
+        invoke('folder.equipment:create', { parentId, name }),
+      rename: (id: string, name: string) =>
+        invoke('folder.equipment:rename', { id, name }),
+      move: (id: string, newParentId: string | null) =>
+        invoke('folder.equipment:move', { id, newParentId }),
+      delete: (id: string) => invoke<void>('folder.equipment:delete', { id }),
+    },
+    location: {
+      list: () => invoke('folder.location:list'),
+      create: (parentId: string | null, name: string) =>
+        invoke('folder.location:create', { parentId, name }),
+      rename: (id: string, name: string) =>
+        invoke('folder.location:rename', { id, name }),
+      move: (id: string, newParentId: string | null) =>
+        invoke('folder.location:move', { id, newParentId }),
+      delete: (id: string) => invoke<void>('folder.location:delete', { id }),
+    },
+    asset: {
+      list: () => invoke('folder.asset:list'),
+      create: (parentId: string | null, name: string) =>
+        invoke('folder.asset:create', { parentId, name }),
+      rename: (id: string, name: string) =>
+        invoke('folder.asset:rename', { id, name }),
+      move: (id: string, newParentId: string | null) =>
+        invoke('folder.asset:move', { id, newParentId }),
+      delete: (id: string) => invoke<void>('folder.asset:delete', { id }),
+    },
   },
   commander: {
     chat: (

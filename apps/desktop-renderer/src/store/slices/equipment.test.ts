@@ -153,6 +153,9 @@ describe('equipment slice', () => {
         selectedId: 'eq-99',
         filterType: 'armor',
         loading: false,
+        folders: [],
+        currentFolderId: null,
+        foldersLoading: false,
       }),
     );
     expect(restored.items).toHaveLength(1);
