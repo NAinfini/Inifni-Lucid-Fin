@@ -58,6 +58,7 @@ export interface CharacterUpsertInput {
   referenceImages?: unknown[];
   loadouts?: unknown[];
   defaultLoadoutId?: string;
+  folderId?: string | null;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -71,6 +72,7 @@ export interface EquipmentUpsertInput {
   functionDesc?: string;
   tags?: string[];
   referenceImages?: unknown[];
+  folderId?: string | null;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -91,6 +93,7 @@ export interface LocationUpsertInput {
   atmosphereKeywords?: string[];
   tags?: string[];
   referenceImages?: unknown[];
+  folderId?: string | null;
   createdAt?: number;
   updatedAt?: number;
 }
@@ -154,6 +157,7 @@ function rowToCharacter(row: Record<string, unknown>): Character {
     ) as Character['referenceImages'],
     loadouts: parseJsonArrayOrEmpty(row.loadouts) as Character['loadouts'],
     defaultLoadoutId: (row.default_loadout_id as string) ?? '',
+    folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
     updatedAt: (row.updated_at as number) ?? Date.now(),
   };
@@ -171,6 +175,7 @@ function rowToEquipment(row: Record<string, unknown>): Equipment {
     referenceImages: parseJsonArrayOrEmpty(
       row.reference_images,
     ) as Equipment['referenceImages'],
+    folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
     updatedAt: (row.updated_at as number) ?? Date.now(),
   };
@@ -195,6 +200,7 @@ function rowToLocation(row: Record<string, unknown>): Location {
     referenceImages: parseJsonArrayOrEmpty(
       row.reference_images,
     ) as Location['referenceImages'],
+    folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
     updatedAt: (row.updated_at as number) ?? Date.now(),
   };
@@ -215,8 +221,9 @@ export class EntityRepository {
           ${CHAR.costumes.sqlName}, ${CHAR.tags.sqlName},
           ${CHAR.age.sqlName}, ${CHAR.gender.sqlName}, ${CHAR.voice.sqlName},
           ${CHAR.referenceImages.sqlName}, ${CHAR.loadouts.sqlName}, ${CHAR.defaultLoadoutId.sqlName},
+          ${CHAR.folderId.sqlName},
           ${CHAR.createdAt.sqlName}, ${CHAR.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(${CHAR.id.sqlName}) DO UPDATE SET
          ${CHAR.name.sqlName}=excluded.${CHAR.name.sqlName}, ${CHAR.role.sqlName}=excluded.${CHAR.role.sqlName},
          ${CHAR.description.sqlName}=excluded.${CHAR.description.sqlName},
@@ -228,6 +235,7 @@ export class EntityRepository {
          ${CHAR.referenceImages.sqlName}=excluded.${CHAR.referenceImages.sqlName},
          ${CHAR.loadouts.sqlName}=excluded.${CHAR.loadouts.sqlName},
          ${CHAR.defaultLoadoutId.sqlName}=excluded.${CHAR.defaultLoadoutId.sqlName},
+         ${CHAR.folderId.sqlName}=excluded.${CHAR.folderId.sqlName},
          ${CHAR.updatedAt.sqlName}=excluded.${CHAR.updatedAt.sqlName}`,
     ).run(
       input.id,
@@ -244,6 +252,7 @@ export class EntityRepository {
       JSON.stringify(input.referenceImages ?? []),
       JSON.stringify(input.loadouts ?? []),
       input.defaultLoadoutId ?? '',
+      input.folderId ?? null,
       input.createdAt ?? now,
       input.updatedAt ?? now,
     );
@@ -308,8 +317,9 @@ export class EntityRepository {
          (${EQUIP.id.sqlName}, ${EQUIP.name.sqlName}, ${EQUIP.type.sqlName},
           ${EQUIP.subtype.sqlName}, ${EQUIP.description.sqlName}, ${EQUIP.functionDesc.sqlName},
           ${EQUIP.tags.sqlName}, ${EQUIP.referenceImages.sqlName},
+          ${EQUIP.folderId.sqlName},
           ${EQUIP.createdAt.sqlName}, ${EQUIP.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(${EQUIP.id.sqlName}) DO UPDATE SET
          ${EQUIP.name.sqlName}=excluded.${EQUIP.name.sqlName}, ${EQUIP.type.sqlName}=excluded.${EQUIP.type.sqlName},
          ${EQUIP.subtype.sqlName}=excluded.${EQUIP.subtype.sqlName},
@@ -317,6 +327,7 @@ export class EntityRepository {
          ${EQUIP.functionDesc.sqlName}=excluded.${EQUIP.functionDesc.sqlName},
          ${EQUIP.tags.sqlName}=excluded.${EQUIP.tags.sqlName},
          ${EQUIP.referenceImages.sqlName}=excluded.${EQUIP.referenceImages.sqlName},
+         ${EQUIP.folderId.sqlName}=excluded.${EQUIP.folderId.sqlName},
          ${EQUIP.updatedAt.sqlName}=excluded.${EQUIP.updatedAt.sqlName}`,
     ).run(
       input.id,
@@ -327,6 +338,7 @@ export class EntityRepository {
       input.functionDesc ?? null,
       JSON.stringify(input.tags ?? []),
       JSON.stringify(input.referenceImages ?? []),
+      input.folderId ?? null,
       input.createdAt ?? now,
       input.updatedAt ?? now,
     );
@@ -402,8 +414,9 @@ export class EntityRepository {
           ${LOC.lighting.sqlName}, ${LOC.architectureStyle.sqlName},
           ${LOC.dominantColors.sqlName}, ${LOC.keyFeatures.sqlName}, ${LOC.atmosphereKeywords.sqlName},
           ${LOC.tags.sqlName}, ${LOC.referenceImages.sqlName},
+          ${LOC.folderId.sqlName},
           ${LOC.createdAt.sqlName}, ${LOC.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(${LOC.id.sqlName}) DO UPDATE SET
          ${LOC.name.sqlName}=excluded.${LOC.name.sqlName}, ${LOC.type.sqlName}=excluded.${LOC.type.sqlName},
          ${LOC.subLocation.sqlName}=excluded.${LOC.subLocation.sqlName},
@@ -418,6 +431,7 @@ export class EntityRepository {
          ${LOC.atmosphereKeywords.sqlName}=excluded.${LOC.atmosphereKeywords.sqlName},
          ${LOC.tags.sqlName}=excluded.${LOC.tags.sqlName},
          ${LOC.referenceImages.sqlName}=excluded.${LOC.referenceImages.sqlName},
+         ${LOC.folderId.sqlName}=excluded.${LOC.folderId.sqlName},
          ${LOC.updatedAt.sqlName}=excluded.${LOC.updatedAt.sqlName}`,
     ).run(
       input.id,
@@ -435,6 +449,7 @@ export class EntityRepository {
       input.atmosphereKeywords ? JSON.stringify(input.atmosphereKeywords) : null,
       JSON.stringify(input.tags ?? []),
       JSON.stringify(input.referenceImages ?? []),
+      input.folderId ?? null,
       input.createdAt ?? now,
       input.updatedAt ?? now,
     );
@@ -493,5 +508,28 @@ export class EntityRepository {
   deleteLocation(id: LocationId, tx?: Tx): void {
     const d = tx ?? this.db;
     d.prepare(`DELETE FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`).run(id);
+  }
+
+  // ── Folder assignments ─────────────────────────────────────────
+
+  setCharacterFolder(id: CharacterId, folderId: string | null, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${CHAR_TBL} SET ${CHAR.folderId.sqlName} = ?, ${CHAR.updatedAt.sqlName} = ? WHERE ${CHAR.id.sqlName} = ?`,
+    ).run(folderId, Date.now(), id);
+  }
+
+  setEquipmentFolder(id: EquipmentId, folderId: string | null, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${EQUIP_TBL} SET ${EQUIP.folderId.sqlName} = ?, ${EQUIP.updatedAt.sqlName} = ? WHERE ${EQUIP.id.sqlName} = ?`,
+    ).run(folderId, Date.now(), id);
+  }
+
+  setLocationFolder(id: LocationId, folderId: string | null, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${LOC_TBL} SET ${LOC.folderId.sqlName} = ?, ${LOC.updatedAt.sqlName} = ? WHERE ${LOC.id.sqlName} = ?`,
+    ).run(folderId, Date.now(), id);
   }
 }

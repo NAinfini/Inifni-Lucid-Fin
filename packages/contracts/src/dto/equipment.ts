@@ -40,6 +40,7 @@ export interface Equipment {
   visualDetails?: string;
   tags: string[];
   referenceImages: ReferenceImage[];
+  folderId?: string | null;
   createdAt: number;
   updatedAt: number;
 }

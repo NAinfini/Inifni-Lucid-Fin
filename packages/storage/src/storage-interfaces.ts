@@ -3,6 +3,7 @@ import type { JobRepository } from './repositories/job-repository.js';
 import type { AssetRepository } from './repositories/asset-repository.js';
 import type { CanvasRepository } from './repositories/canvas-repository.js';
 import type { EntityRepository } from './repositories/entity-repository.js';
+import type { FolderRepository } from './repositories/folder-repository.js';
 import type { SeriesRepository } from './repositories/series-repository.js';
 import type { PresetRepository } from './repositories/preset-repository.js';
 import type { ShotTemplateRepository } from './repositories/shot-template-repository.js';
@@ -23,6 +24,7 @@ export interface RepoBundle {
   assets: AssetRepository;
   canvases: CanvasRepository;
   entities: EntityRepository;
+  folders: FolderRepository;
   series: SeriesRepository;
   presets: PresetRepository;
   shotTemplates: ShotTemplateRepository;

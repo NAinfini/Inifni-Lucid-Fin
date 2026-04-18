@@ -10,6 +10,7 @@ import { JobRepository } from './repositories/job-repository.js';
 import { AssetRepository } from './repositories/asset-repository.js';
 import { CanvasRepository } from './repositories/canvas-repository.js';
 import { EntityRepository } from './repositories/entity-repository.js';
+import { FolderRepository } from './repositories/folder-repository.js';
 import { SeriesRepository } from './repositories/series-repository.js';
 import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
@@ -31,6 +32,7 @@ export class SqliteIndex implements IStorageLayer {
   private assets!: AssetRepository;
   private canvases!: CanvasRepository;
   private entities!: EntityRepository;
+  private folders!: FolderRepository;
   private seriesRepo!: SeriesRepository;
   private presets!: PresetRepository;
   private shotTemplates!: ShotTemplateRepository;
@@ -53,6 +55,7 @@ export class SqliteIndex implements IStorageLayer {
       assets: this.assets,
       canvases: this.canvases,
       entities: this.entities,
+      folders: this.folders,
       series: this.seriesRepo,
       presets: this.presets,
       shotTemplates: this.shotTemplates,
@@ -156,6 +159,7 @@ export class SqliteIndex implements IStorageLayer {
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
     this.entities = new EntityRepository(this.db);
+    this.folders = new FolderRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
     this.presets = new PresetRepository(this.db);
     this.shotTemplates = new ShotTemplateRepository(this.db);

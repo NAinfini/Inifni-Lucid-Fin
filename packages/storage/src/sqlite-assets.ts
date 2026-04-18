@@ -101,6 +101,7 @@ export function normalizeAssetMeta(meta: AssetMetaInput): AssetMeta {
     prompt: typeof meta.prompt === 'string' ? meta.prompt : undefined,
     provider: typeof meta.provider === 'string' ? meta.provider : undefined,
     tags: Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+    folderId: typeof meta.folderId === 'string' || meta.folderId === null ? meta.folderId : undefined,
     createdAt: normalizeAssetTimestamp(meta.createdAt),
   };
 }
@@ -109,8 +110,8 @@ export function insertAsset(db: BetterSqlite3.Database, meta: AssetMetaInput): v
   const normalized = normalizeAssetMeta(meta);
   db.prepare(
     `
-    INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, provider, created_at, file_size, width, height, duration)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, provider, folder_id, created_at, file_size, width, height, duration)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     normalized.hash,
@@ -119,6 +120,7 @@ export function insertAsset(db: BetterSqlite3.Database, meta: AssetMetaInput): v
     JSON.stringify(normalized.tags),
     normalized.prompt ?? null,
     normalized.provider ?? null,
+    normalized.folderId ?? null,
     normalized.createdAt,
     normalized.fileSize,
     normalized.width ?? null,
@@ -129,6 +131,14 @@ export function insertAsset(db: BetterSqlite3.Database, meta: AssetMetaInput): v
 
 export function deleteAsset(db: BetterSqlite3.Database, hash: string): void {
   db.prepare('DELETE FROM assets WHERE hash = ?').run(hash);
+}
+
+export function setAssetFolder(
+  db: BetterSqlite3.Database,
+  hash: string,
+  folderId: string | null,
+): void {
+  db.prepare('UPDATE assets SET folder_id = ? WHERE hash = ?').run(folderId, hash);
 }
 
 export function queryAssets(
@@ -163,6 +173,7 @@ export function queryAssets(
     tags: JSON.parse((r.tags as string) || '[]'),
     prompt: r.prompt as string | undefined,
     provider: r.provider as string | undefined,
+    folderId: (r.folder_id as string | null) ?? null,
     createdAt: r.created_at as number,
   }));
 }
@@ -320,6 +331,7 @@ export function searchAssets(
     tags: JSON.parse((r.tags as string) || '[]'),
     prompt: r.prompt as string | undefined,
     provider: r.provider as string | undefined,
+    folderId: (r.folder_id as string | null) ?? null,
     createdAt: r.created_at as number,
   }));
 }

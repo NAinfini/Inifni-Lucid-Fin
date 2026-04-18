@@ -24,6 +24,7 @@ export const AssetMetaSchema = z.object({
   prompt: z.string().optional(),
   provider: z.string().optional(),
   tags: z.array(z.string()),
+  folderId: z.string().nullable().optional(),
   createdAt: z.number().int().nonnegative(),
 });
 

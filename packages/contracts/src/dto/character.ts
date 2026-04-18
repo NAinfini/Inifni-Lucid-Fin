@@ -141,6 +141,7 @@ export interface Character {
   referenceImages: ReferenceImage[];
   loadouts: EquipmentLoadout[];
   defaultLoadoutId: string;
+  folderId?: string | null;
   createdAt: number;
   updatedAt: number;
 }

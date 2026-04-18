@@ -53,6 +53,13 @@ export type {
   LocationUpsertInput,
 } from './repositories/entity-repository.js';
 
+// ── Folder feature (04-18): FolderRepository ───────────────────
+export {
+  FolderRepository,
+  FolderCycleError,
+  FolderNotFoundError,
+} from './repositories/folder-repository.js';
+
 // ── Phase G1-2.7: SeriesRepository ─────────────────────────────
 export { SeriesRepository } from './repositories/series-repository.js';
 export type {

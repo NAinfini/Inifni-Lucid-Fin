@@ -23,6 +23,7 @@ CREATE TABLE characters (
   reference_images TEXT,
   loadouts TEXT,
   default_loadout_id TEXT,
+  folder_id TEXT,
   created_at INTEGER,
   updated_at INTEGER
 );
@@ -35,6 +36,7 @@ CREATE TABLE equipment (
   function_desc TEXT,
   tags TEXT,
   reference_images TEXT,
+  folder_id TEXT,
   created_at INTEGER,
   updated_at INTEGER
 );
@@ -54,6 +56,7 @@ CREATE TABLE locations (
   atmosphere_keywords TEXT,
   tags TEXT,
   reference_images TEXT,
+  folder_id TEXT,
   created_at INTEGER,
   updated_at INTEGER
 );
