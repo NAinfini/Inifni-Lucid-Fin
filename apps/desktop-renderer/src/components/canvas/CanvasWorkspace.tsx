@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 import {
   ReactFlow,
@@ -68,7 +68,7 @@ import { CanvasContextMenu, setContextMenuPosition } from './CanvasContextMenu.j
 import { useCanvasGeneration } from '../../hooks/useCanvasGeneration.js';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard.js';
 import { useCanvasDragDrop } from '../../hooks/useCanvasDragDrop.js';
-import { debounce } from '../../utils/performance.js';
+import { setCanvasInteracting } from '../../store/middleware/persist.js';
 import { getAPI } from '../../utils/api.js';
 import { downloadWorkflowDocument } from '../../utils/workflowExport.js';
 import { materializeImportedCanvas, readWorkflowDocument } from '../../utils/workflowImport.js';
@@ -148,11 +148,6 @@ export function CanvasWorkspace() {
   const rightPanel = useSelector((s: RootState) => s.ui.rightPanel);
   const canvasViewMode = useSelector((s: RootState) => s.ui.canvasViewMode);
   const editViewFocusedNodeId = useSelector((s: RootState) => s.ui.editViewFocusedNodeId);
-
-  const debouncedViewportUpdate = useMemo(
-    () => debounce((viewport: { x: number; y: number; zoom: number }) => dispatch(updateViewport(viewport)), 120),
-    [dispatch],
-  );
 
   // When the active canvas changes, imperatively move ReactFlow's viewport
   // to the restored position.  `defaultViewport` is an init-only prop, so
@@ -282,6 +277,9 @@ export function CanvasWorkspace() {
                 }
               }
             }
+            if (draggingNodeIdsRef.current.size === 0) {
+              setCanvasInteracting(true);
+            }
             draggingNodeIdsRef.current.add(change.id);
           } else if (change.dragging === false) {
             // ---- Drag ended: commit final positions to Redux ----
@@ -301,6 +299,9 @@ export function CanvasWorkspace() {
               }
               if (moves.length > 0) dispatch(moveNodes(moves));
               backdropChildrenRef.current.clear();
+            }
+            if (draggingNodeIdsRef.current.size === 0) {
+              setCanvasInteracting(false);
             }
           }
         }
@@ -449,6 +450,7 @@ export function CanvasWorkspace() {
   }, []);
   const onMoveStart = useCallback(() => {
     isPanningRef.current = true;
+    setCanvasInteracting(true);
     if (minimapWrapperRef.current) {
       minimapWrapperRef.current.style.visibility = 'hidden';
     }
@@ -459,9 +461,10 @@ export function CanvasWorkspace() {
       if (minimapWrapperRef.current) {
         minimapWrapperRef.current.style.visibility = '';
       }
-      debouncedViewportUpdate(viewport);
+      dispatch(updateViewport(viewport));
+      setCanvasInteracting(false);
     },
-    [debouncedViewportUpdate],
+    [dispatch],
   );
 
   const onFlowInit = useCallback(

@@ -362,6 +362,18 @@ hr, .lucid-divider {
 /* ═══════════════════════════════════════════════════
    ReactFlow overrides
    ═══════════════════════════════════════════════════ */
+/* Promote the pan/zoom viewport and each node to their own compositor
+   layers so transform changes during drag/pan are handled by the GPU
+   and skip layout/paint. Without this the browser repaints the entire
+   canvas area on every pointermove, which is the main cause of pan lag
+   on larger canvases. */
+.react-flow__viewport {
+  will-change: transform;
+  transform: translateZ(0);
+}
+.react-flow__node {
+  will-change: transform;
+}
 .react-flow__node .react-flow__handle-connecting {
   display: none;
 }
