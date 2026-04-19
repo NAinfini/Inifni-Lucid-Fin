@@ -226,7 +226,14 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     generateImage: deps.generateImage,
     getCanvas: deps.getCanvas,
     buildPrompt: buildLocationRefImagePrompt,
-    isStandardSlot: (slot) => LOCATION_STANDARD_SLOTS.includes(slot as (typeof LOCATION_STANDARD_SLOTS)[number]),
+    isStandardSlot: (slot) =>
+      slot === 'main' ||
+      LOCATION_STANDARD_SLOTS.includes(slot as (typeof LOCATION_STANDARD_SLOTS)[number]),
+    // Advertise canonical slots + `main` (which the prompt builder aliases to
+    // `wide-establishing`). The enum prevents the model from inventing
+    // strings like "portrait-main" that would slip through the runtime
+    // fallback.
+    slotEnum: ['main', ...LOCATION_STANDARD_SLOTS],
     defaultWidth: 2048,
     defaultHeight: 1360,
   });

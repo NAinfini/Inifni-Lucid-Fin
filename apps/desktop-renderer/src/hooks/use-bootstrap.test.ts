@@ -177,7 +177,7 @@ describe('useBootstrap', () => {
         expect.objectContaining({
           level: 'error',
           category: 'startup',
-          message: t('startup.autoProjectBootstrapFailed'),
+          message: t('startup.bootstrapFailed'),
         }),
       ]),
     );

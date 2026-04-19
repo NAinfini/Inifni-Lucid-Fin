@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS assets (
   tags        TEXT,
   prompt      TEXT,
   provider    TEXT,
+  folder_id   TEXT,
   created_at  INTEGER NOT NULL,
   file_size   INTEGER,
   width       INTEGER,
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS characters (
   reference_images TEXT DEFAULT '[]',
   loadouts      TEXT DEFAULT '[]',
   default_loadout_id TEXT DEFAULT '',
+  folder_id     TEXT,
   created_at    INTEGER,
   updated_at    INTEGER
 );
@@ -81,6 +83,7 @@ CREATE TABLE IF NOT EXISTS equipment (
   function_desc TEXT,
   tags          TEXT DEFAULT '[]',
   reference_images TEXT DEFAULT '[]',
+  folder_id     TEXT,
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL
 );
@@ -101,9 +104,54 @@ CREATE TABLE IF NOT EXISTS locations (
   atmosphere_keywords TEXT,
   tags             TEXT DEFAULT '[]',
   reference_images TEXT DEFAULT '[]',
+  folder_id        TEXT,
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS character_folders (
+  id         TEXT PRIMARY KEY,
+  parent_id  TEXT,
+  name       TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (parent_id) REFERENCES character_folders(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_character_folders_parent ON character_folders(parent_id);
+
+CREATE TABLE IF NOT EXISTS equipment_folders (
+  id         TEXT PRIMARY KEY,
+  parent_id  TEXT,
+  name       TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (parent_id) REFERENCES equipment_folders(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_equipment_folders_parent ON equipment_folders(parent_id);
+
+CREATE TABLE IF NOT EXISTS location_folders (
+  id         TEXT PRIMARY KEY,
+  parent_id  TEXT,
+  name       TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (parent_id) REFERENCES location_folders(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_location_folders_parent ON location_folders(parent_id);
+
+CREATE TABLE IF NOT EXISTS asset_folders (
+  id         TEXT PRIMARY KEY,
+  parent_id  TEXT,
+  name       TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (parent_id) REFERENCES asset_folders(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_asset_folders_parent ON asset_folders(parent_id);
 
 CREATE TABLE IF NOT EXISTS scripts (
   id            TEXT PRIMARY KEY,

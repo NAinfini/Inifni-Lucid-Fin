@@ -43,6 +43,9 @@ describe('locations slice', () => {
       selectedId: null,
       loading: false,
       search: '',
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     });
   });
 
@@ -54,6 +57,9 @@ describe('locations slice', () => {
       selectedId: 'location-1',
       loading: true,
       search: 'ware',
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     };
 
     expect(setLocations([location])).toMatchObject({
@@ -181,6 +187,9 @@ describe('locations slice', () => {
       selectedId: 'location-restore',
       loading: true,
       search: 'dock',
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     };
 
     expect(locationsSlice.reducer(undefined, locationsSlice.actions.restore(restored))).toEqual(

@@ -164,7 +164,8 @@ function GridCard({ asset, isSelected, onAssetClick, onAssetKeyDown, onContextMe
               type: asset.type,
             }),
           );
-          event.dataTransfer.effectAllowed = 'copy';
+          event.dataTransfer.setData('application/lucid-entity-id', asset.hash);
+          event.dataTransfer.effectAllowed = 'copyMove';
         }}
         onClick={(e) => onAssetClick(asset, e)}
         onKeyDown={(event) => onAssetKeyDown(asset, event)}
@@ -267,7 +268,8 @@ function ListRow({ asset, isSelected, onAssetClick, onContextMenuSelect }: ListR
             type: asset.type,
           }),
         );
-        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.setData('application/lucid-entity-id', asset.hash);
+        event.dataTransfer.effectAllowed = 'copyMove';
       }}
       onClick={(e) => onAssetClick(asset, e)}
       onContextMenu={(e) => onContextMenuSelect(asset, e)}

@@ -58,6 +58,9 @@ describe('characters slice', () => {
       items: [],
       selectedId: null,
       loading: false,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     });
   });
 
@@ -69,6 +72,9 @@ describe('characters slice', () => {
       items: [character],
       selectedId: 'character-1',
       loading: true,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     };
 
     expect(setCharacters([character])).toMatchObject({
@@ -250,6 +256,9 @@ describe('characters slice', () => {
       items: [makeCharacter({ id: 'character-restore', name: 'Restored' })],
       selectedId: 'character-restore',
       loading: true,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     };
 
     expect(charactersSlice.reducer(undefined, charactersSlice.actions.restore(restored))).toEqual(

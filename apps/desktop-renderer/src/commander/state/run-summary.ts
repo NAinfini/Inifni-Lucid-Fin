@@ -19,13 +19,36 @@ function normalizeRunExcerpt(content: string): string {
   return content.replace(/\s+/g, ' ').trim();
 }
 
+const EXCERPT_MAX_LEN = 320;
+
 function trimRunExcerpt(content: string): string {
-  return content.length > 160 ? `${content.slice(0, 157)}...` : content;
+  return content.length > EXCERPT_MAX_LEN ? `${content.slice(0, EXCERPT_MAX_LEN - 1)}…` : content;
+}
+
+/**
+ * Pick the final user-facing "result" text from a run. We want the last
+ * assistant text segment — the model's closing answer after any tool calls —
+ * rather than an early preamble ("Let me check…") that a head-of-string slice
+ * would return. Falls back to the plain content when no segments were
+ * captured (e.g. pure text runs with no tools).
+ */
+function pickResultText(content: string, segments: MessageSegment[] | undefined): string {
+  if (segments && segments.length > 0) {
+    for (let i = segments.length - 1; i >= 0; i -= 1) {
+      const seg = segments[i];
+      if (seg && seg.type === 'text') {
+        const normalized = normalizeRunExcerpt(seg.content);
+        if (normalized) return normalized;
+      }
+    }
+  }
+  return normalizeRunExcerpt(content);
 }
 
 export function buildRunSummary(
   status: CommanderRunStatus,
   content: string,
+  segments: MessageSegment[] | undefined,
   toolCalls: CommanderToolCall[],
   startedAt: number,
   completedAt: number,
@@ -33,9 +56,9 @@ export function buildRunSummary(
 ): CommanderRunSummary {
   const failedToolCount = toolCalls.filter((toolCall) => toolCall.status === 'error').length;
   const toolCount = toolCalls.length;
-  const normalizedContent = normalizeRunExcerpt(content);
+  const resultText = pickResultText(content, segments);
   const excerptSource =
-    normalizedContent ||
+    resultText ||
     normalizeRunExcerpt(errorMessage ?? '') ||
     (toolCount > 0
       ? `${status === 'failed' ? 'Attempted' : 'Completed'} ${toolCount} tool call${toolCount === 1 ? '' : 's'}.`
@@ -87,6 +110,7 @@ export function finalizeCurrentRunMessage(
       summary: buildRunSummary(
         status,
         content,
+        segments,
         state.currentToolCalls,
         startedAt,
         completedAt,

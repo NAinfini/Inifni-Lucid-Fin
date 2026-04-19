@@ -32,6 +32,7 @@ import { registerVideoCloneHandlers } from './handlers/video-clone.handlers.js';
 import { registerStorageHandlers } from './handlers/storage.handlers.js';
 import { registerSnapshotHandlers } from './handlers/snapshot.handlers.js';
 import { registerProcessPromptHandlers } from './handlers/process-prompt.handlers.js';
+import { registerFolderHandlers } from './handlers/folder.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 
 export interface AppDeps {
@@ -104,6 +105,7 @@ export function registerAllHandlers(
     db,
     cas,
     keychain,
+    promptStore,
     resolvePrompt: (code: string) => promptStore.resolve(code),
     resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
   });
@@ -115,6 +117,7 @@ export function registerAllHandlers(
   registerVideoCloneHandlers(ipcMain, { cas, canvasStore });
   registerStorageHandlers(ipcMain, { db, cas });
   registerSnapshotHandlers(ipcMain, db);
+  registerFolderHandlers(ipcMain, db);
   log.info('IPC handlers registered', {
     category: 'ipc',
     canvasStoreReady: true,

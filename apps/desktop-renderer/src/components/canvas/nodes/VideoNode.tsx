@@ -64,7 +64,7 @@ function VideoPlayerModal({
   useEffect(() => {
     if (open && modalVideoRef.current && videoUrl) {
       modalVideoRef.current.currentTime = 0;
-      void modalVideoRef.current.play();
+      modalVideoRef.current.play().catch(() => { /* 404/missing asset: silent */ });
     }
   }, [open, videoUrl]);
 
@@ -125,7 +125,7 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
     const vid = previewRef.current;
     if (vid && videoUrl) {
       vid.currentTime = 0;
-      void vid.play();
+      vid.play().catch(() => { /* 404/missing asset: silent */ });
     }
   }, [modalOpen, videoUrl]);
 

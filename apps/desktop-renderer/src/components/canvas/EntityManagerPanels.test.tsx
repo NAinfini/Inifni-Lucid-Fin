@@ -158,6 +158,9 @@ function renderWithStore(
       items: characters,
       selectedId: selectedCharacterId,
       loading: false,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     }),
   );
   store.dispatch(
@@ -166,6 +169,9 @@ function renderWithStore(
       selectedId: selectedEquipmentId,
       filterType: 'all',
       loading: false,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     }),
   );
   store.dispatch(
@@ -174,10 +180,49 @@ function renderWithStore(
       selectedId: selectedLocationId,
       loading: false,
       search: '',
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     }),
   );
 
   render(<Provider store={store}>{panel}</Provider>);
+
+  return store;
+}
+
+async function renderAndOpenDetail(
+  panel: React.ReactElement,
+  options?: Parameters<typeof renderWithStore>[1],
+) {
+  const store = renderWithStore(panel, options);
+  // Pull all possible selected ids so we can resolve whichever matches the
+  // rendered panel (tests restore selectedId on every slice for convenience,
+  // so we can't pick by slice order — we have to probe the DOM).
+  const state = store.getState() as {
+    characters: { selectedId: string | null };
+    equipment: { selectedId: string | null };
+    locations: { selectedId: string | null };
+  };
+  const candidates = [
+    state.characters.selectedId,
+    state.equipment.selectedId,
+    state.locations.selectedId,
+  ].filter((id): id is string => Boolean(id));
+  // Panels render a file-explorer first; wait for the initial async load to
+  // resolve (setLoading(true) → API mock → setLoading(false)), then open the
+  // detail drawer by double-clicking the selected entity's tile so tests can
+  // assert on the drawer's form contents.
+  const tile = await waitFor(() => {
+    for (const id of candidates) {
+      const match = document.querySelector(`[data-tile-id="${id}"]`);
+      if (match) return match;
+    }
+    const fallback = document.querySelector('[data-tile-id]');
+    if (fallback) return fallback;
+    throw new Error(`no entity tile rendered (candidates=${candidates.join(',')})`);
+  });
+  fireEvent.doubleClick(tile);
   return store;
 }
 
@@ -225,7 +270,7 @@ describe('Entity manager panels', () => {
   ])(
     'renders the asset picker button below the reference image section in $name',
     async ({ panel, referenceLabelKey }) => {
-      renderWithStore(panel);
+      await renderAndOpenDetail(panel);
 
       await waitFor(() => {
         expect(
@@ -326,7 +371,7 @@ describe('Entity manager panels', () => {
         configureApi() as unknown as ReturnType<typeof getAPI>,
       );
 
-      renderWithStore(panel, renderOptions);
+      await renderAndOpenDetail(panel, renderOptions);
 
       const deleteButtons = await screen.findAllByRole('button', { name: 'Delete variant' });
 
@@ -359,7 +404,7 @@ describe('Entity manager panels', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    renderWithStore(<CharacterManagerPanel />, {
+    await renderAndOpenDetail(<CharacterManagerPanel />, {
       characters,
       selectedCharacterId: 'character-1',
     });
@@ -376,7 +421,7 @@ describe('Entity manager panels', () => {
       expect(screen.getByText('Nova')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText('Nova'));
+    fireEvent.doubleClick(screen.getByText('Nova'));
 
     await waitFor(() => {
       expect(screen.getByText(t('characterManager.unsavedChanges'))).toBeTruthy();
@@ -387,7 +432,7 @@ describe('Entity manager panels', () => {
 
   it('uses dialog confirmation instead of window.confirm for character deletion', async () => {
     setLocale('zh-CN');
-    renderWithStore(<CharacterManagerPanel />);
+    await renderAndOpenDetail(<CharacterManagerPanel />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('Astra')).toBeTruthy();
@@ -400,8 +445,8 @@ describe('Entity manager panels', () => {
         screen.getByText(t('characterManager.deleteConfirm').replace('{name}', 'Astra')),
       ).toBeTruthy();
     });
-    expect(screen.getByRole('button', { name: t('action.cancel') })).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('action.confirm') })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: t('action.cancel') }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: t('action.confirm') }).length).toBeGreaterThan(0);
 
     expect(confirmSpy).not.toHaveBeenCalled();
   });
@@ -423,7 +468,7 @@ describe('Entity manager panels', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    renderWithStore(<EquipmentManagerPanel />, {
+    await renderAndOpenDetail(<EquipmentManagerPanel />, {
       equipment,
       selectedEquipmentId: 'equipment-1',
     });
@@ -440,7 +485,7 @@ describe('Entity manager panels', () => {
       expect(screen.getByText('Field Pack')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText('Field Pack'));
+    fireEvent.doubleClick(screen.getByText('Field Pack'));
 
     await waitFor(() => {
       expect(screen.getByText(t('equipmentManager.unsavedChanges'))).toBeTruthy();
@@ -451,7 +496,7 @@ describe('Entity manager panels', () => {
 
   it('uses dialog confirmation instead of window.confirm for equipment deletion', async () => {
     setLocale('zh-CN');
-    renderWithStore(<EquipmentManagerPanel />);
+    await renderAndOpenDetail(<EquipmentManagerPanel />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('Pulse Rifle')).toBeTruthy();
@@ -464,8 +509,8 @@ describe('Entity manager panels', () => {
         screen.getByText(t('equipmentManager.deleteConfirm').replace('{name}', 'Pulse Rifle')),
       ).toBeTruthy();
     });
-    expect(screen.getByRole('button', { name: t('action.cancel') })).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('action.confirm') })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: t('action.cancel') }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: t('action.confirm') }).length).toBeGreaterThan(0);
 
     expect(confirmSpy).not.toHaveBeenCalled();
   });
@@ -487,7 +532,7 @@ describe('Entity manager panels', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    renderWithStore(<LocationManagerPanel />, {
+    await renderAndOpenDetail(<LocationManagerPanel />, {
       locations,
       selectedLocationId: 'location-1',
     });
@@ -504,7 +549,7 @@ describe('Entity manager panels', () => {
       expect(screen.getByText('Observation Deck')).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText('Observation Deck'));
+    fireEvent.doubleClick(screen.getByText('Observation Deck'));
 
     await waitFor(() => {
       expect(screen.getByText(t('locationManager.unsavedChanges'))).toBeTruthy();
@@ -514,7 +559,7 @@ describe('Entity manager panels', () => {
   });
 
   it('uses dialog confirmation instead of window.confirm for location deletion', async () => {
-    renderWithStore(<LocationManagerPanel />);
+    await renderAndOpenDetail(<LocationManagerPanel />);
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('Hangar Bay')).toBeTruthy();

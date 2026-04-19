@@ -1,6 +1,6 @@
 {
   "name": "@lucid-fin/desktop-renderer",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Lucid Fin – Desktop renderer application",
   "author": "Lucid Fin Team",
   "private": true,

@@ -4,6 +4,7 @@ export * from './dto/character.js';
 export * from './dto/equipment.js';
 export * from './dto/location.js';
 export * from './dto/asset.js';
+export * from './dto/folder.js';
 export * from './dto/job.js';
 export * from './dto/adapter.js';
 export * from './dto/provider-profile.js';

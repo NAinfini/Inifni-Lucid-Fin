@@ -83,7 +83,7 @@ describe('createAssetTools', () => {
     await expect(getTool('asset.import', deps).execute({
       filePath: '   ',
       type: 'image',
-    })).resolves.toEqual({ success: false, error: 'filePath is required' });
+    })).resolves.toEqual({ success: false, error: 'filePath is required', errorClass: 'validation' });
 
     await expect(getTool('asset.list', deps).execute({
       type: 'pdf',

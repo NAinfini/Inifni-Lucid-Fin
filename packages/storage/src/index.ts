@@ -16,8 +16,6 @@ export type { PromptRecord } from './prompt-store.js';
 export { ProcessPromptStore, PROCESS_PROMPT_DEFAULTS } from './process-prompt-store.js';
 export type { ProcessPromptRecord, ProcessPromptDefault } from './process-prompt-store.js';
 export type { StoredSession, StoredSnapshot, SnapshotData } from './sqlite-snapshots.js';
-export { runMigrations, getCurrentVersion } from './migrations/runner.js';
-export type { Migration } from './migrations/runner.js';
 export { withTx } from './transactions.js';
 export type { Tx } from './transactions.js';
 
@@ -52,6 +50,13 @@ export type {
   EquipmentUpsertInput,
   LocationUpsertInput,
 } from './repositories/entity-repository.js';
+
+// ── Folder feature (04-18): FolderRepository ───────────────────
+export {
+  FolderRepository,
+  FolderCycleError,
+  FolderNotFoundError,
+} from './repositories/folder-repository.js';
 
 // ── Phase G1-2.7: SeriesRepository ─────────────────────────────
 export { SeriesRepository } from './repositories/series-repository.js';

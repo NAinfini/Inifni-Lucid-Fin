@@ -1,9 +1,23 @@
 import type { LLMToolDefinition, LLMToolParameter } from '@lucid-fin/contracts';
 
+export type ToolErrorClass =
+  | 'transient'
+  | 'not_found'
+  | 'validation'
+  | 'permission'
+  | 'fatal';
+
 export interface ToolResult {
   success: boolean;
   data?: unknown;
   error?: string;
+  /**
+   * Typed error class. When a tool knows why it failed (e.g. a `requireString`
+   * helper hit a missing arg → validation; a CAS lookup missed → not_found),
+   * set this so the executor doesn't have to keyword-sniff `error`. The
+   * executor's fallback handles legacy tools that only set `error`.
+   */
+  errorClass?: ToolErrorClass;
 }
 
 export interface AgentTool {

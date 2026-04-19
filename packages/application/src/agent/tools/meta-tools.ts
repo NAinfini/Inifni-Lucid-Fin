@@ -1,19 +1,70 @@
 import type { AgentTool, AgentToolRegistry } from '../tool-registry.js';
 import { ok, fail } from './tool-result-helpers.js';
+import { ToolCatalog } from '../tool-catalog.js';
+import { getProcessCategoryName, type ProcessCategory } from '../process-detection.js';
 
 export interface MetaToolDeps {
   promptGuides?: Array<{ id: string; name: string; content: string }>;
   context?: string;
   /** Callback to trigger mid-loop context compaction. Optional instructions guide the summary focus. */
   compactContext?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+  /**
+   * Resolves the effective (user-overridden or default) process prompt for
+   * a given category. When provided, `tool.get` includes the matching
+   * process guide inline with each tool schema it returns so the model
+   * sees the guidance during schema discovery — before it commits to
+   * arguments. This is the primary injection path; the orchestrator's
+   * pre-flight defer acts as a backstop when the model skips discovery.
+   */
+  resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
+}
+
+/**
+ * Looks up a tool's process category via the catalog. Returns null for:
+ *   - tools not in the catalog
+ *   - meta-category tools (tool.*, guide.*, commander.askUser)
+ *   - canvas.generate (dynamic — process depends on runtime nodeType args,
+ *     and we don't have args at schema-discovery time)
+ * Kept near the call site to make it obvious which processes tool.get can
+ * surface without needing user-provided arguments.
+ */
+function staticProcessCategoryFor(toolName: string): ProcessCategory | null {
+  if (toolName === 'canvas.generate') return null;
+  const byKey = ToolCatalog.byKey as Readonly<Record<string, { process: string; category: string }>>;
+  const entry = byKey[toolName];
+  if (!entry) return null;
+  if (entry.category === 'meta') return null;
+  return entry.process as ProcessCategory;
 }
 
 export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps): AgentTool[] {
   const promptGuides = deps.promptGuides ?? [];
+  const resolveProcessPrompt = deps.resolveProcessPrompt;
+
+  /**
+   * Builds the `{ category, name, guide }` block that rides alongside a
+   * tool schema in `tool.get` results. Returns undefined when the tool has
+   * no static process mapping or when no resolver is wired — callers must
+   * gracefully omit the field in that case so we don't emit empty noise.
+   */
+  const attachProcessGuide = (
+    toolName: string,
+  ): { processCategory: string; processCategoryName: string; processGuide: string } | undefined => {
+    if (!resolveProcessPrompt) return undefined;
+    const processKey = staticProcessCategoryFor(toolName);
+    if (!processKey) return undefined;
+    const guide = resolveProcessPrompt(processKey);
+    if (!guide || !guide.trim()) return undefined;
+    return {
+      processCategory: processKey,
+      processCategoryName: getProcessCategoryName(processKey),
+      processGuide: guide.trim(),
+    };
+  };
 
   const toolGet: AgentTool = {
     name: 'tool.get',
-    description: 'Two modes: (1) Omit "names" to list all available tools grouped by domain (name + short description only). (2) Provide "names" array to load full parameter schemas for specific tools. Use mode 1 first to discover tools, then mode 2 to get schemas before calling them.',
+    description: 'Two modes: (1) Omit "names" to list all available tools grouped by domain (name + short description only). (2) Provide "names" array to load full parameter schemas for specific tools. Use mode 1 first to discover tools, then mode 2 to get schemas before calling them. When a tool has a governing process guide (e.g. character-ref-image-generation), the guide is attached inline under `processGuide` — follow it before choosing arguments.',
     tags: ['meta', 'read'],
     tier: 1,
     parameters: {
@@ -56,18 +107,30 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
           if (!tool) {
             return { success: false, error: `Tool '${name}' not found` };
           }
-          return ok({ name: tool.name, description: tool.description, parameters: tool.parameters });
+          const guideBlock = attachProcessGuide(tool.name);
+          return ok({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+            ...(guideBlock ?? {}),
+          });
         }
 
         if (Array.isArray(rawNames)) {
-          const results: Array<{ name: string; description: string; parameters: unknown }> = [];
+          const results: Array<{ name: string; description: string; parameters: unknown; processCategory?: string; processCategoryName?: string; processGuide?: string }> = [];
           for (const entry of rawNames) {
             const name = typeof entry === 'string' ? entry.trim() : String(entry);
             const tool = registry.get(name);
             if (!tool) {
               return { success: false, error: `Tool '${name}' not found` };
             }
-            results.push({ name: tool.name, description: tool.description, parameters: tool.parameters });
+            const guideBlock = attachProcessGuide(tool.name);
+            results.push({
+              name: tool.name,
+              description: tool.description,
+              parameters: tool.parameters,
+              ...(guideBlock ?? {}),
+            });
           }
           return ok(results);
         }

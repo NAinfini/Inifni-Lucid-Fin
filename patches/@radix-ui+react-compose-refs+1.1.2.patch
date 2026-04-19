@@ -1,0 +1,93 @@
+diff --git a/node_modules/@radix-ui/react-compose-refs/dist/index.js b/node_modules/@radix-ui/react-compose-refs/dist/index.js
+index 5ba7a95..45d4d28 100644
+--- a/node_modules/@radix-ui/react-compose-refs/dist/index.js
++++ b/node_modules/@radix-ui/react-compose-refs/dist/index.js
+@@ -68,7 +68,45 @@ function composeRefs(...refs) {
+     }
+   };
+ }
++// Patched for React 19 compatibility: memoize the composed ref callback with
++// a stable identity so React's ref-callback cleanup/mount cycle does not
++// re-fire on every render. The previous implementation passed the spread
++// `refs` array directly as the useCallback dep list, but arrays compare by
++// identity and a new array is created every call — so the callback identity
++// flipped every render, which under React 19 triggered cleanup→mount of all
++// composed refs on every commit. When one of those refs was a useState
++// setter (common inside Radix Primitive internals), the mount call fired
++// the setter, re-rendered, and re-created the callback, forming an
++// infinite loop ("Maximum update depth exceeded" inside setRef).
++//
++// Fix: store the latest refs in a ref and return a stable callback that
++// reads from it. See upstream PR radix-ui/primitives#3804 for the equivalent
++// change; this patch is a local workaround until that PR ships.
+ function useComposedRefs(...refs) {
+-  return React.useCallback(composeRefs(...refs), refs);
++  const refsRef = React.useRef(refs);
++  refsRef.current = refs;
++  return React.useCallback((node) => {
++    const current = refsRef.current;
++    let hasCleanup = false;
++    const cleanups = current.map((ref) => {
++      const cleanup = setRef(ref, node);
++      if (!hasCleanup && typeof cleanup == "function") {
++        hasCleanup = true;
++      }
++      return cleanup;
++    });
++    if (hasCleanup) {
++      return () => {
++        for (let i = 0; i < cleanups.length; i++) {
++          const cleanup = cleanups[i];
++          if (typeof cleanup == "function") {
++            cleanup();
++          } else {
++            setRef(current[i], null);
++          }
++        }
++      };
++    }
++  }, []);
+ }
+ //# sourceMappingURL=index.js.map
+diff --git a/node_modules/@radix-ui/react-compose-refs/dist/index.mjs b/node_modules/@radix-ui/react-compose-refs/dist/index.mjs
+index 7dd9172..5d82f01 100644
+--- a/node_modules/@radix-ui/react-compose-refs/dist/index.mjs
++++ b/node_modules/@radix-ui/react-compose-refs/dist/index.mjs
+@@ -31,8 +31,36 @@ function composeRefs(...refs) {
+     }
+   };
+ }
++// Patched for React 19 compatibility: memoize the composed ref callback with
++// a stable identity so React's ref-callback cleanup/mount cycle does not
++// re-fire on every render. See patches/@radix-ui+react-compose-refs+1.1.2.patch
++// and upstream PR radix-ui/primitives#3804.
+ function useComposedRefs(...refs) {
+-  return React.useCallback(composeRefs(...refs), refs);
++  const refsRef = React.useRef(refs);
++  refsRef.current = refs;
++  return React.useCallback((node) => {
++    const current = refsRef.current;
++    let hasCleanup = false;
++    const cleanups = current.map((ref) => {
++      const cleanup = setRef(ref, node);
++      if (!hasCleanup && typeof cleanup == "function") {
++        hasCleanup = true;
++      }
++      return cleanup;
++    });
++    if (hasCleanup) {
++      return () => {
++        for (let i = 0; i < cleanups.length; i++) {
++          const cleanup = cleanups[i];
++          if (typeof cleanup == "function") {
++            cleanup();
++          } else {
++            setRef(current[i], null);
++          }
++        }
++      };
++    }
++  }, []);
+ }
+ export {
+   composeRefs,

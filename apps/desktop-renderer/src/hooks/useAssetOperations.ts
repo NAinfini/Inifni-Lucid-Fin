@@ -59,6 +59,7 @@ export function useAssetOperations() {
             duration: typeof asset.duration === 'number' ? asset.duration : undefined,
             provider: typeof asset.provider === 'string' ? asset.provider : undefined,
             prompt: typeof asset.prompt === 'string' ? asset.prompt : undefined,
+            folderId: typeof asset.folderId === 'string' ? asset.folderId : null,
           })),
         ),
       );

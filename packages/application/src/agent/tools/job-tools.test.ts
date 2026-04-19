@@ -74,6 +74,7 @@ describe('createJobTools', () => {
     await expect(getTool('job.control', deps).execute({ jobId: '', action: 'cancel' })).resolves.toEqual({
       success: false,
       error: 'jobId is required',
+      errorClass: 'validation',
     });
     await expect(getTool('job.control', deps).execute({ jobId: 'job-9', action: 'pause' })).resolves.toEqual({
       success: false,

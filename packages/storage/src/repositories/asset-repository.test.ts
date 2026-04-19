@@ -15,6 +15,7 @@ CREATE TABLE assets (
   tags        TEXT,
   prompt      TEXT,
   provider    TEXT,
+  folder_id   TEXT,
   created_at  INTEGER NOT NULL,
   file_size   INTEGER,
   width       INTEGER,

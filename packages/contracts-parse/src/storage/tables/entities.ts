@@ -20,6 +20,7 @@ export const CharactersTable = defineTable('characters', {
   referenceImages: col<string | null>('reference_images'),
   loadouts: col<string | null>('loadouts'),
   defaultLoadoutId: col<string | null>('default_loadout_id'),
+  folderId: col<string | null>('folder_id'),
   createdAt: col<number | null>('created_at'),
   updatedAt: col<number | null>('updated_at'),
 });
@@ -33,6 +34,7 @@ export const EquipmentTable = defineTable('equipment', {
   functionDesc: col<string | null>('function_desc'),
   tags: col<string | null>('tags'),
   referenceImages: col<string | null>('reference_images'),
+  folderId: col<string | null>('folder_id'),
   createdAt: col<number>('created_at'),
   updatedAt: col<number>('updated_at'),
 });
@@ -53,6 +55,7 @@ export const LocationsTable = defineTable('locations', {
   atmosphereKeywords: col<string | null>('atmosphere_keywords'),
   tags: col<string | null>('tags'),
   referenceImages: col<string | null>('reference_images'),
+  folderId: col<string | null>('folder_id'),
   createdAt: col<number>('created_at'),
   updatedAt: col<number>('updated_at'),
 });

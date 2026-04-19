@@ -103,6 +103,7 @@ describe('createScriptTools', () => {
     await expect(getTool('script.import', deps).execute({ path: '   ' })).resolves.toEqual({
       success: false,
       error: 'path is required',
+      errorClass: 'validation',
     });
     await expect(getTool('script.import', deps).execute({ content: '   ' })).resolves.toEqual({
       success: false,

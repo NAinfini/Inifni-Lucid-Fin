@@ -33,6 +33,7 @@ export interface Location {
   atmosphereKeywords?: string[];
   tags: string[];
   referenceImages: ReferenceImage[];
+  folderId?: string | null;
   createdAt: number;
   updatedAt: number;
 }

@@ -72,6 +72,7 @@ describe('createColorStyleTools', () => {
     await expect(getTool('colorStyle.delete', deps).execute({ id: '  ' })).resolves.toEqual({
       success: false,
       error: 'id is required',
+      errorClass: 'validation',
     });
     await expect(getTool('colorStyle.delete', deps).execute({ id: 'style-1' })).resolves.toEqual({
       success: false,

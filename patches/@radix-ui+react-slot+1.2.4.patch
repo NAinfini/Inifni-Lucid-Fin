@@ -1,0 +1,51 @@
+diff --git a/node_modules/@radix-ui/react-slot/dist/index.js b/node_modules/@radix-ui/react-slot/dist/index.js
+index 3691205..3a32cb7 100644
+--- a/node_modules/@radix-ui/react-slot/dist/index.js
++++ b/node_modules/@radix-ui/react-slot/dist/index.js
+@@ -87,9 +87,17 @@ function createSlotClone(ownerName) {
+     }
+     if (React.isValidElement(children)) {
+       const childrenRef = getElementRef(children);
++      // Patched for React 19: use useComposedRefs (which now returns a
++      // stable callback identity across renders) instead of the raw
++      // composeRefs that allocated a fresh function every render. That
++      // instability caused React 19's ref cleanup/mount cycle to fire on
++      // every commit, leading to "Maximum update depth exceeded" when a
++      // composed ref was a useState setter. See upstream PR
++      // radix-ui/primitives#3804.
++      const composedRef = import_react_compose_refs.useComposedRefs(forwardedRef, childrenRef);
+       const props2 = mergeProps(slotProps, children.props);
+       if (children.type !== React.Fragment) {
+-        props2.ref = forwardedRef ? (0, import_react_compose_refs.composeRefs)(forwardedRef, childrenRef) : childrenRef;
++        props2.ref = forwardedRef ? composedRef : childrenRef;
+       }
+       return React.cloneElement(children, props2);
+     }
+diff --git a/node_modules/@radix-ui/react-slot/dist/index.mjs b/node_modules/@radix-ui/react-slot/dist/index.mjs
+index d7ea374..f2b89c1 100644
+--- a/node_modules/@radix-ui/react-slot/dist/index.mjs
++++ b/node_modules/@radix-ui/react-slot/dist/index.mjs
+@@ -1,6 +1,6 @@
+ // src/slot.tsx
+ import * as React from "react";
+-import { composeRefs } from "@radix-ui/react-compose-refs";
++import { composeRefs, useComposedRefs } from "@radix-ui/react-compose-refs";
+ import { Fragment as Fragment2, jsx } from "react/jsx-runtime";
+ var REACT_LAZY_TYPE = Symbol.for("react.lazy");
+ var use = React[" use ".trim().toString()];
+@@ -47,9 +47,14 @@ function createSlotClone(ownerName) {
+     }
+     if (React.isValidElement(children)) {
+       const childrenRef = getElementRef(children);
++      // Patched for React 19: use useComposedRefs (stable callback identity)
++      // instead of raw composeRefs to avoid infinite ref-cleanup loop. See
++      // patches/@radix-ui+react-slot+1.2.4.patch and upstream
++      // radix-ui/primitives#3804.
++      const composedRef = useComposedRefs(forwardedRef, childrenRef);
+       const props2 = mergeProps(slotProps, children.props);
+       if (children.type !== React.Fragment) {
+-        props2.ref = forwardedRef ? composeRefs(forwardedRef, childrenRef) : childrenRef;
++        props2.ref = forwardedRef ? composedRef : childrenRef;
+       }
+       return React.cloneElement(children, props2);
+     }

@@ -38,6 +38,7 @@ export const CharacterSchema = z.object({
   referenceImages: z.array(z.unknown()).default([]),
   loadouts: z.array(z.unknown()).default([]),
   defaultLoadoutId: z.string().default(''),
+  folderId: z.string().nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -58,6 +59,7 @@ export const EquipmentSchema = z.object({
   visualDetails: z.string().optional(),
   tags: z.array(z.string()).default([]),
   referenceImages: z.array(z.unknown()).default([]),
+  folderId: z.string().nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -79,6 +81,7 @@ export const LocationSchema = z.object({
   atmosphereKeywords: z.array(z.string()).optional(),
   tags: z.array(z.string()).default([]),
   referenceImages: z.array(z.unknown()).default([]),
+  folderId: z.string().nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

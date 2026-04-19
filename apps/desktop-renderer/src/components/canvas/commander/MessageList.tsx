@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, MessageCircleQuestion } from 'lucide-react';
+import { AlertTriangle, ChevronDown, MessageCircleQuestion } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
 import { Markdown } from './Markdown.js';
 import { ToolCallCard } from './ToolCallCard.js';
@@ -268,6 +268,14 @@ interface RunSummaryCardProps {
   onNodeClick?: (nodeId: string) => void;
 }
 
+/**
+ * Codex-style run rendering. The assistant's final text is always visible
+ * and rendered in full as normal markdown — it is NEVER hidden behind a
+ * collapsed card. What folds away is the "process" that produced it: the
+ * thinking chain, the intermediate text, and each tool invocation. A single
+ * one-line toggle above the answer lets the user peek at how the model got
+ * there when they need it.
+ */
 function RunSummaryCard({
   expanded,
   message,
@@ -281,167 +289,199 @@ function RunSummaryCard({
     return null;
   }
 
-  const statusLabel =
-    runMeta.status === 'failed' ? t('commander.runFailed') : t('commander.runCompleted');
-  const statusIcon =
-    runMeta.status === 'failed' ? (
-      <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-    ) : (
-      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-    );
-  const detailOpen = !runMeta.collapsed || expanded;
+  const { finalSegments, processSegments } = splitFinalFromProcess(message.segments);
+  const processToolCalls = collectProcessToolCalls(message.toolCalls, message.segments);
+  const hasThinking = Boolean(runMeta.thinkingContent);
+  const isFailed = runMeta.status === 'failed';
+  // Show the process toggle whenever the run did *something* worth folding:
+  // thinking, intermediate segments, uncaptured tool calls, or a tool count
+  // recorded on the summary even if raw segment/tool data is missing (older
+  // persisted messages, historical sessions).
+  const hasProcess =
+    processSegments.length > 0 ||
+    processToolCalls.length > 0 ||
+    hasThinking ||
+    runMeta.summary.toolCount > 0 ||
+    isFailed;
+
+  // The "final" text is the closing assistant reply. If the run failed or
+  // produced no closing text, fall back to `message.content` so the user
+  // still sees something actionable (error message / full content).
+  const finalText = finalSegments.length > 0
+    ? finalSegments
+        .filter((seg): seg is Extract<MessageSegment, { type: 'text' }> => seg.type === 'text')
+        .map((seg) => seg.content)
+        .join('')
+    : message.content;
 
   return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-2xl border bg-background/30 shadow-[0_0_0_1px_rgba(255,255,255,0.01)]',
-        runMeta.status === 'failed' ? 'border-destructive/30' : 'border-border/60',
-      )}
-    >
-      <button
-        type="button"
-        aria-expanded={detailOpen}
-        aria-label={detailOpen ? t('commander.collapseRun') : t('commander.expandRun')}
-        className="flex w-full flex-col items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/20"
-        onClick={onToggle}
-      >
-        <div
-          data-testid="run-summary-header"
-          className="flex w-full items-start gap-3"
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="mt-0.5 shrink-0">{statusIcon}</span>
-            <span
-              className={cn(
-                'rounded-full border px-2 py-0.5 text-[11px] font-medium tracking-wide',
-                runMeta.status === 'failed'
-                  ? 'border-destructive/35 bg-destructive/10 text-destructive'
-                  : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300',
-              )}
-            >
-              {statusLabel}
-            </span>
-          </div>
-          <div
-            data-testid="run-summary-metrics"
-            className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px]"
+    <div className="min-w-0">
+      {hasProcess ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={expanded ? t('commander.collapseRun') : t('commander.expandRun')}
+            onClick={onToggle}
+            data-testid="run-summary-header"
+            className="flex w-full items-center gap-1.5 px-3 py-1 text-[11px] text-muted-foreground/80 hover:text-foreground transition-colors"
           >
-            <span className="text-muted-foreground">
-              {formatDuration(runMeta.summary.durationMs)}
-            </span>
-            <span className="text-muted-foreground">
-              {runMeta.summary.toolCount} {t('commander.runTools')}
-            </span>
-            {runMeta.summary.failedToolCount > 0 ? (
-              <span className="text-destructive">
-                {runMeta.summary.failedToolCount} {t('commander.runErrors')}
-              </span>
-            ) : null}
             <ChevronDown
               className={cn(
-                'h-3.5 w-3.5 text-muted-foreground transition-transform',
-                detailOpen && 'rotate-180',
+                'h-3 w-3 shrink-0 transition-transform',
+                expanded ? 'rotate-0' : '-rotate-90',
               )}
             />
-          </div>
-        </div>
-        <div
-          data-testid="run-summary-excerpt"
-          className="w-full min-w-0 text-[13px] leading-6 text-foreground/88 line-clamp-2"
-        >
-          {runMeta.summary.excerpt}
-        </div>
-      </button>
-      {detailOpen ? (
-        <div className="border-t border-border/40">
-          {message.runMeta?.thinkingContent ? (
-            <HistoricalThinkingCard content={message.runMeta.thinkingContent} t={t} />
+            <span
+              data-testid="run-summary-metrics"
+              className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 tabular-nums"
+            >
+              <span>
+                {runMeta.summary.toolCount} {t('commander.runTools')}
+              </span>
+              <span aria-hidden className="opacity-40">·</span>
+              <span>{formatDuration(runMeta.summary.durationMs)}</span>
+              {runMeta.summary.failedToolCount > 0 ? (
+                <>
+                  <span aria-hidden className="opacity-40">·</span>
+                  <span className="text-destructive">
+                    {runMeta.summary.failedToolCount} {t('commander.runErrors')}
+                  </span>
+                </>
+              ) : null}
+              {isFailed ? (
+                <>
+                  <span aria-hidden className="opacity-40">·</span>
+                  <span className="inline-flex items-center gap-1 text-destructive">
+                    <AlertTriangle className="h-3 w-3" />
+                    {t('commander.runFailed')}
+                  </span>
+                </>
+              ) : null}
+            </span>
+          </button>
+          {expanded ? (
+            <div className="border-l-2 border-border/60 ml-3 pl-2 py-1 space-y-1">
+              {hasThinking ? (
+                <HistoricalThinkingCard content={runMeta.thinkingContent!} t={t} />
+              ) : null}
+              <ProcessSegments
+                segments={processSegments}
+                nodeTitlesById={nodeTitlesById}
+                onNodeClick={onNodeClick}
+                t={t}
+              />
+              {processToolCalls.map((toolCall) => (
+                <ToolCallCard
+                  key={toolCall.id}
+                  toolCall={toolCall}
+                  nodeTitlesById={nodeTitlesById}
+                  t={t}
+                  onNodeClick={onNodeClick}
+                />
+              ))}
+            </div>
           ) : null}
-          <AssistantMessageBody
-            message={message}
-            nodeTitlesById={nodeTitlesById}
-            onNodeClick={onNodeClick}
-            t={t}
-          />
-        </div>
+        </>
+      ) : null}
+
+      {/* Final answer — always visible, always full markdown. */}
+      {finalText ? (
+        <>
+          <MessageActionStrip messageId={message.id}>
+            <CopyButton text={finalText} label={t('commander.copy')} />
+          </MessageActionStrip>
+          <div data-testid="run-summary-final" className="px-3 py-1">
+            <Markdown content={finalText} onNodeClick={onNodeClick} />
+          </div>
+        </>
       ) : null}
     </div>
   );
 }
 
-interface AssistantMessageBodyProps {
-  message: CommanderMessage;
+interface ProcessSegmentsProps {
+  segments: MessageSegment[];
   nodeTitlesById: Record<string, string>;
   t: (key: string) => string;
   onNodeClick?: (nodeId: string) => void;
 }
 
-function AssistantMessageBody({
-  message,
-  nodeTitlesById,
-  t,
-  onNodeClick,
-}: AssistantMessageBodyProps) {
-  if (message.segments && message.segments.length > 0) {
-    return (
-      <>
-        {message.content ? (
-          <MessageActionStrip messageId={message.id}>
-            <CopyButton text={message.content} label={t('commander.copy')} />
-          </MessageActionStrip>
-        ) : null}
-        <div className="px-3 py-2">
-          {message.segments.map((seg, i) =>
-            seg.type === 'text' ? (
-              <Markdown key={i} content={seg.content} onNodeClick={onNodeClick} />
-            ) : (
-              <ToolCallCard
-                key={seg.toolCall.id}
-                toolCall={seg.toolCall}
-                nodeTitlesById={nodeTitlesById}
-                t={t}
-                onNodeClick={onNodeClick}
-              />
-            ),
-          )}
-        </div>
-        <RemainingToolCalls
-          message={message}
-          nodeTitlesById={nodeTitlesById}
-          onNodeClick={onNodeClick}
-          t={t}
-        />
-      </>
-    );
-  }
-
+function ProcessSegments({ segments, nodeTitlesById, t, onNodeClick }: ProcessSegmentsProps) {
+  if (segments.length === 0) return null;
   return (
     <>
-      {message.content ? (
-        <>
-          <MessageActionStrip messageId={message.id}>
-            <CopyButton text={message.content} label={t('commander.copy')} />
-          </MessageActionStrip>
-          <div className="px-3 py-2">
-            <Markdown content={message.content} onNodeClick={onNodeClick} />
+      {segments.map((seg, i) =>
+        seg.type === 'text' ? (
+          <div key={`process-text-${i}`} className="px-2 py-1 text-[12px] text-muted-foreground/90">
+            <Markdown content={seg.content} onNodeClick={onNodeClick} />
           </div>
-        </>
-      ) : null}
-      {message.toolCalls?.length ? (
-        <div className={cn('px-3', message.content ? 'pb-2' : 'py-2')}>
-          {message.toolCalls.map((toolCall) => (
-            <ToolCallCard
-              key={toolCall.id}
-              toolCall={toolCall}
-              nodeTitlesById={nodeTitlesById}
-              t={t}
-              onNodeClick={onNodeClick}
-            />
-          ))}
-        </div>
-      ) : null}
+        ) : (
+          <ToolCallCard
+            key={seg.toolCall.id}
+            toolCall={seg.toolCall}
+            nodeTitlesById={nodeTitlesById}
+            t={t}
+            onNodeClick={onNodeClick}
+          />
+        ),
+      )}
     </>
   );
+}
+
+/**
+ * Split a run's segment list into "final text" (the trailing text the model
+ * produced after its last tool call — the result the user cares about) and
+ * "process" (everything before that — intermediate text + tool calls).
+ *
+ * If the run has no tool calls, all text is "final" and there is no process.
+ * If the run ended on a tool call (no closing text), `finalSegments` is empty
+ * and the caller falls back to `message.content`.
+ */
+function splitFinalFromProcess(segments: MessageSegment[] | undefined): {
+  finalSegments: MessageSegment[];
+  processSegments: MessageSegment[];
+} {
+  if (!segments || segments.length === 0) {
+    return { finalSegments: [], processSegments: [] };
+  }
+  // Find the index of the last tool segment. Everything after it is the
+  // final answer; everything up to and including it is process.
+  let lastToolIdx = -1;
+  for (let i = segments.length - 1; i >= 0; i -= 1) {
+    if (segments[i]!.type === 'tool') {
+      lastToolIdx = i;
+      break;
+    }
+  }
+  if (lastToolIdx === -1) {
+    // No tools — the whole run is final text.
+    return { finalSegments: [...segments], processSegments: [] };
+  }
+  return {
+    finalSegments: segments.slice(lastToolIdx + 1),
+    processSegments: segments.slice(0, lastToolIdx + 1),
+  };
+}
+
+/**
+ * Tool calls that were tracked on the message but never made it into the
+ * segment stream (older runs, or edge-case streaming). Render them alongside
+ * the process so they are not lost. Excludes any tool that already appears
+ * in either the process or the final tail — those render from segments.
+ */
+function collectProcessToolCalls(
+  toolCalls: CommanderToolCall[] | undefined,
+  segments: MessageSegment[] | undefined,
+): CommanderToolCall[] {
+  if (!toolCalls || toolCalls.length === 0) return [];
+  const segmentIds = new Set(
+    (segments ?? [])
+      .filter((s): s is Extract<MessageSegment, { type: 'tool' }> => s.type === 'tool')
+      .map((s) => s.toolCall.id),
+  );
+  return toolCalls.filter((tc) => !segmentIds.has(tc.id));
 }
 
 interface HistoricalQuestionCardProps {

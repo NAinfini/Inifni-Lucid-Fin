@@ -125,10 +125,12 @@ describe('createSeriesTools', () => {
     await expect(getTool('series.addEpisode', deps).execute({ title: ' ' })).resolves.toEqual({
       success: false,
       error: 'title is required',
+      errorClass: 'validation',
     });
     await expect(getTool('series.reorderEpisodes', deps).execute({ episodeIds: ['episode-1', ''] })).resolves.toEqual({
       success: false,
       error: 'episodeIds[1] must be a non-empty string',
+      errorClass: 'validation',
     });
   });
 

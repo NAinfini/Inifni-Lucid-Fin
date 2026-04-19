@@ -134,19 +134,6 @@ export interface StorageRestoreDatabaseResponse {
   error?: string;
 }
 
-// ── storage:getProjectsPath ──────────────────────────────────
-export type StorageGetProjectsPathRequest = Record<string, never>;
-export type StorageGetProjectsPathResponse = string;
-
-// ── storage:setProjectsPath ──────────────────────────────────
-export interface StorageSetProjectsPathRequest {
-  path: string;
-}
-export interface StorageSetProjectsPathResponse {
-  success: boolean;
-  error?: string;
-}
-
 // ── storage:pickFolder ───────────────────────────────────────
 export type StoragePickFolderRequest = Record<string, never>;
 export type StoragePickFolderResponse = string | null;

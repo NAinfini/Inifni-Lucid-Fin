@@ -50,7 +50,7 @@ describe('settings extracted sections', () => {
       screen.getByRole('button', { current: 'page', name: 'Providers' }),
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Guides' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Process Guides' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Process Injection' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Prompt Templates' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Workflows' })).toBeNull();
 
@@ -561,7 +561,7 @@ describe('settings extracted sections', () => {
 
     render(<SettingsProcessPromptsSection />);
 
-    expect(screen.getByText('Loading process guides...')).toBeTruthy();
+    expect(screen.getByText('Loading process injection...')).toBeTruthy();
 
     await waitFor(() => {
       expect(currentApi.processPrompt.list).toHaveBeenCalledTimes(1);

@@ -253,31 +253,6 @@ export const storageRestoreDatabaseChannel = defineInvokeChannel({
 export type StorageRestoreDatabaseRequest = z.infer<typeof StorageRestoreDatabaseRequest>;
 export type StorageRestoreDatabaseResponse = z.infer<typeof StorageRestoreDatabaseResponse>;
 
-// ── storage:getProjectsPath ──────────────────────────────────
-const StorageGetProjectsPathRequest = z.object({}).strict();
-const StorageGetProjectsPathResponse = z.string();
-export const storageGetProjectsPathChannel = defineInvokeChannel({
-  channel: 'storage:getProjectsPath',
-  request: StorageGetProjectsPathRequest,
-  response: StorageGetProjectsPathResponse,
-});
-export type StorageGetProjectsPathRequest = z.infer<typeof StorageGetProjectsPathRequest>;
-export type StorageGetProjectsPathResponse = z.infer<typeof StorageGetProjectsPathResponse>;
-
-// ── storage:setProjectsPath ──────────────────────────────────
-const StorageSetProjectsPathRequest = z.object({ path: z.string().min(1) });
-const StorageSetProjectsPathResponse = z.object({
-  success: z.boolean(),
-  error: z.string().optional(),
-});
-export const storageSetProjectsPathChannel = defineInvokeChannel({
-  channel: 'storage:setProjectsPath',
-  request: StorageSetProjectsPathRequest,
-  response: StorageSetProjectsPathResponse,
-});
-export type StorageSetProjectsPathRequest = z.infer<typeof StorageSetProjectsPathRequest>;
-export type StorageSetProjectsPathResponse = z.infer<typeof StorageSetProjectsPathResponse>;
-
 // ── storage:pickFolder ───────────────────────────────────────
 const StoragePickFolderRequest = z.object({}).strict();
 const StoragePickFolderResponse = z.string().nullable();
@@ -333,8 +308,6 @@ export const storageChannels = [
   storageVacuumDatabaseChannel,
   storageBackupDatabaseChannel,
   storageRestoreDatabaseChannel,
-  storageGetProjectsPathChannel,
-  storageSetProjectsPathChannel,
   storagePickFolderChannel,
   storagePickSaveFileChannel,
   storagePickOpenFileChannel,

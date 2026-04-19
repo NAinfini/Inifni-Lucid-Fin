@@ -1,6 +1,7 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type {
   Character,
+  Folder,
   ReferenceImage,
   EquipmentLoadout,
 } from '@lucid-fin/contracts';
@@ -11,12 +12,18 @@ export interface CharactersState {
   items: CharacterState[];
   selectedId: string | null;
   loading: boolean;
+  folders: Folder[];
+  currentFolderId: string | null;
+  foldersLoading: boolean;
 }
 
 const initialState: CharactersState = {
   items: [],
   selectedId: null,
   loading: false,
+  folders: [],
+  currentFolderId: null,
+  foldersLoading: false,
 };
 
 export const charactersSlice = createSlice({
@@ -88,6 +95,39 @@ export const charactersSlice = createSlice({
     restore(_, action: PayloadAction<CharactersState>) {
       return action.payload;
     },
+    setFolders(state, action: PayloadAction<Folder[]>) {
+      state.folders = action.payload;
+    },
+    addFolder(state, action: PayloadAction<Folder>) {
+      state.folders.push(action.payload);
+    },
+    updateFolder(state, action: PayloadAction<Folder>) {
+      const idx = state.folders.findIndex((f) => f.id === action.payload.id);
+      if (idx >= 0) state.folders[idx] = action.payload;
+    },
+    removeFolder(state, action: PayloadAction<string>) {
+      state.folders = state.folders.filter((f) => f.id !== action.payload);
+      if (state.currentFolderId === action.payload) state.currentFolderId = null;
+      // Children cascade-deleted in storage; characters whose folder_id was
+      // inside the subtree are reset to null by the repository. Clear local
+      // folderId too so UI doesn't show stale membership.
+      for (const ch of state.items) {
+        if (ch.folderId === action.payload) ch.folderId = null;
+      }
+    },
+    setCurrentFolder(state, action: PayloadAction<string | null>) {
+      state.currentFolderId = action.payload;
+    },
+    setFoldersLoading(state, action: PayloadAction<boolean>) {
+      state.foldersLoading = action.payload;
+    },
+    moveItemToFolder(
+      state,
+      action: PayloadAction<{ id: string; folderId: string | null }>,
+    ) {
+      const ch = state.items.find((c) => c.id === action.payload.id);
+      if (ch) ch.folderId = action.payload.folderId;
+    },
   },
 });
 
@@ -102,4 +142,11 @@ export const {
   removeCharacterRefImage,
   setCharacterLoadout,
   removeCharacterLoadout,
+  setFolders,
+  addFolder,
+  updateFolder,
+  removeFolder,
+  setCurrentFolder,
+  setFoldersLoading,
+  moveItemToFolder,
 } = charactersSlice.actions;

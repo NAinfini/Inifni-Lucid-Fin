@@ -211,6 +211,7 @@ export async function buildGenerationContext(
     mode,
     variantCount,
     baseSeed,
+    compiled,
   };
 }
 

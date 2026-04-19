@@ -12,6 +12,7 @@ export interface AssetMeta {
   prompt?: string;
   provider?: string;
   tags: string[];
+  folderId?: string | null;
   createdAt: number;
 }
 

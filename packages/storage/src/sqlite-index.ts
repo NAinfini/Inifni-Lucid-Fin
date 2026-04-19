@@ -3,13 +3,12 @@ import fs from 'node:fs';
 import type BetterSqlite3 from 'better-sqlite3';
 
 import type { IStorageLayer, RepoBundle } from './storage-interfaces.js';
-import { runMigrations, getCurrentVersion } from './migrations/runner.js';
-import { migrations } from './migrations/index.js';
 import { SessionRepository } from './repositories/session-repository.js';
 import { JobRepository } from './repositories/job-repository.js';
 import { AssetRepository } from './repositories/asset-repository.js';
 import { CanvasRepository } from './repositories/canvas-repository.js';
 import { EntityRepository } from './repositories/entity-repository.js';
+import { FolderRepository } from './repositories/folder-repository.js';
 import { SeriesRepository } from './repositories/series-repository.js';
 import { PresetRepository } from './repositories/preset-repository.js';
 import { ShotTemplateRepository } from './repositories/shot-template-repository.js';
@@ -31,6 +30,7 @@ export class SqliteIndex implements IStorageLayer {
   private assets!: AssetRepository;
   private canvases!: CanvasRepository;
   private entities!: EntityRepository;
+  private folders!: FolderRepository;
   private seriesRepo!: SeriesRepository;
   private presets!: PresetRepository;
   private shotTemplates!: ShotTemplateRepository;
@@ -53,6 +53,7 @@ export class SqliteIndex implements IStorageLayer {
       assets: this.assets,
       canvases: this.canvases,
       entities: this.entities,
+      folders: this.folders,
       series: this.seriesRepo,
       presets: this.presets,
       shotTemplates: this.shotTemplates,
@@ -69,25 +70,19 @@ export class SqliteIndex implements IStorageLayer {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
 
-    // Determine the highest migration version we have
-    const latestVersion = migrations.reduce((max, m) => Math.max(max, m.version), 0);
-    const currentVersion = getCurrentVersion(this.db);
-
-    if (currentVersion === 0) {
-      // Fresh install — run schema creation + all migrations once
-      this.db.exec(SCHEMA_SQL);
-      runMigrations(this.db, migrations);
-    } else if (currentVersion < latestVersion) {
-      // Existing DB needs migration — schema tables already exist
-      runMigrations(this.db, migrations);
-    }
-    // Else: DB is up-to-date — skip schema and migrations entirely
+    // Dev-mode single source of truth: SCHEMA_SQL defines every table with
+    // CREATE TABLE IF NOT EXISTS, so running it unconditionally on every boot
+    // is idempotent — it fills in anything missing from a legacy DB and is a
+    // no-op for an already-complete one. No migration runner, no version
+    // bookkeeping.
+    this.db.exec(SCHEMA_SQL);
 
     this.sessions = new SessionRepository(this.db);
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
     this.entities = new EntityRepository(this.db);
+    this.folders = new FolderRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
     this.presets = new PresetRepository(this.db);
     this.shotTemplates = new ShotTemplateRepository(this.db);
@@ -120,7 +115,6 @@ export class SqliteIndex implements IStorageLayer {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(SCHEMA_SQL);
-    runMigrations(this.db, migrations);
     try {
       const old = new Database(backupPath, { readonly: true });
       const tables = old
@@ -156,6 +150,7 @@ export class SqliteIndex implements IStorageLayer {
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
     this.entities = new EntityRepository(this.db);
+    this.folders = new FolderRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
     this.presets = new PresetRepository(this.db);
     this.shotTemplates = new ShotTemplateRepository(this.db);

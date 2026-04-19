@@ -74,6 +74,50 @@ let settingsTimer: ReturnType<typeof setTimeout> | null = null;
 // would save default/empty provider state, overwriting the real settings.json.
 let settingsRestoredFromDisk = false;
 
+/**
+ * Interaction gate: while the user is actively dragging a node or
+ * panning/zooming the viewport, we queue a save intent but don't fire
+ * the IPC (`canvas:save` / `canvas:patch`) until the interaction ends.
+ * This prevents per-frame diff+IPC overhead during drags, which shows
+ * up as visible lag on larger canvases.
+ *
+ * CanvasWorkspace calls `setCanvasInteracting(true)` on drag/pan start
+ * and `setCanvasInteracting(false)` on end; the latter flushes any
+ * pending save.
+ */
+let isInteracting = false;
+let pendingSave = false;
+let flushPendingSave: (() => void) | null = null;
+
+export function setCanvasInteracting(value: boolean): void {
+  isInteracting = value;
+  if (!value && pendingSave && flushPendingSave) {
+    pendingSave = false;
+    flushPendingSave();
+  }
+}
+
+/**
+ * Cancel any debounced canvas save and run it synchronously now. Used by
+ * the Commander before sending a user message — we need the main-process
+ * canvas cache to reflect the very latest Redux state so `canvas.getState`
+ * and friends don't read stale data the user already sees on screen.
+ * Returns true if a save was flushed, false if nothing was pending.
+ */
+export function flushPendingCanvasSave(): boolean {
+  if (canvasTimer) {
+    clearTimeout(canvasTimer);
+    canvasTimer = null;
+  }
+  if (!flushPendingSave) return false;
+  const run = flushPendingSave;
+  // Clear flushPendingSave so a later interaction-end flush doesn't double-run.
+  flushPendingSave = null;
+  pendingSave = false;
+  run();
+  return true;
+}
+
 // Tracks the last successfully saved canvas state per canvas id for patch diffing
 const savedCanvasSnapshots = new LRUCache<string, Canvas>(30);
 
@@ -96,9 +140,7 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
 
     // Canvas-level save: persist the active canvas when nodes/edges change
     if (CANVAS_MUTATE_PREFIXES.includes(actionType) && state.settings.bootstrapped) {
-      if (canvasTimer) clearTimeout(canvasTimer);
-      canvasTimer = setTimeout(() => {
-        canvasTimer = null;
+      const runSave = (): void => {
         const currentState = store.getState() as RootState;
         const { activeCanvasId, canvases, viewport } = currentState.canvas;
         const canvas = activeCanvasId ? canvases.entities[activeCanvasId] : undefined;
@@ -156,7 +198,22 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
         } else {
           doFullSave();
         }
-      }, DEBOUNCE_MS);
+      };
+
+      // While the user is mid-interaction (drag / pan / zoom), defer IPC:
+      // remember that a save is pending and register the runner so
+      // setCanvasInteracting(false) can flush once at interaction end.
+      if (isInteracting) {
+        pendingSave = true;
+        flushPendingSave = runSave;
+      } else {
+        if (canvasTimer) clearTimeout(canvasTimer);
+        flushPendingSave = runSave;
+        canvasTimer = setTimeout(() => {
+          canvasTimer = null;
+          runSave();
+        }, DEBOUNCE_MS);
+      }
     }
 
     // Settings save (app-level, independent of project)

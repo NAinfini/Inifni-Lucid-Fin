@@ -160,6 +160,7 @@ describe('createPromptTools', () => {
       await expect(getTool('prompt.setCustom', deps).execute({ code: 'scene.system', value: '' })).resolves.toEqual({
         success: false,
         error: 'value is required',
+        errorClass: 'validation',
       });
     });
 

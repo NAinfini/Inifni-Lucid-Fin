@@ -356,34 +356,37 @@ Common failures:
     content: `Video clone workflow:
 
 Purpose:
-- Rebuild the creative structure of an existing video inside the canvas using the tools that actually exist today.
-- Current limitation: there is no video.clone or automatic video-splitting tool in the tool inventory. This workflow is therefore a guided reconstruction pipeline, not one-click cloning.
+- Rebuild the creative structure of an existing video inside the canvas, then optionally refine it shot by shot with the rest of the toolset.
+- Two entry points exist: \`video.clone\` (automatic scene detection + canvas scaffold) and a manual guided reconstruction (below).
 
-What the toolset can and cannot do:
-- It can analyze still images with vision.describeImage.
-- It can create and organize text, image, video, and audio nodes with canvas tools.
-- It can apply presets, refs, first/last frame constraints, and render the rebuilt sequence.
-- It cannot directly ingest an arbitrary video file and auto-generate a full shot graph from it.
+Automatic entry — \`video.clone\`:
+- \`video.clone { filePath, threshold? }\` runs scene detection on the source video, extracts one keyframe per scene, and creates a new canvas with one video node per scene pre-wired in temporal order. Use this when the user has a source file on disk and wants a fast one-click scaffold to iterate on.
+- Returns \`{ canvasId, nodeCount }\`. Load the new canvas, call \`canvas.getState\` + \`canvas.listNodes\`, then refine shot by shot.
+- \`threshold\` (default 0.4) controls scene-change sensitivity; lower detects more cuts, higher detects fewer.
+- Limitation: scene detection is heuristic — audio, camera moves, and slow fades can split or merge scenes incorrectly. After the scaffold is created, review and re-cut with \`canvas.deleteNode\` / \`canvas.addNode\` as needed.
 
-Practical workflow:
-1. Ask the user, through commander.askUser if needed, to provide a source sequence in a usable form: key frame grabs, a manual shot list, or an existing canvas/video breakdown.
-2. Create planning text nodes for each source shot with canvas.batchCreate or canvas.addNode. Keep them in temporal order.
-3. For representative frame grabs, call vision.describeImage(style="description" or "style-analysis") to extract shot content, environment, and look language.
-4. Build a reusable style packet from the frame analyses, then apply it through preset tools or batch re-prompting as appropriate.
-5. Create destination image/video nodes from the planning nodes. Use canvas.batchCreate for the initial graph.
-6. Where shot transitions depend on exact entry or exit visuals, create image nodes for anchor frames and wire them into video nodes with correct edge direction, then set them with canvas.setVideoFrames.
-7. Attach entity refs with canvas.setNodeRefs once recurring characters, locations, or equipment have been identified.
-8. Use canvas.setVideoParams for duration, audio, quality, and lipSyncEnabled where needed, then generate shot by shot with canvas.generate.
+Manual entry — guided reconstruction (when no source file is available or the user wants exact control):
+- Ask the user for a source sequence in a usable form: key frame grabs, a manual shot list, or an existing canvas/video breakdown.
+- Create planning text nodes for each source shot with \`canvas.batchCreate\` or \`canvas.addNode\` in temporal order.
+- For representative frame grabs, call \`vision.describeImage\` (style="description" or "style-analysis") to extract shot content, environment, and look language.
+- Build a reusable style packet from the frame analyses, then apply through preset tools or batch re-prompting.
+
+After scaffolding (both entry points):
+1. Create destination image/video nodes where needed. Use \`canvas.batchCreate\` for large graphs.
+2. For shot transitions that depend on exact entry/exit visuals, create image nodes for anchor frames and wire them to video nodes with correct edge direction (first-frame incoming, last-frame outgoing), then \`canvas.setVideoFrames\`.
+3. Attach entity refs with \`canvas.setNodeRefs\` once recurring characters, locations, or equipment are identified.
+4. \`canvas.setVideoParams\` for duration, audio, quality, lipSyncEnabled; then generate shot by shot with \`canvas.generate\`.
 
 How to stay faithful:
 - Clone structure and cinematic intent first: shot order, scale, tempo, geography, and emotional arc.
 - Reconstruct style through repeatable language, not by copying every incidental pixel.
-- If the source contains legally sensitive branded material or recognizable copyrighted imagery, make sure the reconstruction is framed as inspiration or analysis rather than deceptive duplication.
+- If the source contains legally sensitive branded material or recognizable copyrighted imagery, frame the reconstruction as inspiration or analysis rather than deceptive duplication.
 
 Decision branches:
-- If the user wants a very literal remake, request more source frames before proceeding. One frame per shot is usually the practical minimum.
-- If only a tone match is needed, fewer source frames are acceptable; focus on style packet extraction and editorial rhythm.
-- If a shot cannot be inferred from the provided source evidence, mark it as unresolved instead of inventing a precise clone.
+- User has a source file + wants a fast scaffold → \`video.clone\`.
+- User wants a very literal remake → start with \`video.clone\`, then request more source frames before regenerating each scene.
+- User wants only a tone match → manual reconstruction is cheaper; focus on style packet extraction.
+- A specific shot cannot be inferred from source evidence → mark it unresolved instead of inventing a precise clone.
 
 Validation:
 - Use the continuity check workflow after the first pass of recreated shots.
@@ -391,7 +394,7 @@ Validation:
 - Create a snapshot before major batch rewrites so the reconstruction can be rolled back cleanly.
 
 Common failures:
-- Pretending automatic cloning exists.
+- Running \`video.clone\` and assuming the detected scenes are final — always review the scaffold.
 - Treating a single still as enough evidence for an entire complex motion beat.
 - Ignoring the need for first-frame or last-frame anchors in continuity-sensitive remakes.
 - Recreating the look but not the actual editorial structure.`,
@@ -493,5 +496,56 @@ Common failures:
 - Writing generic prompts such as "very emotional voice" that do not describe delivery.
 - Forgetting neutral support, which often keeps speech intelligible.
 - Treating emotion vectors as a substitute for scene context and timing language.`,
+  },
+  {
+    id: 'workflow-story-to-video',
+    name: 'Story to Video',
+    content: `End-to-end story-to-video workflow.
+
+Purpose:
+- Drive a one-line idea or short novel into a fully rendered video without user prompts for every step. The user approves at phase boundaries; Commander plans the contents of each phase.
+- This is the default "from a sentence to a full video" path. Use it whenever the canvas is empty and the user asks for something to be built from a story.
+
+Entry posture:
+- If the user's message is vague ("make a story", "I want a short film"), Commander must propose a starting idea and 1-3 alternative directions before any tool is called. Do not stall waiting for a perfect brief.
+- If the canvas already has content, stop and ask the user whether to extend the existing story or start a new canvas.
+
+Phase 1 — Outline.
+1. workflow.expandIdea { prompt, genre?, actCount? } to get the outline scaffold.
+2. canvas.addNode for each scene (type: "text", title = scene name, data.content = 2-3 sentence summary). Place scenes left-to-right along the X axis.
+3. Present the full outline and ask the user to approve before continuing.
+
+Phase 2 — Entities.
+1. Read every scene summary. List every recurring character, equipment, and location.
+2. Merge duplicates aggressively; prefer one shared entity over per-scene copies.
+3. Call character.create / equipment.create / location.create for each unique entity. Capture style and identity notes while they are fresh.
+
+Phase 3 — Node asset stores.
+1. For each scene, add the media nodes needed: image (first frame), image (last frame), video. Use canvas.addNode with placements that continue the X-axis flow.
+2. Populate each media node:
+   - prompt = scene summary (plus any per-shot hints)
+   - preset tracks via canvas.setNodePresets (style + shot template)
+   - character / equipment / location refs via canvas.setNodeRefs
+3. Connect first-frame image → video → last-frame image with canvas.connectNodes. Verify edge direction: first frame is INCOMING, last frame is OUTGOING.
+
+Phase 4 — Reference images.
+1. For every character, equipment, and location: character.generateRefImage / equipment.generateRefImage / location.generateRefImage.
+2. Wait for each generation to finish before moving on. These refs gate every downstream image and video generation — if you skip them, identity drifts.
+3. Let the user review each ref and regenerate any that miss.
+
+Phase 5 — First/last frames.
+1. canvas.generate on every image node. Use wait=true when the user wants sequential review; otherwise fire-and-forget and poll status.
+2. When variants return, canvas.selectVariant for the user-preferred option of each frame.
+
+Phase 6 — Video + final render.
+1. For each video node, confirm canvas.setVideoFrames is wired to the first/last frame nodes.
+2. canvas.generate on every video node (nodeType="video"). Wait for completion; run canvas.selectVariant on the best take.
+3. render.start with format="mp4" (or "mov" for ProRes) to produce the full cut. If render.exportBundle is requested and not yet wired to a canvas→NLE compiler, surface the typed error to the user instead of pretending success.
+
+Inter-phase rules:
+- At the end of every phase, summarize what was done, estimate cost for the next phase via canvas.estimateCost, and ask "ready for the next phase?".
+- Never chain phases silently. User must be able to say "stop" or "let me edit" between any two phases.
+- If a phase fails partially, fix only the broken nodes and continue; do not restart the whole phase.
+- Every tool call that writes to the canvas should be followed by canvas.getState or canvas.listNodes before the next phase so Commander is reading real state, not model memory.`,
   },
 ];

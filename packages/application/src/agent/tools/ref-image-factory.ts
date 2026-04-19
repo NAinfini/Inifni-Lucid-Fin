@@ -105,6 +105,26 @@ export function createRefImageTools<T extends RefImageEntity>(config: RefImageFa
 
           const rawSlot = typeof args.slot === 'string' ? args.slot : 'main';
           const slot = normalizeSlot ? normalizeSlot(rawSlot) : rawSlot;
+
+          // Fail loud on an unrecognized slot. Silently falling back to a
+          // generic single-view prompt masks model mistakes (e.g. the AI
+          // passing "portrait-main") and produces an image that looks
+          // plausible but violates the slot's intended layout — e.g. a
+          // single portrait where a four-panel turnaround sheet was
+          // required. Better to surface the failure so the model retries
+          // with a valid slot.
+          if (!isStandardSlot(slot)) {
+            const allowed = slotEnum && slotEnum.length > 0
+              ? slotEnum.join(', ')
+              : '(no enum advertised — check the tool schema)';
+            return {
+              success: false,
+              error:
+                `Unknown slot "${rawSlot}". Retry with one of: ${allowed}. ` +
+                `Do not invent slot names — the layout-specific prompt only works for the ${entityLabel} canonical slots.`,
+            };
+          }
+
           const promptMode = resolvePromptMode(args as Record<string, unknown>);
           const standardSlot = isStandardSlot(slot);
           const aiPrompt = typeof args.prompt === 'string' && args.prompt.trim().length > 0

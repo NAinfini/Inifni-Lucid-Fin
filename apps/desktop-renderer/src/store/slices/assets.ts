@@ -1,4 +1,5 @@
 import { createSelector, createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { Folder } from '@lucid-fin/contracts';
 
 export interface Asset {
   id: string;
@@ -24,6 +25,8 @@ export interface Asset {
   provider?: string;
   /** Original generation prompt */
   prompt?: string;
+  /** Folder membership (null = ungrouped / root). */
+  folderId?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -34,6 +37,9 @@ export interface AssetsState {
   filterTags: string[];
   sortBy: 'name' | 'date' | 'size' | 'type';
   sortOrder: 'asc' | 'desc';
+  folders: Folder[];
+  currentFolderId: string | null;
+  foldersLoading: boolean;
 }
 
 const initialState: AssetsState = {
@@ -43,6 +49,9 @@ const initialState: AssetsState = {
   filterTags: [],
   sortBy: 'date',
   sortOrder: 'desc',
+  folders: [],
+  currentFolderId: null,
+  foldersLoading: false,
 };
 
 export const assetsSlice = createSlice({
@@ -125,6 +134,38 @@ export const assetsSlice = createSlice({
     setSortOrder(state, action: PayloadAction<'asc' | 'desc'>) {
       state.sortOrder = action.payload;
     },
+
+    setFolders(state, action: PayloadAction<Folder[]>) {
+      state.folders = action.payload;
+    },
+    addFolder(state, action: PayloadAction<Folder>) {
+      state.folders.push(action.payload);
+    },
+    updateFolder(state, action: PayloadAction<Folder>) {
+      const idx = state.folders.findIndex((f) => f.id === action.payload.id);
+      if (idx >= 0) state.folders[idx] = action.payload;
+    },
+    removeFolder(state, action: PayloadAction<string>) {
+      state.folders = state.folders.filter((f) => f.id !== action.payload);
+      if (state.currentFolderId === action.payload) state.currentFolderId = null;
+      for (const asset of state.items) {
+        if (asset.folderId === action.payload) asset.folderId = null;
+      }
+    },
+    setCurrentFolder(state, action: PayloadAction<string | null>) {
+      state.currentFolderId = action.payload;
+    },
+    setFoldersLoading(state, action: PayloadAction<boolean>) {
+      state.foldersLoading = action.payload;
+    },
+    // Asset moves key on hash (assets have hash-based identity).
+    moveItemToFolder(
+      state,
+      action: PayloadAction<{ hash: string; folderId: string | null }>,
+    ) {
+      const asset = state.items.find((a) => a.hash === action.payload.hash);
+      if (asset) asset.folderId = action.payload.folderId;
+    },
   },
 });
 
@@ -140,6 +181,13 @@ export const {
   setFilterTags,
   setSortBy,
   setSortOrder,
+  setFolders,
+  addFolder,
+  updateFolder,
+  removeFolder,
+  setCurrentFolder,
+  setFoldersLoading,
+  moveItemToFolder,
 } = assetsSlice.actions;
 
 /** Selector: filtered + sorted assets */

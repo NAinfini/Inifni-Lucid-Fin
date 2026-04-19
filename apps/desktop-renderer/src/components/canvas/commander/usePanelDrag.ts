@@ -14,99 +14,96 @@ interface UsePanelDragOptions {
   size: { width: number; height: number };
 }
 
+/**
+ * Drag + resize support for the floating Commander panel.
+ *
+ * Listeners are only attached on mousedown inside a drag/resize origin — NOT
+ * while the panel is merely open. An always-on `mousemove` listener (even an
+ * early-returning one) still runs hundreds of times per second anywhere the
+ * user moves the cursor and causes measurable canvas lag on lower-end GPUs.
+ */
 export function usePanelDrag({ panelRef, open, size }: UsePanelDragOptions): void {
   const dispatch = useDispatch<AppDispatch>();
-  // Drag handler
   useEffect(() => {
-    if (!open) {
-      return;
-    }
+    if (!open) return;
 
-    const handleMouseMove = (event: MouseEvent) => {
-      const target = document.querySelector<HTMLElement>('[data-drag-origin="true"]');
-      if (!target) {
-        return;
-      }
-      const offsetX = Number(target.dataset.dragOffsetX ?? '0');
-      const offsetY = Number(target.dataset.dragOffsetY ?? '0');
-      const x = Math.max(8, event.clientX - offsetX);
-      const y = Math.max(SAFE_Y, event.clientY - offsetY);
-      // Direct DOM update — skip Redux during drag
-      const el = panelRef.current;
-      if (el) {
-        el.style.left = `${x}px`;
-        el.style.top = `${y}px`;
-      }
-    };
+    const onDocMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
 
-    const handleMouseUp = () => {
-      const dragOrigin = document.querySelector<HTMLElement>('[data-drag-origin="true"]');
-      if (dragOrigin) {
-        // Commit final position to Redux
+      const dragOrigin = target.closest<HTMLElement>('[data-drag-origin="true"]');
+      const resizeOrigin = target.closest<HTMLElement>('[data-resize-origin="true"]');
+      if (!dragOrigin && !resizeOrigin) return;
+
+      let rafId = 0;
+      let pending: { x: number; y: number; w: number; h: number } | null = null;
+
+      const flush = () => {
+        rafId = 0;
         const el = panelRef.current;
-        if (el) {
-          dispatch(setPosition({ x: parseInt(el.style.left), y: parseInt(el.style.top) }));
+        if (!el || !pending) return;
+        if (dragOrigin) {
+          el.style.left = `${pending.x}px`;
+          el.style.top = `${pending.y}px`;
+        } else {
+          el.style.width = `${pending.w}px`;
+          el.style.height = `${pending.h}px`;
         }
-        delete dragOrigin.dataset.dragOrigin;
-        delete dragOrigin.dataset.dragOffsetX;
-        delete dragOrigin.dataset.dragOffsetY;
-      }
-    };
+      };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dispatch, open, panelRef]);
+      const handleMove = (ev: MouseEvent) => {
+        if (dragOrigin) {
+          const offsetX = Number(dragOrigin.dataset.dragOffsetX ?? '0');
+          const offsetY = Number(dragOrigin.dataset.dragOffsetY ?? '0');
+          pending = {
+            x: Math.max(8, ev.clientX - offsetX),
+            y: Math.max(SAFE_Y, ev.clientY - offsetY),
+            w: 0, h: 0,
+          };
+        } else if (resizeOrigin) {
+          const startX = Number(resizeOrigin.dataset.resizeStartX ?? '0');
+          const startY = Number(resizeOrigin.dataset.resizeStartY ?? '0');
+          const startWidth = Number(resizeOrigin.dataset.resizeStartWidth ?? String(size.width));
+          const startHeight = Number(resizeOrigin.dataset.resizeStartHeight ?? String(size.height));
+          pending = {
+            x: 0, y: 0,
+            w: Math.max(MIN_WIDTH, startWidth + (ev.clientX - startX)),
+            h: Math.max(MIN_HEIGHT, startHeight + (ev.clientY - startY)),
+          };
+        }
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
 
-  // Resize handler
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      const target = document.querySelector<HTMLElement>('[data-resize-origin="true"]');
-      if (!target) {
-        return;
-      }
-      const startX = Number(target.dataset.resizeStartX ?? '0');
-      const startY = Number(target.dataset.resizeStartY ?? '0');
-      const startWidth = Number(target.dataset.resizeStartWidth ?? String(size.width));
-      const startHeight = Number(target.dataset.resizeStartHeight ?? String(size.height));
-      const w = Math.max(MIN_WIDTH, startWidth + (event.clientX - startX));
-      const h = Math.max(MIN_HEIGHT, startHeight + (event.clientY - startY));
-      // Direct DOM update — skip Redux during drag
-      const el = panelRef.current;
-      if (el) {
-        el.style.width = `${w}px`;
-        el.style.height = `${h}px`;
-      }
-    };
-
-    const handleMouseUp = () => {
-      const resizeOrigin = document.querySelector<HTMLElement>('[data-resize-origin="true"]');
-      if (resizeOrigin) {
-        // Commit final size to Redux
+      const handleUp = () => {
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleUp);
+        if (rafId) cancelAnimationFrame(rafId);
+        flush();
         const el = panelRef.current;
-        if (el) {
-          dispatch(setSize({ width: parseInt(el.style.width), height: parseInt(el.style.height) }));
+        if (dragOrigin) {
+          if (el) {
+            dispatch(setPosition({ x: parseInt(el.style.left), y: parseInt(el.style.top) }));
+          }
+          delete dragOrigin.dataset.dragOrigin;
+          delete dragOrigin.dataset.dragOffsetX;
+          delete dragOrigin.dataset.dragOffsetY;
+        } else if (resizeOrigin) {
+          if (el) {
+            dispatch(setSize({ width: parseInt(el.style.width), height: parseInt(el.style.height) }));
+          }
+          delete resizeOrigin.dataset.resizeOrigin;
+          delete resizeOrigin.dataset.resizeStartX;
+          delete resizeOrigin.dataset.resizeStartY;
+          delete resizeOrigin.dataset.resizeStartWidth;
+          delete resizeOrigin.dataset.resizeStartHeight;
         }
-        delete resizeOrigin.dataset.resizeOrigin;
-        delete resizeOrigin.dataset.resizeStartX;
-        delete resizeOrigin.dataset.resizeStartY;
-        delete resizeOrigin.dataset.resizeStartWidth;
-        delete resizeOrigin.dataset.resizeStartHeight;
-      }
+      };
+
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleUp);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [dispatch, open, panelRef, size.height, size.width]);
 }

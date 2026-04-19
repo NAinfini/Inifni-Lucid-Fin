@@ -165,10 +165,20 @@ function summarizeSelectedNode(node: CanvasNode, _db: SqliteIndex): Record<strin
   }
 }
 
+/**
+ * Pre-inject process prompts based on typed session state only — never on
+ * regex-matching the user's message text. If the user has an image/video
+ * node selected, the corresponding generation guide is primed up front so
+ * the first generate-ish tool call already has guidance in context.
+ *
+ * All other process prompts are injected pre-flight the moment the model
+ * requests a matching tool — see `primeProcessPromptsForToolCalls` in the
+ * orchestrator. That means message-text intent detection is NOT done here
+ * and works identically across languages (Chinese, English, anything).
+ */
 function detectInitialProcessPrompts(
   canvas: Canvas,
   selectedNodeIds: string[],
-  userMessage?: string,
 ): string[] {
   const prompts = new Set<string>();
   const selectedNodes = selectedNodeIds
@@ -185,26 +195,12 @@ function detectInitialProcessPrompts(
     });
   }
 
-  const normalizedMessage = userMessage?.toLowerCase() ?? '';
-  const requestsRefImage = /\b(ref(?:erence)?(?:\s+image|\s+sheet)?|model\s+sheet|turnaround|expression\s+sheet)\b/.test(
-    normalizedMessage,
-  ) || /front\s+side\s+back/.test(normalizedMessage);
-  const requestsCharacterRef = /\b(character|person|face|expression)\b/.test(normalizedMessage);
-  const requestsLocationRef = /\b(location|environment|set|background|establishing|key\s+angle)\b/.test(
-    normalizedMessage,
-  );
-  const requestsEquipmentRef = /\b(equipment|prop|object|weapon|tool)\b/.test(normalizedMessage);
-
-  if (requestsRefImage) {
-    if (requestsLocationRef) {
-      prompts.add('location-ref-image-generation');
-    }
-    if (requestsEquipmentRef) {
-      prompts.add('equipment-ref-image-generation');
-    }
-    if (requestsCharacterRef || (!requestsLocationRef && !requestsEquipmentRef)) {
-      prompts.add('character-ref-image-generation');
-    }
+  // Empty canvas + no selection → the user is either starting a new story or
+  // asking for one. Prime the workflow-orchestration guide so the first model
+  // turn sees the 6-phase story-to-video chain instead of having to discover
+  // it after its first tool call.
+  if (canvas.nodes.length === 0 && selectedNodes.length === 0) {
+    prompts.add('workflow-orchestration');
   }
 
   return Array.from(prompts);
@@ -216,7 +212,6 @@ export function buildContext(
   selectedNodeIds: string[],
   db: SqliteIndex,
   promptGuides?: Array<{ id: string; name: string; content: string }>,
-  userMessage?: string,
 ): AgentContext {
   const limitedSelectedNodeIds = selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES);
   const extra: Record<string, unknown> = {
@@ -230,7 +225,7 @@ export function buildContext(
       .filter((node): node is CanvasNode => Boolean(node))
       .map((node) => summarizeSelectedNode(node, db)),
   };
-  const initialProcessPrompts = detectInitialProcessPrompts(canvas, limitedSelectedNodeIds, userMessage);
+  const initialProcessPrompts = detectInitialProcessPrompts(canvas, limitedSelectedNodeIds);
   if (initialProcessPrompts.length > 0) {
     extra.initialProcessPrompts = initialProcessPrompts;
   }
@@ -330,6 +325,7 @@ export function registerCommanderHandlers(
     db: SqliteIndex;
     cas: CAS;
     keychain: import('@lucid-fin/storage').Keychain;
+    promptStore: import('@lucid-fin/storage').PromptStore;
     resolvePrompt: (code: string) => string;
     resolveProcessPrompt: (processKey: string) => string | null;
   },
@@ -414,6 +410,7 @@ export function registerCommanderHandlers(
           db: deps.db,
           cas: deps.cas,
           keychain: deps.keychain,
+          promptStore: deps.promptStore,
         };
         registerAllTools(
           registry,
@@ -424,6 +421,7 @@ export function registerCommanderHandlers(
           args.sessionId ?? args.canvasId,
           args.defaultProviders as Record<string, string> | undefined,
           gateway,
+          deps.resolveProcessPrompt,
         );
         setLastToolRegistry(registry);
 
@@ -435,6 +433,16 @@ export function registerCommanderHandlers(
           maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
           profile: adapterProfile,
           resolveProcessPrompt: deps.resolveProcessPrompt,
+          resolveCanvasNodeType: (canvasId: string, nodeId: string) => {
+            const canvas = deps.canvasStore.get(canvasId);
+            if (!canvas) return null;
+            const node = canvas.nodes.find((n) => n.id === nodeId);
+            if (!node) return null;
+            if (node.type === 'image' || node.type === 'backdrop') return 'image';
+            if (node.type === 'video') return 'video';
+            if (node.type === 'audio') return 'audio';
+            return null;
+          },
         });
         orchestrator = orchestratorInstance;
         compactRef.compact = (instructions?: string) => orchestratorInstance.compactNow(instructions);
@@ -473,7 +481,6 @@ export function registerCommanderHandlers(
           args.selectedNodeIds,
           deps.db,
           args.promptGuides,
-          args.message,
         );
         if (args.locale && typeof args.locale === 'string') {
           const extra = context.extra as Record<string, unknown>;

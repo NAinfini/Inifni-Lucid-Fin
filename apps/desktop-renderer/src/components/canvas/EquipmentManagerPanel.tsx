@@ -12,6 +12,13 @@ import {
   setLoading,
   setEquipmentRefImage,
   removeEquipmentRefImage,
+  setFolders,
+  addFolder,
+  updateFolder,
+  removeFolder,
+  setCurrentFolder,
+  setFoldersLoading,
+  moveItemToFolder,
 } from '../../store/slices/equipment.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
@@ -24,9 +31,13 @@ import type {
   EquipmentRef,
 } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
-import { Plus, Search, Trash2, Save, Upload, Package, Image, ImageOff, X } from 'lucide-react';
+import { Image, ImageOff, Link2, Package, Upload, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useEntityManager } from '../../hooks/useEntityManager.js';
+import { useEntityFolders } from '../../hooks/useEntityFolders.js';
+import { useEntityClipboard } from '../../hooks/useEntityClipboard.js';
+import { EntityFileExplorer } from './EntityFileExplorer.js';
+import { EntityDetailDrawer } from './EntityDetailDrawer.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
 
@@ -71,7 +82,6 @@ export function EquipmentManagerPanel() {
   const {
     draft, setDraft,
     setOriginalDraft,
-    search, setSearch,
     error, setError,
     assetPickerOpen, setAssetPickerOpen,
     isDirty,
@@ -85,16 +95,37 @@ export function EquipmentManagerPanel() {
   });
 
   const selectedEquip = useMemo(() => items.find((e) => e.id === selectedId), [items, selectedId]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const filtered = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    return items.filter((e) => {
-      if (filterType !== 'all' && e.type !== filterType) return false;
-      if (!keyword) return true;
-      const blob = `${e.name} ${e.description} ${e.tags.join(' ')}`.toLowerCase();
-      return blob.includes(keyword);
-    });
-  }, [items, search, filterType]);
+  const folderApi = useEntityFolders({
+    kind: 'equipment',
+    selectFolders: (s) => s.equipment.folders,
+    selectCurrentFolderId: (s) => s.equipment.currentFolderId,
+    selectFoldersLoading: (s) => s.equipment.foldersLoading,
+    actions: {
+      setFolders,
+      addFolder,
+      updateFolder,
+      removeFolder,
+      setCurrentFolder,
+      setFoldersLoading,
+    },
+  });
+
+  const clipboard = useEntityClipboard<Equipment>('equipment');
+  const cutIds = useMemo(() => {
+    if (!clipboard.isCut) return new Set<string>();
+    const p = clipboard.peek();
+    return new Set(p?.items.map((it) => it.id) ?? []);
+  }, [clipboard]);
+
+  // Type-filter is applied at this layer; folder + search filters live inside
+  // EntityFileExplorer. Keeping them separate lets the explorer do a single
+  // pass over `items` while honoring the panel-specific type dropdown.
+  const typeFilteredItems = useMemo(() => {
+    if (filterType === 'all') return items;
+    return items.filter((e) => e.type === filterType);
+  }, [items, filterType]);
 
   const canvases = useSelector(selectAllCanvases);
 
@@ -126,13 +157,15 @@ export function EquipmentManagerPanel() {
     setOriginalDraft(d);
   }, [selectedEquip, setDraft, setOriginalDraft]);
 
-  const handleSelectEquipment = useCallback(
-    async (id: string) => {
-      if (id === selectedId) return;
-      if (!(await confirmDiscardIfDirty())) return;
-      dispatch(selectEquipment(id));
+  const handleOpenItem = useCallback(
+    async (equip: Equipment) => {
+      if (selectedId !== equip.id) {
+        if (!(await confirmDiscardIfDirty())) return;
+        dispatch(selectEquipment(equip.id));
+      }
+      setDrawerOpen(true);
     },
-    [dispatch, selectedId, confirmDiscardIfDirty],
+    [confirmDiscardIfDirty, dispatch, selectedId],
   );
 
   const loadEquipment = useCallback(async () => {
@@ -165,16 +198,62 @@ export function EquipmentManagerPanel() {
         description: '',
         tags: [],
         referenceImages: [],
+        folderId: folderApi.currentFolderId,
       };
       if (api?.equipment) {
         const saved = (await api.equipment.save(data as Record<string, unknown>)) as Equipment;
         dispatch(addEquipment(saved));
         dispatch(selectEquipment(saved.id));
+        setDrawerOpen(true);
       }
     } catch (reason) {
       reportError(reason, 'createNewEquipment');
     }
-  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t]);
+  }, [dispatch, confirmDiscardIfDirty, reportError, setError, t, folderApi.currentFolderId]);
+
+  const handleMoveIdsToFolder = useCallback(
+    async (ids: string[], folderId: string | null) => {
+      const api = getAPI();
+      if (!api?.equipment) return;
+      for (const id of ids) {
+        try {
+          await api.equipment.setFolder(id, folderId);
+          dispatch(moveItemToFolder({ id, folderId }));
+        } catch (reason) {
+          reportError(reason, 'handleMoveIdsToFolder');
+        }
+      }
+    },
+    [dispatch, reportError],
+  );
+
+  const handlePaste = useCallback(
+    (payload: { mode: 'copy' | 'cut'; items: Equipment[] }) => {
+      const folderId = folderApi.currentFolderId;
+      if (payload.mode === 'cut') {
+        void handleMoveIdsToFolder(payload.items.map((it) => it.id), folderId);
+      } else {
+        const api = getAPI();
+        if (!api?.equipment) return;
+        void (async () => {
+          for (const original of payload.items) {
+            try {
+              const { id: _id, ...rest } = original;
+              const saved = (await api.equipment.save({
+                ...rest,
+                name: `${original.name} (copy)`,
+                folderId,
+              } as Record<string, unknown>)) as Equipment;
+              dispatch(addEquipment(saved));
+            } catch (reason) {
+              reportError(reason, 'handlePasteCopy');
+            }
+          }
+        })();
+      }
+    },
+    [folderApi.currentFolderId, handleMoveIdsToFolder, dispatch, reportError],
+  );
 
   const saveDraft = useCallback(async () => {
     if (!draft || !selectedEquip) return;
@@ -202,27 +281,33 @@ export function EquipmentManagerPanel() {
     }
   }, [dispatch, draft, reportError, selectedEquip, setError]);
 
-  const deleteSelected = useCallback(async () => {
-    if (!selectedEquip) return;
-    const message = t('equipmentManager.deleteConfirm').replace('{name}', selectedEquip.name);
-    const ok = await confirm({
-      title: message,
-      destructive: true,
-      confirmLabel: t('action.confirm'),
-      cancelLabel: t('action.cancel'),
-    });
-    if (!ok) return;
-    setError(null);
-    try {
+  const handleDeleteIds = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const names = ids
+        .map((id) => items.find((e) => e.id === id)?.name || id)
+        .join(', ');
+      const ok = await confirm({
+        title: t('equipmentManager.deleteConfirm').replace('{name}', names),
+        destructive: true,
+        confirmLabel: t('action.confirm'),
+        cancelLabel: t('action.cancel'),
+      });
+      if (!ok) return;
+      setError(null);
       const api = getAPI();
-      if (api?.equipment) {
-        await api.equipment.delete(selectedEquip.id);
+      for (const id of ids) {
+        try {
+          if (api?.equipment) await api.equipment.delete(id);
+          dispatch(removeEquipment(id));
+          if (selectedId === id) setDrawerOpen(false);
+        } catch (reason) {
+          reportError(reason, 'handleDeleteIds');
+        }
       }
-      dispatch(removeEquipment(selectedEquip.id));
-    } catch (reason) {
-      reportError(reason, 'deleteSelected');
-    }
-  }, [confirm, dispatch, reportError, selectedEquip, setError, t]);
+    },
+    [confirm, dispatch, items, reportError, selectedId, setError, t],
+  );
 
   const handleRefImageUpload = useCallback(
     async (slot: string, isStandard: boolean) => {
@@ -360,248 +445,203 @@ export function EquipmentManagerPanel() {
     [dispatch, reportError, selectedEquip, setAssetPickerOpen, setError],
   );
 
+  const drawerShown = drawerOpen && draft !== null;
   return (
-    <div className="h-full border-r border-border/60 bg-card flex flex-col">
-      <div className="px-3 py-2 border-b border-border/60 space-y-1.5">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold flex items-center gap-1">
-            <Package className="w-3.5 h-3.5" />
-            {t('equipmentManager.title')}
-          </div>
-        </div>
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-2 top-2 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t('equipmentManager.search')}
-            className="w-full rounded bg-muted pl-7 pr-2 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring"
-          />
-        </div>
-        <select
-          value={filterType}
-          onChange={(e) => dispatch(setFilterType(e.target.value as EquipmentType | 'all'))}
-          className="w-full rounded bg-muted px-2 py-1.5 text-xs"
-        >
-          <option value="all">{t('equipmentManager.allTypes')}</option>
-          {TYPE_OPTIONS.map((tp) => (
-            <option key={tp} value={tp}>
-              {t('equipmentManager.types.' + tp)}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-[40%_60%] h-full min-h-0">
-        <div className="border-r min-h-0 overflow-auto">
-          <div className="p-1.5 border-b border-border/60 flex items-center gap-1">
-            <button
-              onClick={() => void createNewEquipment()}
-              className="flex-1 text-[11px] rounded-md border border-border/60 px-2 py-1 hover:bg-muted/80 flex items-center justify-center gap-1 transition-colors"
-              aria-label={t('equipmentManager.newEquipment')}
-            >
-              <Plus className="w-3 h-3" aria-hidden="true" />
-              {t('equipmentManager.newEquipment')}
-            </button>
-            {draft && (
-              <>
-                <button
-                  onClick={saveDraft}
-                  disabled={!isDirty}
-                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-muted/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  aria-label={t('action.save')}
-                  title={t('action.save')}
+    <div className="flex h-full min-h-0">
+      <div className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}>
+        <EntityFileExplorer<Equipment>
+          items={typeFilteredItems}
+          folders={folderApi.folders}
+          currentFolderId={folderApi.currentFolderId}
+          onNavigateFolder={folderApi.setCurrentFolder}
+          onCreateFolder={folderApi.createFolder}
+          onRenameFolder={folderApi.renameFolder}
+          onDeleteFolder={folderApi.deleteFolder}
+          onMoveItemsToFolder={(ids, folderId) => void handleMoveIdsToFolder(ids, folderId)}
+          onCreateItem={() => void createNewEquipment()}
+          onOpenItem={(e) => void handleOpenItem(e)}
+          onDeleteItems={(ids) => void handleDeleteIds(ids)}
+          compact={drawerShown}
+          renderThumbnail={(e) => (
+            <ListThumb
+              hash={
+                e.referenceImages?.find((r) => r.slot === 'main')?.assetHash ??
+                e.referenceImages?.[0]?.assetHash
+              }
+            />
+          )}
+          renderSubtitle={(e) => (
+            <span className="inline-flex items-center gap-1">
+              {t('equipmentManager.types.' + e.type)}
+              {e.subtype && ` · ${e.subtype}`}
+              {(usageCountById[e.id] ?? 0) > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5"
+                  title={t('equipmentManager.usedInNodes').replace('{count}', String(usageCountById[e.id]))}
                 >
-                  <Save className="w-3 h-3" aria-hidden="true" />
-                </button>
-                <button
-                  onClick={() => void deleteSelected()}
-                  className="inline-flex items-center gap-0.5 rounded-md border border-border/60 px-1.5 py-1 text-[11px] hover:bg-destructive/20 transition-colors"
-                  aria-label={t('action.delete')}
-                  title={t('action.delete')}
-                >
-                  <Trash2 className="w-3 h-3" aria-hidden="true" />
-                </button>
-              </>
-            )}
-          </div>
-          {loading ? (
-            <div className="text-xs text-muted-foreground p-3">{t('equipmentManager.loading')}</div>
-          ) : (
-            <div className="p-1.5 space-y-1">
-              {filtered.map((equip) => (
-                <button
-                  key={equip.id}
-                  onClick={() => void handleSelectEquipment(equip.id)}
-                  className={cn(
-                    'w-full text-left rounded-md border px-2 py-1.5 text-[11px] transition-colors',
-                    selectedId === equip.id
-                      ? 'border-primary bg-primary/10'
-                      : 'border-border/60 hover:bg-muted/80',
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <ListThumb
-                      hash={
-                        equip.referenceImages?.find((r) => r.slot === 'main')?.assetHash ??
-                        equip.referenceImages?.[0]?.assetHash
-                      }
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">
-                        {equip.name || t('equipmentManager.untitled')}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span className="text-[10px] text-muted-foreground">
-                          {t('equipmentManager.types.' + equip.type)}
-                        </span>
-                        {equip.subtype && (
-                          <span className="text-[9px] px-1 py-0.5 rounded bg-muted text-muted-foreground">
-                            {equip.subtype}
-                          </span>
-                        )}
-                      </div>
-                      {(usageCountById[equip.id] ?? 0) > 0 && (
-                        <div className="text-[9px] text-muted-foreground mt-0.5">
-                          {t('equipmentManager.usedInNodes').replace(
-                            '{count}',
-                            String(usageCountById[equip.id]),
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              ))}
-              {filtered.length === 0 && (
-                <div className="text-[11px] text-muted-foreground px-2 py-1.5">
-                  {t('equipmentManager.noResults')}
-                </div>
+                  <Link2 className="h-3 w-3" />
+                  {usageCountById[e.id]}
+                </span>
               )}
+            </span>
+          )}
+          clipboard={{
+            hasClipboard: clipboard.hasClipboard,
+            isCut: clipboard.isCut,
+            copy: clipboard.copy,
+            cut: clipboard.cut,
+            paste: clipboard.paste,
+            cutIds,
+          }}
+          onPaste={handlePaste}
+          header={(
+            <div className="flex items-center gap-2">
+              <Package className="h-3.5 w-3.5 text-primary" />
+              <h2 className="text-xs font-semibold">{t('equipmentManager.title')}</h2>
+              <select
+                value={filterType}
+                onChange={(e) => dispatch(setFilterType(e.target.value as EquipmentType | 'all'))}
+                className="ml-auto rounded bg-muted px-2 py-0.5 text-[10px]"
+              >
+                <option value="all">{t('equipmentManager.allTypes')}</option>
+                {TYPE_OPTIONS.map((tp) => (
+                  <option key={tp} value={tp}>{t('equipmentManager.types.' + tp)}</option>
+                ))}
+              </select>
             </div>
           )}
-        </div>
-
-        <div className="min-h-0 overflow-auto p-2 space-y-2">
-          {!draft ? (
-            <div className="text-xs text-muted-foreground">
-              {t('equipmentManager.selectOrCreate')}
-            </div>
-          ) : (
-            <>
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                  {t('equipmentManager.fields.name')}
-                </label>
-                <input
-                  value={draft.name}
-                  onChange={(e) => setDraft((p) => (p ? { ...p, name: e.target.value } : p))}
-                  className="w-full rounded bg-muted px-2 py-1 text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                    {t('equipmentManager.fields.type')}
-                  </label>
-                  <select
-                    value={draft.type}
-                    onChange={(e) =>
-                      setDraft((p) => (p ? { ...p, type: e.target.value as EquipmentType } : p))
-                    }
-                    className="w-full rounded bg-muted px-2 py-1 text-xs"
-                  >
-                    {TYPE_OPTIONS.map((tp) => (
-                      <option key={tp} value={tp}>
-                        {t('equipmentManager.types.' + tp)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                    {t('equipmentManager.fields.subtype')}
-                  </label>
-                  <input
-                    value={draft.subtype}
-                    onChange={(e) => setDraft((p) => (p ? { ...p, subtype: e.target.value } : p))}
-                    className="w-full rounded bg-muted px-2 py-1 text-xs"
-                    placeholder={t('equipmentManager.optional')}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                  {t('equipmentManager.fields.description')}
-                </label>
-                <textarea
-                  value={draft.description}
-                  onChange={(e) => setDraft((p) => (p ? { ...p, description: e.target.value } : p))}
-                  className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[60px]"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                  {t('equipmentManager.fields.function')}
-                </label>
-                <textarea
-                  value={draft.functionDesc}
-                  onChange={(e) =>
-                    setDraft((p) => (p ? { ...p, functionDesc: e.target.value } : p))
-                  }
-                  className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[50px]"
-                  placeholder={t('equipmentManager.functionPlaceholder')}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                  {t('equipmentManager.fields.tags')}
-                </label>
-                <input
-                  value={draft.tags}
-                  onChange={(e) => setDraft((p) => (p ? { ...p, tags: e.target.value } : p))}
-                  className="w-full rounded bg-muted px-2 py-1 text-xs"
-                  placeholder={t('equipmentManager.fields.tags')}
-                />
-              </div>
-
-              {/* Reference Image - Single large image */}
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
-                  {t('equipmentManager.referenceImages')}
-                </label>
-                <SingleReferenceImage
-                  referenceImages={selectedEquip?.referenceImages ?? []}
-                  onUpload={() => handleRefImageUpload('main', true)}
-                  onRemove={(slot) => handleRefImageRemove(slot)}
-                  onFromAssets={() => setAssetPickerOpen(true)}
-                  onDropHash={(hash) => void handleRefImageFromAsset(hash)}
-                  onSelectVariant={(hash) => void handleSelectVariant(hash)}
-                  onDeleteVariant={(hash) => void handleDeleteVariant(hash)}
-                  entityType="equipment"
-                  entityId={selectedEquip?.id}
-                  slot="main"
-                />
-                <p className="text-[9px] text-muted-foreground/70 italic mt-1">
-                  {t('equipmentManager.generateAllHint')}
-                </p>
-              </div>
-
-              <AssetPickerDialog
-                open={assetPickerOpen}
-                onClose={() => setAssetPickerOpen(false)}
-                onSelect={(hash) => void handleRefImageFromAsset(hash)}
-              />
-            </>
-          )}
-
-          {error && <div className="text-[11px] text-destructive">{error}</div>}
-        </div>
+          newItemLabel={t('equipmentManager.newEquipment')}
+          activeItemId={drawerOpen ? (selectedId ?? null) : null}
+          loading={loading}
+          emptyLabel={t('equipmentManager.noResults')}
+        />
       </div>
+
+      <EntityDetailDrawer
+        open={drawerShown}
+        onOpenChange={async (o) => {
+          if (!o) {
+            if (await confirmDiscardIfDirty()) setDrawerOpen(false);
+            else return;
+          } else {
+            setDrawerOpen(true);
+          }
+        }}
+        title={draft?.name ?? ''}
+        subtitle={draft ? t('equipmentManager.types.' + draft.type) : undefined}
+        onSave={() => void saveDraft()}
+        isDirty={isDirty}
+        onDelete={selectedId ? () => void handleDeleteIds([selectedId]) : undefined}
+      >
+        {draft && (
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                {t('equipmentManager.fields.name')}
+              </label>
+              <input
+                value={draft.name}
+                onChange={(e) => setDraft((p) => (p ? { ...p, name: e.target.value } : p))}
+                className="w-full rounded bg-muted px-2 py-1 text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                  {t('equipmentManager.fields.type')}
+                </label>
+                <select
+                  value={draft.type}
+                  onChange={(e) =>
+                    setDraft((p) => (p ? { ...p, type: e.target.value as EquipmentType } : p))
+                  }
+                  className="w-full rounded bg-muted px-2 py-1 text-xs"
+                >
+                  {TYPE_OPTIONS.map((tp) => (
+                    <option key={tp} value={tp}>{t('equipmentManager.types.' + tp)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                  {t('equipmentManager.fields.subtype')}
+                </label>
+                <input
+                  value={draft.subtype}
+                  onChange={(e) => setDraft((p) => (p ? { ...p, subtype: e.target.value } : p))}
+                  className="w-full rounded bg-muted px-2 py-1 text-xs"
+                  placeholder={t('equipmentManager.optional')}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                {t('equipmentManager.fields.description')}
+              </label>
+              <textarea
+                value={draft.description}
+                onChange={(e) => setDraft((p) => (p ? { ...p, description: e.target.value } : p))}
+                className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[60px]"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                {t('equipmentManager.fields.function')}
+              </label>
+              <textarea
+                value={draft.functionDesc}
+                onChange={(e) => setDraft((p) => (p ? { ...p, functionDesc: e.target.value } : p))}
+                className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[50px]"
+                placeholder={t('equipmentManager.functionPlaceholder')}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                {t('equipmentManager.fields.tags')}
+              </label>
+              <input
+                value={draft.tags}
+                onChange={(e) => setDraft((p) => (p ? { ...p, tags: e.target.value } : p))}
+                className="w-full rounded bg-muted px-2 py-1 text-xs"
+                placeholder={t('equipmentManager.fields.tags')}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] uppercase text-muted-foreground tracking-wider">
+                {t('equipmentManager.referenceImages')}
+              </label>
+              <SingleReferenceImage
+                referenceImages={selectedEquip?.referenceImages ?? []}
+                onUpload={() => handleRefImageUpload('main', true)}
+                onRemove={(slot) => handleRefImageRemove(slot)}
+                onFromAssets={() => setAssetPickerOpen(true)}
+                onDropHash={(hash) => void handleRefImageFromAsset(hash)}
+                onSelectVariant={(hash) => void handleSelectVariant(hash)}
+                onDeleteVariant={(hash) => void handleDeleteVariant(hash)}
+                entityType="equipment"
+                entityId={selectedEquip?.id}
+                slot="main"
+              />
+              <p className="text-[9px] text-muted-foreground/70 italic mt-1">
+                {t('equipmentManager.generateAllHint')}
+              </p>
+            </div>
+
+            <AssetPickerDialog
+              open={assetPickerOpen}
+              onClose={() => setAssetPickerOpen(false)}
+              onSelect={(hash) => void handleRefImageFromAsset(hash)}
+            />
+
+            {error && <div className="text-[11px] text-destructive">{error}</div>}
+          </div>
+        )}
+      </EntityDetailDrawer>
       {ConfirmDialog}
     </div>
   );
@@ -868,9 +908,9 @@ function VariantThumb({
 
 function ListThumb({ hash }: { hash?: string }) {
   const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
-  if (!url) return <div className="shrink-0 w-8 h-8 rounded bg-muted/50" />;
+  if (!url) return <div className="h-full w-full bg-muted/50" />;
   return (
-    <img src={url} alt="" className="shrink-0 w-8 h-8 rounded object-cover" onError={markFailed} />
+    <img src={url} alt="" className="h-full w-full object-contain" onError={markFailed} />
   );
 }
 

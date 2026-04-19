@@ -56,6 +56,7 @@ describe('createRenderTools', () => {
     await expect(getTool('render.start', deps).execute({ canvasId: '', format: 'mp4' })).resolves.toEqual({
       success: false,
       error: 'canvasId is required',
+      errorClass: 'validation',
     });
     await expect(getTool('render.exportBundle', deps).execute({
       canvasId: 'canvas-1',

@@ -9,6 +9,8 @@ import type {
   Equipment,
   EquipmentLoadout,
   EquipmentType,
+  Folder,
+  FolderKind,
   IpcProcessPrompt,
   LLMProviderRuntimeInput,
   LLMProviderRuntimeConfig,
@@ -241,6 +243,15 @@ interface CommanderToolSearchResult {
   description: string;
 }
 
+/** Per-kind folder CRUD surface exposed to the renderer. */
+interface FolderKindApi {
+  list: () => Promise<Folder[]>;
+  create: (parentId: string | null, name: string) => Promise<Folder>;
+  rename: (id: string, name: string) => Promise<Folder>;
+  move: (id: string, newParentId: string | null) => Promise<Folder>;
+  delete: (id: string) => Promise<void>;
+}
+
 declare global {
   interface Window {
     lucidAPI: {
@@ -280,6 +291,7 @@ declare global {
           loadout: EquipmentLoadout,
         ) => Promise<EquipmentLoadout>;
         deleteLoadout: (characterId: string, loadoutId: string) => Promise<void>;
+        setFolder: (id: string, folderId: string | null) => Promise<void>;
       };
       equipment: {
         list: (filter?: { type?: string }) => Promise<Equipment[]>;
@@ -295,6 +307,7 @@ declare global {
           isStandard: boolean,
         ) => Promise<ReferenceImage>;
         removeRefImage: (equipmentId: string, slot: string) => Promise<void>;
+        setFolder: (id: string, folderId: string | null) => Promise<void>;
       };
       location: {
         list: (filter?: { type?: string }) => Promise<Location[]>;
@@ -308,6 +321,7 @@ declare global {
           isStandard: boolean,
         ) => Promise<ReferenceImage>;
         removeRefImage: (locationId: string, slot: string) => Promise<void>;
+        setFolder: (id: string, folderId: string | null) => Promise<void>;
       };
       entity: {
         generateReferenceImage: (request: {
@@ -355,6 +369,7 @@ declare global {
           items: Array<{ hash: string; type: string; name?: string }>;
         }) => Promise<{ success: true; count: number; directory: string } | null>;
         delete: (hash: string) => Promise<{ success: true }>;
+        setFolder: (hash: string, folderId: string | null) => Promise<void>;
       };
       job: {
         submit: (request: JobRequest) => Promise<JobSummary>;
@@ -411,6 +426,12 @@ declare global {
         get: (processKey: string) => Promise<IpcProcessPrompt>;
         setCustom: (processKey: string, value: string) => Promise<void>;
         reset: (processKey: string) => Promise<void>;
+      };
+      folder: {
+        character: FolderKindApi;
+        equipment: FolderKindApi;
+        location: FolderKindApi;
+        asset: FolderKindApi;
       };
       commander: {
         chat: (
@@ -653,11 +674,9 @@ declare global {
           dbSize: number;
           globalAssetsSize: number;
           globalAssetCount: number;
-          projectsSize: number;
           logsSize: number;
           totalSize: number;
-          projects: Array<{ name: string; path: string; size: number }>;
-          paths: { appRoot: string; database: string; globalAssets: string; projects: string; logs: string };
+          paths: { appRoot: string; database: string; globalAssets: string; logs: string };
         }>;
         openFolder: (folderPath: string) => Promise<void>;
         showInFolder: (filePath: string) => Promise<void>;
@@ -666,8 +685,6 @@ declare global {
         vacuumDatabase: () => Promise<{ success: boolean; error?: string }>;
         backupDatabase: (destPath: string) => Promise<{ success: boolean; error?: string }>;
         restoreDatabase: (sourcePath: string) => Promise<{ success: boolean; error?: string; backupCreated?: string }>;
-        getProjectsPath: () => Promise<string>;
-        setProjectsPath: (newPath: string) => Promise<{ success: boolean; error?: string }>;
         pickFolder: () => Promise<string | null>;
         pickSaveFile: (defaultName: string) => Promise<string | null>;
         pickOpenFile: (extensions: string[]) => Promise<string | null>;

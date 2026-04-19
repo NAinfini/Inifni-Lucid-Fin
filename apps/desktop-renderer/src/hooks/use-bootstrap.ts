@@ -78,7 +78,7 @@ export function useBootstrap() {
           addLog({
             level: 'error',
             category: 'startup',
-            message: t('startup.autoProjectBootstrapFailed'),
+            message: t('startup.bootstrapFailed'),
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );

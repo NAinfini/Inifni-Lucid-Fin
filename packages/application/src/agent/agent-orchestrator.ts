@@ -58,6 +58,19 @@ export interface AgentOptions {
   maxTokens?: number;
   profile?: ProviderProfile;
   resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
+  /**
+   * Optional canvas node-type lookup used to dispatch `canvas.generate`
+   * process-prompt injection by the real node type on the canvas, rather
+   * than trusting the LLM's optional `nodeType` argument. When the LLM
+   * omits `nodeType` and this resolver returns 'video' or 'audio', the
+   * correct process category is primed instead of defaulting to
+   * image-node-generation. Return `null` if the node cannot be resolved;
+   * detection falls back to the LLM-provided arg.
+   */
+  resolveCanvasNodeType?: (
+    canvasId: string,
+    nodeId: string,
+  ) => 'image' | 'video' | 'audio' | null;
 }
 
 export interface AgentExecutionOptions {
@@ -180,6 +193,10 @@ export class AgentOrchestrator {
 
   private injectedMessageCount = 0;
   private readonly resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
+  private readonly resolveCanvasNodeType?: (
+    canvasId: string,
+    nodeId: string,
+  ) => 'image' | 'video' | 'audio' | null;
   private activeProcessPromptSteps = new Map<ProcessCategory, number>();
 
   /**
@@ -207,6 +224,7 @@ export class AgentOrchestrator {
     this.maxTokens = opts?.maxTokens ?? 200000;
     this.profile = opts?.profile ?? DEFAULT_PROVIDER_PROFILE;
     this.resolveProcessPrompt = opts?.resolveProcessPrompt;
+    this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
 
     this.contextManager = new ContextManager(adapter, resolvePrompt);
     this.toolExecutor = new ToolExecutor(tools);
@@ -379,6 +397,16 @@ export class AgentOrchestrator {
       permissionMode: options?.permissionMode,
       contextGraph: this.contextGraph,
       canvasId,
+      // When tool.get returns an inline process guide, mark the category
+      // primed so the pre-flight defer doesn't re-inject it the moment the
+      // model follows up with the action tool. The guide content lives in
+      // the tool-result on the wire, not in messages[] as a system message,
+      // so we set the step map directly here.
+      onProcessGuideDiscovered: (processCategory: string) => {
+        if (isProcessCategory(processCategory)) {
+          this.activeProcessPromptSteps.set(processCategory, steps);
+        }
+      },
     });
 
     const wrappedEmit: typeof emit = (event) => {
@@ -519,6 +547,37 @@ export class AgentOrchestrator {
           const finalContent = lastResult.content || (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
           wrappedEmit({ type: 'done', content: finalContent });
           return lastResult;
+        }
+
+        // Pre-flight process-prompt injection.
+        // If any of the model's requested tool calls maps to a process
+        // category we have not yet primed this session, inject the guide
+        // as a system message and loop — the model gets to re-plan with
+        // the guide visible BEFORE we execute anything. Costs one extra
+        // model step per first-use of a category, bounded by the number
+        // of distinct process categories.
+        //
+        // We detect on the tool call itself (not on user message text),
+        // so this works in any language and across any tool the catalog
+        // knows about. The same `detectProcess` map drives runtime
+        // activation below, so there is a single source of truth.
+        const deferredCategories = this.primeProcessPromptsForToolCalls(
+          messages,
+          lastResult.toolCalls,
+          steps,
+        );
+        if (deferredCategories.length > 0) {
+          // Signal to the UI that we paused to load guidance, so the
+          // "extra step" is legible rather than looking like a stall.
+          const labels = deferredCategories.map((key) => getProcessCategoryName(key)).join(', ');
+          wrappedEmit({
+            type: 'thinking',
+            content: `Loading process guidance: ${labels}`,
+          });
+          // Drop the would-be assistant turn — we haven't pushed it yet,
+          // so next iteration the model re-plans with the guide in
+          // context and produces a fresh tool_calls set.
+          continue;
         }
 
         messages.push({
@@ -719,6 +778,33 @@ export class AgentOrchestrator {
     throw lastErr;
   }
 
+  /**
+   * Resolve `canvas.generate` process category using the real node type on
+   * the canvas when the LLM's `nodeType` arg is missing. Other tools pass
+   * through unchanged. This eliminates the image-node-generation default
+   * bias when the model calls `canvas.generate` on a video or audio node
+   * without spelling out nodeType.
+   */
+  private detectProcessForToolCall(
+    name: string,
+    args?: Record<string, unknown>,
+  ): ProcessCategory | null {
+    if (
+      name === 'canvas.generate'
+      && this.resolveCanvasNodeType
+      && args
+      && typeof args.nodeType !== 'string'
+      && typeof args.canvasId === 'string'
+      && typeof args.nodeId === 'string'
+    ) {
+      const resolved = this.resolveCanvasNodeType(args.canvasId, args.nodeId);
+      if (resolved) {
+        return detectProcess(name, { ...args, nodeType: resolved });
+      }
+    }
+    return detectProcess(name, args);
+  }
+
   private activateProcessPrompts(
     messages: LLMMessage[],
     toolCalls: ReadonlyArray<LLMCompletionResult['toolCalls'][number]>,
@@ -728,7 +814,7 @@ export class AgentOrchestrator {
 
     const seen = new Set<ProcessCategory>();
     for (const toolCall of toolCalls) {
-      const processKey = detectProcess(toolCall.name, toolCall.arguments);
+      const processKey = this.detectProcessForToolCall(toolCall.name, toolCall.arguments);
       if (!processKey || seen.has(processKey)) continue;
       seen.add(processKey);
       this.activeProcessPromptSteps.set(processKey, step);
@@ -744,6 +830,55 @@ export class AgentOrchestrator {
         content: this.buildProcessPromptMessage(processKey, prompt.trim()),
       });
     }
+  }
+
+  /**
+   * Pre-flight guidance injection. Scans the model's pending tool calls,
+   * finds any process category whose guide has not yet been injected this
+   * session, and pushes those guides as system messages. The caller loops
+   * back to the LLM so the model re-plans with the guide visible BEFORE
+   * any tool call executes.
+   *
+   * Returns the list of process categories newly primed. An empty return
+   * means every requested tool either has no process mapping or its guide
+   * was already injected — the normal execution path should proceed.
+   *
+   * The same `detectProcess` map drives `activateProcessPrompts` below, so
+   * once this method primes a category, the retroactive activator skips it
+   * on subsequent turns (prevents double-injection).
+   */
+  private primeProcessPromptsForToolCalls(
+    messages: LLMMessage[],
+    toolCalls: ReadonlyArray<LLMCompletionResult['toolCalls'][number]>,
+    step: number,
+  ): ProcessCategory[] {
+    if (!this.resolveProcessPrompt || toolCalls.length === 0) return [];
+
+    const primed: ProcessCategory[] = [];
+    const seen = new Set<ProcessCategory>();
+    for (const toolCall of toolCalls) {
+      const processKey = this.detectProcessForToolCall(toolCall.name, toolCall.arguments);
+      if (!processKey || seen.has(processKey)) continue;
+      seen.add(processKey);
+
+      // Already primed earlier this session — no re-inject, no defer.
+      if (this.activeProcessPromptSteps.has(processKey)) continue;
+      if (messages.some((message) => this.isProcessPromptMessage(message, processKey))) {
+        this.activeProcessPromptSteps.set(processKey, step);
+        continue;
+      }
+
+      const prompt = this.resolveProcessPrompt(processKey);
+      if (!prompt?.trim()) continue;
+
+      this.activeProcessPromptSteps.set(processKey, step);
+      messages.push({
+        role: 'system',
+        content: this.buildProcessPromptMessage(processKey, prompt.trim()),
+      });
+      primed.push(processKey);
+    }
+    return primed;
   }
 
   private activateInitialProcessPrompts(messages: LLMMessage[], context: AgentContext): void {
@@ -765,11 +900,28 @@ export class AgentOrchestrator {
     }
   }
 
+  /**
+   * Process categories that act as load-bearing phase rails for the
+   * story-to-video pipeline. These are pinned once active for the rest of
+   * the session — stripping them mid-phase caused the LLM to forget the
+   * phase contract and re-plan from scratch on every third step.
+   */
+  private static readonly PHASE_CRITICAL_PROCESS_KEYS: ReadonlySet<ProcessCategory> = new Set<ProcessCategory>([
+    'workflow-orchestration',
+    'character-ref-image-generation',
+    'location-ref-image-generation',
+    'equipment-ref-image-generation',
+    'image-node-generation',
+    'video-node-generation',
+    'render-and-export',
+  ]);
+
   private stripInactiveProcessPrompts(messages: LLMMessage[], step: number): void {
     if (this.activeProcessPromptSteps.size === 0) return;
 
     const staleKeys: ProcessCategory[] = [];
     for (const [processKey, lastUsedStep] of this.activeProcessPromptSteps) {
+      if (AgentOrchestrator.PHASE_CRITICAL_PROCESS_KEYS.has(processKey)) continue;
       if (step - lastUsedStep > 3) {
         staleKeys.push(processKey);
       }

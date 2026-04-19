@@ -320,7 +320,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     toolNamePrefix: 'character',
     entityLabel: 'character',
     tags: ['character', 'generation'],
-    description: 'Manage a character reference image. Use action=generate to create a slot-specific character ref sheet. For slot=main/front, default to a two-row model sheet with full-body front, left, right, and back panels plus enlarged facial expression studies. Use action=set to assign an existing asset, action=delete to remove a slot, and action=setFromNode to pull an asset from a canvas node.',
+    description: 'Manage a character reference image. Use action=generate to create a slot-specific character ref sheet. For slot=main, default to a two-row model sheet with full-body front, left, right, and back panels plus enlarged facial expression studies. Use action=set to assign an existing asset, action=delete to remove a slot, and action=setFromNode to pull an asset from a canvas node.',
     getEntity: async (id) => {
       const characters = await deps.listCharacters();
       return characters.find((c) => c.id === id) ?? null;
@@ -331,6 +331,12 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     buildPrompt: buildCharacterRefImagePrompt,
     isStandardSlot: isCharacterReferenceSlotStandard,
     normalizeSlot: normalizeCharacterRefSlot,
+    // Canonical character slots only — locks the LLM to the 6 known angles
+    // and prevents invented slots like "portrait-main" from silently falling
+    // through to a single-view prompt. Aliases (front, default, rear,
+    // profile-left, etc.) still normalize correctly at runtime but are not
+    // advertised here so the model picks canonical names.
+    slotEnum: ['main', 'back', 'left-side', 'right-side', 'face-closeup', 'top-down'],
     defaultWidth: 2048,
     defaultHeight: 1360,
   });

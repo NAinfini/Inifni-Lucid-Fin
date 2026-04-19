@@ -107,6 +107,13 @@ describe('registerCommanderHandlers session wiring', () => {
         db: {} as never,
         cas: {} as never,
         keychain: { getKey: vi.fn(async () => 'sk-live') } as never,
+        promptStore: {
+          list: vi.fn(() => []),
+          get: vi.fn(() => undefined),
+          resolve: vi.fn((code: string) => code),
+          setCustom: vi.fn(),
+          clearCustom: vi.fn(),
+        } as never,
         resolvePrompt: vi.fn((code: string) => code),
         resolveProcessPrompt: vi.fn((processKey: string) => `process:${processKey}`),
       },
@@ -142,6 +149,7 @@ describe('registerCommanderHandlers session wiring', () => {
       'session-7',
       undefined,
       expect.anything(),
+      expect.any(Function),
     );
     expect(agentConstructor).toHaveBeenCalledWith(
       selectedAdapter,

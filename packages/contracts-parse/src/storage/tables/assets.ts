@@ -15,6 +15,7 @@ export const AssetsTable = defineTable('assets', {
   tags: col<string | null>('tags'),
   prompt: col<string | null>('prompt'),
   provider: col<string | null>('provider'),
+  folderId: col<string | null>('folder_id'),
   createdAt: col<number>('created_at'),
   fileSize: col<number | null>('file_size'),
   width: col<number | null>('width'),

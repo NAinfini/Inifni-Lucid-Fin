@@ -77,7 +77,12 @@ describe('createRefImageTools', () => {
     });
 
     it('defaults slot to "main" when slot not provided', async () => {
-      const config = createConfig();
+      // Every real ref-image tool treats "main" as standard — the factory
+      // default itself assumes it. The test config must mirror that or the
+      // fail-loud unknown-slot guard will correctly reject the default.
+      const config = createConfig({
+        isStandardSlot: vi.fn((slot) => slot === 'main' || slot === 'portrait'),
+      });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
       const result = await tool.execute({ id: 'e1' });
@@ -134,19 +139,48 @@ describe('createRefImageTools', () => {
       );
     });
 
-    it('still allows custom prompts for non-standard slots in auto mode', async () => {
+    it('still allows custom prompts for non-standard slots when promptMode=override', async () => {
+      // A user-approved custom layout goes through `promptMode: 'override'`.
+      // The tool treats that slot as standard-enough to generate, forwarding
+      // the custom prompt verbatim without layout guardrails.
       const config = createConfig({
-        isStandardSlot: vi.fn((slot) => slot === 'portrait'),
+        isStandardSlot: vi.fn((slot) => slot === 'portrait' || slot === 'custom-angle'),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      await tool.execute({ id: 'e1', slot: 'custom-angle', prompt: 'custom prompt from AI' });
+      await tool.execute({
+        id: 'e1',
+        slot: 'custom-angle',
+        prompt: 'custom prompt from AI',
+        promptMode: 'override',
+      });
 
       expect(config.buildPrompt).not.toHaveBeenCalled();
       expect(config.generateImage).toHaveBeenCalledWith(
         'custom prompt from AI',
         expect.anything(),
       );
+    });
+
+    it('fails loud when the AI passes an unrecognized slot', async () => {
+      // Regression: earlier behavior silently fell back to a generic
+      // "Single-view character reference" prompt for unknown slots. That
+      // produces an image that looks fine but violates the slot contract
+      // (e.g. a portrait where a turnaround sheet was required). Surface
+      // the error so the model retries with a valid slot.
+      const config = createConfig({
+        isStandardSlot: vi.fn((slot) => slot === 'portrait'),
+        slotEnum: ['portrait', 'side'],
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      const result = await tool.execute({ id: 'e1', slot: 'portrait-main' });
+
+      expect(result).toMatchObject({ success: false });
+      expect((result as { error: string }).error).toContain('Unknown slot "portrait-main"');
+      expect((result as { error: string }).error).toContain('portrait, side');
+      expect(config.generateImage).not.toHaveBeenCalled();
+      expect(config.buildPrompt).not.toHaveBeenCalled();
     });
 
     it('falls back to buildPrompt when AI prompt is omitted', async () => {

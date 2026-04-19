@@ -49,6 +49,7 @@ type RawAssetRow = {
   tags: string | null;
   prompt: string | null;
   provider: string | null;
+  folder_id: string | null;
   created_at: number;
   file_size: number | null;
   width: number | null;
@@ -76,6 +77,7 @@ const ASSET_SELECT_COLS = [
   AC.tags.sqlName,
   AC.prompt.sqlName,
   AC.provider.sqlName,
+  AC.folderId.sqlName,
   AC.createdAt.sqlName,
   AC.fileSize.sqlName,
   AC.width.sqlName,
@@ -90,6 +92,7 @@ const ASSET_SELECT_COLS_PREFIXED_A = [
   AC.tags.sqlName,
   AC.prompt.sqlName,
   AC.provider.sqlName,
+  AC.folderId.sqlName,
   AC.createdAt.sqlName,
   AC.fileSize.sqlName,
   AC.width.sqlName,
@@ -109,9 +112,10 @@ export class AssetRepository {
       `INSERT OR REPLACE INTO ${AT}
          (${AC.hash.sqlName}, ${AC.type.sqlName}, ${AC.format.sqlName},
           ${AC.tags.sqlName}, ${AC.prompt.sqlName}, ${AC.provider.sqlName},
+          ${AC.folderId.sqlName},
           ${AC.createdAt.sqlName}, ${AC.fileSize.sqlName},
           ${AC.width.sqlName}, ${AC.height.sqlName}, ${AC.duration.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       normalized.hash,
       normalized.type,
@@ -119,6 +123,7 @@ export class AssetRepository {
       JSON.stringify(normalized.tags),
       normalized.prompt ?? null,
       normalized.provider ?? null,
+      normalized.folderId ?? null,
       normalized.createdAt,
       normalized.fileSize,
       normalized.width ?? null,
@@ -130,6 +135,13 @@ export class AssetRepository {
   delete(hash: AssetHash, tx?: Tx): void {
     const d = tx ?? this.db;
     d.prepare(`DELETE FROM ${AT} WHERE ${AC.hash.sqlName} = ?`).run(hash);
+  }
+
+  setFolder(hash: AssetHash, folderId: string | null, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${AT} SET ${AC.folderId.sqlName} = ? WHERE ${AC.hash.sqlName} = ?`,
+    ).run(folderId, hash);
   }
 
   query(
@@ -277,6 +289,7 @@ function rowToAssetMeta(row: RawAssetRow): AssetMeta {
     tags: JSON.parse(rawTags) as string[],
     prompt: row.prompt ?? undefined,
     provider: row.provider ?? undefined,
+    folderId: row.folder_id ?? null,
     createdAt: row.created_at,
   };
 }
