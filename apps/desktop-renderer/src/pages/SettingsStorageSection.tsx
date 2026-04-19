@@ -3,7 +3,6 @@ import {
   Database,
   FolderOpen,
   HardDrive,
-  Image,
   Loader2,
   RefreshCw,
   Save,
@@ -22,15 +21,12 @@ interface StorageOverview {
   dbSize: number;
   globalAssetsSize: number;
   globalAssetCount: number;
-  projectsSize: number;
   logsSize: number;
   totalSize: number;
-  projects: Array<{ name: string; path: string; size: number }>;
   paths: {
     appRoot: string;
     database: string;
     globalAssets: string;
-    projects: string;
     logs: string;
   };
 }
@@ -146,7 +142,6 @@ export function SettingsStorageSection() {
   const [overview, setOverview] = useState<StorageOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [projectsPath, setProjectsPath] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const refresh = useCallback(async () => {
@@ -154,8 +149,6 @@ export function SettingsStorageSection() {
     try {
       const data = await window.lucidAPI.storage.getOverview();
       setOverview(data);
-      const pp = await window.lucidAPI.storage.getProjectsPath();
-      setProjectsPath(pp);
     } catch (err) {
       void console.error('[SettingsStorage] Failed to load storage overview:', err);
     } finally {
@@ -247,23 +240,6 @@ export function SettingsStorageSection() {
     }
   }, [showMessage]);
 
-  const handleChangeProjectsPath = useCallback(async () => {
-    const folder = await window.lucidAPI.storage.pickFolder();
-    if (!folder) return;
-    setActionLoading('projectsPath');
-    try {
-      const result = await window.lucidAPI.storage.setProjectsPath(folder);
-      if (result.success) {
-        setProjectsPath(folder);
-        showMessage('success', t('settings.storage.pathChanged'));
-      } else {
-        showMessage('error', result.error ?? t('settings.storage.actionFailed'));
-      }
-    } finally {
-      setActionLoading(null);
-    }
-  }, [showMessage]);
-
   if (loading || !overview) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -311,7 +287,6 @@ export function SettingsStorageSection() {
             items={[
               { label: t('settings.storage.database'), size: overview.dbSize, color: 'bg-blue-500' },
               { label: t('settings.storage.assets'), size: overview.globalAssetsSize, color: 'bg-purple-500' },
-              { label: t('settings.storage.projects'), size: overview.projectsSize, color: 'bg-green-500' },
               { label: t('settings.storage.logs'), size: overview.logsSize, color: 'bg-yellow-500' },
             ]}
           />
@@ -328,58 +303,9 @@ export function SettingsStorageSection() {
           <PathRow label={t('settings.storage.appRoot')} path={overview.paths.appRoot} onOpen={handleOpenFolder} />
           <PathRow label={t('settings.storage.databaseFile')} path={overview.paths.database} onOpen={(p) => window.lucidAPI.storage.showInFolder(p)} />
           <PathRow label={t('settings.storage.globalAssets')} path={overview.paths.globalAssets} onOpen={handleOpenFolder} />
-          <PathRow label={t('settings.storage.projectsFolder')} path={overview.paths.projects} onOpen={handleOpenFolder} />
           <PathRow label={t('settings.storage.logsFolder')} path={overview.paths.logs} onOpen={handleOpenFolder} />
         </div>
       </div>
-
-      {/* Default Projects Path */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-semibold">{t('settings.storage.defaultProjectPath')}</h3>
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1 truncate rounded-md border border-border/60 bg-background px-3 py-1.5 text-xs text-muted-foreground">
-            {projectsPath}
-          </div>
-          <ActionButton
-            icon={FolderOpen}
-            label={t('settings.storage.changePath')}
-            onClick={() => void handleChangeProjectsPath()}
-            loading={actionLoading === 'projectsPath'}
-          />
-        </div>
-      </div>
-
-      {/* Per-project sizes */}
-      {overview.projects.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold">
-            <Image className="h-3.5 w-3.5" />
-            {t('settings.storage.projectBreakdown')}
-          </h3>
-          <div className="space-y-1">
-            {overview.projects
-              .sort((a, b) => b.size - a.size)
-              .map((project) => (
-                <div
-                  key={project.path}
-                  className="flex items-center justify-between rounded-md border border-border/60 px-3 py-1.5"
-                >
-                  <span className="text-xs">{project.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted-foreground">{formatBytes(project.size)}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenFolder(project.path)}
-                      className="text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <FolderOpen className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
 
       {/* Database Management */}
       <div className="space-y-3">

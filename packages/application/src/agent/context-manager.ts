@@ -25,9 +25,9 @@ const COMPACT_KEEP_RECENT_GROUPS = 3;
 
 /** Tools always loaded regardless of discovery. */
 export const ALWAYS_LOADED_TOOLS = [
-  'tool.list', 'tool.get', 'tool.compact', 'commander.askUser',
+  'tool.get', 'tool.compact', 'commander.askUser',
   'canvas.getState', 'canvas.listNodes', 'canvas.getNode',
-  'guide.list', 'guide.get',
+  'guide.get',
 ] as const;
 
 export { ESTIMATED_CHARS_PER_TOKEN, DEFAULT_IN_LOOP_CHAR_BUDGET };

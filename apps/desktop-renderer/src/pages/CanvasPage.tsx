@@ -56,21 +56,32 @@ function DragHandle({
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     lastX.current = e.clientX;
+    let pendingWidth: number | null = null;
+    let rafId = 0;
+
+    const flush = () => {
+      rafId = 0;
+      if (pendingWidth === null) return;
+      const w = pendingWidth;
+      pendingWidth = null;
+      widthRef.current = w;
+      if (panelRef.current) panelRef.current.style.width = `${w}px`;
+    };
 
     const onMouseMove = (ev: MouseEvent) => {
       const delta = ev.clientX - lastX.current;
       lastX.current = ev.clientX;
       const signed = side === 'left' ? delta : -delta;
-      const next = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, widthRef.current + signed));
-      widthRef.current = next;
-      if (panelRef.current) {
-        panelRef.current.style.width = `${next}px`;
-      }
+      const base = pendingWidth ?? widthRef.current;
+      pendingWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, base + signed));
+      if (!rafId) rafId = requestAnimationFrame(flush);
     };
 
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      if (rafId) cancelAnimationFrame(rafId);
+      flush();
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };

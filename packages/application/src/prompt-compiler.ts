@@ -435,9 +435,47 @@ function normalizeTextSegment(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Roughly detect whether a prompt is predominantly English / ASCII. The
+ * image-to-video stripper below uses English keyword lists to separate
+ * motion clauses from static appearance clauses; that heuristic makes no
+ * sense for CJK or RTL prompts where the keyword list matches nothing and
+ * the stripper would silently return an empty string, leaving the provider
+ * with no prompt at all.
+ *
+ * Threshold is deliberately low (50%): a mostly-Chinese prompt with a few
+ * English proper nouns ("Elf Girl") still falls into the "not English"
+ * branch, and mixed content slips into the safe no-op path by default.
+ */
+function isPredominantlyAscii(value: string): boolean {
+  if (!value) return true;
+  let ascii = 0;
+  let total = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code <= 0x7f) {
+      if (code !== 0x20) ascii += 1;
+    } else {
+      // CJK, arabic, cyrillic — any non-ASCII character disqualifies.
+      total += 1;
+    }
+    total += code <= 0x20 ? 0 : 1;
+  }
+  if (total === 0) return true;
+  return ascii / total >= 0.5;
+}
+
 function stripForImageToVideo(value: string): string {
   const normalized = normalizeTextSegment(value);
   if (!normalized) return '';
+  // English-only keyword match — for non-English prompts, run a minimal
+  // pass that keeps motion-like clauses by structural cues only (punctuation)
+  // and returns the normalized prompt otherwise. Better to pass an
+  // unfiltered motion-rich prompt to the provider than a silently empty
+  // one produced by a regex that doesn't understand the language.
+  if (!isPredominantlyAscii(normalized)) {
+    return normalized;
+  }
   const clauses = normalized
     .split(/(?:,|;|[.!?。！？])|\bthen\b/gi)
     .map((item) => item.trim())
@@ -456,7 +494,10 @@ function stripForImageToVideo(value: string): string {
     }
     return !(hasAppearance && isStaticOnly);
   });
-  return motionOnly.join('. ');
+  // If the keyword pass filtered everything out for English content, fall
+  // back to the normalized prompt — dropping all content is worse than
+  // forwarding a mixed-appearance prompt.
+  return motionOnly.length > 0 ? motionOnly.join('. ') : normalized;
 }
 
 function mergeParams(target: Record<string, unknown>, input?: Record<string, unknown>): void {
@@ -776,14 +817,25 @@ function detectDuplicatePhrases(segments: PromptSegment[]): PromptDiagnostic[] {
 // Camera-aware character description
 // ---------------------------------------------------------------------------
 
+// Shot-size tokens checked against the preset ID's hyphen/underscore-separated
+// segments. Segment-based matching avoids substring false positives like
+// `surface`→"face" or `clearance`→"close" that the old `.includes()` hack hit.
+const CLOSE_UP_TOKENS = new Set(['close', 'closeup', 'close-up', 'face', 'macro', 'extreme']);
+const WIDE_TOKENS = new Set(['wide', 'establishing', 'aerial', 'panorama', 'panoramic']);
+
+function tokenizePresetId(presetId: string): string[] {
+  return presetId.toLowerCase().split(/[-_\s]+/).filter((token) => token.length > 0);
+}
+
 export function getCameraShot(presetTracks: PresetTrackSet | undefined): CameraShot {
   if (!presetTracks) return 'default';
   const cameraTrack = presetTracks.camera;
   if (!cameraTrack?.entries?.length) return 'default';
   const firstEntry = cameraTrack.entries[0];
-  const presetId = firstEntry.presetId?.toLowerCase() ?? '';
-  if (presetId.includes('close') || presetId.includes('face') || presetId.includes('macro')) return 'close-up';
-  if (presetId.includes('wide') || presetId.includes('establishing') || presetId.includes('aerial')) return 'wide';
+  const tokens = tokenizePresetId(firstEntry.presetId ?? '');
+  if (tokens.length === 0) return 'default';
+  if (tokens.some((token) => CLOSE_UP_TOKENS.has(token))) return 'close-up';
+  if (tokens.some((token) => WIDE_TOKENS.has(token))) return 'wide';
   return 'medium';
 }
 

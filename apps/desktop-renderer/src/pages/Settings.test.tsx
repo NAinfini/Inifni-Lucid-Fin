@@ -202,10 +202,10 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Process Guides' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Process Injection' }));
 
     await waitFor(() => {
-      expect(screen.getAllByText('Process Guides').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Process Injection').length).toBeGreaterThan(0);
       expect(screen.getByText(t('settings.processGuides.subtitle'))).toBeTruthy();
       expect(screen.getByText('Character Reference Image Generation')).toBeTruthy();
       expect(screen.getByText('Location Reference Image Generation')).toBeTruthy();
@@ -256,13 +256,13 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Process Guides' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Process Injection' }));
 
     await waitFor(() => {
       expect(screen.getByText('Image Node Generation')).toBeTruthy();
     });
 
-    expect(screen.getAllByText('Process Guides')).toHaveLength(2);
+    expect(screen.getAllByText('Process Injection')).toHaveLength(2);
   });
 
   it.skip('localizes workflow section title, subtitle, badges, and built-in workflow names in zh-CN', async () => {

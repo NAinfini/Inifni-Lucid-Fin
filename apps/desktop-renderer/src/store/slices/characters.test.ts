@@ -58,6 +58,9 @@ describe('characters slice', () => {
       items: [],
       selectedId: null,
       loading: false,
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     });
   });
 

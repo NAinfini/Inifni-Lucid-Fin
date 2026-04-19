@@ -205,7 +205,6 @@ describe('buildContext', () => {
       ['image-1'],
       db,
       [{ id: 'guide-1', name: 'Prompt Guide', content: 'guide body' }],
-      'rewrite the image prompt and generate the shot',
     );
 
     const extra = context.extra as Record<string, unknown>;
@@ -232,7 +231,7 @@ describe('buildContext', () => {
     expect(JSON.stringify(extra.selectedNodes)).not.toContain('"equipmentRefs"');
   });
 
-  it('flags character ref-image guidance up front when the request is about character sheets', () => {
+  it('primes workflow-orchestration on an empty canvas and does not infer ref-image guides from text alone', () => {
     const db = makeDb();
     const context = buildContext(
       makeCanvas(0),
@@ -240,46 +239,13 @@ describe('buildContext', () => {
       [],
       db,
       [],
-      'generate a character reference sheet with front side back views and facial expressions',
     );
 
     const extra = context.extra as Record<string, unknown>;
-    expect(extra.initialProcessPrompts).toEqual(
-      expect.arrayContaining(['character-ref-image-generation']),
-    );
-  });
-
-  it('flags location ref-image guidance up front when the request is about location sheets', () => {
-    const db = makeDb();
-    const context = buildContext(
-      makeCanvas(0),
-      [],
-      [],
-      db,
-      [],
-      'generate a location reference sheet with wide establishing and key angles',
-    );
-
-    const extra = context.extra as Record<string, unknown>;
-    expect(extra.initialProcessPrompts).toEqual(
-      expect.arrayContaining(['location-ref-image-generation']),
-    );
-  });
-
-  it('flags equipment ref-image guidance up front when the request is about equipment sheets', () => {
-    const db = makeDb();
-    const context = buildContext(
-      makeCanvas(0),
-      [],
-      [],
-      db,
-      [],
-      'generate an equipment turnaround sheet with front side back views',
-    );
-
-    const extra = context.extra as Record<string, unknown>;
-    expect(extra.initialProcessPrompts).toEqual(
-      expect.arrayContaining(['equipment-ref-image-generation']),
-    );
+    // With an empty canvas + no selection, the pipeline seeds
+    // workflow-orchestration so Commander knows the overall 6-phase flow.
+    // Ref-image guides stay out — those are only primed pre-flight when the
+    // model actually requests a ref-image tool.
+    expect(extra.initialProcessPrompts).toEqual(['workflow-orchestration']);
   });
 });

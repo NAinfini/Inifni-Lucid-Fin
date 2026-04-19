@@ -40,7 +40,103 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 type ErrorClass = 'transient' | 'not_found' | 'validation' | 'permission' | 'fatal';
 
+/**
+ * Node / fetch / HTTP error codes mapped to classes. Checked BEFORE any
+ * message-text matching so localized errors from non-English providers are
+ * classified by their typed code, not their translated message.
+ *
+ * Extend this table when you see a real error code slipping through to the
+ * fatal fallback — do NOT add new keyword strings to the fallback below
+ * just to handle localized messages.
+ */
+const ERROR_CODE_TO_CLASS: Record<string, ErrorClass> = {
+  // Transient — network / transport / rate-limit
+  ETIMEDOUT: 'transient',
+  ECONNABORTED: 'transient',
+  ECONNREFUSED: 'transient',
+  ECONNRESET: 'transient',
+  EAI_AGAIN: 'transient',
+  ENETUNREACH: 'transient',
+  EHOSTUNREACH: 'transient',
+  EPIPE: 'transient',
+  UND_ERR_CONNECT_TIMEOUT: 'transient',
+  UND_ERR_HEADERS_TIMEOUT: 'transient',
+  UND_ERR_BODY_TIMEOUT: 'transient',
+  UND_ERR_SOCKET: 'transient',
+  // Permission / auth
+  EACCES: 'permission',
+  EPERM: 'permission',
+  // Not found
+  ENOENT: 'not_found',
+};
+
+const TRANSIENT_HTTP_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const NOT_FOUND_HTTP_STATUS = new Set([404, 410]);
+const PERMISSION_HTTP_STATUS = new Set([401, 403]);
+const VALIDATION_HTTP_STATUS = new Set([400, 422]);
+
+function classifyByCodeOrStatus(source: unknown): ErrorClass | null {
+  if (!isRecord(source)) return null;
+
+  // Node / fetch / provider SDKs commonly expose `code` as a string constant.
+  if (typeof source.code === 'string') {
+    const byCode = ERROR_CODE_TO_CLASS[source.code];
+    if (byCode) return byCode;
+  }
+
+  // HTTP status can live on .status (fetch Response, many SDKs) or
+  // .statusCode (Node http). Classify by range — typed, locale-independent.
+  const rawStatus =
+    typeof source.status === 'number'
+      ? source.status
+      : typeof source.statusCode === 'number'
+      ? source.statusCode
+      : null;
+  if (rawStatus !== null) {
+    if (TRANSIENT_HTTP_STATUS.has(rawStatus)) return 'transient';
+    if (NOT_FOUND_HTTP_STATUS.has(rawStatus)) return 'not_found';
+    if (PERMISSION_HTTP_STATUS.has(rawStatus)) return 'permission';
+    if (VALIDATION_HTTP_STATUS.has(rawStatus)) return 'validation';
+  }
+
+  return null;
+}
+
 function classifyError(err: unknown, toolResult?: ToolResult): ErrorClass {
+  // Typed signals first. Tools that know why they failed set `errorClass`
+  // on the result, and thrown exceptions commonly carry `.code` or
+  // `.status` — both are locale-independent.
+  if (toolResult?.errorClass) return toolResult.errorClass;
+  // A TypedToolError thrown from a validator helper carries the class
+  // directly — accept it without running through the code/status probes.
+  if (
+    isRecord(err) &&
+    typeof (err as { errorClass?: unknown }).errorClass === 'string'
+  ) {
+    const tagged = (err as { errorClass: string }).errorClass;
+    if (
+      tagged === 'transient' ||
+      tagged === 'not_found' ||
+      tagged === 'validation' ||
+      tagged === 'permission' ||
+      tagged === 'fatal'
+    ) {
+      return tagged;
+    }
+  }
+  const typed = classifyByCodeOrStatus(err);
+  if (typed) return typed;
+  // Fetch Response / HTTPError style — error exposes a nested cause or
+  // response object.
+  if (isRecord(err)) {
+    const nested = classifyByCodeOrStatus(err.cause) ?? classifyByCodeOrStatus(err.response);
+    if (nested) return nested;
+  }
+
+  // Last-resort fallback: English substring match. Retained only because
+  // many older tools still return free-text error strings with no typed
+  // code. When adding new tools, set `errorClass` on the ToolResult or
+  // throw an error with a typed `.code` — don't rely on this path.
   const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
   const lower = msg.toLowerCase();
 
@@ -156,6 +252,13 @@ export interface ToolExecutorOptions {
   currentStep?: number;
   /** Auto-injected into tool arguments so the LLM never needs to provide it. */
   canvasId?: string;
+  /**
+   * Notification hook — fires whenever a `tool.get` response carries an
+   * inline `processCategory` field, so the orchestrator can mark that
+   * category primed and skip the pre-flight defer for subsequent calls.
+   * Keeps tool.get inline injection and the defer backstop from racing.
+   */
+  onProcessGuideDiscovered?: (processCategory: string) => void;
 }
 
 /**
@@ -284,6 +387,17 @@ export class ToolExecutor {
           for (const item of items) {
             if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
               discoveredToolNames.add(item.name);
+            }
+            // If the tool.get response carried an inline process guide,
+            // notify the orchestrator so it can mark the category primed.
+            // The defer backstop otherwise wouldn't know the guide already
+            // reached the model via discovery, and might re-inject it.
+            if (
+              isRecord(item) &&
+              typeof item.processCategory === 'string' &&
+              this.opts.onProcessGuideDiscovered
+            ) {
+              this.opts.onProcessGuideDiscovered(item.processCategory);
             }
           }
         }

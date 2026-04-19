@@ -86,8 +86,10 @@ function LineChart({ data, dates, color = 'hsl(var(--primary))', height = 120 }:
 }) {
   const values = dates.map((d) => data[d] ?? 0);
   const max = Math.max(1, ...values);
-  const w = dates.length;
-  const viewBox = `0 0 ${w} ${height}`;
+  const n = dates.length;
+  // When n === 1 we still need a non-zero width so points can render.
+  const vbW = Math.max(1, n - 1);
+  const viewBox = `0 0 ${vbW} ${height}`;
 
   if (values.every((v) => v === 0)) {
     return (
@@ -97,8 +99,10 @@ function LineChart({ data, dates, color = 'hsl(var(--primary))', height = 120 }:
     );
   }
 
-  const points = values.map((v, i) => `${i},${height - (v / max) * (height - 20)}`).join(' ');
-  const areaPoints = `0,${height} ${points} ${w - 1},${height}`;
+  const yOf = (v: number) => height - (v / max) * (height - 20);
+  const xOf = (i: number) => (n === 1 ? vbW / 2 : i);
+  const points = values.map((v, i) => `${xOf(i)},${yOf(v)}`).join(' ');
+  const areaPoints = `${xOf(0)},${height} ${points} ${xOf(n - 1)},${height}`;
 
   // Y-axis labels
   const yLabels = [0, Math.round(max / 2), max];
@@ -111,14 +115,26 @@ function LineChart({ data, dates, color = 'hsl(var(--primary))', height = 120 }:
         <span>{fmtNum(yLabels[1])}</span>
         <span>0</span>
       </div>
-      <svg viewBox={viewBox} className="ml-10 h-full w-[calc(100%-40px)]" preserveAspectRatio="none">
-        <polygon points={areaPoints} fill={color} opacity="0.1" />
-        <polyline points={points} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-        {/* Dots on data points */}
+      <div className="ml-10 relative h-full w-[calc(100%-40px)]">
+        <svg viewBox={viewBox} className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
+          <polygon points={areaPoints} fill={color} opacity="0.1" />
+          <polyline points={points} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        </svg>
+        {/* Data-point dots — rendered as DOM elements so they stay circular
+            regardless of the SVG's non-uniform stretch. Positioned in % of the
+            plot area, offset by half their pixel size to center on the point. */}
         {values.map((v, i) => v > 0 ? (
-          <circle key={i} cx={i} cy={height - (v / max) * (height - 20)} r="3" fill={color} vectorEffect="non-scaling-stroke" />
+          <span
+            key={i}
+            className="pointer-events-none absolute block h-1.5 w-1.5 rounded-full"
+            style={{
+              backgroundColor: color,
+              left: `calc(${n === 1 ? 50 : (i / (n - 1)) * 100}% - 3px)`,
+              top: `calc(${(yOf(v) / height) * 100}% - 3px)`,
+            }}
+          />
         ) : null)}
-      </svg>
+      </div>
       {/* X-axis labels */}
       <div className="ml-10 flex justify-between text-[9px] text-muted-foreground mt-1">
         <span>{dates[0]?.slice(5)}</span>
@@ -495,8 +511,8 @@ export function SettingsUsageSection() {
         </div>
       </Section>
 
-      {/* Project Activity */}
-      <Section title={tr('settings.usage.projectActivity', 'Project Activity')}>
+      {/* Creation Activity */}
+      <Section title={tr('settings.usage.canvasActivity', 'Creation Activity')}>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
           <StatCard label={tr('settings.usage.shotsCreated', 'Shots')} value={usage.totalShotsCreated} />
           <StatCard label={tr('settings.usage.scenesCreated', 'Scenes')} value={usage.totalScenesCreated} />

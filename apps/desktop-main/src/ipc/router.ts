@@ -105,6 +105,7 @@ export function registerAllHandlers(
     db,
     cas,
     keychain,
+    promptStore,
     resolvePrompt: (code: string) => promptStore.resolve(code),
     resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
   });

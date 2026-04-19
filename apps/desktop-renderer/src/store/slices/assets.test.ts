@@ -41,6 +41,9 @@ describe('assets slice', () => {
       filterTags: [],
       sortBy: 'date',
       sortOrder: 'desc',
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     });
   });
 

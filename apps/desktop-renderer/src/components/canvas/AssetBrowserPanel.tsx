@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FolderSearch, Save, Trash2, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FolderSearch, Download, Pencil, X } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import {
@@ -16,14 +16,13 @@ import {
   moveItemToFolder,
   type Asset,
 } from '../../store/slices/assets.js';
-import { t } from '../../i18n.js';
+import { t, getLocale } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
-import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 import { useAssetOperations } from '../../hooks/useAssetOperations.js';
 import { useEntityFolders } from '../../hooks/useEntityFolders.js';
+import { useEntityClipboard } from '../../hooks/useEntityClipboard.js';
+import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { getAPI } from '../../utils/api.js';
-import { FolderTree } from './folders/FolderTree.js';
-import { FolderBreadcrumb } from './folders/FolderBreadcrumb.js';
 import {
   Dialog,
   DialogContent,
@@ -32,44 +31,34 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog.js';
-import { AssetToolbar } from './asset-browser/AssetToolbar.js';
-import { AssetGrid } from './asset-browser/AssetGrid.js';
-import { AssetDetailPanel } from './asset-browser/AssetDetailPanel.js';
-import { AssetContextMenu } from './asset-browser/AssetContextMenu.js';
+import { EntityFileExplorer } from './EntityFileExplorer.js';
+import { EntityDetailDrawer } from './EntityDetailDrawer.js';
+import { VideoGridCard } from './asset-browser/VideoGridCard.js';
+import { formatSize, formatDuration, getExportConfig, localizeAssetType } from './asset-browser/utils.js';
+
+const FILTER_OPTIONS: Array<{ value: Asset['type'] | 'all'; label: string }> = [
+  { value: 'all', label: 'asset.all' },
+  { value: 'image', label: 'asset.image' },
+  { value: 'video', label: 'asset.video' },
+  { value: 'audio', label: 'asset.audio' },
+];
 
 export function AssetBrowserPanel() {
   const dispatch = useDispatch();
   const { filterType, searchQuery } = useSelector((state: RootState) => state.assets);
-  const [localSearch, setLocalSearch] = useDebouncedDispatch(
-    searchQuery,
-    useCallback((v: string) => dispatch(setSearchQuery(v)), [dispatch]),
-    200,
-  );
   const allAssets = useSelector((state: RootState) => state.assets.items);
   const filteredAssets = useSelector(selectFilteredAssets);
 
-  // --- Asset operations hook ---
   const ops = useAssetOperations();
   const { loadAssets } = ops;
 
-  // --- UI state ---
-  const [selectedHashes, setSelectedHashes] = useState<Set<string>>(new Set());
-  const [selectMode, setSelectMode] = useState(false);
-  const [sortBy, setSortBy] = useState<'date' | 'name' | 'size'>('date');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingName, setEditingName] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
-  const [lastClickedHash, setLastClickedHash] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [batchRenaming, setBatchRenaming] = useState(false);
-  const [batchPrefix, setBatchPrefix] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [pendingDeleteHashes, setPendingDeleteHashes] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [semanticMode, setSemanticMode] = useState(false);
-  const [foldersOpen, setFoldersOpen] = useState(true);
 
   const folderApi = useEntityFolders({
     kind: 'asset',
@@ -86,58 +75,99 @@ export function AssetBrowserPanel() {
     },
   });
 
-  const handleMoveAssetToFolder = useCallback(
-    async (hash: string, folderId: string | null) => {
+  const clipboard = useEntityClipboard<Asset>('asset');
+  const cutIds = useMemo(() => {
+    if (!clipboard.isCut) return new Set<string>();
+    const p = clipboard.peek();
+    return new Set(p?.items.map((it) => it.id) ?? []);
+  }, [clipboard]);
+
+  const handleMoveToFolder = useCallback(
+    async (ids: string[], folderId: string | null) => {
       const api = getAPI();
       if (!api?.asset) return;
-      try {
-        await api.asset.setFolder(hash, folderId);
-        dispatch(moveItemToFolder({ hash, folderId }));
-      } catch {
-        /* swallow — user can retry; keep browsing experience uninterrupted */
+      for (const id of ids) {
+        const asset = allAssets.find((a) => a.id === id);
+        const hash = asset?.hash;
+        if (!hash) continue;
+        try {
+          await api.asset.setFolder(hash, folderId);
+          dispatch(moveItemToFolder({ hash, folderId }));
+        } catch {
+          /* swallow — the user can retry; keep browsing experience uninterrupted */
+        }
       }
     },
-    [dispatch],
+    [allAssets, dispatch],
   );
 
-  // --- Refs ---
-  const [dragSelect, setDragSelect] = useState<{ startX: number; startY: number } | null>(null);
-  const dragSelectRef = useRef<{ startX: number; startY: number; currentX: number; currentY: number } | null>(null);
-  const rubberBandRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  // --- Load assets on mount / filter change ---
   useEffect(() => { void loadAssets(); }, [loadAssets]);
 
-  // --- Sorted / filtered grid assets ---
-  const gridAssets = useMemo(() => {
-    if (semanticMode) {
-      // Folder filter is intentionally skipped in semantic mode — the search
-      // intent is global, and filtering would surprise users expecting a
-      // full-corpus ranking.
-      return ops.semanticResults
-        .map((r) => {
-          const asset = allAssets.find((a) => a.hash === r.hash);
-          return asset ? { ...asset, _semanticScore: r.score } : null;
-        })
-        .filter((a): a is Asset & { _semanticScore: number } => a !== null);
-    }
-    const byFolder =
-      folderApi.currentFolderId === null
-        ? filteredAssets
-        : filteredAssets.filter((a) => a.folderId === folderApi.currentFolderId);
-    const sorted = [...byFolder].sort((a, b) => {
-      let cmp = 0;
-      if (sortBy === 'date') cmp = a.createdAt - b.createdAt;
-      else if (sortBy === 'name') cmp = a.name.localeCompare(b.name);
-      else if (sortBy === 'size') cmp = a.size - b.size;
-      return sortOrder === 'desc' ? -cmp : cmp;
-    });
-    return sorted.slice(0, 200);
-  }, [semanticMode, ops.semanticResults, allAssets, filteredAssets, sortBy, sortOrder, folderApi.currentFolderId]);
+  // Type filter narrows what the file explorer sees.
+  const visibleAssets = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return filteredAssets.filter((a) => !q || a.name.toLowerCase().includes(q));
+  }, [filteredAssets, searchQuery]);
 
-  // --- Drag over / drop ---
+  const handleDeleteIds = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    setPendingDeleteIds(ids);
+    setDeleteConfirmOpen(true);
+  }, []);
+
+  const confirmDelete = useCallback(async () => {
+    setDeleteConfirmOpen(false);
+    const hashes = new Set<string>();
+    for (const id of pendingDeleteIds) {
+      const asset = allAssets.find((a) => a.id === id);
+      if (asset) hashes.add(asset.hash);
+    }
+    const deleted = await ops.executeDelete(hashes);
+    setDetailAsset((prev) => {
+      if (prev && deleted.has(prev.hash)) {
+        setDrawerOpen(false);
+        return null;
+      }
+      return prev;
+    });
+    setPendingDeleteIds([]);
+  }, [pendingDeleteIds, allAssets, ops]);
+
+  const handlePaste = useCallback((payload: { mode: 'copy' | 'cut'; items: Asset[] }) => {
+    const folderId = folderApi.currentFolderId;
+    if (payload.mode === 'cut') {
+      // Move the items into the current folder.
+      void handleMoveToFolder(payload.items.map((it) => it.id), folderId);
+    } else {
+      // Copy: duplicate hashes into current folder by re-registering them.
+      // Assets are content-addressed so true duplication doesn't make sense
+      // — we simply move them into this folder, preserving both clipboard
+      // state (so future pastes still work) and the original membership.
+      void handleMoveToFolder(payload.items.map((it) => it.id), folderId);
+    }
+  }, [folderApi.currentFolderId, handleMoveToFolder]);
+
+  const handleOpenItem = useCallback((asset: Asset) => {
+    setDetailAsset(asset);
+    setEditingName(asset.name);
+    setIsEditingName(false);
+    setDrawerOpen(true);
+  }, []);
+
+  const handleSaveName = useCallback(() => {
+    if (!detailAsset) return;
+    dispatch(updateAsset({ id: detailAsset.id, data: { name: editingName } }));
+    setDetailAsset({ ...detailAsset, name: editingName });
+    setIsEditingName(false);
+  }, [detailAsset, editingName, dispatch]);
+
+  const handleExportOne = useCallback(async (asset: Asset) => {
+    const cfg = getExportConfig(asset.type);
+    if (!cfg) return;
+    await ops.handleQuickExport(asset, cfg);
+  }, [ops]);
+
+  // Drag-and-drop from OS / other panels → import.
   const handlePanelDragOver = useCallback((e: React.DragEvent) => {
     const types = e.dataTransfer.types;
     if (types.includes('Files') || types.includes('application/x-lucid-node-asset')) {
@@ -146,360 +176,179 @@ export function AssetBrowserPanel() {
       setIsDragOver(true);
     }
   }, []);
-
   const handlePanelDragLeave = useCallback((e: React.DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragOver(false);
   }, []);
-
   const handlePanelDrop = useCallback(async (e: React.DragEvent) => {
     setIsDragOver(false);
     await ops.handleDropImport(e);
   }, [ops]);
 
-  // --- Multi-select click handler ---
-  const handleAssetClick = useCallback((asset: Asset, e: React.MouseEvent) => {
-    if (e.shiftKey && lastClickedHash) {
-      const startIdx = gridAssets.findIndex((a) => a.hash === lastClickedHash);
-      const endIdx = gridAssets.findIndex((a) => a.hash === asset.hash);
-      if (startIdx !== -1 && endIdx !== -1) {
-        const [lo, hi] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-        const rangeHashes = gridAssets.slice(lo, hi + 1).map((a) => a.hash);
-        setSelectedHashes((prev) => { const next = new Set(prev); for (const h of rangeHashes) next.add(h); return next; });
-      }
-    } else if (e.ctrlKey || e.metaKey) {
-      setSelectedHashes((prev) => { const next = new Set(prev); if (next.has(asset.hash)) next.delete(asset.hash); else next.add(asset.hash); return next; });
-    } else if (selectMode) {
-      setSelectedHashes((prev) => { const next = new Set(prev); if (next.has(asset.hash)) next.delete(asset.hash); else next.add(asset.hash); return next; });
-    } else {
-      setSelectedHashes(new Set([asset.hash]));
-      setDetailAsset(asset);
-      setEditingName(asset.name);
-      setIsEditingName(false);
-    }
-    setLastClickedHash(asset.hash);
-  }, [gridAssets, lastClickedHash, selectMode]);
+  const renderThumbnail = useCallback((a: Asset) => <AssetThumb asset={a} />, []);
+  const renderSubtitle = useCallback((a: Asset) => (
+    <span>{localizeAssetType(a.type)} · {formatSize(a.size)}</span>
+  ), []);
 
-  const handleAssetCardKeyDown = useCallback((asset: Asset, event: React.KeyboardEvent) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    event.preventDefault();
-    setSelectedHashes(new Set([asset.hash]));
-    setDetailAsset(asset);
-    setEditingName(asset.name);
-    setIsEditingName(false);
-    setLastClickedHash(asset.hash);
-  }, []);
-
-  const handleContextMenuSelect = useCallback((asset: Asset, e: React.MouseEvent) => {
-    if (!selectedHashes.has(asset.hash)) {
-      if (!e.ctrlKey && !e.metaKey) setSelectedHashes(new Set([asset.hash]));
-      else setSelectedHashes((prev) => new Set([...prev, asset.hash]));
-    }
-  }, [selectedHashes]);
-
-  // --- Delete ---
-  const handleDeleteSelected = useCallback(() => {
-    if (selectedHashes.size === 0) return;
-    setPendingDeleteHashes(new Set(selectedHashes));
-    setDeleteConfirmOpen(true);
-  }, [selectedHashes]);
-
-  const confirmDelete = useCallback(async () => {
-    setDeleteConfirmOpen(false);
-    const deletedHashes = await ops.executeDelete(pendingDeleteHashes);
-    setSelectedHashes((prev) => { const next = new Set(prev); for (const h of deletedHashes) next.delete(h); return next; });
-    setDetailAsset((prev) => (prev && deletedHashes.has(prev.hash) ? null : prev));
-    setContextMenu(null);
-  }, [pendingDeleteHashes, ops]);
-
-  // --- Export ---
-  const handleExportSelected = useCallback(async () => {
-    const items = gridAssets
-      .filter((a) => selectedHashes.has(a.hash))
-      .map((a) => ({ hash: a.hash, type: a.type as 'image' | 'video' | 'audio', name: a.name }));
-    await ops.handleExportSelected(items);
-    setContextMenu(null);
-  }, [gridAssets, selectedHashes, ops]);
-
-  const handleCopyHash = useCallback(async () => {
-    if (selectedHashes.size === 1) {
-      const hash = [...selectedHashes][0];
-      if (hash) await ops.handleCopyHash(hash);
-    }
-    setContextMenu(null);
-  }, [selectedHashes, ops]);
-
-  // --- Batch rename ---
-  const handleBatchRename = useCallback(() => {
-    if (!batchPrefix.trim()) return;
-    let idx = 1;
-    for (const hash of selectedHashes) {
-      const asset = gridAssets.find((a) => a.hash === hash);
-      if (asset) {
-        dispatch(updateAsset({ id: asset.id, data: { name: `${batchPrefix.trim()}_${String(idx).padStart(3, '0')}` } }));
-        idx++;
-      }
-    }
-    setBatchRenaming(false);
-    setBatchPrefix('');
-    setContextMenu(null);
-  }, [batchPrefix, selectedHashes, gridAssets, dispatch]);
-
-  // --- Detail panel name editing ---
-  const handleSaveName = useCallback(() => {
-    if (!detailAsset) return;
-    dispatch(updateAsset({ id: detailAsset.id, data: { name: editingName } }));
-    setDetailAsset({ ...detailAsset, name: editingName });
-    setIsEditingName(false);
-  }, [detailAsset, editingName, dispatch]);
-
-  // --- Context menu ---
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (selectedHashes.size === 0) return;
-    setContextMenu({ x: e.clientX, y: e.clientY });
-  }, [selectedHashes]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
-  }, [contextMenu]);
-
-  // --- Keyboard ---
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Delete' && selectedHashes.size > 0 && !isEditingName && !batchRenaming) { e.preventDefault(); handleDeleteSelected(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && panelRef.current?.contains(document.activeElement)) { e.preventDefault(); setSelectedHashes(new Set(gridAssets.map((a) => a.hash))); }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [selectedHashes, gridAssets, handleDeleteSelected, isEditingName, batchRenaming]);
-
-  // --- Rubber band drag select ---
-  const handleGridMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (target.closest('[data-asset-card], button, a, input, [role="button"]')) return;
-    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-    if (!gridRef.current?.getBoundingClientRect()) return;
-    setDragSelect({ startX: e.clientX, startY: e.clientY });
-    dragSelectRef.current = { startX: e.clientX, startY: e.clientY, currentX: e.clientX, currentY: e.clientY };
-    if (!selectMode) setSelectedHashes(new Set());
-  }, [selectMode]);
-
-  useEffect(() => {
-    if (!dragSelect) return;
-    const onMove = (e: MouseEvent) => {
-      const ds = dragSelectRef.current;
-      if (!ds) return;
-      ds.currentX = e.clientX;
-      ds.currentY = e.clientY;
-      const el = rubberBandRef.current;
-      if (el) {
-        const left = Math.min(ds.startX, ds.currentX);
-        const top = Math.min(ds.startY, ds.currentY);
-        const width = Math.abs(ds.currentX - ds.startX);
-        const height = Math.abs(ds.currentY - ds.startY);
-        if (width > 3 && height > 3) { el.style.display = 'block'; el.style.left = `${left}px`; el.style.top = `${top}px`; el.style.width = `${width}px`; el.style.height = `${height}px`; }
-        else { el.style.display = 'none'; }
-      }
-    };
-    const onUp = () => {
-      const ds = dragSelectRef.current;
-      if (gridRef.current && ds) {
-        const rect = { left: Math.min(ds.startX, ds.currentX), right: Math.max(ds.startX, ds.currentX), top: Math.min(ds.startY, ds.currentY), bottom: Math.max(ds.startY, ds.currentY) };
-        const cards = gridRef.current.querySelectorAll<HTMLElement>('[data-asset-hash]');
-        const hits = new Set<string>();
-        cards.forEach((card) => { const cr = card.getBoundingClientRect(); if (cr.right >= rect.left && cr.left <= rect.right && cr.bottom >= rect.top && cr.top <= rect.bottom) { const hash = card.getAttribute('data-asset-hash'); if (hash) hits.add(hash); } });
-        if (hits.size > 0) setSelectedHashes((prev) => new Set([...prev, ...hits]));
-      }
-      dragSelectRef.current = null;
-      if (rubberBandRef.current) rubberBandRef.current.style.display = 'none';
-      setDragSelect(null);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-  }, [dragSelect]);
-
-  // --- Toolbar callbacks ---
-  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setLocalSearch(e.target.value);
-    if (semanticMode) ops.scheduleSemanticSearch(e.target.value);
-  }, [semanticMode, ops, setLocalSearch]);
-
+  const drawerShown = drawerOpen && detailAsset !== null;
   return (
-    <div ref={panelRef} className="flex h-full flex-col bg-card" tabIndex={-1}>
-      {/* Panel title */}
-      <div className="border-b border-border/60 px-3 py-2">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <FolderSearch className="h-3.5 w-3.5 text-primary" />
-            <h2 className="text-xs font-semibold">{t('panels.assetBrowser')}</h2>
+    <div
+      className="relative flex h-full bg-card"
+      onDragOver={handlePanelDragOver}
+      onDragLeave={handlePanelDragLeave}
+      onDrop={(e) => { void handlePanelDrop(e); }}
+    >
+      {isDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <div className="rounded-lg border-2 border-dashed border-blue-400/70 bg-blue-500/10 px-6 py-3 text-xs font-medium text-blue-400">
+            {t('assetBrowser.dropToImport')}
           </div>
-          <button
-            type="button"
-            onClick={() => setFoldersOpen((v) => !v)}
-            className="text-[10px] text-muted-foreground hover:text-foreground"
-            title={t('folders.toggle') as string}
-          >
-            {foldersOpen ? '▾' : '▸'} {t('folders.label') as string}
-          </button>
-        </div>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">{t('assetBrowser.emptyHint')}</p>
-        {!semanticMode && (
-          <div className="mt-1">
-            <FolderBreadcrumb
-              breadcrumb={folderApi.breadcrumb}
-              onNavigate={folderApi.setCurrentFolder}
-              rootLabel={t('folders.all') as string}
-            />
-          </div>
-        )}
-      </div>
-
-      {foldersOpen && !semanticMode && (
-        <div className="border-b border-border/60 max-h-40 overflow-auto p-1.5">
-          <FolderTree
-            folders={folderApi.folders}
-            currentFolderId={folderApi.currentFolderId}
-            onSelect={folderApi.setCurrentFolder}
-            onCreate={folderApi.createFolder}
-            onRename={folderApi.renameFolder}
-            onDelete={folderApi.deleteFolder}
-            onDropItem={(folderId, payload) => void handleMoveAssetToFolder(payload, folderId)}
-            dropItemKey="application/lucid-entity-id"
-            labels={{
-              rootLabel: t('folders.all') as string,
-              newFolderPlaceholder: t('folders.newPlaceholder') as string,
-              createFolder: t('folders.createFolder') as string,
-              rename: t('action.rename') as string,
-              delete: t('action.delete') as string,
-            }}
-          />
         </div>
       )}
 
-      <AssetToolbar
-        filterType={filterType}
-        onFilterChange={(f) => dispatch(setFilterType(f))}
-        localSearch={localSearch}
-        onSearchChange={handleSearchChange}
-        sortBy={sortBy}
-        onSortCycle={() => { if (sortBy === 'date') setSortBy('name'); else if (sortBy === 'name') setSortBy('size'); else setSortBy('date'); }}
-        sortOrder={sortOrder}
-        onSortOrderToggle={() => setSortOrder((o) => o === 'asc' ? 'desc' : 'asc')}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        onImport={() => void ops.handleImport()}
-        selectMode={selectMode}
-        onSelectModeToggle={() => { setSelectMode((v) => !v); setSelectedHashes(new Set()); }}
-        semanticMode={semanticMode}
-        onSemanticToggle={() => { setSemanticMode((v) => !v); ops.setSemanticResults([]); }}
-        onReindex={() => void ops.handleReindex()}
-        semanticIndexing={ops.semanticIndexing}
-      />
-
-      {/* Main content area */}
-      <div
-        className={cn('relative flex-1 overflow-y-auto', isDragOver && 'ring-2 ring-inset ring-blue-400/50 bg-blue-500/5')}
-        onMouseDown={handleGridMouseDown}
-        onContextMenu={handleContextMenu}
-        onDragOver={handlePanelDragOver}
-        onDragLeave={handlePanelDragLeave}
-        onDrop={(e) => { void handlePanelDrop(e); }}
-      >
-        {isDragOver && (
-          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-            <div className="rounded-lg border-2 border-dashed border-blue-400/70 bg-blue-500/10 px-6 py-3 text-xs font-medium text-blue-400">
-              {t('assetBrowser.dropToImport')}
-            </div>
-          </div>
-        )}
-
-        <AssetGrid
-          assets={gridAssets}
-          selectedHashes={selectedHashes}
-          viewMode={viewMode}
-          gridRef={gridRef}
-          onAssetClick={handleAssetClick}
-          onAssetKeyDown={handleAssetCardKeyDown}
-          onContextMenuSelect={handleContextMenuSelect}
-          onQuickExport={(asset, config) => void ops.handleQuickExport(asset, config)}
-          loading={ops.loading}
-          semanticIndexing={ops.semanticIndexing}
-          semanticMode={semanticMode}
-          searchQuery={searchQuery}
-        />
-
-        {/* Sticky selection bar */}
-        {selectedHashes.size > 0 && (
-          <div className="sticky bottom-0 left-0 right-0 z-10 border-t border-border/60 bg-card/90 backdrop-blur-sm px-3 py-2 select-none">
+      <div className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}>
+        <EntityFileExplorer<Asset>
+          items={visibleAssets}
+          folders={folderApi.folders}
+          currentFolderId={folderApi.currentFolderId}
+          onNavigateFolder={folderApi.setCurrentFolder}
+          onCreateFolder={folderApi.createFolder}
+          onRenameFolder={folderApi.renameFolder}
+          onDeleteFolder={folderApi.deleteFolder}
+          onMoveItemsToFolder={(ids, folderId) => void handleMoveToFolder(ids, folderId)}
+          onCreateItem={() => void ops.handleImport()}
+          onOpenItem={handleOpenItem}
+          onDeleteItems={handleDeleteIds}
+          compact={drawerShown}
+          renderThumbnail={renderThumbnail}
+          renderSubtitle={renderSubtitle}
+          clipboard={{
+            hasClipboard: clipboard.hasClipboard,
+            isCut: clipboard.isCut,
+            copy: clipboard.copy,
+            cut: clipboard.cut,
+            paste: clipboard.paste,
+            cutIds,
+          }}
+          onPaste={handlePaste}
+          header={(
             <div className="flex items-center gap-2">
-              <span className="flex-1 text-[11px] text-muted-foreground">
-                {t('assetBrowser.selectedCount').replace('{count}', String(selectedHashes.size))}
-              </span>
-              <button type="button" onClick={() => void handleExportSelected()} className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] text-primary-foreground">
-                <Download className="h-3 w-3" />{t('assetBrowser.exportSelected')}
+              <FolderSearch className="h-3.5 w-3.5 text-primary" />
+              <h2 className="text-xs font-semibold">{t('panels.assetBrowser')}</h2>
+              <div className="ml-auto flex items-center gap-1.5">
+                {FILTER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => dispatch(setFilterType(opt.value))}
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 text-[10px] transition-colors',
+                      filterType === opt.value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border/60 text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+                    )}
+                  >
+                    {t(opt.label)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          newItemLabel={t('assetBrowser.import')}
+          activeItemId={detailAsset?.id ?? null}
+          loading={ops.loading}
+          dndMime="application/lucid-entity-id"
+          emptyLabel={t('assetBrowser.empty')}
+        />
+      </div>
+
+      <EntityDetailDrawer
+        open={drawerShown}
+        onOpenChange={(o) => { setDrawerOpen(o); if (!o) setIsEditingName(false); }}
+        title={detailAsset?.name ?? ''}
+        subtitle={detailAsset ? `${localizeAssetType(detailAsset.type)} · ${formatSize(detailAsset.size)}` : ''}
+        onDelete={detailAsset ? () => handleDeleteIds([detailAsset.id]) : undefined}
+      >
+        {detailAsset && (
+          <div className="space-y-3">
+            <AssetDetailPreview asset={detailAsset} />
+            <div className="flex items-center gap-1">
+              <input
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                disabled={!isEditingName}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && isEditingName) handleSaveName();
+                  if (e.key === 'Escape') { setEditingName(detailAsset.name); setIsEditingName(false); }
+                }}
+                className={cn(
+                  'flex-1 rounded border px-2 py-1 text-xs outline-none',
+                  isEditingName
+                    ? 'border-primary bg-background focus:ring-1 focus:ring-primary'
+                    : 'border-transparent bg-muted text-foreground cursor-default',
+                )}
+              />
+              {isEditingName ? (
+                <>
+                  <button type="button" onClick={handleSaveName} className="rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground">{t('action.save')}</button>
+                  <button type="button" onClick={() => { setEditingName(detailAsset.name); setIsEditingName(false); }} className="rounded px-1.5 py-1 text-destructive hover:bg-destructive/10"><X className="h-3 w-3" /></button>
+                </>
+              ) : (
+                <button type="button" onClick={() => setIsEditingName(true)} className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground" title={t('contextMenu.rename')}>
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            <div className="space-y-1 text-[11px] text-muted-foreground">
+              <DetailRow label={t('assetBrowser.fields.type')} value={localizeAssetType(detailAsset.type)} />
+              <DetailRow label={t('assetBrowser.fields.size')} value={formatSize(detailAsset.size)} />
+              {detailAsset.format && <DetailRow label={t('assetBrowser.fields.format')} value={detailAsset.format.toUpperCase()} />}
+              {detailAsset.width != null && detailAsset.height != null && (
+                <DetailRow label={t('assetBrowser.fields.dimensions')} value={`${detailAsset.width}×${detailAsset.height}`} />
+              )}
+              {detailAsset.duration != null && (detailAsset.type === 'video' || detailAsset.type === 'audio') && (
+                <DetailRow label={t('assetBrowser.fields.duration')} value={formatDuration(detailAsset.duration)} />
+              )}
+              <DetailRow
+                label={t('assetBrowser.fields.hash')}
+                value={<span className="font-mono" title={detailAsset.hash}>{detailAsset.hash.slice(0, 16)}…</span>}
+              />
+              <DetailRow
+                label={t('assetBrowser.created')}
+                value={new Date(detailAsset.createdAt).toLocaleString(getLocale())}
+              />
+              {detailAsset.provider && <DetailRow label={t('assetBrowser.fields.provider')} value={detailAsset.provider} />}
+              {detailAsset.prompt && (
+                <div className="flex flex-col gap-0.5 pt-1">
+                  <span>{t('assetBrowser.fields.prompt')}</span>
+                  <span className="text-[11px] text-foreground/80 break-words leading-snug">{detailAsset.prompt}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => void handleExportOne(detailAsset)}
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] text-primary-foreground"
+              >
+                <Download className="h-3 w-3" />
+                {t('assetBrowser.export')}
               </button>
-              <button type="button" onClick={() => handleDeleteSelected()} className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/20">
-                <Trash2 className="h-3 w-3" />{t('action.delete')}
+              <button
+                type="button"
+                onClick={() => void ops.handleCopyHash(detailAsset.hash)}
+                className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/80"
+              >
+                {t('assetBrowser.copyHash')}
               </button>
             </div>
           </div>
         )}
+      </EntityDetailDrawer>
 
-        <div ref={rubberBandRef} className="pointer-events-none fixed z-50 border border-primary/60 bg-primary/10" style={{ display: 'none' }} />
-      </div>
-
-      {/* Context Menu */}
-      {contextMenu && selectedHashes.size > 0 && (
-        <AssetContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          selectedCount={selectedHashes.size}
-          onCopyHash={() => void handleCopyHash()}
-          onExport={() => void handleExportSelected()}
-          onBatchRename={() => { setBatchRenaming(true); setBatchPrefix(''); setContextMenu(null); }}
-          onDelete={() => handleDeleteSelected()}
-        />
-      )}
-
-      {/* Batch Rename Bar */}
-      {batchRenaming && (
-        <div className="border-t border-border/60 px-3 py-2 space-y-1.5 bg-card">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium">{t('assetBrowser.batchRenameItems').replace('{count}', String(selectedHashes.size))}</span>
-            <button type="button" onClick={() => setBatchRenaming(false)} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
-          </div>
-          <div className="text-[10px] text-muted-foreground">{t('assetBrowser.batchRenamePattern')}</div>
-          <div className="flex items-center gap-1">
-            <input value={batchPrefix} onChange={(e) => setBatchPrefix(e.target.value)} placeholder={t('assetBrowser.batchRenamePrefixPlaceholder')} autoFocus onKeyDown={(e) => { if (e.key === 'Enter') handleBatchRename(); if (e.key === 'Escape') setBatchRenaming(false); }} className="flex-1 rounded-md border border-border/60 bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary" />
-            <button type="button" onClick={handleBatchRename} disabled={!batchPrefix.trim()} className="rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground disabled:opacity-50"><Save className="h-3 w-3" /></button>
-          </div>
-        </div>
-      )}
-
-      {/* Asset Detail Panel */}
-      {detailAsset && !batchRenaming && (
-        <AssetDetailPanel
-          asset={detailAsset}
-          editingName={editingName}
-          isEditingName={isEditingName}
-          onEditingNameChange={setEditingName}
-          onStartEditing={() => setIsEditingName(true)}
-          onSaveName={handleSaveName}
-          onCancelEditing={() => { if (detailAsset) setEditingName(detailAsset.name); setIsEditingName(false); }}
-          onClose={() => { setDetailAsset(null); setIsEditingName(false); }}
-        />
-      )}
-
-      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>{t('assetBrowser.deleteSelectedConfirm').replace('{count}', String(pendingDeleteHashes.size))}</DialogTitle>
+            <DialogTitle>{t('assetBrowser.deleteSelectedConfirm').replace('{count}', String(pendingDeleteIds.length))}</DialogTitle>
             <DialogDescription>{t('assetBrowser.deleteConfirmDescription')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -508,6 +357,53 @@ export function AssetBrowserPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SearchSync searchQuery={searchQuery} onChange={(v) => dispatch(setSearchQuery(v))} />
     </div>
   );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <span>{label}</span>
+      <span className="text-right text-foreground/80">{value}</span>
+    </div>
+  );
+}
+
+function AssetThumb({ asset }: { asset: Asset }) {
+  const imgUrl = asset.type === 'image' && asset.hash ? `lucid-asset://${asset.hash}/image/png` : null;
+  const vidUrl = asset.type === 'video' && asset.hash ? `lucid-asset://${asset.hash}/video/mp4` : null;
+  if (imgUrl) {
+    return <img src={imgUrl} alt={asset.name} className="h-full w-full object-contain" />;
+  }
+  if (vidUrl) {
+    return <VideoGridCard src={vidUrl} className="h-full w-full object-contain" />;
+  }
+  return <div className="h-full w-full bg-muted" />;
+}
+
+function AssetDetailPreview({ asset }: { asset: Asset }) {
+  const { url, markFailed } = useAssetUrl(
+    asset.hash,
+    asset.type === 'image' || asset.type === 'video' || asset.type === 'audio' ? asset.type : 'image',
+    asset.format,
+  );
+  if (!url) return <div className="aspect-video w-full rounded bg-muted" />;
+  if (asset.type === 'video') {
+    return <video src={url} controls className="aspect-video w-full rounded bg-black object-contain" onError={markFailed} />;
+  }
+  if (asset.type === 'audio') {
+    return <audio src={url} controls className="w-full" onError={markFailed} />;
+  }
+  return <img src={url} alt={asset.name} className="max-h-60 w-full rounded bg-muted object-contain" onError={markFailed} />;
+}
+
+/** Tiny helper so the panel doesn't re-render on every keystroke. */
+function SearchSync({ searchQuery: _searchQuery, onChange: _onChange }: { searchQuery: string; onChange: (v: string) => void }) {
+  // Reserved for future parity; currently the explorer owns its own local search,
+  // and Redux searchQuery tracks the last value. Kept as a hook in case we want to
+  // re-enable global search state later.
+  return null;
 }

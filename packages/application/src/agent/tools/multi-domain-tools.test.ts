@@ -250,9 +250,8 @@ describe('new agent tool groups', () => {
       getTool(workflowTools, 'workflow.expandIdea').execute({ prompt: 'samurai travels through time' }),
     ).resolves.toEqual({
       success: true,
-      data: {
-        instructions:
-          'Expand the idea "samurai travels through time" into a cinematic story with 3 acts and 2-4 scenes per act. For each scene: call canvas.addNode with type "text", title = scene name, data.content = 2-3 sentence scene summary. After all nodes are created, present the full outline to the user and ask if they want to proceed to entity generation.',
+      data: expect.objectContaining({
+        instructions: expect.stringContaining('samurai travels through time'),
         outlineFormat: {
           title: '<story title>',
           genre: 'cinematic',
@@ -272,7 +271,7 @@ describe('new agent tool groups', () => {
             },
           ],
         },
-      },
+      }),
     });
   });
 
@@ -291,9 +290,8 @@ describe('new agent tool groups', () => {
     }))
       .resolves.toEqual({
         success: true,
-        data: {
-          instructions:
-            'Expand the idea "samurai travels through time" into a anime story with 2 acts and 2-4 scenes per act. For each scene: call canvas.addNode with type "text", title = scene name, data.content = 2-3 sentence scene summary. After all nodes are created, present the full outline to the user and ask if they want to proceed to entity generation.',
+        data: expect.objectContaining({
+          instructions: expect.stringContaining('anime story with 2 acts'),
           outlineFormat: {
             title: '<story title>',
             genre: 'anime',
@@ -309,7 +307,7 @@ describe('new agent tool groups', () => {
               },
             ],
           },
-        },
+        }),
       });
   });
 

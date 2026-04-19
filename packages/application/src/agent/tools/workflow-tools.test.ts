@@ -57,6 +57,7 @@ describe('createWorkflowTools', () => {
     await expect(getTool(tools, 'workflow.control').execute({ id: ' ', action: 'pause' })).resolves.toEqual({
       success: false,
       error: 'id is required',
+      errorClass: 'validation',
     });
   });
 
@@ -112,8 +113,8 @@ describe('createWorkflowTools', () => {
 });
 
 describe('WORKFLOW_GUIDES', () => {
-  it('exports 9 workflow prompt guides with required fields', () => {
-    expect(WORKFLOW_GUIDES.length).toBe(9);
+  it('exports 10 workflow prompt guides with required fields', () => {
+    expect(WORKFLOW_GUIDES.length).toBe(10);
     for (const guide of WORKFLOW_GUIDES) {
       expect(guide.id).toBeTruthy();
       expect(guide.name).toBeTruthy();
@@ -133,5 +134,6 @@ describe('WORKFLOW_GUIDES', () => {
     expect(ids).toContain('workflow-video-clone');
     expect(ids).toContain('workflow-lip-sync');
     expect(ids).toContain('workflow-emotion-voice');
+    expect(ids).toContain('workflow-story-to-video');
   });
 });

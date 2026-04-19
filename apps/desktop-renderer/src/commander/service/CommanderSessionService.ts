@@ -68,6 +68,7 @@ import {
 } from '../../store/slices/settings.js';
 import { selectActiveTemplates } from '../../store/slices/promptTemplates.js';
 import { addLog } from '../../store/slices/logger.js';
+import { flushPendingCanvasSave } from '../../store/middleware/persist.js';
 import type { LucidAPI } from '../../utils/api.js';
 import type {
   CommanderCanvasUpdatedPayload,
@@ -227,11 +228,35 @@ export class CommanderSessionService {
         }
       }
 
-      // Save current canvas to DB before Commander reads it
-      const { activeCanvasId: canvasId, canvases } = state.canvas;
+      // Save current canvas to DB before Commander reads it.
+      // Two-step process so the main-process cache reflects the exact state
+      // the user sees on screen:
+      //   1. flushPendingCanvasSave() cancels the 500ms debounce and forces
+      //      any pending canvas/* edits through the normal persist path.
+      //   2. Direct api.canvas.save below covers the case where nothing was
+      //      pending (first message of a session) but the renderer holds
+      //      state that was never persisted (e.g. cold-load drift).
+      // Failures here MUST surface — a silent catch lets the AI read an
+      // empty/stale canvas and hallucinate "no nodes exist".
+      flushPendingCanvasSave();
+      const { activeCanvasId: canvasId, canvases, viewport } = state.canvas;
       const activeCanvas = canvasId ? canvases.entities[canvasId] : undefined;
       if (activeCanvas && api?.canvas?.save) {
-        await api.canvas.save(activeCanvas).catch(() => {});
+        const canvasToSave =
+          activeCanvas.viewport === viewport ? activeCanvas : { ...activeCanvas, viewport };
+        try {
+          await api.canvas.save(canvasToSave);
+        } catch (err) {
+          dispatch(
+            addLog({
+              level: 'error',
+              category: 'commander',
+              message: 'Failed to sync canvas before Commander turn',
+              detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
+            }),
+          );
+          throw new Error(t('commander.canvasSyncFailed'), { cause: err });
+        }
       }
 
       dispatch(addUserMessage(trimmed));

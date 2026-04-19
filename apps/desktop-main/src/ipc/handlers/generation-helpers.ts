@@ -4,7 +4,7 @@ import path from 'node:path';
 import type {
   AdapterRegistry,
 } from '@lucid-fin/adapters-ai';
-import type { PromptMode } from '@lucid-fin/application';
+import type { CompiledPrompt, PromptMode } from '@lucid-fin/application';
 import type {
   AIProviderAdapter,
   AssetType,
@@ -84,6 +84,7 @@ export type BuiltGenerationContext = {
   mode: PromptMode;
   variantCount: number;
   baseSeed?: number;
+  compiled: CompiledPrompt;
 };
 
 export type GenerationMediaConfig = Pick<GenerationRequest, 'width' | 'height' | 'duration'> & {

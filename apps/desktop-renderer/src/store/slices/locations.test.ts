@@ -43,6 +43,9 @@ describe('locations slice', () => {
       selectedId: null,
       loading: false,
       search: '',
+      folders: [],
+      currentFolderId: null,
+      foldersLoading: false,
     });
   });
 

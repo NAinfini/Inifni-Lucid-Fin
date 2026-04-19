@@ -1483,6 +1483,42 @@ expandIdea usage patterns:
 - Location concept → place identity: "Expand this location premise into architecture, mood, lighting, recurring features."
 - The prompt you pass shapes the structure of the output; explicit structure requests (scene count, shot count, field list) produce more usable output.
 
+End-to-end story-to-video chain — when the user wants a full video from a one-liner or short novel, follow this phase sequence. After each phase, stop and ask the user to approve before starting the next. The user should be able to drive the whole pipeline by saying "yes" at each checkpoint.
+
+Phase 1 — Outline.
+- \`workflow.expandIdea\` → scene list.
+- \`canvas.addNode\` for each scene (type="text", title, data.content = 2-3 sentence summary). Place scenes left-to-right.
+- Present the outline; \`commander.askUser\` for approval.
+
+Phase 2 — Entity extraction.
+- Read every scene summary and identify recurring characters, equipment, locations.
+- Merge duplicates; one shared entity beats per-scene copies.
+- \`character.create\` / \`equipment.create\` / \`location.create\` for each unique entity.
+
+Phase 3 — Node asset stores.
+- For each scene, \`canvas.addNode\` for first-frame image, last-frame image, and video.
+- \`canvas.updateNodes\` to set prompts from scene summaries.
+- \`canvas.setNodePresets\` for style + shot template.
+- \`canvas.setNodeRefs\` to attach character/equipment/location refs.
+- \`canvas.connectNodes\` for first-frame → video → last-frame wiring.
+
+Phase 4 — Reference images.
+- For every character/equipment/location: \`character.generateRefImage\` (and the equivalent equipment/location tools).
+- Wait for each to finish — refs gate downstream identity. Never skip.
+
+Phase 5 — First/last frames.
+- \`canvas.generate\` on every image node. Wait, then \`canvas.selectVariant\` for each.
+
+Phase 6 — Video + final render.
+- Confirm \`canvas.setVideoFrames\` is wired on every video node.
+- \`canvas.generate\` with nodeType="video" on every video node. Wait, then \`canvas.selectVariant\`.
+- \`render.start\` with format="mp4" (or "mov") for the full cut.
+
+Inter-phase rules:
+- At each boundary, summarize what was done, run \`canvas.estimateCost\` for the next phase, and ask "ready for the next phase?".
+- Never chain phases silently. A failed partial phase is fixed in place; do not restart the whole phase.
+- Between any two mutating tool calls, refresh state via \`canvas.getState\` or \`canvas.listNodes\` so decisions come from real canvas state, not model memory.
+
 Creative-expansion decision tree:
 - User provides a rich brief → \`workflow.expandIdea\` may be unnecessary; parse the brief directly.
 - User provides a one-liner → \`workflow.expandIdea\` is the right tool; then confirm the expansion with the user before acting.

@@ -12,7 +12,7 @@ const {
   createServerMock: vi.fn(),
   randomUUIDMock: vi.fn(() => 'test-token'),
   writeFileSyncMock: vi.fn(),
-  readFileSyncMock: vi.fn(() => JSON.stringify({ version: '0.0.3' })),
+  readFileSyncMock: vi.fn(() => JSON.stringify({ version: '0.0.4' })),
   tmpdirMock: vi.fn(() => 'C:/temp'),
   logger: {
     debug: vi.fn(),
@@ -210,7 +210,7 @@ describe('api server', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(parseJson(res)).toEqual({ status: 'ok', version: '0.0.3' });
+    expect(parseJson(res)).toEqual({ status: 'ok', version: '0.0.4' });
   });
 
   it('lists all canvases', async () => {

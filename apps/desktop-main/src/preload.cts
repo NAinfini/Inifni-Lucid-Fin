@@ -684,11 +684,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       dbSize: number;
       globalAssetsSize: number;
       globalAssetCount: number;
-      projectsSize: number;
       logsSize: number;
       totalSize: number;
-      projects: Array<{ name: string; path: string; size: number }>;
-      paths: { appRoot: string; database: string; globalAssets: string; projects: string; logs: string };
+      paths: { appRoot: string; database: string; globalAssets: string; logs: string };
     }>('storage:getOverview'),
     openFolder: (folderPath: string) => invoke('storage:openFolder', { path: folderPath }),
     showInFolder: (filePath: string) => invoke('storage:showInFolder', { path: filePath }),
@@ -697,8 +695,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     vacuumDatabase: () => invoke<{ success: boolean; error?: string }>('storage:vacuumDatabase'),
     backupDatabase: (destPath: string) => invoke<{ success: boolean; error?: string }>('storage:backupDatabase', { destPath }),
     restoreDatabase: (sourcePath: string) => invoke<{ success: boolean; error?: string; backupCreated?: string }>('storage:restoreDatabase', { sourcePath }),
-    getProjectsPath: () => invoke<string>('storage:getProjectsPath'),
-    setProjectsPath: (newPath: string) => invoke<{ success: boolean; error?: string }>('storage:setProjectsPath', { path: newPath }),
     pickFolder: () => {
       return new Promise<string | null>((resolve) => {
         ipcRenderer.invoke('storage:pickFolder').then(resolve).catch(() => resolve(null));

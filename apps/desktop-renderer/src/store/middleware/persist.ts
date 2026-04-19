@@ -97,6 +97,27 @@ export function setCanvasInteracting(value: boolean): void {
   }
 }
 
+/**
+ * Cancel any debounced canvas save and run it synchronously now. Used by
+ * the Commander before sending a user message — we need the main-process
+ * canvas cache to reflect the very latest Redux state so `canvas.getState`
+ * and friends don't read stale data the user already sees on screen.
+ * Returns true if a save was flushed, false if nothing was pending.
+ */
+export function flushPendingCanvasSave(): boolean {
+  if (canvasTimer) {
+    clearTimeout(canvasTimer);
+    canvasTimer = null;
+  }
+  if (!flushPendingSave) return false;
+  const run = flushPendingSave;
+  // Clear flushPendingSave so a later interaction-end flush doesn't double-run.
+  flushPendingSave = null;
+  pendingSave = false;
+  run();
+  return true;
+}
+
 // Tracks the last successfully saved canvas state per canvas id for patch diffing
 const savedCanvasSnapshots = new LRUCache<string, Canvas>(30);
 

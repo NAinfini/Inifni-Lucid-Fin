@@ -368,7 +368,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     name: 'canvas.listNodes',
     description: 'List nodes on a canvas with pagination. Returns { total, offset, limit, nodes[] }. '
       + 'Check "total" — if total > offset+limit, there are more pages. '
-      + 'Use types filter to get nodes of specific kinds (e.g. types=["image"]). Default limit is 50.',
+      + 'Use types filter to get nodes of specific kinds (e.g. types=["image"]). Default limit is 50. '
+      + 'Pass detail=true to include full node data (prompt, presets, refs, variants) inline — '
+      + 'prefer this over listNodes + N× getNode when you need to read many nodes.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -381,6 +383,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         type: { type: 'string', description: 'Filter by node type: text, image, video, audio, backdrop. Omit to list all types.', enum: ['text', 'image', 'video', 'audio', 'backdrop'] },
         types: { type: 'array', description: 'Filter by one or more node types (OR-matched). e.g. ["image", "video"]. Overrides "type" if both provided.', items: { type: 'string', description: 'A node type.' } },
         query: { type: 'string', description: 'Optional search query. Matches against node title or prompt (case-insensitive OR logic).' },
+        detail: { type: 'boolean', description: 'If true, include full node data (equivalent to canvas.getNode on every returned id) in a single call. Default false.' },
       },
       required: ['canvasId'],
     },
@@ -403,6 +406,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
         const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
         const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        const detail = args.detail === true;
 
         let filtered = canvas.nodes;
         if (typeSet) {
@@ -417,18 +421,21 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           });
         }
 
-        const page = filtered.slice(offset, offset + limit).map((node) => {
-          const data = node.data as Record<string, unknown>;
-          return {
-            id: node.id,
-            type: node.type,
-            title: node.title,
-            position: node.position,
-            width: node.width,
-            height: node.height,
-            status: typeof data.status === 'string' ? data.status : node.status,
-          };
-        });
+        const slice = filtered.slice(offset, offset + limit);
+        const page = detail
+          ? slice
+          : slice.map((node) => {
+              const data = node.data as Record<string, unknown>;
+              return {
+                id: node.id,
+                type: node.type,
+                title: node.title,
+                position: node.position,
+                width: node.width,
+                height: node.height,
+                status: typeof data.status === 'string' ? data.status : node.status,
+              };
+            });
         return ok({ total: filtered.length, offset, limit, nodes: page });
       } catch (error) {
         return fail(error);
@@ -473,7 +480,12 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const getNode: AgentTool = {
     name: 'canvas.getNode',
-    description: 'Read full details of one or more nodes by ID, including prompt, presets, refs, variants. Pass a single ID string or an array of IDs.',
+    description:
+      'Read full details (prompt, presets, refs, variants) for one or more nodes. '
+      + 'IMPORTANT: Pass ALL the node IDs you need in a single call as an array — '
+      + 'do NOT call this tool once per node in a loop. One batched call is orders of '
+      + 'magnitude cheaper than N sequential calls. Single-ID string form is only for the '
+      + 'truly-one-node case; for 2+ nodes, always use the array form.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -481,7 +493,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Node ID or array of node IDs to fetch.' },
+        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs to fetch in one call (preferred). Pass every ID you need here, not one per call. A single string is also accepted for the one-node case.' },
       },
       required: ['canvasId', 'nodeIds'],
     },

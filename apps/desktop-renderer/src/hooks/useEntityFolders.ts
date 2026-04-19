@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { ActionCreatorWithPayload } from '@reduxjs/toolkit';
 import type { Folder, FolderKind } from '@lucid-fin/contracts';
@@ -53,18 +53,28 @@ export function useEntityFolders(args: UseEntityFoldersArgs): UseEntityFoldersRe
   const currentFolderId = useSelector(selectCurrentFolderId);
   const loading = useSelector(selectFoldersLoading);
 
-  const apiGroup = useMemo(() => getAPI()?.folder[kind], [kind]);
+  // Callers pass a fresh `{ actions: {...} }` object literal per render. Stash
+  // it in a ref so callbacks below stay identity-stable — otherwise
+  // `loadFolders`'s identity changes every render, its effect refires, IPC
+  // spams `folder.<kind>:list`, and dispatches re-trigger the cycle until the
+  // app freezes.
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+
+  const apiGroup = useMemo(() => getAPI()?.folder?.[kind], [kind]);
 
   const loadFolders = useCallback(async () => {
     if (!apiGroup) return;
-    dispatch(actions.setFoldersLoading(true));
+    dispatch(actionsRef.current.setFoldersLoading(true));
     try {
       const list = (await apiGroup.list()) as Folder[];
-      dispatch(actions.setFolders(list));
+      dispatch(actionsRef.current.setFolders(list));
+    } catch (reason) {
+      console.error(`[useEntityFolders:${kind}] loadFolders failed`, reason);
     } finally {
-      dispatch(actions.setFoldersLoading(false));
+      dispatch(actionsRef.current.setFoldersLoading(false));
     }
-  }, [apiGroup, dispatch, actions]);
+  }, [apiGroup, dispatch, kind]);
 
   useEffect(() => {
     void loadFolders();
@@ -73,47 +83,66 @@ export function useEntityFolders(args: UseEntityFoldersArgs): UseEntityFoldersRe
   const createFolder = useCallback(
     async (parentId: string | null, name: string): Promise<Folder | null> => {
       if (!apiGroup) return null;
-      const created = (await apiGroup.create(parentId, name)) as Folder;
-      dispatch(actions.addFolder(created));
-      return created;
+      try {
+        const created = (await apiGroup.create(parentId, name)) as Folder;
+        dispatch(actionsRef.current.addFolder(created));
+        return created;
+      } catch (reason) {
+        console.error(`[useEntityFolders:${kind}] createFolder failed`, reason);
+        return null;
+      }
     },
-    [apiGroup, dispatch, actions],
+    [apiGroup, dispatch, kind],
   );
 
   const renameFolder = useCallback(
     async (id: string, name: string): Promise<Folder | null> => {
       if (!apiGroup) return null;
-      const updated = (await apiGroup.rename(id, name)) as Folder;
-      dispatch(actions.updateFolder(updated));
-      return updated;
+      try {
+        const updated = (await apiGroup.rename(id, name)) as Folder;
+        dispatch(actionsRef.current.updateFolder(updated));
+        return updated;
+      } catch (reason) {
+        console.error(`[useEntityFolders:${kind}] renameFolder failed`, reason);
+        return null;
+      }
     },
-    [apiGroup, dispatch, actions],
+    [apiGroup, dispatch, kind],
   );
 
   const moveFolder = useCallback(
     async (id: string, newParentId: string | null): Promise<Folder | null> => {
       if (!apiGroup) return null;
-      const updated = (await apiGroup.move(id, newParentId)) as Folder;
-      dispatch(actions.updateFolder(updated));
-      return updated;
+      try {
+        const updated = (await apiGroup.move(id, newParentId)) as Folder;
+        dispatch(actionsRef.current.updateFolder(updated));
+        return updated;
+      } catch (reason) {
+        console.error(`[useEntityFolders:${kind}] moveFolder failed`, reason);
+        return null;
+      }
     },
-    [apiGroup, dispatch, actions],
+    [apiGroup, dispatch, kind],
   );
 
   const deleteFolder = useCallback(
     async (id: string): Promise<void> => {
       if (!apiGroup) return;
-      await apiGroup.delete(id);
-      dispatch(actions.removeFolder(id));
+      try {
+        await apiGroup.delete(id);
+        dispatch(actionsRef.current.removeFolder(id));
+      } catch (reason) {
+        console.error(`[useEntityFolders:${kind}] deleteFolder failed`, reason);
+      }
     },
-    [apiGroup, dispatch, actions],
+    [apiGroup, dispatch, kind],
   );
 
   const setCurrentFolder = useCallback(
     (id: string | null) => {
-      dispatch(actions.setCurrentFolder(id));
+      dispatch(actionsRef.current.setCurrentFolder(id));
     },
-    [dispatch, actions],
+    [dispatch],
   );
 
   const breadcrumb = useMemo(() => {

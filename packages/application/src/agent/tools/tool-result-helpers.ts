@@ -1,20 +1,39 @@
-import type { ToolResult } from '../tool-registry.js';
+import type { ToolResult, ToolErrorClass } from '../tool-registry.js';
+
+/**
+ * Error subclass that lets validator helpers throw with a typed error class.
+ * Tools catching these (via the outer try/catch) can propagate the class
+ * to the executor without keyword-sniffing the message.
+ */
+export class TypedToolError extends Error {
+  readonly errorClass: ToolErrorClass;
+  constructor(message: string, errorClass: ToolErrorClass) {
+    super(message);
+    this.name = 'TypedToolError';
+    this.errorClass = errorClass;
+  }
+}
 
 export function ok(data?: unknown): ToolResult {
   return data === undefined ? { success: true } : { success: true, data };
 }
 
-export function fail(error: unknown): ToolResult {
+export function fail(error: unknown, errorClass?: ToolErrorClass): ToolResult {
+  // Prefer a TypedToolError's own class over the caller-supplied one so the
+  // throw site wins — it has the most local information about why.
+  const classFromError = error instanceof TypedToolError ? error.errorClass : undefined;
+  const finalClass = classFromError ?? errorClass;
   return {
     success: false,
     error: error instanceof Error ? error.message : String(error),
+    ...(finalClass !== undefined && { errorClass: finalClass }),
   };
 }
 
 export function requireString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new Error(`${key} is required`);
+    throw new TypedToolError(`${key} is required`, 'validation');
   }
   return value.trim();
 }
@@ -22,7 +41,7 @@ export function requireString(args: Record<string, unknown>, key: string): strin
 export function requireNumber(args: Record<string, unknown>, key: string): number {
   const value = args[key];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${key} must be a finite number`);
+    throw new TypedToolError(`${key} must be a finite number`, 'validation');
   }
   return value;
 }
@@ -30,13 +49,13 @@ export function requireNumber(args: Record<string, unknown>, key: string): numbe
 export function requireStringArray(args: Record<string, unknown>, key: string): string[] {
   const value = args[key];
   if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${key} must be a non-empty array`);
+    throw new TypedToolError(`${key} must be a non-empty array`, 'validation');
   }
   return Array.from(
     new Set(
       value.map((entry, index) => {
         if (typeof entry !== 'string' || entry.trim().length === 0) {
-          throw new Error(`${key}[${index}] must be a non-empty string`);
+          throw new TypedToolError(`${key}[${index}] must be a non-empty string`, 'validation');
         }
         return entry.trim();
       }),
@@ -47,7 +66,7 @@ export function requireStringArray(args: Record<string, unknown>, key: string): 
 export function requireText(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== 'string') {
-    throw new Error(`${key} is required`);
+    throw new TypedToolError(`${key} is required`, 'validation');
   }
   return value;
 }
@@ -55,7 +74,7 @@ export function requireText(args: Record<string, unknown>, key: string): string 
 export function requireBoolean(args: Record<string, unknown>, key: string): boolean {
   const value = args[key];
   if (typeof value !== 'boolean') {
-    throw new Error(`${key} must be a boolean`);
+    throw new TypedToolError(`${key} must be a boolean`, 'validation');
   }
   return value;
 }

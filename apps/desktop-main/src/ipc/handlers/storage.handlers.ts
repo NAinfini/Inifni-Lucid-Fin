@@ -61,7 +61,6 @@ export function registerStorageHandlers(
     const dbPath = path.join(APP_ROOT, 'lucid-fin.db');
     const promptsDbPath = path.join(APP_ROOT, 'prompts.db');
     const globalAssetsPath = path.join(APP_ROOT, 'assets');
-    const projectsPath = path.join(APP_ROOT, 'projects');
     const logsPath = path.join(APP_ROOT, 'logs');
     const userDataLogs = (() => {
       try {
@@ -74,38 +73,19 @@ export function registerStorageHandlers(
     const dbSize = fileSize(dbPath) + fileSize(promptsDbPath);
     const globalAssetsSize = dirSize(globalAssetsPath);
     const globalAssetCount = countFiles(globalAssetsPath);
-    const projectsSize = dirSize(projectsPath);
     const logsSize = dirSize(logsPath) + dirSize(userDataLogs);
-
-    // Per-project breakdown
-    const projects: Array<{ name: string; path: string; size: number }> = [];
-    if (fs.existsSync(projectsPath)) {
-      for (const entry of fs.readdirSync(projectsPath, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-          const pPath = path.join(projectsPath, entry.name);
-          projects.push({
-            name: entry.name.replace(/\.lucid$/, ''),
-            path: pPath,
-            size: dirSize(pPath),
-          });
-        }
-      }
-    }
 
     return {
       appRoot: APP_ROOT,
       dbSize,
       globalAssetsSize,
       globalAssetCount,
-      projectsSize,
       logsSize,
-      totalSize: dbSize + globalAssetsSize + projectsSize + logsSize,
-      projects,
+      totalSize: dbSize + globalAssetsSize + logsSize,
       paths: {
         appRoot: APP_ROOT,
         database: dbPath,
         globalAssets: globalAssetsPath,
-        projects: projectsPath,
         logs: userDataLogs,
       },
     };
@@ -204,27 +184,6 @@ export function registerStorageHandlers(
       return { success: true, backupCreated: backupPath };
     } catch (err) {
       log.warn('[storage] restore failed', { error: String(err) });
-      return { success: false, error: String(err) };
-    }
-  });
-
-  // --- Get/Set default project path ---
-  ipcMain.handle('storage:getProjectsPath', async () => {
-    return path.join(APP_ROOT, 'projects');
-  });
-
-  ipcMain.handle('storage:setProjectsPath', async (_event, args: { path: string }) => {
-    // Store custom projects path in a config file
-    const configPath = path.join(APP_ROOT, 'storage-config.json');
-    try {
-      let config: Record<string, unknown> = {};
-      if (fs.existsSync(configPath)) {
-        config = JSON.parse(await fsp.readFile(configPath, 'utf-8'));
-      }
-      config.projectsPath = args.path;
-      await fsp.writeFile(configPath, JSON.stringify(config, null, 2));
-      return { success: true };
-    } catch (err) {
       return { success: false, error: String(err) };
     }
   });

@@ -51,7 +51,12 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
     }, []);
 
     useImperativeHandle(ref, () => ({
-      play: () => wsRef.current?.play(),
+      play: () => {
+        const result = wsRef.current?.play();
+        if (result && typeof (result as { catch?: unknown }).catch === 'function') {
+          (result as Promise<unknown>).catch(() => { /* 404/missing asset: silent */ });
+        }
+      },
       pause: () => wsRef.current?.pause(),
       seekTo: (progress: number) => wsRef.current?.seekTo(progress),
     }));
@@ -110,12 +115,18 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
     }, [audioUrl, height, progressColor, updateTimeDisplay, waveColor]);
 
     const togglePlay = useCallback(() => {
-      wsRef.current?.playPause();
+      const result = wsRef.current?.playPause();
+      if (result && typeof (result as { catch?: unknown }).catch === 'function') {
+        (result as Promise<unknown>).catch(() => { /* 404/missing asset: silent */ });
+      }
     }, []);
 
     const restart = useCallback(() => {
       wsRef.current?.seekTo(0);
-      wsRef.current?.play();
+      const result = wsRef.current?.play();
+      if (result && typeof (result as { catch?: unknown }).catch === 'function') {
+        (result as Promise<unknown>).catch(() => { /* 404/missing asset: silent */ });
+      }
     }, []);
 
     return (

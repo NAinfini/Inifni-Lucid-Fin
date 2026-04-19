@@ -91,7 +91,7 @@ export function Settings() {
       : activeTab === 'processGuides'
         ? translateOrFallback(
             'settings.processGuides.subtitle',
-            'Edit the process-specific guidance that Commander injects on demand.',
+            'Edit the process-specific rules that Commander injects on demand.',
           )
       : undefined;
 

@@ -141,14 +141,14 @@ export function SettingsProcessPromptsSection({
   }
 
   return (
-    <section className="space-y-3">
+    <section className="space-y-2">
       {error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
           {error}
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {prompts.map((prompt) => {
           const isEditing = editingKey === prompt.processKey;
           const isSaving = savingKey === prompt.processKey;
@@ -165,50 +165,48 @@ export function SettingsProcessPromptsSection({
             <article
               key={prompt.processKey}
               className={cn(
-                'rounded-lg border border-border/60 bg-card px-3 py-3',
+                'rounded-md border border-border/60 bg-card px-2.5 py-1.5',
                 isEditing && 'border-primary/40 bg-primary/5',
               )}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-medium">{localizedName}</h3>
+                    <h3 className="text-[13px] font-medium leading-tight">{localizedName}</h3>
                     {prompt.customValue !== null && (
-                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-500">
+                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] leading-none text-amber-500">
                         {t('settings.customized')}
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">{localizedDescription}</p>
+                  <p className="text-[11px] leading-snug text-muted-foreground">{localizedDescription}</p>
                   {triggerTools.length > 0 && (
-                    <div className="space-y-1 pt-1">
-                      <div className="text-[11px] font-medium text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      <span className="text-[10px] font-medium text-muted-foreground">
                         {t('settings.processGuides.triggeredBy')}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {triggerTools.map((tool) => (
-                          <span
-                            key={tool}
-                            className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                          >
-                            {tool}
-                          </span>
-                        ))}
-                        {triggerNote && (
-                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
-                            {triggerNote}
-                          </span>
-                        )}
-                      </div>
+                      </span>
+                      {triggerTools.map((tool) => (
+                        <span
+                          key={tool}
+                          className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground"
+                        >
+                          {tool}
+                        </span>
+                      ))}
+                      {triggerNote && (
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] leading-none text-primary">
+                          {triggerNote}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1">
                   <button
                     type="button"
                     onClick={() => openEditor(prompt)}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
                   >
                     <SquarePen className="h-3 w-3" />
                     {t('settings.edit')}
@@ -217,7 +215,7 @@ export function SettingsProcessPromptsSection({
                     type="button"
                     onClick={() => void handleReset(prompt.processKey)}
                     disabled={isSaving}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                    className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
                   >
                     <RotateCcw className="h-3 w-3" />
                     {t('settings.processGuides.reset')}
@@ -226,7 +224,7 @@ export function SettingsProcessPromptsSection({
               </div>
 
               {isEditing && (
-                <div className="mt-3 space-y-2 border-t border-border/40 pt-3">
+                <div className="mt-2 space-y-2 border-t border-border/40 pt-2">
                   <textarea
                     value={currentValue}
                     onChange={(event) =>

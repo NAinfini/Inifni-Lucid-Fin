@@ -677,10 +677,9 @@ describe('AgentOrchestrator', () => {
     };
     const firstToolNames = firstOpts.tools.map((t) => t.name);
     expect(firstToolNames).not.toContain('character.list');
-    expect(firstToolNames).toContain('tool.list');
     expect(firstToolNames).toContain('tool.get');
     expect(firstToolNames).toContain('canvas.getState');
-    expect(firstToolNames.length).toBe(8);
+    expect(firstToolNames.length).toBe(6);
 
     // Second call: character.list now available after tool.get
     const secondOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][1] as {
@@ -818,14 +817,19 @@ describe('AgentOrchestrator', () => {
   });
 
   it('deduplicates and later strips inactive process prompts', async () => {
-    const imageGenerateTool = vi.fn(async () => ({ success: true, data: { nodeId: 'image-1' } }));
+    // Uses canvas.renameCanvas (process: canvas-structure) because it is not
+    // a phase-critical process. Phase-critical process prompts
+    // (workflow-orchestration, *-ref-image-generation, image/video node
+    // generation, render-and-export) are pinned once active and intentionally
+    // not stripped — see AgentOrchestrator.PHASE_CRITICAL_PROCESS_KEYS.
+    const renameTool = vi.fn(async () => ({ success: true, data: { canvasId: 'c1' } }));
     const noopTool = vi.fn(async () => ({ success: true, data: { ok: true } }));
 
     toolRegistry.register({
-      name: 'canvas.generate',
-      description: 'Generate node media',
+      name: 'canvas.renameCanvas',
+      description: 'Rename canvas',
       parameters: { type: 'object', properties: {}, required: [] },
-      execute: imageGenerateTool,
+      execute: renameTool,
     });
     toolRegistry.register({
       name: 'noop.tool',
@@ -837,12 +841,12 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-1', name: 'canvas.generate', arguments: { nodeType: 'image' } }],
+        toolCalls: [{ id: 'tc-1', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'a' } }],
         finishReason: 'tool_calls',
       },
       {
         content: '',
-        toolCalls: [{ id: 'tc-2', name: 'canvas.generate', arguments: { nodeType: 'image' } }],
+        toolCalls: [{ id: 'tc-2', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'b' } }],
         finishReason: 'tool_calls',
       },
       {
@@ -869,11 +873,11 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
       resolveProcessPrompt: (processKey) =>
-        processKey === 'image-node-generation' ? 'Image prompt rules.' : null,
+        processKey === 'canvas-structure' ? 'Canvas structure rules.' : null,
     });
 
     await agent.execute('run workflow', {}, () => {}, {
-      discoveredTools: ['canvas.generate', 'noop.tool'],
+      discoveredTools: ['canvas.renameCanvas', 'noop.tool'],
     });
 
     const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[2][0] as Array<{
@@ -883,7 +887,7 @@ describe('AgentOrchestrator', () => {
     const injectedSystemMessages = thirdCallMessages.filter(
       (message) =>
         message.role === 'system' &&
-        message.content.includes('[[process-prompt:image-node-generation]]'),
+        message.content.includes('[[process-prompt:canvas-structure]]'),
     );
     expect(injectedSystemMessages).toHaveLength(1);
 
@@ -895,7 +899,7 @@ describe('AgentOrchestrator', () => {
       sixthCallMessages.some(
         (message) =>
           message.role === 'system' &&
-          message.content.includes('[[process-prompt:image-node-generation]]'),
+          message.content.includes('[[process-prompt:canvas-structure]]'),
       ),
     ).toBe(false);
   });

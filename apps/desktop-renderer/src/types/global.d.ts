@@ -674,11 +674,9 @@ declare global {
           dbSize: number;
           globalAssetsSize: number;
           globalAssetCount: number;
-          projectsSize: number;
           logsSize: number;
           totalSize: number;
-          projects: Array<{ name: string; path: string; size: number }>;
-          paths: { appRoot: string; database: string; globalAssets: string; projects: string; logs: string };
+          paths: { appRoot: string; database: string; globalAssets: string; logs: string };
         }>;
         openFolder: (folderPath: string) => Promise<void>;
         showInFolder: (filePath: string) => Promise<void>;
@@ -687,8 +685,6 @@ declare global {
         vacuumDatabase: () => Promise<{ success: boolean; error?: string }>;
         backupDatabase: (destPath: string) => Promise<{ success: boolean; error?: string }>;
         restoreDatabase: (sourcePath: string) => Promise<{ success: boolean; error?: string; backupCreated?: string }>;
-        getProjectsPath: () => Promise<string>;
-        setProjectsPath: (newPath: string) => Promise<{ success: boolean; error?: string }>;
         pickFolder: () => Promise<string | null>;
         pickSaveFile: (defaultName: string) => Promise<string | null>;
         pickOpenFile: (extensions: string[]) => Promise<string | null>;
