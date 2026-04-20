@@ -40,5 +40,10 @@
     "category": "AudioVideo"
   },
   "asar": true,
-  "asarUnpack": ["resources/bin/**", "node_modules/better-sqlite3/**", "node_modules/keytar/**"]
+  "asarUnpack": ["resources/bin/**", "node_modules/better-sqlite3/**", "node_modules/keytar/**"],
+  "publish": {
+    "provider": "github",
+    "owner": "NAinfini",
+    "repo": "Inifni-Lucid-Fin"
+  }
 }
