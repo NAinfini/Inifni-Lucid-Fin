@@ -30,6 +30,10 @@ export type { IpcChannel, IpcRequest, IpcResponse } from './ipc-helpers.js';
 export type {
   CommanderStreamEvent,
   CommanderStreamPayload,
+  CommanderIntentPayload,
+  CommanderEvidencePayload,
+  CommanderBlockerPayload,
+  CommanderExitDecisionPayload,
 } from './ipc/channels/batch-09.js';
 
 // ── Phase A: Type Foundation ───────────────────────────────────

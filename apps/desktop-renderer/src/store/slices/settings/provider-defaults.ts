@@ -357,7 +357,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
     }),
     createLLMProvider({
       id: 'volcengine-ark',
-      name: '\u706B\u5C71\u5F15\u64CE',
+      name: '火山引擎',
       baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
       model: 'doubao-1.5-pro-256k',
       protocol: 'openai-compatible',

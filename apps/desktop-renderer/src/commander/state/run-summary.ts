@@ -8,6 +8,7 @@
 
 import { createMessageId, createSegmentId } from './helpers.js';
 import type {
+  CommanderExitDecisionMeta,
   CommanderRunStatus,
   CommanderRunSummary,
   CommanderState,
@@ -79,6 +80,7 @@ export function finalizeCurrentRunMessage(
   status: CommanderRunStatus,
   fallbackContent?: string,
   errorMessage?: string,
+  exitDecision?: CommanderExitDecisionMeta,
 ): void {
   const content = state.currentStreamContent || fallbackContent || '';
   const hasSegments = state.currentSegments.length > 0;
@@ -114,6 +116,7 @@ export function finalizeCurrentRunMessage(
         completedAt,
         errorMessage,
       ),
+      exitDecision,
     },
     segments,
     toolCalls: hasTools ? [...state.currentToolCalls] : undefined,

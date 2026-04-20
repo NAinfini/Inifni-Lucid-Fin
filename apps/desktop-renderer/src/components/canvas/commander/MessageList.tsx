@@ -271,6 +271,7 @@ function RunSummaryCard({
 
   return (
     <div className="min-w-0">
+      {runMeta.exitDecision ? <ExitDecisionBanner decision={runMeta.exitDecision} /> : null}
       {hasProcess ? (
         <>
           <button
@@ -433,6 +434,71 @@ function collectProcessToolCalls(
 interface HistoricalQuestionCardProps {
   message: CommanderMessage;
   t: (key: string) => string;
+}
+
+/**
+ * Phase E — terminal-state banner. Only renders when the orchestrator's
+ * exit decision is *not* `satisfied` or `informational_answered`. Shape is
+ * deliberately informational (no actions) in the soft-enforcement phase;
+ * Phase F will wire "Continue" for `unsatisfied`.
+ */
+interface ExitDecisionBannerProps {
+  decision: NonNullable<CommanderMessage['runMeta']>['exitDecision'];
+}
+
+function ExitDecisionBanner({ decision }: ExitDecisionBannerProps) {
+  if (!decision) return null;
+  if (decision.outcome === 'satisfied' || decision.outcome === 'informational_answered') {
+    return null;
+  }
+
+  let label = 'Run ended without satisfying the contract.';
+  let tone: 'warn' | 'danger' = 'warn';
+  switch (decision.outcome) {
+    case 'unsatisfied':
+      label = decision.blockerKind
+        ? `Started but didn't finish — ${decision.blockerKind.replace(/_/g, ' ')}.`
+        : "Started but didn't finish.";
+      tone = 'warn';
+      break;
+    case 'blocked_waiting_user':
+      label = 'Waiting on your answer to continue.';
+      tone = 'warn';
+      break;
+    case 'refused':
+      label = decision.reason
+        ? `Refused: ${decision.reason}`
+        : 'Commander refused this request.';
+      tone = 'danger';
+      break;
+    case 'budget_exhausted':
+      label = 'Budget exhausted before the task could finish.';
+      tone = 'warn';
+      break;
+    case 'error':
+      label = decision.reason ? `Error: ${decision.reason}` : 'Run ended with an error.';
+      tone = 'danger';
+      break;
+  }
+
+  const toneClass =
+    tone === 'danger'
+      ? 'border-destructive/60 bg-destructive/10 text-destructive'
+      : 'border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300';
+
+  return (
+    <div
+      data-testid="exit-decision-banner"
+      data-outcome={decision.outcome}
+      className={cn(
+        'mx-3 my-1.5 rounded-md border px-2.5 py-1.5 text-xs flex items-start gap-1.5',
+        toneClass,
+      )}
+    >
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-[1px]" />
+      <span>{label}</span>
+    </div>
+  );
 }
 
 function HistoricalQuestionCard({ message, t }: HistoricalQuestionCardProps) {

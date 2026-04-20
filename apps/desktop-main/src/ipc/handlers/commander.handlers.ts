@@ -17,6 +17,7 @@ import {
   AgentOrchestrator,
   AgentToolRegistry,
   canvasSyncMutatingToolNames,
+  createAgentOrchestratorForRun,
   entityMutatingToolNames,
   freshRunId,
   type JobQueue,
@@ -497,29 +498,21 @@ export function registerCommanderHandlers(
         );
         setLastToolRegistry(registry);
 
-        // Create orchestrator
+        // Create orchestrator. Phase D: factory is the only supported
+        // construction path — do not replace with direct `new AgentOrchestrator`.
         const adapterProfile: ProviderProfile = llmAdapter.profile ?? DEFAULT_PROVIDER_PROFILE;
-        const orchestratorInstance = new AgentOrchestrator(llmAdapter, registry, deps.resolvePrompt, {
-          maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : undefined,
-          temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
-          maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
-          profile: adapterProfile,
+        const orchestratorInstance = createAgentOrchestratorForRun({
+          variant: 'production',
+          llmAdapter,
+          toolRegistry: registry,
+          resolvePrompt: deps.resolvePrompt,
+          canvasStore: deps.canvasStore,
           resolveProcessPrompt: deps.resolveProcessPrompt,
-          resolveCanvasNodeType: (canvasId: string, nodeId: string) => {
-            const canvas = deps.canvasStore.get(canvasId);
-            if (!canvas) return null;
-            const node = canvas.nodes.find((n) => n.id === nodeId);
-            if (!node) return null;
-            if (node.type === 'image' || node.type === 'backdrop') return 'image';
-            if (node.type === 'video') return 'video';
-            if (node.type === 'audio') return 'audio';
-            return null;
-          },
-          resolveCanvasSettings: (canvasId: string) => {
-            const canvas = deps.canvasStore.get(canvasId);
-            if (!canvas) return null;
-            // Return a minimal shape — the orchestrator only reads stylePlate.
-            return { stylePlate: canvas.settings?.stylePlate ?? null };
+          options: {
+            maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : undefined,
+            temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
+            maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
+            profile: adapterProfile,
           },
         });
         orchestrator = orchestratorInstance;

@@ -743,10 +743,50 @@ export class CommanderSessionService {
         return;
       }
 
-      case 'done':
+      case 'done': {
         this.batcher?.flushNow();
-        dispatch(finishStreaming(data.content));
+        // Phase E — forward the ExitDecision meta so MessageList can render
+        // a non-satisfied banner. Pre-Phase-E builds won't ship these
+        // fields; the reducer treats the old string payload as
+        // before.
+        const ed = data.exitDecision;
+        const exitDecisionMeta = ed
+          ? {
+              outcome: ed.outcome,
+              contractId:
+                'contractId' in ed
+                  ? (ed as { contractId?: string }).contractId
+                  : undefined,
+              reason:
+                'reason' in ed
+                  ? (ed as { reason?: string }).reason
+                  : undefined,
+              blockerKind:
+                'blocker' in ed &&
+                ed.blocker &&
+                typeof ed.blocker === 'object' &&
+                'kind' in ed.blocker
+                  ? String((ed.blocker as { kind?: unknown }).kind ?? '')
+                  : undefined,
+            }
+          : undefined;
+        dispatch(
+          finishStreaming(
+            exitDecisionMeta
+              ? { content: data.content, exitDecision: exitDecisionMeta }
+              : data.content,
+          ),
+        );
         this.persistSessionOnTerminal();
+        return;
+      }
+
+      // Phase B/D shadow events — carried in the `done` payload, but also
+      // emitted as dedicated telemetry events for the harness. The
+      // renderer has no separate reaction.
+      case 'evidence_appended':
+      case 'exit_decision':
+      case 'preflight_decision':
         return;
 
       default:

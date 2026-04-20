@@ -226,7 +226,7 @@ describe('WorkflowPlanner', () => {
   });
 
   describe('cycle detection', () => {
-    it('throws on a simple stage cycle (A \u2192 B \u2192 A)', () => {
+    it('throws on a simple stage cycle (A → B → A)', () => {
       const planner = new WorkflowPlanner();
       const definition: RegisteredWorkflowDefinition = {
         id: 'cycle-test',
@@ -264,7 +264,7 @@ describe('WorkflowPlanner', () => {
       ).toThrow(/Circular stage dependency.*stage-a.*stage-b.*stage-a/);
     });
 
-    it('throws on a longer stage cycle (A \u2192 B \u2192 C \u2192 A)', () => {
+    it('throws on a longer stage cycle (A → B → C → A)', () => {
       const planner = new WorkflowPlanner();
       const definition: RegisteredWorkflowDefinition = {
         id: 'cycle-test-3',
@@ -309,7 +309,7 @@ describe('WorkflowPlanner', () => {
       ).toThrow(/Circular stage dependency/);
     });
 
-    it('throws on a task cycle (A \u2192 B \u2192 A)', () => {
+    it('throws on a task cycle (A → B → A)', () => {
       const planner = new WorkflowPlanner();
       const definition: RegisteredWorkflowDefinition = {
         id: 'task-cycle',

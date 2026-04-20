@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startClipboardWatcher, stopClipboardWatcher, setClipboardWatcherEnabled } from './clipboard-watcher.js';
 import {
-  AgentOrchestrator,
+  createAgentOrchestratorForRun,
   JobQueue,
   WorkflowEngine,
   WorkflowRecovery,
@@ -278,9 +278,17 @@ app.whenReady().then(async () => {
       );
     }
     const agent = llmAdapter
-      ? new AgentOrchestrator(llmAdapter, toolRegistry, (code: string) => promptStore.resolve(code), {
-        resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
-      })
+      ? createAgentOrchestratorForRun({
+          variant: 'production',
+          llmAdapter,
+          toolRegistry,
+          resolvePrompt: (code: string) => promptStore.resolve(code),
+          resolveProcessPrompt: (processKey: string) =>
+            processPromptStore.getEffectiveValue(processKey),
+          // No canvasStore here: this is the non-canvas AI orchestrator
+          // consumed by `registerAiHandlers`. Canvas-aware resolvers stay
+          // dormant; canvas-state-driven ProcessPromptSpecs are a no-op.
+        })
       : null;
 
     // Single JobQueue instance — shared across recovery and IPC handlers

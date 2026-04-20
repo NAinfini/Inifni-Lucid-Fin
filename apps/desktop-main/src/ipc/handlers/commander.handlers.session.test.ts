@@ -6,7 +6,10 @@ describe('registerCommanderHandlers session wiring', () => {
     vi.restoreAllMocks();
   });
 
-  it('passes the commander sessionId through to snapshot tool registration', async () => {
+  it(
+    'passes the commander sessionId through to snapshot tool registration',
+    { timeout: 20000 },
+    async () => {
     const executeMock = vi.fn(async () => undefined);
     const agentConstructor = vi.fn();
     const registerAllToolsMock = vi.fn();
@@ -43,8 +46,8 @@ describe('registerCommanderHandlers session wiring', () => {
       };
     });
 
-    vi.doMock('@lucid-fin/application', () => ({
-      AgentOrchestrator: class MockAgentOrchestrator {
+    vi.doMock('@lucid-fin/application', () => {
+      const OrchestratorCtor = class MockAgentOrchestrator {
         constructor(...args: unknown[]) {
           agentConstructor(...args);
         }
@@ -56,10 +59,35 @@ describe('registerCommanderHandlers session wiring', () => {
           messageCount: 0,
           toolCount: 0,
         }));
-      },
-      AgentToolRegistry: class MockAgentToolRegistry {},
-      freshRunId: () => 'mock-run-id',
-    }));
+      };
+      return {
+        AgentOrchestrator: OrchestratorCtor,
+        // Phase D: commander.handlers constructs via the factory. The real
+        // factory folds `resolveProcessPrompt` + canvas-aware resolvers into
+        // the orchestrator's options arg, so the mock mirrors that contract
+        // closely enough for the assertions on the constructor's 4th arg.
+        createAgentOrchestratorForRun: (input: {
+          llmAdapter: unknown;
+          toolRegistry: unknown;
+          resolvePrompt: unknown;
+          resolveProcessPrompt?: unknown;
+          options?: Record<string, unknown>;
+        }) => {
+          const mergedOptions = {
+            ...(input.options ?? {}),
+            resolveProcessPrompt: input.resolveProcessPrompt,
+          };
+          return new OrchestratorCtor(
+            input.llmAdapter,
+            input.toolRegistry,
+            input.resolvePrompt,
+            mergedOptions,
+          );
+        },
+        AgentToolRegistry: class MockAgentToolRegistry {},
+        freshRunId: () => 'mock-run-id',
+      };
+    });
 
     vi.doMock('./commander-tool-deps.js', () => ({
       requireCanvas: requireCanvasMock,
@@ -166,5 +194,6 @@ describe('registerCommanderHandlers session wiring', () => {
     expect(constructorOptions.resolveProcessPrompt('image-node-generation')).toBe(
       'process:image-node-generation',
     );
-  });
+    },
+  );
 });

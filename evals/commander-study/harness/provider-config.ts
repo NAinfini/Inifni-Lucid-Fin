@@ -86,6 +86,7 @@ function findCustomLLMByName(name: string): CodexProviderSpec {
 
 let _team: CodexProviderSpec | null = null;
 let _plus: CodexProviderSpec | null = null;
+let _hiCode: CodexProviderSpec | null = null;
 
 export function getCodexTeam(): CodexProviderSpec {
   _team ??= findCustomLLMByName('Codex Team');
@@ -94,6 +95,10 @@ export function getCodexTeam(): CodexProviderSpec {
 export function getCodexPlus(): CodexProviderSpec {
   _plus ??= findCustomLLMByName('Codex Plus');
   return _plus;
+}
+export function getHiCode(): CodexProviderSpec {
+  _hiCode ??= findCustomLLMByName('Hi code');
+  return _hiCode;
 }
 export function getCodexProviders(): CodexProviderSpec[] {
   return [getCodexTeam(), getCodexPlus()];

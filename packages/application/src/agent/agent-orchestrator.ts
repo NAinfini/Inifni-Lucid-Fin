@@ -6,6 +6,9 @@ import type {
   LLMFinishReason,
   ProviderProfile,
   CommanderStreamEvent,
+  CommanderEvidencePayload,
+  CommanderExitDecisionPayload,
+  CommanderIntentPayload,
 } from '@lucid-fin/contracts';
 import { LucidError, DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
 import type { AgentToolRegistry } from './tool-registry.js';
@@ -42,6 +45,17 @@ import {
   makeStampedEmit,
 } from './stream-emit.js';
 import { freshRunId } from './agent-run-id.js';
+import {
+  EvidenceLedger,
+  classifyIntent,
+  decide,
+  contractRegistry,
+  evaluateProcessPromptSpecs,
+  createStylePlateLockSpec,
+  type ExitDecision,
+  type ProcessPromptSpec,
+  type RunIntent,
+} from './exit-contract/index.js';
 
 // Re-export types so consumers don't break
 export type { AgentContext, HistoryEntry };
@@ -57,12 +71,19 @@ export type AgentStreamEvent = CommanderStreamEvent;
  * into this shape while also forwarding every delta to the renderer. Keeps
  * the rest of the agent loop (tool-call dispatch, dedup, finish detection)
  * unchanged.
+ *
+ * Phase F — terminal return values from `execute()` carry the ExitDecision
+ * so callers can hard-enforce the contract outcome without re-reading the
+ * stream. Intermediate loop iterations still use `OrchestratorCompletion`
+ * without `exitDecision` (the decision is only meaningful at run end).
  */
 interface OrchestratorCompletion {
   content: string;
   reasoning?: string;
   toolCalls: LLMToolCall[];
   finishReason: LLMFinishReason;
+  exitDecision?: ExitDecision;
+  exitIntent?: RunIntent;
 }
 
 export interface AgentOptions {
@@ -182,75 +203,41 @@ function isProcessCategory(value: unknown): value is ProcessCategory {
 
 /**
  * Free-standing process-prompt keys that are NOT tool-derived categories but
- * still flow through the same injection/stripping machinery. `style-plate-lock`
- * is triggered by canvas state (empty stylePlate + generation intent), not by
- * a tool's `process` field.
- *
- * Keep this set small and stable — anything added here must also have a
- * matching entry in `process-prompt-store.ts` (so `resolveProcessPrompt`
- * returns real content) and a display-name in `STANDALONE_PROMPT_NAMES`.
- */
-const STANDALONE_PROCESS_PROMPT_KEYS = new Set<string>(['style-plate-lock']);
-
-const STANDALONE_PROMPT_NAMES: Record<string, string> = {
-  'style-plate-lock': 'Style Plate Lock',
-};
-
-/**
- * Internal union: process-prompt keys the orchestrator will actually inject.
- * Widens `ProcessCategory` with the free-standing keys above so the same
- * activation / stripping / dedup machinery serves both.
+ * still flow through the same injection/stripping machinery. These come from
+ * `processPromptSpecs` — each spec registered below contributes its `key` to
+ * the standalone set via `buildStandaloneSpecKeys()`. Phase C ships one
+ * standalone spec (`style-plate-lock`); new specs can be added to the spec
+ * list without touching this constant.
  */
 type ProcessPromptKey = ProcessCategory | 'style-plate-lock';
 
+const STANDALONE_SPEC_KEYS: ReadonlySet<Exclude<ProcessPromptKey, ProcessCategory>> =
+  new Set(['style-plate-lock']);
+
 function isProcessPromptKey(value: unknown): value is ProcessPromptKey {
   if (typeof value !== 'string') return false;
-  return isProcessCategory(value) || STANDALONE_PROCESS_PROMPT_KEYS.has(value);
-}
-
-function getProcessPromptDisplayName(key: ProcessPromptKey): string {
-  if (isProcessCategory(key)) return getProcessCategoryName(key);
-  return STANDALONE_PROMPT_NAMES[key] ?? key;
+  if (isProcessCategory(value)) return true;
+  return (STANDALONE_SPEC_KEYS as ReadonlySet<string>).has(value);
 }
 
 /**
- * Tools that *generate* a visual asset or create a visual node on the canvas.
- * This set gates the style-plate-lock pre-flight: the moment the model is
- * about to fire one of these, we check canvas.settings.stylePlate and, if
- * empty, inject the lock guide before executing anything.
- *
- * For tools that mutate the canvas structure (canvas.batchCreate,
- * canvas.addNode), inspection of the arguments narrows it to payloads that
- * actually introduce a visual node type — creating a pure text node should
- * not force a stylePlate lock.
+ * Display name used in UI banners and stream `thinking_delta` text. Tool-
+ * derived categories resolve via `getProcessCategoryName`; standalone spec
+ * keys look up the ProcessPromptSpec list injected on the orchestrator.
  */
-function isGenerationTool(name: string, args?: Record<string, unknown>): boolean {
-  if (
-    name === 'canvas.generate'
-    || name === 'character.generateRefImage'
-    || name === 'location.generateRefImage'
-    || name === 'equipment.generateRefImage'
-  ) {
-    return true;
-  }
-
-  if (name === 'canvas.addNode') {
-    const type = typeof args?.type === 'string' ? args.type.trim().toLowerCase() : '';
-    return type === 'image' || type === 'video' || type === 'backdrop';
-  }
-
-  if (name === 'canvas.batchCreate') {
-    const nodes = Array.isArray(args?.nodes) ? (args!.nodes as unknown[]) : [];
-    return nodes.some((node) => {
-      if (!node || typeof node !== 'object') return false;
-      const rawType = (node as Record<string, unknown>).type;
-      const type = typeof rawType === 'string' ? rawType.trim().toLowerCase() : '';
-      return type === 'image' || type === 'video' || type === 'backdrop';
-    });
-  }
-
-  return false;
+function getStandaloneDisplayName(
+  key: Exclude<ProcessPromptKey, ProcessCategory>,
+  specs: ReadonlyArray<ProcessPromptSpec>,
+): string {
+  return specs.find((s) => s.key === key)?.displayName ?? key;
 }
+
+/**
+ * `isGenerationTool` is now owned by `exit-contract/specs/style-plate-lock.ts`
+ * and consumed via the spec's activation predicate. Keeping the function
+ * out of this file means a future "characters-required" or similar spec can
+ * ship without touching the orchestrator.
+ */
 
 export class AgentOrchestrator {
   private adapter: LLMAdapter;
@@ -317,6 +304,12 @@ export class AgentOrchestrator {
     canvasId: string,
   ) => { stylePlate?: string | null } | null;
   private activeProcessPromptSteps = new Map<ProcessPromptKey, number>();
+  /**
+   * Declarative process-prompt specs evaluated each turn. Seeded in the
+   * constructor. Adding a new spec is "append to this list" — no other
+   * orchestrator code needs to change.
+   */
+  private readonly processPromptSpecs: ReadonlyArray<ProcessPromptSpec>;
 
   /**
    * Step at which the model most recently resolved a `commander.askUser`
@@ -324,16 +317,26 @@ export class AgentOrchestrator {
    * → askUser → answer → stop" early-exit pattern observed in 9/50 of the
    * 04-19 study sessions.
    *
-   * Reset to `null` once a reminder has been injected, or per `execute()`.
+   * Used by `recordEvidenceForStep` to timestamp the `ask_user_answered`
+   * evidence event on the step AFTER the ask resolves. Reset per
+   * `execute()`.
    */
   private lastAskUserAnsweredStep: number | null = null;
 
   /**
-   * Per-run guard: the askUser-continuation reminder is injected at most
-   * once per `execute()` call. If the model still refuses to act on the
-   * second try, we let the turn end normally rather than nag forever.
+   * Phase B — Shadow exit-contract state. The ledger records typed
+   * evidence for the current run; `currentIntent` and `lastAssistantText`
+   * feed the decision engine at terminal. Reset at the top of every
+   * `execute()`.
+   *
+   * Phase B never changes return values; the decision flows out as a
+   * stream event (`exit_decision`) so harness and telemetry can read the
+   * "satisfied vs stopped" delta. Phase E switches to using the decision
+   * as the return value.
    */
-  private askUserReminderInjected = false;
+  private evidenceLedger: EvidenceLedger = new EvidenceLedger();
+  private currentIntent: RunIntent = { kind: 'mixed' };
+  private lastAssistantText = '';
 
   /**
    * G2-5: graph-only items carried across sessions via SessionRepository.
@@ -362,6 +365,25 @@ export class AgentOrchestrator {
     this.resolveProcessPrompt = opts?.resolveProcessPrompt;
     this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
     this.resolveCanvasSettings = opts?.resolveCanvasSettings;
+
+    // Phase C: declarative process-prompt specs. Style-plate-lock is the
+    // only standalone spec so far; adding new specs here (or — Phase F —
+    // via a public registry) is all that's required to wire a new gate.
+    // The spec captures `resolveProcessPrompt` by closure so the predicate
+    // can emit a non-empty content body; if the host didn't provide one,
+    // the spec returns '' and `evaluateProcessPromptSpecs` filters it out.
+    this.processPromptSpecs = [
+      createStylePlateLockSpec({
+        resolvePromptText: (key) => {
+          if (!this.resolveProcessPrompt) return null;
+          // resolveProcessPrompt is typed against ProcessCategory, but its
+          // IPC implementation keys by free-form string (see router.ts).
+          // Cast is safe for standalone keys whose presence in the store
+          // is asserted by STANDALONE_SPEC_KEYS.
+          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
+        },
+      }),
+    ];
 
     this.contextManager = new ContextManager(adapter, resolvePrompt);
     this.toolExecutor = new ToolExecutor(tools);
@@ -524,7 +546,18 @@ export class AgentOrchestrator {
 
     this.activeProcessPromptSteps.clear();
     this.lastAskUserAnsweredStep = null;
-    this.askUserReminderInjected = false;
+
+    // Phase B — reset exit-contract shadow state and classify intent
+    // once at the start of the run.
+    this.evidenceLedger = new EvidenceLedger();
+    this.currentIntent = classifyIntent({
+      userMessage,
+      canvasHasNodes: Array.isArray((context.extra as { canvasNodes?: unknown[] } | undefined)?.canvasNodes)
+        ? ((context.extra as { canvasNodes?: unknown[] }).canvasNodes!.length > 0)
+        : undefined,
+    });
+    this.lastAssistantText = '';
+
     this.activateInitialProcessPrompts(messages, context);
     this.activeMessages = messages;
 
@@ -732,37 +765,32 @@ export class AgentOrchestrator {
 
         // No tool calls -- done.
         if (lastResult.toolCalls.length === 0 || lastResult.finishReason !== 'tool_calls') {
-          // askUser-continuation safety net.
-          // If the model just resolved a `commander.askUser` and is now
-          // ending the turn with no follow-up action, inject a one-shot
-          // system reminder and loop. Bounded to ONE injection per
-          // execute() — if the model still won't act, we accept the
-          // early exit.
-          if (
-            this.lastAskUserAnsweredStep !== null
-            && this.lastAskUserAnsweredStep === steps - 1
-            && !this.askUserReminderInjected
-          ) {
-            this.askUserReminderInjected = true;
-            this.lastAskUserAnsweredStep = null;
-            if (lastResult.content && lastResult.content.trim().length > 0) {
-              messages.push({ role: 'assistant', content: lastResult.content });
-            }
-            messages.push({
-              role: 'system',
-              content: [
-                '[[askUser-continuation-reminder]]',
-                'You just answered a `commander.askUser` and produced no follow-up tool call.',
-                'Continue the work: call a concrete mutation tool (canvas.batchCreate, canvas.setSettings, character.create, etc.) that acts on the user\'s answer, OR call workflow.expandIdea / guide.get if you need more grounding first.',
-                'Do not end the turn here unless the user explicitly declined to continue.',
-              ].join('\n'),
-            });
-            continue;
-          }
-
+          // Phase F removed the 04-19 askUser-continuation reminder.
+          // The `ask_user_loop` blocker + Phase F hard enforcement now
+          // carry that semantic — a run that ends on "ask → answer → stop"
+          // with no mutation naturally surfaces as `unsatisfied` with a
+          // `missing_commit` blocker, and execution-intent runs cannot
+          // return `done` silently.
           const finalContent = lastResult.content || (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
-          wrappedEmit({ kind: 'done', content: finalContent });
-          return lastResult;
+          this.lastAssistantText = finalContent;
+
+          // Phase E — compute the exit decision and carry it on both the
+          // dedicated `exit_decision` telemetry event (for the harness)
+          // AND the `done` event (for the renderer, so it can render a
+          // banner without re-correlating by runId).
+          const { decision, intent } = this.computeExitDecision();
+          this.emitExitDecision(wrappedEmit, decision, intent);
+
+          wrappedEmit({
+            kind: 'done',
+            content: finalContent,
+            exitDecision: decision as CommanderExitDecisionPayload,
+            exitIntent: intent as CommanderIntentPayload,
+          });
+          // Phase F — the ExitDecision is the authoritative outcome. Callers
+          // that want to hard-enforce (e.g. harness, E2E tests, UI banners
+          // on retry flows) read it here instead of re-parsing the stream.
+          return { ...lastResult, exitDecision: decision, exitIntent: intent };
         }
 
         // Pre-flight process-prompt injection.
@@ -783,11 +811,12 @@ export class AgentOrchestrator {
         // a generation tool on a canvas whose stylePlate is empty.
         // Injected ahead of the regular preflight so both can defer in
         // the same turn.
-        const stylePlatePrimed = this.primeStylePlateLockIfNeeded(
+        const primedSpecKeys = this.primeProcessPromptSpecs(
           messages,
           lastResult.toolCalls,
           canvasId,
           steps,
+          wrappedEmit,
         );
         const deferredCategories = this.primeProcessPromptsForToolCalls(
           messages,
@@ -795,7 +824,9 @@ export class AgentOrchestrator {
           steps,
         );
         const deferredLabels: string[] = [
-          ...(stylePlatePrimed ? [getProcessPromptDisplayName('style-plate-lock')] : []),
+          ...primedSpecKeys.map((key) =>
+            getStandaloneDisplayName(key, this.processPromptSpecs),
+          ),
           ...deferredCategories.map((key) => getProcessCategoryName(key)),
         ];
         if (deferredLabels.length > 0) {
@@ -843,6 +874,11 @@ export class AgentOrchestrator {
           wrappedEmit({ kind: 'done', content: 'Cancelled.' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
         }
+
+        // Phase B — record typed evidence for each tool call that just
+        // completed. Pulls from the freshly-appended tool-result messages
+        // (role=tool) since `executeToolCalls` wrote them in order.
+        this.recordEvidenceForStep(messages, lastResult.toolCalls, wrappedEmit);
 
         // Track the most recent `commander.askUser` resolution. The
         // askUser-continuation safety net in the next iteration uses this
@@ -970,13 +1006,29 @@ export class AgentOrchestrator {
       // Reached maxSteps
       const pendingToolCalls = lastResult.toolCalls.length;
       const limitMsg = pendingToolCalls > 0
-        ? `\u26A0\uFE0F Reached the step limit (${this.maxSteps} steps). ${pendingToolCalls} pending tool call(s) were not executed. You can increase "Max Steps" in Settings \u2192 Commander, or send a follow-up message to continue.`
-        : `Reached the step limit (${this.maxSteps} steps). You can increase "Max Steps" in Settings \u2192 Commander if needed.`;
+        ? `⚠️ Reached the step limit (${this.maxSteps} steps). ${pendingToolCalls} pending tool call(s) were not executed. You can increase "Max Steps" in Settings → Commander, or send a follow-up message to continue.`
+        : `Reached the step limit (${this.maxSteps} steps). You can increase "Max Steps" in Settings → Commander if needed.`;
       const finalContent = lastResult.content
         ? `${lastResult.content}\n\n${limitMsg}`
         : limitMsg;
-      wrappedEmit({ kind: 'done', content: finalContent });
-      return lastResult;
+      this.lastAssistantText = finalContent;
+      // Phase F — hard enforcement: append a `budget_exhausted` evidence
+      // so `decide()` returns the `budget_exhausted` outcome with full
+      // precedence, regardless of intent or other ledger state. The
+      // engine's precedence rules take care of the rest.
+      this.appendEvidence(
+        { kind: 'budget_exhausted', metric: 'steps', at: Date.now() },
+        wrappedEmit,
+      );
+      const { decision, intent } = this.computeExitDecision();
+      this.emitExitDecision(wrappedEmit, decision, intent);
+      wrappedEmit({
+        kind: 'done',
+        content: finalContent,
+        exitDecision: decision as CommanderExitDecisionPayload,
+        exitIntent: intent as CommanderIntentPayload,
+      });
+      return { ...lastResult, exitDecision: decision, exitIntent: intent };
     } finally {
       // G2-5: snapshot the final graph BEFORE clearing so
       // `getSerializedContextGraph()` remains callable after execute() returns.
@@ -1254,55 +1306,91 @@ export class AgentOrchestrator {
    * on subsequent turns (prevents double-injection).
    */
   /**
-   * Pre-flight style-plate-lock injection.
+   * Pre-flight evaluation of the declarative process-prompt specs.
    *
-   * Fires once per session, the first time the model is about to invoke a
-   * generation tool (canvas.generate, {character|location|equipment}.generateRefImage,
-   * or a canvas.batchCreate/addNode whose payload creates an image/video/backdrop
-   * node) against a canvas whose `settings.stylePlate` is empty.
+   * Walks `this.processPromptSpecs` and for each spec whose predicate
+   * fires AND whose content resolves non-empty, injects a system message
+   * and records `process_prompt_activated` evidence. Idempotent: a key
+   * already in `activeProcessPromptSteps` is skipped, matching the
+   * session-wide dedup the pre-Phase-C method provided.
    *
-   * Returns `true` if the prompt was injected this call (caller should
-   * defer the assistant turn so the model re-plans with the guide in
-   * context), `false` otherwise.
-   *
-   * Gated behind `resolveCanvasSettings` — if the main process didn't wire
-   * it, this method is a no-op and behaviour matches pre-04-19 code.
+   * Returns the list of keys freshly primed this call. The caller uses
+   * it to decide whether to defer the assistant turn (so the model
+   * re-plans with the guidance in context) and to render a UI label.
    */
-  private primeStylePlateLockIfNeeded(
+  private primeProcessPromptSpecs(
     messages: LLMMessage[],
     toolCalls: ReadonlyArray<LLMToolCall>,
     canvasId: string | undefined,
     step: number,
-  ): boolean {
-    if (!this.resolveProcessPrompt) return false;
-    if (!this.resolveCanvasSettings) return false;
-    if (!canvasId) return false;
-    if (toolCalls.length === 0) return false;
-    if (this.activeProcessPromptSteps.has('style-plate-lock')) return false;
+    emit: StreamEmit,
+  ): Array<Exclude<ProcessPromptKey, ProcessCategory>> {
+    if (!this.resolveProcessPrompt) return [];
+    if (this.processPromptSpecs.length === 0) return [];
 
-    if (!toolCalls.some((tc) => isGenerationTool(tc.name, tc.arguments))) return false;
-
-    const settings = this.resolveCanvasSettings(canvasId);
-    const plateUnset = !settings?.stylePlate || settings.stylePlate.trim() === '';
-    if (!plateUnset) return false;
-
-    if (messages.some((message) => this.isProcessPromptMessage(message, 'style-plate-lock'))) {
-      this.activeProcessPromptSteps.set('style-plate-lock', step);
-      return false;
+    const alreadyActivated = new Set<string>();
+    for (const [key] of this.activeProcessPromptSteps) alreadyActivated.add(key);
+    // Messages may already carry a prior-turn copy of the spec prompt
+    // (e.g. mid-run resume). Treat those as "already activated" so we
+    // don't double-inject.
+    for (const spec of this.processPromptSpecs) {
+      if (messages.some((m) => this.isProcessPromptMessage(m, spec.key as ProcessPromptKey))) {
+        alreadyActivated.add(spec.key);
+        this.activeProcessPromptSteps.set(spec.key as ProcessPromptKey, step);
+      }
     }
 
-    // resolveProcessPrompt is typed against ProcessCategory, but its IPC
-    // implementation keys by free-form string (see router.ts:110). Cast is
-    // safe for the standalone keys registered in STANDALONE_PROCESS_PROMPT_KEYS.
-    const prompt = this.resolveProcessPrompt('style-plate-lock' as ProcessCategory);
-    if (!prompt?.trim()) return false;
+    const result = evaluateProcessPromptSpecs(
+      this.processPromptSpecs,
+      {
+        canvasId,
+        pendingToolCalls: toolCalls.map((tc) => ({
+          name: tc.name,
+          arguments: tc.arguments,
+        })),
+        canvasSettings: canvasId && this.resolveCanvasSettings
+          ? this.resolveCanvasSettings(canvasId) ?? undefined
+          : undefined,
+        ledger: this.evidenceLedger.entries(),
+        step,
+      },
+      alreadyActivated,
+    );
 
-    this.activeProcessPromptSteps.set('style-plate-lock', step);
-    messages.push({
-      role: 'system',
-      content: this.buildProcessPromptMessage('style-plate-lock', prompt.trim()),
-    });
-    return true;
+    // Phase D: emit one `preflight_decision` per spec per evaluation —
+    // activated OR skipped — so the study harness can histogram both
+    // sides. Skipped = (predicate false | already-activated | empty content).
+    const activatedKeys = new Set(result.activated.map((a) => a.spec.key));
+    const toolCallNames = toolCalls.map((tc) => tc.name).join(' ');
+    for (const spec of this.processPromptSpecs) {
+      emit({
+        kind: 'preflight_decision',
+        decision: activatedKeys.has(spec.key) ? 'activated' : 'skipped',
+        specKey: spec.key,
+        toolCall: toolCallNames,
+      });
+    }
+
+    const primed: Array<Exclude<ProcessPromptKey, ProcessCategory>> = [];
+    for (const { spec, content } of result.activated) {
+      const key = spec.key as Exclude<ProcessPromptKey, ProcessCategory>;
+      this.activeProcessPromptSteps.set(key as ProcessPromptKey, step);
+      messages.push({
+        role: 'system',
+        content: this.buildProcessPromptMessage(key as ProcessPromptKey, content),
+      });
+      this.appendEvidence(
+        {
+          kind: 'process_prompt_activated',
+          key: spec.key,
+          reason: `spec-predicate-fired@step-${step}`,
+          at: Date.now(),
+        },
+        emit,
+      );
+      primed.push(key);
+    }
+    return primed;
   }
 
   private primeProcessPromptsForToolCalls(
@@ -1351,7 +1439,7 @@ export class AgentOrchestrator {
       // resolveProcessPrompt is typed as (ProcessCategory) but the IPC
       // implementation keys by free-form string — see `router.ts:110`. The
       // cast is safe for standalone keys whose presence in the store is
-      // asserted by STANDALONE_PROCESS_PROMPT_KEYS.
+      // asserted by STANDALONE_SPEC_KEYS.
       const prompt = this.resolveProcessPrompt(entry as ProcessCategory);
       if (!prompt?.trim()) continue;
       this.activeProcessPromptSteps.set(entry, 0);
@@ -1409,7 +1497,10 @@ export class AgentOrchestrator {
   }
 
   private buildProcessPromptMessage(processKey: ProcessPromptKey, prompt: string): string {
-    return `[[process-prompt:${processKey}]]\n[Process Guide: ${getProcessPromptDisplayName(processKey)}]\n${prompt}`;
+    const displayName = isProcessCategory(processKey)
+      ? getProcessCategoryName(processKey)
+      : getStandaloneDisplayName(processKey, this.processPromptSpecs);
+    return `[[process-prompt:${processKey}]]\n[Process Guide: ${displayName}]\n${prompt}`;
   }
 
   private isProcessPromptMessage(message: LLMMessage, processKey: ProcessPromptKey): boolean {
@@ -1692,6 +1783,203 @@ export class AgentOrchestrator {
       if (`${mk.toolCallId}|${kCallName}|${kParamsHash}` === base) n++;
     }
     return `${base}#${n}`;
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // Phase B — Exit Contract shadow helpers
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Record typed evidence for the tool calls that completed in the
+   * current step. We read tool results from the `messages` array (where
+   * ToolExecutor wrote them) to distinguish `mutation_commit` from
+   * `validation_error`.
+   *
+   * Also records:
+   *  - `ask_user_asked` on commander.askUser calls (the answer is
+   *    recorded later, at the top of the next iteration, when
+   *    `lastAskUserAnsweredStep` flips)
+   *  - `guide_loaded` on guide.get successful returns
+   *  - `settings_write` on canvas.setSettings (canvas ref image / plate)
+   *  - `generation_started` on canvas.generate / *.generateRefImage
+   *
+   * Each recorded evidence also gets a mirror `evidence_appended` stream
+   * event so the harness and renderer see it in real time.
+   */
+  private recordEvidenceForStep(
+    messages: readonly LLMMessage[],
+    toolCalls: readonly LLMToolCall[],
+    emit: StreamEmit,
+  ): void {
+    const now = Date.now();
+    // Build an id→result-json map from the tail of `messages` (all
+    // tool-role messages for this step were appended by ToolExecutor).
+    const resultById = new Map<string, string>();
+    for (let i = messages.length - 1; i >= 0 && i >= messages.length - toolCalls.length * 2; i--) {
+      const m = messages[i];
+      if (m.role !== 'tool' || !m.toolCallId) continue;
+      resultById.set(m.toolCallId, m.content);
+    }
+
+    for (const tc of toolCalls) {
+      if (tc.name === 'commander.askUser') {
+        const rawArgs = tc.arguments as { question?: unknown } | null;
+        const question = typeof rawArgs?.question === 'string' ? rawArgs.question : '';
+        this.appendEvidence({ kind: 'ask_user_asked', question, at: now }, emit);
+        continue;
+      }
+
+      const rawResult = resultById.get(tc.id) ?? '';
+      let parsed: unknown;
+      try { parsed = JSON.parse(rawResult); } catch { parsed = null; }
+      const ok = this.isToolResultOk(parsed);
+      const errorText = this.extractToolResultError(parsed);
+
+      if (!ok && errorText) {
+        this.appendEvidence({ kind: 'validation_error', toolName: tc.name, errorText, at: now }, emit);
+        continue;
+      }
+
+      // Non-meta successful calls are mutation candidates. We filter out
+      // pure reads (tool.*, guide.*, canvas.getState, canvas.listNodes,
+      // canvas.getNode, *.list) since those can't satisfy a contract.
+      if (ok && !this.isReadOnlyTool(tc.name)) {
+        this.appendEvidence({ kind: 'mutation_commit', toolName: tc.name, args: tc.arguments, resultOk: true, at: now }, emit);
+      }
+
+      // Side-effects for specific tools — surface them as their own
+      // evidence so contracts can write more expressive success signals
+      // later.
+      if (ok && tc.name === 'guide.get') {
+        const guideId = this.extractGuideId(parsed);
+        if (guideId) {
+          this.appendEvidence({ kind: 'guide_loaded', guideId, at: now }, emit);
+        }
+      }
+      if (ok && tc.name === 'canvas.setSettings') {
+        const rawArgs = tc.arguments as { canvasId?: unknown; settings?: unknown } | null;
+        const canvasId = typeof rawArgs?.canvasId === 'string' ? rawArgs.canvasId : '';
+        const keys = rawArgs?.settings && typeof rawArgs.settings === 'object'
+          ? Object.keys(rawArgs.settings as Record<string, unknown>)
+          : [];
+        this.appendEvidence({ kind: 'settings_write', canvasId, keys, at: now }, emit);
+      }
+      if (ok && (tc.name === 'canvas.generate' || /\.generateRefImage$/.test(tc.name))) {
+        const rawArgs = tc.arguments as { nodeId?: unknown } | null;
+        const nodeId = typeof rawArgs?.nodeId === 'string' ? rawArgs.nodeId : 'unknown';
+        this.appendEvidence({ kind: 'generation_started', nodeId, at: now }, emit);
+      }
+    }
+
+    // When the step resolved a `commander.askUser`, the previous step's
+    // ask is now answered. Record the answer text from the tool result
+    // (the answer string the user picked lives in the stringified JSON).
+    if (this.lastAskUserAnsweredStep !== null) {
+      // The answer was just written to `messages` by ToolExecutor. We
+      // pull it out of the most recent tool-role message whose call
+      // name was `commander.askUser`.
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.role !== 'tool' || !m.toolCallId) continue;
+        const call = this.findToolCallById(messages, m.toolCallId);
+        if (!call || call.name !== 'commander.askUser') continue;
+        this.appendEvidence({ kind: 'ask_user_answered', answer: m.content, at: now }, emit);
+        break;
+      }
+    }
+  }
+
+  private appendEvidence(evidence: CommanderEvidencePayload, emit: StreamEmit): void {
+    // Cast is safe: the contracts-side payload is a structural copy of
+    // the application-side CompletionEvidence union; Phase D will make
+    // them share a single declaration.
+    this.evidenceLedger.record(evidence as Parameters<EvidenceLedger['record']>[0]);
+    emit({ kind: 'evidence_appended', evidence });
+  }
+
+  private computeExitDecision(): {
+    decision: ExitDecision;
+    intent: RunIntent;
+  } {
+    // Phase C wires the real registry. `select(intent)` picks the workflow
+    // contract when the classifier named one; otherwise it returns the
+    // `info-answer` fallback. Execution-intent runs that fail to match a
+    // workflow intentionally fall through to `unsatisfied` with a
+    // `missing_commit` blocker — that's the signal we want surfaced.
+    const contract = contractRegistry.select(this.currentIntent);
+    const decision: ExitDecision = decide({
+      contract,
+      intent: this.currentIntent,
+      ledger: this.evidenceLedger.entries(),
+      lastAssistantText: this.lastAssistantText,
+    });
+    return { decision, intent: this.currentIntent };
+  }
+
+  private emitExitDecision(
+    emit: StreamEmit,
+    decision: ExitDecision,
+    intent: RunIntent,
+  ): void {
+    emit({
+      kind: 'exit_decision',
+      decision: decision as CommanderExitDecisionPayload,
+      intent: intent as CommanderIntentPayload,
+    });
+  }
+
+  // Narrow tool-result-is-ok check. Our result shape is
+  // `{ success: boolean, data? | error?, errorClass? }`. Anything else
+  // (non-JSON, different shape) is treated as OK so read tools like
+  // `canvas.getState` still count as success.
+  private isToolResultOk(parsed: unknown): boolean {
+    if (parsed === null || typeof parsed !== 'object') return true;
+    const obj = parsed as { success?: unknown };
+    if (typeof obj.success !== 'boolean') return true;
+    return obj.success;
+  }
+
+  private extractToolResultError(parsed: unknown): string | null {
+    if (parsed === null || typeof parsed !== 'object') return null;
+    const obj = parsed as { success?: unknown; error?: unknown };
+    if (obj.success !== false) return null;
+    return typeof obj.error === 'string' ? obj.error : null;
+  }
+
+  private extractGuideId(parsed: unknown): string | null {
+    if (parsed === null || typeof parsed !== 'object') return null;
+    const obj = parsed as { data?: unknown };
+    const data = obj.data;
+    if (Array.isArray(data)) {
+      const first = data[0] as { id?: unknown } | undefined;
+      return typeof first?.id === 'string' ? first.id : null;
+    }
+    if (data && typeof data === 'object') {
+      const d = data as { id?: unknown };
+      return typeof d.id === 'string' ? d.id : null;
+    }
+    return null;
+  }
+
+  private isReadOnlyTool(name: string): boolean {
+    if (name === 'tool.get' || name === 'tool.compact') return true;
+    if (name === 'guide.get') return true;
+    if (name === 'logger.list') return true;
+    if (name.endsWith('.list') || name.endsWith('.get') || name.endsWith('.getNode') || name.endsWith('.getState') || name.endsWith('.listNodes') || name.endsWith('.listEdges')) {
+      return true;
+    }
+    return false;
+  }
+
+  private findToolCallById(messages: readonly LLMMessage[], id: string): { name: string } | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === 'assistant' && Array.isArray(m.toolCalls)) {
+        const found = m.toolCalls.find((tc) => tc.id === id);
+        if (found) return { name: found.name };
+      }
+    }
+    return null;
   }
 }
 

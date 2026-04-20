@@ -200,7 +200,24 @@ export type CommanderStreamEvent =
       note: 'process_prompt_loaded' | 'compacted' | 'llm_retry';
       detail: string;
     } & CommanderStreamCommon)
-  | ({ kind: 'done'; content: string } & CommanderStreamCommon)
+  | ({
+      kind: 'done';
+      content: string;
+      /**
+       * Phase E: terminal ExitDecision for this run. Always present for
+       * runs that reach a natural end (model stopped, no more tool calls).
+       * Absent only for `error` terminations — those emit `kind: 'error'`
+       * separately and do not produce a `done`.
+       *
+       * Consumers can render the decision as a product-level banner
+       * (e.g. "unsatisfied: missing_commit") while still using `content`
+       * as the final text payload. The Phase B shadow `exit_decision`
+       * event continues to fire alongside for richer telemetry, but the
+       * UI's terminal rendering reads the decision from `done`.
+       */
+      exitDecision?: CommanderExitDecisionPayload;
+      exitIntent?: CommanderIntentPayload;
+    } & CommanderStreamCommon)
   | ({
       kind: 'error';
       toolCallId?: string;
@@ -220,7 +237,76 @@ export type CommanderStreamEvent =
       cacheEntryCount: number;
       historyMessagesTrimmed?: number;
       utilizationRatio: number;
+    } & CommanderStreamCommon)
+  // ── Exit Contract Architecture events (Phase B shadow) ───────
+  // Emitted additively alongside existing events. The shadow-mode
+  // contract defines these as observable telemetry; the renderer
+  // and IPC consumers can ignore them without breakage.
+  | ({
+      kind: 'evidence_appended';
+      evidence: CommanderEvidencePayload;
+    } & CommanderStreamCommon)
+  | ({
+      kind: 'exit_decision';
+      decision: CommanderExitDecisionPayload;
+      intent: CommanderIntentPayload;
+    } & CommanderStreamCommon)
+  // ── Process-prompt preflight telemetry (Phase D) ─────────────
+  // Emitted once per ProcessPromptSpec per preflight evaluation. Gives
+  // observability for "why did (or didn't) the gate fire" — the study
+  // harness' report histograms `activated` vs `skipped` per spec key.
+  | ({
+      kind: 'preflight_decision';
+      decision: 'activated' | 'skipped';
+      specKey: string;
+      /**
+       * Space-separated list of pending tool call names that triggered this
+       * evaluation. Empty string when no tool calls were pending (shouldn't
+       * happen for the current spec set, but left permissive for future
+       * specs that evaluate independently of tool calls).
+       */
+      toolCall: string;
     } & CommanderStreamCommon);
+
+/**
+ * Serialisable intent, evidence, and decision shapes for the stream
+ * wire. These mirror the in-process types in
+ * `@lucid-fin/application/agent/exit-contract` by shape. Contracts
+ * must not import application (reverse dependency), so we duplicate
+ * the plain data and keep them in sync. Phase D+ introduces a
+ * codegen/lint check to prevent drift.
+ */
+export type CommanderIntentPayload =
+  | { kind: 'informational' }
+  | { kind: 'browse' }
+  | { kind: 'execution'; workflow?: string }
+  | { kind: 'mixed'; workflow?: string };
+
+export type CommanderEvidencePayload =
+  | { kind: 'guide_loaded'; guideId: string; at: number }
+  | { kind: 'ask_user_asked'; question: string; at: number }
+  | { kind: 'ask_user_answered'; answer: string; at: number }
+  | { kind: 'mutation_commit'; toolName: string; args: unknown; resultOk: boolean; at: number }
+  | { kind: 'validation_error'; toolName: string; errorText: string; at: number }
+  | { kind: 'process_prompt_activated'; key: string; reason: string; at: number }
+  | { kind: 'generation_started'; nodeId: string; at: number }
+  | { kind: 'settings_write'; canvasId: string; keys: string[]; at: number }
+  | { kind: 'user_refused'; message: string; at: number }
+  | { kind: 'budget_exhausted'; metric: 'steps' | 'tokens'; at: number };
+
+export type CommanderBlockerPayload =
+  | { kind: 'missing_commit'; expected: string[]; lastTool?: string }
+  | { kind: 'ask_user_loop'; askCount: number; limit: number }
+  | { kind: 'empty_narration'; lastAssistantText: string };
+
+export type CommanderExitDecisionPayload =
+  | { outcome: 'satisfied'; contractId: string; evidenceSummary: string }
+  | { outcome: 'informational_answered'; reason: string }
+  | { outcome: 'blocked_waiting_user'; question: string }
+  | { outcome: 'refused'; reason: string }
+  | { outcome: 'budget_exhausted'; metric: 'steps' | 'tokens' }
+  | { outcome: 'unsatisfied'; contractId: string; blocker: CommanderBlockerPayload }
+  | { outcome: 'error'; message: string };
 
 /** Alias emitted at the codegen's expected `<TypeBase>Payload` name. */
 export type CommanderStreamPayload = CommanderStreamEvent;

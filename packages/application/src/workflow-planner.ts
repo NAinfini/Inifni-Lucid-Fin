@@ -256,7 +256,7 @@ export class WorkflowPlanner {
         const cycleStart = path.indexOf(id);
         const cycle = path.slice(cycleStart).concat(id);
         throw new Error(
-          `Circular ${label} dependency: ${cycle.join(' \u2192 ')}`,
+          `Circular ${label} dependency: ${cycle.join(' → ')}`,
         );
       }
       if (visited.has(id)) return;

@@ -200,7 +200,7 @@ export function AssetToolbar({
           onClick={onSortOrderToggle}
           className="inline-flex items-center gap-1 rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
         >
-          {sortOrder === 'asc' ? '\u2191' : '\u2193'}
+          {sortOrder === 'asc' ? '↑' : '↓'}
         </button>
       </div>
     </div>

@@ -130,6 +130,11 @@ export function phaseFromEvent(prev: RunPhase, event: CommanderStreamEvent): Run
       return { kind: 'done' };
     case 'error':
       return { kind: 'failed', error: event.error };
+    // Phase B shadow events — additive telemetry, no phase transition.
+    case 'evidence_appended':
+    case 'exit_decision':
+    case 'preflight_decision':
+      return prev;
     default:
       return assertNever(event, 'phaseFromEvent');
   }

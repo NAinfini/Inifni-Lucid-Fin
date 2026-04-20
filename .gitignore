@@ -26,6 +26,8 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+# Eval harness temp build outputs
+.tmp-js/
 
 # IDE
 .vscode/

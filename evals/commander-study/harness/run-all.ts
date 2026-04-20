@@ -17,7 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { buildPersonas } from './personas.js';
-import { getCodexPlus, getCodexTeam, type CodexProviderSpec } from './provider-config.js';
+import { getCodexPlus, getCodexTeam, getHiCode, type CodexProviderSpec } from './provider-config.js';
 import type { SessionResult } from './run-single.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,6 +31,7 @@ interface Args {
   maxSteps: number;
   maxPromptTokens: number;
   teamIfWorking: boolean;
+  provider?: 'plus' | 'team' | 'hi-code' | 'all';
 }
 
 function parseArgs(): Args {
@@ -52,15 +53,33 @@ function parseArgs(): Args {
     if (a === '--max-steps' && argv[i + 1]) { args.maxSteps = Number(argv[++i]); continue; }
     if (a === '--max-prompt-tokens' && argv[i + 1]) { args.maxPromptTokens = Number(argv[++i]); continue; }
     if (a === '--team-if-working') { args.teamIfWorking = true; continue; }
+    if (a === '--provider' && argv[i + 1]) {
+      const val = argv[++i];
+      if (val !== 'plus' && val !== 'team' && val !== 'hi-code' && val !== 'all') {
+        throw new Error(`--provider must be one of: plus, team, hi-code, all. Got: ${val}`);
+      }
+      args.provider = val;
+      continue;
+    }
   }
   return args;
 }
 
-/** Select providers that actually respond. Team is known-broken right now. */
-function getActiveSpecs(teamIfWorking: boolean): CodexProviderSpec[] {
-  const plus = getCodexPlus();
-  if (!teamIfWorking) return [plus];
-  return [getCodexTeam(), plus];
+/**
+ * Select providers for this run. Priority: --provider flag > --team-if-working > default (Plus only).
+ *   plus     → [Codex Plus]
+ *   team     → [Codex Team] (often broken; use at your own risk)
+ *   hi-code  → [Hi code]
+ *   all      → [Codex Team, Codex Plus, Hi code] round-robin
+ *   default  → [Codex Plus] for baseline parity
+ */
+function getActiveSpecs(args: Args): CodexProviderSpec[] {
+  if (args.provider === 'plus') return [getCodexPlus()];
+  if (args.provider === 'team') return [getCodexTeam()];
+  if (args.provider === 'hi-code') return [getHiCode()];
+  if (args.provider === 'all') return [getCodexTeam(), getCodexPlus(), getHiCode()];
+  if (args.teamIfWorking) return [getCodexTeam(), getCodexPlus()];
+  return [getCodexPlus()];
 }
 
 async function main() {
@@ -73,7 +92,7 @@ async function main() {
     ? [allPersonas[args.persona]].filter(Boolean)
     : allPersonas.slice(0, args.count);
 
-  const specs = getActiveSpecs(args.teamIfWorking);
+  const specs = getActiveSpecs(args);
   console.log(`Providers in rotation: ${specs.map((s) => s.name).join(', ')}`);
 
   // Lazy import so the electron shim is registered before desktop-main loads.
@@ -132,6 +151,9 @@ async function main() {
           stylePlateLocked: false,
           promptGuidesLoadedViaGuideGet: [],
           processPromptsInjected: [],
+          preflightDecisions: [],
+          evidenceLedger: [],
+          exitDecision: null,
           logFile: '(no log)',
           ms: Date.now() - t0,
         };

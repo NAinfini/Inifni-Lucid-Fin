@@ -48,6 +48,7 @@ import type { CommanderStreamEvent } from '../../commander/transport/CommanderTr
 import type { RunPhase } from '../../commander/state/run-phase.js';
 import type {
   CommanderBackendContextUsage,
+  CommanderExitDecisionMeta,
   CommanderMessage,
   CommanderSession,
   CommanderState,
@@ -293,8 +294,24 @@ export const commanderSlice = createSlice({
         seg.toolCall.completedAt = toolCall.completedAt;
       }
     },
-    finishStreaming(state, action: PayloadAction<string | undefined>) {
-      finalizeCurrentRunMessage(state, 'completed', action.payload);
+    finishStreaming(
+      state,
+      action: PayloadAction<
+        | string
+        | undefined
+        | { content?: string; exitDecision?: CommanderExitDecisionMeta }
+      >,
+    ) {
+      const payload = action.payload;
+      const content =
+        typeof payload === 'string'
+          ? payload
+          : payload?.content;
+      const exitDecision =
+        typeof payload === 'object' && payload !== null
+          ? payload.exitDecision
+          : undefined;
+      finalizeCurrentRunMessage(state, 'completed', content, undefined, exitDecision);
       // Commit injected user messages (sent during streaming) in correct chronological order
       for (const msg of state.pendingInjectedMessages) {
         state.messages.push({

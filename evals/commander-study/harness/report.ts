@@ -21,6 +21,14 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   const guideGetAll: Record<string, number> = {};
   const processAll: Record<string, number> = {};
   const errorsByType: Record<string, number> = {};
+  // Phase D: contract + preflight aggregates.
+  const contractOutcomeAll: Record<string, number> = {};
+  const contractOutcomeByArchetype: Record<string, Record<string, number>> = {};
+  const preflightByKey: Record<string, { activated: number; skipped: number }> = {};
+  // Phase E: product-satisfaction aggregates.
+  let productSatisfiedTotal = 0;
+  const productSatisfiedByArchetype: Record<string, { satisfied: number; total: number }> = {};
+  const blockerHistogram: Record<string, number> = {};
   let totalSteps = 0;
   let totalAskUser = 0;
   let totalAskUserFallbacks = 0;
@@ -35,6 +43,29 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
     for (const [k, v] of Object.entries(r.toolCallCounts)) allToolCounts[k] = (allToolCounts[k] ?? 0) + v;
     for (const k of r.promptGuidesLoadedViaGuideGet) guideGetAll[k] = (guideGetAll[k] ?? 0) + 1;
     for (const k of r.processPromptsInjected) processAll[k] = (processAll[k] ?? 0) + 1;
+    // Contract outcomes — one verdict per session, bucketed by outcome kind.
+    if (r.exitDecision?.outcome) {
+      const o = r.exitDecision.outcome;
+      contractOutcomeAll[o] = (contractOutcomeAll[o] ?? 0) + 1;
+      contractOutcomeByArchetype[r.archetype] ??= {};
+      contractOutcomeByArchetype[r.archetype][o] =
+        (contractOutcomeByArchetype[r.archetype][o] ?? 0) + 1;
+    }
+    // Preflight histogram per spec key.
+    for (const pd of r.preflightDecisions ?? []) {
+      preflightByKey[pd.specKey] ??= { activated: 0, skipped: 0 };
+      preflightByKey[pd.specKey][pd.decision] += 1;
+    }
+    // Phase E — product satisfaction (uses derived fields).
+    productSatisfiedByArchetype[r.archetype] ??= { satisfied: 0, total: 0 };
+    productSatisfiedByArchetype[r.archetype].total += 1;
+    if (r.contractSatisfied) {
+      productSatisfiedTotal += 1;
+      productSatisfiedByArchetype[r.archetype].satisfied += 1;
+    }
+    if (r.blocker) {
+      blockerHistogram[r.blocker] = (blockerHistogram[r.blocker] ?? 0) + 1;
+    }
     totalSteps += r.steps;
     totalAskUser += r.askUserCount;
     totalAskUserFallbacks += r.askUserFallbacksUsed;
@@ -80,6 +111,7 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('');
   lines.push('| metric | value |');
   lines.push('|---|---|');
+  lines.push(`| **product satisfied %** (Phase E target: ≥70%) | **${productSatisfiedTotal} / ${n} (${pct(productSatisfiedTotal, n)})** |`);
   lines.push(`| avg steps per session | ${(totalSteps / Math.max(1, n)).toFixed(1)} |`);
   lines.push(`| avg canvas nodes at end | ${(totalNodes / Math.max(1, n)).toFixed(1)} |`);
   lines.push(`| sessions with stylePlate locked | ${plateLocked} / ${n} (${pct(plateLocked, n)}) |`);
@@ -87,6 +119,29 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push(`| askUser fallback rate (no scripted reply left) | ${pct(totalAskUserFallbacks, Math.max(1, totalAskUser))} |`);
   lines.push(`| avg estimated prompt tokens peak | ${Math.round(totalPromptTokens / Math.max(1, n))} |`);
   lines.push('');
+  // Phase E — product satisfaction (headline breakdown).
+  lines.push('## Product satisfaction (Phase E)');
+  lines.push('');
+  lines.push('`contractSatisfied` is true when `exitDecision.outcome ∈ {satisfied, informational_answered}`.');
+  lines.push('');
+  lines.push('| archetype | satisfied | total | rate |');
+  lines.push('|---|---|---|---|');
+  for (const [arch, counts] of Object.entries(productSatisfiedByArchetype).sort(
+    (a, b) => b[1].total - a[1].total,
+  )) {
+    lines.push(`| ${arch} | ${counts.satisfied} | ${counts.total} | ${pct(counts.satisfied, counts.total)} |`);
+  }
+  lines.push('');
+  if (Object.keys(blockerHistogram).length > 0) {
+    lines.push('### Blockers (only for `unsatisfied` verdicts)');
+    lines.push('');
+    lines.push('| blocker kind | sessions |');
+    lines.push('|---|---|');
+    for (const [k, v] of Object.entries(blockerHistogram).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${k} | ${v} |`);
+    }
+    lines.push('');
+  }
   lines.push('## Tool call frequency (top 40, mocked tools flagged)');
   lines.push('');
   lines.push('| tool | calls | mocked? |');
@@ -116,6 +171,48 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
     lines.push('|---|---|');
     for (const [k, v] of Object.entries(processAll).sort((a, b) => b[1] - a[1])) {
       lines.push(`| ${k} | ${v} |`);
+    }
+  }
+  lines.push('');
+  // Phase D — contract outcomes
+  lines.push('## Contract outcomes');
+  lines.push('');
+  if (Object.keys(contractOutcomeAll).length === 0) {
+    lines.push('_(No `exit_decision` events captured. Either the harness ran on a pre-Phase-B build, or every session aborted before a terminal `done` could fire.)_');
+  } else {
+    lines.push('| outcome | sessions | % |');
+    lines.push('|---|---|---|');
+    for (const [k, v] of Object.entries(contractOutcomeAll).sort((a, b) => b[1] - a[1])) {
+      lines.push(`| ${k} | ${v} | ${pct(v, n)} |`);
+    }
+    lines.push('');
+    lines.push('### Contract outcomes × archetype');
+    lines.push('');
+    const outcomeKeys = Object.keys(contractOutcomeAll);
+    lines.push(`| archetype | ${outcomeKeys.join(' | ')} |`);
+    lines.push(`|---|${outcomeKeys.map(() => '---').join('|')}|`);
+    for (const [arch, counts] of Object.entries(contractOutcomeByArchetype)) {
+      lines.push(
+        `| ${arch} | ${outcomeKeys.map((k) => counts[k] ?? 0).join(' | ')} |`,
+      );
+    }
+  }
+  lines.push('');
+  // Phase D — process-prompt preflight activations
+  lines.push('## Process-prompt activations (spec preflight histogram)');
+  lines.push('');
+  if (Object.keys(preflightByKey).length === 0) {
+    lines.push('_(No `preflight_decision` events captured. Either the orchestrator did not evaluate any spec this run, or the harness is missing the listener.)_');
+  } else {
+    lines.push('| specKey | activated | skipped | activation rate |');
+    lines.push('|---|---|---|---|');
+    for (const [k, counts] of Object.entries(preflightByKey).sort(
+      (a, b) => b[1].activated + b[1].skipped - (a[1].activated + a[1].skipped),
+    )) {
+      const total = counts.activated + counts.skipped;
+      lines.push(
+        `| ${k} | ${counts.activated} | ${counts.skipped} | ${pct(counts.activated, total)} |`,
+      );
     }
   }
   lines.push('');

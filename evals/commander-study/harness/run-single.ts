@@ -22,8 +22,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import {
-  AgentOrchestrator,
   AgentToolRegistry,
+  createAgentOrchestratorForRun,
   type AgentContext,
   type StampedStreamEvent,
 } from '@lucid-fin/application';
@@ -60,7 +60,46 @@ export interface SessionResult {
   finalEdgeCount: number;
   stylePlateLocked: boolean;
   promptGuidesLoadedViaGuideGet: string[];
+  /**
+   * Phase D: now authoritative. Populated from the
+   * `evidence_appended` stream event filtered on
+   * `evidence.kind === 'process_prompt_activated'`. The pre-Phase-D
+   * grep-based heuristic (`process_prompt_injected` / `process_prompts_primed`
+   * events) was a dead listener — the orchestrator never emitted those.
+   */
   processPromptsInjected: string[];
+  /** Phase D: per-spec preflight outcomes — `{ specKey, decision, step }`. */
+  preflightDecisions: Array<{
+    specKey: string;
+    decision: 'activated' | 'skipped';
+    step: number;
+  }>;
+  /** Phase D: full typed evidence ledger for post-hoc study analysis. */
+  evidenceLedger: Array<{ kind: string; at: number; [k: string]: unknown }>;
+  /** Phase D: last `exit_decision` emitted before the run terminated, or null. */
+  exitDecision:
+    | {
+        outcome: string;
+        contractId?: string;
+        reason?: string;
+        blocker?: unknown;
+        [k: string]: unknown;
+      }
+    | null;
+  /**
+   * Phase E: product-satisfaction signal. `true` when `exitDecision.outcome`
+   * is `'satisfied'` or `'informational_answered'`. Drives the 70% headline
+   * in `report.ts`.
+   */
+  contractSatisfied: boolean;
+  /** Phase E: shorthand for `exitDecision?.outcome`, null-safe. */
+  exitOutcome: string | null;
+  /**
+   * Phase E: shorthand for `exitDecision?.blocker?.kind` when outcome is
+   * `'unsatisfied'`. Null otherwise. Used by the report to histogram
+   * blocker reasons per archetype.
+   */
+  blocker: string | null;
   logFile: string;
   ms: number;
 }
@@ -150,18 +189,25 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   }));
   const context: AgentContext = buildContext(canvas, [], [], env.db, promptGuides, processPromptKeys);
 
-  // Orchestrator.
+  // Orchestrator — factory is the only supported construction path (Phase D).
+  // Wiring `canvasStore` here is what the pre-Phase-D harness was missing,
+  // which is why the 04-19 study runs showed `style-plate-lock` never
+  // activating in the harness: without a canvas resolver the predicate has
+  // no settings snapshot to inspect.
   const profile = llmAdapter.profile ?? DEFAULT_PROVIDER_PROFILE;
-  const orchestrator = new AgentOrchestrator(
+  const orchestrator = createAgentOrchestratorForRun({
+    variant: 'study-harness',
     llmAdapter,
-    registry,
-    (code: string) => env.promptStore.resolve(code),
-    {
+    toolRegistry: registry,
+    resolvePrompt: (code: string) => env.promptStore.resolve(code),
+    canvasStore: env.canvasStore,
+    resolveProcessPrompt: (processKey) =>
+      env.processPromptStore.getEffectiveValue(processKey),
+    options: {
       maxSteps,
       profile,
-      resolveProcessPrompt: (processKey) => env.processPromptStore.getEffectiveValue(processKey),
     },
-  );
+  });
 
   // Tracking state.
   const followUpQueue = [...persona.followUps];
@@ -187,6 +233,9 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   let aborted = false;
   const guideGetIds: string[] = [];
   const processPromptsInjected: string[] = [];
+  const preflightDecisions: SessionResult['preflightDecisions'] = [];
+  const evidenceLedger: SessionResult['evidenceLedger'] = [];
+  let exitDecision: SessionResult['exitDecision'] = null;
 
   const emit = (event: StampedStreamEvent) => {
     logEvent({ kind: 'stream', event });
@@ -238,11 +287,36 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
       }
     }
 
-    if (kind === 'process_prompt_injected' || kind === 'process_prompts_primed') {
-      const key = anyEvent.processKey as string | undefined;
-      if (key) processPromptsInjected.push(key);
-      const keys = anyEvent.processKeys as string[] | undefined;
-      if (Array.isArray(keys)) processPromptsInjected.push(...keys);
+    // Phase D: drop the 04-19 dead listeners
+    // (`process_prompt_injected`, `process_prompts_primed`). The
+    // orchestrator never emitted those; they produced silent empty
+    // arrays. The authoritative signal is `evidence_appended` with
+    // `evidence.kind === 'process_prompt_activated'`, handled below.
+
+    if (kind === 'evidence_appended') {
+      const ev = anyEvent.evidence as { kind?: string; [k: string]: unknown } | undefined;
+      if (ev && typeof ev === 'object') {
+        evidenceLedger.push({ ...(ev as { kind: string; at: number }) });
+        if (ev.kind === 'process_prompt_activated') {
+          const key = (ev as { key?: unknown }).key;
+          if (typeof key === 'string') processPromptsInjected.push(key);
+        }
+      }
+    }
+
+    if (kind === 'preflight_decision') {
+      const specKey = anyEvent.specKey as string | undefined;
+      const decision = anyEvent.decision as 'activated' | 'skipped' | undefined;
+      if (specKey && decision) {
+        preflightDecisions.push({ specKey, decision, step });
+      }
+    }
+
+    if (kind === 'exit_decision') {
+      const decisionRaw = anyEvent.decision as SessionResult['exitDecision'] | undefined;
+      if (decisionRaw && typeof decisionRaw === 'object') {
+        exitDecision = decisionRaw;
+      }
     }
 
     if (kind === 'tool_question') {
@@ -298,6 +372,16 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   await env.close();
   logStream.end();
 
+  const exitOutcome =
+    typeof exitDecision?.outcome === 'string' ? exitDecision.outcome : null;
+  const contractSatisfied =
+    exitOutcome === 'satisfied' || exitOutcome === 'informational_answered';
+  const blockerRaw = exitDecision?.blocker;
+  const blocker =
+    blockerRaw && typeof blockerRaw === 'object' && 'kind' in blockerRaw
+      ? String((blockerRaw as { kind?: unknown }).kind ?? '')
+      : null;
+
   return {
     personaIndex: persona.index,
     personaSlug: persona.slug,
@@ -318,6 +402,12 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     stylePlateLocked,
     promptGuidesLoadedViaGuideGet: guideGetIds,
     processPromptsInjected,
+    preflightDecisions,
+    evidenceLedger,
+    exitDecision,
+    contractSatisfied,
+    exitOutcome,
+    blocker,
     logFile,
     ms: Date.now() - started,
   };

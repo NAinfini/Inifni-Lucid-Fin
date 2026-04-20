@@ -275,6 +275,92 @@ const CommanderStreamCommon = {
   step: z.number().int().nonnegative(),
   emittedAt: z.number(),
 };
+
+// ── Exit Contract payloads (Phase B) ─────────────────────────
+// Mirror the TypeScript unions in `packages/contracts/src/ipc/channels/batch-09.ts`.
+// Contracts package is type-only (no zod dep); these runtime schemas are the
+// canonical source and the `z.infer`-derived types match the hand-written types
+// by shape. Phase D+ adds a drift-detection check.
+const CommanderIntentPayload = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('informational') }),
+  z.object({ kind: z.literal('browse') }),
+  z.object({ kind: z.literal('execution'), workflow: z.string().optional() }),
+  z.object({ kind: z.literal('mixed'), workflow: z.string().optional() }),
+]);
+
+const CommanderEvidencePayload = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('guide_loaded'), guideId: z.string(), at: z.number() }),
+  z.object({ kind: z.literal('ask_user_asked'), question: z.string(), at: z.number() }),
+  z.object({ kind: z.literal('ask_user_answered'), answer: z.string(), at: z.number() }),
+  z.object({
+    kind: z.literal('mutation_commit'),
+    toolName: z.string(),
+    args: z.unknown(),
+    resultOk: z.boolean(),
+    at: z.number(),
+  }),
+  z.object({
+    kind: z.literal('validation_error'),
+    toolName: z.string(),
+    errorText: z.string(),
+    at: z.number(),
+  }),
+  z.object({
+    kind: z.literal('process_prompt_activated'),
+    key: z.string(),
+    reason: z.string(),
+    at: z.number(),
+  }),
+  z.object({ kind: z.literal('generation_started'), nodeId: z.string(), at: z.number() }),
+  z.object({
+    kind: z.literal('settings_write'),
+    canvasId: z.string(),
+    keys: z.array(z.string()),
+    at: z.number(),
+  }),
+  z.object({ kind: z.literal('user_refused'), message: z.string(), at: z.number() }),
+  z.object({
+    kind: z.literal('budget_exhausted'),
+    metric: z.enum(['steps', 'tokens']),
+    at: z.number(),
+  }),
+]);
+
+const CommanderBlockerPayload = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('missing_commit'),
+    expected: z.array(z.string()),
+    lastTool: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('ask_user_loop'),
+    askCount: z.number(),
+    limit: z.number(),
+  }),
+  z.object({ kind: z.literal('empty_narration'), lastAssistantText: z.string() }),
+]);
+
+const CommanderExitDecisionPayload = z.discriminatedUnion('outcome', [
+  z.object({
+    outcome: z.literal('satisfied'),
+    contractId: z.string(),
+    evidenceSummary: z.string(),
+  }),
+  z.object({ outcome: z.literal('informational_answered'), reason: z.string() }),
+  z.object({ outcome: z.literal('blocked_waiting_user'), question: z.string() }),
+  z.object({ outcome: z.literal('refused'), reason: z.string() }),
+  z.object({
+    outcome: z.literal('budget_exhausted'),
+    metric: z.enum(['steps', 'tokens']),
+  }),
+  z.object({
+    outcome: z.literal('unsatisfied'),
+    contractId: z.string(),
+    blocker: CommanderBlockerPayload,
+  }),
+  z.object({ outcome: z.literal('error'), message: z.string() }),
+]);
+
 const CommanderStreamPayload = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('chunk'),
@@ -341,6 +427,11 @@ const CommanderStreamPayload = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('done'),
     content: z.string(),
+    // Phase E: terminal ExitDecision payload (+ intent for display) —
+    // optional so that older-emitter runtimes (e.g. pre-Phase-E desktop-main
+    // talking to a newer renderer) still validate.
+    exitDecision: CommanderExitDecisionPayload.optional(),
+    exitIntent: CommanderIntentPayload.optional(),
     ...CommanderStreamCommon,
   }),
   z.object({
@@ -365,6 +456,26 @@ const CommanderStreamPayload = z.discriminatedUnion('kind', [
     utilizationRatio: z.number(),
     ...CommanderStreamCommon,
   }),
+  // ── Exit Contract Architecture events (Phase B shadow) ───────
+  z.object({
+    kind: z.literal('evidence_appended'),
+    evidence: CommanderEvidencePayload,
+    ...CommanderStreamCommon,
+  }),
+  z.object({
+    kind: z.literal('exit_decision'),
+    decision: CommanderExitDecisionPayload,
+    intent: CommanderIntentPayload,
+    ...CommanderStreamCommon,
+  }),
+  // ── Process-prompt preflight telemetry (Phase D) ─────────────
+  z.object({
+    kind: z.literal('preflight_decision'),
+    decision: z.enum(['activated', 'skipped']),
+    specKey: z.string(),
+    toolCall: z.string(),
+    ...CommanderStreamCommon,
+  }),
 ]);
 export const commanderStreamChannel = definePushChannel({
   channel: 'commander:stream',
@@ -373,6 +484,14 @@ export const commanderStreamChannel = definePushChannel({
 export type CommanderStreamPayload = z.infer<typeof CommanderStreamPayload>;
 export type CommanderStreamEvent = CommanderStreamPayload;
 export { CommanderStreamPayload as CommanderStreamPayloadSchema };
+
+// Phase B exit-contract payload types (derived from the zod schemas above).
+export type CommanderIntentPayload = z.infer<typeof CommanderIntentPayload>;
+export type CommanderEvidencePayload = z.infer<typeof CommanderEvidencePayload>;
+export type CommanderBlockerPayload = z.infer<typeof CommanderBlockerPayload>;
+export type CommanderExitDecisionPayload = z.infer<
+  typeof CommanderExitDecisionPayload
+>;
 
 // ── commander:canvas:dispatch (push) ─────────────────────────
 // Carries a full Canvas snapshot. Canvas DTO is not yet contract-owned — kept

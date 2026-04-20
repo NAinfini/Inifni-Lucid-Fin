@@ -6,13 +6,13 @@
  *   npx tsx evals/commander-study/harness/probe-keychain.ts
  */
 import keytar from 'keytar';
-import { getCodexProviders } from './provider-config.js';
+import { getCodexProviders, getHiCode } from './provider-config.js';
 
 const SERVICE_NAME = 'lucid-fin';
 
 async function main() {
-  const specs = getCodexProviders();
-  console.log(`Resolved ${specs.length} Codex provider(s) from settings.json:\n`);
+  const specs = [...getCodexProviders(), getHiCode()];
+  console.log(`Resolved ${specs.length} custom provider(s) from settings.json:\n`);
   for (const s of specs) {
     console.log(`  ${s.name}  id=${s.id}  base=${s.baseUrl}  model=${s.model}`);
   }

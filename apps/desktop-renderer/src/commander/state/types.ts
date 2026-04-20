@@ -53,12 +53,33 @@ export interface CommanderRunSummary {
   durationMs: number;
 }
 
+/**
+ * Phase E — surface the ExitDecision outcome on a completed run so the
+ * MessageList can render a banner for non-satisfied outcomes. Missing means
+ * the run came from a pre-Phase-E build or was cancelled before the
+ * orchestrator could compute a decision (e.g. user hit stop).
+ */
+export interface CommanderExitDecisionMeta {
+  outcome:
+    | 'satisfied'
+    | 'unsatisfied'
+    | 'informational_answered'
+    | 'blocked_waiting_user'
+    | 'refused'
+    | 'budget_exhausted'
+    | 'error';
+  contractId?: string;
+  reason?: string;
+  blockerKind?: string;
+}
+
 export interface CommanderRunMeta {
   status: CommanderRunStatus;
   collapsed: boolean;
   startedAt: number;
   completedAt: number;
   summary: CommanderRunSummary;
+  exitDecision?: CommanderExitDecisionMeta;
 }
 
 export interface CommanderMessage {

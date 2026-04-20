@@ -61,6 +61,40 @@ export {
   type StampedStreamEvent,
   type StreamEmit,
 } from './agent/agent-orchestrator.js';
+export {
+  createAgentOrchestratorForRun,
+  type OrchestratorFactoryInput,
+  type OrchestratorVariant,
+  type CanvasLookup,
+} from './agent/orchestrator-factory.js';
+// Phase F — exit-contract public extensibility surface. Anything not
+// listed here is `@internal` and must not be consumed outside the
+// application package. The `public-surface.test.ts` snapshot guards this.
+export {
+  contractRegistry,
+  decide,
+  classifyIntent,
+  evaluateProcessPromptSpecs,
+  createStylePlateLockSpec,
+  type RunIntent,
+  type CompletionContract,
+  type CompletionEvidence,
+  type ExitDecision,
+  type BlockerReason,
+  type ReadonlyCompletionEvidenceList,
+  type CommitRequirement,
+  type SuccessSignal,
+  type ExitOutcomeKind,
+  type ProcessPromptSpec,
+  type ProcessPromptLifecycle,
+  type ActivationContext,
+  type ProcessPromptEvaluationResult,
+} from './agent/exit-contract/index.js';
+// Side-effect import: loads every built-in contract so
+// `contractRegistry.ids()` returns the stable set at package-load time.
+// No named exports from this path — the built-in contracts are not a
+// public identity; consumers should go through `contractRegistry`.
+import './agent/exit-contract/contracts/index.js';
 export { freshRunId } from './agent/agent-run-id.js';
 export { makeStampedEmit } from './agent/stream-emit.js';
 export { detectProcess, getProcessCategoryName, type ProcessCategory } from './agent/process-detection.js';
