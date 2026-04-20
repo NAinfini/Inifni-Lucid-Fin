@@ -1,6 +1,6 @@
 {
   "name": "lucid-fin",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Lucid Fin – AI Movie Production Tool",
   "author": "Lucid Fin Team",
   "private": true,
@@ -24,12 +24,10 @@
     "lint:contracts": "npx tsx scripts/lint-contract-drift.ts",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "dist": "npm run build && npm run pack --workspace=apps/desktop-main",
-    "test:e2e": "npm run build && playwright test"
+    "dist": "npm run build && npm run pack --workspace=apps/desktop-main"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.59.1",
     "@vitest/coverage-v8": "^4.1.4",
     "eslint": "^10.2.0",
     "eslint-plugin-react-hooks": "^7.1.0-canary-404b38c7-20260408",
