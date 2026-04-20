@@ -7,6 +7,7 @@ import {
   addSystemNotice,
   compactLocalContext,
 } from '../../../store/slices/commander.js';
+import { readCommanderTelemetry, resetCommanderTelemetry } from '../../../commander/service/telemetry.js';
 import { getAPI } from '../../../utils/api.js';
 
 export interface SlashCommand {
@@ -45,6 +46,7 @@ export function useSlashCommands({
       { name: 'clear', desc: t('commander.slashCommand.clearDesc') },
       { name: 'context', desc: t('commander.slashCommand.contextDesc') },
       { name: 'status', desc: t('commander.slashCommand.statusDesc') },
+      { name: 'telemetry', desc: t('commander.slashCommand.telemetryDesc') },
       { name: 'help', desc: t('commander.slashCommand.helpDesc') },
     ],
     [t],
@@ -258,6 +260,27 @@ export function useSlashCommands({
         case 'help': {
           const helpLines = slashCommands.map((cmd) => `/${cmd.name} — ${cmd.desc}`).join('\n');
           dispatch(addSystemNotice(`${t('commander.slashCommand.helpTitle')}:\n${helpLines}`));
+          break;
+        }
+        case 'telemetry': {
+          const telem = readCommanderTelemetry();
+          const rows: Array<[string, string | number | null]> = [
+            ['parseFailureCount', telem.parseFailureCount],
+            ['unknownKindCount', telem.unknownKindCount],
+            ['stallWarningCount', telem.stallWarningCount],
+            ['llmRetryCount', telem.llmRetryCount],
+            ['stepAbortCount', telem.stepAbortCount],
+            ['runAbortCount', telem.runAbortCount],
+            ['coalescedDeltaCount', telem.coalescedDeltaCount],
+            ['flushCount', telem.flushCount],
+            ['maxBatchSize', telem.maxBatchSize],
+            ['renderLagMsP50', telem.renderLagMsP50 ?? '—'],
+            ['renderLagMsP95', telem.renderLagMsP95 ?? '—'],
+          ];
+          const maxKey = Math.max(...rows.map(([k]) => k.length));
+          const body = rows.map(([k, v]) => `${k.padEnd(maxKey)}  ${v}`).join('\n');
+          dispatch(addSystemNotice(['**Commander telemetry**', '```', body, '```'].join('\n')));
+          resetCommanderTelemetry();
           break;
         }
         default:

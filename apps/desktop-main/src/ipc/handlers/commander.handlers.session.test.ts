@@ -58,6 +58,7 @@ describe('registerCommanderHandlers session wiring', () => {
         }));
       },
       AgentToolRegistry: class MockAgentToolRegistry {},
+      freshRunId: () => 'mock-run-id',
     }));
 
     vi.doMock('./commander-tool-deps.js', () => ({

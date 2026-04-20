@@ -489,30 +489,10 @@ export interface VisionDescribeImageResponse {
 // whole error message string; kept as raw string at the contract.
 export type AiStreamPayload = string;
 
-// ai:event — mirrors AgentEvent from @lucid-fin/application. Duplicated here
-// because contracts cannot depend on application.
-export interface AiEventPayload {
-  type:
-    | 'tool_call'
-    | 'tool_result'
-    | 'stream_chunk'
-    | 'error'
-    | 'done'
-    | 'tool_confirm'
-    | 'tool_question'
-    | 'thinking';
-  toolName?: string;
-  toolCallId?: string;
-  arguments?: Record<string, unknown>;
-  result?: unknown;
-  content?: string;
-  error?: string;
-  tier?: number;
-  question?: string;
-  options?: Array<{ label: string; description?: string }>;
-  startedAt?: number;
-  completedAt?: number;
-}
+// ai:event — aliased to the Commander stream event. Single source of truth
+// is the `commander:stream` discriminated union in batch-09.
+import type { CommanderStreamPayload } from './batch-09.js';
+export type AiEventPayload = CommanderStreamPayload;
 
 // app:ready — fire-and-forget with no payload (Electron sends `undefined`).
 export type AppReadyPayload = undefined;

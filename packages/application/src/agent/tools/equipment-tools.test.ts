@@ -108,39 +108,51 @@ describe('createEquipmentTools', () => {
       };
     }
 
-    it('uses macro photography language for detail closeups', async () => {
+    it('ortho-grid default view builds a five-panel composite prompt', async () => {
       const deps = createDepsWithEquipment();
       const tool = createEquipmentTools(deps).find((entry) => entry.name === 'equipment.generateRefImage');
       if (!tool) throw new Error('Missing equipment.generateRefImage');
 
-      await tool.execute({ id: 'eq-1', slot: 'detail-closeup' });
+      await tool.execute({ id: 'eq-1' });
 
       expect(deps.generateImage).toHaveBeenCalledWith(
-        expect.stringContaining('macro photography, shallow depth of field'),
+        expect.stringContaining('Product orthographic reference grid on one image'),
         expect.anything(),
       );
       expect(deps.generateImage).toHaveBeenCalledWith(
-        expect.stringContaining('fine surface textures and engravings visible'),
+        expect.stringContaining('Five panels'),
+        expect.anything(),
+      );
+      expect(deps.generateImage).toHaveBeenCalledWith(
+        expect.stringContaining('macro detail close-up'),
         expect.anything(),
       );
     });
 
-    it('uses an anonymous human scale reference for in-use shots', async () => {
+    it('extra-angle view includes the angle label in the prompt', async () => {
       const deps = createDepsWithEquipment();
       const tool = createEquipmentTools(deps).find((entry) => entry.name === 'equipment.generateRefImage');
       if (!tool) throw new Error('Missing equipment.generateRefImage');
 
-      await tool.execute({ id: 'eq-1', slot: 'in-use' });
+      await tool.execute({
+        id: 'eq-1',
+        view: { kind: 'extra-angle', angle: 'in-use with anonymous hand for scale' },
+      });
 
       expect(deps.generateImage).toHaveBeenCalledWith(
-        expect.stringContaining('generic human silhouette or anonymous hand for scale reference'),
+        expect.stringContaining('in-use with anonymous hand for scale view'),
         expect.anything(),
       );
-      expect(deps.generateImage).toHaveBeenCalledWith(
-        expect.stringContaining('item is the subject'),
-        expect.anything(),
-      );
+    });
+
+    it('rejects unrecognized view.kind with a descriptive error', async () => {
+      const deps = createDepsWithEquipment();
+      const tool = createEquipmentTools(deps).find((entry) => entry.name === 'equipment.generateRefImage');
+      if (!tool) throw new Error('Missing equipment.generateRefImage');
+
+      const result = await tool.execute({ id: 'eq-1', view: { kind: 'bogus' } });
+      expect(result).toMatchObject({ success: false });
+      expect(deps.generateImage).not.toHaveBeenCalled();
     });
   });
 });
-

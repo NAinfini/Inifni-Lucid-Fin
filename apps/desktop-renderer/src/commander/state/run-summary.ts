@@ -6,7 +6,7 @@
  * slice — identical logic, no behavior change.
  */
 
-import { createMessageId } from './helpers.js';
+import { createMessageId, createSegmentId } from './helpers.js';
 import type {
   CommanderRunStatus,
   CommanderRunSummary,
@@ -36,7 +36,7 @@ function pickResultText(content: string, segments: MessageSegment[] | undefined)
   if (segments && segments.length > 0) {
     for (let i = segments.length - 1; i >= 0; i -= 1) {
       const seg = segments[i];
-      if (seg && seg.type === 'text') {
+      if (seg && seg.kind === 'text') {
         const normalized = normalizeRunExcerpt(seg.content);
         if (normalized) return normalized;
       }
@@ -81,11 +81,10 @@ export function finalizeCurrentRunMessage(
   errorMessage?: string,
 ): void {
   const content = state.currentStreamContent || fallbackContent || '';
-  const hasThinking = state.currentThinkingContent.trim().length > 0;
   const hasSegments = state.currentSegments.length > 0;
   const hasTools = state.currentToolCalls.length > 0;
 
-  if (!content && !hasTools && !hasThinking && !errorMessage) {
+  if (!content && !hasTools && !hasSegments && !errorMessage) {
     return;
   }
 
@@ -94,7 +93,7 @@ export function finalizeCurrentRunMessage(
   const segments: MessageSegment[] | undefined = hasSegments
     ? [...state.currentSegments]
     : content
-      ? [{ type: 'text' as const, content }]
+      ? [{ kind: 'text' as const, id: createSegmentId('text'), content }]
       : undefined;
 
   state.messages.push({
@@ -106,7 +105,6 @@ export function finalizeCurrentRunMessage(
       collapsed: true,
       startedAt,
       completedAt,
-      thinkingContent: hasThinking ? state.currentThinkingContent : undefined,
       summary: buildRunSummary(
         status,
         content,

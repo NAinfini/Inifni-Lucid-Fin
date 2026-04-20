@@ -17,6 +17,28 @@ export const CanvasViewportSchema = z.object({
   zoom: z.number(),
 });
 
+export const CanvasAspectRatioSchema = z.enum(['16:9', '9:16', '1:1', '2.39:1']);
+
+export const CanvasResolutionSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+
+export const CanvasSettingsSchema = z
+  .object({
+    stylePlate: z.string().min(1).optional(),
+    negativePrompt: z.string().min(1).optional(),
+    defaultResolution: CanvasResolutionSchema.optional(),
+    aspectRatio: CanvasAspectRatioSchema.optional(),
+    llmProviderId: z.string().min(1).optional(),
+    imageProviderId: z.string().min(1).optional(),
+    videoProviderId: z.string().min(1).optional(),
+    audioProviderId: z.string().min(1).optional(),
+  })
+  .strict();
+
+export type CanvasSettingsDto = z.infer<typeof CanvasSettingsSchema>;
+
 export const CanvasSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -24,6 +46,7 @@ export const CanvasSchema = z.object({
   edges: z.array(z.unknown()),
   viewport: CanvasViewportSchema,
   notes: z.array(z.unknown()),
+  settings: CanvasSettingsSchema.optional(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });

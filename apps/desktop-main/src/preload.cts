@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   Canvas,
+  CommanderStreamEvent,
   LLMProviderRuntimeInput,
   LLMProviderRuntimeConfig,
   PresetCategory,
@@ -388,6 +389,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       defaultProviders?: Record<string, string>,
     ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode, locale, maxSteps, temperature, maxTokens, sessionId, defaultProviders }),
     cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),
+    cancelCurrentStep: (canvasId: string) =>
+      invoke<{ escalated: boolean }>('commander:cancel-step', { canvasId }),
     compact: (canvasId: string) => invoke<{ freedChars: number; messageCount: number; toolCount: number }>('commander:compact', { canvasId }),
     injectMessage: (canvasId: string, message: string) =>
       invoke('commander:inject-message', { canvasId, message }),
@@ -405,22 +408,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       name: string;
       description: string;
     }>>('commander:tool-search', { query }),
-    onStream: (
-      cb: (data: {
-        type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question';
-        content?: string;
-        toolName?: string;
-        toolCallId?: string;
-        arguments?: Record<string, unknown>;
-        result?: unknown;
-        error?: string;
-        tier?: number;
-        question?: string;
-        options?: Array<{ label: string; description?: string }>;
-        startedAt?: number;
-        completedAt?: number;
-      }) => void,
-    ) => subscribe('commander:stream', cb as Callback),
+    onStream: (cb: (data: CommanderStreamEvent) => void) =>
+      subscribe('commander:stream', cb as Callback),
     onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) =>
       subscribe('commander:canvas:dispatch', cb as Callback),
     onEntitiesUpdated: (cb: (data: { toolName: string }) => void) =>

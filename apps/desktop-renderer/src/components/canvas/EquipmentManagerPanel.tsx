@@ -8,7 +8,6 @@ import {
   updateEquipment,
   removeEquipment,
   selectEquipment,
-  setFilterType,
   setLoading,
   setEquipmentRefImage,
   removeEquipmentRefImage,
@@ -77,7 +76,7 @@ function createDraft(equip: Equipment): EquipmentDraft {
 export function EquipmentManagerPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
-  const { items, selectedId, filterType, loading } = useSelector((s: RootState) => s.equipment);
+  const { items, selectedId, loading } = useSelector((s: RootState) => s.equipment);
 
   const {
     draft, setDraft,
@@ -118,14 +117,6 @@ export function EquipmentManagerPanel() {
     const p = clipboard.peek();
     return new Set(p?.items.map((it) => it.id) ?? []);
   }, [clipboard]);
-
-  // Type-filter is applied at this layer; folder + search filters live inside
-  // EntityFileExplorer. Keeping them separate lets the explorer do a single
-  // pass over `items` while honoring the panel-specific type dropdown.
-  const typeFilteredItems = useMemo(() => {
-    if (filterType === 'all') return items;
-    return items.filter((e) => e.type === filterType);
-  }, [items, filterType]);
 
   const canvases = useSelector(selectAllCanvases);
 
@@ -450,7 +441,7 @@ export function EquipmentManagerPanel() {
     <div className="flex h-full min-h-0">
       <div className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}>
         <EntityFileExplorer<Equipment>
-          items={typeFilteredItems}
+          items={items}
           folders={folderApi.folders}
           currentFolderId={folderApi.currentFolderId}
           onNavigateFolder={folderApi.setCurrentFolder}
@@ -498,21 +489,12 @@ export function EquipmentManagerPanel() {
             <div className="flex items-center gap-2">
               <Package className="h-3.5 w-3.5 text-primary" />
               <h2 className="text-xs font-semibold">{t('equipmentManager.title')}</h2>
-              <select
-                value={filterType}
-                onChange={(e) => dispatch(setFilterType(e.target.value as EquipmentType | 'all'))}
-                className="ml-auto rounded bg-muted px-2 py-0.5 text-[10px]"
-              >
-                <option value="all">{t('equipmentManager.allTypes')}</option>
-                {TYPE_OPTIONS.map((tp) => (
-                  <option key={tp} value={tp}>{t('equipmentManager.types.' + tp)}</option>
-                ))}
-              </select>
             </div>
           )}
           newItemLabel={t('equipmentManager.newEquipment')}
           activeItemId={drawerOpen ? (selectedId ?? null) : null}
           loading={loading}
+          showSearchControls={false}
           emptyLabel={t('equipmentManager.noResults')}
         />
       </div>

@@ -4,7 +4,7 @@ import type {
   LLMProviderAuthStyle,
   LLMMessage,
   LLMRequestOptions,
-  LLMCompletionResult,
+  LLMStreamEvent,
   LLMToolCall,
   Capability,
   ProviderProfile,
@@ -13,6 +13,7 @@ import { ErrorCategory, ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
 import { fetchWithTimeout } from '../fetch-utils.js';
 import { parseSseStream } from './sse-parser.js';
+import { withStallTimeout } from './utils/stall-timeout.js';
 import {
   tryParseJson,
   serializeError,
@@ -311,16 +312,40 @@ export class OpenAICompatibleLLM implements LLMAdapter {
   async completeWithTools(
     messages: LLMMessage[],
     opts?: LLMRequestOptions,
-  ): Promise<LLMCompletionResult> {
-    const result = await this.request(messages, opts, false);
+  ): Promise<AsyncIterable<LLMStreamEvent>> {
+    const toolNameMap = new Map<string, string>(
+      (opts?.tools ?? []).map((t) => [t.name.replace(/\./g, '_'), t.name]),
+    );
+
+    // Request with `stream:true` — most OpenAI-compatible providers honor
+    // this for tool calls as well. Servers that don't stream simply return
+    // JSON with a different content-type; we detect that below and use the
+    // non-streaming parser.
+    const requestResult = await this.request(messages, opts, true);
+
+    const contentType = requestResult.response.headers.get('content-type')?.toLowerCase() ?? '';
+    if (!contentType.includes('text/event-stream')) {
+      return this.oneShotFromResponse(requestResult, toolNameMap);
+    }
+
+    return this.streamEvents(requestResult.response, toolNameMap, messages, opts);
+  }
+
+  /**
+   * Parse a non-streaming JSON response body into the LLMStreamEvent
+   * sequence. Used when the server ignores `stream:true` and returns a
+   * plain JSON chat-completion object (common with OpenAI-compat proxies
+   * and with tool-call requests).
+   */
+  private async *oneShotFromResponse(
+    result: OpenAIRequestResult,
+    toolNameMap: Map<string, string>,
+  ): AsyncIterable<LLMStreamEvent> {
     const data = await this.parseJsonResponse<Record<string, unknown>>(result);
     const raw = isRecord(data) ? data : {};
     const choice = Array.isArray(raw.choices) && isRecord(raw.choices[0]) ? raw.choices[0] : undefined;
     const extractedContent = this.extractAssistantText(raw, choice);
 
-    const toolNameMap = new Map<string, string>(
-      (opts?.tools ?? []).map((t) => [t.name.replace(/\./g, '_'), t.name]),
-    );
     const message = isRecord(choice?.message) ? choice.message : undefined;
     const rawToolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
     const toolCalls: LLMToolCall[] = rawToolCalls
@@ -335,7 +360,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           try {
             const parsedCandidate = JSON.parse(rawArguments) as unknown;
             parsedArguments = isRecord(parsedCandidate) ? parsedCandidate : {};
-          } catch { /* malformed JSON tool arguments — pass raw string for caller to handle */
+          } catch {
             parsedArguments = { raw: rawArguments };
           }
         } else if (isRecord(rawArguments)) {
@@ -349,42 +374,255 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         };
       });
 
-    const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined;
-
-    // Extract reasoning/thinking content (separate from main content)
-    // Priority: message.reasoning (user-configured format) > message.reasoning_content (DeepSeek R1) > choice.reasoning_content (proxy APIs)
     const reasoning =
       extractReasoningContent(message ? (message as Record<string, unknown>).reasoning : undefined) ??
       extractReasoningContent(message?.reasoning_content) ??
       extractReasoningContent(choice?.reasoning_content);
 
-    if (!extractedContent && toolCalls.length === 0 && finishReason === 'stop' && opts?.tools?.length) {
-      let streamedContent = '';
-      for await (const chunk of this.stream(messages, { ...opts, tools: undefined, toolChoice: undefined })) {
-        streamedContent += chunk;
-      }
-      if (streamedContent) {
-        return { content: streamedContent, toolCalls: [], finishReason: 'stop' };
-      }
-    }
+    const finishReasonRaw = typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined;
 
     if (!extractedContent && toolCalls.length === 0 && !reasoning) {
-      throw this.buildEmptyAssistantResponseError(result, raw, finishReason, toolCalls.length);
+      throw this.buildEmptyAssistantResponseError(result, raw, finishReasonRaw, toolCalls.length);
     }
 
-    return {
-      content: extractedContent,
-      toolCalls,
+    if (reasoning) yield { kind: 'reasoning_delta', delta: reasoning };
+    if (extractedContent) yield { kind: 'text_delta', delta: extractedContent };
+    for (const tc of toolCalls) {
+      yield { kind: 'tool_call_started', id: tc.id, name: tc.name };
+      yield { kind: 'tool_call_args_delta', id: tc.id, delta: JSON.stringify(tc.arguments) };
+      yield { kind: 'tool_call_complete', id: tc.id, name: tc.name, arguments: tc.arguments };
+    }
+
+    const usage = isRecord(raw.usage) ? raw.usage : undefined;
+    if (usage) {
+      const details = isRecord(usage.completion_tokens_details) ? usage.completion_tokens_details : undefined;
+      yield {
+        kind: 'usage',
+        promptTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
+        completionTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : undefined,
+        reasoningTokens: typeof details?.reasoning_tokens === 'number' ? details.reasoning_tokens : undefined,
+      };
+    }
+
+    yield {
+      kind: 'finished',
       finishReason:
-        finishReason === 'tool_calls'
+        finishReasonRaw === 'tool_calls'
           ? 'tool_calls'
-          : finishReason === 'length'
+          : finishReasonRaw === 'length'
             ? 'length'
             : toolCalls.length > 0
               ? 'tool_calls'
               : 'stop',
-      reasoning,
     };
+  }
+
+  /**
+   * Consume the SSE stream and yield LLMStreamEvents in real time.
+   * - `choices[0].delta.content` → text_delta
+   * - `choices[0].delta.reasoning_content` / `reasoning` → reasoning_delta
+   * - `choices[0].delta.tool_calls[i].function.{name, arguments}` → tool_call_started + tool_call_args_delta
+   * - `choices[0].finish_reason` → finished
+   * - `usage` → usage
+   */
+  private async *streamEvents(
+    response: Response,
+    toolNameMap: Map<string, string>,
+    messages: LLMMessage[],
+    opts: LLMRequestOptions | undefined,
+  ): AsyncIterable<LLMStreamEvent> {
+    interface ToolAccum {
+      id: string;
+      originalName: string;
+      argBuffer: string;
+      started: boolean;
+      argsEmittedLen: number;
+    }
+    const toolsByIndex = new Map<number, ToolAccum>();
+    let anyTextEmitted = false;
+    let anyReasoningEmitted = false;
+    let finishReason: 'stop' | 'tool_calls' | 'length' | 'error' = 'stop';
+    let sawFinish = false;
+    let usagePromptTokens: number | undefined;
+    let usageCompletionTokens: number | undefined;
+    let usageReasoningTokens: number | undefined;
+
+    try {
+      for await (const json of withStallTimeout(parseSseStream(response), {
+        stallMs: 20_000,
+        signal: opts?.signal,
+        adapterName: this.name,
+      })) {
+        if (opts?.signal?.aborted) break;
+        if (!isRecord(json)) continue;
+
+        const choices = Array.isArray(json.choices) ? json.choices : [];
+        const choice = isRecord(choices[0]) ? choices[0] : undefined;
+        const delta = isRecord(choice?.delta) ? choice.delta : undefined;
+
+        if (delta) {
+          const contentDelta = typeof delta.content === 'string' ? delta.content : '';
+          if (contentDelta) {
+            anyTextEmitted = true;
+            yield { kind: 'text_delta', delta: contentDelta };
+          }
+
+          const reasoningDelta =
+            typeof delta.reasoning_content === 'string'
+              ? delta.reasoning_content
+              : typeof delta.reasoning === 'string'
+                ? delta.reasoning
+                : '';
+          if (reasoningDelta) {
+            anyReasoningEmitted = true;
+            yield { kind: 'reasoning_delta', delta: reasoningDelta };
+          }
+
+          const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls : [];
+          for (const tc of toolCalls) {
+            if (!isRecord(tc)) continue;
+            const idx = typeof tc.index === 'number' ? tc.index : 0;
+            let accum = toolsByIndex.get(idx);
+            if (!accum) {
+              accum = {
+                id: typeof tc.id === 'string' ? tc.id : `tool-call-${idx}`,
+                originalName: '',
+                argBuffer: '',
+                started: false,
+                argsEmittedLen: 0,
+              };
+              toolsByIndex.set(idx, accum);
+            }
+            if (typeof tc.id === 'string' && tc.id) accum.id = tc.id;
+
+            const fn = isRecord(tc.function) ? tc.function : undefined;
+            if (fn) {
+              if (typeof fn.name === 'string' && fn.name) {
+                accum.originalName = toolNameMap.get(fn.name) ?? fn.name;
+              }
+              if (typeof fn.arguments === 'string' && fn.arguments) {
+                accum.argBuffer += fn.arguments;
+              }
+            }
+
+            if (!accum.started && accum.originalName) {
+              accum.started = true;
+              yield { kind: 'tool_call_started', id: accum.id, name: accum.originalName };
+            }
+
+            if (accum.started && accum.argBuffer.length > accum.argsEmittedLen) {
+              const pending = accum.argBuffer.slice(accum.argsEmittedLen);
+              accum.argsEmittedLen = accum.argBuffer.length;
+              yield { kind: 'tool_call_args_delta', id: accum.id, delta: pending };
+            }
+          }
+        }
+
+        if (choice && typeof choice.finish_reason === 'string') {
+          const reason = choice.finish_reason;
+          finishReason =
+            reason === 'tool_calls'
+              ? 'tool_calls'
+              : reason === 'length'
+                ? 'length'
+                : 'stop';
+          sawFinish = true;
+        }
+
+        const usage = isRecord(json.usage) ? json.usage : undefined;
+        if (usage) {
+          if (typeof usage.prompt_tokens === 'number') usagePromptTokens = usage.prompt_tokens;
+          if (typeof usage.completion_tokens === 'number') usageCompletionTokens = usage.completion_tokens;
+          const details = isRecord(usage.completion_tokens_details) ? usage.completion_tokens_details : undefined;
+          if (details && typeof details.reasoning_tokens === 'number') {
+            usageReasoningTokens = details.reasoning_tokens;
+          }
+        }
+      }
+    } catch (err) {
+      yield {
+        kind: 'finished',
+        finishReason: 'error',
+      };
+      throw err;
+    }
+
+    // Finalize each streamed tool call with the parsed arguments.
+    const collectedToolCalls: LLMToolCall[] = [];
+    const sortedAccums = Array.from(toolsByIndex.entries()).sort((a, b) => a[0] - b[0]);
+    for (const [, accum] of sortedAccums) {
+      if (!accum.started) continue;
+      let args: Record<string, unknown> = {};
+      const trimmed = accum.argBuffer.trim();
+      if (trimmed) {
+        try {
+          const parsed = JSON.parse(trimmed) as unknown;
+          args = isRecord(parsed) ? parsed : {};
+        } catch {
+          args = { raw: accum.argBuffer };
+        }
+      }
+      collectedToolCalls.push({ id: accum.id, name: accum.originalName, arguments: args });
+      yield {
+        kind: 'tool_call_complete',
+        id: accum.id,
+        name: accum.originalName,
+        arguments: args,
+      };
+    }
+
+    if (usagePromptTokens !== undefined || usageCompletionTokens !== undefined || usageReasoningTokens !== undefined) {
+      yield {
+        kind: 'usage',
+        promptTokens: usagePromptTokens,
+        completionTokens: usageCompletionTokens,
+        reasoningTokens: usageReasoningTokens,
+      };
+    }
+
+    // If the stream produced nothing at all AND we asked for tools, retry
+    // without tools (mirrors the legacy non-streaming salvage path).
+    if (!anyTextEmitted && !anyReasoningEmitted && collectedToolCalls.length === 0 && finishReason === 'stop' && opts?.tools?.length) {
+      let salvageContent = '';
+      try {
+        for await (const chunk of this.stream(messages, { ...opts, tools: undefined, toolChoice: undefined })) {
+          if (chunk) {
+            anyTextEmitted = true;
+            salvageContent += chunk;
+            yield { kind: 'text_delta', delta: chunk };
+          }
+        }
+      } catch {
+        // salvage attempt failed — fall through to the empty-response error
+      }
+      if (!salvageContent) {
+        // Stream AND fallback both empty — surface as a typed error so
+        // callers can distinguish "model had nothing to say" from a
+        // transient upstream issue.
+        throw new LucidError(
+          ErrorCode.ServiceUnavailable,
+          `${this.name} returned JSON without extractable assistant content`,
+          {
+            endpoint: `${this.baseUrl}/chat/completions`,
+            provider: this.name,
+            providerId: this.id,
+            baseUrl: this.baseUrl,
+            model: this.model,
+            streaming: true,
+            hasTools: true,
+            finishReason,
+            toolCallCount: 0,
+            requestBody: { stream: true, tools: opts.tools },
+          },
+        );
+      }
+    }
+
+    const effectiveFinish: LLMStreamEvent & { kind: 'finished' } = {
+      kind: 'finished',
+      finishReason: collectedToolCalls.length > 0 ? 'tool_calls' : sawFinish ? finishReason : 'stop',
+    };
+    yield effectiveFinish;
   }
 
   protected async request(
@@ -458,6 +696,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           headers,
           body: JSON.stringify(body),
           timeoutMs: 300_000, // 5 min — tool-calling requests with large context can take several minutes
+          signal: opts?.signal,
         });
       } catch (error) {
         lastTransportError = this.buildTransportError(

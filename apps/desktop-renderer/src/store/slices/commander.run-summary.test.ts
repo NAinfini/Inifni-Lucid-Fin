@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   addToolCall,
   appendStreamChunk,
+  appendThinking,
   commanderSlice,
   finishStreaming,
   resolveQuestion,
   resolveToolCall,
   setPendingQuestion,
-  setThinkingContent,
   startStreaming,
   streamError,
 } from './commander.js';
@@ -17,10 +17,11 @@ describe('commander run summaries', () => {
     const nowSpy = vi
       .spyOn(Date, 'now')
       .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1000)
       .mockReturnValueOnce(2400);
 
     let state = commanderSlice.reducer(undefined, startStreaming());
-    state = commanderSlice.reducer(state, setThinkingContent('Planning tool sequence'));
+    state = commanderSlice.reducer(state, appendThinking('Planning tool sequence'));
     state = commanderSlice.reducer(state, appendStreamChunk('Created the requested layout and verified the nodes.'));
     state = commanderSlice.reducer(
       state,
@@ -50,7 +51,6 @@ describe('commander run summaries', () => {
           collapsed: true,
           startedAt: 1000,
           completedAt: 2400,
-          thinkingContent: 'Planning tool sequence',
           summary: expect.objectContaining({
             toolCount: 1,
             failedToolCount: 0,
@@ -59,6 +59,8 @@ describe('commander run summaries', () => {
         }),
       }),
     );
+    // Thinking is now a first-class segment on the finalized message.
+    expect(state.messages[0].segments?.some((seg) => seg.kind === 'thinking')).toBe(true);
 
     nowSpy.mockRestore();
   });
@@ -66,6 +68,7 @@ describe('commander run summaries', () => {
   it('stores failed run metadata when streaming aborts', () => {
     const nowSpy = vi
       .spyOn(Date, 'now')
+      .mockReturnValueOnce(5000)
       .mockReturnValueOnce(5000)
       .mockReturnValueOnce(6500);
 
@@ -145,5 +148,50 @@ describe('commander run summaries', () => {
         content: 'Quality',
       }),
     );
+  });
+
+  it('segmentizes text → tool → text into three segments (no bleed across boundaries)', () => {
+    let state = commanderSlice.reducer(undefined, startStreaming());
+    state = commanderSlice.reducer(state, appendStreamChunk('Plan first.'));
+    state = commanderSlice.reducer(
+      state,
+      addToolCall({
+        id: 'tool-a',
+        name: 'canvas.createNode',
+        arguments: {},
+        startedAt: 10,
+      }),
+    );
+    state = commanderSlice.reducer(state, appendStreamChunk('Then answer.'));
+
+    const kinds = state.currentSegments.map((s) => s.kind);
+    expect(kinds).toEqual(['text', 'tool', 'text']);
+  });
+
+  it('upserts duplicate tool-call dispatches rather than silently dropping the second event', () => {
+    let state = commanderSlice.reducer(undefined, startStreaming());
+    state = commanderSlice.reducer(
+      state,
+      addToolCall({
+        id: 'tool-dup',
+        name: 'canvas.createNode',
+        arguments: { draft: true },
+        startedAt: 10,
+      }),
+    );
+    // Second dispatch with updated arguments — must merge, not drop.
+    state = commanderSlice.reducer(
+      state,
+      addToolCall({
+        id: 'tool-dup',
+        name: 'canvas.createNode',
+        arguments: { draft: false, id: 'node-42' },
+        startedAt: 12,
+      }),
+    );
+
+    expect(state.currentToolCalls).toHaveLength(1);
+    expect(state.currentToolCalls[0].arguments).toEqual({ draft: false, id: 'node-42' });
+    expect(state.currentToolCalls[0].startedAt).toBe(12);
   });
 });

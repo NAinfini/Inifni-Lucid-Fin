@@ -16,6 +16,7 @@
  */
 import { z } from 'zod';
 import { defineInvokeChannel, definePushChannel } from '../../channels.js';
+import { CommanderStreamPayloadSchema } from './batch-09.js';
 
 // ─── app:version ─────────────────────────────────────────────
 const AppVersionRequest = z.object({}).strict();
@@ -903,36 +904,12 @@ export const aiStreamChannel = definePushChannel({
 });
 export type AiStreamPayload = z.infer<typeof AiStreamPayload>;
 
-// ai:event — AgentEvent mirror.
-const AiEventPayload = z
-  .object({
-    type: z.enum([
-      'tool_call',
-      'tool_result',
-      'stream_chunk',
-      'error',
-      'done',
-      'tool_confirm',
-      'tool_question',
-      'thinking',
-    ]),
-    toolName: z.string().optional(),
-    toolCallId: z.string().optional(),
-    arguments: z.record(z.string(), z.unknown()).optional(),
-    result: z.unknown().optional(),
-    content: z.string().optional(),
-    error: z.string().optional(),
-    tier: z.number().optional(),
-    question: z.string().optional(),
-    options: z
-      .array(
-        z.object({ label: z.string(), description: z.string().optional() }),
-      )
-      .optional(),
-    startedAt: z.number().optional(),
-    completedAt: z.number().optional(),
-  })
-  .passthrough();
+// ai:event — mirror of the Commander stream event. Reuses the same
+// `kind`-discriminated schema so main and renderer see a single surface.
+// Provenance fields (`runId`, `step`, `emittedAt`) are required here too —
+// `ai.handlers.ts` forwards orchestrator events verbatim, so they arrive
+// already stamped.
+const AiEventPayload = CommanderStreamPayloadSchema;
 export const aiEventChannel = definePushChannel({
   channel: 'ai:event',
   payload: AiEventPayload,

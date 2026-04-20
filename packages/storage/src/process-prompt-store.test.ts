@@ -101,7 +101,7 @@ describe('ProcessPromptStore', () => {
       'job-control': ['job.control', 'pause'],
     };
 
-    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(32);
+    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(33);
 
     for (const entry of PROCESS_PROMPT_DEFAULTS) {
       expect(entry.defaultValue.length).toBeGreaterThan(220);

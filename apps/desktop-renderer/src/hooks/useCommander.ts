@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 
 import { store, type AppDispatch, type RootState } from '../store/index.js';
+import { selectIsStreaming } from '../store/slices/commander.js';
 import { getLocale, t } from '../i18n.js';
 import { getAPI } from '../utils/api.js';
 import { CommanderTransport } from '../commander/transport/CommanderTransport.js';
@@ -25,10 +26,11 @@ export { syncCommanderEntitiesForTool };
 export function useCommander(): {
   sendMessage: (message: string) => Promise<void>;
   cancel: () => Promise<void>;
+  cancelCurrentStep: () => Promise<{ escalated: boolean }>;
   isStreaming: boolean;
 } {
   const dispatch = useDispatch<AppDispatch>();
-  const isStreaming = useSelector((state: RootState) => state.commander.streaming);
+  const isStreaming = useSelector((state: RootState) => selectIsStreaming(state));
   const serviceRef = useRef<CommanderSessionService | null>(null);
 
   // Build the service lazily — `getAPI()` only resolves after preload runs.
@@ -54,6 +56,10 @@ export function useCommander(): {
     [service],
   );
   const cancel = useCallback(async () => service.cancel(), [service]);
+  const cancelCurrentStep = useCallback(
+    async () => service.cancelCurrentStep(),
+    [service],
+  );
 
-  return { sendMessage, cancel, isStreaming };
+  return { sendMessage, cancel, cancelCurrentStep, isStreaming };
 }

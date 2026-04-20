@@ -1,9 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentOrchestrator } from './agent-orchestrator.js';
 import { AgentToolRegistry } from './tool-registry.js';
-import type { LLMAdapter, LLMCompletionResult } from '@lucid-fin/contracts';
+import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import type { LLMAdapter, LLMStreamEvent, LLMToolCall, LLMFinishReason } from '@lucid-fin/contracts';
 
-function createMockAdapter(responses: LLMCompletionResult[]): LLMAdapter {
+/**
+ * Test-only shape — mirrors the pre-streaming `LLMCompletionResult` so the
+ * existing response fixtures in these tests stay readable. `createMockAdapter`
+ * wraps each entry in an `AsyncIterable<LLMStreamEvent>` that the orchestrator
+ * drains.
+ */
+interface MockLLMResponse {
+  content: string;
+  reasoning?: string;
+  toolCalls: LLMToolCall[];
+  finishReason: LLMFinishReason;
+}
+
+async function* responseToStream(r: MockLLMResponse): AsyncIterable<LLMStreamEvent> {
+  if (r.reasoning) yield { kind: 'reasoning_delta', delta: r.reasoning };
+  if (r.content) yield { kind: 'text_delta', delta: r.content };
+  for (const tc of r.toolCalls) {
+    yield { kind: 'tool_call_started', id: tc.id, name: tc.name };
+    yield { kind: 'tool_call_complete', id: tc.id, name: tc.name, arguments: tc.arguments };
+  }
+  yield { kind: 'finished', finishReason: r.finishReason };
+}
+
+function createMockAdapter(responses: MockLLMResponse[]): LLMAdapter {
   let callIdx = 0;
   return {
     id: 'mock',
@@ -16,9 +40,9 @@ function createMockAdapter(responses: LLMCompletionResult[]): LLMAdapter {
       yield responses[0]?.content ?? '';
     }),
     completeWithTools: vi.fn(async () => {
-      const r = responses[Math.min(callIdx, responses.length - 1)];
+      const r = responses[Math.min(callIdx, responses.length - 1)]!;
       callIdx++;
-      return r;
+      return responseToStream(r);
     }),
   };
 }
@@ -41,11 +65,11 @@ describe('AgentOrchestrator', () => {
 
     expect(result.content).toBe('Hello!');
     expect(result.toolCalls).toHaveLength(0);
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'done')).toBe(true);
     expect(
       events.some(
         (e: unknown) =>
-          (e as Record<string, unknown>).type === 'stream_chunk' &&
+          (e as Record<string, unknown>).kind === 'chunk' &&
           (e as Record<string, unknown>).content === 'Hello!',
       ),
     ).toBe(true);
@@ -56,6 +80,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'character.list',
       description: 'List characters',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: mockTool,
     });
@@ -81,14 +106,15 @@ describe('AgentOrchestrator', () => {
 
     expect(mockTool).toHaveBeenCalled();
     expect(result.content).toBe('Found 5 characters.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'tool_call')).toBe(true);
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'tool_result')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_call_started')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_result')).toBe(true);
   });
 
   it('handles tool execution errors gracefully', async () => {
     toolRegistry.register({
       name: 'error.tool',
       description: 'fail',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => {
         throw new Error('boom');
@@ -115,13 +141,14 @@ describe('AgentOrchestrator', () => {
     });
 
     expect(result.content).toBe('Tool failed, sorry.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'error' && (e as Record<string, unknown>).error === 'boom')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'error' && (e as Record<string, unknown>).error === 'boom')).toBe(true);
   });
 
   it('respects maxSteps limit', async () => {
     toolRegistry.register({
       name: 'loop.tool',
       description: 'loop',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: 'loop' })),
     });
@@ -161,12 +188,14 @@ describe('AgentOrchestrator', () => {
       name: 'script.only',
       description: 'script tool',
       context: ['script-editor'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
     toolRegistry.register({
       name: 'global.tool',
       description: 'global',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -187,6 +216,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'canvas.addNode',
       description: 'Add a new node to the current canvas at a specific position with very verbose explanation text.',
+      tier: 1,
       parameters: {
         type: 'object',
         properties: {
@@ -316,7 +346,9 @@ describe('AgentOrchestrator', () => {
 
     expect(result.content).toBe('Cancelled.');
     expect((adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
-    expect(events.at(-1)).toEqual({ type: 'done', content: 'Cancelled.' });
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({ kind: 'done', content: 'Cancelled.' }),
+    );
   });
 
   it('does not require confirmation for untiered tools in normal mode', async () => {
@@ -324,6 +356,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'character.get',
       description: 'Get a character',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute,
     });
@@ -349,7 +382,7 @@ describe('AgentOrchestrator', () => {
       (event) => {
         const record = event as unknown as Record<string, unknown>;
         events.push(record);
-        if (record.type === 'tool_confirm' && typeof record.toolCallId === 'string') {
+        if (record.kind === 'tool_confirm' && typeof record.toolCallId === 'string') {
           agent.confirmTool(record.toolCallId, true);
         }
       },
@@ -357,13 +390,14 @@ describe('AgentOrchestrator', () => {
     );
 
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(events.some((event) => event.type === 'tool_confirm')).toBe(false);
+    expect(events.some((event) => event.kind === 'tool_confirm')).toBe(false);
   });
 
   it('injects steering messages into the next LLM iteration', async () => {
     toolRegistry.register({
       name: 'canvas.listNodes',
       description: 'List nodes',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => {
         (agent as unknown as { injectMessage?: (content: string) => void }).injectMessage?.('Focus on node n-2');
@@ -407,6 +441,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'character.list',
       description: 'List characters',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({
         success: true,
@@ -456,6 +491,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'canvas.setNodeProvider',
       description: 'Set node provider',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({
         success: true,
@@ -536,6 +572,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'character.list',
       description: 'List characters',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({
         success: true,
@@ -593,12 +630,14 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'tool.list',
       description: 'List tools',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: {} })),
     });
     toolRegistry.register({
       name: 'tool.get',
       description: 'Get tool schema',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({
         success: true,
@@ -608,36 +647,42 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'guide.list',
       description: 'List prompt guides',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
     });
     toolRegistry.register({
       name: 'guide.get',
       description: 'Get prompt guide content',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
     toolRegistry.register({
       name: 'commander.askUser',
       description: 'Ask the user a question',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
     toolRegistry.register({
       name: 'canvas.getState',
       description: 'Get canvas state',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: {} })),
     });
     toolRegistry.register({
       name: 'canvas.listNodes',
       description: 'List canvas nodes',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
     });
     toolRegistry.register({
       name: 'canvas.getNode',
       description: 'Get a canvas node',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
@@ -646,6 +691,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'character.list',
       description: 'List characters',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
     });
@@ -692,18 +738,21 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'tool.list',
       description: 'List tools',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: {} })),
     });
     toolRegistry.register({
       name: 'tool.get',
       description: 'Get tool schema',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
     toolRegistry.register({
       name: 'character.list',
       description: 'List characters',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
     });
@@ -730,7 +779,7 @@ describe('AgentOrchestrator', () => {
 
     // Should have emitted a tool_result event with the error
     const toolResultEvent = events.find(
-      (e) => e.type === 'tool_result' && e.toolName === 'character.list',
+      (e) => e.kind === 'tool_result' && e.toolName === 'character.list',
     );
     expect(toolResultEvent).toBeDefined();
     const result = toolResultEvent?.result as { success: boolean; error: string };
@@ -743,6 +792,7 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'character.generateRefImage',
       description: 'Generate a character reference image',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: { assetHash: 'asset-1' } })),
     });
@@ -828,12 +878,14 @@ describe('AgentOrchestrator', () => {
     toolRegistry.register({
       name: 'canvas.renameCanvas',
       description: 'Rename canvas',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: renameTool,
     });
     toolRegistry.register({
       name: 'noop.tool',
       description: 'No-op',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: noopTool,
     });
@@ -918,11 +970,11 @@ describe('AgentOrchestrator', () => {
       stream: vi.fn(async function* () { yield ''; }),
       completeWithTools: vi.fn(async (messages: unknown[]) => {
         capturedRequests.push(messages);
-        return {
+        return responseToStream({
           content: 'Graph path response.',
           toolCalls: [],
-          finishReason: 'stop' as const,
-        };
+          finishReason: 'stop',
+        });
       }),
     };
 
@@ -931,7 +983,7 @@ describe('AgentOrchestrator', () => {
     const result = await agent.execute('Hello from graph path', {}, (e) => events.push(e));
 
     expect(result.content).toBe('Graph path response.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'done')).toBe(true);
 
     // Verify the LLM adapter was invoked with a non-empty messages array
     // and that the first kept message is a system prompt.
@@ -954,11 +1006,11 @@ describe('AgentOrchestrator', () => {
       stream: vi.fn(async function* () { yield ''; }),
       completeWithTools: vi.fn(async (messages: unknown[]) => {
         capturedRequests.push(messages);
-        return {
+        return responseToStream({
           content: 'Claude graph response.',
           toolCalls: [],
-          finishReason: 'stop' as const,
-        };
+          finishReason: 'stop',
+        });
       }),
       profile: {
         providerId: 'claude',
@@ -974,7 +1026,7 @@ describe('AgentOrchestrator', () => {
     const result = await agent.execute('Hello Claude', {}, (e) => events.push(e));
 
     expect(result.content).toBe('Claude graph response.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).type === 'done')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'done')).toBe(true);
     expect(capturedRequests.length).toBeGreaterThan(0);
     const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
     expect(firstRequest[0]!.role).toBe('system');
@@ -1153,6 +1205,7 @@ describe('AgentOrchestrator', () => {
       toolRegistry.register({
         name: 'character.list',
         description: 'list',
+        tier: 1,
         parameters: { type: 'object', properties: {}, required: [] },
         execute: listTool,
       });
@@ -1161,7 +1214,7 @@ describe('AgentOrchestrator', () => {
       // IDENTICAL arguments — exercises the dedup pipeline plus
       // `shrinkCoveredToolMessages` stubbing of historical payloads.
       const rounds = 100;
-      const responses: LLMCompletionResult[] = [];
+      const responses: MockLLMResponse[] = [];
       for (let i = 0; i < rounds; i++) {
         responses.push({
           content: '',
@@ -1204,12 +1257,13 @@ describe('AgentOrchestrator', () => {
       toolRegistry.register({
         name: 'character.list',
         description: 'list',
+        tier: 1,
         parameters: { type: 'object', properties: {}, required: [] },
         execute: vi.fn(async () => ({ success: true, data: {} })),
       });
 
       const rounds = 50;
-      const responses: LLMCompletionResult[] = [];
+      const responses: MockLLMResponse[] = [];
       for (let i = 0; i < rounds; i++) {
         responses.push({
           content: '',
@@ -1241,6 +1295,99 @@ describe('AgentOrchestrator', () => {
       // duplication across the rebuild path.
       const toolResults = items.filter((i) => i.kind === 'tool-result');
       expect(toolResults.length).toBeLessThanOrEqual(rounds);
+    });
+  });
+
+  describe('Phase 5 resilience', () => {
+    it('retries SERVICE_UNAVAILABLE and emits an llm_retry phase_note with jitter-bounded delay', async () => {
+      // First call throws, second succeeds. The retry path should emit a
+      // phase_note and resolve the run.
+      vi.spyOn(Math, 'random').mockReturnValue(0); // delay = 0 → test runs fast
+      const adapter = createMockAdapter([{ content: 'hello', toolCalls: [], finishReason: 'stop' }]);
+      let callCount = 0;
+      adapter.completeWithTools = vi.fn(async () => {
+        callCount++;
+        if (callCount === 1) {
+          throw new LucidError(ErrorCode.ServiceUnavailable, 'transient');
+        }
+        return responseToStream({ content: 'hello', toolCalls: [], finishReason: 'stop' });
+      });
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const emits: Array<{ kind: string; [k: string]: unknown }> = [];
+      await agent.execute(
+        'hi',
+        { canvasId: 'c1', extra: {} } as never,
+        (event) => emits.push(event as never),
+      );
+      expect(callCount).toBe(2);
+      const retryNotes = emits.filter((e) => e.kind === 'phase_note' && e.note === 'llm_retry');
+      expect(retryNotes).toHaveLength(1);
+      expect(String(retryNotes[0].detail)).toMatch(/attempt 2 of 3 after \d+ms/);
+      vi.restoreAllMocks();
+    });
+
+    it('cancelCurrentStep aborts the in-flight step and lets the retry succeed', async () => {
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      let callCount = 0;
+      let sawSignal: AbortSignal | undefined;
+      const adapter: LLMAdapter = {
+        ...createMockAdapter([]),
+        completeWithTools: vi.fn(async (_msgs, opts) => {
+          callCount++;
+          if (callCount === 1) {
+            sawSignal = opts?.signal;
+            // Simulate a stuck LLM: wait until the signal aborts, then throw.
+            return (async function* () {
+              await new Promise<void>((resolve, reject) => {
+                opts?.signal?.addEventListener(
+                  'abort',
+                  () =>
+                    reject(
+                      new LucidError(ErrorCode.Cancelled, 'aborted', {
+                        reason: 'step cancel',
+                      }),
+                    ),
+                  { once: true },
+                );
+                if (opts?.signal?.aborted) reject(new LucidError(ErrorCode.Cancelled, 'aborted'));
+                // Fallback: if nothing aborts in 500ms, fail the test hard.
+                setTimeout(() => resolve(), 500);
+              });
+              yield { kind: 'finished', finishReason: 'stop' } as LLMStreamEvent;
+            })();
+          }
+          return responseToStream({ content: 'recovered', toolCalls: [], finishReason: 'stop' });
+        }),
+      };
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const emits: Array<{ kind: string; [k: string]: unknown }> = [];
+      const exec = agent.execute(
+        'hi',
+        { canvasId: 'c1', extra: {} } as never,
+        (event) => emits.push(event as never),
+      );
+      // Give the first call a chance to install the signal listener.
+      await new Promise((r) => setTimeout(r, 20));
+      const { escalated } = agent.cancelCurrentStep();
+      expect(escalated).toBe(false);
+      await exec;
+      expect(callCount).toBe(2);
+      expect(sawSignal).toBeDefined();
+      const retryNotes = emits.filter((e) => e.kind === 'phase_note' && e.note === 'llm_retry');
+      expect(retryNotes).toHaveLength(1);
+      expect(String(retryNotes[0].detail)).toContain('step_cancel');
+      vi.restoreAllMocks();
+    });
+
+    it('cancelCurrentStep escalates to a full cancel when called twice within 2s', () => {
+      const adapter = createMockAdapter([{ content: 'hi', toolCalls: [], finishReason: 'stop' }]);
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      // Start execute() in the background so the abort controllers exist.
+      void agent.execute('hi', { canvasId: 'c1', extra: {} } as never, () => {});
+      const first = agent.cancelCurrentStep();
+      const second = agent.cancelCurrentStep();
+      expect(first.escalated).toBe(false);
+      expect(second.escalated).toBe(true);
     });
   });
 });

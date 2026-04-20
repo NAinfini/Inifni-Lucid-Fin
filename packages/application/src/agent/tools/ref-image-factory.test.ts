@@ -5,7 +5,32 @@ interface TestEntity extends RefImageEntity {
   name: string;
 }
 
-function createConfig(overrides?: Partial<RefImageFactoryConfig<TestEntity>>): RefImageFactoryConfig<TestEntity> {
+// Synthetic test view kind so the factory tests don't depend on any specific
+// domain (character/equipment/location). Mirrors the real factory contract:
+// a discriminated union with a `kind` field and an optional `angle`.
+type TestView = { kind: 'primary' } | { kind: 'extra-angle'; angle: string };
+
+function parseTestView(raw: unknown): TestView {
+  if (raw === undefined || raw === null) return { kind: 'primary' };
+  if (typeof raw !== 'object') throw new Error('view must be an object');
+  const obj = raw as Record<string, unknown>;
+  if (obj.kind === 'primary') return { kind: 'primary' };
+  if (obj.kind === 'extra-angle') {
+    if (typeof obj.angle !== 'string' || obj.angle.length === 0) {
+      throw new Error('view.angle is required when kind=extra-angle');
+    }
+    return { kind: 'extra-angle', angle: obj.angle };
+  }
+  throw new Error(`view.kind must be "primary" or "extra-angle" (got ${String(obj.kind)})`);
+}
+
+function testViewToSlot(view: TestView): string {
+  return view.kind === 'primary' ? 'primary' : `extra-angle:${view.angle}`;
+}
+
+function createConfig(
+  overrides?: Partial<RefImageFactoryConfig<TestEntity, TestView>>,
+): RefImageFactoryConfig<TestEntity, TestView> {
   return {
     toolNamePrefix: 'test',
     entityLabel: 'test entity',
@@ -13,9 +38,13 @@ function createConfig(overrides?: Partial<RefImageFactoryConfig<TestEntity>>): R
     getEntity: vi.fn(async (id) => id === 'e1' ? { id: 'e1', name: 'Entity 1', referenceImages: [] } : null),
     saveEntity: vi.fn(async () => {}),
     generateImage: vi.fn(async () => ({ assetHash: 'hash-123' })),
-    buildPrompt: vi.fn(() => 'test prompt'),
-    isStandardSlot: vi.fn((slot) => slot === 'portrait'),
-    normalizeSlot: vi.fn((slot) => slot.trim().toLowerCase()),
+    parseView: parseTestView,
+    buildPrompt: vi.fn((_entity, view, style) => {
+      const prefix = style ? `Style: ${style}. ` : '';
+      return `${prefix}test prompt for ${testViewToSlot(view)}`;
+    }),
+    viewToSlot: testViewToSlot,
+    kindEnum: ['primary', 'extra-angle'],
     ...overrides,
   };
 }
@@ -65,132 +94,89 @@ describe('createRefImageTools', () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', view: { kind: 'primary' } });
 
       expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({ assetHash: 'hash-123', slot: 'portrait' });
-      expect(config.generateImage).toHaveBeenCalledWith('test prompt', expect.objectContaining({ width: 2048, height: 1360 }));
+      expect(result.data).toMatchObject({ assetHash: 'hash-123', slot: 'primary' });
+      expect(config.generateImage).toHaveBeenCalledWith(
+        expect.stringContaining('test prompt for primary'),
+        expect.objectContaining({ width: 2048, height: 1360 }),
+      );
       expect(config.saveEntity).toHaveBeenCalledOnce();
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
-      expect(savedEntity.referenceImages![0]).toMatchObject({ slot: 'portrait', assetHash: 'hash-123', isStandard: true });
+      expect(savedEntity.referenceImages![0]).toMatchObject({ slot: 'primary', assetHash: 'hash-123', isStandard: true });
     });
 
-    it('defaults slot to "main" when slot not provided', async () => {
-      // Every real ref-image tool treats "main" as standard — the factory
-      // default itself assumes it. The test config must mirror that or the
-      // fail-loud unknown-slot guard will correctly reject the default.
-      const config = createConfig({
-        isStandardSlot: vi.fn((slot) => slot === 'main' || slot === 'portrait'),
-      });
+    it('defaults view to the primary kind when view is not provided', async () => {
+      const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
       const result = await tool.execute({ id: 'e1' });
 
       expect(result.success).toBe(true);
       const data = result.data as { slot: string };
-      expect(data.slot).toBe('main');
+      expect(data.slot).toBe('primary');
     });
 
-    it('normalizes the slot before prompt selection, storage, and result reporting', async () => {
+    it('uses custom prompt verbatim (with style plate prefix) when provided', async () => {
       const config = createConfig({
-        isStandardSlot: vi.fn((slot) => slot === 'main'),
-        normalizeSlot: vi.fn((slot) => (slot === ' Front ' ? 'main' : slot.trim().toLowerCase())),
-      });
-      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
-
-      const result = await tool.execute({ id: 'e1', slot: ' Front ' });
-
-      expect(result.success).toBe(true);
-      expect(config.buildPrompt).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), 'main');
-      expect(result.data).toMatchObject({ slot: 'main' });
-      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
-      expect(savedEntity.referenceImages?.[0]).toMatchObject({ slot: 'main', isStandard: true });
-    });
-
-    it('ignores custom prompt for standard slots unless override mode is requested', async () => {
-      const config = createConfig();
-      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
-
-      await tool.execute({ id: 'e1', slot: 'portrait', prompt: 'custom prompt from AI' });
-
-      expect(config.buildPrompt).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), 'portrait');
-      expect(config.generateImage).toHaveBeenCalledWith(
-        'test prompt',
-        expect.anything(),
-      );
-    });
-
-    it('uses custom prompt for standard slots only when override mode is explicit', async () => {
-      const config = createConfig();
-      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
-
-      await tool.execute({
-        id: 'e1',
-        slot: 'portrait',
-        prompt: 'custom prompt from AI',
-        promptMode: 'override',
-      });
-
-      expect(config.buildPrompt).not.toHaveBeenCalled();
-      expect(config.generateImage).toHaveBeenCalledWith(
-        'custom prompt from AI',
-        expect.anything(),
-      );
-    });
-
-    it('still allows custom prompts for non-standard slots when promptMode=override', async () => {
-      // A user-approved custom layout goes through `promptMode: 'override'`.
-      // The tool treats that slot as standard-enough to generate, forwarding
-      // the custom prompt verbatim without layout guardrails.
-      const config = createConfig({
-        isStandardSlot: vi.fn((slot) => slot === 'portrait' || slot === 'custom-angle'),
+        getCanvas: vi.fn(async () => ({
+          settings: { stylePlate: 'neo-noir watercolor' },
+        } as never)),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
       await tool.execute({
         id: 'e1',
-        slot: 'custom-angle',
-        prompt: 'custom prompt from AI',
-        promptMode: 'override',
+        view: { kind: 'primary' },
+        canvasId: 'canvas-1',
+        prompt: 'user custom prompt',
       });
 
       expect(config.buildPrompt).not.toHaveBeenCalled();
       expect(config.generateImage).toHaveBeenCalledWith(
-        'custom prompt from AI',
+        'Style: neo-noir watercolor. user custom prompt',
         expect.anything(),
       );
     });
 
-    it('fails loud when the AI passes an unrecognized slot', async () => {
-      // Regression: earlier behavior silently fell back to a generic
-      // "Single-view character reference" prompt for unknown slots. That
-      // produces an image that looks fine but violates the slot contract
-      // (e.g. a portrait where a turnaround sheet was required). Surface
-      // the error so the model retries with a valid slot.
-      const config = createConfig({
-        isStandardSlot: vi.fn((slot) => slot === 'portrait'),
-        slotEnum: ['portrait', 'side'],
-      });
+    it('falls back to buildPrompt when prompt is omitted', async () => {
+      const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', slot: 'portrait-main' });
+      await tool.execute({ id: 'e1', view: { kind: 'primary' } });
+
+      expect(config.buildPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'e1' }),
+        { kind: 'primary' },
+        undefined,
+      );
+      expect(config.generateImage).toHaveBeenCalledWith(
+        expect.stringContaining('test prompt for primary'),
+        expect.anything(),
+      );
+    });
+
+    it('fails loud when the agent passes an unrecognized view kind', async () => {
+      const config = createConfig();
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      const result = await tool.execute({ id: 'e1', view: { kind: 'portrait-main' } });
 
       expect(result).toMatchObject({ success: false });
-      expect((result as { error: string }).error).toContain('Unknown slot "portrait-main"');
-      expect((result as { error: string }).error).toContain('portrait, side');
+      expect((result as { error: string }).error).toContain('view.kind');
       expect(config.generateImage).not.toHaveBeenCalled();
-      expect(config.buildPrompt).not.toHaveBeenCalled();
     });
 
-    it('falls back to buildPrompt when AI prompt is omitted', async () => {
+    it('rejects extra-angle view without an angle label', async () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      await tool.execute({ id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', view: { kind: 'extra-angle' } });
 
-      expect(config.buildPrompt).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), 'portrait');
-      expect(config.generateImage).toHaveBeenCalledWith('test prompt', expect.anything());
+      expect(result.success).toBe(false);
+      expect((result as { error: string }).error).toContain('view.angle');
     });
 
     it('returns fail for missing entity', async () => {
@@ -207,18 +193,83 @@ describe('createRefImageTools', () => {
         getEntity: vi.fn(async () => ({
           id: 'e1',
           name: 'Entity 1',
-          referenceImages: [{ slot: 'portrait', assetHash: 'old-hash', isStandard: true }],
+          referenceImages: [{ slot: 'primary', assetHash: 'old-hash', isStandard: true }],
         })),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', view: { kind: 'primary' } });
 
       expect(result.success).toBe(true);
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
-      const portrait = savedEntity.referenceImages?.find((r) => r.slot === 'portrait');
-      expect(portrait?.assetHash).toBe('hash-123');
-      expect(portrait?.variants).toContain('old-hash');
+      const primary = savedEntity.referenceImages?.find((r) => r.slot === 'primary');
+      expect(primary?.assetHash).toBe('hash-123');
+      expect(primary?.variants).toContain('old-hash');
+    });
+
+    it('threads canvas-scoped stylePlate into the prompt builder', async () => {
+      const config = createConfig({
+        getCanvas: vi.fn(async () => ({
+          settings: { stylePlate: 'style-xyz' },
+        } as never)),
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({ id: 'e1', view: { kind: 'primary' }, canvasId: 'canvas-1' });
+
+      expect(config.buildPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        { kind: 'primary' },
+        'style-xyz',
+      );
+    });
+
+    it('uses canvas imageProviderId when no explicit providerId is supplied', async () => {
+      const config = createConfig({
+        getCanvas: vi.fn(async () => ({
+          settings: { imageProviderId: 'flux-2-pro' },
+        } as never)),
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({ id: 'e1', view: { kind: 'primary' }, canvasId: 'canvas-1' });
+
+      expect(config.generateImage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ providerId: 'flux-2-pro' }),
+      );
+    });
+
+    it('uses canvas defaultResolution when args.width/height are omitted', async () => {
+      const config = createConfig({
+        getCanvas: vi.fn(async () => ({
+          settings: { defaultResolution: { width: 1536, height: 1024 } },
+        } as never)),
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({ id: 'e1', view: { kind: 'primary' }, canvasId: 'canvas-1' });
+
+      expect(config.generateImage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ width: 1536, height: 1024 }),
+      );
+    });
+
+    it('appends canvas negativePrompt as "Avoid: …" trailing segment', async () => {
+      const config = createConfig({
+        getCanvas: vi.fn(async () => ({
+          settings: { negativePrompt: 'text, watermark' },
+        } as never)),
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({ id: 'e1', view: { kind: 'primary' }, canvasId: 'canvas-1' });
+
+      expect(config.generateImage).toHaveBeenCalledWith(
+        expect.stringContaining('Avoid: text, watermark'),
+        expect.anything(),
+      );
     });
   });
 
@@ -227,41 +278,31 @@ describe('createRefImageTools', () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', slot: 'portrait', assetHash: 'abc' });
+      const result = await tool.execute({ id: 'e1', view: { kind: 'primary' }, assetHash: 'abc' });
 
       expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({ assetHash: 'abc', slot: 'portrait' });
+      expect(result.data).toMatchObject({ assetHash: 'abc', slot: 'primary' });
       expect(config.saveEntity).toHaveBeenCalledOnce();
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
-      expect(savedEntity.referenceImages![0]).toMatchObject({ slot: 'portrait', assetHash: 'abc', isStandard: true });
+      expect(savedEntity.referenceImages![0]).toMatchObject({ slot: 'primary', assetHash: 'abc', isStandard: true });
     });
 
     it('returns fail when assetHash is missing', async () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', view: { kind: 'primary' } });
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('assetHash is required');
-    });
-
-    it('returns fail when slot is missing', async () => {
-      const config = createConfig();
-      const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
-
-      const result = await tool.execute({ id: 'e1', assetHash: 'abc' });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('slot is required');
     });
 
     it('returns fail for missing entity', async () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ id: 'missing', slot: 'portrait', assetHash: 'abc' });
+      const result = await tool.execute({ id: 'missing', view: { kind: 'primary' }, assetHash: 'abc' });
 
       expect(result.success).toBe(false);
     });
@@ -271,12 +312,12 @@ describe('createRefImageTools', () => {
         getEntity: vi.fn(async () => ({
           id: 'e1',
           name: 'Entity 1',
-          referenceImages: [{ slot: 'portrait', assetHash: 'old', isStandard: true }],
+          referenceImages: [{ slot: 'primary', assetHash: 'old', isStandard: true }],
         })),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      await tool.execute({ id: 'e1', slot: 'portrait', assetHash: 'new' });
+      await tool.execute({ id: 'e1', view: { kind: 'primary' }, assetHash: 'new' });
 
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
@@ -285,45 +326,35 @@ describe('createRefImageTools', () => {
   });
 
   describe('deleteRefImage', () => {
-    it('removes ref image for slot', async () => {
+    it('removes ref image for the specified view', async () => {
       const config = createConfig({
         getEntity: vi.fn(async () => ({
           id: 'e1',
           name: 'Entity 1',
           referenceImages: [
-            { slot: 'portrait', assetHash: 'abc', isStandard: true },
-            { slot: 'side', assetHash: 'def', isStandard: false },
+            { slot: 'primary', assetHash: 'abc', isStandard: true },
+            { slot: 'extra-angle:side', assetHash: 'def', isStandard: true },
           ],
         })),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.deleteRefImage')!;
 
-      const result = await tool.execute({ id: 'e1', slot: 'portrait' });
+      const result = await tool.execute({ id: 'e1', view: { kind: 'primary' } });
 
       expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({ id: 'e1', slot: 'portrait' });
+      expect(result.data).toMatchObject({ id: 'e1', slot: 'primary' });
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
-      expect(savedEntity.referenceImages![0].slot).toBe('side');
+      expect(savedEntity.referenceImages![0].slot).toBe('extra-angle:side');
     });
 
     it('returns fail for missing entity', async () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.deleteRefImage')!;
 
-      const result = await tool.execute({ id: 'missing', slot: 'portrait' });
+      const result = await tool.execute({ id: 'missing', view: { kind: 'primary' } });
 
       expect(result.success).toBe(false);
-    });
-
-    it('returns fail when slot is missing', async () => {
-      const config = createConfig();
-      const tool = createRefImageTools(config).find((t) => t.name === 'test.deleteRefImage')!;
-
-      const result = await tool.execute({ id: 'e1' });
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('slot is required');
     });
   });
 
@@ -369,11 +400,11 @@ describe('createRefImageTools', () => {
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
-        slot: 'portrait',
+        view: { kind: 'primary' },
       });
 
       expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({ id: 'e1', slot: 'portrait', assetHash: 'v1' });
+      expect(result.data).toMatchObject({ id: 'e1', slot: 'primary', assetHash: 'v1' });
       expect(config.saveEntity).toHaveBeenCalledOnce();
     });
 
@@ -388,7 +419,7 @@ describe('createRefImageTools', () => {
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
-        slot: 'portrait',
+        view: { kind: 'primary' },
       });
 
       expect(result.success).toBe(true);
@@ -407,10 +438,11 @@ describe('createRefImageTools', () => {
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-999',
-        slot: 'portrait',
+        view: { kind: 'primary' },
       });
 
-      expect(result).toEqual({ success: false, error: 'Node not found: node-999' });
+      expect(result.success).toBe(false);
+      expect((result as { error: string }).error).toContain('Node not found');
     });
 
     it('returns fail when node type is unsupported', async () => {
@@ -424,7 +456,7 @@ describe('createRefImageTools', () => {
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
-        slot: 'portrait',
+        view: { kind: 'primary' },
       });
 
       expect(result.success).toBe(false);
@@ -442,7 +474,7 @@ describe('createRefImageTools', () => {
         id: 'e1',
         canvasId: 'canvas-1',
         nodeId: 'node-1',
-        slot: 'portrait',
+        view: { kind: 'primary' },
       });
 
       expect(result).toEqual({ success: false, error: 'No generated asset on node' });

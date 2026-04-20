@@ -7,9 +7,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
 import { Settings } from './Settings.js';
 import { addCustomProvider, settingsSlice, type SettingsState } from '../store/slices/settings.js';
-import { promptTemplatesSlice, setCustomContent } from '../store/slices/promptTemplates.js';
+import { skillDefinitionsSlice, setCustomContent } from '../store/slices/skillDefinitions.js';
 import { uiSlice } from '../store/slices/ui.js';
-import { workflowDefinitionsSlice } from '../store/slices/workflowDefinitions.js';
 import { commanderSlice } from '../store/slices/commander.js';
 import { getAPI } from '../utils/api.js';
 import { setLocale, t } from '../i18n.js';
@@ -31,9 +30,8 @@ function createStore(preloadedSettings?: SettingsState) {
   return configureStore({
     reducer: {
       settings: settingsSlice.reducer,
-      promptTemplates: promptTemplatesSlice.reducer,
+      skillDefinitions: skillDefinitionsSlice.reducer,
       ui: uiSlice.reducer,
-      workflowDefinitions: workflowDefinitionsSlice.reducer,
       commander: commanderSlice.reducer,
     },
     preloadedState: preloadedSettings ? { settings: preloadedSettings } : undefined,
@@ -117,10 +115,8 @@ describe('Settings updater UI', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Guides').length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Add Template' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Add Workflow' })).toBeTruthy();
-      expect(screen.getByRole('button', { name: 'Add Skill' })).toBeTruthy();
       expect(screen.getByText('Meta-Prompt (AI Instructor)')).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.wf-story-idea-to-video'))).toBeTruthy();
+      expect(screen.getByText('Story Idea → Video')).toBeTruthy();
     });
   });
 
@@ -374,13 +370,8 @@ describe('Settings updater UI', () => {
     await waitFor(() => {
       expect(screen.getAllByText(t('settings.guides.title')).length).toBeGreaterThan(0);
       expect(screen.getByText(t('settings.guides.subtitle'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.wf-video-clone'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-reverse-prompt'))).toBeTruthy();
-      expect(screen.getByText(t('promptTemplateNames.video-clone'))).toBeTruthy();
-      expect(screen.getByText(t('promptTemplateNames.dual-prompt-strategy'))).toBeTruthy();
-      expect(screen.getByText(t('promptTemplateNames.lip-sync-workflow'))).toBeTruthy();
-      expect(screen.getAllByText(t('settings.guides.templateSource')).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(t('settings.guides.workflowSource')).length).toBeGreaterThan(0);
+      expect(screen.getByText('Video Clone → Remake')).toBeTruthy();
+      expect(screen.getByText('Reverse Prompt Inference')).toBeTruthy();
       expect(screen.getAllByText(t('settings.builtIn')).length).toBeGreaterThan(0);
     });
   });
@@ -446,11 +437,11 @@ describe('Settings updater UI', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    const updatedTemplate = store
+    const updatedSkill = store
       .getState()
-      .promptTemplates.templates.find((template) => template.id === 'meta-prompt');
+      .skillDefinitions.skills.find((skill: { id: string }) => skill.id === 'meta-prompt');
 
-    expect(updatedTemplate).toEqual(
+    expect(updatedSkill).toEqual(
       expect.objectContaining({
         id: 'meta-prompt',
         name: 'Director Notes',

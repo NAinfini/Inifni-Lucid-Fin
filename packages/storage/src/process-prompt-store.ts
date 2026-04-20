@@ -1735,6 +1735,40 @@ After control actions:
 - Report control actions to the user, especially \`cancel\` and failed \`retry\` — they are decisions the user should know about.
 - After a cancel or failure, state that the job is gone so the user does not expect its output to appear later.`,
   ),
+  defineProcessPrompt(
+    'style-plate-lock',
+    'Style Plate Lock (ref-image precondition)',
+    'Triggered when a canvas has ref-image entities but no stylePlate set. Forces Commander to lock a canvas-scoped style prompt before running character/equipment/location ref-image generation.',
+    `Before you generate any reference image on this canvas, verify that \`canvas.settings.stylePlate\` is locked. The stylePlate is a free-form style-description string (e.g. "flat 2D cel anime, saturated palette, no outlines") that every ref-image builder prepends as prompt segment 0. Without it, entities render in clashing styles and the whole project looks inconsistent.
+
+Workflow — non-negotiable order:
+1. Call \`canvas.getSettings({ canvasId })\` for the active canvas.
+2. Inspect \`stylePlate\` on the returned settings.
+   - **Present and non-empty** → plate is locked. Proceed with the requested ref-image generation. The builder prepends \`Style: <stylePlate>.\` automatically.
+   - **Missing or empty string** → STOP. Do not call \`character.generateRefImage\` / \`equipment.generateRefImage\` / \`location.generateRefImage\` yet. Run the style-plate lock workflow first.
+
+Style-plate lock workflow (when no plate is set):
+- Call \`guide.get({ ids: ['workflow-style-plate'] })\` to read the full lock procedure.
+- Ask the user ONE question: which art style anchors this project (e.g. "Japanese anime, flat cel shading", "Pixar 3D with subsurface scatter", upload an image and describe it).
+- Compose a 20–60 word stylePlate string covering: medium, line work, palette, texture, lighting, era cue. No character names, no scene, no action.
+- Show the composed string to the user for confirmation. Accept tweaks.
+- Call \`canvas.setSettings({ canvasId, settings: { stylePlate: '<final string>' } })\`.
+- Re-call \`canvas.getSettings\` to verify it landed.
+- THEN return to the original ref-image request.
+
+Hard rules:
+- Do NOT silently generate a ref image without a plate. The output will visually clash with every other entity in the same project and the user will redo it.
+- Do NOT hardcode a stylePlate for the user — let them steer the vocabulary. Your job is to compose the string from their description.
+- Do NOT embed scene/action/character details in the plate. stylePlate is style only.
+
+User-visible behavior:
+- If a plate is already locked: proceed silently with ref-image generation. Report success as usual.
+- If no plate: surface ONE short message explaining you need to lock a style plate first, then ask the style question. Keep it under 40 words.
+
+Verification after locking:
+- \`canvas.getSettings\` returns the exact string you wrote.
+- The originally requested ref-image tool now runs with the plate prepended (check \`stylePlateUsed: true\` in the result).`,
+  ),
 ];
 
 const LEGACY_PROCESS_PROMPT_SPLITS = [

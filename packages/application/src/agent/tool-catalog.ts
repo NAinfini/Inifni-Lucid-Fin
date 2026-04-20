@@ -345,6 +345,18 @@ const canvasDeleteNote = defineToolMeta({
   category: 'mutation',
 });
 
+// ── Canvas-scoped settings (2) ────────────────────────────────────
+const canvasGetSettings = defineToolMeta({
+  name: 'canvas.getSettings' as const,
+  process: 'canvas-settings',
+  category: 'query',
+});
+const canvasSetSettings = defineToolMeta({
+  name: 'canvas.setSettings' as const,
+  process: 'canvas-settings',
+  category: 'mutation',
+});
+
 // ── Node preset tracks (6) ────────────────────────────────────────
 const canvasReadNodePresetTracks = defineToolMeta({
   name: 'canvas.readNodePresetTracks' as const,
@@ -707,6 +719,8 @@ export const ToolCatalog = createCatalog([
   canvasAddNote, canvasUpdateBackdrop, canvasImportWorkflow, canvasExportWorkflow,
   canvasGetState, canvasListNodes, canvasListEdges, canvasGetNode,
   canvasDeleteNode, canvasUpdateNote, canvasDeleteNote,
+  // canvas settings
+  canvasGetSettings, canvasSetSettings,
   // canvas graph/layout
   canvasConnectNodes, canvasLayout, canvasDeleteEdge, canvasSwapEdgeDirection,
   canvasDisconnectNode, canvasSetVideoFrames,

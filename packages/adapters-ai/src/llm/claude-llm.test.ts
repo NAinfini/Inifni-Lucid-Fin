@@ -1,6 +1,12 @@
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudeLLMAdapter } from './claude-llm.js';
+import { collectLLMStream } from './test-utils/collect-llm-stream.js';
+
+function complete(adapter: ClaudeLLMAdapter, messages: LLMMessage[], opts?: LLMRequestOptions) {
+  return collectLLMStream(adapter.completeWithTools(messages, opts));
+}
 
 describe('ClaudeLLMAdapter.completeWithTools', () => {
   beforeEach(() => {
@@ -45,7 +51,7 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
     adapter.configure('test-key');
 
     await expect(
-      adapter.completeWithTools(
+      complete(adapter,
         [{ role: 'user', content: 'hello' }],
         {
           tools: [
@@ -102,7 +108,7 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }], {
+      complete(adapter, [{ role: 'user', content: 'hello' }], {
         tools: [
           {
             name: 'tool.search',
@@ -154,7 +160,7 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
 
     let thrown: unknown;
     try {
-      await adapter.completeWithTools([{ role: 'user', content: 'hello' }], {
+      await complete(adapter, [{ role: 'user', content: 'hello' }], {
         tools: [
           {
             name: 'tool.search',
@@ -232,7 +238,7 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
       baseUrl: 'https://proxy.example/v1',
     });
 
-    const result = await adapter.completeWithTools([{ role: 'user', content: 'hello' }], {
+    const result = await complete(adapter, [{ role: 'user', content: 'hello' }], {
       tools: [
         {
           name: 'tool.search',

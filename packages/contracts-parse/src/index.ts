@@ -117,7 +117,10 @@ export { parseCanvasId, tryCanvasId } from './brands/canvas-id.js';
 export {
   CanvasSchema,
   CanvasViewportSchema,
+  CanvasSettingsSchema,
+  CanvasAspectRatioSchema,
   type CanvasDto,
+  type CanvasSettingsDto,
 } from './dto/canvas.js';
 
 // ── Phase G1-2.6: Entity-domain ID parsers + DTOs ──────────────

@@ -1,7 +1,7 @@
 import type { IpcMain, BrowserWindow } from 'electron';
 import { aiStreamChannel, aiEventChannel } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
-import type { AgentOrchestrator, AgentEvent } from '@lucid-fin/application';
+import type { AgentOrchestrator, StampedStreamEvent } from '@lucid-fin/application';
 import type { PromptStore } from '@lucid-fin/storage';
 import {
   createRendererPushGateway,
@@ -38,8 +38,8 @@ export function registerAiHandlers(
         throw new Error('No LLM adapter configured. Please set an API key in Settings.');
       }
 
-      const emit = (event: AgentEvent) => {
-        if (event.type === 'stream_chunk' && event.content) {
+      const emit = (event: StampedStreamEvent) => {
+        if (event.kind === 'chunk' && event.content) {
           gateway.emit(aiStreamChannel, event.content);
         }
         gateway.emit(aiEventChannel, event);

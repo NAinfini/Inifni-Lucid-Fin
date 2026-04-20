@@ -167,7 +167,6 @@ function renderWithStore(
     equipmentSlice.actions.restore({
       items: equipmentItems,
       selectedId: selectedEquipmentId,
-      filterType: 'all',
       loading: false,
       folders: [],
       currentFolderId: null,
@@ -492,6 +491,25 @@ describe('Entity manager panels', () => {
     });
 
     expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it('hides equipment list header filter and search controls', async () => {
+    setLocale('zh-CN');
+
+    renderWithStore(<EquipmentManagerPanel />, {
+      equipment: [
+        createEquipmentVariant('equipment-1', 'Pulse Rifle'),
+        createEquipmentVariant('equipment-2', 'Field Pack', { type: 'tool' }),
+      ],
+      selectedEquipmentId: 'equipment-1',
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(t('equipmentManager.title'))).toBeTruthy();
+    });
+
+    expect(screen.queryByText(t('equipmentManager.allTypes'))).toBeNull();
+    expect(screen.queryByPlaceholderText(t('fileExplorer.searchPlaceholder'))).toBeNull();
   });
 
   it('uses dialog confirmation instead of window.confirm for equipment deletion', async () => {

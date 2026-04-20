@@ -1,6 +1,12 @@
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
 import { describe, it, expect, vi } from 'vitest';
 import { OllamaLLMAdapter } from './ollama-llm.js';
+import { collectLLMStream } from './test-utils/collect-llm-stream.js';
+
+function complete(adapter: OllamaLLMAdapter, messages: LLMMessage[], opts?: LLMRequestOptions) {
+  return collectLLMStream(adapter.completeWithTools(messages, opts));
+}
 
 describe('OllamaLLMAdapter', () => {
   it('uses local defaults and validates against the configured Ollama host', async () => {
@@ -110,7 +116,7 @@ describe('OllamaLLMAdapter', () => {
       });
 
       await expect(
-        adapter.completeWithTools(
+        complete(adapter,
           [
             { role: 'user', content: 'hello' },
             {

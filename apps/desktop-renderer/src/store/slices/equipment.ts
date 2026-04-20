@@ -1,10 +1,9 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { Equipment, EquipmentType, Folder, ReferenceImage } from '@lucid-fin/contracts';
+import type { Equipment, Folder, ReferenceImage } from '@lucid-fin/contracts';
 
 export interface EquipmentState {
   items: Equipment[];
   selectedId: string | null;
-  filterType: EquipmentType | 'all';
   loading: boolean;
   folders: Folder[];
   currentFolderId: string | null;
@@ -14,7 +13,6 @@ export interface EquipmentState {
 const initialState: EquipmentState = {
   items: [],
   selectedId: null,
-  filterType: 'all',
   loading: false,
   folders: [],
   currentFolderId: null,
@@ -41,9 +39,6 @@ export const equipmentSlice = createSlice({
     },
     selectEquipment(state, action: PayloadAction<string | null>) {
       state.selectedId = action.payload;
-    },
-    setFilterType(state, action: PayloadAction<EquipmentType | 'all'>) {
-      state.filterType = action.payload;
     },
     setLoading(state, action: PayloadAction<boolean>) {
       state.loading = action.payload;
@@ -108,7 +103,6 @@ export const {
   updateEquipment,
   removeEquipment,
   selectEquipment,
-  setFilterType,
   setLoading,
   setEquipmentRefImage,
   removeEquipmentRefImage,

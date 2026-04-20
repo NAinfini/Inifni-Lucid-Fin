@@ -8,6 +8,7 @@ function makeRegistry() {
     name: 'canvas.getState',
     description: 'Get the full state of the current canvas',
     tags: ['canvas', 'read'],
+    tier: 1,
     parameters: { type: 'object', properties: { canvasId: { type: 'string', description: 'Canvas id' } }, required: ['canvasId'] },
     execute: vi.fn(),
   });
@@ -15,6 +16,7 @@ function makeRegistry() {
     name: 'canvas.deleteNode',
     description: 'Delete a node from the current canvas',
     tags: ['canvas', 'mutate'],
+    tier: 1,
     parameters: { type: 'object', properties: { nodeId: { type: 'string', description: 'Node id' } }, required: ['nodeId'] },
     execute: vi.fn(),
   });
@@ -22,6 +24,7 @@ function makeRegistry() {
     name: 'character.list',
     description: 'List all characters in the project',
     tags: ['entity', 'read'],
+    tier: 1,
     parameters: { type: 'object', properties: {}, required: [] },
     execute: vi.fn(),
   });
@@ -79,7 +82,8 @@ describe('createMetaTools', () => {
         registry.register({
           name: 'test.long',
           description: 'A'.repeat(100),
-          parameters: { type: 'object', properties: {}, required: [] },
+          tier: 1,
+      parameters: { type: 'object', properties: {}, required: [] },
           execute: vi.fn(),
         });
         const tools = createMetaTools(registry, {});

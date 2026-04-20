@@ -1,6 +1,7 @@
 import { memo, useState } from 'react';
-import { AlertTriangle, ChevronDown, MessageCircleQuestion } from 'lucide-react';
+import { AlertTriangle, ChevronDown, MessageCircleQuestion, Sparkles } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
+import { assertNever } from '../../../utils/assert-never.js';
 import { Markdown } from './Markdown.js';
 import { ToolCallCard } from './ToolCallCard.js';
 import { CopyButton } from './CopyButton.js';
@@ -21,13 +22,12 @@ interface MessageListProps {
   } | null;
   currentSegments: MessageSegment[];
   pendingInjectedMessages: string[];
-  isStreaming: boolean;
+  /** True only while a text chunk arrived within the last ~500ms (Phase 3 cursor gate). */
+  showTextCursor: boolean;
   error: string | null;
   nodeTitlesById: Record<string, string>;
-  thinkingContent?: string;
   t: (key: string) => string;
   emptyLabel: string;
-  streamingLabel: string;
   onNodeClick?: (nodeId: string) => void;
 }
 
@@ -36,18 +36,14 @@ export const MessageList = memo(function MessageList({
   liveMessage,
   currentSegments,
   pendingInjectedMessages,
-  isStreaming,
+  showTextCursor,
   error,
   nodeTitlesById,
-  thinkingContent,
   t,
   emptyLabel,
-  streamingLabel,
   onNodeClick,
 }: MessageListProps) {
-  const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
-  const showThinking = Boolean(thinkingContent);
   const toggleRunExpanded = (messageId: string) => {
     setExpandedRuns((prev) => ({ ...prev, [messageId]: !prev[messageId] }));
   };
@@ -91,19 +87,15 @@ export const MessageList = memo(function MessageList({
                 </MessageActionStrip>
               ) : null}
               <div className="px-3 py-2">
-                {message.segments.map((seg, i) =>
-                  seg.type === 'text' ? (
-                    <Markdown key={i} content={seg.content} onNodeClick={onNodeClick} />
-                  ) : (
-                    <ToolCallCard
-                      key={seg.toolCall.id}
-                      toolCall={seg.toolCall}
-                      nodeTitlesById={nodeTitlesById}
-                      t={t}
-                      onNodeClick={onNodeClick}
-                    />
-                  ),
-                )}
+                {message.segments.map((seg) => (
+                  <SegmentRenderer
+                    key={seg.id}
+                    seg={seg}
+                    nodeTitlesById={nodeTitlesById}
+                    onNodeClick={onNodeClick}
+                    t={t}
+                  />
+                ))}
               </div>
               <RemainingToolCalls
                 message={message}
@@ -146,24 +138,19 @@ export const MessageList = memo(function MessageList({
         <article className="w-full py-1.5 text-xs">
           {currentSegments.length > 0 ? (
             <>
-              {currentSegments.map((seg, i) =>
-                seg.type === 'text' ? (
-                  <div key={i}>
-                    <Markdown content={seg.content} onNodeClick={onNodeClick} />
-                    {isStreaming && i === currentSegments.length - 1 ? (
-                      <span className="inline-block animate-pulse text-primary">▌</span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <ToolCallCard
-                    key={seg.toolCall.id}
-                    toolCall={seg.toolCall}
+              {currentSegments.map((seg, i) => {
+                const isLast = i === currentSegments.length - 1;
+                return (
+                  <LiveSegmentRenderer
+                    key={seg.id}
+                    seg={seg}
                     nodeTitlesById={nodeTitlesById}
-                    t={t}
                     onNodeClick={onNodeClick}
+                    t={t}
+                    showCursor={showTextCursor && isLast && seg.kind === 'text'}
                   />
-                ),
-              )}
+                );
+              })}
             </>
           ) : null}
         </article>
@@ -178,36 +165,6 @@ export const MessageList = memo(function MessageList({
           <div className="whitespace-pre-wrap break-words">{msg}</div>
         </article>
       ))}
-
-      {showThinking ? (
-        <div className="rounded-md border border-violet-500/30 bg-violet-500/5">
-          <button
-            type="button"
-            className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-violet-400 hover:text-violet-300"
-            onClick={() => setThinkingExpanded((prev) => !prev)}
-          >
-            <span className="animate-pulse">{'✦'}</span>
-            <span>{t('commander.thinkingProcess')}</span>
-            <span className="ml-auto text-[9px]">{thinkingExpanded ? '▾' : '▸'}</span>
-          </button>
-          {thinkingExpanded ? (
-            <div className="border-t border-violet-500/20 px-2.5 py-2 text-[11px] leading-relaxed text-violet-300/80">
-              <div className="max-h-40 overflow-y-auto whitespace-pre-wrap">{thinkingContent}</div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {isStreaming && (
-        <div className="flex items-center gap-2 py-2 text-muted-foreground">
-          <div className="flex gap-1">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }} />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }} />
-          </div>
-          <span className="text-[10px]">{streamingLabel}</span>
-        </div>
-      )}
 
       {error ? (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
@@ -233,7 +190,7 @@ function RemainingToolCalls({
 }: RemainingToolCallsProps) {
   const segmentToolCallIds = new Set(
     (message.segments ?? [])
-      .filter((segment): segment is Extract<MessageSegment, { type: 'tool' }> => segment.type === 'tool')
+      .filter((segment): segment is Extract<MessageSegment, { kind: 'tool' }> => segment.kind === 'tool')
       .map((segment) => segment.toolCall.id),
   );
   const remainingToolCalls = (message.toolCalls ?? []).filter(
@@ -291,16 +248,14 @@ function RunSummaryCard({
 
   const { finalSegments, processSegments } = splitFinalFromProcess(message.segments);
   const processToolCalls = collectProcessToolCalls(message.toolCalls, message.segments);
-  const hasThinking = Boolean(runMeta.thinkingContent);
   const isFailed = runMeta.status === 'failed';
   // Show the process toggle whenever the run did *something* worth folding:
-  // thinking, intermediate segments, uncaptured tool calls, or a tool count
-  // recorded on the summary even if raw segment/tool data is missing (older
-  // persisted messages, historical sessions).
+  // intermediate segments, uncaptured tool calls, or a tool count recorded on
+  // the summary even if raw segment/tool data is missing (older persisted
+  // messages, historical sessions).
   const hasProcess =
     processSegments.length > 0 ||
     processToolCalls.length > 0 ||
-    hasThinking ||
     runMeta.summary.toolCount > 0 ||
     isFailed;
 
@@ -309,7 +264,7 @@ function RunSummaryCard({
   // still sees something actionable (error message / full content).
   const finalText = finalSegments.length > 0
     ? finalSegments
-        .filter((seg): seg is Extract<MessageSegment, { type: 'text' }> => seg.type === 'text')
+        .filter((seg): seg is Extract<MessageSegment, { kind: 'text' }> => seg.kind === 'text')
         .map((seg) => seg.content)
         .join('')
     : message.content;
@@ -362,9 +317,6 @@ function RunSummaryCard({
           </button>
           {expanded ? (
             <div className="border-l-2 border-border/60 ml-3 pl-2 py-1 space-y-1">
-              {hasThinking ? (
-                <HistoricalThinkingCard content={runMeta.thinkingContent!} t={t} />
-              ) : null}
               <ProcessSegments
                 segments={processSegments}
                 nodeTitlesById={nodeTitlesById}
@@ -411,21 +363,15 @@ function ProcessSegments({ segments, nodeTitlesById, t, onNodeClick }: ProcessSe
   if (segments.length === 0) return null;
   return (
     <>
-      {segments.map((seg, i) =>
-        seg.type === 'text' ? (
-          <div key={`process-text-${i}`} className="px-2 py-1 text-[12px] text-muted-foreground/90">
-            <Markdown content={seg.content} onNodeClick={onNodeClick} />
-          </div>
-        ) : (
-          <ToolCallCard
-            key={seg.toolCall.id}
-            toolCall={seg.toolCall}
-            nodeTitlesById={nodeTitlesById}
-            t={t}
-            onNodeClick={onNodeClick}
-          />
-        ),
-      )}
+      {segments.map((seg) => (
+        <ProcessSegmentRenderer
+          key={seg.id}
+          seg={seg}
+          nodeTitlesById={nodeTitlesById}
+          onNodeClick={onNodeClick}
+          t={t}
+        />
+      ))}
     </>
   );
 }
@@ -450,7 +396,7 @@ function splitFinalFromProcess(segments: MessageSegment[] | undefined): {
   // final answer; everything up to and including it is process.
   let lastToolIdx = -1;
   for (let i = segments.length - 1; i >= 0; i -= 1) {
-    if (segments[i]!.type === 'tool') {
+    if (segments[i]!.kind === 'tool') {
       lastToolIdx = i;
       break;
     }
@@ -478,7 +424,7 @@ function collectProcessToolCalls(
   if (!toolCalls || toolCalls.length === 0) return [];
   const segmentIds = new Set(
     (segments ?? [])
-      .filter((s): s is Extract<MessageSegment, { type: 'tool' }> => s.type === 'tool')
+      .filter((s): s is Extract<MessageSegment, { kind: 'tool' }> => s.kind === 'tool')
       .map((s) => s.toolCall.id),
   );
   return toolCalls.filter((tc) => !segmentIds.has(tc.id));
@@ -513,28 +459,187 @@ function HistoricalQuestionCard({ message, t }: HistoricalQuestionCardProps) {
   );
 }
 
-interface HistoricalThinkingCardProps {
-  content: string;
-  t: (key: string) => string;
-}
-
-function HistoricalThinkingCard({ content, t }: HistoricalThinkingCardProps) {
-  return (
-    <div className="mx-3 mt-3 rounded-md border border-violet-500/30 bg-violet-500/5">
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] text-violet-400">
-        <span>{t('commander.thinkingProcess')}</span>
-      </div>
-      <div className="border-t border-violet-500/20 px-2.5 py-2 text-[11px] leading-relaxed text-violet-300/80">
-        <div className="max-h-40 overflow-y-auto whitespace-pre-wrap">{content}</div>
-      </div>
-    </div>
-  );
-}
-
 function formatDuration(durationMs: number): string {
   if (durationMs < 1) return '<1ms';
   if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
   if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)}s`;
   if (durationMs < 3_600_000) return `${(durationMs / 60_000).toFixed(1)}m`;
   return `${(durationMs / 3_600_000).toFixed(1)}h`;
+}
+
+interface SegmentRendererProps {
+  seg: MessageSegment;
+  nodeTitlesById: Record<string, string>;
+  onNodeClick?: (nodeId: string) => void;
+  t: (key: string) => string;
+}
+
+/** Renders a segment in the "finished message" (history) context. */
+function SegmentRenderer({ seg, nodeTitlesById, onNodeClick, t }: SegmentRendererProps) {
+  switch (seg.kind) {
+    case 'text':
+      return <Markdown content={seg.content} onNodeClick={onNodeClick} />;
+    case 'tool':
+      return (
+        <ToolCallCard
+          toolCall={seg.toolCall}
+          nodeTitlesById={nodeTitlesById}
+          t={t}
+          onNodeClick={onNodeClick}
+        />
+      );
+    case 'thinking':
+      return <ThinkingSegment seg={seg} />;
+    case 'step_marker':
+      return <StepMarkerSegment seg={seg} t={t} />;
+    case 'phase_note':
+      return <PhaseNoteSegment seg={seg} t={t} />;
+    default:
+      return assertNever(seg, 'SegmentRenderer');
+  }
+}
+
+interface LiveSegmentRendererProps extends SegmentRendererProps {
+  showCursor: boolean;
+}
+
+/** Renders a segment in the live-stream context (shows a cursor after the tail text segment). */
+function LiveSegmentRenderer({
+  seg,
+  nodeTitlesById,
+  onNodeClick,
+  t,
+  showCursor,
+}: LiveSegmentRendererProps) {
+  switch (seg.kind) {
+    case 'text':
+      return (
+        <div>
+          <Markdown content={seg.content} onNodeClick={onNodeClick} />
+          {showCursor ? (
+            <span className="inline-block animate-pulse text-primary">▌</span>
+          ) : null}
+        </div>
+      );
+    case 'tool':
+      return (
+        <ToolCallCard
+          toolCall={seg.toolCall}
+          nodeTitlesById={nodeTitlesById}
+          t={t}
+          onNodeClick={onNodeClick}
+        />
+      );
+    case 'thinking':
+      return <ThinkingSegment seg={seg} />;
+    case 'step_marker':
+      return <StepMarkerSegment seg={seg} t={t} />;
+    case 'phase_note':
+      return <PhaseNoteSegment seg={seg} t={t} />;
+    default:
+      return assertNever(seg, 'LiveSegmentRenderer');
+  }
+}
+
+/** Renders a segment inside the expanded "process" card of a completed run. */
+function ProcessSegmentRenderer({ seg, nodeTitlesById, onNodeClick, t }: SegmentRendererProps) {
+  switch (seg.kind) {
+    case 'text':
+      return (
+        <div className="px-2 py-1 text-[12px] text-muted-foreground/90">
+          <Markdown content={seg.content} onNodeClick={onNodeClick} />
+        </div>
+      );
+    case 'tool':
+      return (
+        <ToolCallCard
+          toolCall={seg.toolCall}
+          nodeTitlesById={nodeTitlesById}
+          t={t}
+          onNodeClick={onNodeClick}
+        />
+      );
+    case 'thinking':
+      return <ThinkingSegment seg={seg} />;
+    case 'step_marker':
+      return <StepMarkerSegment seg={seg} t={t} />;
+    case 'phase_note':
+      return <PhaseNoteSegment seg={seg} t={t} />;
+    default:
+      return assertNever(seg, 'ProcessSegmentRenderer');
+  }
+}
+
+interface ThinkingSegmentProps {
+  seg: Extract<MessageSegment, { kind: 'thinking' }>;
+}
+
+/**
+ * Dimmed collapsible reasoning block. Starts expanded while the model is
+ * thinking; collapses automatically once real text begins to arrive (the
+ * reducer flips `collapsed`). The user can toggle it back open.
+ */
+function ThinkingSegment({ seg }: ThinkingSegmentProps) {
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
+  const expanded = userExpanded ?? !seg.collapsed;
+  if (!seg.content.trim()) return null;
+  return (
+    <div className="my-1 text-[11px] text-muted-foreground/80">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setUserExpanded(!expanded)}
+        className="flex items-center gap-1.5 opacity-70 hover:opacity-100 transition-opacity"
+      >
+        <Sparkles className="h-3 w-3 text-muted-foreground/60" />
+        <span className="italic">thinking</span>
+        <ChevronDown
+          className={cn('h-3 w-3 transition-transform', expanded ? 'rotate-0' : '-rotate-90')}
+        />
+      </button>
+      {expanded ? (
+        <pre className="mt-1 ml-4 whitespace-pre-wrap break-words font-sans text-[11px] leading-snug text-muted-foreground/70">
+          {seg.content}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
+
+interface StepMarkerSegmentProps {
+  seg: Extract<MessageSegment, { kind: 'step_marker' }>;
+  t: (key: string) => string;
+}
+
+function StepMarkerSegment({ seg, t }: StepMarkerSegmentProps) {
+  return (
+    <div className="my-1 flex items-center gap-2 text-[10px] text-muted-foreground/70">
+      <span className="h-px flex-1 bg-border/60" />
+      <span className="whitespace-nowrap tabular-nums">
+        {t('commander.stepLabel')} {seg.step}
+      </span>
+      <span className="h-px flex-1 bg-border/60" />
+    </div>
+  );
+}
+
+interface PhaseNoteSegmentProps {
+  seg: Extract<MessageSegment, { kind: 'phase_note' }>;
+  t: (key: string) => string;
+}
+
+function PhaseNoteSegment({ seg, t }: PhaseNoteSegmentProps) {
+  const labelKey =
+    seg.note === 'process_prompt_loaded'
+      ? 'commander.phaseNote.processPromptLoaded'
+      : seg.note === 'compacted'
+        ? 'commander.phaseNote.compacted'
+        : 'commander.phaseNote.llmRetry';
+  const label = t(labelKey);
+  return (
+    <div className="my-1 italic text-[10px] text-muted-foreground/70">
+      {label}
+      {seg.detail ? `: ${seg.detail}` : null}
+    </div>
+  );
 }

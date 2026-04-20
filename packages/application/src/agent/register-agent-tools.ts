@@ -14,7 +14,6 @@ import { createRenderTools, type RenderToolDeps } from './tools/render-tools.js'
 import { createPresetTools, type PresetToolDeps } from './tools/preset-tools.js';
 import { createWorkflowTools, type WorkflowToolDeps } from './tools/workflow-tools.js';
 import { createMetaTools, type MetaToolDeps } from './tools/meta-tools.js';
-import { WORKFLOW_GUIDES } from './tools/workflow-guides.js';
 
 export interface AllToolDeps
   extends ScriptToolDeps,
@@ -52,7 +51,6 @@ export function registerAgentTools(
   for (const tool of createRenderTools(deps)) registry.register(tool);
   for (const tool of createPresetTools(deps)) registry.register(tool);
   for (const tool of createWorkflowTools(deps)) registry.register(tool);
-  const allGuides = [...(deps.promptGuides ?? []), ...WORKFLOW_GUIDES];
-  for (const tool of createMetaTools(registry, { promptGuides: allGuides })) registry.register(tool);
+  for (const tool of createMetaTools(registry, { promptGuides: deps.promptGuides ?? [] })) registry.register(tool);
   return registry;
 }

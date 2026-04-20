@@ -38,6 +38,24 @@ export function requireString(args: Record<string, unknown>, key: string): strin
   return value.trim();
 }
 
+/**
+ * Validate a field from a `set` payload. Unlike requireString (which reads
+ * the top-level args object), this validates `set.<key>` by label so error
+ * messages say `set.name must be a non-empty string` rather than
+ * `name is required`. Returns the trimmed string or throws a typed
+ * validation error.
+ */
+export function requireSetString(
+  set: Record<string, unknown>,
+  key: string,
+): string {
+  const value = set[key];
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new TypedToolError(`set.${key} must be a non-empty string`, 'validation');
+  }
+  return value.trim();
+}
+
 export function requireNumber(args: Record<string, unknown>, key: string): number {
   const value = args[key];
   if (typeof value !== 'number' || !Number.isFinite(value)) {

@@ -251,6 +251,57 @@ export interface CanvasNote {
   updatedAt: number;
 }
 
+// --- Canvas Settings -------------------------------------------------------
+// Per-canvas overrides for ref-image style anchoring, aspect ratio,
+// provider selection, and Commander permission mode. Snapshot pattern:
+// global defaults are copied to the canvas on creation; updates to the
+// global settings afterward do NOT back-propagate to existing canvases.
+
+/** Publishing aspect ratio driving image-node / video / render output. */
+export type CanvasAspectRatio = '16:9' | '9:16' | '1:1' | '2.39:1';
+
+/** Canvas-scoped default output resolution for ref-image generation. */
+export interface CanvasResolution {
+  width: number;
+  height: number;
+}
+
+/**
+ * Canvas-scoped settings. Every field is optional so a canvas can declare
+ * a subset of overrides; repository code is responsible for resolving the
+ * final effective value by layering canvas fields over global defaults.
+ */
+export interface CanvasSettings {
+  /**
+   * Free-form style prompt describing the visual look of this canvas/video.
+   * Prepended to every ref-image prompt as the leading style anchor. Both
+   * the user and Commander AI can edit this.
+   */
+  stylePlate?: string;
+  /**
+   * Free-form negative prompt. Appended to every ref-image prompt as an
+   * "Avoid: …" trailing segment. Typical content: "text, watermark,
+   * blurry, low-quality, extra limbs".
+   */
+  negativePrompt?: string;
+  /**
+   * Default output resolution for ref-image generation. Individual entity
+   * defaults still apply when this is unset; when set it overrides the
+   * per-entity factory defaults (character/location/equipment).
+   */
+  defaultResolution?: CanvasResolution;
+  /** Publishing aspect ratio. Does NOT govern ref-image layout (those are layout-driven). */
+  aspectRatio?: CanvasAspectRatio;
+  /** Provider id for LLM calls in this canvas (Commander). */
+  llmProviderId?: string;
+  /** Provider id for image generation. */
+  imageProviderId?: string;
+  /** Provider id for video generation. */
+  videoProviderId?: string;
+  /** Provider id for audio generation. */
+  audioProviderId?: string;
+}
+
 // --- Canvas (top-level) ----------------------------------------------------
 
 export interface Canvas {
@@ -260,6 +311,7 @@ export interface Canvas {
   edges: CanvasEdge[];
   viewport: CanvasViewport;
   notes: CanvasNote[];
+  settings?: CanvasSettings;
   createdAt: number;
   updatedAt: number;
 }

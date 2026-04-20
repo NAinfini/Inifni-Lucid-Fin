@@ -108,6 +108,8 @@ export function registerAllHandlers(
     promptStore,
     resolvePrompt: (code: string) => promptStore.resolve(code),
     resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
+    listProcessPromptKeys: () =>
+      processPromptStore.list().map((record) => ({ processKey: record.processKey, name: record.name })),
   });
   registerEntityHandlers(ipcMain, { adapterRegistry: registry, cas, db });
   registerVisionHandlers(ipcMain, { cas, keychain });

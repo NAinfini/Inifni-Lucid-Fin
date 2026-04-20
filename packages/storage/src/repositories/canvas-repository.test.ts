@@ -9,14 +9,23 @@ import { CanvasRepository } from './canvas-repository.js';
 
 const SCHEMA = `
 CREATE TABLE canvases (
-  id          TEXT PRIMARY KEY,
-  name        TEXT NOT NULL,
-  nodes       TEXT NOT NULL DEFAULT '[]',
-  edges       TEXT NOT NULL DEFAULT '[]',
-  viewport    TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}',
-  notes       TEXT NOT NULL DEFAULT '[]',
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+  id                   TEXT PRIMARY KEY,
+  name                 TEXT NOT NULL,
+  nodes                TEXT NOT NULL DEFAULT '[]',
+  edges                TEXT NOT NULL DEFAULT '[]',
+  viewport             TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}',
+  notes                TEXT NOT NULL DEFAULT '[]',
+  style_plate          TEXT,
+  negative_prompt      TEXT,
+  default_width        INTEGER,
+  default_height       INTEGER,
+  aspect_ratio         TEXT,
+  llm_provider_id      TEXT,
+  image_provider_id    TEXT,
+  video_provider_id    TEXT,
+  audio_provider_id    TEXT,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL
 );
 `;
 
@@ -151,5 +160,94 @@ describe('CanvasRepository', () => {
     });
     tx();
     expect(repo.get('tx-canvas' as CanvasId)?.name).toBe('tx');
+  });
+
+  it('round-trips canvas settings columns', () => {
+    repo.upsert(
+      mkCanvas('cs1', {
+        settings: {
+          stylePlate: 'neo-noir watercolor, muted teal palette',
+          aspectRatio: '9:16',
+          llmProviderId: 'anthropic',
+          imageProviderId: 'gemini-3-pro-image-preview',
+        },
+      }),
+    );
+    const got = repo.get('cs1' as CanvasId);
+    expect(got?.settings).toMatchObject({
+      stylePlate: 'neo-noir watercolor, muted teal palette',
+      aspectRatio: '9:16',
+      llmProviderId: 'anthropic',
+      imageProviderId: 'gemini-3-pro-image-preview',
+    });
+  });
+
+  it('patchSettings updates selected columns and ignores absent keys', () => {
+    repo.upsert(
+      mkCanvas('cs2', {
+        settings: { aspectRatio: '16:9', llmProviderId: 'anthropic' },
+      }),
+    );
+    const changed = repo.patchSettings('cs2' as CanvasId, { aspectRatio: '1:1' });
+    expect(changed).toBe(1);
+    const got = repo.get('cs2' as CanvasId);
+    expect(got?.settings?.aspectRatio).toBe('1:1');
+    expect(got?.settings?.llmProviderId).toBe('anthropic');
+  });
+
+  it('patchSettings with null clears a column', () => {
+    repo.upsert(
+      mkCanvas('cs3', {
+        settings: { stylePlate: 'text-to-clear', aspectRatio: '2.39:1' },
+      }),
+    );
+    repo.patchSettings('cs3' as CanvasId, { stylePlate: null } as never);
+    const got = repo.get('cs3' as CanvasId);
+    expect(got?.settings?.stylePlate).toBeUndefined();
+    expect(got?.settings?.aspectRatio).toBe('2.39:1');
+  });
+
+  it('patchSettings returns 0 for an empty patch (no-op)', () => {
+    repo.upsert(mkCanvas('cs4'));
+    const changed = repo.patchSettings('cs4' as CanvasId, {});
+    expect(changed).toBe(0);
+  });
+
+  it('ignores unknown aspect ratio values on read (type guard)', () => {
+    // Legacy / drifted row with an unsupported aspect_ratio value should not
+    // leak through — the rowToCanvas type guard should drop it.
+    db.prepare(
+      `INSERT INTO canvases
+         (id, name, nodes, edges, viewport, notes, aspect_ratio, created_at, updated_at)
+       VALUES ('legacy-ar', 'legacy', '[]', '[]', '{"x":0,"y":0,"zoom":1}', '[]', '5:4', 1, 1)`,
+    ).run();
+    const got = repo.get('legacy-ar' as CanvasId);
+    expect(got).toBeDefined();
+    expect(got?.settings?.aspectRatio).toBeUndefined();
+  });
+
+  it('round-trips negativePrompt and defaultResolution', () => {
+    repo.upsert(
+      mkCanvas('cs5', {
+        settings: {
+          negativePrompt: 'text, watermark, blurry',
+          defaultResolution: { width: 1536, height: 1536 },
+        },
+      }),
+    );
+    const got = repo.get('cs5' as CanvasId);
+    expect(got?.settings?.negativePrompt).toBe('text, watermark, blurry');
+    expect(got?.settings?.defaultResolution).toEqual({ width: 1536, height: 1536 });
+  });
+
+  it('patchSettings patches defaultResolution atomically (both columns change together)', () => {
+    repo.upsert(mkCanvas('cs6'));
+    repo.patchSettings('cs6' as CanvasId, { defaultResolution: { width: 2048, height: 1024 } });
+    let got = repo.get('cs6' as CanvasId);
+    expect(got?.settings?.defaultResolution).toEqual({ width: 2048, height: 1024 });
+    // Clearing via null should drop both columns.
+    repo.patchSettings('cs6' as CanvasId, { defaultResolution: null } as never);
+    got = repo.get('cs6' as CanvasId);
+    expect(got?.settings?.defaultResolution).toBeUndefined();
   });
 });

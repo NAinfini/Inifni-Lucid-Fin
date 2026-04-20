@@ -33,7 +33,6 @@ import {
   seriesToolModule,
   type JobQueue,
   type WorkflowEngine,
-  WORKFLOW_GUIDES,
 } from '@lucid-fin/application';
 import { parseScript } from '@lucid-fin/domain';
 import {
@@ -52,6 +51,7 @@ import {
   parseCharacterId,
   parseEquipmentId,
   parseLocationId,
+  parseCanvasId,
 } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
@@ -60,6 +60,7 @@ import {
   type CanvasEdge,
   type CanvasNode,
   type CanvasNote,
+  type CanvasSettings,
   type PresetCategory,
   type PresetDefinition,
   type PresetTrackSet,
@@ -156,11 +157,16 @@ export interface ToolRegistrationDeps {
 
 type PromptGuide = { id: string; name: string; content: string };
 
+/**
+ * Deduplicate prompt guides by id. Since the renderer now owns the full set
+ * of built-in and user-authored guides (via the `skillDefinitions` slice),
+ * this is a pure passthrough with dedupe — no main-side constants to merge.
+ */
 export function mergePromptGuidesWithBuiltIns(promptGuides: PromptGuide[]): PromptGuide[] {
   const merged: PromptGuide[] = [];
   const seen = new Set<string>();
 
-  for (const guide of [...promptGuides, ...WORKFLOW_GUIDES]) {
+  for (const guide of promptGuides) {
     if (seen.has(guide.id)) continue;
     seen.add(guide.id);
     merged.push(guide);
@@ -623,6 +629,39 @@ export function registerAllTools(
         viewport: canvas.viewport,
         notes: canvas.notes ?? [],
       });
+    },
+    getCanvasSettings: async (canvasId: string): Promise<CanvasSettings> => {
+      // Read through the cached canvas store so we stay consistent with
+      // subsequent mutations that flow through canvasStore.save().
+      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      return canvas.settings ?? {};
+    },
+    patchCanvasSettings: async (canvasId: string, patch: CanvasSettings): Promise<CanvasSettings> => {
+      // Re-read through the store so we preserve cache coherence, then delegate
+      // column-level updates to the repo (which also bumps updated_at). After
+      // the repo write, refresh the cached canvas with the merged settings so
+      // subsequent reads reflect the new state without re-hitting SQLite.
+      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const brandedId = parseCanvasId(canvasId);
+      deps.db.repos.canvases.patchSettings(brandedId, patch);
+      const current = canvas.settings ?? {};
+      const merged: CanvasSettings = { ...current };
+      for (const [rawKey, value] of Object.entries(patch)) {
+        const key = rawKey as keyof CanvasSettings;
+        if (value === null || value === undefined) {
+          delete merged[key];
+        } else {
+          (merged as Record<string, unknown>)[key] = value;
+        }
+      }
+      if (Object.keys(merged).length === 0) {
+        delete canvas.settings;
+      } else {
+        canvas.settings = merged;
+      }
+      canvas.updatedAt = Date.now();
+      deps.canvasStore.save(canvas);
+      return canvas.settings ?? {};
     },
   };
 

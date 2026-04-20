@@ -194,8 +194,8 @@ describe('useCommander stream completion', () => {
     render(React.createElement(Provider, { store, children: React.createElement(HookHarness) }));
 
     await act(async () => {
-      onStream?.({ type: 'chunk', content: 'Final answer' });
-      onStream?.({ type: 'done' });
+      onStream?.({ kind: 'chunk', content: 'Final answer', runId: 'r', step: 1, emittedAt: 0 });
+      onStream?.({ kind: 'done', content: '', runId: 'r', step: 1, emittedAt: 0 });
     });
 
     await waitFor(() => {
@@ -484,7 +484,7 @@ describe('useCommander stream completion', () => {
     });
 
     await act(async () => {
-      onStream?.({ type: 'done' });
+      onStream?.({ kind: 'done', content: '', runId: 'r', step: 1, emittedAt: 0 });
     });
 
     await waitFor(() => {

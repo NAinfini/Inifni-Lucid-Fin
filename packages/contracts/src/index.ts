@@ -27,6 +27,10 @@ export * from './error.js';
 // IPC (legacy — Phase B migrates to typed channels)
 export type { IpcChannelMap, IpcStoredSession, IpcSnapshotMeta, IpcProcessPrompt } from './ipc.js';
 export type { IpcChannel, IpcRequest, IpcResponse } from './ipc-helpers.js';
+export type {
+  CommanderStreamEvent,
+  CommanderStreamPayload,
+} from './ipc/channels/batch-09.js';
 
 // ── Phase A: Type Foundation ───────────────────────────────────
 

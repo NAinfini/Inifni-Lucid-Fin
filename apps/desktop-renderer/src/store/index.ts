@@ -18,10 +18,9 @@ import { loggerSlice } from './slices/logger.js';
 import { canvasReducer } from './slices/canvas.js';
 import { presetsSlice } from './slices/presets.js';
 import { commanderSlice } from './slices/commander.js';
-import { promptTemplatesSlice } from './slices/promptTemplates.js';
+import { skillDefinitionsSlice } from './slices/skillDefinitions.js';
 import { locationsSlice } from './slices/locations.js';
 import { shotTemplatesSlice } from './slices/shotTemplates.js';
-import { workflowDefinitionsSlice } from './slices/workflowDefinitions.js';
 import { listenerMiddleware } from './middleware/listener.js';
 import { ipcMiddleware } from './middleware/ipc.js';
 import { persistMiddleware } from './middleware/persist.js';
@@ -48,10 +47,9 @@ export const store = configureStore({
     canvas: canvasReducer,
     presets: presetsSlice.reducer,
     commander: commanderSlice.reducer,
-    promptTemplates: promptTemplatesSlice.reducer,
+    skillDefinitions: skillDefinitionsSlice.reducer,
     locations: locationsSlice.reducer,
     shotTemplates: shotTemplatesSlice.reducer,
-    workflowDefinitions: workflowDefinitionsSlice.reducer,
   },
   middleware: (getDefault) =>
     getDefault({ serializableCheck: false, immutableCheck: false })

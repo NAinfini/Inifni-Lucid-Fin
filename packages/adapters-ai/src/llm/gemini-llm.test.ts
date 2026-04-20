@@ -1,6 +1,12 @@
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
 import { describe, it, expect, vi } from 'vitest';
 import { GeminiLLMAdapter } from './gemini-llm.js';
+import { collectLLMStream } from './test-utils/collect-llm-stream.js';
+
+function complete(adapter: GeminiLLMAdapter, messages: LLMMessage[], opts?: LLMRequestOptions) {
+  return collectLLMStream(adapter.completeWithTools(messages, opts));
+}
 
 describe('GeminiLLMAdapter', () => {
   it('uses Gemini defaults and validates against the configured API root', async () => {
@@ -112,7 +118,7 @@ describe('GeminiLLMAdapter', () => {
       adapter.configure('sk-gemini');
 
       await expect(
-        adapter.completeWithTools(
+        complete(adapter,
           [
             { role: 'system', content: 'system rule' },
             { role: 'user', content: 'hello' },

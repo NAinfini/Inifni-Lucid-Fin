@@ -6,10 +6,15 @@
  * persistence modules. Extracted from `store/slices/commander.ts`.
  */
 
+import { idlePhase } from './run-phase.js';
 import type { CommanderMessage, CommanderQuestionOption, CommanderState } from './types.js';
 
 export function createMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+export function createSegmentId(kind: string): string {
+  return `seg-${kind}-${crypto.randomUUID()}`;
 }
 
 export function formatQuestionTranscript(
@@ -37,10 +42,9 @@ export function hasUserMessage(messages: CommanderMessage[]): boolean {
 
 /** Reset transient per-run state back to idle. Used by finishStreaming / streamError. */
 export function resetTransientRunState(state: CommanderState): void {
-  state.streaming = false;
+  state.phase = idlePhase;
   state.currentRunStartedAt = null;
   state.currentStreamContent = '';
-  state.currentThinkingContent = '';
   state.currentToolCalls = [];
   state.currentSegments = [];
   state.confirmAutoMode = 'none';

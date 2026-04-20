@@ -81,24 +81,32 @@ describe('CommanderSessionService', () => {
     expect(typeof unsub).toBe('function');
   });
 
-  it('routes chunk stream events through dispatch', () => {
-    const { service, dispatch, commander } = makeService();
-    service.subscribe();
-    commander.emitStream({ type: 'chunk', content: 'hi' });
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'commander/appendStreamChunk', payload: 'hi' }),
-    );
+  it('routes chunk stream events through dispatch (coalesced via BatchedDispatcher)', () => {
+    vi.useFakeTimers();
+    try {
+      const { service, dispatch, commander } = makeService();
+      service.subscribe();
+      commander.emitStream({ kind: 'chunk', content: 'hi', runId: 'r1', step: 1, emittedAt: 0 });
+      vi.advanceTimersByTime(60);
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'commander/appendStreamChunk', payload: 'hi' }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('routes tool_call stream events', () => {
+  it('routes tool_call_started stream events', () => {
     const { service, dispatch, commander } = makeService();
     service.subscribe();
     commander.emitStream({
-      type: 'tool_call',
+      kind: 'tool_call_started',
       toolName: 'canvas.getNode',
       toolCallId: 'tc1',
-      arguments: { id: 'n1' },
       startedAt: 0,
+      runId: 'r1',
+      step: 1,
+      emittedAt: 0,
     });
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -111,10 +119,32 @@ describe('CommanderSessionService', () => {
     );
   });
 
+  it('routes tool_call_args_complete to updateToolCallArguments', () => {
+    const { service, dispatch, commander } = makeService();
+    service.subscribe();
+    commander.emitStream({
+      kind: 'tool_call_args_complete',
+      toolCallId: 'tc1',
+      arguments: { id: 'n1' },
+      runId: 'r1',
+      step: 1,
+      emittedAt: 0,
+    });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'commander/updateToolCallArguments',
+        payload: expect.objectContaining({
+          id: 'tc1',
+          arguments: { id: 'n1' },
+        }),
+      }),
+    );
+  });
+
   it('emits finishStreaming on a done event', () => {
     const { service, dispatch, commander } = makeService();
     service.subscribe();
-    commander.emitStream({ type: 'done', content: 'bye' });
+    commander.emitStream({ kind: 'done', content: 'bye', runId: 'r1', step: 1, emittedAt: 0 });
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'commander/finishStreaming', payload: 'bye' }),
     );

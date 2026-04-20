@@ -3,7 +3,7 @@ import type {
   LLMAdapter,
   LLMMessage,
   LLMRequestOptions,
-  LLMCompletionResult,
+  LLMStreamEvent,
   LLMToolCall,
   Capability,
   ProviderProfile,
@@ -11,6 +11,7 @@ import type {
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
 import { parseSseStream } from './sse-parser.js';
+import { oneShotStream } from './one-shot-stream.js';
 import {
   tryParseJson,
   serializeError,
@@ -268,7 +269,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
   async completeWithTools(
     messages: LLMMessage[],
     opts?: LLMRequestOptions,
-  ): Promise<LLMCompletionResult> {
+  ): Promise<AsyncIterable<LLMStreamEvent>> {
     const { system, msgs } = this.splitSystem(messages);
     const toolNameMap = new Map<string, string>();
     const body: Record<string, unknown> = {
@@ -314,6 +315,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         input?: Record<string, unknown>;
       }>;
       stop_reason: string;
+      usage?: { input_tokens?: number; output_tokens?: number };
     }>(result);
 
     let content = '';
@@ -337,17 +339,18 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       throw this.buildEmptyAssistantResponseError(result, data);
     }
 
-    return {
-      content,
-      toolCalls,
-      reasoning: reasoning || undefined,
-      finishReason:
-        data.stop_reason === 'tool_use'
-          ? 'tool_calls'
-          : data.stop_reason === 'max_tokens'
-            ? 'length'
-            : 'stop',
-    };
+    const finishReason: 'tool_calls' | 'length' | 'stop' =
+      data.stop_reason === 'tool_use'
+        ? 'tool_calls'
+        : data.stop_reason === 'max_tokens'
+          ? 'length'
+          : 'stop';
+    const usage = data.usage;
+
+    return oneShotStream({ content, reasoning: reasoning || undefined, toolCalls, finishReason, usage: usage ? {
+      promptTokens: usage.input_tokens,
+      completionTokens: usage.output_tokens,
+    } : undefined });
   }
 
   private async buildHttpError(

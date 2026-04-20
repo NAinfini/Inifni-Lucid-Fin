@@ -53,12 +53,16 @@ export { defineToolModule, registerToolModule, type ToolModule } from './agent/t
 export {
   AgentOrchestrator,
   type AgentContext,
-  type AgentEvent,
   type AgentOptions,
   type AgentExecutionOptions,
   type AgentLLMRequestDiagnostics,
+  type AgentStreamEvent,
   type HistoryEntry,
+  type StampedStreamEvent,
+  type StreamEmit,
 } from './agent/agent-orchestrator.js';
+export { freshRunId } from './agent/agent-run-id.js';
+export { makeStampedEmit } from './agent/stream-emit.js';
 export { detectProcess, getProcessCategoryName, type ProcessCategory } from './agent/process-detection.js';
 export { ContextManager } from './agent/context-manager.js';
 export { ToolExecutor } from './agent/tool-executor.js';
@@ -85,7 +89,7 @@ export {
 export { createRenderTools, type RenderToolDeps } from './agent/tools/render-tools.js';
 export { createPresetTools, type PresetToolDeps } from './agent/tools/preset-tools.js';
 export { createWorkflowTools, type WorkflowToolDeps } from './agent/tools/workflow-tools.js';
-export { WORKFLOW_GUIDES, type PromptGuide } from './agent/tools/workflow-guides.js';
+export { type PromptGuide } from './agent/tools/workflow-guides.js';
 export { createEquipmentTools, type EquipmentToolDeps } from './agent/tools/equipment-tools.js';
 export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';
 export { createCopywritingTools, type CopywritingToolDeps } from './agent/tools/copywriting-tools.js';

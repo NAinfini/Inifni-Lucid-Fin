@@ -1,6 +1,7 @@
 import { createListenerMiddleware } from '@reduxjs/toolkit';
-import { switchCanvas } from '../slices/commander.js';
+import { selectIsStreaming, switchCanvas } from '../slices/commander.js';
 import { getAPI } from '../../utils/api.js';
+import type { RootState } from '../index.js';
 
 export const listenerMiddleware = createListenerMiddleware();
 
@@ -19,10 +20,7 @@ listenerMiddleware.startListening({
     return t === 'canvas/setActiveCanvas' || t === 'canvas/removeCanvas';
   },
   effect: async (_action, listenerApi) => {
-    const state = listenerApi.getState() as {
-      canvas: { activeCanvasId: string | null };
-      commander: { activeCanvasId: string | null; streaming: boolean };
-    };
+    const state = listenerApi.getState() as RootState;
 
     const newCanvasId = state.canvas.activeCanvasId;
     const oldCanvasId = state.commander.activeCanvasId;
@@ -31,7 +29,7 @@ listenerMiddleware.startListening({
     if (newCanvasId === oldCanvasId) return;
 
     // Abort running backend session for the old canvas
-    if (oldCanvasId && state.commander.streaming) {
+    if (oldCanvasId && selectIsStreaming(state)) {
       try {
         const api = getAPI();
         await api?.commander?.cancel(oldCanvasId);

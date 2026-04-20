@@ -24,6 +24,7 @@ import type {
   PresetResetRequest,
 } from './dto/presets/index.js';
 import type { LLMProviderRuntimeConfig, LLMProviderRuntimeInput } from './llm-provider.js';
+import type { CommanderStreamEvent } from './ipc/channels/batch-09.js';
 
 /** Session stored in SQLite — lightweight chat-history record. */
 export interface IpcStoredSession {
@@ -370,6 +371,10 @@ export interface IpcChannelMap {
     request: { canvasId: string };
     response: void;
   };
+  'commander:cancel-step': {
+    request: { canvasId: string };
+    response: { escalated: boolean };
+  };
   'commander:compact': {
     request: { canvasId: string };
     response: { freedChars: number; messageCount: number; toolCount: number };
@@ -403,20 +408,7 @@ export interface IpcChannelMap {
     }>;
   };
   'commander:stream': {
-    request: {
-      type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question';
-      content?: string;
-      toolName?: string;
-      toolCallId?: string;
-      arguments?: Record<string, unknown>;
-      result?: unknown;
-      error?: string;
-      tier?: number;
-      question?: string;
-      options?: Array<{ label: string; description?: string }>;
-      startedAt?: number;
-      completedAt?: number;
-    };
+    request: CommanderStreamEvent;
     response: void;
   };
   'commander:canvas:updated': {

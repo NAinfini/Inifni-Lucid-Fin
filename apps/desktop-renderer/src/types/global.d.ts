@@ -6,6 +6,7 @@ import type {
   Character,
   CharacterGender,
   ColorStyle,
+  CommanderStreamEvent,
   Equipment,
   EquipmentLoadout,
   EquipmentType,
@@ -450,36 +451,14 @@ declare global {
           defaultProviders?: Record<string, string>,
         ) => Promise<void>;
         cancel: (canvasId: string) => Promise<void>;
+        cancelCurrentStep: (canvasId: string) => Promise<{ escalated: boolean }>;
         compact: (canvasId: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
         injectMessage: (canvasId: string, message: string) => Promise<void>;
         confirmTool: (canvasId: string, toolCallId: string, approved: boolean) => Promise<void>;
         answerQuestion: (canvasId: string, toolCallId: string, answer: string) => Promise<void>;
         toolList: () => Promise<CommanderToolSummary[]>;
         toolSearch: (query?: string) => Promise<CommanderToolSearchResult[]>;
-        onStream: (cb: (data: {
-          type: 'chunk' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'tool_confirm' | 'tool_question' | 'context_usage' | 'thinking';
-          content?: string;
-          toolName?: string;
-          toolCallId?: string;
-          arguments?: Record<string, unknown>;
-          result?: unknown;
-          error?: string;
-          tier?: number;
-          question?: string;
-          options?: Array<{ label: string; description?: string }>;
-          startedAt?: number;
-          completedAt?: number;
-          estimatedTokensUsed?: number;
-          contextWindowTokens?: number;
-          messageCount?: number;
-          systemPromptChars?: number;
-          toolSchemaChars?: number;
-          messageChars?: number;
-          cacheChars?: number;
-          cacheEntryCount?: number;
-          historyMessagesTrimmed?: number;
-          utilizationRatio?: number;
-        }) => void) => () => void;
+        onStream: (cb: (data: CommanderStreamEvent) => void) => () => void;
         onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;
         onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) => () => void;

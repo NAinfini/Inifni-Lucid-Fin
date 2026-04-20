@@ -24,19 +24,53 @@ function createLocation(overrides?: Partial<Location>): Location {
 }
 
 describe('buildLocationRefImagePrompt', () => {
-  it('adds slot-specific atmosphere language while excluding characters', () => {
-    const prompt = buildLocationRefImagePrompt(createLocation(), 'atmosphere');
+  it('builds a five-frame bible composite for the default view', () => {
+    const prompt = buildLocationRefImagePrompt(createLocation(), { kind: 'bible' });
 
-    expect(prompt).toContain('light filters through dusty panes');
-    expect(prompt).toContain('rain collects in gutter channels');
+    expect(prompt).toContain('Environment concept art bible');
+    expect(prompt).toContain('Five-frame composite on one image');
+    expect(prompt).toContain('wide establishing shot');
+    expect(prompt).toContain('interior detail study');
+    expect(prompt).toContain('atmosphere study');
+    expect(prompt).toContain('primary key camera angle');
+    expect(prompt).toContain('alternate key camera angle');
+    expect(prompt).toContain('No characters, no people');
+    expect(prompt).toContain('Architecture: art deco');
+  });
+
+  it('builds an 8-panel fake-360 pseudo-panorama', () => {
+    const prompt = buildLocationRefImagePrompt(createLocation(), { kind: 'fake-360' });
+
+    expect(prompt).toContain('pseudo-panorama');
+    expect(prompt).toContain('Eight panels arranged in a 4x2 grid');
+    expect(prompt).toContain('0°, 45°, 90°, 135°');
+    expect(prompt).toContain('180°, 225°, 270°, 315°');
     expect(prompt).toContain('No characters, no people');
   });
 
-  it('uses detail-oriented process language for close detail slots', () => {
-    const prompt = buildLocationRefImagePrompt(createLocation(), 'interior-detail');
+  it('builds an extra-angle prompt with the angle label', () => {
+    const prompt = buildLocationRefImagePrompt(createLocation(), {
+      kind: 'extra-angle',
+      angle: 'low-angle wide',
+    });
 
-    expect(prompt).toContain('shadows pool in recessed doorways');
-    expect(prompt).toContain('architectural close detail study');
+    expect(prompt).toContain('low-angle wide camera angle');
     expect(prompt).toContain('No characters, no people');
+  });
+
+  it('prepends stylePlate to every view kind', () => {
+    const bible = buildLocationRefImagePrompt(
+      createLocation(),
+      { kind: 'bible' },
+      'neo-noir watercolor',
+    );
+    expect(bible.indexOf('Style: neo-noir watercolor')).toBe(0);
+
+    const f360 = buildLocationRefImagePrompt(
+      createLocation(),
+      { kind: 'fake-360' },
+      'muted teal palette',
+    );
+    expect(f360.indexOf('Style: muted teal palette')).toBe(0);
   });
 });

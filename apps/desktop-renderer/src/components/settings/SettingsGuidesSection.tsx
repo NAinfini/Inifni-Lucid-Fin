@@ -1,74 +1,35 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
-import {
-  localizePromptTemplateName,
-  localizeSettingsCategory,
-  localizeWorkflowDefinitionName,
-  t,
-} from '../../i18n.js';
+import { localizeSettingsCategory, t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 import {
-  getDefaultPromptTemplateName,
-  type PromptTemplate,
-} from '../../store/slices/promptTemplates.js';
-import {
-  type WorkflowDefEntry,
-} from '../../store/slices/workflowDefinitions.js';
+  getDefaultSkillName,
+  type SkillDefinition,
+} from '../../store/slices/skillDefinitions.js';
 
 interface SettingsGuidesSectionProps {
-  templates: PromptTemplate[];
-  workflowEntries: WorkflowDefEntry[];
-  onAddTemplate: (template: { id: string; name: string; category: string; content: string }) => void;
-  onRemoveTemplate: (id: string) => void;
-  onRenameTemplate: (payload: { id: string; name: string }) => void;
-  onSetTemplateContent: (payload: { id: string; content: string }) => void;
-  onResetAllTemplates: () => void;
-  onResetTemplate: (id: string) => void;
-  onAddWorkflowEntry: (entry: {
-    name: string;
-    category: 'workflow' | 'skill';
-    content: string;
-  }) => void;
-  onUpdateWorkflowEntry: (payload: { id: string; name: string; content: string }) => void;
-  onRemoveWorkflowEntry: (id: string) => void;
+  skills: SkillDefinition[];
+  onAddSkill: (payload: { id?: string; name: string; category: string; content: string }) => void;
+  onRemoveSkill: (id: string) => void;
+  onRenameSkill: (payload: { id: string; name: string }) => void;
+  onSetSkillContent: (payload: { id: string; content: string }) => void;
+  onResetAllSkills: () => void;
+  onResetSkill: (id: string) => void;
 }
 
-type GuideDraft = {
-  content: string;
-  name: string;
-};
+type GuideDraft = { content: string; name: string };
 
-type GuideItem =
-  | {
-      badgeLabel: string;
-      builtIn: boolean;
-      canDelete: boolean;
-      canEditName: boolean;
-      category: string;
-      content: string;
-      id: string;
-      kind: 'template';
-      name: string;
-      resettable: boolean;
-      sourceLabel: string;
-      title: string;
-      customized: boolean;
-    }
-  | {
-      badgeLabel: string;
-      builtIn: boolean;
-      canDelete: boolean;
-      canEditName: boolean;
-      category: string;
-      content: string;
-      id: string;
-      kind: 'workflow';
-      name: string;
-      resettable: boolean;
-      sourceLabel: string;
-      title: string;
-      customized: boolean;
-    };
+interface GuideItem {
+  badgeLabel: string;
+  builtIn: boolean;
+  canDelete: boolean;
+  category: string;
+  content: string;
+  id: string;
+  name: string;
+  resettable: boolean;
+  customized: boolean;
+}
 
 const categoryBadgeClasses: Record<string, string> = {
   system: 'bg-violet-500/10 text-violet-400',
@@ -80,79 +41,43 @@ const categoryBadgeClasses: Record<string, string> = {
   skill: 'bg-sky-500/10 text-sky-400',
 };
 
-function isTemplateCustomized(template: PromptTemplate): boolean {
-  const defaultName = getDefaultPromptTemplateName(template.id);
-  return !template.defaultContent || template.customContent !== null || template.name !== defaultName;
-}
-
-function getTemplateDisplayName(template: PromptTemplate): string {
-  const defaultName = getDefaultPromptTemplateName(template.id);
-  if (defaultName && template.name === defaultName) {
-    return localizePromptTemplateName(template.id, template.name);
-  }
-  return template.name;
-}
-
-function getWorkflowDisplayName(entry: WorkflowDefEntry): string {
-  if (entry.builtIn) {
-    return localizeWorkflowDefinitionName(entry.id, entry.name);
-  }
-  return entry.name;
+function isSkillCustomized(skill: SkillDefinition): boolean {
+  const defaultName = getDefaultSkillName(skill.id);
+  if (!skill.builtIn) return true;
+  if (skill.customContent !== null) return true;
+  if (defaultName && skill.name !== defaultName) return true;
+  return false;
 }
 
 export function SettingsGuidesSection({
-  templates,
-  workflowEntries,
-  onAddTemplate,
-  onRemoveTemplate,
-  onRenameTemplate,
-  onSetTemplateContent,
-  onResetAllTemplates,
-  onResetTemplate,
-  onAddWorkflowEntry,
-  onUpdateWorkflowEntry,
-  onRemoveWorkflowEntry,
+  skills,
+  onAddSkill,
+  onRemoveSkill,
+  onRenameSkill,
+  onSetSkillContent,
+  onResetAllSkills,
+  onResetSkill,
 }: SettingsGuidesSectionProps) {
-  const [expandedGuideId, setExpandedGuideId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, GuideDraft>>({});
 
-  const guideItems = useMemo<GuideItem[]>(() => {
-    const templateItems = templates.map<GuideItem>((template) => ({
-      badgeLabel: localizeSettingsCategory(template.category),
-      builtIn: Boolean(template.defaultContent),
-      canDelete: !template.defaultContent,
-      canEditName: true,
-      category: template.category,
-      content: template.customContent ?? template.defaultContent,
-      id: `template:${template.id}`,
-      kind: 'template',
-      name: template.name,
-      resettable: Boolean(template.defaultContent) && isTemplateCustomized(template),
-      sourceLabel: t('settings.guides.templateSource'),
-      title: getTemplateDisplayName(template),
-      customized: isTemplateCustomized(template),
-    }));
+  const guideItems = useMemo<GuideItem[]>(
+    () =>
+      skills.map<GuideItem>((skill) => ({
+        badgeLabel: localizeSettingsCategory(skill.category),
+        builtIn: skill.builtIn,
+        canDelete: !skill.builtIn,
+        category: skill.category,
+        content: skill.customContent ?? skill.defaultContent,
+        id: skill.id,
+        name: skill.name,
+        resettable: skill.builtIn && isSkillCustomized(skill),
+        customized: isSkillCustomized(skill),
+      })),
+    [skills],
+  );
 
-    const workflowItems = workflowEntries.map<GuideItem>((entry) => ({
-      badgeLabel: localizeSettingsCategory(entry.category),
-      builtIn: entry.builtIn,
-      canDelete: !entry.builtIn,
-      canEditName: !entry.builtIn,
-      category: entry.category,
-      content: entry.content,
-      id: `workflow:${entry.id}`,
-      kind: 'workflow',
-      name: entry.name,
-      resettable: false,
-      sourceLabel: t('settings.guides.workflowSource'),
-      title: getWorkflowDisplayName(entry),
-      customized: !entry.builtIn,
-    }));
-
-    return [...templateItems, ...workflowItems];
-  }, [templates, workflowEntries]);
-
-  const hasCustomizedTemplates = templates.some(isTemplateCustomized);
+  const hasCustomized = skills.some(isSkillCustomized);
 
   return (
     <section className="space-y-3">
@@ -160,10 +85,10 @@ export function SettingsGuidesSection({
         <button
           type="button"
           onClick={() =>
-            onAddTemplate({
+            onAddSkill({
               id: `custom-${Date.now()}`,
               name: t('settings.newTemplateName'),
-              category: 'process',
+              category: 'skill',
               content: t('settings.newTemplateContent'),
             })
           }
@@ -172,40 +97,12 @@ export function SettingsGuidesSection({
           <Plus className="h-3 w-3" />
           {t('settings.addTemplate')}
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            onAddWorkflowEntry({
-              category: 'workflow',
-              content: t('settings.workflows.newWorkflowTemplate'),
-              name: t('settings.workflows.newWorkflowName'),
-            })
-          }
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10"
-        >
-          <Plus className="h-3 w-3" />
-          {t('settings.addWorkflow')}
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            onAddWorkflowEntry({
-              category: 'skill',
-              content: t('settings.workflows.newSkillTemplate'),
-              name: t('settings.workflows.newSkillName'),
-            })
-          }
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-primary hover:bg-primary/10"
-        >
-          <Plus className="h-3 w-3" />
-          {t('settings.addSkill')}
-        </button>
-        {hasCustomizedTemplates && (
+        {hasCustomized && (
           <button
             type="button"
             onClick={() => {
-              onResetAllTemplates();
-              setExpandedGuideId(null);
+              onResetAllSkills();
+              setExpandedId(null);
               setDrafts({});
             }}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
@@ -218,11 +115,8 @@ export function SettingsGuidesSection({
 
       <div className="space-y-1">
         {guideItems.map((item) => {
-          const isExpanded = expandedGuideId === item.id;
-          const draft = drafts[item.id] ?? {
-            content: item.content,
-            name: item.name,
-          };
+          const isExpanded = expandedId === item.id;
+          const draft = drafts[item.id] ?? { content: item.content, name: item.name };
 
           return (
             <div
@@ -236,21 +130,18 @@ export function SettingsGuidesSection({
                 type="button"
                 onClick={() => {
                   if (isExpanded) {
-                    setExpandedGuideId(null);
+                    setExpandedId(null);
                     return;
                   }
                   setDrafts((previous) => ({
                     ...previous,
-                    [item.id]: {
-                      content: item.content,
-                      name: item.name,
-                    },
+                    [item.id]: { content: item.content, name: item.name },
                   }));
-                  setExpandedGuideId(item.id);
+                  setExpandedId(item.id);
                 }}
                 className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
               >
-                <span className="flex-1 text-xs font-medium">{item.title}</span>
+                <span className="flex-1 text-xs font-medium">{item.name}</span>
                 {item.customized && (
                   <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-500">
                     {t('settings.customized')}
@@ -261,9 +152,6 @@ export function SettingsGuidesSection({
                     {t('settings.builtIn')}
                   </span>
                 )}
-                <span className="shrink-0 rounded bg-slate-500/10 px-1.5 py-0.5 text-[10px] text-slate-300">
-                  {item.sourceLabel}
-                </span>
                 <span
                   className={cn(
                     'shrink-0 rounded px-1.5 py-0.5 text-[10px]',
@@ -281,35 +169,26 @@ export function SettingsGuidesSection({
 
               {isExpanded && (
                 <div className="space-y-1.5 border-t border-border/40 px-2.5 pb-2.5 pt-2">
-                  {item.canEditName && (
-                    <input
-                      value={draft.name}
-                      onChange={(event) =>
-                        setDrafts((previous) => ({
-                          ...previous,
-                          [item.id]: {
-                            ...draft,
-                            name: event.target.value,
-                          },
-                        }))
-                      }
-                      className="w-full rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                      placeholder={t('settings.templateName')}
-                    />
-                  )}
+                  <input
+                    value={draft.name}
+                    onChange={(event) =>
+                      setDrafts((previous) => ({
+                        ...previous,
+                        [item.id]: { ...draft, name: event.target.value },
+                      }))
+                    }
+                    className="w-full rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                    placeholder={t('settings.templateName')}
+                  />
                   <textarea
                     value={draft.content}
                     onChange={(event) =>
                       setDrafts((previous) => ({
                         ...previous,
-                        [item.id]: {
-                          ...draft,
-                          content: event.target.value,
-                        },
+                        [item.id]: { ...draft, content: event.target.value },
                       }))
                     }
                     rows={12}
-                    readOnly={!item.canEditName && item.kind === 'workflow'}
                     className="w-full resize-y rounded-md border border-border/60 bg-background px-2.5 py-1.5 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                   <div className="flex items-center justify-end gap-1.5">
@@ -317,12 +196,8 @@ export function SettingsGuidesSection({
                       <button
                         type="button"
                         onClick={() => {
-                          if (item.kind === 'template') {
-                            onRemoveTemplate(item.id.slice('template:'.length));
-                          } else {
-                            onRemoveWorkflowEntry(item.id.slice('workflow:'.length));
-                          }
-                          setExpandedGuideId(null);
+                          onRemoveSkill(item.id);
+                          setExpandedId(null);
                         }}
                         className="flex items-center gap-1 rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
                       >
@@ -334,8 +209,8 @@ export function SettingsGuidesSection({
                       <button
                         type="button"
                         onClick={() => {
-                          onResetTemplate(item.id.slice('template:'.length));
-                          setExpandedGuideId(null);
+                          onResetSkill(item.id);
+                          setExpandedId(null);
                         }}
                         className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
                       >
@@ -345,35 +220,24 @@ export function SettingsGuidesSection({
                     )}
                     <button
                       type="button"
-                      onClick={() => setExpandedGuideId(null)}
+                      onClick={() => setExpandedId(null)}
                       className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
                     >
-                      {item.kind === 'workflow' && !item.canEditName ? t('action.close') : t('action.cancel')}
+                      {t('action.cancel')}
                     </button>
-                    {(item.kind === 'template' || item.canEditName) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (item.kind === 'template') {
-                            const templateId = item.id.slice('template:'.length);
-                            onRenameTemplate({ id: templateId, name: draft.name });
-                            onSetTemplateContent({ id: templateId, content: draft.content });
-                          } else {
-                            onUpdateWorkflowEntry({
-                              id: item.id.slice('workflow:'.length),
-                              name: draft.name,
-                              content: draft.content,
-                            });
-                          }
-                          setExpandedGuideId(null);
-                        }}
-                        disabled={!draft.name.trim() || !draft.content.trim()}
-                        className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
-                      >
-                        <Save className="h-3 w-3" />
-                        {t('action.save')}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onRenameSkill({ id: item.id, name: draft.name });
+                        onSetSkillContent({ id: item.id, content: draft.content });
+                        setExpandedId(null);
+                      }}
+                      disabled={!draft.name.trim() || !draft.content.trim()}
+                      className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
+                    >
+                      <Save className="h-3 w-3" />
+                      {t('action.save')}
+                    </button>
                   </div>
                 </div>
               )}

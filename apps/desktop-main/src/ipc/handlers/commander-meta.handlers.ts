@@ -23,6 +23,31 @@ export function registerCommanderMetaHandlers(ipcMain: IpcMain): void {
     }
   });
 
+  ipcMain.handle('commander:cancel-step', async (_event, args: { canvasId: string }) => {
+    if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
+      throw new Error('canvasId is required');
+    }
+    const session = runningSessions.get(args.canvasId);
+    if (!session?.orchestrator) {
+      // Normal race — user clicked the button as the run was wrapping up.
+      logger.info('Commander cancel-step requested with no active session', {
+        canvasId: args.canvasId,
+      });
+      return { escalated: false };
+    }
+    const result = session.orchestrator.cancelCurrentStep();
+    logger.info('Commander cancel-step requested', {
+      canvasId: args.canvasId,
+      escalated: result.escalated,
+    });
+    if (result.escalated) {
+      // Match cancel() behavior: free the slot so a new session can start.
+      session.aborted = true;
+      runningSessions.delete(args.canvasId);
+    }
+    return result;
+  });
+
   ipcMain.handle('commander:inject-message', async (_event, args: { canvasId: string; message: string }) => {
     if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) throw new Error('canvasId is required');
     if (typeof args.message !== 'string' || !args.message.trim()) throw new Error('message is required');

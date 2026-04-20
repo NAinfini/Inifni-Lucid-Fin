@@ -34,6 +34,7 @@ import {
   removeQueuedMessage,
   editQueuedMessage,
   clearQueue,
+  selectPhase,
 } from '../../store/slices/commander.js';
 import { useCommander } from '../../hooks/useCommander.js';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -45,6 +46,7 @@ import { QuestionCard } from './commander/QuestionCard.js';
 import { useSlashCommands } from './commander/useSlashCommands.js';
 import { usePanelDrag } from './commander/usePanelDrag.js';
 import { MessageList } from './commander/MessageList.js';
+import { LiveActivityBar } from './commander/LiveActivityBar.js';
 import { computeContextUsage } from '../../commander/state/context-usage.js';
 
 const SAFE_Y = 56;
@@ -69,18 +71,45 @@ type Attachment = FileAttachment | NodeAttachment;
 // Main component
 // ---------------------------------------------------------------------------
 
+/**
+ * Gate the blinking caret next to the live text segment. Only shown when
+ * the model is actively streaming text AND the last chunk arrived within
+ * the freshness window (500 ms). Fixes the "orphan cursor" bug where the
+ * caret kept blinking after the stream had clearly stopped.
+ */
+function useTextCursorGate(phase: import('../../commander/state/run-phase.js').RunPhase): boolean {
+  const [isFresh, setIsFresh] = useState(false);
+  useEffect(() => {
+    if (phase.kind !== 'model_streaming' || phase.lastTextDeltaAt === null) {
+      setIsFresh(false);
+      return;
+    }
+    const FRESH_WINDOW_MS = 500;
+    const age = Date.now() - phase.lastTextDeltaAt;
+    if (age >= FRESH_WINDOW_MS) {
+      setIsFresh(false);
+      return;
+    }
+    setIsFresh(true);
+    const timer = window.setTimeout(() => setIsFresh(false), FRESH_WINDOW_MS - age);
+    return () => window.clearTimeout(timer);
+  }, [phase]);
+  return isFresh;
+}
+
 export function CommanderPanel() {
   const dispatch = useDispatch();
   const { t } = useI18n();
-  const { sendMessage, cancel, isStreaming } = useCommander();
+  const { sendMessage, cancel, cancelCurrentStep, isStreaming } = useCommander();
   const isBackendReady = useSelector((state: RootState) => state.settings.bootstrapped);
+  const phase = useSelector((state: RootState) => selectPhase(state));
+  const showTextCursor = useTextCursorGate(phase);
   const {
     open,
     minimized,
     providerId,
     messages,
     currentStreamContent,
-    currentThinkingContent,
     currentToolCalls,
     currentSegments,
     position,
@@ -93,6 +122,7 @@ export function CommanderPanel() {
     messageQueue,
     pendingInjectedMessages,
     maxTokens,
+    maxSteps,
     backendContextUsage,
   } = useSelector((state: RootState) => state.commander);
   const [input, setInput] = useState('');
@@ -479,6 +509,12 @@ export function CommanderPanel() {
         </div>
       </header>
 
+      <LiveActivityBar
+        maxSteps={maxSteps}
+        t={t}
+        onCancelCurrentStep={() => void cancelCurrentStep()}
+      />
+
       <div
         ref={scrollRef}
         data-testid="commander-message-scroll"
@@ -489,13 +525,11 @@ export function CommanderPanel() {
           liveMessage={liveMessage}
           currentSegments={currentSegments}
           pendingInjectedMessages={pendingInjectedMessages}
-          isStreaming={isStreaming}
+          showTextCursor={showTextCursor}
           error={error}
           nodeTitlesById={nodeTitlesById}
-          thinkingContent={currentThinkingContent}
           t={t}
           emptyLabel={t('commander.thinking')}
-          streamingLabel={t('commander.streaming')}
           onNodeClick={handleNodeClick}
         />
       </div>
@@ -941,7 +975,7 @@ export function CommanderPanel() {
                           <span className="text-right">{fmtK(bd.toolResults)}</span>
                           {contextUsage.cache.entries > 0 && (
                             <>
-                              <span>Cache</span>
+                              <span>{t('commander.contextBreakdown.cache')}</span>
                               <span className="text-right">
                                 {fmtK(Math.round(contextUsage.cache.chars / 3.5))} (
                                 {contextUsage.cache.entries})
@@ -950,8 +984,10 @@ export function CommanderPanel() {
                           )}
                           {contextUsage.historyTrimmed > 0 && (
                             <>
-                              <span>Trimmed</span>
-                              <span className="text-right">{contextUsage.historyTrimmed} msgs</span>
+                              <span>{t('commander.contextBreakdown.trimmed')}</span>
+                              <span className="text-right">
+                                {contextUsage.historyTrimmed} {t('commander.contextBreakdown.msgs')}
+                              </span>
                             </>
                           )}
                         </div>

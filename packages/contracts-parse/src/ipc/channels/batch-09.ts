@@ -122,6 +122,22 @@ export const commanderCancelChannel = defineInvokeChannel({
 export type CommanderCancelRequest = z.infer<typeof CommanderCancelRequest>;
 export type CommanderCancelResponse = z.infer<typeof CommanderCancelResponse>;
 
+// ── commander:cancel-step (invoke) ───────────────────────────
+// Step-level cancel. Aborts only the currently in-flight LLM request; the
+// agent loop survives and retries. If fired twice within 2s the main-side
+// handler escalates to a full run cancel — the response flag tells the
+// renderer which happened so it can decide whether to keep the step
+// button visible.
+const CommanderCancelStepRequest = z.object({ canvasId: z.string().min(1) });
+const CommanderCancelStepResponse = z.object({ escalated: z.boolean() });
+export const commanderCancelStepChannel = defineInvokeChannel({
+  channel: 'commander:cancel-step',
+  request: CommanderCancelStepRequest,
+  response: CommanderCancelStepResponse,
+});
+export type CommanderCancelStepRequest = z.infer<typeof CommanderCancelStepRequest>;
+export type CommanderCancelStepResponse = z.infer<typeof CommanderCancelStepResponse>;
+
 // ── commander:inject-message (invoke) ────────────────────────
 const CommanderInjectMessageRequest = z.object({
   canvasId: z.string().min(1),
@@ -239,58 +255,104 @@ export type CommanderToolSearchResponse = z.infer<
   typeof CommanderToolSearchResponse
 >;
 
-// ── commander:stream (push) — B-2 discriminated union ────────
+// ── commander:stream (push) — single zod source of truth ─────
 /**
- * Strict per-variant discriminated union over the 9 `type:` events actually
- * emitted from the main process (see `commander-emit.ts:115-161` and the
- * two direct emits in `commander.handlers.ts:551` (context_usage) and
- * `:579` (error from the catch block — only `error` is set, so the other
- * fields stay optional in that variant).
+ * Discriminated union over every Commander stream event. This is THE schema.
+ * Orchestrator, preload, and renderer all derive their types from here via
+ * `z.infer`. Adding a new variant is a compile error at every consumer site.
+ *
+ * Every variant carries three required provenance fields:
+ *   - `runId`: monotonic per-run identifier (UUID) — so the renderer can group
+ *     events by run and detect run boundaries unambiguously.
+ *   - `step`: the orchestrator step number at emission time (0-based).
+ *   - `emittedAt`: `Date.now()` at emission — used for elapsed / stall detection.
+ *
+ * The discriminator is `kind` (not `type`) to force every legacy string compare
+ * on `.type` to surface as a compile error during the migration.
  */
-const CommanderStreamPayload = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('chunk'), content: z.string() }),
+const CommanderStreamCommon = {
+  runId: z.string(),
+  step: z.number().int().nonnegative(),
+  emittedAt: z.number(),
+};
+const CommanderStreamPayload = z.discriminatedUnion('kind', [
   z.object({
-    type: z.literal('tool_call'),
-    toolName: z.string(),
-    toolCallId: z.string(),
-    arguments: z.record(z.string(), z.unknown()),
-    startedAt: z.number(),
+    kind: z.literal('chunk'),
+    content: z.string(),
+    ...CommanderStreamCommon,
   }),
   z.object({
-    type: z.literal('tool_result'),
+    kind: z.literal('tool_call_started'),
+    toolName: z.string(),
+    toolCallId: z.string(),
+    startedAt: z.number(),
+    ...CommanderStreamCommon,
+  }),
+  z.object({
+    kind: z.literal('tool_call_args_delta'),
+    toolCallId: z.string(),
+    delta: z.string(),
+    ...CommanderStreamCommon,
+  }),
+  z.object({
+    kind: z.literal('tool_call_args_complete'),
+    toolCallId: z.string(),
+    arguments: z.record(z.string(), z.unknown()),
+    ...CommanderStreamCommon,
+  }),
+  z.object({
+    kind: z.literal('tool_result'),
     toolName: z.string(),
     toolCallId: z.string(),
     result: z.unknown(),
     startedAt: z.number(),
     completedAt: z.number(),
+    ...CommanderStreamCommon,
   }),
   z.object({
-    type: z.literal('tool_confirm'),
+    kind: z.literal('tool_confirm'),
     toolName: z.string(),
     toolCallId: z.string(),
     arguments: z.record(z.string(), z.unknown()),
     tier: z.number(),
+    ...CommanderStreamCommon,
   }),
   z.object({
-    type: z.literal('tool_question'),
+    kind: z.literal('tool_question'),
     toolName: z.string(),
     toolCallId: z.string(),
     question: z.string(),
     options: z.array(
       z.object({ label: z.string(), description: z.string().optional() }),
     ),
+    ...CommanderStreamCommon,
   }),
-  z.object({ type: z.literal('thinking'), content: z.string() }),
-  z.object({ type: z.literal('done'), content: z.string() }),
   z.object({
-    type: z.literal('error'),
+    kind: z.literal('thinking_delta'),
+    content: z.string(),
+    ...CommanderStreamCommon,
+  }),
+  z.object({
+    kind: z.literal('phase_note'),
+    note: z.enum(['process_prompt_loaded', 'compacted', 'llm_retry']),
+    detail: z.string(),
+    ...CommanderStreamCommon,
+  }),
+  z.object({
+    kind: z.literal('done'),
+    content: z.string(),
+    ...CommanderStreamCommon,
+  }),
+  z.object({
+    kind: z.literal('error'),
     toolCallId: z.string().optional(),
     error: z.string(),
     startedAt: z.number().optional(),
     completedAt: z.number().optional(),
+    ...CommanderStreamCommon,
   }),
   z.object({
-    type: z.literal('context_usage'),
+    kind: z.literal('context_usage'),
     estimatedTokensUsed: z.number(),
     contextWindowTokens: z.number(),
     messageCount: z.number(),
@@ -301,6 +363,7 @@ const CommanderStreamPayload = z.discriminatedUnion('type', [
     cacheEntryCount: z.number(),
     historyMessagesTrimmed: z.number().optional(),
     utilizationRatio: z.number(),
+    ...CommanderStreamCommon,
   }),
 ]);
 export const commanderStreamChannel = definePushChannel({
@@ -308,6 +371,8 @@ export const commanderStreamChannel = definePushChannel({
   payload: CommanderStreamPayload,
 });
 export type CommanderStreamPayload = z.infer<typeof CommanderStreamPayload>;
+export type CommanderStreamEvent = CommanderStreamPayload;
+export { CommanderStreamPayload as CommanderStreamPayloadSchema };
 
 // ── commander:canvas:dispatch (push) ─────────────────────────
 // Carries a full Canvas snapshot. Canvas DTO is not yet contract-owned — kept

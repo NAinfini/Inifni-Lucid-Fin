@@ -93,13 +93,20 @@ export {
   setSize,
 } from './commander.js';
 export {
-  promptTemplatesSlice,
+  skillDefinitionsSlice,
   setCustomContent,
   resetContent,
   resetAllContent,
-  selectActiveTemplates,
-  type PromptTemplate,
-} from './promptTemplates.js';
+  renameSkill,
+  addCustomSkill,
+  removeCustomSkill,
+  selectActiveSkills,
+  getDefaultSkillName,
+  isBuiltInSkillId,
+  type SkillDefinition,
+  type SkillCategory,
+  type SkillSource,
+} from './skillDefinitions.js';
 export {
   locationsSlice,
   setLocations,

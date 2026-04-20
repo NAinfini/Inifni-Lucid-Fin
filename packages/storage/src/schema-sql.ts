@@ -300,14 +300,23 @@ CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_asset_hash
   ON workflow_artifacts(asset_hash);
 
 CREATE TABLE IF NOT EXISTS canvases (
-  id            TEXT PRIMARY KEY,
-  name          TEXT NOT NULL,
-  nodes         TEXT NOT NULL DEFAULT '[]',
-  edges         TEXT NOT NULL DEFAULT '[]',
-  viewport      TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}',
-  notes         TEXT NOT NULL DEFAULT '[]',
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
+  id                   TEXT PRIMARY KEY,
+  name                 TEXT NOT NULL,
+  nodes                TEXT NOT NULL DEFAULT '[]',
+  edges                TEXT NOT NULL DEFAULT '[]',
+  viewport             TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}',
+  notes                TEXT NOT NULL DEFAULT '[]',
+  style_plate          TEXT,
+  negative_prompt      TEXT,
+  default_width        INTEGER,
+  default_height       INTEGER,
+  aspect_ratio         TEXT,
+  llm_provider_id      TEXT,
+  image_provider_id    TEXT,
+  video_provider_id    TEXT,
+  audio_provider_id    TEXT,
+  created_at           INTEGER NOT NULL,
+  updated_at           INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_canvases_updated

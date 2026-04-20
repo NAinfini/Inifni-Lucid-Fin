@@ -61,9 +61,9 @@ describe('buildRunSummary', () => {
     // Simulates a run that first says "Let me check…", then runs tools, then
     // delivers the real answer. The collapsed card should show the answer.
     const segments: MessageSegment[] = [
-      { type: 'text', content: 'Let me look into that for you.' },
-      { type: 'tool', toolCall: tc('done') },
-      { type: 'text', content: 'The answer is 42.' },
+      { kind: 'text', id: 's1', content: 'Let me look into that for you.' },
+      { kind: 'tool', id: 's2', toolCall: tc('done') },
+      { kind: 'text', id: 's3', content: 'The answer is 42.' },
     ];
     const s = buildRunSummary(
       'completed',
@@ -78,8 +78,8 @@ describe('buildRunSummary', () => {
 
   it('falls back to content when the final segment is a tool call', () => {
     const segments: MessageSegment[] = [
-      { type: 'text', content: 'Starting work.' },
-      { type: 'tool', toolCall: tc('done') },
+      { kind: 'text', id: 's1', content: 'Starting work.' },
+      { kind: 'tool', id: 's2', toolCall: tc('done') },
     ];
     const s = buildRunSummary('completed', 'Starting work.', segments, [tc('done')], 0, 0);
     // Most recent text segment wins even if a tool segment follows it.

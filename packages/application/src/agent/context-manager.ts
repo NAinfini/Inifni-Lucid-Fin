@@ -582,11 +582,26 @@ export class ContextManager {
       }
     }
 
+    // MASTER INDEX — the catalog of every guide/skill/process-prompt
+    // Commander can reach. Appended to system message #0 so the model can
+    // resolve names without trial-and-error on its first turn. Dropped after
+    // step 5 along with the other discovery scaffolding (tools are known by
+    // then and the index just burns tokens).
+    if (!step || step <= 5) {
+      const masterIndex = context.extra?.masterIndex;
+      if (typeof masterIndex === 'string' && masterIndex.trim().length > 0) {
+        prompt += `\n\n${masterIndex}`;
+      }
+    }
+
     const contextLines: string[] = [];
     if (context.page) contextLines.push(`Current page: ${context.page}`);
     if (context.characterId) contextLines.push(`Active character ID: ${context.characterId}`);
     if (context.extra) {
       for (const [k, v] of Object.entries(context.extra)) {
+        // masterIndex is rendered as its own section above — don't re-emit
+        // it as a single "key: value" line.
+        if (k === 'masterIndex') continue;
         // On first step, include full context. After step 5, skip verbose entries.
         if (step && step > 5 && k === 'promptGuides') continue;
         contextLines.push(`${k}: ${stringifyContextExtraValue(v)}`);

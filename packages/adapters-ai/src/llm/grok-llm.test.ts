@@ -1,6 +1,12 @@
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
 import { describe, it, expect, vi } from 'vitest';
 import { GrokLLMAdapter } from './grok-llm.js';
+import { collectLLMStream } from './test-utils/collect-llm-stream.js';
+
+function complete(adapter: GrokLLMAdapter, messages: LLMMessage[], opts?: LLMRequestOptions) {
+  return collectLLMStream(adapter.completeWithTools(messages, opts));
+}
 
 describe('GrokLLMAdapter', () => {
   it('uses xAI defaults and preserves original tool names in tool call results', async () => {
@@ -54,7 +60,7 @@ describe('GrokLLMAdapter', () => {
       expect(Reflect.get(adapter, 'baseUrl')).toBe('https://api.x.ai/v1');
 
       await expect(
-        adapter.completeWithTools([{ role: 'user', content: 'search' }], {
+        complete(adapter, [{ role: 'user', content: 'search' }], {
           tools: [
             {
               name: 'tool.search',

@@ -44,7 +44,7 @@ describe('commander slice', () => {
         content: 'part 1 + part 2',
       }),
     );
-    expect(state.streaming).toBe(false);
+    expect(state.phase.kind).toBe('idle');
   });
 
   it('addToolCall and resolveToolCall manage pending tool calls', () => {
@@ -116,7 +116,7 @@ describe('commander slice', () => {
     state = commanderSlice.reducer(state, streamError('boom'));
 
     expect(state.error).toBe('boom');
-    expect(state.streaming).toBe(false);
+    expect(state.phase.kind).toBe('idle');
     // Error is persisted as an assistant message
     expect(state.messages).toHaveLength(2);
     expect(state.messages[1].role).toBe('assistant');

@@ -166,13 +166,33 @@ export interface LLMToolResult {
   content: string;
 }
 
-export interface LLMCompletionResult {
-  content: string;
-  toolCalls: LLMToolCall[];
-  finishReason: 'stop' | 'tool_calls' | 'length' | 'error';
-  /** Model reasoning/thinking content (if available). Not sent to LLM on next turn. */
-  reasoning?: string;
-}
+export type LLMFinishReason = 'stop' | 'tool_calls' | 'length' | 'error';
+
+/**
+ * Events produced by a streaming LLM adapter. The orchestrator consumes
+ * these via `for await` and forwards each to the renderer so reasoning,
+ * text, and tool-call arguments stream token-by-token. Tool arg JSON is
+ * accumulated per `id` across `tool_call_args_delta` events and finalized
+ * by `tool_call_complete`.
+ */
+export type LLMStreamEvent =
+  | { kind: 'reasoning_delta'; delta: string }
+  | { kind: 'text_delta'; delta: string }
+  | { kind: 'tool_call_started'; id: string; name: string }
+  | { kind: 'tool_call_args_delta'; id: string; delta: string }
+  | {
+      kind: 'tool_call_complete';
+      id: string;
+      name: string;
+      arguments: Record<string, unknown>;
+    }
+  | {
+      kind: 'usage';
+      promptTokens?: number;
+      completionTokens?: number;
+      reasoningTokens?: number;
+    }
+  | { kind: 'finished'; finishReason: LLMFinishReason };
 
 export interface LLMRequestOptions {
   temperature?: number;
@@ -181,6 +201,8 @@ export interface LLMRequestOptions {
   stop?: string[];
   tools?: LLMToolDefinition[];
   toolChoice?: 'auto' | 'none' | { name: string };
+  /** Cancels the underlying fetch and ends the iterator. */
+  signal?: AbortSignal;
 }
 
 export interface LLMAdapter {
@@ -202,9 +224,17 @@ export interface LLMAdapter {
   /** Non-streaming completion */
   complete(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<string>;
 
-  /** Streaming completion — yields chunks */
+  /** Streaming text-only completion — yields chunks */
   stream(messages: LLMMessage[], opts?: LLMRequestOptions): AsyncIterable<string>;
 
-  /** Completion with tool-calling support — returns structured result */
-  completeWithTools(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<LLMCompletionResult>;
+  /**
+   * Streaming completion with tool-calling support. The returned async
+   * iterable yields `LLMStreamEvent`s — reasoning/text deltas, tool-call
+   * start/args-delta/complete, usage, and a final `finished`. Cancellable
+   * via `opts.signal`.
+   */
+  completeWithTools(
+    messages: LLMMessage[],
+    opts?: LLMRequestOptions,
+  ): Promise<AsyncIterable<LLMStreamEvent>>;
 }

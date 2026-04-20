@@ -18,6 +18,7 @@ import {
   AgentToolRegistry,
   canvasSyncMutatingToolNames,
   entityMutatingToolNames,
+  freshRunId,
   type JobQueue,
   type WorkflowEngine,
   type AgentContext,
@@ -203,6 +204,14 @@ function detectInitialProcessPrompts(
     prompts.add('workflow-orchestration');
   }
 
+  // Canvas has content but stylePlate is not locked → prime the style-plate-lock
+  // process prompt so Commander checks `canvas.getSettings` and runs the lock
+  // workflow before any ref-image generation drifts off-style.
+  const stylePlate = canvas.settings?.stylePlate;
+  if (canvas.nodes.length > 0 && (!stylePlate || stylePlate.trim() === '')) {
+    prompts.add('style-plate-lock');
+  }
+
   return Array.from(prompts);
 }
 
@@ -212,6 +221,7 @@ export function buildContext(
   selectedNodeIds: string[],
   db: SqliteIndex,
   promptGuides?: Array<{ id: string; name: string; content: string }>,
+  processPromptKeys?: Array<{ processKey: string; name: string }>,
 ): AgentContext {
   const limitedSelectedNodeIds = selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES);
   const extra: Record<string, unknown> = {
@@ -234,7 +244,61 @@ export function buildContext(
       .slice(0, MAX_CONTEXT_PROMPT_GUIDES)
       .map(({ id, name }) => ({ id, name }));
   }
+  // MASTER INDEX — compact one-line catalog of every prompt/guide/skill
+  // surface Commander can reach. Injected as a table into the system prompt
+  // so the model does not need to discover names through trial-and-error.
+  const masterIndex = buildMasterIndex(promptGuides, processPromptKeys);
+  if (masterIndex) {
+    extra.masterIndex = masterIndex;
+  }
   return { page: 'canvas', extra };
+}
+
+/**
+ * Compose a single plaintext MASTER INDEX block listing every guide / skill /
+ * process prompt available to Commander. Sections:
+ *   - Prompt Guides & Skills  (from renderer-provided promptGuides)
+ *   - Process Prompts         (from ProcessPromptStore.list())
+ *   - Core Prompts            (single line — agent-system, unless renamed)
+ * Returns null when nothing is available (e.g. startup before stores seeded).
+ */
+function buildMasterIndex(
+  promptGuides?: Array<{ id: string; name: string; content: string }>,
+  processPromptKeys?: Array<{ processKey: string; name: string }>,
+): string | null {
+  const guideLines: string[] = [];
+  if (Array.isArray(promptGuides)) {
+    for (const { id, name } of promptGuides) {
+      guideLines.push(`- ${id}: ${name}`);
+    }
+  }
+  const processLines: string[] = [];
+  if (Array.isArray(processPromptKeys)) {
+    for (const { processKey, name } of processPromptKeys) {
+      processLines.push(`- ${processKey}: ${name}`);
+    }
+  }
+  if (guideLines.length === 0 && processLines.length === 0) return null;
+
+  const sections: string[] = [];
+  sections.push('## MASTER INDEX');
+  sections.push(
+    'Every prompt, guide, and skill Commander can load. Use `guide.get({ ids: [id] })` to fetch guides/skills by id. Process prompts are auto-injected when you call the matching tool — you do not fetch them manually. Core prompts are already baked into the system message.',
+  );
+  sections.push('');
+  sections.push('### Core System Prompts');
+  sections.push('- agent-system: main conductor + protocol (this message).');
+  if (guideLines.length > 0) {
+    sections.push('');
+    sections.push(`### Prompt Guides & Skills (${guideLines.length})`);
+    sections.push(...guideLines);
+  }
+  if (processLines.length > 0) {
+    sections.push('');
+    sections.push(`### Process Prompts (${processLines.length}) — auto-injected on matching tool calls`);
+    sections.push(...processLines);
+  }
+  return sections.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -328,6 +392,7 @@ export function registerCommanderHandlers(
     promptStore: import('@lucid-fin/storage').PromptStore;
     resolvePrompt: (code: string) => string;
     resolveProcessPrompt: (processKey: string) => string | null;
+    listProcessPromptKeys?: () => Array<{ processKey: string; name: string }>;
   },
 ): void {
   // Shared gateway for all push sends originating from commander handlers.
@@ -481,6 +546,7 @@ export function registerCommanderHandlers(
           args.selectedNodeIds,
           deps.db,
           args.promptGuides,
+          deps.listProcessPromptKeys?.(),
         );
         if (args.locale && typeof args.locale === 'string') {
           const extra = context.extra as Record<string, unknown>;
@@ -530,19 +596,9 @@ export function registerCommanderHandlers(
               cacheEntryCount: diagnostics.cacheEntryCount,
               utilizationRatio: diagnostics.utilizationRatio,
             });
-            gateway.emit(commanderStreamChannel, {
-              type: 'context_usage',
-              estimatedTokensUsed: diagnostics.estimatedTokensUsed,
-              contextWindowTokens: diagnostics.contextWindowTokens,
-              messageCount: diagnostics.messageCount,
-              systemPromptChars: diagnostics.systemPromptChars,
-              toolSchemaChars: diagnostics.toolSchemaChars,
-              messageChars: diagnostics.messageChars,
-              cacheChars: diagnostics.cacheChars,
-              cacheEntryCount: diagnostics.cacheEntryCount,
-              historyMessagesTrimmed: diagnostics.historyMessagesTrimmed,
-              utilizationRatio: diagnostics.utilizationRatio,
-            });
+            // `commander:stream` `context_usage` is emitted from the
+            // orchestrator itself so it picks up `runId`/`step`/`emittedAt`
+            // automatically. This hook is log-only.
           },
         });
       } catch (error) {
@@ -558,9 +614,17 @@ export function registerCommanderHandlers(
           providerAuthStyle: args.customLLMProvider?.authStyle,
           detail: formatErrorDetail(error),
         });
+        // Error event emitted outside the orchestrator's stamped wrapper — we
+        // mint a fresh `runId` and step 0 so the schema is satisfied and the
+        // renderer's tolerant parse still accepts it. The renderer won't
+        // confuse it with an active run because `runId` is new and `done`
+        // will never follow.
         gateway.emit(commanderStreamChannel, {
-          type: 'error',
+          kind: 'error',
           error: error instanceof Error ? error.message : String(error),
+          runId: freshRunId(),
+          step: 0,
+          emittedAt: Date.now(),
         });
       } finally {
         // G2-5: persist the serialized ContextGraph side-channel so the

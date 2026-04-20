@@ -26,8 +26,18 @@ export interface AgentTool {
   tags?: string[];
   /** If set, tool is only available when Commander is on one of these pages */
   context?: string[];
-  /** Permission tier: 1=safe/read, 2=single-entity mutation, 3=batch/destructive, 4=system */
-  tier?: 1 | 2 | 3 | 4;
+  /**
+   * Permission tier — required. Drives the needsConfirmation matrix in
+   * ToolExecutor (see tool-executor.ts). Every tool MUST declare a tier
+   * so a forgotten annotation cannot silently fall into tier-1 (the
+   * most permissive bucket), which was the old default.
+   *
+   * - 1: safe/read (list/get/inspect)
+   * - 2: single-entity mutation (rename, reposition)
+   * - 3: batch/destructive mutation (delete, generate)
+   * - 4: expensive/irreversible project-scope action (render, canvas delete)
+   */
+  tier: 1 | 2 | 3 | 4;
   /** Max characters for this tool's result before truncation. Overrides RESULT_HARD_LIMIT. */
   maxResultChars?: number;
   parameters: {
@@ -50,7 +60,22 @@ export interface AgentTool {
 export class AgentToolRegistry {
   private tools = new Map<string, AgentTool>();
 
+  /**
+   * Register a tool. Validates that tier is declared — a TS-escape hatch
+   * like `as AgentTool` could still slip an undefined tier through, so
+   * the runtime check is a belt-and-suspenders guard against future
+   * regressions.
+   */
   register(tool: AgentTool): void {
+    if (
+      tool.tier !== 1 && tool.tier !== 2 && tool.tier !== 3 && tool.tier !== 4
+    ) {
+      throw new Error(
+        `Tool '${tool.name}' is missing a valid tier (must be 1|2|3|4). `
+        + 'Every tool must declare its permission tier so the confirmation '
+        + 'gate never silently falls back to the most permissive bucket.',
+      );
+    }
     this.tools.set(tool.name, tool);
   }
 

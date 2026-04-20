@@ -1,6 +1,12 @@
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
 import { describe, it, expect, vi } from 'vitest';
 import { OpenAIResponsesLLM } from './openai-responses-llm.js';
+import { collectLLMStream } from './test-utils/collect-llm-stream.js';
+
+function complete(adapter: OpenAIResponsesLLM, messages: LLMMessage[], opts?: LLMRequestOptions) {
+  return collectLLMStream(adapter.completeWithTools(messages, opts));
+}
 
 describe('OpenAIResponsesLLM', () => {
   it('normalizes responses endpoints and validates with the configured auth style', async () => {
@@ -119,7 +125,7 @@ describe('OpenAIResponsesLLM', () => {
       adapter.configure('sk-responses');
 
       await expect(
-        adapter.completeWithTools(
+        complete(adapter,
           [
             { role: 'system', content: 'system rule' },
             { role: 'user', content: 'hello' },

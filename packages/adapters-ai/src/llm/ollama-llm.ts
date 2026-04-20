@@ -2,12 +2,13 @@ import type {
   LLMAdapter,
   LLMMessage,
   LLMRequestOptions,
-  LLMCompletionResult,
+  LLMStreamEvent,
   LLMToolCall,
   Capability,
   ProviderProfile,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
+import { oneShotStream } from './one-shot-stream.js';
 
 export class OllamaLLMAdapter implements LLMAdapter {
   readonly id = 'ollama-local';
@@ -119,7 +120,7 @@ export class OllamaLLMAdapter implements LLMAdapter {
   async completeWithTools(
     messages: LLMMessage[],
     opts?: LLMRequestOptions,
-  ): Promise<LLMCompletionResult> {
+  ): Promise<AsyncIterable<LLMStreamEvent>> {
     const body: Record<string, unknown> = {
       model: this.model,
       messages: messages.map((m) => {
@@ -156,6 +157,7 @@ export class OllamaLLMAdapter implements LLMAdapter {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: opts?.signal,
     });
     if (!res.ok) this.throwError(res.status);
 
@@ -173,10 +175,10 @@ export class OllamaLLMAdapter implements LLMAdapter {
       arguments: tc.function.arguments ?? {},
     }));
 
-    return {
+    return oneShotStream({
       content: data.message?.content ?? '',
       toolCalls,
       finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
-    };
+    });
   }
 }

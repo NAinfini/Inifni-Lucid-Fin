@@ -6,11 +6,10 @@ import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import type { Locale } from '../../i18n.js';
 import { setLocale, t } from '../../i18n.js';
-import type { PromptTemplate } from '../../store/slices/promptTemplates.js';
 import {
-  getDefaultWorkflowDefinitionName,
-  type WorkflowDefEntry,
-} from '../../store/slices/workflowDefinitions.js';
+  getDefaultSkillName,
+  type SkillDefinition,
+} from '../../store/slices/skillDefinitions.js';
 import type { Theme } from '../../store/slices/ui.js';
 import { settingsSlice } from '../../store/slices/settings.js';
 import { getAPI } from '../../utils/api.js';
@@ -80,134 +79,103 @@ describe('settings extracted sections', () => {
     expect(onLocaleChange).toHaveBeenCalledWith('zh-CN');
   });
 
-  it('renders merged guide controls and delegates template/workflow actions', () => {
+  it('renders merged guide controls and delegates skill actions', () => {
     setLocale('en-US');
-    const onAddTemplate = vi.fn();
-    const onRemoveTemplate = vi.fn();
-    const onRenameTemplate = vi.fn();
-    const onSetTemplateContent = vi.fn();
-    const onResetAllTemplates = vi.fn();
-    const onResetTemplate = vi.fn();
-    const onAddWorkflowEntry = vi.fn();
-    const onUpdateWorkflowEntry = vi.fn();
-    const onRemoveWorkflowEntry = vi.fn();
+    const onAddSkill = vi.fn();
+    const onRemoveSkill = vi.fn();
+    const onRenameSkill = vi.fn();
+    const onSetSkillContent = vi.fn();
+    const onResetAllSkills = vi.fn();
+    const onResetSkill = vi.fn();
 
-    const templates: PromptTemplate[] = [
+    const skills: SkillDefinition[] = [
       {
-        category: 'system',
-        customContent: 'Custom content',
-        defaultContent: 'Default content',
         id: 'meta-prompt',
         name: 'Meta Prompt',
+        category: 'system',
+        defaultContent: 'Default content',
+        customContent: 'Custom content',
+        builtIn: true,
+        source: 'promptTemplate',
+        createdAt: 0,
       },
-    ];
-
-    const workflowEntries: WorkflowDefEntry[] = [
       {
         id: 'wf-video-clone',
-        name: getDefaultWorkflowDefinitionName('wf-video-clone') ?? 'Video Clone → Remake',
+        name: getDefaultSkillName('wf-video-clone') ?? 'Video Clone → Remake',
         category: 'workflow',
-        content: 'Built-in workflow content',
+        defaultContent: 'Built-in workflow content',
+        customContent: null,
         builtIn: true,
+        source: 'workflowSkill',
         createdAt: 0,
       },
       {
         id: 'custom-wf-1',
         name: 'Custom Workflow',
         category: 'workflow',
-        content: 'Existing workflow content',
+        defaultContent: '',
+        customContent: 'Existing workflow content',
         builtIn: false,
+        source: 'user',
         createdAt: 1,
       },
     ];
 
     function GuidesHarness() {
-      const [localTemplates, setLocalTemplates] = useState(templates);
-      const [localWorkflowEntries, setLocalWorkflowEntries] = useState(workflowEntries);
-
+      const [localSkills, setLocalSkills] = useState(skills);
       return (
         <SettingsGuidesSection
-          templates={localTemplates}
-          workflowEntries={localWorkflowEntries}
-          onAddTemplate={(template) => {
-            setLocalTemplates((previous) => [
+          skills={localSkills}
+          onAddSkill={(payload) => {
+            setLocalSkills((previous) => [
               ...previous,
               {
-                id: template.id,
-                name: template.name,
-                category: template.category,
+                id: payload.id ?? 'custom-added',
+                name: payload.name,
+                category: payload.category,
                 defaultContent: '',
-                customContent: template.content,
+                customContent: payload.content,
+                builtIn: false,
+                source: 'user',
+                createdAt: Date.now(),
               },
             ]);
-            onAddTemplate(template);
+            onAddSkill(payload);
           }}
-          onRemoveTemplate={(id) => {
-            setLocalTemplates((previous) => previous.filter((template) => template.id !== id));
-            onRemoveTemplate(id);
+          onRemoveSkill={(id) => {
+            setLocalSkills((previous) => previous.filter((s) => s.id !== id));
+            onRemoveSkill(id);
           }}
-          onRenameTemplate={(payload) => {
-            setLocalTemplates((previous) =>
-              previous.map((template) =>
-                template.id === payload.id ? { ...template, name: payload.name } : template,
+          onRenameSkill={(payload) => {
+            setLocalSkills((previous) =>
+              previous.map((s) => (s.id === payload.id ? { ...s, name: payload.name } : s)),
+            );
+            onRenameSkill(payload);
+          }}
+          onSetSkillContent={(payload) => {
+            setLocalSkills((previous) =>
+              previous.map((s) =>
+                s.id === payload.id ? { ...s, customContent: payload.content } : s,
               ),
             );
-            onRenameTemplate(payload);
+            onSetSkillContent(payload);
           }}
-          onSetTemplateContent={(payload) => {
-            setLocalTemplates((previous) =>
-              previous.map((template) =>
-                template.id === payload.id
-                  ? { ...template, customContent: payload.content }
-                  : template,
-              ),
-            );
-            onSetTemplateContent(payload);
+          onResetAllSkills={() => {
+            onResetAllSkills();
           }}
-          onResetAllTemplates={() => {
-            onResetAllTemplates();
-          }}
-          onResetTemplate={(id) => {
-            setLocalTemplates((previous) =>
-              previous.map((template) =>
-                template.id === id
+          onResetSkill={(id) => {
+            setLocalSkills((previous) =>
+              previous.map((s) =>
+                s.id === id
                   ? {
-                      ...template,
-                      name: template.id === 'meta-prompt' ? 'Meta-Prompt (AI Instructor)' : template.name,
+                      ...s,
+                      name: getDefaultSkillName(s.id) ?? s.name,
                       customContent: null,
                     }
-                  : template,
+                  : s,
               ),
             );
-            onResetTemplate(id);
-          }}
-          onAddWorkflowEntry={(entry) => {
-            setLocalWorkflowEntries((previous) => [
-              ...previous,
-              {
-                id: `custom-added-${entry.category}`,
-                name: entry.name,
-                category: entry.category,
-                content: entry.content,
-                builtIn: false,
-                createdAt: 2,
-              },
-            ]);
-            onAddWorkflowEntry(entry);
-          }}
-          onUpdateWorkflowEntry={(payload) => {
-            setLocalWorkflowEntries((previous) =>
-              previous.map((entry) =>
-                entry.id === payload.id
-                  ? { ...entry, name: payload.name, content: payload.content }
-                  : entry,
-              ),
-            );
-            onUpdateWorkflowEntry(payload);
-          }}
-          onRemoveWorkflowEntry={(id) => {
-            setLocalWorkflowEntries((previous) => previous.filter((entry) => entry.id !== id));
-            onRemoveWorkflowEntry(id);
+            onResetSkill(id);
           }}
         />
       );
@@ -228,8 +196,6 @@ describe('settings extracted sections', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Restore default' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Template' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Workflow' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Skill' }));
 
     fireEvent.click(screen.getByText('Custom Workflow').closest('button')!);
     fireEvent.change(screen.getByDisplayValue('Custom Workflow'), {
@@ -242,154 +208,91 @@ describe('settings extracted sections', () => {
     fireEvent.click(screen.getByText('Refined Workflow').closest('button')!);
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
-    expect(onResetAllTemplates).toHaveBeenCalledTimes(1);
-    expect(onRenameTemplate).toHaveBeenCalledWith({
-      id: 'meta-prompt',
-      name: 'Director Notes',
-    });
-    expect(onSetTemplateContent).toHaveBeenCalledWith({
-      id: 'meta-prompt',
-      content: 'Updated content',
-    });
-    expect(onResetTemplate).toHaveBeenCalledWith('meta-prompt');
-    expect(onAddTemplate).toHaveBeenCalledWith({
+    expect(onResetAllSkills).toHaveBeenCalledTimes(1);
+    expect(onRenameSkill).toHaveBeenCalledWith({ id: 'meta-prompt', name: 'Director Notes' });
+    expect(onSetSkillContent).toHaveBeenCalledWith({ id: 'meta-prompt', content: 'Updated content' });
+    expect(onResetSkill).toHaveBeenCalledWith('meta-prompt');
+    expect(onAddSkill).toHaveBeenCalledWith({
       id: expect.stringMatching(/^custom-/),
       name: 'New Template',
-      category: 'process',
+      category: 'skill',
       content: '# New Template\n\nWrite your prompt template here...',
     });
-    expect(onAddWorkflowEntry).toHaveBeenCalledWith({
-      name: 'New Workflow',
-      category: 'workflow',
-      content: '# New Workflow\n\nDescribe your workflow steps here...',
-    });
-    expect(onAddWorkflowEntry).toHaveBeenCalledWith({
-      name: 'New Skill',
-      category: 'skill',
-      content: '# New Skill\n\nDescribe your skill here...',
-    });
-    expect(onUpdateWorkflowEntry).toHaveBeenCalledWith({
+    expect(onRenameSkill).toHaveBeenCalledWith({ id: 'custom-wf-1', name: 'Refined Workflow' });
+    expect(onSetSkillContent).toHaveBeenCalledWith({
       id: 'custom-wf-1',
-      name: 'Refined Workflow',
       content: 'Updated workflow content',
     });
-    expect(onRemoveWorkflowEntry).toHaveBeenCalledWith('custom-wf-1');
+    expect(onRemoveSkill).toHaveBeenCalledWith('custom-wf-1');
   });
 
-  it('localizes built-in guides but preserves renamed template titles', () => {
+  it('renders skill list in zh-CN locale', () => {
     setLocale('zh-CN');
 
-    const templates: PromptTemplate[] = [
+    const skills: SkillDefinition[] = [
       {
-        category: 'audio',
-        customContent: null,
-        defaultContent: 'Default audio content',
         id: 'audio-prompting',
         name: 'My Audio Template',
-      },
-      {
-        category: 'workflow',
-        customContent: null,
-        defaultContent: 'Default workflow content',
-        id: 'storyboard-export',
-        name: 'Storyboard Export',
-      },
-      {
         category: 'audio',
+        defaultContent: 'Default audio content',
         customContent: null,
-        defaultContent: 'Default emotion voice content',
-        id: 'emotion-voice-prompting',
-        name: 'Emotion & Voice Prompting',
-      },
-    ];
-
-    const workflowEntries: WorkflowDefEntry[] = [
-      {
-        id: 'wf-video-clone',
-        name: getDefaultWorkflowDefinitionName('wf-video-clone') ?? 'Video Clone → Remake',
-        category: 'workflow',
-        content: 'Built-in workflow content',
         builtIn: true,
+        source: 'promptTemplate',
         createdAt: 0,
       },
       {
-        id: 'sk-lip-sync',
-        name: getDefaultWorkflowDefinitionName('sk-lip-sync') ?? 'Lip Sync Video',
-        category: 'skill',
-        content: 'Built-in skill content',
+        id: 'wf-video-clone',
+        name: getDefaultSkillName('wf-video-clone') ?? 'Video Clone → Remake',
+        category: 'workflow',
+        defaultContent: 'Built-in workflow content',
+        customContent: null,
         builtIn: true,
+        source: 'workflowSkill',
         createdAt: 0,
       },
     ];
 
     render(
       <SettingsGuidesSection
-        templates={templates}
-        workflowEntries={workflowEntries}
-        onAddTemplate={vi.fn()}
-        onRemoveTemplate={vi.fn()}
-        onRenameTemplate={vi.fn()}
-        onSetTemplateContent={vi.fn()}
-        onResetAllTemplates={vi.fn()}
-        onResetTemplate={vi.fn()}
-        onAddWorkflowEntry={vi.fn()}
-        onUpdateWorkflowEntry={vi.fn()}
-        onRemoveWorkflowEntry={vi.fn()}
+        skills={skills}
+        onAddSkill={vi.fn()}
+        onRemoveSkill={vi.fn()}
+        onRenameSkill={vi.fn()}
+        onSetSkillContent={vi.fn()}
+        onResetAllSkills={vi.fn()}
+        onResetSkill={vi.fn()}
       />,
     );
 
     expect(screen.getByText('My Audio Template')).toBeTruthy();
-    expect(screen.getByText(t('promptTemplateNames.storyboard-export'))).toBeTruthy();
-    expect(screen.getByText(t('promptTemplateNames.emotion-voice-prompting'))).toBeTruthy();
-    expect(screen.getByText(t('workflowDefinitionNames.wf-video-clone'))).toBeTruthy();
-    expect(screen.getByText(t('workflowDefinitionNames.sk-lip-sync'))).toBeTruthy();
     expect(screen.getAllByText(t('settings.category.audio')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(t('settings.category.workflow')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(t('settings.guides.templateSource')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(t('settings.guides.workflowSource')).length).toBeGreaterThan(0);
   });
 
-  it('creates localized default content for new guides in zh-CN', () => {
+  it('fires onAddSkill with a new-template payload when Add Template is clicked', () => {
     setLocale('zh-CN');
 
-    const onAddTemplate = vi.fn();
-    const onAddWorkflowEntry = vi.fn();
+    const onAddSkill = vi.fn();
 
     render(
       <SettingsGuidesSection
-        templates={[]}
-        workflowEntries={[]}
-        onAddTemplate={onAddTemplate}
-        onRemoveTemplate={vi.fn()}
-        onRenameTemplate={vi.fn()}
-        onSetTemplateContent={vi.fn()}
-        onResetAllTemplates={vi.fn()}
-        onResetTemplate={vi.fn()}
-        onAddWorkflowEntry={onAddWorkflowEntry}
-        onUpdateWorkflowEntry={vi.fn()}
-        onRemoveWorkflowEntry={vi.fn()}
+        skills={[]}
+        onAddSkill={onAddSkill}
+        onRemoveSkill={vi.fn()}
+        onRenameSkill={vi.fn()}
+        onSetSkillContent={vi.fn()}
+        onResetAllSkills={vi.fn()}
+        onResetSkill={vi.fn()}
       />,
     );
 
     fireEvent.click(screen.getByRole('button', { name: t('settings.addTemplate') }));
-    fireEvent.click(screen.getByRole('button', { name: t('settings.addWorkflow') }));
-    fireEvent.click(screen.getByRole('button', { name: t('settings.addSkill') }));
 
-    expect(onAddTemplate).toHaveBeenCalledWith({
+    expect(onAddSkill).toHaveBeenCalledWith({
       id: expect.stringMatching(/^custom-/),
       name: t('settings.newTemplateName'),
-      category: 'process',
-      content: t('settings.newTemplateContent'),
-    });
-    expect(onAddWorkflowEntry).toHaveBeenCalledWith({
-      name: t('settings.workflows.newWorkflowName'),
-      category: 'workflow',
-      content: t('settings.workflows.newWorkflowTemplate'),
-    });
-    expect(onAddWorkflowEntry).toHaveBeenCalledWith({
-      name: t('settings.workflows.newSkillName'),
       category: 'skill',
-      content: t('settings.workflows.newSkillTemplate'),
+      content: t('settings.newTemplateContent'),
     });
   });
 

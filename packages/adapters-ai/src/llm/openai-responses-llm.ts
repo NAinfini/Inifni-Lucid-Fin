@@ -1,7 +1,7 @@
 import type {
   Capability,
   LLMAdapter,
-  LLMCompletionResult,
+  LLMStreamEvent,
   LLMMessage,
   LLMProviderAuthStyle,
   LLMRequestOptions,
@@ -9,6 +9,14 @@ import type {
 } from '@lucid-fin/contracts';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { normalizeOpenAICompatibleBaseUrl } from './openai-compatible-base.js';
+import { oneShotStream } from './one-shot-stream.js';
+
+interface OpenAIResponsesCompletion {
+  content: string;
+  reasoning?: string;
+  toolCalls: LLMToolCall[];
+  finishReason: 'tool_calls' | 'length' | 'stop';
+}
 
 type OpenAIResponsesConfig = {
   id: string;
@@ -142,8 +150,14 @@ export class OpenAIResponsesLLM implements LLMAdapter {
   async completeWithTools(
     messages: LLMMessage[],
     opts?: LLMRequestOptions,
-  ): Promise<LLMCompletionResult> {
-    return this.request(messages, opts);
+  ): Promise<AsyncIterable<LLMStreamEvent>> {
+    const result = await this.request(messages, opts);
+    return oneShotStream({
+      content: result.content,
+      reasoning: result.reasoning,
+      toolCalls: result.toolCalls,
+      finishReason: result.finishReason,
+    });
   }
 
   private headers(): Record<string, string> {
@@ -243,12 +257,13 @@ export class OpenAIResponsesLLM implements LLMAdapter {
     return body;
   }
 
-  private async request(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<LLMCompletionResult> {
+  private async request(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<OpenAIResponsesCompletion> {
     const body = this.buildRequestBody(messages, opts);
     const res = await fetch(`${this.baseUrl}/responses`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
+      signal: opts?.signal,
     });
 
     if (!res.ok) {
@@ -334,6 +349,6 @@ export class OpenAIResponsesLLM implements LLMAdapter {
       toolCalls,
       reasoning: reasoning || undefined,
       finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
-    };
+    } satisfies OpenAIResponsesCompletion;
   }
 }

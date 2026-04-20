@@ -2,13 +2,14 @@ import type {
   LLMAdapter,
   LLMMessage,
   LLMRequestOptions,
-  LLMCompletionResult,
+  LLMStreamEvent,
   LLMToolCall,
   Capability,
   ProviderProfile,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { parseSseStream } from './sse-parser.js';
+import { oneShotStream } from './one-shot-stream.js';
 
 type GeminiAdapterConfig = {
   id?: string;
@@ -156,7 +157,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
   async completeWithTools(
     messages: LLMMessage[],
     opts?: LLMRequestOptions,
-  ): Promise<LLMCompletionResult> {
+  ): Promise<AsyncIterable<LLMStreamEvent>> {
     const body = this.buildBody(messages, opts);
     const res = await fetch(
       `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`,
@@ -164,6 +165,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: opts?.signal,
       },
     );
     if (!res.ok) this.throwError(res.status);
@@ -202,17 +204,19 @@ export class GeminiLLMAdapter implements LLMAdapter {
       }
     }
 
-    return {
+    const finishReason: 'tool_calls' | 'length' | 'stop' =
+      toolCalls.length > 0
+        ? 'tool_calls'
+        : candidate?.finishReason === 'MAX_TOKENS'
+          ? 'length'
+          : 'stop';
+
+    return oneShotStream({
       content,
-      toolCalls,
       reasoning: reasoning || undefined,
-      finishReason:
-        toolCalls.length > 0
-          ? 'tool_calls'
-          : candidate?.finishReason === 'MAX_TOKENS'
-            ? 'length'
-            : 'stop',
-    };
+      toolCalls,
+      finishReason,
+    });
   }
 
   private throwError(status: number): never {

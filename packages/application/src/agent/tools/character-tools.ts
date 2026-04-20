@@ -1,13 +1,33 @@
 import {
-  isCharacterReferenceSlotStandard,
-  normalizeCharacterRefSlot,
+  characterViewToSlot,
   type Canvas,
   type Character,
+  type CharacterRefImageView,
 } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
 import { createRefImageTools } from './ref-image-factory.js';
-import { extractSet, warnExtraKeys, requireString } from './tool-result-helpers.js';
+import { extractSet, warnExtraKeys, requireString, requireSetString } from './tool-result-helpers.js';
 import { buildCharacterRefImagePrompt } from './character-prompt.js';
+
+function parseCharacterView(raw: unknown): CharacterRefImageView {
+  // Default to full-sheet when the agent omits the view field. This matches
+  // the Q27 directive that every character gets one composite image covering
+  // front/back/side/full-body + detailed expressions.
+  if (raw === undefined || raw === null) return { kind: 'full-sheet' };
+  if (typeof raw !== 'object') {
+    throw new Error('view must be an object: { kind: "full-sheet" | "extra-angle", angle?: string }');
+  }
+  const obj = raw as Record<string, unknown>;
+  const kind = obj.kind;
+  if (kind === 'full-sheet') return { kind: 'full-sheet' };
+  if (kind === 'extra-angle') {
+    if (typeof obj.angle !== 'string' || obj.angle.trim().length === 0) {
+      throw new Error('view.angle is required when kind=extra-angle');
+    }
+    return { kind: 'extra-angle', angle: obj.angle.trim() };
+  }
+  throw new Error(`view.kind must be "full-sheet" or "extra-angle" (got ${String(kind)})`);
+}
 
 export interface GenerateImageOptions {
   providerId?: string;
@@ -135,6 +155,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const now = Date.now();
+        const name = requireString(args, 'name');
         const face = typeof args.face === 'object' && args.face !== null ? args.face as Record<string, unknown> : undefined;
         const hair = typeof args.hair === 'object' && args.hair !== null ? args.hair as Record<string, unknown> : undefined;
         const skinTone = typeof args.skinTone === 'string' ? args.skinTone : undefined;
@@ -143,7 +164,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         const vocalTraits = typeof args.vocalTraits === 'object' && args.vocalTraits !== null ? args.vocalTraits as Record<string, unknown> : undefined;
         const character: Character = {
           id: crypto.randomUUID(),
-          name: args.name as string,
+          name,
           role: args.role as Character['role'],
           description: args.description as string,
           appearance: args.appearance as string,
@@ -268,7 +289,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         const vocalTraits = typeof set.vocalTraits === 'object' && set.vocalTraits !== null ? set.vocalTraits as Record<string, unknown> : undefined;
         const updated: Character = {
           ...existing,
-          ...(set.name !== undefined && { name: set.name as string }),
+          ...(set.name !== undefined && { name: requireSetString(set, 'name') }),
           ...(set.role !== undefined && { role: set.role as Character['role'] }),
           ...(set.description !== undefined && { description: set.description as string }),
           ...(set.appearance !== undefined && { appearance: set.appearance as string }),
@@ -316,11 +337,15 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
   };
 
-  const characterRefImages = createRefImageTools<Character>({
+  const characterRefImages = createRefImageTools<Character, CharacterRefImageView>({
     toolNamePrefix: 'character',
     entityLabel: 'character',
     tags: ['character', 'generation'],
-    description: 'Manage a character reference image. Use action=generate to create a slot-specific character ref sheet. For slot=main, default to a two-row model sheet with full-body front, left, right, and back panels plus enlarged facial expression studies. Use action=set to assign an existing asset, action=delete to remove a slot, and action=setFromNode to pull an asset from a canvas node.',
+    description:
+      'Manage a character reference image. '
+      + 'Default view kind "full-sheet" produces ONE composite image with front/back/left/right/full-body + six expressions on a single sheet. '
+      + 'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom angles. '
+      + 'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
     getEntity: async (id) => {
       const characters = await deps.listCharacters();
       return characters.find((c) => c.id === id) ?? null;
@@ -328,15 +353,10 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     saveEntity: deps.saveCharacter,
     generateImage: deps.generateImage,
     getCanvas: deps.getCanvas,
+    parseView: parseCharacterView,
     buildPrompt: buildCharacterRefImagePrompt,
-    isStandardSlot: isCharacterReferenceSlotStandard,
-    normalizeSlot: normalizeCharacterRefSlot,
-    // Canonical character slots only — locks the LLM to the 6 known angles
-    // and prevents invented slots like "portrait-main" from silently falling
-    // through to a single-view prompt. Aliases (front, default, rear,
-    // profile-left, etc.) still normalize correctly at runtime but are not
-    // advertised here so the model picks canonical names.
-    slotEnum: ['main', 'back', 'left-side', 'right-side', 'face-closeup', 'top-down'],
+    viewToSlot: characterViewToSlot,
+    kindEnum: ['full-sheet', 'extra-angle'],
     defaultWidth: 2048,
     defaultHeight: 1360,
   });

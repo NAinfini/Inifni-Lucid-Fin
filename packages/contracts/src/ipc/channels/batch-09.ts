@@ -70,6 +70,15 @@ export interface CommanderCancelRequest {
 }
 export type CommanderCancelResponse = void;
 
+// ── commander:cancel-step (invoke) ───────────────────────────
+export interface CommanderCancelStepRequest {
+  canvasId: string;
+}
+export interface CommanderCancelStepResponse {
+  /** `true` if a double-tap within 2s escalated this step-cancel to a full run cancel. */
+  escalated: boolean;
+}
+
 // ── commander:inject-message (invoke) ────────────────────────
 export interface CommanderInjectMessageRequest {
   canvasId: string;
@@ -129,58 +138,78 @@ export type CommanderToolSearchResponse = Array<{
   description: string;
 }>;
 
-// ── commander:stream (push) — B-2 critical ───────────────────
+// ── commander:stream (push) — single source of truth (pure types) ──
 /**
- * Discriminated union over the 9 `type` variants actually emitted by the
- * main process. The legacy flat `CommanderStreamPayload` (all optional
- * fields) in `commander-emit.ts` stays as the runtime author's local type,
- * but the contract exposed to the renderer is strict per-variant.
+ * Mirror of `@lucid-fin/contracts-parse`'s `CommanderStreamPayload` zod
+ * schema. Kept in sync by hand (the contracts package is type-only and must
+ * not depend on zod at runtime). Every variant carries the provenance fields
+ * (`runId`, `step`, `emittedAt`) required by the schema.
+ *
+ * Discriminator is `kind` — any consumer that still reads `.type` is a
+ * compile error by design.
  */
+interface CommanderStreamCommon {
+  runId: string;
+  step: number;
+  emittedAt: number;
+}
+
 export type CommanderStreamEvent =
-  | { type: 'chunk'; content: string }
-  | {
-      type: 'tool_call';
+  | ({ kind: 'chunk'; content: string } & CommanderStreamCommon)
+  | ({
+      kind: 'tool_call_started';
       toolName: string;
       toolCallId: string;
-      arguments: Record<string, unknown>;
       startedAt: number;
-    }
-  | {
-      type: 'tool_result';
+    } & CommanderStreamCommon)
+  | ({
+      kind: 'tool_call_args_delta';
+      toolCallId: string;
+      delta: string;
+    } & CommanderStreamCommon)
+  | ({
+      kind: 'tool_call_args_complete';
+      toolCallId: string;
+      arguments: Record<string, unknown>;
+    } & CommanderStreamCommon)
+  | ({
+      kind: 'tool_result';
       toolName: string;
       toolCallId: string;
       result: unknown;
       startedAt: number;
       completedAt: number;
-    }
-  | {
-      type: 'tool_confirm';
+    } & CommanderStreamCommon)
+  | ({
+      kind: 'tool_confirm';
       toolName: string;
       toolCallId: string;
       arguments: Record<string, unknown>;
       tier: number;
-    }
-  | {
-      type: 'tool_question';
+    } & CommanderStreamCommon)
+  | ({
+      kind: 'tool_question';
       toolName: string;
       toolCallId: string;
       question: string;
       options: Array<{ label: string; description?: string }>;
-    }
-  | { type: 'thinking'; content: string }
-  | { type: 'done'; content: string }
-  | {
-      // Emitted from both `createEmitHandler` (all fields present) and the
-      // `catch` block in commander.handlers.ts (only `error` set), so the
-      // non-error fields stay optional on this variant.
-      type: 'error';
+    } & CommanderStreamCommon)
+  | ({ kind: 'thinking_delta'; content: string } & CommanderStreamCommon)
+  | ({
+      kind: 'phase_note';
+      note: 'process_prompt_loaded' | 'compacted' | 'llm_retry';
+      detail: string;
+    } & CommanderStreamCommon)
+  | ({ kind: 'done'; content: string } & CommanderStreamCommon)
+  | ({
+      kind: 'error';
       toolCallId?: string;
       error: string;
       startedAt?: number;
       completedAt?: number;
-    }
-  | {
-      type: 'context_usage';
+    } & CommanderStreamCommon)
+  | ({
+      kind: 'context_usage';
       estimatedTokensUsed: number;
       contextWindowTokens: number;
       messageCount: number;
@@ -191,13 +220,9 @@ export type CommanderStreamEvent =
       cacheEntryCount: number;
       historyMessagesTrimmed?: number;
       utilizationRatio: number;
-    };
+    } & CommanderStreamCommon);
 
-/**
- * Alias emitted at the codegen's expected `<TypeBase>Payload` name
- * (`CommanderStream` → `CommanderStreamPayload`). Downstream renderer code
- * can import either alias; they denote the same strict union.
- */
+/** Alias emitted at the codegen's expected `<TypeBase>Payload` name. */
 export type CommanderStreamPayload = CommanderStreamEvent;
 
 // ── commander:canvas:dispatch (push) ─────────────────────────

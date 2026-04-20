@@ -5,6 +5,7 @@ import {
   type Canvas,
   type CanvasEdge,
   type CanvasNode,
+  type CanvasSettings,
   type PresetCategory,
   type PresetTrack,
   type PresetTrackEntry,
@@ -88,6 +89,12 @@ export interface CanvasToolDeps {
   isProviderKeyConfigured?: (providerId: string) => Promise<boolean>;
   /** Get the user's default provider for a media group (image/video/audio). */
   getDefaultProviderId?: (group: 'image' | 'video' | 'audio') => string | undefined;
+
+  // ---- Canvas-scoped settings (Phase G1-2.5 + Phase 1 overhaul) ----
+  /** Read the effective canvas-scoped settings snapshot. Returns `{}` when no overrides exist. */
+  getCanvasSettings?: (canvasId: string) => Promise<CanvasSettings>;
+  /** Patch canvas-scoped settings. Keys present in `patch` overwrite; `null` clears a column. */
+  patchCanvasSettings?: (canvasId: string, patch: CanvasSettings) => Promise<CanvasSettings>;
 }
 
 export type CanvasToolResult =

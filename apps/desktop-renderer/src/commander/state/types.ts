@@ -18,9 +18,21 @@ export interface CommanderToolCall {
   status: 'pending' | 'done' | 'error';
 }
 
+export type MessageSegmentId = string;
+
+export type PhaseNoteKind = 'process_prompt_loaded' | 'compacted' | 'llm_retry';
+
 export type MessageSegment =
-  | { type: 'text'; content: string }
-  | { type: 'tool'; toolCall: CommanderToolCall };
+  | { kind: 'text'; id: MessageSegmentId; content: string }
+  | { kind: 'tool'; id: MessageSegmentId; toolCall: CommanderToolCall }
+  | { kind: 'thinking'; id: MessageSegmentId; content: string; collapsed: boolean }
+  | { kind: 'step_marker'; id: MessageSegmentId; step: number; at: number }
+  | {
+      kind: 'phase_note';
+      id: MessageSegmentId;
+      note: PhaseNoteKind;
+      detail: string;
+    };
 
 export interface CommanderQuestionOption {
   label: string;
@@ -46,7 +58,6 @@ export interface CommanderRunMeta {
   collapsed: boolean;
   startedAt: number;
   completedAt: number;
-  thinkingContent?: string;
   summary: CommanderRunSummary;
 }
 
@@ -107,11 +118,15 @@ export interface CommanderState {
   activeSessionId: string | null;
   sessions: CommanderSession[];
   messages: CommanderMessage[];
-  streaming: boolean;
+  /**
+   * Fine-grained run state. Drives LiveActivityBar, elapsed timers, and
+   * cursor gating. `idle` / `done` / `failed` mean "not currently streaming";
+   * every other kind means the agent is doing something. Prefer the
+   * `selectIsStreaming` selector over reading this directly.
+   */
+  phase: import('./run-phase.js').RunPhase;
   currentRunStartedAt: number | null;
   currentStreamContent: string;
-  /** Model reasoning/thinking content for the current step (cleared on each new step). */
-  currentThinkingContent: string;
   currentToolCalls: CommanderToolCall[];
   currentSegments: MessageSegment[];
   error: string | null;

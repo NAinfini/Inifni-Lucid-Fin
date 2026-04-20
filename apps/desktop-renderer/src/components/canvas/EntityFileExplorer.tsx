@@ -76,6 +76,8 @@ export interface EntityFileExplorerProps<T extends EntityFileExplorerItem> {
   activeItemId?: string | null;
   /** Loading state for items list. */
   loading?: boolean;
+  /** When false, hide the search + sort row above the action toolbar. */
+  showSearchControls?: boolean;
   /** DnD MIME key for drag-to-folder. Defaults to the entity-id key used by FolderTree. */
   dndMime?: string;
   /** Empty-state label when no items in the current folder. */
@@ -121,6 +123,7 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
     newItemLabel,
     activeItemId,
     loading,
+    showSearchControls = true,
     dndMime = DEFAULT_DND_MIME,
     emptyLabel,
     compact = false,
@@ -412,52 +415,54 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
       {header && <div className={cn('border-b border-border/60', compact ? 'px-2 py-1.5' : 'px-3 py-2')}>{header}</div>}
 
       <div className={cn('border-b border-border/60', compact ? 'px-2 py-1.5 space-y-1' : 'px-3 py-2 space-y-2')}>
-        <div className="flex items-center gap-1">
-          <div className="relative flex-1 min-w-0">
-            <Search className="absolute left-1.5 top-1.5 h-3 w-3 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('fileExplorer.searchPlaceholder')}
-              className={cn(
-                'w-full rounded-md border border-border/60 bg-background outline-none focus:ring-1 focus:ring-ring',
-                compact ? 'py-1 pl-6 pr-1.5 text-[11px]' : 'py-1.5 pl-7 pr-2 text-xs',
-              )}
-            />
-          </div>
-          {!compact && (
-            <>
+        {showSearchControls && (
+          <div className="flex items-center gap-1">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-1.5 top-1.5 h-3 w-3 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('fileExplorer.searchPlaceholder')}
+                className={cn(
+                  'w-full rounded-md border border-border/60 bg-background outline-none focus:ring-1 focus:ring-ring',
+                  compact ? 'py-1 pl-6 pr-1.5 text-[11px]' : 'py-1.5 pl-7 pr-2 text-xs',
+                )}
+              />
+            </div>
+            {!compact && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSortCycle}
+                  title={t('fileExplorer.sortBy')}
+                  className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                >
+                  <ArrowUpDown className="h-3 w-3" />
+                  {sortField === 'name' ? t('fileExplorer.sortName') : t('fileExplorer.sortDate')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
+                  title={t('fileExplorer.sortOrder')}
+                  className="rounded-md border border-border/60 px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                >
+                  {sortOrder === 'asc' ? '↑' : '↓'}
+                </button>
+              </>
+            )}
+            {compact && (
               <button
                 type="button"
                 onClick={handleSortCycle}
-                title={t('fileExplorer.sortBy')}
-                className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                title={`${t('fileExplorer.sortBy')} · ${sortField === 'name' ? t('fileExplorer.sortName') : t('fileExplorer.sortDate')} ${sortOrder === 'asc' ? '↑' : '↓'}`}
+                className="inline-flex items-center justify-center rounded-md border border-border/60 p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                aria-label={t('fileExplorer.sortBy')}
               >
                 <ArrowUpDown className="h-3 w-3" />
-                {sortField === 'name' ? t('fileExplorer.sortName') : t('fileExplorer.sortDate')}
               </button>
-              <button
-                type="button"
-                onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
-                title={t('fileExplorer.sortOrder')}
-                className="rounded-md border border-border/60 px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-              >
-                {sortOrder === 'asc' ? '↑' : '↓'}
-              </button>
-            </>
-          )}
-          {compact && (
-            <button
-              type="button"
-              onClick={handleSortCycle}
-              title={`${t('fileExplorer.sortBy')} · ${sortField === 'name' ? t('fileExplorer.sortName') : t('fileExplorer.sortDate')} ${sortOrder === 'asc' ? '↑' : '↓'}`}
-              className="inline-flex items-center justify-center rounded-md border border-border/60 p-1 text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-              aria-label={t('fileExplorer.sortBy')}
-            >
-              <ArrowUpDown className="h-3 w-3" />
-            </button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-1">
           <button

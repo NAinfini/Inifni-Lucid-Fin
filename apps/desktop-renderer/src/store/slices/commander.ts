@@ -27,19 +27,25 @@ import {
   DEFAULT_UNDO_STACK_DEPTH,
   MAX_SESSIONS,
   createMessageId,
+  createSegmentId,
   deriveSessionTitle,
   finalizeCurrentRunMessage,
   formatQuestionTranscript,
   hasUserMessage,
+  idlePhase,
+  isActivePhase,
   loadPersistedProviderId,
   loadPersistedSessions,
   loadPersistedSettings,
   persistCurrentSession,
   persistSessions,
   persistSettingsFromState,
+  phaseFromEvent,
   resetTransientRunState,
   writePersistedProviderId,
 } from '../../commander/state/index.js';
+import type { CommanderStreamEvent } from '../../commander/transport/CommanderTransport.js';
+import type { RunPhase } from '../../commander/state/run-phase.js';
 import type {
   CommanderBackendContextUsage,
   CommanderMessage,
@@ -67,6 +73,7 @@ export type {
   PendingQuestion,
   PermissionMode,
 } from '../../commander/state/types.js';
+export type { RunPhase } from '../../commander/state/run-phase.js';
 
 const persistedSettings = loadPersistedSettings();
 
@@ -78,10 +85,9 @@ const initialState: CommanderState = {
   activeSessionId: null,
   sessions: loadPersistedSessions(),
   messages: [],
-  streaming: false,
+  phase: idlePhase,
   currentRunStartedAt: null,
   currentStreamContent: '',
-  currentThinkingContent: '',
   currentToolCalls: [],
   currentSegments: [],
   error: null,
@@ -158,24 +164,38 @@ export const commanderSlice = createSlice({
       state.pendingInjectedMessages.push(action.payload);
     },
     startStreaming(state) {
-      state.streaming = true;
+      state.phase = { kind: 'awaiting_model', step: 0, since: Date.now() };
       state.currentRunStartedAt = Date.now();
       state.currentStreamContent = '';
-      state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
       state.open = true;
       state.minimized = false;
     },
+    /**
+     * Apply a stream event to the RunPhase state machine. Called alongside
+     * the other event-specific dispatches (appendStreamChunk, addToolCall,
+     * …) to keep `state.phase` honest.
+     */
+    applyStreamEvent(state, action: PayloadAction<CommanderStreamEvent>) {
+      state.phase = phaseFromEvent(state.phase, action.payload);
+    },
     appendStreamChunk(state, action: PayloadAction<string>) {
       state.currentStreamContent += action.payload;
-      // Append to last text segment or create new one
+      // Append only when the tail segment is still text. Crossing a
+      // non-text boundary (tool / thinking / step_marker / phase_note)
+      // opens a fresh text segment so ordering in the UI matches the
+      // wire order of events.
       const last = state.currentSegments[state.currentSegments.length - 1];
-      if (last && last.type === 'text') {
+      if (last && last.kind === 'text') {
         last.content += action.payload;
       } else {
-        state.currentSegments.push({ type: 'text', content: action.payload });
+        state.currentSegments.push({
+          kind: 'text',
+          id: createSegmentId('text'),
+          content: action.payload,
+        });
       }
     },
     addToolCall(
@@ -187,6 +207,30 @@ export const commanderSlice = createSlice({
         startedAt?: number;
       }>,
     ) {
+      const existingIdx = state.currentToolCalls.findIndex(
+        (existing) => existing.id === action.payload.id,
+      );
+      if (existingIdx >= 0) {
+        // Upsert: merge the new fields onto the existing tool call so a
+        // re-dispatched event (StrictMode double-render, retry, reordered
+        // transport) updates rather than drops information.
+        const existing = state.currentToolCalls[existingIdx]!;
+        existing.name = action.payload.name;
+        existing.arguments = { ...existing.arguments, ...action.payload.arguments };
+        if (action.payload.startedAt !== undefined) {
+          existing.startedAt = action.payload.startedAt;
+        }
+        const segIdx = state.currentSegments.findIndex(
+          (s) => s.kind === 'tool' && s.toolCall.id === action.payload.id,
+        );
+        if (segIdx >= 0) {
+          const seg = state.currentSegments[segIdx]!;
+          if (seg.kind === 'tool') {
+            seg.toolCall = existing;
+          }
+        }
+        return;
+      }
       const tc: CommanderToolCall = {
         name: action.payload.name,
         id: action.payload.id,
@@ -195,7 +239,33 @@ export const commanderSlice = createSlice({
         status: 'pending',
       };
       state.currentToolCalls.push(tc);
-      state.currentSegments.push({ type: 'tool', toolCall: tc });
+      state.currentSegments.push({
+        kind: 'tool',
+        id: createSegmentId('tool'),
+        toolCall: tc,
+      });
+    },
+    /**
+     * Replace the accumulated arguments for a tool call once they finalize
+     * (emitted as `tool_call_args_complete` from the orchestrator's drain
+     * loop or the tool-executor's cache/approve paths). The matching
+     * segment's snapshot is also updated so the UI re-renders with the
+     * parsed args.
+     */
+    updateToolCallArguments(
+      state,
+      action: PayloadAction<{ id: string; arguments: Record<string, unknown> }>,
+    ) {
+      const tc = state.currentToolCalls.find((existing) => existing.id === action.payload.id);
+      if (tc) {
+        tc.arguments = action.payload.arguments;
+      }
+      const seg = state.currentSegments.find(
+        (s) => s.kind === 'tool' && s.toolCall.id === action.payload.id,
+      );
+      if (seg?.kind === 'tool' && tc) {
+        seg.toolCall = tc;
+      }
     },
     resolveToolCall(
       state,
@@ -215,9 +285,9 @@ export const commanderSlice = createSlice({
       toolCall.completedAt = action.payload.completedAt ?? Date.now();
       // Also update in segments
       const seg = state.currentSegments.find(
-        (s) => s.type === 'tool' && s.toolCall.id === action.payload.id,
+        (s) => s.kind === 'tool' && s.toolCall.id === action.payload.id,
       );
-      if (seg && seg.type === 'tool') {
+      if (seg && seg.kind === 'tool') {
         seg.toolCall.result = toolCall.result;
         seg.toolCall.status = toolCall.status;
         seg.toolCall.completedAt = toolCall.completedAt;
@@ -261,11 +331,10 @@ export const commanderSlice = createSlice({
       state.messages = [];
       state.currentRunStartedAt = null;
       state.currentStreamContent = '';
-      state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
-      state.streaming = false;
+      state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
       state.confirmAutoMode = 'none';
@@ -280,11 +349,10 @@ export const commanderSlice = createSlice({
       state.messages = [];
       state.currentRunStartedAt = null;
       state.currentStreamContent = '';
-      state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
-      state.streaming = false;
+      state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
       state.confirmAutoMode = 'none';
@@ -321,11 +389,10 @@ export const commanderSlice = createSlice({
       state.messages = session.messages;
       state.currentRunStartedAt = null;
       state.currentStreamContent = '';
-      state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
-      state.streaming = false;
+      state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
       state.confirmAutoMode = 'none';
@@ -432,8 +499,58 @@ export const commanderSlice = createSlice({
     setBackendContextUsage(state, action: PayloadAction<CommanderBackendContextUsage | null>) {
       state.backendContextUsage = action.payload;
     },
-    setThinkingContent(state, action: PayloadAction<string>) {
-      state.currentThinkingContent = action.payload;
+    /**
+     * Append (or extend) a `thinking` segment. The model's reasoning stream
+     * surfaces as a first-class segment rather than a sibling string — the
+     * UI can then show it inline, collapsed by default, with `✦` styling.
+     * Contiguous thinking deltas are coalesced into the tail segment.
+     */
+    appendThinking(state, action: PayloadAction<string>) {
+      if (!action.payload) return;
+      const last = state.currentSegments[state.currentSegments.length - 1];
+      if (last && last.kind === 'thinking') {
+        last.content += action.payload;
+        return;
+      }
+      // When a text segment starts again after a thinking segment, the
+      // caller is responsible for setting `collapsed: true` on the prior
+      // thinking segment. Here we simply open a new one.
+      state.currentSegments.push({
+        kind: 'thinking',
+        id: createSegmentId('thinking'),
+        content: action.payload,
+        collapsed: false,
+      });
+    },
+    /** Collapse every thinking segment in the current run (e.g. when text arrives). */
+    collapseThinking(state) {
+      for (const seg of state.currentSegments) {
+        if (seg.kind === 'thinking') {
+          seg.collapsed = true;
+        }
+      }
+    },
+    pushStepMarker(state, action: PayloadAction<{ step: number; at?: number }>) {
+      state.currentSegments.push({
+        kind: 'step_marker',
+        id: createSegmentId('step'),
+        step: action.payload.step,
+        at: action.payload.at ?? Date.now(),
+      });
+    },
+    pushPhaseNote(
+      state,
+      action: PayloadAction<{
+        note: 'process_prompt_loaded' | 'compacted' | 'llm_retry';
+        detail: string;
+      }>,
+    ) {
+      state.currentSegments.push({
+        kind: 'phase_note',
+        id: createSegmentId('phase'),
+        note: action.payload.note,
+        detail: action.payload.detail,
+      });
     },
     setPendingQuestion(state, action: PayloadAction<PendingQuestion>) {
       state.pendingQuestion = action.payload;
@@ -494,10 +611,9 @@ export const commanderSlice = createSlice({
       return {
         ...initialState,
         ...action.payload,
-        streaming: false,
+        phase: idlePhase,
         currentRunStartedAt: null,
         currentStreamContent: '',
-        currentThinkingContent: '',
         currentToolCalls: [],
         currentSegments: [],
         error: null,
@@ -582,11 +698,10 @@ export const commanderSlice = createSlice({
       // 4. Reset transient state
       state.currentRunStartedAt = null;
       state.currentStreamContent = '';
-      state.currentThinkingContent = '';
       state.currentToolCalls = [];
       state.currentSegments = [];
       state.error = null;
-      state.streaming = false;
+      state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
       state.confirmAutoMode = 'none';
@@ -606,8 +721,10 @@ export const {
   addUserMessage,
   addInjectedMessage,
   startStreaming,
+  applyStreamEvent,
   appendStreamChunk,
   addToolCall,
+  updateToolCallArguments,
   resolveToolCall,
   finishStreaming,
   streamError,
@@ -636,7 +753,10 @@ export const {
   clearPendingConfirmation,
   setConfirmAutoMode,
   setBackendContextUsage,
-  setThinkingContent,
+  appendThinking,
+  collapseThinking,
+  pushStepMarker,
+  pushPhaseNote,
   setPendingQuestion,
   clearPendingQuestion,
   resolveQuestion,
@@ -655,3 +775,14 @@ export const {
 // from here keep working. The canonical definition lives in
 // `commander/state/constants.ts`.
 export { COMMANDER_PROVIDER_KEY };
+
+/**
+ * Whether the Commander is in an active run. Replaces the old boolean
+ * `state.commander.streaming` field — the phase machine is the source of
+ * truth; every other "am I streaming" check derives from it.
+ */
+export const selectIsStreaming = (state: { commander: { phase: RunPhase } }): boolean =>
+  isActivePhase(state.commander.phase);
+
+export const selectPhase = (state: { commander: { phase: RunPhase } }): RunPhase =>
+  state.commander.phase;

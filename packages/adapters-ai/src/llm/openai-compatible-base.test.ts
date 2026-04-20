@@ -4,6 +4,13 @@ import {
   normalizeOpenAICompatibleBaseUrl,
   OpenAICompatibleLLM,
 } from './openai-compatible-base.js';
+import { collectLLMStream } from './test-utils/collect-llm-stream.js';
+import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
+
+/** Drain the adapter's streaming completion into the legacy flat shape. */
+function complete(adapter: OpenAICompatibleLLM, messages: LLMMessage[], opts?: LLMRequestOptions) {
+  return collectLLMStream(adapter.completeWithTools(messages, opts));
+}
 
 describe('OpenAICompatibleLLM.validate', () => {
   beforeEach(() => {
@@ -114,7 +121,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
+      complete(adapter, [{ role: 'user', content: 'hello' }]),
     ).resolves.toMatchObject({
       content: 'hello from gateway',
       finishReason: 'stop',
@@ -156,7 +163,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       model: 'gpt-5.4',
     });
 
-    const result = await adapter.completeWithTools([{ role: 'user', content: 'hello' }]);
+    const result = await complete(adapter, [{ role: 'user', content: 'hello' }]);
     expect(result).toMatchObject({
       content: '',
       toolCalls: [],
@@ -249,7 +256,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
+      complete(adapter, [{ role: 'user', content: 'hello' }]),
     ).rejects.toMatchObject<Partial<LucidError>>({
       code: ErrorCode.ServiceUnavailable,
       message: 'Custom Local returned a non-JSON response',
@@ -307,7 +314,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
+      complete(adapter, [{ role: 'user', content: 'hello' }]),
     ).resolves.toMatchObject({
       content: 'hello from api',
       finishReason: 'stop',
@@ -356,7 +363,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
+      complete(adapter, [{ role: 'user', content: 'hello' }]),
     ).resolves.toMatchObject({
       content: 'Hello world',
       finishReason: 'stop',
@@ -401,7 +408,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools([{ role: 'user', content: 'hello' }]),
+      complete(adapter, [{ role: 'user', content: 'hello' }]),
     ).rejects.toMatchObject<Partial<LucidError>>({
       code: ErrorCode.ServiceUnavailable,
       message: 'Custom Local returned JSON without extractable assistant content',
@@ -424,7 +431,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       expect(body).toMatchObject({
         model: 'gpt-5.4',
         max_completion_tokens: 4096,
-        stream: false,
+        stream: true,
       });
       expect(body).not.toHaveProperty('max_tokens');
       expect(body).not.toHaveProperty('temperature');
@@ -458,7 +465,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools(
+      complete(adapter,
         [{ role: 'user', content: 'hello' }],
         {
           temperature: 0.7,
@@ -533,7 +540,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools(
+      complete(adapter,
         [{ role: 'user', content: 'hello' }],
         {
           tools: [

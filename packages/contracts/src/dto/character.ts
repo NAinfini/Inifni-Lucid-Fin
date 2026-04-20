@@ -75,6 +75,34 @@ export function isCharacterReferenceSlotStandard(slot: string | undefined | null
   return normalized === 'main' || STANDARD_ANGLE_SLOTS.includes(normalized as StandardAngleSlot);
 }
 
+// --- Phase 2 overhaul: view-kind discriminated union ----------------------
+// Replaces ad-hoc `slot` strings with a typed view kind. The `full-sheet`
+// kind packs front/back/side profiles, full-body, AND detailed expressions
+// onto one composed sheet (per Q27). `extra-angle` carries a free-form angle
+// string for rare custom views; the entity still snapshots to a single
+// reference image for each unique (kind, angle) pair.
+
+export type CharacterRefImageView =
+  | { kind: 'full-sheet' }
+  | { kind: 'extra-angle'; angle: string };
+
+/** Stringify a view into a canonical storage slot (kept as a string column). */
+export function characterViewToSlot(view: CharacterRefImageView): string {
+  if (view.kind === 'full-sheet') return 'full-sheet';
+  return `extra-angle:${view.angle.trim().toLowerCase().replace(/\s+/g, '-')}`;
+}
+
+/** Parse a storage slot back into a CharacterRefImageView. */
+export function characterSlotToView(slot: string): CharacterRefImageView {
+  if (slot === 'full-sheet') return { kind: 'full-sheet' };
+  if (slot.startsWith('extra-angle:')) {
+    return { kind: 'extra-angle', angle: slot.slice('extra-angle:'.length) };
+  }
+  // Legacy rows (main/front/back/left-side/...) collapse to full-sheet since
+  // the new layout bundles every angle into one image.
+  return { kind: 'full-sheet' };
+}
+
 export interface EquipmentLoadout {
   id: string;
   name: string;

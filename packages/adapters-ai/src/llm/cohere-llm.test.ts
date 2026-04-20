@@ -1,6 +1,12 @@
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
 import { describe, it, expect, vi } from 'vitest';
 import { CohereLLMAdapter } from './cohere-llm.js';
+import { collectLLMStream } from './test-utils/collect-llm-stream.js';
+
+function complete(adapter: CohereLLMAdapter, messages: LLMMessage[], opts?: LLMRequestOptions) {
+  return collectLLMStream(adapter.completeWithTools(messages, opts));
+}
 
 describe('CohereLLMAdapter', () => {
   it('uses Cohere defaults and validates with bearer auth', async () => {
@@ -116,7 +122,7 @@ describe('CohereLLMAdapter', () => {
       adapter.configure('sk-cohere');
 
       await expect(
-        adapter.completeWithTools(
+        complete(adapter,
           [
             { role: 'user', content: 'hello' },
             {

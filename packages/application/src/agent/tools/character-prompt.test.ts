@@ -65,51 +65,48 @@ describe('character prompt builders', () => {
     expect(prompt).toContain('waxed canvas coat with matte brass buckles');
   });
 
-  it('builds a turnaround sheet for main/front slots', () => {
-    const prompt = buildCharacterRefImagePrompt(createCharacter(), 'front');
+  it('builds a full-sheet composite prompt for the default view', () => {
+    const prompt = buildCharacterRefImagePrompt(createCharacter(), { kind: 'full-sheet' });
 
-    expect(prompt).toContain('Character turnaround sheet for production reference');
-    expect(prompt).toContain('Wide landscape composition (3:2 aspect ratio)');
-    expect(prompt).toContain('front view, left profile, right profile, rear view');
-    expect(prompt).toContain('Two-row model sheet layout');
-    expect(prompt).toContain('Full body visible in every body panel');
-    expect(prompt).toContain('Do not collapse the sheet into a single portrait');
-    expect(prompt).toContain('enlarged head studies');
+    expect(prompt).toContain('Character turnaround and expression sheet');
+    expect(prompt).toContain('three horizontal bands');
+    expect(prompt).toContain('front, left profile, right profile, and rear');
+    expect(prompt).toContain('six head-and-shoulders expression panels');
+    expect(prompt).toContain('neutral, happy, sad, angry, surprised, and determined');
     expect(prompt).toContain('Solid white background, even studio lighting, single character only');
   });
 
-  it('treats default-like aliases as the main turnaround sheet slot', () => {
-    const prompt = buildCharacterRefImagePrompt(createCharacter(), 'default');
+  it('builds an extra-angle prompt with the angle label', () => {
+    const prompt = buildCharacterRefImagePrompt(createCharacter(), {
+      kind: 'extra-angle',
+      angle: 'three-quarter overhead',
+    });
 
-    expect(prompt).toContain('Character turnaround sheet for production reference');
-    expect(prompt).not.toContain('Single-view character reference');
-    expect(prompt).not.toContain('default angle');
+    expect(prompt).toContain('Full-body three-quarter overhead character reference');
+    expect(prompt).toContain('solid white background');
+    expect(prompt).not.toContain('turnaround and expression sheet');
   });
 
-  it('builds a back-view prompt for rear-facing slots', () => {
-    const prompt = buildCharacterRefImagePrompt(createCharacter(), 'back');
+  it('prepends stylePlate as the first prompt segment for full-sheet', () => {
+    const prompt = buildCharacterRefImagePrompt(
+      createCharacter(),
+      { kind: 'full-sheet' },
+      'neo-noir watercolor, muted teal palette',
+    );
 
-    expect(prompt).toContain('Full-body rear view');
-    expect(prompt).toContain('same costume from behind');
-    expect(prompt).toContain('hair shape, cape, backpack, and back-fastening details');
-    expect(prompt).toContain('Tall portrait composition (2:3 aspect ratio)');
+    // Style prompt must appear before the "Character turnaround" header.
+    const styleIdx = prompt.indexOf('Style: neo-noir watercolor, muted teal palette');
+    const sheetIdx = prompt.indexOf('Character turnaround and expression sheet');
+    expect(styleIdx).toBeGreaterThanOrEqual(0);
+    expect(sheetIdx).toBeGreaterThan(styleIdx);
   });
 
-  it('builds a face close-up prompt with neutral expression', () => {
-    const prompt = buildCharacterRefImagePrompt(createCharacter(), 'face-closeup');
-
-    expect(prompt).toContain('Facial expression reference sheet');
-    expect(prompt).toContain('Six head-and-shoulders panels');
-    expect(prompt).toContain('neutral, happy, sad, angry, surprised, and determined expressions');
-    expect(prompt).toContain('same face shape, same hairstyle, same colors, and same lighting');
-    expect(prompt).toContain('Solid white background, even studio lighting, single character only');
-  });
-
-  it('falls back to a generic single-view prompt for unknown slots', () => {
-    const prompt = buildCharacterRefImagePrompt(createCharacter(), 'three-quarter-high');
-
-    expect(prompt).toContain('Single-view character reference');
-    expect(prompt).toContain('three-quarter-high angle');
-    expect(prompt).toContain('Tall portrait composition (2:3 aspect ratio)');
+  it('prepends stylePlate for extra-angle views too', () => {
+    const prompt = buildCharacterRefImagePrompt(
+      createCharacter(),
+      { kind: 'extra-angle', angle: 'action pose' },
+      'soft chiaroscuro lighting',
+    );
+    expect(prompt.indexOf('Style: soft chiaroscuro lighting')).toBe(0);
   });
 });

@@ -1,5 +1,26 @@
-import { normalizeCharacterRefSlot, type Character } from '@lucid-fin/contracts';
+import {
+  characterViewToSlot,
+  type Character,
+  type CharacterRefImageView,
+} from '@lucid-fin/contracts';
 
+/**
+ * Phase 2 overhaul — character ref-image prompts.
+ *
+ * The old per-slot template set (main/back/left/right/face-closeup/top-down)
+ * is replaced by a single composite `full-sheet` prompt. One generation call
+ * produces ONE image that packs front, back, left/right profiles, full body,
+ * AND detailed expressions onto a single sheet the model composes. This
+ * matches Q27 ("front back side full body, + detailed faces in one image")
+ * and halves API cost vs. the old 6-slot approach.
+ *
+ * `extra-angle` covers any rare custom view.
+ *
+ * stylePlate (when present) is inserted as the FIRST prompt segment — the
+ * style prompt always leads so downstream generators lock the look before
+ * the subject description. Both the user and Commander AI can edit the
+ * canvas-scoped stylePlate directly.
+ */
 export function buildCharacterAppearancePrompt(entity: Character): string {
   const parts: string[] = [];
 
@@ -69,90 +90,72 @@ export function buildCharacterAppearancePrompt(entity: Character): string {
   return parts.join('. ');
 }
 
-function buildCharacterStudioSetup(composition: string): string {
-  return `${composition}. Solid white background, even studio lighting, single character only.`;
+/**
+ * Build the full-sheet composite prompt — everything on one image.
+ * The layout string tells the model to produce a three-band composition so
+ * training examples of model sheets reliably activate.
+ */
+function buildFullSheetPrompt(entity: Character, stylePlate?: string): string {
+  const appearance = buildCharacterAppearancePrompt(entity);
+  const segments: string[] = [];
+
+  if (stylePlate && stylePlate.length > 0) {
+    // stylePlate (canvas-scoped free-form style prompt) always leads so
+    // the generator locks the visual look before reading subject details.
+    segments.push(`Style: ${stylePlate}`);
+  }
+
+  segments.push('Character turnaround and expression sheet for production reference');
+  segments.push('Wide landscape composition, three horizontal bands');
+  segments.push('Top band: four matching full-body panels showing front, left profile, right profile, and rear — identical scale, feet grounded, no cropping');
+  segments.push('Middle band: one taller full-body hero pose, clean silhouette, arms relaxed');
+  segments.push('Bottom band: six head-and-shoulders expression panels showing neutral, happy, sad, angry, surprised, and determined — each panel reads the same face shape, hairstyle, and lighting');
+  segments.push('Solid white background, even studio lighting, single character only, no props unless they are part of the costume');
+  segments.push(`Character: ${entity.name}`);
+  if (appearance) segments.push(appearance);
+  segments.push('Preserve wardrobe, silhouette, proportions, and identifying details across every panel');
+
+  return segments.join('. ') + '.';
 }
 
-function buildSingleViewPrompt(
+/**
+ * Build a single extra-angle view — used for rare angles (three-quarter,
+ * overhead, action pose, etc.) the full-sheet doesn't capture.
+ */
+function buildExtraAnglePrompt(
   entity: Character,
-  shotDescription: string,
-  focusDescription: string,
-  angleLabel?: string,
+  angle: string,
+  stylePlate?: string,
 ): string {
-  const appearanceDesc = buildCharacterAppearancePrompt(entity);
-  const angleText = angleLabel ? ` ${angleLabel} angle.` : '';
+  const appearance = buildCharacterAppearancePrompt(entity);
+  const segments: string[] = [];
 
-  return `${shotDescription}. `
-    + `${buildCharacterStudioSetup('Tall portrait composition (2:3 aspect ratio)')} `
-    + `Character: ${entity.name}. `
-    + (appearanceDesc ? `${appearanceDesc}. ` : '')
-    + `${focusDescription}.${angleText}`;
+  if (stylePlate && stylePlate.length > 0) {
+    segments.push(`Style: ${stylePlate}`);
+  }
+
+  segments.push(`Full-body ${angle} character reference`);
+  segments.push('Tall portrait composition, solid white background, even studio lighting, single character only');
+  segments.push(`Character: ${entity.name}`);
+  if (appearance) segments.push(appearance);
+  segments.push('Frame the full figure cleanly so costume, body language, and silhouette read unambiguously');
+
+  return segments.join('. ') + '.';
 }
 
-export function buildCharacterRefImagePrompt(entity: Character, slot: string): string {
-  const appearanceDesc = buildCharacterAppearancePrompt(entity);
-  const normalizedSlot = normalizeCharacterRefSlot(slot);
-
-  if (normalizedSlot === 'main') {
-    return `Character turnaround sheet for production reference. `
-      + `${buildCharacterStudioSetup('Wide landscape composition (3:2 aspect ratio)')} `
-      + `Character: ${entity.name}. `
-      + (appearanceDesc ? `${appearanceDesc}. ` : '')
-      + `Two-row model sheet layout. `
-      + `Top row shows matching full-body front view, left profile, right profile, rear view at identical scale. `
-      + `Full body visible in every body panel with no cropped limbs, feet, or hair tips. `
-      + `Do not collapse the sheet into a single portrait, half-body crop, or hero pose. `
-      + `Bottom row shows enlarged head studies with neutral, happy, sad, angry, surprised, and determined expressions. `
-      + `Expression panels are head-and-shoulders only, with the same face shape, hairstyle, colors, and lighting in every panel. `
-      + `Preserve the same wardrobe, silhouette, proportions, and identifying details in every panel.`;
+export function buildCharacterRefImagePrompt(
+  entity: Character,
+  view: CharacterRefImageView,
+  stylePlate?: string,
+): string {
+  if (view.kind === 'full-sheet') {
+    return buildFullSheetPrompt(entity, stylePlate);
   }
-
-  if (normalizedSlot === 'back') {
-    return buildSingleViewPrompt(
-      entity,
-      'Full-body rear view character reference',
-      'Show the same costume from behind with hair shape, cape, backpack, and back-fastening details clearly readable',
-    );
-  }
-
-  if (normalizedSlot === 'left-side') {
-    return buildSingleViewPrompt(
-      entity,
-      'Full-body left profile character reference',
-      'Keep the pose neutral with arms relaxed and slightly separated so silhouette clarity reads cleanly from head to toe',
-    );
-  }
-
-  if (normalizedSlot === 'right-side') {
-    return buildSingleViewPrompt(
-      entity,
-      'Full-body right profile character reference',
-      'Keep the pose neutral with arms relaxed and slightly separated so silhouette clarity reads cleanly from head to toe',
-    );
-  }
-
-  if (normalizedSlot === 'face-closeup') {
-    return `Facial expression reference sheet. `
-      + `${buildCharacterStudioSetup('Tall portrait composition (2:3 aspect ratio)')} `
-      + `Character: ${entity.name}. `
-      + (appearanceDesc ? `${appearanceDesc}. ` : '')
-      + `Six head-and-shoulders panels with neutral, happy, sad, angry, surprised, and determined expressions. `
-      + `Direct gaze, maximum face detail, clean view of the brow, eyes, nose, lips, jawline, and hairline. `
-      + `Keep the same face shape, same hairstyle, same colors, and same lighting in every panel.`;
-  }
-
-  if (normalizedSlot === 'top-down') {
-    return buildSingleViewPrompt(
-      entity,
-      'Birds-eye character reference looking straight down',
-      'Show the hair crown, shoulder shape, stance, and posture clearly from overhead',
-    );
-  }
-
-  return buildSingleViewPrompt(
-    entity,
-    'Single-view character reference',
-    'Frame the full figure cleanly so costume read, body language, and silhouette stay unambiguous',
-    normalizedSlot,
-  );
+  return buildExtraAnglePrompt(entity, view.angle, stylePlate);
 }
+
+/**
+ * Convert a view to its storage-slot string (re-export helper so callers can
+ * key reference-image rows without importing the contracts helper directly).
+ */
+export { characterViewToSlot };

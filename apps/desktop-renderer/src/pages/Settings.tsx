@@ -6,6 +6,7 @@ import { t, setLocale, getLocale, onLocaleChange, type Locale } from '../i18n.js
 import type { RootState } from '../store/index.js';
 import { setTheme, type Theme } from '../store/slices/ui.js';
 import { SettingsAppearanceSection } from '../components/settings/SettingsAppearanceSection.js';
+import { SettingsCanvasSection } from '../components/settings/SettingsCanvasSection.js';
 import { SettingsGuidesSection } from '../components/settings/SettingsGuidesSection.js';
 import { SettingsProcessPromptsSection } from '../components/settings/SettingsProcessPromptsSection.js';
 import {
@@ -16,30 +17,24 @@ import {
 import type { APIGroup } from '../store/slices/settings.js';
 import { recordFeatureUsed } from '../store/slices/settings.js';
 import {
-  addCustomTemplate,
-  removeCustomTemplate,
-  renameTemplate,
+  addCustomSkill,
+  removeCustomSkill,
+  renameSkill,
   resetAllContent,
   resetContent,
   setCustomContent,
-} from '../store/slices/promptTemplates.js';
+} from '../store/slices/skillDefinitions.js';
 import { SettingsProvidersSection } from './SettingsProvidersSection.js';
 import { SettingsUpdateSection } from './SettingsUpdateSection.js';
 import { SettingsStorageSection } from './SettingsStorageSection.js';
 import { SettingsCommanderSection } from './SettingsCommanderSection.js';
 import { SettingsUsageSection } from './SettingsUsageSection.js';
-import {
-  addEntry as addWorkflowEntry,
-  removeEntry as removeWorkflowEntry,
-  updateEntry as updateWorkflowEntry,
-} from '../store/slices/workflowDefinitions.js';
 
 export function Settings() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const theme = useSelector((state: RootState) => state.ui.theme);
-  const templates = useSelector((state: RootState) => state.promptTemplates.templates);
-  const workflowEntries = useSelector((state: RootState) => state.workflowDefinitions.entries);
+  const skills = useSelector((state: RootState) => state.skillDefinitions.skills);
   const [locale, setLocaleState] = useState<Locale>(getLocale());
   const [activeTab, setActiveTab] = useState<SettingsTab>('commander');
   const [providerSubTab, setProviderSubTab] = useState<APIGroup>('llm');
@@ -80,7 +75,9 @@ export function Settings() {
               ? translateOrFallback('settings.usage.title', 'Usage Statistics')
               : activeTab === 'about'
                 ? t('settings.update.title')
-                : translateOrFallback('settings.nav.providers', 'Providers');
+                : activeTab === 'canvas'
+                  ? translateOrFallback('settings.canvas.title', 'Canvas Settings')
+                  : translateOrFallback('settings.nav.providers', 'Providers');
 
   const activeTabDescription =
     activeTab === 'guides'
@@ -92,6 +89,11 @@ export function Settings() {
         ? translateOrFallback(
             'settings.processGuides.subtitle',
             'Edit the process-specific rules that Commander injects on demand.',
+          )
+      : activeTab === 'canvas'
+        ? translateOrFallback(
+            'settings.canvas.subtitle',
+            'Overrides that apply only to the currently active canvas.',
           )
       : undefined;
 
@@ -149,17 +151,13 @@ export function Settings() {
 
                   {activeTab === 'guides' && (
                     <SettingsGuidesSection
-                      templates={templates}
-                      workflowEntries={workflowEntries}
-                      onAddTemplate={(template) => dispatch(addCustomTemplate(template))}
-                      onRemoveTemplate={(id) => dispatch(removeCustomTemplate(id))}
-                      onRenameTemplate={(payload) => dispatch(renameTemplate(payload))}
-                      onSetTemplateContent={(payload) => dispatch(setCustomContent(payload))}
-                      onResetAllTemplates={() => dispatch(resetAllContent())}
-                      onResetTemplate={(id) => dispatch(resetContent(id))}
-                      onAddWorkflowEntry={(entry) => dispatch(addWorkflowEntry(entry))}
-                      onUpdateWorkflowEntry={(payload) => dispatch(updateWorkflowEntry(payload))}
-                      onRemoveWorkflowEntry={(id) => dispatch(removeWorkflowEntry(id))}
+                      skills={skills}
+                      onAddSkill={(payload) => dispatch(addCustomSkill(payload))}
+                      onRemoveSkill={(id) => dispatch(removeCustomSkill(id))}
+                      onRenameSkill={(payload) => dispatch(renameSkill(payload))}
+                      onSetSkillContent={(payload) => dispatch(setCustomContent(payload))}
+                      onResetAllSkills={() => dispatch(resetAllContent())}
+                      onResetSkill={(id) => dispatch(resetContent(id))}
                     />
                   )}
 
@@ -172,6 +170,8 @@ export function Settings() {
                   {activeTab === 'usage' && <SettingsUsageSection />}
 
                   {activeTab === 'about' && <SettingsUpdateSection />}
+
+                  {activeTab === 'canvas' && <SettingsCanvasSection />}
                 </div>
               </div>
             </div>

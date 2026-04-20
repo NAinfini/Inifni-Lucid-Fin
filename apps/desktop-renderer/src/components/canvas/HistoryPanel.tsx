@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { newSession, loadSession, deleteSession, renameSession, type CommanderMessage } from '../../store/slices/commander.js';
+import { newSession, loadSession, deleteSession, renameSession, selectIsStreaming, type CommanderMessage } from '../../store/slices/commander.js';
 import { setCharacters } from '../../store/slices/characters.js';
 import { setEquipment } from '../../store/slices/equipment.js';
 import { setLocations } from '../../store/slices/locations.js';
@@ -49,7 +49,7 @@ export function HistoryPanel() {
   const dispatch = useDispatch();
   const sessions = useSelector((state: RootState) => state.commander.sessions);
   const activeSessionId = useSelector((state: RootState) => state.commander.activeSessionId);
-  const isStreaming = useSelector((state: RootState) => state.commander.streaming);
+  const isStreaming = useSelector((state: RootState) => selectIsStreaming(state));
   const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
   const { confirm, ConfirmDialog } = useConfirm();
 

@@ -22,6 +22,42 @@ import { SCHEMA_SQL } from './schema-sql.js';
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
 
+/**
+ * Idempotent column-add for the canvases table.
+ *
+ * SCHEMA_SQL's `CREATE TABLE IF NOT EXISTS canvases (...)` is a no-op on
+ * an existing table, so new columns added to the schema definition don't
+ * materialize on older databases. Rather than introduce a versioned
+ * migration runner for a single table, probe `PRAGMA table_info` once at
+ * boot and `ALTER TABLE ADD COLUMN` whichever columns are missing.
+ *
+ * Each entry here must match the column definition in SCHEMA_SQL exactly.
+ * Per-canvas settings added 2026-04-19 for style plate / aspect ratio /
+ * provider overrides. Dev mode: schema changes (renames/drops) are
+ * handled by deleting the DB file; this list only covers additive drift.
+ */
+const CANVAS_SETTINGS_COLUMNS: ReadonlyArray<{ name: string; ddl: string }> = [
+  { name: 'style_plate',        ddl: 'ALTER TABLE canvases ADD COLUMN style_plate TEXT' },
+  { name: 'negative_prompt',    ddl: 'ALTER TABLE canvases ADD COLUMN negative_prompt TEXT' },
+  { name: 'default_width',      ddl: 'ALTER TABLE canvases ADD COLUMN default_width INTEGER' },
+  { name: 'default_height',     ddl: 'ALTER TABLE canvases ADD COLUMN default_height INTEGER' },
+  { name: 'aspect_ratio',       ddl: 'ALTER TABLE canvases ADD COLUMN aspect_ratio TEXT' },
+  { name: 'llm_provider_id',    ddl: 'ALTER TABLE canvases ADD COLUMN llm_provider_id TEXT' },
+  { name: 'image_provider_id',  ddl: 'ALTER TABLE canvases ADD COLUMN image_provider_id TEXT' },
+  { name: 'video_provider_id',  ddl: 'ALTER TABLE canvases ADD COLUMN video_provider_id TEXT' },
+  { name: 'audio_provider_id',  ddl: 'ALTER TABLE canvases ADD COLUMN audio_provider_id TEXT' },
+];
+
+function addMissingCanvasColumns(db: BetterSqlite3.Database): void {
+  const existing = db.prepare("PRAGMA table_info('canvases')").all() as Array<{ name: string }>;
+  const present = new Set(existing.map((row) => row.name));
+  for (const { name, ddl } of CANVAS_SETTINGS_COLUMNS) {
+    if (!present.has(name)) {
+      db.exec(ddl);
+    }
+  }
+}
+
 
 export class SqliteIndex implements IStorageLayer {
   private db: BetterSqlite3.Database;
@@ -76,6 +112,7 @@ export class SqliteIndex implements IStorageLayer {
     // no-op for an already-complete one. No migration runner, no version
     // bookkeeping.
     this.db.exec(SCHEMA_SQL);
+    addMissingCanvasColumns(this.db);
 
     this.sessions = new SessionRepository(this.db);
     this.jobs = new JobRepository(this.db);

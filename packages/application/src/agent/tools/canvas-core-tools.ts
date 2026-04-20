@@ -1,4 +1,4 @@
-import type { CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
+import type { CanvasNode, CanvasEdge, CanvasSettings } from '@lucid-fin/contracts';
 import { tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
 import {
@@ -749,10 +749,140 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     },
   };
 
+  const getSettings: AgentTool = {
+    name: 'canvas.getSettings',
+    description:
+      'Read canvas-scoped settings (style plate prompt, aspect ratio, provider ids). '
+      + 'Returns only fields this canvas has explicitly set; missing fields simply have no canvas-level value. '
+      + 'Use this before canvas.setSettings to preview the current state.',
+    tags: ['canvas', 'read', 'settings'],
+    context: CANVAS_CONTEXT,
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'The target canvas ID.' },
+      },
+      required: ['canvasId'],
+    },
+    async execute(args) {
+      try {
+        const canvasId = requireString(args, 'canvasId');
+        await requireCanvas(deps, canvasId);
+        if (!deps.getCanvasSettings) {
+          return fail('canvas.getSettings is not wired in this environment');
+        }
+        const settings = await deps.getCanvasSettings(canvasId);
+        return ok({ canvasId, settings });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
+  const setSettings: AgentTool = {
+    name: 'canvas.setSettings',
+    description:
+      'Patch canvas-scoped settings. Include only the fields you want to change. '
+      + 'Pass null for a field to clear it. '
+      + 'stylePlate is a free-form style prompt describing the visual look of this canvas/video; '
+      + 'it is prepended to every ref-image generation prompt as the leading style anchor. '
+      + 'negativePrompt is a free-form "avoid" prompt appended to every ref-image generation. '
+      + 'defaultResolution sets the default output size for ref-image generation (overrides per-entity defaults). '
+      + 'Valid aspectRatio: 16:9 | 9:16 | 1:1 | 2.39:1.',
+    tags: ['canvas', 'write', 'settings'],
+    context: CANVAS_CONTEXT,
+    tier: 2,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'The target canvas ID.' },
+        stylePlate: {
+          type: 'string',
+          description:
+            'Free-form style prompt (e.g. "neo-noir watercolor, muted teal and ochre palette, soft chiaroscuro lighting"). '
+            + 'Pass null to clear.',
+        },
+        negativePrompt: {
+          type: 'string',
+          description:
+            'Free-form negative prompt (e.g. "text, watermark, blurry, low-quality, extra limbs"). '
+            + 'Appended to every ref-image prompt as "Avoid: …". Pass null to clear.',
+        },
+        defaultResolution: {
+          type: 'object',
+          description:
+            'Default output resolution for ref-image generation. Both width and height are required when set. Pass null to clear.',
+          properties: {
+            width:  { type: 'number', description: 'Image width in pixels.' },
+            height: { type: 'number', description: 'Image height in pixels.' },
+          },
+        },
+        aspectRatio: {
+          type: 'string',
+          description: 'Publishing aspect ratio override.',
+          enum: ['16:9', '9:16', '1:1', '2.39:1'],
+        },
+        llmProviderId:   { type: 'string', description: 'Active LLM provider id for this canvas.' },
+        imageProviderId: { type: 'string', description: 'Active image provider id for this canvas.' },
+        videoProviderId: { type: 'string', description: 'Active video provider id for this canvas.' },
+        audioProviderId: { type: 'string', description: 'Active audio provider id for this canvas.' },
+      },
+      required: ['canvasId'],
+    },
+    async execute(args) {
+      try {
+        const canvasId = requireString(args, 'canvasId');
+        await requireCanvas(deps, canvasId);
+        if (!deps.patchCanvasSettings) {
+          return fail('canvas.setSettings is not wired in this environment');
+        }
+        const patch: CanvasSettings = {};
+        const copy = <K extends keyof CanvasSettings>(key: K) => {
+          if (key in args) {
+            const value = args[key as string];
+            if (value === null) {
+              (patch as Record<string, unknown>)[key] = null;
+            } else if (typeof value === 'string' && value.length > 0) {
+              (patch as Record<string, unknown>)[key] = value;
+            }
+          }
+        };
+        copy('stylePlate');
+        copy('negativePrompt');
+        copy('aspectRatio');
+        copy('llmProviderId');
+        copy('imageProviderId');
+        copy('videoProviderId');
+        copy('audioProviderId');
+        if ('defaultResolution' in args) {
+          const raw = args.defaultResolution;
+          if (raw === null) {
+            (patch as Record<string, unknown>).defaultResolution = null;
+          } else if (raw && typeof raw === 'object') {
+            const obj = raw as { width?: unknown; height?: unknown };
+            const w = typeof obj.width === 'number' && obj.width > 0 ? Math.floor(obj.width) : null;
+            const h = typeof obj.height === 'number' && obj.height > 0 ? Math.floor(obj.height) : null;
+            if (w !== null && h !== null) {
+              patch.defaultResolution = { width: w, height: h };
+            } else {
+              return fail('defaultResolution requires positive numeric width and height');
+            }
+          }
+        }
+        const settings = await deps.patchCanvasSettings(canvasId, patch);
+        return ok({ canvasId, settings });
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  };
+
   return {
     tools: [
       addNode, renameCanvas, deleteCanvas, connectNodes, duplicateNodes,
       importWorkflow, exportWorkflow, getState, listNodes, listEdges, getNode, layout, batchCreate,
+      getSettings, setSettings,
     ],
     clipboardRef,
   };

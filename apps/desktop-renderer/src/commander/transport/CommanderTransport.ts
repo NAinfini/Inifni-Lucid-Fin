@@ -60,6 +60,11 @@ export class CommanderTransport {
     await this.api.cancel(canvasId);
   }
 
+  async cancelCurrentStep(canvasId: string): Promise<{ escalated: boolean }> {
+    if (!this.api?.cancelCurrentStep) return { escalated: false };
+    return this.api.cancelCurrentStep(canvasId);
+  }
+
   async injectMessage(canvasId: string, message: string): Promise<void> {
     if (!this.api) return;
     await this.api.injectMessage(canvasId, message);

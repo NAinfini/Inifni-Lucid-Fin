@@ -1,12 +1,31 @@
 import {
-  EQUIPMENT_STANDARD_SLOTS,
+  equipmentViewToSlot,
   type Canvas,
   type Equipment,
+  type EquipmentRefImageView,
   type EquipmentType,
 } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
 import { createRefImageTools } from './ref-image-factory.js';
-import { extractSet, warnExtraKeys, requireString } from './tool-result-helpers.js';
+import { extractSet, warnExtraKeys, requireString, requireSetString } from './tool-result-helpers.js';
+import { buildEquipmentRefImagePrompt } from './equipment-prompt.js';
+
+function parseEquipmentView(raw: unknown): EquipmentRefImageView {
+  if (raw === undefined || raw === null) return { kind: 'ortho-grid' };
+  if (typeof raw !== 'object') {
+    throw new Error('view must be an object: { kind: "ortho-grid" | "extra-angle", angle?: string }');
+  }
+  const obj = raw as Record<string, unknown>;
+  const kind = obj.kind;
+  if (kind === 'ortho-grid') return { kind: 'ortho-grid' };
+  if (kind === 'extra-angle') {
+    if (typeof obj.angle !== 'string' || obj.angle.trim().length === 0) {
+      throw new Error('view.angle is required when kind=extra-angle');
+    }
+    return { kind: 'extra-angle', angle: obj.angle.trim() };
+  }
+  throw new Error(`view.kind must be "ortho-grid" or "extra-angle" (got ${String(kind)})`);
+}
 
 export interface EquipmentToolDeps {
   listEquipment: () => Promise<Equipment[]>;
@@ -80,9 +99,10 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const now = Date.now();
+        const name = requireString(args, 'name');
         const equipment: Equipment = {
           id: crypto.randomUUID(),
-          name: args.name as string,
+          name,
           type: args.type as EquipmentType,
           subtype: (args.subtype as string) || undefined,
           description: args.description as string,
@@ -142,7 +162,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
         const warnings = warnExtraKeys(args);
         const updated: Equipment = {
           ...existing,
-          ...(set.name !== undefined && { name: set.name as string }),
+          ...(set.name !== undefined && { name: requireSetString(set, 'name') }),
           ...(set.type !== undefined && { type: set.type as EquipmentType }),
           ...(set.subtype !== undefined && { subtype: typeof set.subtype === 'string' ? set.subtype : existing.subtype }),
           ...(set.description !== undefined && { description: set.description as string }),
@@ -185,11 +205,15 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
   };
 
-  const equipmentRefImages = createRefImageTools<Equipment>({
+  const equipmentRefImages = createRefImageTools<Equipment, EquipmentRefImageView>({
     toolNamePrefix: 'equipment',
     entityLabel: 'equipment',
     tags: ['equipment', 'generation', 'mutate'],
-    description: 'Manage reference images for an equipment item. Use action=generate to produce a new image (auto-compiles all equipment fields into the prompt; call ONE at a time, verify success before the next). Use action=set to assign an existing asset hash. Use action=delete to remove a slot. Use action=setFromNode to pull the asset directly from a generated canvas image node.',
+    description:
+      'Manage reference images for an equipment item. '
+      + 'Default view kind "ortho-grid" produces ONE composite image with front/back/left/right + macro detail on a single sheet. '
+      + 'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom needs (in-use shot, cutaway, etc). '
+      + 'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
     getEntity: async (id) => {
       const items = await deps.listEquipment();
       return items.find((e) => e.id === id) ?? null;
@@ -197,38 +221,12 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     saveEntity: deps.saveEquipment,
     generateImage: deps.generateImage,
     getCanvas: deps.getCanvas,
-    buildPrompt: (entity, slot) => {
-      const slotDescriptions: Record<string, string> = {
-        'main': 'front orthographic view, straight-on angle, full item visible, centered composition',
-        'front': 'front orthographic view, straight-on angle, full item visible',
-        'back': 'back orthographic view, rear details visible, full item visible',
-        'left-side': 'left side orthographic view, pure profile, full item visible',
-        'right-side': 'right side orthographic view, pure profile, full item visible',
-        'detail-closeup': 'extreme close-up macro photography, shallow depth of field, fine surface textures and engravings visible, mechanical joints and wear marks readable',
-        'in-use': 'contextual action shot with a generic human silhouette or anonymous hand for scale reference, item is the subject, clear view of the item with minimal background',
-      };
-      const slotDesc = slotDescriptions[slot] ?? `${slot} angle view`;
-
-      const descParts: string[] = [];
-      if (entity.description) descParts.push(entity.description);
-      if (entity.function) descParts.push(`Function: ${entity.function}`);
-      if (entity.material) descParts.push(`Material surfaces: ${entity.material}`);
-      if (entity.color) descParts.push(`Color: ${entity.color}`);
-      if (entity.condition) descParts.push(`Condition: ${entity.condition}`);
-      if (entity.visualDetails) descParts.push(`Surface details: ${entity.visualDetails}`);
-      if (entity.subtype) descParts.push(`Subtype: ${entity.subtype}`);
-      if (entity.tags && entity.tags.length > 0) descParts.push(`Keywords: ${entity.tags.join(', ')}`);
-      const richDesc = descParts.length > 0 ? descParts.join('. ') + '. ' : '';
-
-      return `Product design reference. Tall portrait format (2:3 aspect ratio). Solid white background, even studio lighting, no characters, no environment, no scene. `
-        + `Item: ${entity.name} (${entity.type}). ${richDesc}`
-        + `${slotDesc}. `
-        + `Object only, clean edges, high detail, consistent scale, professional product photography style, technical illustration quality.`;
-    },
-    isStandardSlot: (slot) => EQUIPMENT_STANDARD_SLOTS.includes(slot as (typeof EQUIPMENT_STANDARD_SLOTS)[number]),
+    parseView: parseEquipmentView,
+    buildPrompt: buildEquipmentRefImagePrompt,
+    viewToSlot: equipmentViewToSlot,
+    kindEnum: ['ortho-grid', 'extra-angle'],
     defaultWidth: 1360,
     defaultHeight: 2048,
-    slotEnum: ['main', 'front', 'back', 'left-side', 'right-side', 'detail-closeup', 'in-use'],
   });
 
   return [

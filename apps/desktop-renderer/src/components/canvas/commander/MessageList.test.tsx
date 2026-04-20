@@ -20,6 +20,10 @@ const t = (key: string) =>
       'commander.runTools': 'tools',
       'commander.runErrors': 'errors',
       'commander.thinkingProcess': 'Thinking...',
+      'commander.stepLabel': 'Step',
+      'commander.phaseNote.processPromptLoaded': 'Reloaded process prompt',
+      'commander.phaseNote.compacted': 'Context compacted',
+      'commander.phaseNote.llmRetry': 'LLM retry',
     } as Record<string, string>
   )[key] ?? key;
 
@@ -54,12 +58,11 @@ describe('MessageList run summaries', () => {
         liveMessage={null}
         currentSegments={[]}
         pendingInjectedMessages={[]}
-        isStreaming={false}
+        showTextCursor={false}
         error={null}
         nodeTitlesById={{}}
         t={t}
         emptyLabel="Empty"
-        streamingLabel="Streaming"
       />,
     );
 
@@ -86,9 +89,10 @@ describe('MessageList run summaries', () => {
       role: 'assistant',
       content: 'Planning the change.Created the requested layout and verified every connected node.',
       segments: [
-        { type: 'text', content: 'Planning the change.' },
+        { kind: 'text', id: 's1', content: 'Planning the change.' },
         {
-          type: 'tool',
+          kind: 'tool',
+          id: 's2',
           toolCall: {
             id: 'tool-1',
             name: 'canvas.createNode',
@@ -99,7 +103,7 @@ describe('MessageList run summaries', () => {
             status: 'done',
           },
         },
-        { type: 'text', content: 'Created the requested layout and verified every connected node.' },
+        { kind: 'text', id: 's3', content: 'Created the requested layout and verified every connected node.' },
       ],
       toolCalls: [
         {
@@ -118,7 +122,6 @@ describe('MessageList run summaries', () => {
         collapsed: true,
         startedAt: 1000,
         completedAt: 2200,
-        thinkingContent: 'Planning the node changes',
         summary: {
           excerpt: 'Created the requested layout and verified every connected node.',
           toolCount: 1,
@@ -126,21 +129,7 @@ describe('MessageList run summaries', () => {
           durationMs: 1200,
         },
       },
-    } as CommanderMessage & {
-      runMeta: {
-        status: 'completed' | 'failed';
-        collapsed: boolean;
-        startedAt: number;
-        completedAt: number;
-        thinkingContent?: string;
-        summary: {
-          excerpt: string;
-          toolCount: number;
-          failedToolCount: number;
-          durationMs: number;
-        };
-      };
-    };
+    } as CommanderMessage;
 
     render(
       <MessageList
@@ -148,12 +137,11 @@ describe('MessageList run summaries', () => {
         liveMessage={null}
         currentSegments={[]}
         pendingInjectedMessages={[]}
-        isStreaming={false}
+        showTextCursor={false}
         error={null}
         nodeTitlesById={{}}
         t={t}
         emptyLabel="Empty"
-        streamingLabel="Streaming"
       />,
     );
 
@@ -161,19 +149,56 @@ describe('MessageList run summaries', () => {
     expect(
       screen.getByText('Created the requested layout and verified every connected node.'),
     ).toBeTruthy();
-    // Process details (thinking + intermediate text + tool card) are hidden.
-    expect(screen.queryByText('Planning the node changes')).toBeNull();
+    // Process details (intermediate text + tool card) are hidden.
     expect(screen.queryByText('Planning the change.')).toBeNull();
     expect(screen.queryByRole('button', { name: /canvas.*create node/i })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /expand run/i }));
 
-    expect(screen.getByText('Planning the node changes')).toBeTruthy();
     expect(screen.getByText('Planning the change.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /canvas.*create node/i })).toBeTruthy();
     // Final answer stays visible after expand.
     expect(
       screen.getByText('Created the requested layout and verified every connected node.'),
     ).toBeTruthy();
+  });
+
+  it('renders each MessageSegment variant without throwing assertNever', () => {
+    const message = {
+      id: 'assistant-run-3',
+      role: 'assistant',
+      content: 'Done.',
+      segments: [
+        { kind: 'thinking', id: 'sg-1', content: 'let me think', collapsed: false },
+        { kind: 'step_marker', id: 'sg-2', step: 2, at: 1_700_000_000_000 },
+        {
+          kind: 'phase_note',
+          id: 'sg-3',
+          note: 'llm_retry',
+          detail: '2/3',
+        },
+        { kind: 'text', id: 'sg-4', content: 'Done.' },
+      ],
+      timestamp: 789,
+    } as CommanderMessage;
+
+    render(
+      <MessageList
+        messages={[message]}
+        liveMessage={null}
+        currentSegments={[]}
+        pendingInjectedMessages={[]}
+        showTextCursor={false}
+        error={null}
+        nodeTitlesById={{}}
+        t={t}
+        emptyLabel="Empty"
+      />,
+    );
+
+    expect(screen.getByText('Done.')).toBeTruthy();
+    expect(screen.getByText(/thinking/i)).toBeTruthy();
+    expect(screen.getByText(/Step\s*2/i)).toBeTruthy();
+    expect(screen.getByText(/LLM retry: 2\/3/)).toBeTruthy();
   });
 });

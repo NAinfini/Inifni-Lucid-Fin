@@ -7,7 +7,6 @@ import {
   updateEquipment,
   removeEquipment,
   selectEquipment,
-  setFilterType,
   setLoading,
   setEquipmentRefImage,
   removeEquipmentRefImage,
@@ -68,14 +67,6 @@ describe('equipment slice', () => {
 
     state = equipmentSlice.reducer(state, selectEquipment(null));
     expect(state.selectedId).toBeNull();
-  });
-
-  it('sets filter type', () => {
-    let state = equipmentSlice.reducer(undefined, setFilterType('weapon'));
-    expect(state.filterType).toBe('weapon');
-
-    state = equipmentSlice.reducer(state, setFilterType('all'));
-    expect(state.filterType).toBe('all');
   });
 
   it('sets loading', () => {
@@ -151,7 +142,6 @@ describe('equipment slice', () => {
       equipmentSlice.actions.restore({
         items: [makeEquipment({ id: 'eq-99', name: 'Restored' })],
         selectedId: 'eq-99',
-        filterType: 'armor',
         loading: false,
         folders: [],
         currentFolderId: null,
@@ -161,6 +151,5 @@ describe('equipment slice', () => {
     expect(restored.items).toHaveLength(1);
     expect(restored.items[0].id).toBe('eq-99');
     expect(restored.selectedId).toBe('eq-99');
-    expect(restored.filterType).toBe('armor');
   });
 });

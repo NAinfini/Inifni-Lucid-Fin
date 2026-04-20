@@ -25,18 +25,23 @@ import {
   addToolCall,
   addUserMessage,
   appendStreamChunk,
+  appendThinking,
+  applyStreamEvent,
   clearPendingConfirmation,
+  collapseThinking,
   ensureActiveSession,
   finishStreaming,
+  pushPhaseNote,
   resolveToolCall,
+  selectIsStreaming,
   setBackendContextUsage,
   setPendingConfirmation,
   setPendingQuestion,
   setProviderId,
-  setThinkingContent,
   startStreaming,
   streamError,
   switchCanvas,
+  updateToolCallArguments,
 } from '../../store/slices/commander.js';
 import {
   addNode,
@@ -66,7 +71,7 @@ import {
   setProviderModel,
   setProviderName,
 } from '../../store/slices/settings.js';
-import { selectActiveTemplates } from '../../store/slices/promptTemplates.js';
+import { selectActiveSkills } from '../../store/slices/skillDefinitions.js';
 import { addLog } from '../../store/slices/logger.js';
 import { flushPendingCanvasSave } from '../../store/middleware/persist.js';
 import type { LucidAPI } from '../../utils/api.js';
@@ -80,6 +85,63 @@ import type {
   Unsub,
 } from '../transport/CommanderTransport.js';
 import { buildCommanderHistory } from './history-builder.js';
+import {
+  incrementLLMRetry,
+  incrementParseFailure,
+  incrementRunAbort,
+  incrementStallWarning,
+  incrementStepAbort,
+  incrementUnknownKind,
+  recordCoalescedBatch,
+  recordRenderLagSample,
+} from './telemetry.js';
+import { BatchedDispatcher, type BatchedDeltaKind } from './batched-dispatcher.js';
+
+/**
+ * Exhaustiveness helper. If the `kind` switch below ever fails to cover a
+ * new discriminator, TypeScript forces this call to become a type error —
+ * surfacing the missing case at compile time rather than a silent drop at
+ * runtime. Boundary check has already normalized shape before we hit here.
+ */
+function assertNever(value: never): never {
+  throw new Error(`Unhandled commander stream kind: ${JSON.stringify(value)}`);
+}
+
+/**
+ * Known Commander stream event kinds. This set is the renderer-side mirror of
+ * the zod-owned `CommanderStreamPayload.kind` union in
+ * `@lucid-fin/contracts-parse`. We duplicate it here because the renderer
+ * bundle must not pull zod in — but the duplication is guarded: the
+ * `kind` TS narrowing in the switch below covers exactly these literals, so a
+ * drift between this set and the schema becomes a compile error at the
+ * `assertNever` call.
+ */
+const COMMANDER_STREAM_KINDS = new Set<string>([
+  'chunk',
+  'tool_call_started',
+  'tool_call_args_delta',
+  'tool_call_args_complete',
+  'tool_result',
+  'tool_confirm',
+  'tool_question',
+  'thinking_delta',
+  'phase_note',
+  'done',
+  'error',
+  'context_usage',
+]);
+
+function isCommanderStreamEvent(raw: unknown): raw is CommanderStreamEvent {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const record = raw as Record<string, unknown>;
+  return (
+    typeof record.kind === 'string' &&
+    COMMANDER_STREAM_KINDS.has(record.kind) &&
+    typeof record.runId === 'string' &&
+    typeof record.step === 'number' &&
+    typeof record.emittedAt === 'number'
+  );
+}
 
 type CommanderEntityAPI = Pick<NonNullable<LucidAPI>, 'character' | 'equipment' | 'location'>;
 type CommanderPromptGuide = { id: string; name: string; content: string };
@@ -88,20 +150,10 @@ function selectCommanderPromptGuides(state: RootState): CommanderPromptGuide[] {
   const guides: CommanderPromptGuide[] = [];
   const seen = new Set<string>();
 
-  for (const guide of selectActiveTemplates(state.promptTemplates.templates)) {
+  for (const guide of selectActiveSkills(state.skillDefinitions.skills)) {
     if (seen.has(guide.id)) continue;
     seen.add(guide.id);
     guides.push(guide);
-  }
-
-  for (const entry of state.workflowDefinitions.entries) {
-    if (seen.has(entry.id)) continue;
-    seen.add(entry.id);
-    guides.push({
-      id: entry.id,
-      name: entry.name,
-      content: entry.content,
-    });
   }
 
   return guides;
@@ -149,6 +201,28 @@ export interface CommanderSessionServiceDeps {
 export class CommanderSessionService {
   /** Maps in-flight tool call ids → tool names, so we can record usage on result. */
   private readonly toolCallNames = new Map<string, string>();
+  /**
+   * Accumulates tool_call args as they stream in via `tool_call_args_delta`.
+   * Buffered per-`toolCallId`; cleared on `tool_call_args_complete`. Kept in
+   * service state (not the Redux store) because it's a transient parse
+   * artefact — consumers only ever see the parsed `arguments` record.
+   */
+  private readonly toolCallArgBuffers = new Map<string, string>();
+
+  /**
+   * Coalesces high-frequency delta events (text / thinking / tool args)
+   * into one dispatch per animation frame. Created lazily on `subscribe`
+   * and disposed on unsubscribe so the scheduler handle doesn't leak
+   * across tests.
+   */
+  private batcher: BatchedDispatcher | null = null;
+
+  /**
+   * Push-timestamp map so `recordRenderLagSample` can report honest
+   * end-to-end latency. Keyed by the same `(kind, key)` compound as the
+   * batcher's internal buffer; cleared on flush.
+   */
+  private readonly batchPushStart = new Map<string, number>();
 
   constructor(private readonly deps: CommanderSessionServiceDeps) {}
 
@@ -183,7 +257,7 @@ export class CommanderSessionService {
         dispatch(switchCanvas(currentCanvasId));
       }
 
-      if (state.commander.streaming) {
+      if (selectIsStreaming(state)) {
         dispatch(addInjectedMessage(trimmed));
         await transport.injectMessage(currentCanvasId, trimmed);
         return;
@@ -201,7 +275,7 @@ export class CommanderSessionService {
       }
 
       // Auto-snapshot: capture project state before the first message of a session
-      if (!state.commander.streaming && !hasUserMessages) {
+      if (!selectIsStreaming(state) && !hasUserMessages) {
         try {
           // Ensure the session row exists so the FK constraint on snapshots is satisfied
           if (api?.session?.upsert) {
@@ -320,6 +394,8 @@ export class CommanderSessionService {
    *  main-process session is already gone. */
   async cancel(): Promise<void> {
     const { dispatch, getState, transport } = this.deps;
+    incrementRunAbort();
+    this.batcher?.flushNow();
     if (!transport.available) {
       dispatch(finishStreaming(undefined));
       return;
@@ -336,12 +412,51 @@ export class CommanderSessionService {
   }
 
   /**
+   * Step-level cancel. Asks the main-process orchestrator to abort just
+   * the currently in-flight LLM step. The agent loop stays alive and
+   * kicks off a retry, which the user sees as a `phase_note:llm_retry`
+   * segment. A double-tap within 2s escalates to a full run cancel
+   * (main-side logic); on escalation we finalize local state like a
+   * regular cancel.
+   */
+  async cancelCurrentStep(): Promise<{ escalated: boolean }> {
+    const { dispatch, getState, transport } = this.deps;
+    incrementStepAbort();
+    this.batcher?.flushNow();
+    const activeCanvasId = getState().canvas.activeCanvasId;
+    if (!transport.available || !activeCanvasId) return { escalated: false };
+    try {
+      const result = await transport.cancelCurrentStep(activeCanvasId);
+      if (result.escalated) {
+        incrementRunAbort();
+        dispatch(finishStreaming(undefined));
+      }
+      return result;
+    } catch {
+      return { escalated: false };
+    }
+  }
+
+  /**
    * Subscribe to all commander push channels. Returns a single unsub that
    * tears down every listener. Intended to be called once per hook mount.
    */
   subscribe(): Unsub {
     const { transport, api, dispatch } = this.deps;
     if (!transport.available) return () => {};
+
+    this.batcher = new BatchedDispatcher({
+      flush: (kind, key, joined) => {
+        const compound = `${kind}\u0000${key}`;
+        const startedAt = this.batchPushStart.get(compound);
+        if (startedAt !== undefined) {
+          recordRenderLagSample(performance.now() - startedAt);
+          this.batchPushStart.delete(compound);
+        }
+        this.applyCoalescedFlush(kind, key, joined);
+      },
+      onCoalesced: (batchSize) => recordCoalescedBatch(batchSize),
+    });
 
     const unsubStream = transport.onStream((data) => this.handleStreamEvent(data));
     const unsubCanvas = transport.onCanvasUpdated((data) => this.handleCanvasUpdate(data));
@@ -361,193 +476,282 @@ export class CommanderSessionService {
       unsubEntities();
       unsubSettings();
       unsubUndo();
+      this.batcher?.dispose();
+      this.batcher = null;
+      this.batchPushStart.clear();
     };
   }
 
-  private handleStreamEvent(data: CommanderStreamEvent): void {
-    const { dispatch, getState, t, transport } = this.deps;
-
-    if (data.type === 'chunk' && data.content) {
-      dispatch(appendStreamChunk(data.content));
-      return;
-    }
-
-    if (data.type === 'thinking' && data.content) {
-      dispatch(setThinkingContent(data.content));
-      return;
-    }
-
-    if (data.type === 'tool_call' && data.toolName && data.toolCallId) {
-      this.toolCallNames.set(data.toolCallId, data.toolName);
-      dispatch(
-        addToolCall({
-          name: data.toolName,
-          id: data.toolCallId,
-          arguments: data.arguments ?? {},
-          startedAt: data.startedAt,
-        }),
-      );
-      return;
-    }
-
-    if (data.type === 'tool_result' && data.toolCallId) {
-      const resultRecord =
-        typeof data.result === 'object' && data.result !== null
-          ? (data.result as { success?: unknown; error?: unknown })
-          : undefined;
-      const isError = resultRecord?.success === false;
-      dispatch(
-        resolveToolCall({
-          id: data.toolCallId,
-          result: data.result,
-          error: isError
-            ? typeof resultRecord?.error === 'string'
-              ? resultRecord.error
-              : t('commander.toolExecutionFailed')
-            : undefined,
-          completedAt: data.completedAt,
-        }),
-      );
-      const toolName = data.toolName ?? this.toolCallNames.get(data.toolCallId);
-      if (toolName) {
-        dispatch(recordToolCall({ toolName, error: isError }));
-        this.toolCallNames.delete(data.toolCallId);
-      }
-      if (toolName && !isError) {
-        if (toolName === 'node.create' || toolName === 'shot.create') {
-          dispatch(recordShotCreate());
-          dispatch(recordProjectActivity({ nodesCreated: 1 }));
-        } else if (data.toolName === 'edge.create') {
-          dispatch(recordProjectActivity({ edgesCreated: 1 }));
-        } else if (data.toolName === 'prop.create') {
-          dispatch(recordEntityCreate({ entityType: 'prop' }));
-        } else if (toolName.endsWith('.create')) {
-          // Catalog-driven: the `.create` tools of entity domains map to
-          // their refresh bucket via `ENTITY_REFRESH_TOOL_ENTITY`. Any
-          // future entity domain that adds a `.create` tool AND an
-          // `entity.refresh` uiEffect automatically records its creation
-          // here — no branch edit.
-          const bucket = ENTITY_REFRESH_TOOL_ENTITY[toolName];
-          if (bucket === 'character' || bucket === 'location' || bucket === 'equipment') {
-            dispatch(recordEntityCreate({ entityType: bucket }));
-          }
-        }
-        // Sync AI-created/updated presets to Redux so inspector shows names
-        if (
-          (toolName === 'preset.create' || toolName === 'preset.update') &&
-          resultRecord &&
-          typeof resultRecord === 'object' &&
-          'data' in resultRecord &&
-          resultRecord.data &&
-          typeof resultRecord.data === 'object' &&
-          'id' in (resultRecord.data as Record<string, unknown>)
-        ) {
-          dispatch(
-            upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition),
-          );
-        }
-      }
-      return;
-    }
-
-    if (data.type === 'tool_confirm' && data.toolCallId && data.toolName) {
-      const { confirmAutoMode } = getState().commander;
-      if (confirmAutoMode !== 'none') {
-        const approved = confirmAutoMode === 'approve';
-        const cid = getState().canvas.activeCanvasId;
-        if (cid) {
-          void transport.confirmTool(cid, data.toolCallId, approved);
-        }
-        dispatch(clearPendingConfirmation());
+  /**
+   * Route a deferred batched delta into the same reducer path the
+   * un-batched case would have taken. Called exclusively by the
+   * BatchedDispatcher's rAF flush.
+   */
+  private applyCoalescedFlush(kind: BatchedDeltaKind, key: string, joined: string): void {
+    const { dispatch } = this.deps;
+    switch (kind) {
+      case 'text_delta':
+        dispatch(collapseThinking());
+        dispatch(appendStreamChunk(joined));
+        return;
+      case 'thinking_delta':
+        dispatch(appendThinking(joined));
+        return;
+      case 'tool_call_args_delta': {
+        const prior = this.toolCallArgBuffers.get(key) ?? '';
+        this.toolCallArgBuffers.set(key, prior + joined);
         return;
       }
-      dispatch(
-        setPendingConfirmation({
-          toolCallId: data.toolCallId,
-          toolName: data.toolName,
-          args: data.arguments ?? {},
-          tier: data.tier ?? 1,
-        }),
-      );
-      return;
     }
+  }
 
-    if (data.type === 'tool_question' && data.toolCallId) {
-      dispatch(
-        setPendingQuestion({
-          toolCallId: data.toolCallId,
-          question: (data as { question?: string }).question ?? '',
-          options:
-            (data as { options?: Array<{ label: string; description?: string }> }).options ?? [],
-        }),
-      );
-      return;
+  /**
+   * Push a delta into the batcher, timestamping the first push per
+   * (kind, key) so render-lag samples measure honest end-to-end latency
+   * instead of just the final flush.
+   */
+  private enqueueDelta(kind: BatchedDeltaKind, key: string, delta: string): void {
+    if (!this.batcher) return;
+    const compound = `${kind}\u0000${key}`;
+    if (!this.batchPushStart.has(compound)) {
+      this.batchPushStart.set(compound, performance.now());
     }
+    this.batcher.push(kind, key, delta);
+  }
 
-    if (data.type === 'context_usage') {
-      const payload = data as {
-        estimatedTokensUsed?: number;
-        contextWindowTokens?: number;
-        messageCount?: number;
-        systemPromptChars?: number;
-        toolSchemaChars?: number;
-        messageChars?: number;
-        cacheChars?: number;
-        cacheEntryCount?: number;
-        historyMessagesTrimmed?: number;
-        utilizationRatio?: number;
-      };
-      if (
-        typeof payload.estimatedTokensUsed === 'number' &&
-        typeof payload.contextWindowTokens === 'number'
-      ) {
-        dispatch(
-          setBackendContextUsage({
-            estimatedTokensUsed: payload.estimatedTokensUsed,
-            contextWindowTokens: payload.contextWindowTokens,
-            messageCount: payload.messageCount ?? 0,
-            systemPromptChars: payload.systemPromptChars ?? 0,
-            toolSchemaChars: payload.toolSchemaChars ?? 0,
-            messageChars: payload.messageChars ?? 0,
-            cacheChars: payload.cacheChars ?? 0,
-            cacheEntryCount: payload.cacheEntryCount ?? 0,
-            historyMessagesTrimmed: payload.historyMessagesTrimmed ?? 0,
-            utilizationRatio: payload.utilizationRatio ?? 0,
-          }),
-        );
-      }
-      return;
-    }
+  private handleStreamEvent(raw: CommanderStreamEvent): void {
+    const { dispatch, getState, t, transport } = this.deps;
 
-    if (data.type === 'error') {
-      const errMsg = data.error ?? t('commander.unknownError');
-      dispatch(recordError());
+    // Boundary check: re-validate shape at the renderer edge. `onStream` is
+    // typed, but in dev a stale preload or manually-crafted test double can
+    // deliver a payload TS accepts but our union rejects. Count the drop,
+    // log, and return — never throw — so one bad event cannot kill the
+    // session. Full zod validation is done in the preload; this check is
+    // the last line of defense before the narrowed switch below.
+    if (!isCommanderStreamEvent(raw)) {
+      incrementParseFailure();
       dispatch(
         addLog({
-          level: 'error',
+          level: 'warn',
           category: 'commander',
-          message: errMsg,
-          detail: data.toolCallId ? `Tool call ID: ${data.toolCallId}` : undefined,
+          message: 'Dropped malformed commander:stream event',
+          detail: JSON.stringify(raw),
         }),
       );
-      if (data.toolCallId) {
+      return;
+    }
+    const data = raw;
+
+    // Keep the RunPhase state machine in sync before the event-specific
+    // reducers run. The phase is what LiveActivityBar + elapsed timers + the
+    // cursor gate all read, so it has to lead.
+    dispatch(applyStreamEvent(data));
+
+    switch (data.kind) {
+      case 'chunk':
+        if (data.content) {
+          this.enqueueDelta('text_delta', '', data.content);
+        }
+        return;
+
+      case 'thinking_delta':
+        this.enqueueDelta('thinking_delta', '', data.content);
+        return;
+
+      case 'tool_call_started':
+        // Any buffered thinking/text must reach the store before the
+        // tool-card renders — otherwise the tool card flips to "running"
+        // above text that hasn't landed yet.
+        this.batcher?.flushNow();
+        dispatch(collapseThinking());
+        this.toolCallNames.set(data.toolCallId, data.toolName);
+        // Buffer args as they stream in; persisted in `toolCallArgBuffers`
+        // until `tool_call_args_complete` (LLM-originated) or the
+        // tool-executor's `tool_call_args_complete` for non-LLM paths.
+        this.toolCallArgBuffers.set(data.toolCallId, '');
+        dispatch(
+          addToolCall({
+            name: data.toolName,
+            id: data.toolCallId,
+            arguments: {},
+            startedAt: data.startedAt,
+          }),
+        );
+        return;
+
+      case 'tool_call_args_delta': {
+        this.enqueueDelta('tool_call_args_delta', data.toolCallId, data.delta);
+        return;
+      }
+
+      case 'tool_call_args_complete': {
+        // Drain any pending args deltas for this id so the final parsed
+        // arguments land after (not before) the streamed partial text.
+        this.batcher?.flushNow();
+        this.toolCallArgBuffers.delete(data.toolCallId);
+        dispatch(
+          updateToolCallArguments({
+            id: data.toolCallId,
+            arguments: data.arguments,
+          }),
+        );
+        return;
+      }
+
+      case 'tool_result': {
+        this.batcher?.flushNow();
+        const resultRecord =
+          typeof data.result === 'object' && data.result !== null
+            ? (data.result as { success?: unknown; error?: unknown; data?: unknown })
+            : undefined;
+        const isError = resultRecord?.success === false;
         dispatch(
           resolveToolCall({
             id: data.toolCallId,
-            error: data.error ?? t('commander.toolExecutionFailed'),
+            result: data.result,
+            error: isError
+              ? typeof resultRecord?.error === 'string'
+                ? resultRecord.error
+                : t('commander.toolExecutionFailed')
+              : undefined,
             completedAt: data.completedAt,
           }),
         );
-        // Don't return — let it also call streamError to finalize the message
+        const toolName = data.toolName ?? this.toolCallNames.get(data.toolCallId);
+        if (toolName) {
+          dispatch(recordToolCall({ toolName, error: isError }));
+          this.toolCallNames.delete(data.toolCallId);
+        }
+        if (toolName && !isError) {
+          if (toolName === 'node.create' || toolName === 'shot.create') {
+            dispatch(recordShotCreate());
+            dispatch(recordProjectActivity({ nodesCreated: 1 }));
+          } else if (toolName === 'edge.create') {
+            dispatch(recordProjectActivity({ edgesCreated: 1 }));
+          } else if (toolName === 'prop.create') {
+            dispatch(recordEntityCreate({ entityType: 'prop' }));
+          } else if (toolName.endsWith('.create')) {
+            const bucket = ENTITY_REFRESH_TOOL_ENTITY[toolName];
+            if (bucket === 'character' || bucket === 'location' || bucket === 'equipment') {
+              dispatch(recordEntityCreate({ entityType: bucket }));
+            }
+          }
+          if (
+            (toolName === 'preset.create' || toolName === 'preset.update') &&
+            resultRecord &&
+            'data' in resultRecord &&
+            resultRecord.data &&
+            typeof resultRecord.data === 'object' &&
+            'id' in (resultRecord.data as Record<string, unknown>)
+          ) {
+            dispatch(
+              upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition),
+            );
+          }
+        }
+        return;
       }
-      dispatch(streamError(errMsg));
-      this.persistSessionOnTerminal();
-      return;
-    }
 
-    if (data.type === 'done') {
-      dispatch(finishStreaming(data.content));
-      this.persistSessionOnTerminal();
+      case 'tool_confirm': {
+        const { confirmAutoMode } = getState().commander;
+        if (confirmAutoMode !== 'none') {
+          const approved = confirmAutoMode === 'approve';
+          const cid = getState().canvas.activeCanvasId;
+          if (cid) {
+            void transport.confirmTool(cid, data.toolCallId, approved);
+          }
+          dispatch(clearPendingConfirmation());
+          return;
+        }
+        dispatch(
+          setPendingConfirmation({
+            toolCallId: data.toolCallId,
+            toolName: data.toolName,
+            args: data.arguments,
+            tier: data.tier,
+          }),
+        );
+        return;
+      }
+
+      case 'tool_question':
+        dispatch(
+          setPendingQuestion({
+            toolCallId: data.toolCallId,
+            question: data.question,
+            options: data.options,
+          }),
+        );
+        return;
+
+      case 'context_usage':
+        dispatch(
+          setBackendContextUsage({
+            estimatedTokensUsed: data.estimatedTokensUsed,
+            contextWindowTokens: data.contextWindowTokens,
+            messageCount: data.messageCount,
+            systemPromptChars: data.systemPromptChars,
+            toolSchemaChars: data.toolSchemaChars,
+            messageChars: data.messageChars,
+            cacheChars: data.cacheChars,
+            cacheEntryCount: data.cacheEntryCount,
+            historyMessagesTrimmed: data.historyMessagesTrimmed ?? 0,
+            utilizationRatio: data.utilizationRatio,
+          }),
+        );
+        return;
+
+      case 'phase_note':
+        // Flush so buffered text lands before the note segment — the
+        // segment appears as a status line between prior output and
+        // whatever comes next (retry, new call, etc).
+        this.batcher?.flushNow();
+        if (data.note === 'llm_retry') {
+          incrementLLMRetry();
+          // The orchestrator tags stall-triggered retries with `(stall)`
+          // in the detail string. Keeping the attribution here (instead
+          // of a separate wire kind) avoids growing the surface for a
+          // purely observability concern.
+          if (data.detail.includes('(stall)')) incrementStallWarning();
+        }
+        dispatch(pushPhaseNote({ note: data.note, detail: data.detail }));
+        return;
+
+      case 'error': {
+        this.batcher?.flushNow();
+        const errMsg = data.error || t('commander.unknownError');
+        dispatch(recordError());
+        dispatch(
+          addLog({
+            level: 'error',
+            category: 'commander',
+            message: errMsg,
+            detail: data.toolCallId ? `Tool call ID: ${data.toolCallId}` : undefined,
+          }),
+        );
+        if (data.toolCallId) {
+          dispatch(
+            resolveToolCall({
+              id: data.toolCallId,
+              error: data.error || t('commander.toolExecutionFailed'),
+              completedAt: data.completedAt,
+            }),
+          );
+        }
+        dispatch(streamError(errMsg));
+        this.persistSessionOnTerminal();
+        return;
+      }
+
+      case 'done':
+        this.batcher?.flushNow();
+        dispatch(finishStreaming(data.content));
+        this.persistSessionOnTerminal();
+        return;
+
+      default:
+        incrementUnknownKind();
+        assertNever(data);
     }
   }
 

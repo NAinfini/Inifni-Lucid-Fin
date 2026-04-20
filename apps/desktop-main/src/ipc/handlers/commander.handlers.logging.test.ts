@@ -162,7 +162,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'error',
+        kind: 'error',
         error: 'No configured LLM adapter. Please configure an AI provider in Settings.',
       }),
     );
@@ -244,7 +244,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'error',
+        kind: 'error',
         error: 'Selected provider request failed',
       }),
     );
@@ -328,7 +328,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'error',
+        kind: 'error',
         error: 'Selected provider request failed',
       }),
     );
@@ -396,7 +396,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'error',
+        kind: 'error',
         error: 'Selected LLM provider "OpenAI" is missing a base URL or model.',
       }),
     );
@@ -463,7 +463,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'error',
+        kind: 'error',
         error: 'Selected LLM provider "OpenAI" has no API key configured.',
       }),
     );
@@ -565,11 +565,11 @@ describe('registerCommanderHandlers logging', () => {
   it('logs session completion with response length when commander returns assistant content', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const send = vi.fn();
-    customAdapterCompleteWithTools.mockResolvedValueOnce({
-      content: 'hello from commander',
-      toolCalls: [],
-      finishReason: 'stop',
-    });
+    async function* responseStream() {
+      yield { kind: 'text_delta', delta: 'hello from commander' };
+      yield { kind: 'finished', finishReason: 'stop' };
+    }
+    customAdapterCompleteWithTools.mockResolvedValueOnce(responseStream());
 
     registerCommanderHandlers(
       {
@@ -619,7 +619,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'done',
+        kind: 'done',
         content: 'hello from commander',
       }),
     );
@@ -639,7 +639,9 @@ describe('registerCommanderHandlers logging', () => {
     const send = vi.fn();
     const canvas = makeCanvas();
     vi.spyOn(AgentOrchestrator.prototype, 'execute').mockImplementationOnce(
-      async (_message, _context, emit, options) => {
+      async (_message, _context, rawEmit, options) => {
+        const emit = (body: Record<string, unknown>) =>
+          rawEmit({ ...body, runId: 'run-test', step: 1, emittedAt: Date.now() } as never);
         options?.onLLMRequest?.({
           step: 1,
           toolCount: 4,
@@ -656,18 +658,22 @@ describe('registerCommanderHandlers logging', () => {
         });
 
         emit({
-          type: 'stream_chunk',
+          kind: 'chunk',
           content: 'partial response',
         });
         emit({
-          type: 'tool_call',
+          kind: 'tool_call_started',
           toolName: 'canvas.addNode',
           toolCallId: 'call-1',
-          arguments: { canvasId: 'canvas-1', nodeId: 'node-1' },
           startedAt: 10,
         });
         emit({
-          type: 'tool_result',
+          kind: 'tool_call_args_complete',
+          toolCallId: 'call-1',
+          arguments: { canvasId: 'canvas-1', nodeId: 'node-1' },
+        });
+        emit({
+          kind: 'tool_result',
           toolName: 'canvas.addNode',
           toolCallId: 'call-1',
           result: { ok: true },
@@ -675,21 +681,21 @@ describe('registerCommanderHandlers logging', () => {
           completedAt: 20,
         });
         emit({
-          type: 'tool_confirm',
+          kind: 'tool_confirm',
           toolName: 'character.create',
           toolCallId: 'call-2',
           arguments: { name: 'Hero' },
           tier: 3,
         });
         emit({
-          type: 'tool_question',
+          kind: 'tool_question',
           toolName: 'commander.askUser',
           toolCallId: 'call-3',
           question: 'Continue?',
           options: [{ label: 'Yes', description: 'Proceed' }],
         });
         emit({
-          type: 'tool_result',
+          kind: 'tool_result',
           toolName: 'character.create',
           toolCallId: 'call-4',
           result: { id: 'char-1' },
@@ -697,14 +703,14 @@ describe('registerCommanderHandlers logging', () => {
           completedAt: 30,
         });
         emit({
-          type: 'error',
+          kind: 'error',
           toolCallId: 'call-5',
           error: 'Tool exploded',
           startedAt: 31,
           completedAt: 32,
         });
         emit({
-          type: 'done',
+          kind: 'done',
           content: 'assistant response',
         });
       },
@@ -758,14 +764,14 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'chunk',
+        kind: 'chunk',
         content: 'partial response',
       }),
     );
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'tool_call',
+        kind: 'tool_call_started',
         toolName: 'canvas.addNode',
         toolCallId: 'call-1',
       }),
@@ -773,7 +779,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'tool_result',
+        kind: 'tool_result',
         toolName: 'canvas.addNode',
         toolCallId: 'call-1',
         result: { ok: true },
@@ -782,7 +788,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'tool_confirm',
+        kind: 'tool_confirm',
         toolName: 'character.create',
         toolCallId: 'call-2',
         tier: 3,
@@ -791,7 +797,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'tool_question',
+        kind: 'tool_question',
         toolName: 'commander.askUser',
         toolCallId: 'call-3',
         question: 'Continue?',
@@ -800,7 +806,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'error',
+        kind: 'error',
         toolCallId: 'call-5',
         error: 'Tool exploded',
       }),
@@ -909,7 +915,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        type: 'error',
+        kind: 'error',
         error: 'LLM transport failed',
       }),
     );
@@ -927,13 +933,15 @@ describe('registerCommanderHandlers logging', () => {
 
     vi
       .spyOn(AgentOrchestrator.prototype, 'execute')
-      .mockImplementationOnce(async (_message, _context, emit) => {
+      .mockImplementationOnce(async (_message, _context, rawEmit) => {
+        const emit = (body: Record<string, unknown>) =>
+          rawEmit({ ...body, runId: 'run-test', step: 1, emittedAt: Date.now() } as never);
         emit({
-          type: 'stream_chunk',
+          kind: 'chunk',
           content: 'partial response',
         });
         emit({
-          type: 'done',
+          kind: 'done',
           content: 'assistant response',
         });
       });

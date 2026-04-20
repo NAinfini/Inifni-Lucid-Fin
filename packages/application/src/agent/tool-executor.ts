@@ -1,6 +1,6 @@
 import type { LLMToolCall } from '@lucid-fin/contracts';
 import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
-import type { AgentEvent } from './agent-orchestrator.js';
+import type { StreamEmit } from './stream-emit.js';
 import type { ContextGraph } from './graph/context-graph.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
@@ -24,6 +24,23 @@ const MUTATION_ACTION_PREFIXES = [
 // Permission helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Tier policy (see each tool's `tier:` field for assignments).
+ *
+ * - tier 1 = read-only (list/get/inspect). Never confirmed except in `strict`.
+ * - tier 2 = safe mutation (edit name, rename, reposition). Confirmed only in `strict`.
+ * - tier 3 = destructive OR costly mutation (delete, batch, generate one node).
+ *            Confirmed in `strict` and `normal`; NOT confirmed in `auto`.
+ *            Rationale: a user in `auto` mode has opted into automated flow;
+ *            rejecting a single `canvas.generate` would break the whole
+ *            batch. Deletes are also tier 3 because the snapshot system
+ *            provides rollback (see snapshot-tools.ts).
+ * - tier 4 = expensive one-shot OR irreversible project-scope action
+ *            (render.start, provider.removeCustom, workflow.expandIdea,
+ *            canvas.deleteCanvas, job.create). Confirmed in EVERY mode.
+ *            Rationale: these burn significant money or destroy the
+ *            top-level artifact; always worth one click.
+ */
 export function needsConfirmation(tier: number, mode: string): boolean {
   if (mode === 'auto') return tier === 4;
   if (mode === 'strict') return tier >= 1;
@@ -298,7 +315,7 @@ export class ToolExecutor {
     tc: LLMToolCall,
     activeToolNames: Set<string>,
     discoveredToolNames: Set<string>,
-    emit: (event: AgentEvent) => void,
+    emit: StreamEmit,
   ): Promise<ToolExecutionEntry> {
     const tool = this.tools.get(tc.name);
 
@@ -308,7 +325,8 @@ export class ToolExecutor {
         success: false,
         error: `Tool '${tc.name}' exists but is not loaded. Call tool.get('${tc.name}') first to load its schema.`,
       };
-      emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: unloadedPayload });
+      const now = Date.now();
+      emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: unloadedPayload, startedAt: now, completedAt: now });
       return { tc, resultContent: safeStringify(unloadedPayload), success: false };
     }
 
@@ -341,14 +359,16 @@ export class ToolExecutor {
               : { success: true, data: parsed };
           const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
           const resultContent = summarizeToolResult(tc.name, cachedResult, toolMaxResult);
-          emit({ type: 'tool_call', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, startedAt });
-          emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: cachedResult, startedAt, completedAt });
+          emit({ kind: 'tool_call_started', toolName: tc.name, toolCallId: tc.id, startedAt });
+          emit({ kind: 'tool_call_args_complete', toolCallId: tc.id, arguments: tc.arguments });
+          emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: cachedResult, startedAt, completedAt });
           return { tc, resultContent, success: true };
         }
       }
     }
 
-    emit({ type: 'tool_call', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, startedAt });
+    emit({ kind: 'tool_call_started', toolName: tc.name, toolCallId: tc.id, startedAt });
+    emit({ kind: 'tool_call_args_complete', toolCallId: tc.id, arguments: tc.arguments });
 
     // Auto-inject context-level arguments so the LLM never needs to provide them.
     // This is extensible — any field in `contextArgs` is merged into every tool call,
@@ -374,7 +394,7 @@ export class ToolExecutor {
           const hint = buildRecoveryHint(errorClass, tc.name, toolResult.error);
           const enriched = { ...toolResult, _recovery: hint };
           const resultContent = summarizeToolResult(tc.name, enriched as ToolResult, toolMaxResult);
-          emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: enriched, startedAt, completedAt });
+          emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: enriched, startedAt, completedAt });
           return { tc, resultContent, success: false };
         }
 
@@ -401,7 +421,7 @@ export class ToolExecutor {
             }
           }
         }
-        emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: toolResult, startedAt, completedAt });
+        emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: toolResult, startedAt, completedAt });
         return { tc, resultContent, success: toolResult.success !== false };
       } catch (err) {
         const errorClass = classifyError(err);
@@ -413,7 +433,7 @@ export class ToolExecutor {
         const completedAt = Date.now();
         const hint = buildRecoveryHint(errorClass, tc.name, errMsg);
         const resultContent = safeStringify({ success: false, error: errMsg, _recovery: hint });
-        emit({ type: 'error', toolCallId: tc.id, error: errMsg, startedAt, completedAt });
+        emit({ kind: 'error', toolCallId: tc.id, error: errMsg, startedAt, completedAt });
         return { tc, resultContent, success: false };
       }
     }
@@ -433,7 +453,7 @@ export class ToolExecutor {
     toolCalls: LLMToolCall[],
     activeToolNames: Set<string>,
     discoveredToolNames: Set<string>,
-    emit: (event: AgentEvent) => void,
+    emit: StreamEmit,
     messages: Array<{ role: string; content: string; toolCallId?: string }>,
     isCancelledOrAborted: () => boolean,
     pendingResolvers: Map<string, (approved: boolean) => void>,
@@ -486,24 +506,30 @@ export class ToolExecutor {
             const option = opt as { label?: string; description?: string };
             return { label: option.label ?? '', description: option.description };
           });
-          emit({ type: 'tool_question', toolName: tc.name, toolCallId: tc.id, question, options: questionOptions });
+          emit({ kind: 'tool_question', toolName: tc.name, toolCallId: tc.id, question, options: questionOptions });
           const answer = await new Promise<string>((resolve) => {
             pendingQuestionResolvers.set(tc.id, resolve);
           });
           const answerPayload = { success: true, data: { answer } };
-          emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: answerPayload });
+          const answeredAt = Date.now();
+          emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: answerPayload, startedAt: answeredAt, completedAt: answeredAt });
           messages.push({ role: 'tool', content: safeStringify(answerPayload), toolCallId: tc.id });
         } else {
           // needs-confirmation path
           const tool = this.tools.get(tc.name);
-          const tier = tool?.tier ?? 1;
-          emit({ type: 'tool_confirm', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, tier });
+          // If the tool is registered, trust its declared tier (register()
+          // rejects any tool without one). Unknown tools are edge-of-map
+          // — show the highest stakes so the user can't be surprised by a
+          // misleadingly safe label.
+          const tier = tool?.tier ?? 4;
+          emit({ kind: 'tool_confirm', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, tier });
           const approved = await new Promise<boolean>((resolve) => {
             pendingResolvers.set(tc.id, resolve);
           });
           if (!approved) {
             const skippedPayload = { success: false, error: 'Tool execution skipped by user' };
-            emit({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: skippedPayload });
+            const skippedAt = Date.now();
+            emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: skippedPayload, startedAt: skippedAt, completedAt: skippedAt });
             messages.push({ role: 'tool', content: safeStringify(skippedPayload), toolCallId: tc.id });
           } else {
             const res = await this.executeSingle(tc, activeToolNames, discoveredToolNames, emit);
@@ -561,7 +587,9 @@ export class ToolExecutor {
   private isInteractive(tc: LLMToolCall, mode: string): boolean {
     if (tc.name === 'commander.askUser') return true;
     const tool = this.tools.get(tc.name);
-    const tier = tool?.tier ?? 1;
+    // Unknown tool → treat as tier 4 so the highest-stakes confirmation
+    // gate triggers. Registered tools always have tier (register() guard).
+    const tier = tool?.tier ?? 4;
     return needsConfirmation(tier, mode);
   }
 }

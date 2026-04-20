@@ -1,13 +1,14 @@
 import type {
   Capability,
   LLMAdapter,
-  LLMCompletionResult,
+  LLMStreamEvent,
   LLMMessage,
   LLMRequestOptions,
   LLMToolCall,
   ProviderProfile,
 } from '@lucid-fin/contracts';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import { oneShotStream } from './one-shot-stream.js';
 
 type CohereAdapterConfig = {
   id?: string;
@@ -90,11 +91,12 @@ export class CohereLLMAdapter implements LLMAdapter {
   async completeWithTools(
     messages: LLMMessage[],
     opts?: LLMRequestOptions,
-  ): Promise<LLMCompletionResult> {
+  ): Promise<AsyncIterable<LLMStreamEvent>> {
     const res = await fetch(`${this.baseUrl}/chat`, {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(this.buildBody(messages, opts)),
+      signal: opts?.signal,
     });
     if (!res.ok) this.throwError(res.status);
 
@@ -115,16 +117,18 @@ export class CohereLLMAdapter implements LLMAdapter {
           : toolCall.function?.arguments ?? {},
     }));
 
-    return {
+    const finishReason: 'tool_calls' | 'length' | 'stop' =
+      toolCalls.length > 0
+        ? 'tool_calls'
+        : data.finish_reason === 'MAX_TOKENS'
+          ? 'length'
+          : 'stop';
+
+    return oneShotStream({
       content: data.message?.content?.map((entry) => entry.text ?? '').join('') ?? '',
       toolCalls,
-      finishReason:
-        toolCalls.length > 0
-          ? 'tool_calls'
-          : data.finish_reason === 'MAX_TOKENS'
-            ? 'length'
-            : 'stop',
-    };
+      finishReason,
+    });
   }
 
   private headers(): Record<string, string> {

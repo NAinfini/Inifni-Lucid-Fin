@@ -1,8 +1,11 @@
 import type {
   LLMAdapter,
   LLMMessage,
-  LLMCompletionResult,
+  LLMStreamEvent,
+  LLMToolCall,
+  LLMFinishReason,
   ProviderProfile,
+  CommanderStreamEvent,
 } from '@lucid-fin/contracts';
 import { LucidError, DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
 import type { AgentToolRegistry } from './tool-registry.js';
@@ -33,23 +36,33 @@ import { ContextGraph } from './graph/context-graph.js';
 import { serializeForOpenAI } from './graph/serializers/openai.js';
 import { freshContextItemId } from '@lucid-fin/contracts-parse';
 import type { ContextItem, ToolKey, LLMToolDefinition } from '@lucid-fin/contracts';
+import {
+  type StampedStreamEvent,
+  type StreamEmit,
+  makeStampedEmit,
+} from './stream-emit.js';
+import { freshRunId } from './agent-run-id.js';
 
 // Re-export types so consumers don't break
 export type { AgentContext, HistoryEntry };
+export type { StampedStreamEvent, StreamEmit };
 
-export interface AgentEvent {
-  type: 'tool_call' | 'tool_result' | 'stream_chunk' | 'error' | 'done' | 'tool_confirm' | 'tool_question' | 'thinking';
-  toolName?: string;
-  toolCallId?: string;
-  arguments?: Record<string, unknown>;
-  result?: unknown;
-  content?: string;
-  error?: string;
-  tier?: number;
-  question?: string;
-  options?: Array<{ label: string; description?: string }>;
-  startedAt?: number;
-  completedAt?: number;
+// Re-export CommanderStreamEvent for main-process handlers that plug directly
+// into the orchestrator's emit surface.
+export type AgentStreamEvent = CommanderStreamEvent;
+
+/**
+ * Orchestrator-internal completion shape. Adapters no longer return this —
+ * they expose an `AsyncIterable<LLMStreamEvent>` that the orchestrator folds
+ * into this shape while also forwarding every delta to the renderer. Keeps
+ * the rest of the agent loop (tool-call dispatch, dedup, finish detection)
+ * unchanged.
+ */
+interface OrchestratorCompletion {
+  content: string;
+  reasoning?: string;
+  toolCalls: LLMToolCall[];
+  finishReason: LLMFinishReason;
 }
 
 export interface AgentOptions {
@@ -132,12 +145,12 @@ function stripInjectedParamsFromTool(
  * graph serializer's reverse map feeds it directly.
  */
 function destructResponse(
-  raw: LLMCompletionResult,
+  raw: OrchestratorCompletion,
   reverseMap: ReadonlyMap<string, string>,
-): LLMCompletionResult {
+): OrchestratorCompletion {
   if (!raw.toolCalls || raw.toolCalls.length === 0) return raw;
   const seenIds = new Set<string>();
-  const deduped: LLMCompletionResult['toolCalls'] = [];
+  const deduped: LLMToolCall[] = [];
   for (const tc of raw.toolCalls) {
     if (seenIds.has(tc.id)) continue;
     seenIds.add(tc.id);
@@ -167,6 +180,26 @@ export class AgentOrchestrator {
   private pendingQuestionResolvers = new Map<string, (answer: string) => void>();
   private activeMessages: LLMMessage[] | null = null;
   private _cancelled = false;
+  /**
+   * Per-run controller. `cancel()` aborts it to propagate into in-flight
+   * fetch streams and iterators; a fresh controller is installed at the
+   * start of every `execute()` so a prior cancel can't pre-poison the next
+   * run.
+   */
+  private _abortController: AbortController | null = null;
+  /**
+   * Step-level controller. `cancelCurrentStep()` aborts just this
+   * controller, so the active LLM fetch ends but the agent loop survives
+   * and can either retry the same step or move on. Replaced at the start
+   * of each step.
+   */
+  private _currentStepController: AbortController | null = null;
+  /**
+   * Timestamp of the most recent step-abort, used to detect a
+   * "double-tap" cancel: if the user hits the button twice within
+   * ESCALATE_WINDOW_MS we escalate to a full run abort.
+   */
+  private _lastStepAbortAt = 0;
   private transcriptIndex: TranscriptIndex;
   /** Cached tool schema JSON to avoid re-serialization each step. */
   private _lastToolSchemaJson = '';
@@ -278,12 +311,35 @@ export class AgentOrchestrator {
   /** Cancel the running agent. Resolves all pending promises so the loop unblocks. */
   cancel(): void {
     this._cancelled = true;
+    // Stage 1: abort the in-flight fetch / iterator so the LLM stream ends fast.
+    this._abortController?.abort();
+    this._currentStepController?.abort();
+    // Stage 2: resolve anything waiting on user input so the agent loop unwinds.
     const resolvers = [...this.pendingResolvers.values()];
     this.pendingResolvers.clear();
     for (const resolve of resolvers) resolve(false);
     const questionResolvers = [...this.pendingQuestionResolvers.values()];
     this.pendingQuestionResolvers.clear();
     for (const resolve of questionResolvers) resolve('');
+  }
+
+  /**
+   * Abort only the currently-running LLM step — the agent loop stays
+   * alive, the abort is caught by `completeWithRetry` as a Cancelled
+   * error, and the retry machinery kicks in. If the user hits this twice
+   * within ESCALATE_WINDOW_MS we escalate to a full `cancel()` on the
+   * assumption the single-step retry isn't doing what they want.
+   */
+  cancelCurrentStep(): { escalated: boolean } {
+    const ESCALATE_WINDOW_MS = 2000;
+    const now = Date.now();
+    if (now - this._lastStepAbortAt < ESCALATE_WINDOW_MS) {
+      this.cancel();
+      return { escalated: true };
+    }
+    this._lastStepAbortAt = now;
+    this._currentStepController?.abort();
+    return { escalated: false };
   }
 
   /**
@@ -303,9 +359,9 @@ export class AgentOrchestrator {
   async execute(
     userMessage: string,
     context: AgentContext,
-    emit: (event: AgentEvent) => void,
+    emit: (event: StampedStreamEvent) => void,
     options?: AgentExecutionOptions,
-  ): Promise<LLMCompletionResult> {
+  ): Promise<OrchestratorCompletion> {
     const loadedToolNames = new Set<string>(ALWAYS_LOADED_TOOLS);
     const discoveredToolNames = new Set<string>(options?.discoveredTools ?? []);
     let systemPrompt = this.contextManager.buildSystemPrompt(context, 1);
@@ -319,13 +375,6 @@ export class AgentOrchestrator {
       ? effectiveCtx * ESTIMATED_CHARS_PER_TOKEN
       : HISTORY_CHAR_BUDGET_FALLBACK;
     const history = pruneHistory(options?.history, historyCharBudget);
-
-    if (userCtx && detectedCtx && userCtx < detectedCtx) {
-      emit({
-        type: 'stream_chunk',
-        content: `[Note: Your configured context window (${userCtx.toLocaleString()} tokens) is smaller than the model's actual context (${detectedCtx.toLocaleString()} tokens). Using your configured value.]\n`,
-      });
-    }
 
     // 95% utilization ceiling (or provider-specific)
     const maxUtil = this.profile.maxUtilization ?? 0.95;
@@ -350,10 +399,23 @@ export class AgentOrchestrator {
     ];
 
     let steps = 0;
-    let lastResult: LLMCompletionResult = { content: '', toolCalls: [], finishReason: 'stop' };
+    let lastResult: OrchestratorCompletion = { content: '', toolCalls: [], finishReason: 'stop' };
     const toolLastUsedStep = new Map<string, number>();
     for (const name of ALWAYS_LOADED_TOOLS) {
       toolLastUsedStep.set(name, 0);
+    }
+
+    const runId = freshRunId();
+    // `steps` is captured by closure so every emit reads the current step.
+    // This stamped wrapper is the only emit surface used — raw `emit` is
+    // intentionally never touched directly after this point.
+    const wrappedEmit: StreamEmit = makeStampedEmit(runId, () => steps, emit);
+
+    if (userCtx && detectedCtx && userCtx < detectedCtx) {
+      wrappedEmit({
+        kind: 'chunk',
+        content: `[Note: Your configured context window (${userCtx.toLocaleString()} tokens) is smaller than the model's actual context (${detectedCtx.toLocaleString()} tokens). Using your configured value.]\n`,
+      });
     }
 
     this.activeProcessPromptSteps.clear();
@@ -364,6 +426,9 @@ export class AgentOrchestrator {
     truncateOldToolResults(messages);
     this.injectedMessageCount = 0;
     this._cancelled = false;
+    this._abortController = new AbortController();
+    this._currentStepController = null;
+    this._lastStepAbortAt = 0;
 
     this.transcriptIndex = new TranscriptIndex();
 
@@ -409,14 +474,10 @@ export class AgentOrchestrator {
       },
     });
 
-    const wrappedEmit: typeof emit = (event) => {
-      emit(event);
-    };
-
     try {
       while (steps < this.maxSteps) {
         if (this._cancelled || options?.isAborted?.()) {
-          wrappedEmit({ type: 'done', content: 'Cancelled.' });
+          wrappedEmit({ kind: 'done', content: 'Cancelled.' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
         }
 
@@ -521,31 +582,52 @@ export class AgentOrchestrator {
           utilizationRatio: ctxWindow > 0 ? estimatedTokensUsed / ctxWindow : 0,
         });
 
-        // Clear previous thinking before new LLM call
-        wrappedEmit({ type: 'thinking', content: '' });
-
-        const rawResult = await this.completeWithRetry(wireMessages, {
-          tools: wireTools.length > 0 ? wireTools : undefined,
-          toolChoice: wireTools.length > 0 ? 'auto' : undefined,
-          temperature: this.temperature,
-          maxTokens: this.maxTokens,
+        // Emit the context-usage wire event from here so `runId`/`step` are
+        // stamped automatically. Keeps the IPC handler's `onLLMRequest` hook
+        // as a log-only observer — it can no longer desync from the wire.
+        wrappedEmit({
+          kind: 'context_usage',
+          estimatedTokensUsed,
+          contextWindowTokens: ctxWindow,
+          messageCount: wireMessages.length,
+          systemPromptChars: systemPrompt.length,
+          toolSchemaChars: this._lastToolSchemaChars,
+          messageChars: measureMessageChars(messages),
+          cacheChars: entityCacheBlock.length,
+          cacheEntryCount: graphToolResultCount,
+          historyMessagesTrimmed,
+          utilizationRatio: ctxWindow > 0 ? estimatedTokensUsed / ctxWindow : 0,
         });
+
+        // Clear previous thinking before new LLM call — sends an empty
+        // `thinking_delta` so the renderer can reset its thinking buffer
+        // at the start of a fresh step.
+        wrappedEmit({ kind: 'thinking_delta', content: '' });
+
+        const rawResult = await this.completeWithRetry(
+          wireMessages,
+          {
+            tools: wireTools.length > 0 ? wireTools : undefined,
+            toolChoice: wireTools.length > 0 ? 'auto' : undefined,
+            temperature: this.temperature,
+            maxTokens: this.maxTokens,
+            signal: this._abortController?.signal,
+          },
+          wrappedEmit,
+          () => this._cancelled || (options?.isAborted?.() ?? false),
+        );
 
         // Un-sanitize tool names and dedup tool call IDs using the graph
         // serializer's reverse map.
         lastResult = destructResponse(rawResult, graphReverseMap);
 
-        if (lastResult.reasoning) {
-          wrappedEmit({ type: 'thinking', content: lastResult.reasoning });
-        }
-        if (lastResult.content) {
-          wrappedEmit({ type: 'stream_chunk', content: lastResult.content });
-        }
+        // Deltas already streamed to the renderer via `drainLLMStream` — no
+        // post-hoc `thinking`/`chunk` re-emit needed.
 
         // No tool calls -- done.
         if (lastResult.toolCalls.length === 0 || lastResult.finishReason !== 'tool_calls') {
           const finalContent = lastResult.content || (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
-          wrappedEmit({ type: 'done', content: finalContent });
+          wrappedEmit({ kind: 'done', content: finalContent });
           return lastResult;
         }
 
@@ -571,7 +653,7 @@ export class AgentOrchestrator {
           // "extra step" is legible rather than looking like a stall.
           const labels = deferredCategories.map((key) => getProcessCategoryName(key)).join(', ');
           wrappedEmit({
-            type: 'thinking',
+            kind: 'thinking_delta',
             content: `Loading process guidance: ${labels}`,
           });
           // Drop the would-be assistant turn — we haven't pushed it yet,
@@ -609,7 +691,7 @@ export class AgentOrchestrator {
         );
 
         if (cancelled) {
-          wrappedEmit({ type: 'done', content: 'Cancelled.' });
+          wrappedEmit({ kind: 'done', content: 'Cancelled.' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
         }
 
@@ -736,7 +818,7 @@ export class AgentOrchestrator {
       const finalContent = lastResult.content
         ? `${lastResult.content}\n\n${limitMsg}`
         : limitMsg;
-      wrappedEmit({ type: 'done', content: finalContent });
+      wrappedEmit({ kind: 'done', content: finalContent });
       return lastResult;
     } finally {
       // G2-5: snapshot the final graph BEFORE clearing so
@@ -760,22 +842,189 @@ export class AgentOrchestrator {
   private async completeWithRetry(
     messages: LLMMessage[],
     opts: Parameters<LLMAdapter['completeWithTools']>[1],
+    wrappedEmit: StreamEmit,
+    isAborted: () => boolean,
     maxRetries = 2,
-  ): Promise<LLMCompletionResult> {
+  ): Promise<OrchestratorCompletion> {
+    // PRD params: base 500ms, cap 8000ms, max 3 attempts → 2 retries beyond
+    // the initial try. The caller-supplied `maxRetries` default matches, so
+    // the signature stays compatible with existing callers.
+    const BASE_MS = 500;
+    const MAX_MS = 8000;
     let lastErr: unknown;
     for (let i = 0; i <= maxRetries; i++) {
+      // Install a fresh step-level controller each attempt so a cancel
+      // from the prior attempt can't leak across the retry boundary.
+      // Combined with the run-level signal so either aborts the fetch.
+      this._currentStepController = new AbortController();
+      const stepSignal = this._currentStepController.signal;
+      const runSignal = opts?.signal;
+      const combined = runSignal ? AbortSignal.any([runSignal, stepSignal]) : stepSignal;
+      const stepOpts = { ...opts, signal: combined };
       try {
-        return await this.adapter.completeWithTools(messages, opts);
+        const stream = await this.adapter.completeWithTools(messages, stepOpts);
+        return await this.drainLLMStream(stream, wrappedEmit, isAborted);
       } catch (err) {
         lastErr = err;
-        const isRetryable =
+        // Step-cancel: a user-initiated step abort lands here as a
+        // LucidError(CANCELLED). Treat it like a retryable transient so
+        // the loop gets another shot with a fresh step controller.
+        const isStepCancel =
           err instanceof LucidError &&
-          (err.code === 'SERVICE_UNAVAILABLE' || err.code === 'RATE_LIMITED');
-        if (!isRetryable || i === maxRetries) throw err;
-        await new Promise((r) => setTimeout(r, 1000 * (i + 1)));
+          err.code === 'CANCELLED' &&
+          !this._cancelled;
+        const isRetryable =
+          isStepCancel ||
+          (err instanceof LucidError &&
+            (err.code === 'SERVICE_UNAVAILABLE' || err.code === 'RATE_LIMITED'));
+        if (!isRetryable || i === maxRetries || isAborted()) throw err;
+        // Exponential backoff with full jitter per AWS guidance:
+        //   cap   = min(MAX_MS, BASE_MS * 2^i)
+        //   delay = random(0, cap)
+        // Full jitter avoids thundering-herd retries under shared rate limits.
+        // Step-cancel retries don't backoff — the user asked to skip
+        // the current step, so we fire the next attempt immediately.
+        const cap = isStepCancel ? 0 : Math.min(MAX_MS, BASE_MS * Math.pow(2, i));
+        const delay = cap === 0 ? 0 : Math.floor(Math.random() * cap);
+        const attemptNum = i + 2; // human-facing: "attempt 2 of 3"
+        const totalAttempts = maxRetries + 1;
+        // Flag stall-triggered retries so the UI/telemetry can distinguish
+        // them from generic transient failures. The adapter's
+        // `withStallTimeout` puts `timeoutMs` in `details` when it throws.
+        const errDetails =
+          err instanceof LucidError && typeof err.details === 'object'
+            ? (err.details as Record<string, unknown>)
+            : {};
+        const isStall = typeof errDetails.timeoutMs === 'number';
+        const reason = isStepCancel
+          ? 'step_cancel'
+          : isStall
+            ? 'stall'
+            : err instanceof LucidError
+              ? err.code
+              : 'transient';
+        wrappedEmit({
+          kind: 'phase_note',
+          note: 'llm_retry',
+          detail: `attempt ${attemptNum} of ${totalAttempts} after ${delay}ms (${reason})`,
+        });
+        if (delay > 0) await new Promise((r) => setTimeout(r, delay));
       }
     }
     throw lastErr;
+  }
+
+  /**
+   * Fold an LLMStreamEvent async iterable into an OrchestratorCompletion while
+   * forwarding each event to the renderer as its wire-schema counterpart.
+   *
+   * Mapping:
+   *   reasoning_delta   → thinking_delta
+   *   text_delta        → chunk (accumulated into content)
+   *   tool_call_started → tool_call_started
+   *   tool_call_args_delta → tool_call_args_delta
+   *   tool_call_complete → tool_call_args_complete + sinks to toolCalls[]
+   *   usage             → (no wire emit; usage isn't on the commander stream yet)
+   *   finished          → finishReason capture (no wire emit; `done` is sent
+   *                       by the caller once the whole run ends)
+   *
+   * Tool call IDs are never remapped here — the graph serializer's reverse
+   * map is applied by `destructResponse` after this returns.
+   */
+  private async drainLLMStream(
+    stream: AsyncIterable<LLMStreamEvent>,
+    wrappedEmit: StreamEmit,
+    isAborted: () => boolean,
+  ): Promise<OrchestratorCompletion> {
+    let content = '';
+    let reasoning = '';
+    const toolCallsById = new Map<string, LLMToolCall>();
+    const toolOrder: string[] = [];
+    let finishReason: LLMFinishReason = 'stop';
+
+    // Stall detection lives inside each adapter (see `withStallTimeout`)
+    // at byte-level granularity; the orchestrator just drains whatever
+    // the adapter yields. If the socket is dead, the adapter throws a
+    // SERVICE_UNAVAILABLE error which `completeWithRetry` treats as
+    // retryable. `iterator.return()` is still called in `finally` so a
+    // mid-drain abort propagates back into the producer.
+    const iterator = stream[Symbol.asyncIterator]();
+    try {
+      while (true) {
+        if (isAborted()) break;
+        const next: IteratorResult<LLMStreamEvent> = await iterator.next();
+        if (next.done) break;
+        const event = next.value;
+        switch (event.kind) {
+          case 'reasoning_delta':
+            reasoning += event.delta;
+            wrappedEmit({ kind: 'thinking_delta', content: event.delta });
+            break;
+          case 'text_delta':
+            content += event.delta;
+            wrappedEmit({ kind: 'chunk', content: event.delta });
+            break;
+          case 'tool_call_started':
+            if (!toolCallsById.has(event.id)) {
+              toolOrder.push(event.id);
+              toolCallsById.set(event.id, { id: event.id, name: event.name, arguments: {} });
+            }
+            wrappedEmit({
+              kind: 'tool_call_started',
+              toolName: event.name,
+              toolCallId: event.id,
+              startedAt: Date.now(),
+            });
+            break;
+          case 'tool_call_args_delta':
+            wrappedEmit({
+              kind: 'tool_call_args_delta',
+              toolCallId: event.id,
+              delta: event.delta,
+            });
+            break;
+          case 'tool_call_complete': {
+            const existing = toolCallsById.get(event.id);
+            if (existing) {
+              existing.name = event.name || existing.name;
+              existing.arguments = event.arguments;
+            } else {
+              toolOrder.push(event.id);
+              toolCallsById.set(event.id, { id: event.id, name: event.name, arguments: event.arguments });
+            }
+            wrappedEmit({
+              kind: 'tool_call_args_complete',
+              toolCallId: event.id,
+              arguments: event.arguments,
+            });
+            break;
+          }
+          case 'usage':
+            // Usage aggregation is handled by the context_usage emit the loop
+            // already computes at the top of each step — nothing extra to wire
+            // through. Kept as a recognised case so the exhaustive switch holds.
+            break;
+          case 'finished':
+            finishReason = event.finishReason;
+            break;
+        }
+      }
+    } finally {
+      // Ensure the producer sees cancellation even if we broke out early
+      // (abort, downstream threw). Fire-and-forget: a pathologically
+      // hung iterator (dead socket, stuck `await new Promise(()=>{})`)
+      // would deadlock if we awaited return().
+      iterator.return?.()?.catch(() => {
+        /* swallow — cleanup only */
+      });
+    }
+
+    return {
+      content,
+      reasoning: reasoning || undefined,
+      toolCalls: toolOrder.map((id) => toolCallsById.get(id)!).filter(Boolean),
+      finishReason,
+    };
   }
 
   /**
@@ -807,7 +1056,7 @@ export class AgentOrchestrator {
 
   private activateProcessPrompts(
     messages: LLMMessage[],
-    toolCalls: ReadonlyArray<LLMCompletionResult['toolCalls'][number]>,
+    toolCalls: ReadonlyArray<LLMToolCall>,
     step: number,
   ): void {
     if (!this.resolveProcessPrompt || toolCalls.length === 0) return;
@@ -849,7 +1098,7 @@ export class AgentOrchestrator {
    */
   private primeProcessPromptsForToolCalls(
     messages: LLMMessage[],
-    toolCalls: ReadonlyArray<LLMCompletionResult['toolCalls'][number]>,
+    toolCalls: ReadonlyArray<LLMToolCall>,
     step: number,
   ): ProcessCategory[] {
     if (!this.resolveProcessPrompt || toolCalls.length === 0) return [];

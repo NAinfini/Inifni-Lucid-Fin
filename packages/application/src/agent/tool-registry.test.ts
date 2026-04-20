@@ -7,6 +7,7 @@ describe('AgentToolRegistry', () => {
     const tool: AgentTool = {
       name: 'test.tool',
       description: 'A test tool',
+      tier: 1,
       parameters: {
         type: 'object',
         properties: { input: { type: 'string', description: 'test' } },
@@ -25,6 +26,7 @@ describe('AgentToolRegistry', () => {
       name: 'script.convert',
       description: 'Convert novel to script',
       context: ['script-editor'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -32,6 +34,7 @@ describe('AgentToolRegistry', () => {
       name: 'character.extract',
       description: 'Extract characters',
       context: ['script-editor', 'character-studio'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -39,6 +42,7 @@ describe('AgentToolRegistry', () => {
       name: 'segment.update',
       description: 'Update segment',
       context: ['orchestrator'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -62,6 +66,7 @@ describe('AgentToolRegistry', () => {
     registry.register({
       name: 'test.tool',
       description: 'test',
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: mockExecute,
     });
@@ -82,6 +87,7 @@ describe('AgentToolRegistry', () => {
     registry.register({
       name: 'test.tool',
       description: 'A test tool',
+      tier: 1,
       parameters: {
         type: 'object',
         properties: { input: { type: 'string', description: 'test input' } },
@@ -103,6 +109,7 @@ describe('AgentToolRegistry', () => {
       name: 'a',
       description: 'a',
       context: ['page-a'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -110,6 +117,7 @@ describe('AgentToolRegistry', () => {
       name: 'b',
       description: 'b',
       context: ['page-b'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -126,6 +134,7 @@ describe('AgentToolRegistry', () => {
       description: 'Search nodes on the canvas',
       tags: ['canvas', 'read', 'search'],
       context: ['canvas'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -133,6 +142,7 @@ describe('AgentToolRegistry', () => {
       name: 'character.list',
       description: 'Search characters',
       tags: ['character', 'read', 'search'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
@@ -141,6 +151,7 @@ describe('AgentToolRegistry', () => {
       description: 'Delete a node',
       tags: ['canvas', 'mutate'],
       context: ['canvas'],
+      tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });

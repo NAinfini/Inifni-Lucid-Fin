@@ -1,8 +1,31 @@
-import { LOCATION_STANDARD_SLOTS, type Canvas, type Location } from '@lucid-fin/contracts';
+import {
+  locationViewToSlot,
+  type Canvas,
+  type Location,
+  type LocationRefImageView,
+} from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
 import { createRefImageTools } from './ref-image-factory.js';
-import { extractSet, warnExtraKeys, requireString } from './tool-result-helpers.js';
+import { extractSet, warnExtraKeys, requireString, requireSetString } from './tool-result-helpers.js';
 import { buildLocationRefImagePrompt } from './location-prompt.js';
+
+function parseLocationView(raw: unknown): LocationRefImageView {
+  if (raw === undefined || raw === null) return { kind: 'bible' };
+  if (typeof raw !== 'object') {
+    throw new Error('view must be an object: { kind: "bible" | "fake-360" | "extra-angle", angle?: string }');
+  }
+  const obj = raw as Record<string, unknown>;
+  const kind = obj.kind;
+  if (kind === 'bible') return { kind: 'bible' };
+  if (kind === 'fake-360') return { kind: 'fake-360' };
+  if (kind === 'extra-angle') {
+    if (typeof obj.angle !== 'string' || obj.angle.trim().length === 0) {
+      throw new Error('view.angle is required when kind=extra-angle');
+    }
+    return { kind: 'extra-angle', angle: obj.angle.trim() };
+  }
+  throw new Error(`view.kind must be "bible", "fake-360", or "extra-angle" (got ${String(kind)})`);
+}
 
 const VALID_LOCATION_TYPES = new Set<NonNullable<Location['type']>>(['interior', 'exterior', 'int-ext']);
 
@@ -97,9 +120,10 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const now = Date.now();
+        const name = requireString(args, 'name');
         const location: Location = {
           id: crypto.randomUUID(),
-          name: args.name as string,
+          name,
           type: normalizeLocationType(args.type) ?? 'interior',
           subLocation: typeof args.subLocation === 'string' ? args.subLocation : undefined,
           description: args.description as string,
@@ -167,7 +191,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
         const warnings = warnExtraKeys(args);
         const updated: Location = {
           ...existing,
-          ...(set.name !== undefined && { name: set.name as string }),
+          ...(set.name !== undefined && { name: requireSetString(set, 'name') }),
           ...(normalizeLocationType(set.type) !== undefined && { type: normalizeLocationType(set.type) }),
           ...(set.subLocation !== undefined && { subLocation: set.subLocation as string }),
           ...(set.description !== undefined && { description: set.description as string }),
@@ -213,11 +237,16 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
-  const locationRefImages = createRefImageTools<Location>({
+  const locationRefImages = createRefImageTools<Location, LocationRefImageView>({
     toolNamePrefix: 'location',
     entityLabel: 'location',
     tags: ['location', 'generation', 'mutate'],
-    description: 'Manage reference images for a location. Supports generate (auto-compiles location fields into prompt), set (assign by assetHash), delete (remove slot), and setFromNode (pull asset from a canvas image node). IMPORTANT for generate: Call ONE at a time, verify success before generating the next. Never batch parallel generation calls.',
+    description:
+      'Manage reference images for a location. '
+      + 'Default view kind "bible" produces ONE five-frame composite (wide establish + detail + atmosphere + two key angles). '
+      + 'Use view={kind:"fake-360"} for an 8-panel pseudo-panorama when you need full-perimeter coverage. '
+      + 'Use view={kind:"extra-angle", angle:"<free form>"} for custom perspectives. '
+      + 'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
     getEntity: async (id) => {
       const locations = await deps.listLocations();
       return locations.find((l) => l.id === id) ?? null;
@@ -225,15 +254,10 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     saveEntity: deps.saveLocation,
     generateImage: deps.generateImage,
     getCanvas: deps.getCanvas,
+    parseView: parseLocationView,
     buildPrompt: buildLocationRefImagePrompt,
-    isStandardSlot: (slot) =>
-      slot === 'main' ||
-      LOCATION_STANDARD_SLOTS.includes(slot as (typeof LOCATION_STANDARD_SLOTS)[number]),
-    // Advertise canonical slots + `main` (which the prompt builder aliases to
-    // `wide-establishing`). The enum prevents the model from inventing
-    // strings like "portrait-main" that would slip through the runtime
-    // fallback.
-    slotEnum: ['main', ...LOCATION_STANDARD_SLOTS],
+    viewToSlot: locationViewToSlot,
+    kindEnum: ['bible', 'fake-360', 'extra-angle'],
     defaultWidth: 2048,
     defaultHeight: 1360,
   });
