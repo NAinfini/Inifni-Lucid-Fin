@@ -18,6 +18,8 @@ import {
   buildDuplicatedNodes,
   layoutCanvasNodes,
   autoPositionNode,
+  TypedToolError,
+  formatValidationError,
 } from './canvas-tool-utils.js';
 
 export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[]; clipboardRef: { nodes: CanvasNode[] } } {
@@ -561,9 +563,13 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
   const batchCreate: AgentTool = {
     name: 'canvas.batchCreate',
     description:
-      'Bulk create multiple nodes and edges. Edges use fromIndex/toIndex (0-based) referencing the nodes array. ' +
-      'Nodes are auto-arranged in columns by type and edge role: first-frame images (left) | video (center) | last-frame images (right) | text/audio (far right). ' +
-      'For each video shot, include BOTH a first-frame image node AND a last-frame image node, with edges image→video (first frame) and video→image (last frame).',
+      [
+        'REQUIRED: nodes (non-empty array). Do NOT call with no arguments — it always fails. If you want to add a single node, canvas.addNode may be simpler. If you only want to connect existing nodes, call canvas.connectNodes instead. Example: canvas.batchCreate({ canvasId, nodes: [{ type: "text", title: "Scene 1", content: "Opening..." }], edges: [] }).',
+        '',
+        'Bulk create multiple nodes and edges. Edges use fromIndex/toIndex (0-based) referencing the nodes array. ' +
+          'Nodes are auto-arranged in columns by type and edge role: first-frame images (left) | video (center) | last-frame images (right) | text/audio (far right). ' +
+          'For each video shot, include BOTH a first-frame image node AND a last-frame image node, with edges image→video (first frame) and video→image (last frame).',
+      ].join('\n'),
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -572,7 +578,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodes: {
           type: 'array',
-          description: 'Array of nodes to create.',
+          description: 'REQUIRED. Non-empty array of nodes to create.',
           items: {
             type: 'object',
             description: 'A node descriptor.',
@@ -602,11 +608,20 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
     },
     async execute(args) {
       try {
+        if (!Array.isArray(args.nodes) || args.nodes.length === 0) {
+          throw new TypedToolError(
+            formatValidationError(
+              'canvas.batchCreate',
+              'nodes',
+              'must be a non-empty array',
+              args,
+              'If you want to add a single node, canvas.addNode may be simpler. If you only want to connect existing nodes, call canvas.connectNodes.',
+            ),
+            'validation',
+          );
+        }
         const canvasId = requireString(args, 'canvasId');
         const canvas = await requireCanvas(deps, canvasId);
-        if (!Array.isArray(args.nodes) || args.nodes.length === 0) {
-          throw new Error('nodes array is required and must not be empty');
-        }
 
         const maxX = canvas.nodes.reduce(
           (max, n) => Math.max(max, n.position.x + (n.width ?? 200)),

@@ -13,7 +13,7 @@ import {
 } from '@lucid-fin/contracts';
 import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
 import type { AgentTool } from '../tool-registry.js';
-export { ok, fail, requireString, requireText, requireNumber, requireStringArray, requireBoolean } from './tool-result-helpers.js';
+export { ok, fail, requireString, requireText, requireNumber, requireStringArray, requireBoolean, TypedToolError, formatValidationError } from './tool-result-helpers.js';
 
 export interface CanvasToolDeps {
   getCanvas: (canvasId: string) => Promise<Canvas>;

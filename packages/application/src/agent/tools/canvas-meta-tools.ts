@@ -4,7 +4,18 @@ import { CANVAS_CONTEXT, ok, fail } from './canvas-tool-utils.js';
 const askUser: AgentTool = {
   name: 'commander.askUser',
   description:
-    'MANDATORY: Ask the user a question with clickable options. You MUST call this tool instead of writing questions in your reply text. Every question, confirmation, preference, or clarification MUST go through this tool — never ask via plain text.',
+    [
+      'MANDATORY: Ask the user a question with clickable options. You MUST call this tool instead of writing questions in your reply text.',
+      'Every question, confirmation, preference, or clarification MUST go through this tool — never ask via plain text.',
+      '',
+      'CONTINUATION CONTRACT: After the user answers, you MUST continue the work. Do NOT end the turn with a plain-text acknowledgement or summary of the answer. The minimum acceptable follow-up is one of:',
+      '  1. A concrete mutation tool call (e.g. `canvas.batchCreate`, `canvas.setSettings`, `character.create`) that acts on the answer.',
+      '  2. Another `commander.askUser` ONLY if the answer unlocked a new blocking question — not as a polite check-in.',
+      '  3. A read tool like `workflow.expandIdea` or `guide.get` when additional grounding is clearly required before you can act.',
+      'Ending the turn immediately after `askUser` leaves the canvas empty and the user stranded. That is a bug.',
+      '',
+      'NOT A GREETING: Do not open a session with `askUser` when the user\'s message already contains an actionable brief (a setting, subject, genre, or reference). Act on what they gave you first; reserve `askUser` for clarifications that actually block progress.',
+    ].join('\n'),
   tags: ['meta', 'interaction'],
   tier: 1,
   context: CANVAS_CONTEXT,

@@ -46,3 +46,21 @@ Common failures:
 Related process prompts:
 - Use the "node-preset-tracks", "preset-definition-management", "shot-template-management", and "color-style-management" prompts for deeper track-writing heuristics.
 - Use the "vision-analysis" prompt when the main challenge is extracting reusable style language from a finished frame.
+
+## Terminal commitment
+
+This workflow is an **execution** workflow. If the user's intent is to apply
+style transfer across shots (not just learn about it), it is NOT complete
+until at least one of the following has executed successfully:
+
+- `canvas.batchCreate` — when style is being applied through new preset or reference nodes.
+- `canvas.updateNodes` — when applying the style means updating preset tracks, prompts, or refs on existing shot nodes.
+- `preset.create` / `preset.update` — when the output is a reusable style preset rather than a per-canvas change.
+
+Before ending the turn on an execution intent, confirm the terminal call
+returned `success: true`. Do not finish with a style recipe described in chat
+text and no mutation to the canvas or preset library.
+
+**Information-intent exception**: if the user's message was purely a question
+("what is style transfer?", "explain", "how does X work?"), respond in plain
+text. The guide is also a teaching resource, not a forced action.

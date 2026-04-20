@@ -87,3 +87,22 @@ Common stage-2 failures:
 - Generating the video before the voice node exists.
 - Leaving multiple dialogue nodes connected to one speaking shot without a clear editorial plan.
 - Trying to lip-sync a shot that visually cannot support readable mouth motion.
+
+## Terminal commitment
+
+This workflow is an **execution** workflow. If the user's intent is to set up
+audio on the canvas (not just learn about it), it is NOT complete until at
+least one of the following has executed successfully:
+
+- `canvas.setSettings` — when the change is canvas-scoped audio configuration (provider, lip-sync toggles).
+- `canvas.batchCreate` — when creating voice or dialogue nodes is the output.
+- `canvas.setVideoParams` — when attaching lip-sync flags to existing video nodes (never `canvas.updateNodes` for this).
+
+Before ending the turn on an execution intent, confirm the terminal call
+returned `success: true`. If the user has not provided enough input, use
+`commander.askUser` to get the missing information — do not finish with a
+planning summary.
+
+**Information-intent exception**: if the user's message was purely a question
+("what is this?", "explain", "how does X work?"), respond in plain text. The
+guide is also a teaching resource, not a forced action.

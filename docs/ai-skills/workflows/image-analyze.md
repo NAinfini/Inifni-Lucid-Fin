@@ -46,3 +46,22 @@ Common failures:
 - Overwriting durable records with speculative details from a single stylized image.
 - Forgetting to reattach entity refs after creating the records.
 - Claiming nonexistent tools such as scene.create; use location.create or location.update instead.
+
+## Terminal commitment
+
+This workflow is an **execution** workflow. If the user's intent is to capture
+what's in an image as durable records (not just learn about it), it is NOT
+complete until at least one of the following has executed successfully:
+
+- `character.create` / `location.create` / `equipment.create` — when the image introduces a new entity worth persisting.
+- `character.update` / `location.update` / `equipment.update` — when updating an existing entity record with newly extracted details.
+- `preset.create` — when the image's value is primarily stylistic and should feed a preset track.
+- `canvas.updateNodes` — when re-attaching entity refs to shot nodes is the actual ask.
+
+Before ending the turn on an execution intent, confirm the terminal call
+returned `success: true`. Do not finish with a description of what the image
+contains and no persisted record.
+
+**Information-intent exception**: if the user's message was purely a question
+("what is this?", "what do you see?", "describe this image"), respond in plain
+text. The guide is also a teaching resource, not a forced action.

@@ -665,4 +665,47 @@ describe('createCanvasTools', () => {
       expect(result).toEqual({ success: false, error: 'Node not found: missing-node' });
     });
   });
+
+  describe('canvas.batchCreate empty-arg validation (04-19 fake-user-study fix)', () => {
+    it('rejects empty args and teaches the model what to send next', async () => {
+      const canvas = createCanvas();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.batchCreate', deps).execute({});
+      expect(result.success).toBe(false);
+      if (result.success === false) {
+        expect(result.error).toContain('canvas.batchCreate');
+        expect(result.error).toContain('"nodes"');
+        expect(result.error).toContain('must be a non-empty array');
+        expect(result.error).toContain('You called it with: {}');
+        expect(result.error).toContain('canvas.addNode');
+        expect(result.error).toContain('canvas.connectNodes');
+        expect(result.errorClass).toBe('validation');
+      }
+    });
+
+    it('rejects edges-only payload with the same teaching error', async () => {
+      const canvas = createCanvas();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.batchCreate', deps).execute({
+        canvasId: 'canvas-1',
+        edges: [{ fromIndex: 0, toIndex: 1 }],
+      });
+      expect(result.success).toBe(false);
+      if (result.success === false) {
+        expect(result.error).toContain('"nodes"');
+        expect(result.error).toContain('must be a non-empty array');
+        expect(result.error).toContain('canvas.connectNodes');
+      }
+    });
+
+    it('accepts a minimal valid payload', async () => {
+      const canvas = createCanvas();
+      const deps = createDeps(canvas);
+      const result = await getTool('canvas.batchCreate', deps).execute({
+        canvasId: 'canvas-1',
+        nodes: [{ type: 'text', title: 'Scene 1', content: 'Opening' }],
+      });
+      expect(result.success).toBe(true);
+    });
+  });
 });

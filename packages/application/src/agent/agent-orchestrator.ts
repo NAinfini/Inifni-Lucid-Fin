@@ -84,6 +84,17 @@ export interface AgentOptions {
     canvasId: string,
     nodeId: string,
   ) => 'image' | 'video' | 'audio' | null;
+  /**
+   * Optional canvas settings lookup used to pre-flight `style-plate-lock`
+   * when the model is about to invoke a generation tool on a canvas whose
+   * `stylePlate` is empty. Side-effect free, synchronous. Returns `null` if
+   * the canvas isn't found; returns `{ stylePlate: null }` (or empty string)
+   * when the plate isn't locked yet. When omitted, the pre-flight path is
+   * simply skipped — existing consumers keep their current behaviour.
+   */
+  resolveCanvasSettings?: (
+    canvasId: string,
+  ) => { stylePlate?: string | null } | null;
 }
 
 export interface AgentExecutionOptions {
@@ -169,6 +180,78 @@ function isProcessCategory(value: unknown): value is ProcessCategory {
   return value in ToolCatalog.byProcess && value !== 'meta';
 }
 
+/**
+ * Free-standing process-prompt keys that are NOT tool-derived categories but
+ * still flow through the same injection/stripping machinery. `style-plate-lock`
+ * is triggered by canvas state (empty stylePlate + generation intent), not by
+ * a tool's `process` field.
+ *
+ * Keep this set small and stable — anything added here must also have a
+ * matching entry in `process-prompt-store.ts` (so `resolveProcessPrompt`
+ * returns real content) and a display-name in `STANDALONE_PROMPT_NAMES`.
+ */
+const STANDALONE_PROCESS_PROMPT_KEYS = new Set<string>(['style-plate-lock']);
+
+const STANDALONE_PROMPT_NAMES: Record<string, string> = {
+  'style-plate-lock': 'Style Plate Lock',
+};
+
+/**
+ * Internal union: process-prompt keys the orchestrator will actually inject.
+ * Widens `ProcessCategory` with the free-standing keys above so the same
+ * activation / stripping / dedup machinery serves both.
+ */
+type ProcessPromptKey = ProcessCategory | 'style-plate-lock';
+
+function isProcessPromptKey(value: unknown): value is ProcessPromptKey {
+  if (typeof value !== 'string') return false;
+  return isProcessCategory(value) || STANDALONE_PROCESS_PROMPT_KEYS.has(value);
+}
+
+function getProcessPromptDisplayName(key: ProcessPromptKey): string {
+  if (isProcessCategory(key)) return getProcessCategoryName(key);
+  return STANDALONE_PROMPT_NAMES[key] ?? key;
+}
+
+/**
+ * Tools that *generate* a visual asset or create a visual node on the canvas.
+ * This set gates the style-plate-lock pre-flight: the moment the model is
+ * about to fire one of these, we check canvas.settings.stylePlate and, if
+ * empty, inject the lock guide before executing anything.
+ *
+ * For tools that mutate the canvas structure (canvas.batchCreate,
+ * canvas.addNode), inspection of the arguments narrows it to payloads that
+ * actually introduce a visual node type — creating a pure text node should
+ * not force a stylePlate lock.
+ */
+function isGenerationTool(name: string, args?: Record<string, unknown>): boolean {
+  if (
+    name === 'canvas.generate'
+    || name === 'character.generateRefImage'
+    || name === 'location.generateRefImage'
+    || name === 'equipment.generateRefImage'
+  ) {
+    return true;
+  }
+
+  if (name === 'canvas.addNode') {
+    const type = typeof args?.type === 'string' ? args.type.trim().toLowerCase() : '';
+    return type === 'image' || type === 'video' || type === 'backdrop';
+  }
+
+  if (name === 'canvas.batchCreate') {
+    const nodes = Array.isArray(args?.nodes) ? (args!.nodes as unknown[]) : [];
+    return nodes.some((node) => {
+      if (!node || typeof node !== 'object') return false;
+      const rawType = (node as Record<string, unknown>).type;
+      const type = typeof rawType === 'string' ? rawType.trim().toLowerCase() : '';
+      return type === 'image' || type === 'video' || type === 'backdrop';
+    });
+  }
+
+  return false;
+}
+
 export class AgentOrchestrator {
   private adapter: LLMAdapter;
   private tools: AgentToolRegistry;
@@ -230,7 +313,27 @@ export class AgentOrchestrator {
     canvasId: string,
     nodeId: string,
   ) => 'image' | 'video' | 'audio' | null;
-  private activeProcessPromptSteps = new Map<ProcessCategory, number>();
+  private readonly resolveCanvasSettings?: (
+    canvasId: string,
+  ) => { stylePlate?: string | null } | null;
+  private activeProcessPromptSteps = new Map<ProcessPromptKey, number>();
+
+  /**
+   * Step at which the model most recently resolved a `commander.askUser`
+   * call. Used by the askUser-continuation safety net to spot the "opener
+   * → askUser → answer → stop" early-exit pattern observed in 9/50 of the
+   * 04-19 study sessions.
+   *
+   * Reset to `null` once a reminder has been injected, or per `execute()`.
+   */
+  private lastAskUserAnsweredStep: number | null = null;
+
+  /**
+   * Per-run guard: the askUser-continuation reminder is injected at most
+   * once per `execute()` call. If the model still refuses to act on the
+   * second try, we let the turn end normally rather than nag forever.
+   */
+  private askUserReminderInjected = false;
 
   /**
    * G2-5: graph-only items carried across sessions via SessionRepository.
@@ -258,6 +361,7 @@ export class AgentOrchestrator {
     this.profile = opts?.profile ?? DEFAULT_PROVIDER_PROFILE;
     this.resolveProcessPrompt = opts?.resolveProcessPrompt;
     this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
+    this.resolveCanvasSettings = opts?.resolveCanvasSettings;
 
     this.contextManager = new ContextManager(adapter, resolvePrompt);
     this.toolExecutor = new ToolExecutor(tools);
@@ -419,6 +523,8 @@ export class AgentOrchestrator {
     }
 
     this.activeProcessPromptSteps.clear();
+    this.lastAskUserAnsweredStep = null;
+    this.askUserReminderInjected = false;
     this.activateInitialProcessPrompts(messages, context);
     this.activeMessages = messages;
 
@@ -626,6 +732,34 @@ export class AgentOrchestrator {
 
         // No tool calls -- done.
         if (lastResult.toolCalls.length === 0 || lastResult.finishReason !== 'tool_calls') {
+          // askUser-continuation safety net.
+          // If the model just resolved a `commander.askUser` and is now
+          // ending the turn with no follow-up action, inject a one-shot
+          // system reminder and loop. Bounded to ONE injection per
+          // execute() — if the model still won't act, we accept the
+          // early exit.
+          if (
+            this.lastAskUserAnsweredStep !== null
+            && this.lastAskUserAnsweredStep === steps - 1
+            && !this.askUserReminderInjected
+          ) {
+            this.askUserReminderInjected = true;
+            this.lastAskUserAnsweredStep = null;
+            if (lastResult.content && lastResult.content.trim().length > 0) {
+              messages.push({ role: 'assistant', content: lastResult.content });
+            }
+            messages.push({
+              role: 'system',
+              content: [
+                '[[askUser-continuation-reminder]]',
+                'You just answered a `commander.askUser` and produced no follow-up tool call.',
+                'Continue the work: call a concrete mutation tool (canvas.batchCreate, canvas.setSettings, character.create, etc.) that acts on the user\'s answer, OR call workflow.expandIdea / guide.get if you need more grounding first.',
+                'Do not end the turn here unless the user explicitly declined to continue.',
+              ].join('\n'),
+            });
+            continue;
+          }
+
           const finalContent = lastResult.content || (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
           wrappedEmit({ kind: 'done', content: finalContent });
           return lastResult;
@@ -643,18 +777,33 @@ export class AgentOrchestrator {
         // so this works in any language and across any tool the catalog
         // knows about. The same `detectProcess` map drives runtime
         // activation below, so there is a single source of truth.
+        //
+        // style-plate-lock is a canvas-state-dependent gate that is NOT
+        // tool-process-derived — it fires when the model is about to run
+        // a generation tool on a canvas whose stylePlate is empty.
+        // Injected ahead of the regular preflight so both can defer in
+        // the same turn.
+        const stylePlatePrimed = this.primeStylePlateLockIfNeeded(
+          messages,
+          lastResult.toolCalls,
+          canvasId,
+          steps,
+        );
         const deferredCategories = this.primeProcessPromptsForToolCalls(
           messages,
           lastResult.toolCalls,
           steps,
         );
-        if (deferredCategories.length > 0) {
+        const deferredLabels: string[] = [
+          ...(stylePlatePrimed ? [getProcessPromptDisplayName('style-plate-lock')] : []),
+          ...deferredCategories.map((key) => getProcessCategoryName(key)),
+        ];
+        if (deferredLabels.length > 0) {
           // Signal to the UI that we paused to load guidance, so the
           // "extra step" is legible rather than looking like a stall.
-          const labels = deferredCategories.map((key) => getProcessCategoryName(key)).join(', ');
           wrappedEmit({
             kind: 'thinking_delta',
-            content: `Loading process guidance: ${labels}`,
+            content: `Loading process guidance: ${deferredLabels.join(', ')}`,
           });
           // Drop the would-be assistant turn — we haven't pushed it yet,
           // so next iteration the model re-plans with the guide in
@@ -693,6 +842,14 @@ export class AgentOrchestrator {
         if (cancelled) {
           wrappedEmit({ kind: 'done', content: 'Cancelled.' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
+        }
+
+        // Track the most recent `commander.askUser` resolution. The
+        // askUser-continuation safety net in the next iteration uses this
+        // to detect openers that end as "ask → answer → stop" with no
+        // mutation.
+        if (lastResult.toolCalls.some((tc) => tc.name === 'commander.askUser')) {
+          this.lastAskUserAnsweredStep = steps;
         }
 
         // Push results for deduplicated tool calls
@@ -1096,6 +1253,58 @@ export class AgentOrchestrator {
    * once this method primes a category, the retroactive activator skips it
    * on subsequent turns (prevents double-injection).
    */
+  /**
+   * Pre-flight style-plate-lock injection.
+   *
+   * Fires once per session, the first time the model is about to invoke a
+   * generation tool (canvas.generate, {character|location|equipment}.generateRefImage,
+   * or a canvas.batchCreate/addNode whose payload creates an image/video/backdrop
+   * node) against a canvas whose `settings.stylePlate` is empty.
+   *
+   * Returns `true` if the prompt was injected this call (caller should
+   * defer the assistant turn so the model re-plans with the guide in
+   * context), `false` otherwise.
+   *
+   * Gated behind `resolveCanvasSettings` — if the main process didn't wire
+   * it, this method is a no-op and behaviour matches pre-04-19 code.
+   */
+  private primeStylePlateLockIfNeeded(
+    messages: LLMMessage[],
+    toolCalls: ReadonlyArray<LLMToolCall>,
+    canvasId: string | undefined,
+    step: number,
+  ): boolean {
+    if (!this.resolveProcessPrompt) return false;
+    if (!this.resolveCanvasSettings) return false;
+    if (!canvasId) return false;
+    if (toolCalls.length === 0) return false;
+    if (this.activeProcessPromptSteps.has('style-plate-lock')) return false;
+
+    if (!toolCalls.some((tc) => isGenerationTool(tc.name, tc.arguments))) return false;
+
+    const settings = this.resolveCanvasSettings(canvasId);
+    const plateUnset = !settings?.stylePlate || settings.stylePlate.trim() === '';
+    if (!plateUnset) return false;
+
+    if (messages.some((message) => this.isProcessPromptMessage(message, 'style-plate-lock'))) {
+      this.activeProcessPromptSteps.set('style-plate-lock', step);
+      return false;
+    }
+
+    // resolveProcessPrompt is typed against ProcessCategory, but its IPC
+    // implementation keys by free-form string (see router.ts:110). Cast is
+    // safe for the standalone keys registered in STANDALONE_PROCESS_PROMPT_KEYS.
+    const prompt = this.resolveProcessPrompt('style-plate-lock' as ProcessCategory);
+    if (!prompt?.trim()) return false;
+
+    this.activeProcessPromptSteps.set('style-plate-lock', step);
+    messages.push({
+      role: 'system',
+      content: this.buildProcessPromptMessage('style-plate-lock', prompt.trim()),
+    });
+    return true;
+  }
+
   private primeProcessPromptsForToolCalls(
     messages: LLMMessage[],
     toolCalls: ReadonlyArray<LLMToolCall>,
@@ -1137,9 +1346,13 @@ export class AgentOrchestrator {
     if (!Array.isArray(requested) || requested.length === 0) return;
 
     for (const entry of requested) {
-      if (!isProcessCategory(entry)) continue;
+      if (!isProcessPromptKey(entry)) continue;
       if (messages.some((message) => this.isProcessPromptMessage(message, entry))) continue;
-      const prompt = this.resolveProcessPrompt(entry);
+      // resolveProcessPrompt is typed as (ProcessCategory) but the IPC
+      // implementation keys by free-form string — see `router.ts:110`. The
+      // cast is safe for standalone keys whose presence in the store is
+      // asserted by STANDALONE_PROCESS_PROMPT_KEYS.
+      const prompt = this.resolveProcessPrompt(entry as ProcessCategory);
       if (!prompt?.trim()) continue;
       this.activeProcessPromptSteps.set(entry, 0);
       messages.splice(1, 0, {
@@ -1155,7 +1368,7 @@ export class AgentOrchestrator {
    * the session — stripping them mid-phase caused the LLM to forget the
    * phase contract and re-plan from scratch on every third step.
    */
-  private static readonly PHASE_CRITICAL_PROCESS_KEYS: ReadonlySet<ProcessCategory> = new Set<ProcessCategory>([
+  private static readonly PHASE_CRITICAL_PROCESS_KEYS: ReadonlySet<ProcessPromptKey> = new Set<ProcessPromptKey>([
     'workflow-orchestration',
     'character-ref-image-generation',
     'location-ref-image-generation',
@@ -1163,12 +1376,16 @@ export class AgentOrchestrator {
     'image-node-generation',
     'video-node-generation',
     'render-and-export',
+    // Style-plate lock is a gate that must remain in context until the plate
+    // is actually locked. Stripping it mid-session would regress the very
+    // behaviour this prompt enforces (no ref-image before plate).
+    'style-plate-lock',
   ]);
 
   private stripInactiveProcessPrompts(messages: LLMMessage[], step: number): void {
     if (this.activeProcessPromptSteps.size === 0) return;
 
-    const staleKeys: ProcessCategory[] = [];
+    const staleKeys: ProcessPromptKey[] = [];
     for (const [processKey, lastUsedStep] of this.activeProcessPromptSteps) {
       if (AgentOrchestrator.PHASE_CRITICAL_PROCESS_KEYS.has(processKey)) continue;
       if (step - lastUsedStep > 3) {
@@ -1191,11 +1408,11 @@ export class AgentOrchestrator {
     }
   }
 
-  private buildProcessPromptMessage(processKey: ProcessCategory, prompt: string): string {
-    return `[[process-prompt:${processKey}]]\n[Process Guide: ${getProcessCategoryName(processKey)}]\n${prompt}`;
+  private buildProcessPromptMessage(processKey: ProcessPromptKey, prompt: string): string {
+    return `[[process-prompt:${processKey}]]\n[Process Guide: ${getProcessPromptDisplayName(processKey)}]\n${prompt}`;
   }
 
-  private isProcessPromptMessage(message: LLMMessage, processKey: ProcessCategory): boolean {
+  private isProcessPromptMessage(message: LLMMessage, processKey: ProcessPromptKey): boolean {
     return message.role === 'system' && message.content.startsWith(`[[process-prompt:${processKey}]]`);
   }
 

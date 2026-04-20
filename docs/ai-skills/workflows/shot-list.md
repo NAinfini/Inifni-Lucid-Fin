@@ -55,3 +55,21 @@ Common failures:
 - Encoding vague emotional commentary instead of visible action.
 - Overcutting scenes that only need one strong establishing shot and one reaction.
 - Forgetting to capture continuity dependencies that later break generation.
+
+## Terminal commitment
+
+This workflow is an **execution** workflow. If the user's intent is to produce
+a shot list on the canvas (not just learn about it), it is NOT complete until
+at least one of the following has executed successfully:
+
+- `canvas.batchCreate` — creating the shot nodes and edges atomically is the workflow's primary output.
+- `shotTemplate.create` — when the user wants a reusable template rather than canvas nodes.
+
+Before ending the turn on an execution intent, confirm the terminal call
+returned `success: true`. If the user has not provided enough input, use
+`commander.askUser` to get the missing information — do not finish with a
+planning summary.
+
+**Information-intent exception**: if the user's message was purely a question
+("what is this?", "explain", "how does X work?"), respond in plain text. The
+guide is also a teaching resource, not a forced action.

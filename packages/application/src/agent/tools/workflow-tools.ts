@@ -1,5 +1,5 @@
 import type { AgentTool } from '../tool-registry.js';
-import { ok, fail, requireString } from './tool-result-helpers.js';
+import { ok, fail, requireString, TypedToolError, formatValidationError } from './tool-result-helpers.js';
 
 export interface WorkflowToolDeps {
   pauseWorkflow: (id: string) => Promise<void>;
@@ -48,14 +48,19 @@ export function createWorkflowTools(deps: WorkflowToolDeps): AgentTool[] {
 
   const expandIdea: AgentTool = {
     name: 'workflow.expandIdea',
-    description: 'Returns structured instructions and outline template for Commander to expand a one-liner idea into story text nodes on the canvas.',
+    description:
+      [
+        'REQUIRED: prompt (string, non-empty). Do NOT call this tool with no arguments — it always fails. Example: workflow.expandIdea({ prompt: "A heist set in a decommissioned observatory, 8 shots, tense pacing" }).',
+        '',
+        'Returns structured instructions and outline template for Commander to expand a one-liner idea into story text nodes on the canvas.',
+      ].join('\n'),
     tags: ['workflow', 'story', 'generation'],
     context,
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'The one-liner idea to expand.' },
+        prompt: { type: 'string', description: 'REQUIRED. The one-liner idea to expand. Must be a non-empty string.' },
         genre: { type: 'string', description: 'Optional genre (e.g. anime, film noir, documentary).' },
         actCount: { type: 'number', description: 'Number of acts. Default 3.' },
       },
@@ -63,7 +68,20 @@ export function createWorkflowTools(deps: WorkflowToolDeps): AgentTool[] {
     },
     async execute(args) {
       try {
-        const prompt = requireString(args, 'prompt');
+        const rawPrompt = args.prompt;
+        if (typeof rawPrompt !== 'string' || rawPrompt.trim().length === 0) {
+          throw new TypedToolError(
+            formatValidationError(
+              'workflow.expandIdea',
+              'prompt',
+              'is required and must be a non-empty string',
+              args,
+              'Correct call: { prompt: "<your creative concept as a single string>" }.',
+            ),
+            'validation',
+          );
+        }
+        const prompt = rawPrompt.trim();
         const genre = typeof args.genre === 'string' ? args.genre : 'cinematic';
         const actCount = typeof args.actCount === 'number' && args.actCount > 0 ? Math.round(args.actCount) : 3;
         const instructions = [

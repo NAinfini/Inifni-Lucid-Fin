@@ -207,6 +207,13 @@ function detectInitialProcessPrompts(
   // Canvas has content but stylePlate is not locked → prime the style-plate-lock
   // process prompt so Commander checks `canvas.getSettings` and runs the lock
   // workflow before any ref-image generation drifts off-style.
+  //
+  // This is a first-turn hint only. The authoritative gate now lives in
+  // `AgentOrchestrator.primeStylePlateLockIfNeeded`, which fires before any
+  // generation-tool call (including mid-session, after the canvas has grown
+  // from empty). Keeping this branch here is fine — it's redundant with the
+  // pre-flight when the canvas already has nodes, and the orchestrator's
+  // dedupe ensures no double-injection.
   const stylePlate = canvas.settings?.stylePlate;
   if (canvas.nodes.length > 0 && (!stylePlate || stylePlate.trim() === '')) {
     prompts.add('style-plate-lock');
@@ -507,6 +514,12 @@ export function registerCommanderHandlers(
             if (node.type === 'video') return 'video';
             if (node.type === 'audio') return 'audio';
             return null;
+          },
+          resolveCanvasSettings: (canvasId: string) => {
+            const canvas = deps.canvasStore.get(canvasId);
+            if (!canvas) return null;
+            // Return a minimal shape — the orchestrator only reads stylePlate.
+            return { stylePlate: canvas.settings?.stylePlate ?? null };
           },
         });
         orchestrator = orchestratorInstance;

@@ -48,3 +48,20 @@ Keep user-facing explanation under 60 words per turn. Lock is 2–3 turns, not a
 - Process prompt: `style-plate-lock` (auto-injected as a session-start process prompt when canvas ref images exist with no plate).
 - Canvas settings surface: `canvas.getSettings` / `canvas.setSettings`.
 - See also: `workflow-story-to-video` (full pipeline), `style-transfer` (cross-shot style template), `style-aesthetics` (prompt vocabulary guide).
+
+## Terminal commitment
+
+This workflow is an **execution** workflow. If the user's intent is to lock a
+style plate on the canvas (not just learn about it), it is NOT complete until
+the following has executed successfully:
+
+- `canvas.setSettings` — writing `stylePlate` onto the canvas settings is the whole point of the lock step. Nothing else persists the plate.
+
+Before ending the turn on an execution intent, confirm `canvas.setSettings`
+returned `success: true` and then re-read via `canvas.getSettings` per the
+standing verification step above. Do not finish with a drafted plate string in
+chat text — an unpersisted plate is not a lock.
+
+**Information-intent exception**: if the user's message was purely a question
+("what is a style plate?", "explain", "how does this work?"), respond in plain
+text. The guide is also a teaching resource, not a forced action.

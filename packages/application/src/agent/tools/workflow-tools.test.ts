@@ -109,4 +109,28 @@ describe('createWorkflowTools', () => {
         error: 'cancel failed',
       });
   });
+
+  it('returns a teaching validation error for empty-arg expandIdea (04-19 fake-user-study fix)', async () => {
+    const tools = createWorkflowTools(createDeps());
+    const result = await getTool(tools, 'workflow.expandIdea').execute({});
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error).toContain('workflow.expandIdea');
+      expect(result.error).toContain('"prompt"');
+      expect(result.error).toContain('is required');
+      expect(result.error).toContain('You called it with: {}');
+      expect(result.error).toMatch(/Correct call:.*prompt/);
+      expect(result.errorClass).toBe('validation');
+    }
+  });
+
+  it('echoes the actual args back in the validation error (04-19 fix)', async () => {
+    const tools = createWorkflowTools(createDeps());
+    const result = await getTool(tools, 'workflow.expandIdea').execute({ genre: 'noir', actCount: 4 });
+    expect(result.success).toBe(false);
+    if (result.success === false) {
+      expect(result.error).toContain('"genre":"noir"');
+      expect(result.error).toContain('"actCount":4');
+    }
+  });
 });

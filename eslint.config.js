@@ -15,6 +15,7 @@ const ignores = [
   '**/*.tsbuildinfo',
   '**/*.generated.ts',
   '**/*.generated.cts',
+  'evals/**',
 ];
 
 export default tseslint.config(

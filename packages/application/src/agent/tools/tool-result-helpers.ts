@@ -39,6 +39,41 @@ export function requireString(args: Record<string, unknown>, key: string): strin
 }
 
 /**
+ * Canonical validation-error message shape for tool calls.
+ *
+ * Format:
+ *   `<toolName>: "<param>" <constraint>. You called it with: <args json>.[ <alternative>]`
+ *
+ * The args JSON is truncated at 400 chars so the message stays short even
+ * when the LLM sent a big payload. The alternative is an optional pointer
+ * to a sibling tool ("canvas.addNode may be simpler.") — include when it
+ * genuinely helps the model recover on the next call; omit otherwise.
+ *
+ * The echo-back of the model's own args is the most important part of the
+ * message: study data shows the LLM recovers on the first retry once it
+ * sees what it actually sent.
+ */
+export function formatValidationError(
+  toolName: string,
+  param: string,
+  constraint: string,
+  args: unknown,
+  alternative?: string,
+): string {
+  let argsJson: string;
+  try {
+    argsJson = JSON.stringify(args ?? {});
+  } catch {
+    argsJson = '<unserializable>';
+  }
+  if (argsJson.length > 400) {
+    argsJson = argsJson.slice(0, 397) + '...';
+  }
+  const base = `${toolName}: "${param}" ${constraint}. You called it with: ${argsJson}.`;
+  return alternative ? `${base} ${alternative}` : base;
+}
+
+/**
  * Validate a field from a `set` payload. Unlike requireString (which reads
  * the top-level args object), this validates `set.<key>` by label so error
  * messages say `set.name must be a non-empty string` rather than

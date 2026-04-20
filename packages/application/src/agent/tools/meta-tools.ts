@@ -64,7 +64,16 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
 
   const toolGet: AgentTool = {
     name: 'tool.get',
-    description: 'Two modes: (1) Omit "names" to list all available tools grouped by domain (name + short description only). (2) Provide "names" array to load full parameter schemas for specific tools. Use mode 1 first to discover tools, then mode 2 to get schemas before calling them. When a tool has a governing process guide (e.g. character-ref-image-generation), the guide is attached inline under `processGuide` — follow it before choosing arguments.',
+    description:
+      [
+        'WHEN TO CALL: any time the user asks what Commander can do, what tools or features exist, a menu, a catalogue, or "how do I start". Call this BEFORE answering from memory — the MASTER INDEX in the system prompt lists names only; the full descriptions live here.',
+        '',
+        'Two modes:',
+        '  (1) Omit "names" to list all available tools grouped by domain (name + short description only). Use this for browse/menu intent.',
+        '  (2) Provide "names" array to load full parameter schemas for specific tools. Use this before you commit to calling a tool whose schema you are unsure about.',
+        '',
+        'When a tool has a governing process guide (e.g. character-ref-image-generation), the guide is attached inline under `processGuide` — follow it before choosing arguments.',
+      ].join('\n'),
     tags: ['meta', 'read'],
     tier: 1,
     parameters: {
@@ -144,7 +153,14 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
 
   const guideGet: AgentTool = {
     name: 'guide.get',
-    description: 'If ids is provided: fetch prompt guide content by id. If ids is omitted: list all available guides (id and name only, with offset/limit pagination).',
+    description:
+      [
+        'WHEN TO CALL: any time the user asks what workflows, skills, or guides are available, asks to "see the docs", "list the guides", or any browse-the-docs intent. Call this BEFORE summarising from memory.',
+        '',
+        'Two modes:',
+        '  If `ids` is provided: fetch prompt guide content by id (one or many).',
+        '  If `ids` is omitted: list all available guides (id and name only, with offset/limit pagination). Use this for browse intent.',
+      ].join('\n'),
     tags: ['meta', 'guide', 'read'],
     tier: 1,
     parameters: {

@@ -1390,4 +1390,468 @@ describe('AgentOrchestrator', () => {
       expect(second.escalated).toBe(true);
     });
   });
+
+  describe('style-plate-lock injection (04-19 fake-user-study fix)', () => {
+    function registerBatchCreate() {
+      toolRegistry.register({
+        name: 'canvas.batchCreate',
+        description: 'Create nodes and edges atomically',
+        tier: 1,
+        parameters: { type: 'object', properties: {}, required: [] },
+        execute: vi.fn(async () => ({ success: true, data: { nodeIds: ['n1'] } })),
+      });
+    }
+
+    it('Bug A — opener-time style-plate-lock in initialProcessPrompts reaches the LLM', async () => {
+      const adapter = createMockAdapter([{ content: 'done', toolCalls: [], finishReason: 'stop' }]);
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+        resolveProcessPrompt: (processKey) =>
+          processKey === ('style-plate-lock' as never) ? 'Lock the plate before ref-images.' : null,
+      });
+
+      await agent.execute(
+        'start a new story',
+        { extra: { initialProcessPrompts: ['style-plate-lock'] } },
+        () => {},
+      );
+
+      const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+        role: string;
+        content: string;
+      }>;
+
+      expect(firstCallMessages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('[[process-prompt:style-plate-lock]]'),
+          }),
+        ]),
+      );
+    });
+
+    it('Bug B — injects style-plate-lock pre-flight when canvas.batchCreate includes an image node and stylePlate is empty', async () => {
+      registerBatchCreate();
+
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-create',
+            name: 'canvas.batchCreate',
+            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'done',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+        resolveProcessPrompt: (processKey) =>
+          processKey === ('style-plate-lock' as never) ? 'Lock the plate.' : null,
+        resolveCanvasSettings: () => ({ stylePlate: null }),
+      });
+
+      await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
+
+      // Pre-flight defers the assistant turn, so the SECOND LLM call is where
+      // the system message should appear.
+      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+        role: string;
+        content: string;
+      }>;
+      expect(secondCallMessages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('[[process-prompt:style-plate-lock]]'),
+          }),
+        ]),
+      );
+    });
+
+    it('does NOT inject when canvas.batchCreate payload has only text nodes', async () => {
+      registerBatchCreate();
+
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-text',
+            name: 'canvas.batchCreate',
+            arguments: { canvasId: 'c1', nodes: [{ type: 'text', label: 'note' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'done',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const resolveProcessPromptMock = vi.fn((processKey: ProcessCategory) =>
+        processKey === ('style-plate-lock' as never) ? 'Lock the plate.' : null,
+      );
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+        resolveProcessPrompt: resolveProcessPromptMock,
+        resolveCanvasSettings: () => ({ stylePlate: null }),
+      });
+
+      await agent.execute('add a caption', { extra: { canvasId: 'c1' } }, () => {});
+
+      // resolveProcessPrompt should never have been called with style-plate-lock.
+      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
+        (args) => args[0] === ('style-plate-lock' as never),
+      );
+      expect(stylePlateCalls).toHaveLength(0);
+    });
+
+    it('does NOT inject when stylePlate is already set', async () => {
+      registerBatchCreate();
+
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-img',
+            name: 'canvas.batchCreate',
+            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'done',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const resolveProcessPromptMock = vi.fn(() => null);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+        resolveProcessPrompt: resolveProcessPromptMock,
+        resolveCanvasSettings: () => ({ stylePlate: 'neo-noir watercolor' }),
+      });
+
+      await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
+
+      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
+        (args) => args[0] === ('style-plate-lock' as never),
+      );
+      expect(stylePlateCalls).toHaveLength(0);
+    });
+
+    it('does NOT re-inject once style-plate-lock has already been primed this session', async () => {
+      registerBatchCreate();
+
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-img-1',
+            name: 'canvas.batchCreate',
+            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-img-2',
+            name: 'canvas.batchCreate',
+            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'villain' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'done',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const resolveProcessPromptMock = vi.fn((processKey: ProcessCategory) =>
+        processKey === ('style-plate-lock' as never) ? 'Lock the plate.' : null,
+      );
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+        resolveProcessPrompt: resolveProcessPromptMock,
+        resolveCanvasSettings: () => ({ stylePlate: null }),
+      });
+
+      await agent.execute('build two scenes', { extra: { canvasId: 'c1' } }, () => {});
+
+      // Prompt resolution for style-plate-lock happens exactly once across
+      // the whole run, despite two generation-tool calls.
+      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
+        (args) => args[0] === ('style-plate-lock' as never),
+      );
+      expect(stylePlateCalls).toHaveLength(1);
+    });
+
+    it('is a no-op when resolveCanvasSettings is not provided', async () => {
+      registerBatchCreate();
+
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-img',
+            name: 'canvas.batchCreate',
+            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'done',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const resolveProcessPromptMock = vi.fn(() => null);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+        resolveProcessPrompt: resolveProcessPromptMock,
+        // resolveCanvasSettings intentionally omitted.
+      });
+
+      await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
+
+      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
+        (args) => args[0] === ('style-plate-lock' as never),
+      );
+      expect(stylePlateCalls).toHaveLength(0);
+    });
+  });
+
+  describe('askUser continuation safety net (04-19 fake-user-study fix)', () => {
+    function registerAskUser() {
+      toolRegistry.register({
+        name: 'commander.askUser',
+        description: 'Ask the user',
+        tier: 1,
+        parameters: {
+          type: 'object',
+          properties: {
+            question: { type: 'string' },
+            options: { type: 'array' },
+          },
+          required: ['question', 'options'],
+        },
+        // The real orchestrator intercepts askUser via the question-flow
+        // path; here we stub a resolver that immediately "answers" via
+        // pendingQuestionResolvers so executeToolCalls returns.
+        execute: vi.fn(async () => ({ success: true, data: 'You choose.' })),
+      });
+    }
+
+    it('injects a one-shot reminder when the model ends the turn right after askUser with no follow-up', async () => {
+      registerAskUser();
+
+      const adapter = createMockAdapter([
+        // Turn 1 — model asks a question.
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-ask',
+            name: 'commander.askUser',
+            arguments: { question: 'Which direction?', options: [{ label: 'A' }, { label: 'B' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        // Turn 2 — model bails with a plain-text reply, no follow-up tool call.
+        {
+          content: 'Okay, we will go with option A.',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+        // Turn 3 — after the reminder fires, model still does nothing; we let it end.
+        {
+          content: 'Understood.',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+      // Pre-resolve the pending question so executeToolCalls returns.
+      const originalExecute = agent.execute.bind(agent);
+      const answerPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          // Find the pending id and resolve it — vitest fake-users harness
+          // shape. Walk the private map via any-cast because it's intentionally
+          // private; same trick used elsewhere in this test file.
+          const pending = (agent as unknown as { pendingQuestionResolvers: Map<string, (v: string) => void> })
+            .pendingQuestionResolvers;
+          for (const [id, fn] of pending) {
+            pending.delete(id);
+            fn('A');
+          }
+          resolve();
+        }, 10);
+      });
+
+      const runPromise = originalExecute('start a story', { extra: { canvasId: 'c1' } }, () => {});
+      await answerPromise;
+      await runPromise;
+
+      // The adapter should have been called 3 times (turn 1 ask, turn 2 bail, turn 3 after reminder).
+      expect(adapter.completeWithTools as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(3);
+
+      // Turn 3's messages should contain the askUser-continuation reminder.
+      const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[2][0] as Array<{
+        role: string;
+        content: string;
+      }>;
+      expect(thirdCallMessages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('[[askUser-continuation-reminder]]'),
+          }),
+        ]),
+      );
+    });
+
+    it('injects the reminder at most once per execute() run', async () => {
+      registerAskUser();
+
+      // Two askUsers back-to-back, each followed by a text-only bail.
+      // The reminder fires after the first bail. After the SECOND
+      // askUser answer, the model bails again but the reminder must
+      // NOT fire a second time — we let the turn end normally.
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-ask-1',
+            name: 'commander.askUser',
+            arguments: { question: 'First?', options: [{ label: 'Y' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'Okay, Y.',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+        // After reminder, model asks again (still no mutation).
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-ask-2',
+            name: 'commander.askUser',
+            arguments: { question: 'Second?', options: [{ label: 'Z' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        // Model bails again after the second answer.
+        {
+          content: 'Okay, Z.',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const runPromise = agent.execute('start a story', { extra: { canvasId: 'c1' } }, () => {});
+
+      // Resolve each pending question as it arrives.
+      const pending = (agent as unknown as { pendingQuestionResolvers: Map<string, (v: string) => void> })
+        .pendingQuestionResolvers;
+      const drainPending = async () => {
+        for (let i = 0; i < 20; i++) {
+          if (pending.size > 0) {
+            for (const [id, fn] of pending) {
+              pending.delete(id);
+              fn('Y');
+            }
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      };
+      await drainPending();
+      await drainPending();
+      await runPromise;
+
+      // Exactly 4 LLM calls — no extra turn after the second bail.
+      expect(adapter.completeWithTools as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(4);
+
+      // Reminder is a sticky system message, so once injected it appears in
+      // every subsequent LLM call's messages. The invariant we care about is
+      // that it was INJECTED exactly once — verified by scanning the fourth
+      // call's messages and counting occurrences of the reminder tag.
+      const fourthCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[3][0] as Array<{
+        role: string;
+        content: string;
+      }>;
+      const reminderOccurrences = fourthCallMessages.filter(
+        (m) => m.role === 'system' && m.content.includes('[[askUser-continuation-reminder]]'),
+      );
+      expect(reminderOccurrences).toHaveLength(1);
+    });
+
+    it('does not inject a reminder when the model produces a follow-up tool call after askUser', async () => {
+      registerAskUser();
+      toolRegistry.register({
+        name: 'canvas.batchCreate',
+        description: 'Create nodes',
+        tier: 1,
+        parameters: { type: 'object', properties: {}, required: [] },
+        execute: vi.fn(async () => ({ success: true, data: { nodeIds: ['n1'] } })),
+      });
+
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-ask',
+            name: 'commander.askUser',
+            arguments: { question: 'Which?', options: [{ label: 'A' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: '',
+          toolCalls: [{
+            id: 'tc-create',
+            name: 'canvas.batchCreate',
+            arguments: { canvasId: 'c1', nodes: [{ type: 'text', label: 'scene 1' }] },
+          }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'done',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const runPromise = agent.execute('start a story', { extra: { canvasId: 'c1' } }, () => {});
+      const pending = (agent as unknown as { pendingQuestionResolvers: Map<string, (v: string) => void> })
+        .pendingQuestionResolvers;
+      for (let i = 0; i < 20 && pending.size === 0; i++) await new Promise((r) => setTimeout(r, 5));
+      for (const [id, fn] of pending) { pending.delete(id); fn('A'); }
+      await runPromise;
+
+      // No reminder should appear in any call.
+      const allCalls = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls as Array<
+        [Array<{ role: string; content: string }>, unknown?]
+      >;
+      const hasReminder = allCalls.some((c) =>
+        c[0].some((m) => m.role === 'system' && m.content.includes('[[askUser-continuation-reminder]]')),
+      );
+      expect(hasReminder).toBe(false);
+    });
+  });
 });

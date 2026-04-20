@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ok, fail, requireString, requireNumber, requireStringArray, requireText, requireBoolean, extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import { ok, fail, requireString, requireNumber, requireStringArray, requireText, requireBoolean, extractSet, warnExtraKeys, formatValidationError } from './tool-result-helpers.js';
 
 describe('tool-result-helpers', () => {
   describe('ok', () => {
@@ -156,6 +156,40 @@ describe('tool-result-helpers', () => {
     it('ignores structural keys', () => {
       expect(warnExtraKeys({ canvasId: 'c1', nodeId: 'n1', nodeIds: ['a'], id: 'x', set: { p: 1 } }))
         .toEqual([]);
+    });
+  });
+
+  describe('formatValidationError (04-19 fake-user-study fix)', () => {
+    it('emits the canonical "<tool>: <param> <constraint>. You called it with: <args>." shape', () => {
+      const msg = formatValidationError('workflow.expandIdea', 'prompt', 'is required and must be a non-empty string', {});
+      expect(msg).toBe('workflow.expandIdea: "prompt" is required and must be a non-empty string. You called it with: {}.');
+    });
+
+    it('appends the alternative-tool pointer when provided', () => {
+      const msg = formatValidationError(
+        'canvas.batchCreate',
+        'nodes',
+        'must be a non-empty array',
+        { edges: [] },
+        'If you only want to connect existing nodes, call canvas.connectNodes.',
+      );
+      expect(msg).toContain('canvas.batchCreate: "nodes" must be a non-empty array');
+      expect(msg).toContain('You called it with: {"edges":[]}');
+      expect(msg).toContain('If you only want to connect existing nodes, call canvas.connectNodes.');
+    });
+
+    it('truncates args JSON at 400 chars to keep the error short', () => {
+      const big = { prompt: 'x'.repeat(600) };
+      const msg = formatValidationError('workflow.expandIdea', 'prompt', 'is required', big);
+      expect(msg.length).toBeLessThan(600);
+      expect(msg).toContain('...');
+    });
+
+    it('handles unserializable args gracefully', () => {
+      const cycle: Record<string, unknown> = {};
+      cycle.self = cycle;
+      const msg = formatValidationError('some.tool', 'x', 'is required', cycle);
+      expect(msg).toContain('<unserializable>');
     });
   });
 });

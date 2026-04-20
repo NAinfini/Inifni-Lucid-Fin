@@ -45,3 +45,20 @@ Inter-phase rules:
 - Never chain phases silently. User must be able to say "stop" or "let me edit" between any two phases.
 - If a phase fails partially, fix only the broken nodes and continue; do not restart the whole phase.
 - Every tool call that writes to the canvas should be followed by canvas.getState or canvas.listNodes before the next phase so Commander is reading real state, not model memory.
+
+## Terminal commitment
+
+This workflow is an **execution** workflow. If the user's intent is to run
+this workflow (not just learn about it), it is NOT complete until at least one
+of the following has executed successfully:
+
+- `canvas.batchCreate` — scene seeding is the workflow's whole output; without at least one atomic create-nodes-and-edges call, nothing persists to the canvas.
+
+Before ending the turn on an execution intent, confirm the terminal call
+returned `success: true`. If the user has not provided enough input, use
+`commander.askUser` to get the missing information — do not finish with a
+planning summary.
+
+**Information-intent exception**: if the user's message was purely a question
+("what is this?", "explain", "how does X work?"), respond in plain text. The
+guide is also a teaching resource, not a forced action.

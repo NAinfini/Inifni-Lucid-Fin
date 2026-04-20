@@ -105,3 +105,20 @@ Common batch-rewrite failures:
 - Rewriting prompts individually with repeated tool calls instead of one batch mutation.
 - Leaving negative prompts unchanged when the main prompt meaning has shifted.
 - Treating batch re-prompting as permission to invent a new story direction.
+
+## Terminal commitment
+
+This workflow is an **execution** workflow. If the user's intent is to run a
+continuity pass (not just learn about it), it is NOT complete until at least
+one of the following has executed successfully:
+
+- `canvas.updateNodes` — batch update of prompt / negative-prompt / preset fields across affected nodes is the normal terminal call.
+- `commander.askUser` confirming "no changes needed" — when the pass legitimately finds nothing to fix, surface that as an explicit confirmation rather than a silent summary.
+
+Before ending the turn on an execution intent, confirm the terminal call
+returned `success: true`. Do not finish with a planning summary that only
+describes the drift you found.
+
+**Information-intent exception**: if the user's message was purely a question
+("what is this?", "explain", "how does X work?"), respond in plain text. The
+guide is also a teaching resource, not a forced action.
