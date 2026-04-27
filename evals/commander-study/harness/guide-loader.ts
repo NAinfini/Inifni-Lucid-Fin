@@ -55,7 +55,6 @@ const BUILT_IN_SEEDS: SeedSpec[] = [
   { id: 'lip-sync-workflow', name: 'Lip Sync Workflow', relPath: `${GUIDE_DIR}/18-lip-sync-workflow.md` },
 
   // workflowDefinitions cohort
-  { id: 'wf-story-idea-to-video', name: 'Story Idea → Video', relPath: `${SKILLS_DIR}/wf-story-idea-to-video.md` },
   { id: 'wf-novel-to-video', name: 'Novel/Book → Video', relPath: `${SKILLS_DIR}/wf-novel-to-video.md` },
   { id: 'wf-video-clone', name: 'Video Clone → Remake', relPath: `${SKILLS_DIR}/wf-video-clone.md` },
   { id: 'wf-style-transfer', name: 'Style Transfer Across Shots', relPath: `${SKILLS_DIR}/wf-style-transfer.md` },

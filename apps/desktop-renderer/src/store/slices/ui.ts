@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { CanvasNodeType, NodeStatus } from '@lucid-fin/contracts';
+import type { NodeKind, NodeStatus } from '@lucid-fin/contracts';
 
 export type LeftPanelId =
   | 'add'
@@ -31,7 +31,7 @@ export interface UIState {
   rightPanelWidth: number;
   searchPanelOpen: boolean;
   canvasSearchQuery: string;
-  canvasTypeFilters: CanvasNodeType[];
+  canvasTypeFilters: NodeKind[];
   canvasStatusFilters: NodeStatus[];
   minimapVisible: boolean;
   snapToGrid: boolean;
@@ -112,7 +112,7 @@ export const uiSlice = createSlice({
     setCanvasSearchQuery(state, action: PayloadAction<string>) {
       state.canvasSearchQuery = action.payload;
     },
-    toggleCanvasTypeFilter(state, action: PayloadAction<CanvasNodeType>) {
+    toggleCanvasTypeFilter(state, action: PayloadAction<NodeKind>) {
       if (state.canvasTypeFilters.includes(action.payload)) {
         state.canvasTypeFilters = state.canvasTypeFilters.filter((type) => type !== action.payload);
       } else {

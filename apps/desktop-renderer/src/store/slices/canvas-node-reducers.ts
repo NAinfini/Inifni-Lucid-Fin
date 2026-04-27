@@ -1,6 +1,6 @@
 import type { PayloadAction } from '@reduxjs/toolkit';
 import type {
-  CanvasNodeType,
+  NodeKind,
   CanvasNodeData,
   NodeStatus,
   BackdropNodeData,
@@ -21,7 +21,7 @@ import {
 export function addNode(
   state: CanvasSliceState,
   action: PayloadAction<{
-    type: CanvasNodeType;
+    type: NodeKind;
     position: { x: number; y: number };
     id: string;
     title?: string;

@@ -4,7 +4,7 @@ import {
   type Canvas,
   type CanvasNode,
   type CanvasEdge,
-  type CanvasNodeType,
+  type NodeKind,
   type CanvasNodeData,
   type PresetCategory,
   type PresetTrackEntry,
@@ -34,7 +34,7 @@ export const DEFAULT_MEDIA_NODE_FRAME = {
 } as const;
 
 export function getDefaultNodeFrame(
-  type: CanvasNodeType,
+  type: NodeKind,
 ): { width: number; height: number } | undefined {
   switch (type) {
     case 'image':
@@ -100,13 +100,13 @@ export function createEntityId(prefix: 'node' | 'edge'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function getCanvasNodeType(canvas: Canvas, nodeId: string): CanvasNodeType | undefined {
+export function getCanvasNodeType(canvas: Canvas, nodeId: string): NodeKind | undefined {
   return canvas.nodes.find((node) => node.id === nodeId)?.type;
 }
 
 export function getAutoEdgeLabel(
-  sourceType: CanvasNodeType | undefined,
-  targetType: CanvasNodeType | undefined,
+  sourceType: NodeKind | undefined,
+  targetType: NodeKind | undefined,
 ): string | undefined {
   if (!sourceType || !targetType) return undefined;
 
@@ -167,7 +167,7 @@ export function buildCanvasClipboardPayload(
 
 export function createNodeRecord(payload: {
   id: string;
-  type: CanvasNodeType;
+  type: NodeKind;
   position: { x: number; y: number };
   title?: string;
   data?: CanvasNodeData;
@@ -176,7 +176,7 @@ export function createNodeRecord(payload: {
 }): CanvasNode {
   const now = Date.now();
   const defaultFrame = getDefaultNodeFrame(payload.type);
-  const defaultData: Record<CanvasNodeType, CanvasNodeData> = {
+  const defaultData: Record<NodeKind, CanvasNodeData> = {
     text: { content: '' },
     image: {
       status: 'empty',
@@ -257,7 +257,7 @@ export function pasteClipboardPayload(
     };
   });
 
-  const typeById = new Map<string, CanvasNodeType>();
+  const typeById = new Map<string, NodeKind>();
   for (const node of canvas.nodes) {
     typeById.set(node.id, node.type);
   }

@@ -2,7 +2,7 @@ import type { PayloadAction } from '@reduxjs/toolkit';
 import type { Connection } from '@xyflow/react';
 import type {
   CanvasEdge,
-  CanvasNodeType,
+  NodeKind,
   CanvasNodeData,
   EdgeStatus,
   VideoNodeData,
@@ -170,7 +170,7 @@ export function insertNodeIntoEdge(
   state: CanvasSliceState,
   action: PayloadAction<{
     edgeId: string;
-    nodeType: CanvasNodeType;
+    nodeType: NodeKind;
     position: { x: number; y: number };
     title?: string;
     data?: CanvasNodeData;

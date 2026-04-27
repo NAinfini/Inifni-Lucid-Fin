@@ -21,7 +21,6 @@ import emotionVoiceGuide from '../../../../../docs/ai-video-prompt-guide/17-emot
 import lipSyncGuide from '../../../../../docs/ai-video-prompt-guide/18-lip-sync-workflow.md?raw';
 
 // Former workflowDefinitions BUILT_IN_ENTRIES, loaded from their own md files.
-import wfStoryIdeaToVideo from '../../../../../docs/ai-skills/skills/wf-story-idea-to-video.md?raw';
 import wfNovelToVideo from '../../../../../docs/ai-skills/skills/wf-novel-to-video.md?raw';
 import wfVideoCloneRemake from '../../../../../docs/ai-skills/skills/wf-video-clone.md?raw';
 import wfStyleTransferSkill from '../../../../../docs/ai-skills/skills/wf-style-transfer.md?raw';
@@ -46,8 +45,6 @@ import wfgStoryToVideo from '../../../../../docs/ai-skills/workflows/story-to-vi
 import wfgStylePlate from '../../../../../docs/ai-skills/workflows/style-plate.md?raw';
 
 const STORAGE_KEY = 'lucid-skills-v1';
-const LEGACY_PROMPT_TEMPLATES_KEY = 'lucid-prompt-templates-v1';
-const LEGACY_WORKFLOW_DEFINITIONS_KEY = 'lucid-workflow-definitions-v1';
 
 /**
  * Unified skill definition — the single source of truth for every LLM-visible
@@ -76,6 +73,7 @@ export interface SkillDefinition {
   builtIn: boolean;
   source: SkillSource;
   createdAt: number;
+  autoInject?: boolean;
 }
 
 interface BuiltInSeed {
@@ -84,12 +82,13 @@ interface BuiltInSeed {
   category: SkillCategory;
   defaultContent: string;
   source: SkillSource;
+  autoInject?: boolean;
 }
 
 const BUILT_IN_SEEDS: BuiltInSeed[] = [
   // promptTemplate cohort (18)
   { id: 'meta-prompt', name: 'Meta-Prompt (AI Instructor)', category: 'system', defaultContent: metaPrompt, source: 'promptTemplate' },
-  { id: 'prompt-structure', name: 'Prompt Structure & Fundamentals', category: 'core', defaultContent: promptStructure, source: 'promptTemplate' },
+  { id: 'prompt-structure', name: 'Prompt Structure & Fundamentals', category: 'core', defaultContent: promptStructure, source: 'promptTemplate', autoInject: true },
   { id: 'camera-composition', name: 'Camera & Composition', category: 'visual', defaultContent: cameraComposition, source: 'promptTemplate' },
   { id: 'lighting-atmosphere', name: 'Lighting & Atmosphere', category: 'visual', defaultContent: lightingAtmosphere, source: 'promptTemplate' },
   { id: 'motion-emotion', name: 'Motion & Emotion', category: 'visual', defaultContent: motionEmotion, source: 'promptTemplate' },
@@ -107,8 +106,7 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
   { id: 'emotion-voice-prompting', name: 'Emotion & Voice Prompting', category: 'audio', defaultContent: emotionVoiceGuide, source: 'promptTemplate' },
   { id: 'lip-sync-workflow', name: 'Lip Sync Workflow', category: 'skill', defaultContent: lipSyncGuide, source: 'promptTemplate' },
 
-  // workflowDefinitions cohort (10)
-  { id: 'wf-story-idea-to-video', name: 'Story Idea → Video', category: 'workflow', defaultContent: wfStoryIdeaToVideo, source: 'workflowSkill' },
+  // workflowDefinitions cohort (9)
   { id: 'wf-novel-to-video', name: 'Novel/Book → Video', category: 'workflow', defaultContent: wfNovelToVideo, source: 'workflowSkill' },
   { id: 'wf-video-clone', name: 'Video Clone → Remake', category: 'workflow', defaultContent: wfVideoCloneRemake, source: 'workflowSkill' },
   { id: 'wf-style-transfer', name: 'Style Transfer Across Shots', category: 'workflow', defaultContent: wfStyleTransferSkill, source: 'workflowSkill' },
@@ -130,8 +128,8 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
   { id: 'workflow-continuity-check', name: 'Continuity Check + Batch Re-Prompt (Commander)', category: 'workflow', defaultContent: wfgContinuityCheck, source: 'workflowGuide' },
   { id: 'workflow-image-analyze', name: 'Image Analyze (Commander)', category: 'workflow', defaultContent: wfgImageAnalyze, source: 'workflowGuide' },
   { id: 'workflow-audio-production', name: 'Audio Production — Voice + Lip Sync (Commander)', category: 'workflow', defaultContent: wfgAudioProduction, source: 'workflowGuide' },
-  { id: 'workflow-story-to-video', name: 'Story to Video (Commander)', category: 'workflow', defaultContent: wfgStoryToVideo, source: 'workflowGuide' },
-  { id: 'workflow-style-plate', name: 'Style Plate Lock (Commander)', category: 'workflow', defaultContent: wfgStylePlate, source: 'workflowGuide' },
+  { id: 'workflow-story-to-video', name: 'Story to Video (Commander)', category: 'workflow', defaultContent: wfgStoryToVideo, source: 'workflowGuide', autoInject: true },
+  { id: 'workflow-style-plate', name: 'Style Plate Lock (Commander)', category: 'workflow', defaultContent: wfgStylePlate, source: 'workflowGuide', autoInject: true },
 ];
 
 const BUILT_IN_ID_SET = new Set(BUILT_IN_SEEDS.map((s) => s.id));
@@ -166,115 +164,13 @@ function loadStorage(): SkillsStorage {
         customSkills: Array.isArray(parsed.customSkills) ? parsed.customSkills : [],
       };
     }
-  } catch { /* malformed — fall through to migration path */ }
+  } catch { /* malformed — fall through to empty */ }
 
-  return migrateFromLegacyStorage();
-}
-
-/**
- * One-shot migration from the two pre-v1 localStorage keys:
- *   - lucid-prompt-templates-v1 (the 18 promptTemplates with overrides)
- *   - lucid-workflow-definitions-v1 (the 10 workflowDefinitions custom entries)
- *
- * Writes the merged result under STORAGE_KEY and leaves the legacy keys in
- * place (read-only) so a rollback to the previous renderer build still
- * finds its data. Next schema change is where the legacy keys get removed.
- */
-function migrateFromLegacyStorage(): SkillsStorage {
-  const merged: SkillsStorage = {
+  return {
     builtInCustoms: {},
     builtInNames: {},
     customSkills: [],
   };
-
-  try {
-    const raw = localStorage.getItem(LEGACY_PROMPT_TEMPLATES_KEY);
-    if (raw) {
-      const legacy = JSON.parse(raw) as {
-        builtInCustoms?: Record<string, string | null>;
-        builtInNames?: Record<string, string>;
-        customTemplates?: Array<{ id: string; name: string; category: string; customContent: string | null }>;
-      };
-      if (legacy.builtInCustoms && typeof legacy.builtInCustoms === 'object') {
-        for (const [id, val] of Object.entries(legacy.builtInCustoms)) {
-          if (typeof val === 'string' || val === null) {
-            merged.builtInCustoms[id] = val;
-          }
-        }
-      }
-      if (legacy.builtInNames && typeof legacy.builtInNames === 'object') {
-        for (const [id, name] of Object.entries(legacy.builtInNames)) {
-          if (typeof name === 'string') {
-            merged.builtInNames[id] = name;
-          }
-        }
-      }
-      if (Array.isArray(legacy.customTemplates)) {
-        for (const t of legacy.customTemplates) {
-          if (
-            typeof t.id === 'string'
-            && typeof t.name === 'string'
-            && typeof t.category === 'string'
-            && (typeof t.customContent === 'string' || t.customContent === null)
-          ) {
-            merged.customSkills.push({
-              id: t.id,
-              name: t.name,
-              category: t.category,
-              customContent: t.customContent,
-              source: 'user',
-              createdAt: Date.now(),
-            });
-          }
-        }
-      }
-    }
-  } catch { /* ignore malformed legacy storage */ }
-
-  try {
-    const raw = localStorage.getItem(LEGACY_WORKFLOW_DEFINITIONS_KEY);
-    if (raw) {
-      const legacy = JSON.parse(raw) as Array<{
-        id: string;
-        name: string;
-        category: 'workflow' | 'skill';
-        content: string;
-        builtIn: boolean;
-        createdAt: number;
-      }>;
-      if (Array.isArray(legacy)) {
-        for (const e of legacy) {
-          if (
-            typeof e?.id === 'string'
-            && typeof e?.name === 'string'
-            && typeof e?.content === 'string'
-            && !e.builtIn
-          ) {
-            merged.customSkills.push({
-              id: e.id,
-              name: e.name,
-              category: e.category ?? 'skill',
-              customContent: e.content,
-              source: 'user',
-              createdAt: typeof e.createdAt === 'number' ? e.createdAt : Date.now(),
-            });
-          }
-        }
-      }
-    }
-  } catch { /* ignore malformed legacy storage */ }
-
-  if (
-    Object.keys(merged.builtInCustoms).length > 0
-    || Object.keys(merged.builtInNames).length > 0
-    || merged.customSkills.length > 0
-  ) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
-    } catch { /* best-effort */ }
-  }
-
-  return merged;
 }
 
 function saveSkills(skills: SkillDefinition[]): void {
@@ -322,6 +218,7 @@ function buildInitialSkills(): SkillDefinition[] {
     builtIn: true,
     source: seed.source,
     createdAt: 0,
+    ...(seed.autoInject ? { autoInject: true } : {}),
   }));
 
   const custom: SkillDefinition[] = storage.customSkills
@@ -431,10 +328,11 @@ export function isBuiltInSkillId(id: string): boolean {
  */
 export function selectActiveSkills(
   skills: SkillDefinition[],
-): Array<{ id: string; name: string; content: string }> {
+): Array<{ id: string; name: string; content: string; autoInject?: boolean }> {
   return skills.map((s) => ({
     id: s.id,
     name: s.name,
     content: s.customContent ?? s.defaultContent,
+    ...(s.autoInject ? { autoInject: true } : {}),
   }));
 }

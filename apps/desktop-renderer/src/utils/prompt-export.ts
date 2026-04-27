@@ -1,7 +1,7 @@
 import type { Canvas, ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
 import { isVisualMedia, matchNode } from '@lucid-fin/shared-utils';
 
-function readLegacyNegativePrompt(data: ImageNodeData | VideoNodeData): string | undefined {
+function readNegativePrompt(data: ImageNodeData | VideoNodeData): string | undefined {
   if (
     'negativePrompt' in data &&
     typeof data.negativePrompt === 'string' &&
@@ -35,13 +35,13 @@ export function buildExternalAIPrompt(
     image: () => {
       const data = node.data as ImageNodeData;
       if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
-      const negativePrompt = readLegacyNegativePrompt(data);
+      const negativePrompt = readNegativePrompt(data);
       if (negativePrompt) lines.push(`**Negative Prompt:** ${negativePrompt}`);
     },
     video: () => {
       const data = node.data as VideoNodeData;
       if (data.prompt) lines.push(`**Current Prompt:** ${data.prompt}`);
-      const negativePrompt = readLegacyNegativePrompt(data);
+      const negativePrompt = readNegativePrompt(data);
       if (negativePrompt) lines.push(`**Negative Prompt:** ${negativePrompt}`);
       if (data.duration) lines.push(`**Duration:** ${data.duration}s`);
     },

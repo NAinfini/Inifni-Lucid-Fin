@@ -16,14 +16,9 @@ export interface MockStats {
 /** Names of tools that get mocked. Kept here so reports can flag coverage. */
 export const MOCKED_TOOL_NAMES = [
   'canvas.generate',
-  'character.generateReferenceImage',
-  'location.generateReferenceImage',
-  'equipment.generateReferenceImage',
   'character.generateRefImage',
   'location.generateRefImage',
   'equipment.generateRefImage',
-  'character.refImage',
-  'location.refImage',
   'canvas.previewPrompt',
 ] as const;
 
@@ -73,24 +68,20 @@ export function installMockGeneration(
   }, stats));
 
   // Reference-image tools (character/location/equipment).
-  // The tool system has historic name variants (`generateReferenceImage`
-  // / `generateRefImage` / `refImage`) depending on era; override all.
   for (const entity of ['character', 'location', 'equipment']) {
-    for (const suffix of ['generateReferenceImage', 'generateRefImage', 'refImage']) {
-      const name = `${entity}.${suffix}`;
-      register(stubTool(name, `Generate reference image for a ${entity}.`, 3, (args) => {
-        const entityId = typeof args.id === 'string' ? args.id
-          : typeof args[`${entity}Id`] === 'string' ? (args[`${entity}Id`] as string)
-          : 'unknown';
-        return {
-          jobId: `mock-ref-${randomUUID().slice(0, 8)}`,
-          entity,
-          entityId,
-          assetHash: `sha256:mock${randomUUID().replace(/-/g, '').slice(0, 40)}`,
-          message: 'MOCK: reference image generation accepted (no render performed)',
-        };
-      }, stats));
-    }
+    const name = `${entity}.generateRefImage`;
+    register(stubTool(name, `Generate reference image for a ${entity}.`, 3, (args) => {
+      const entityId = typeof args.id === 'string' ? args.id
+        : typeof args[`${entity}Id`] === 'string' ? (args[`${entity}Id`] as string)
+        : 'unknown';
+      return {
+        jobId: `mock-ref-${randomUUID().slice(0, 8)}`,
+        entity,
+        entityId,
+        assetHash: `sha256:mock${randomUUID().replace(/-/g, '').slice(0, 40)}`,
+        message: 'MOCK: reference image generation accepted (no render performed)',
+      };
+    }, stats));
   }
 
   // canvas.previewPrompt — real impl hits the generation pipeline (adapter
