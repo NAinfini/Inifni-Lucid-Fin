@@ -13,6 +13,7 @@ export {
   localizeShotTemplateName,
   localizeSkillName,
   localizeSlot,
+  localizeToolName,
   localizeWorkflowDefinitionName,
   onLocaleChange,
   setLocale,

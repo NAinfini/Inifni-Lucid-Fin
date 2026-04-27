@@ -142,6 +142,10 @@ export function localizeSkillName(id: string, fallback: string): string {
   return fallback;
 }
 
+export function localizeToolName(toolName: string): string {
+  return localizeWithFallback('toolNames.' + toolName, toolName);
+}
+
 export function localizeSettingsCategory(category: string): string {
   return localizeWithFallback('settings.category.' + category, category);
 }

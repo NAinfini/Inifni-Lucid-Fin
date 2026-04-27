@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { IpcProcessPrompt } from '@lucid-fin/contracts';
 import { RotateCcw, Save, SquarePen } from 'lucide-react';
-import { localizeProcessPromptDescription, localizeProcessPromptName, t } from '../../i18n.js';
+import { localizeProcessPromptDescription, localizeProcessPromptName, localizeToolName, t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 import { getAPI, type LucidAPI } from '../../utils/api.js';
 import {
@@ -188,9 +188,9 @@ export function SettingsProcessPromptsSection({
                       {triggerTools.map((tool) => (
                         <span
                           key={tool}
-                          className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground"
+                          className="rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
                         >
-                          {tool}
+                          {localizeToolName(tool)}
                         </span>
                       ))}
                       {triggerNote && (
