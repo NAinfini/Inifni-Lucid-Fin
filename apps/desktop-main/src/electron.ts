@@ -153,6 +153,19 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  // Security: prevent renderer from navigating to non-local URLs
+  win.webContents.on('will-navigate', (event, url) => {
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+    const allowed = url.startsWith('file://')
+      || (devServerUrl && url.startsWith(devServerUrl));
+    if (!allowed) {
+      event.preventDefault();
+    }
+  });
+
+  // Security: block all new-window requests from renderer
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   // Skeleton-first: show window as soon as DOM is ready
   win.once('ready-to-show', () => win.show());
 

@@ -82,6 +82,13 @@ export function useBootstrap() {
             detail: err instanceof Error ? err.stack ?? err.message : String(err),
           }),
         );
+        dispatch(
+          enqueueToast({
+            variant: 'error',
+            title: t('toast.error.bootstrapFailed'),
+            message: err instanceof Error ? err.message : String(err),
+          }),
+        );
         bootstrapRan = false;
       }
     });

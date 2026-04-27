@@ -227,12 +227,12 @@ const ExportSubtitlesRequest = z
   .object({
     format: z.enum(['srt', 'ass']),
     cues: z.array(z.unknown()),
-    outputPath: z.string(),
+    outputPath: z.string().optional(),
     videoWidth: z.number().optional(),
     videoHeight: z.number().optional(),
   })
   .passthrough();
-const ExportSubtitlesResponse = z.void();
+const ExportSubtitlesResponse = z.void().or(z.null());
 export const exportSubtitlesChannel = defineInvokeChannel({
   channel: 'export:subtitles',
   request: ExportSubtitlesRequest,

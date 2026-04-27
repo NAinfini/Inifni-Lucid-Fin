@@ -673,6 +673,8 @@ export const zhCNMessages = {
       pasteFailed: '粘贴失败',
       workflowImportFailed: '工作流导入失败',
       workflowImportInvalid: '文件不包含有效的 Lucid 工作流',
+      bootstrapFailed: '应用初始化失败',
+      canvasLoadFailed: '加载画布失败',
     },
   },
   undo: {

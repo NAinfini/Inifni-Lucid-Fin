@@ -20,6 +20,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { LeftToolbar } from '../components/layout/LeftToolbar.js';
 import { RightToolbar } from '../components/layout/RightToolbar.js';
 import { addLog } from '../store/slices/logger.js';
+import { enqueueToast } from '../store/slices/toast.js';
 import { useClipboardWatcher } from '../hooks/useClipboardWatcher.js';
 
 const AddNodePanel = lazy(() => import('../components/canvas/AddNodePanel.js').then(m => ({ default: m.AddNodePanel })));
@@ -144,6 +145,24 @@ export function CanvasPage() {
         dispatch(setCanvases(loaded));
         if (!activeCanvasId && loaded.length > 0) {
           dispatch(setActiveCanvas(loaded[0].id));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          dispatch(
+            addLog({
+              level: 'error',
+              category: 'canvas',
+              message: t('toast.error.canvasLoadFailed'),
+              detail: err instanceof Error ? err.stack ?? err.message : String(err),
+            }),
+          );
+          dispatch(
+            enqueueToast({
+              variant: 'error',
+              title: t('toast.error.canvasLoadFailed'),
+              message: err instanceof Error ? err.message : String(err),
+            }),
+          );
         }
       } finally {
         if (!cancelled) {

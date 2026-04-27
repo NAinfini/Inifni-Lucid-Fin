@@ -680,6 +680,8 @@ export const enUSMessages = {
       pasteFailed: 'Paste failed',
       workflowImportFailed: 'Workflow import failed',
       workflowImportInvalid: 'The file does not contain a valid Lucid workflow',
+      bootstrapFailed: 'Failed to initialize application',
+      canvasLoadFailed: 'Failed to load canvases',
     },
   },
   undo: {

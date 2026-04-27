@@ -329,24 +329,61 @@ describe("registerExportHandlers", () => {
     await expect(
       exportSubtitles?.({}, { format: "bad", cues, outputPath: "C:\\exports\\captions.txt" }),
     ).rejects.toThrow('export:subtitles: format must be "srt" or "ass"');
-    await expect(exportSubtitles?.({}, { format: "srt", cues: undefined, outputPath: "" })).rejects.toThrow(
-      "export:subtitles: cues and outputPath required",
+    await expect(exportSubtitles?.({}, { format: "srt", cues: undefined })).rejects.toThrow(
+      "export:subtitles: cues array required",
     );
 
     expect(exportSRT).toHaveBeenCalledWith(cues);
     expect(exportASS).toHaveBeenCalledWith(cues, 1920, 1080);
     expect(fsp.writeFile).toHaveBeenNthCalledWith(
       1,
-      "C:\\exports\\captions.srt",
+      expect.stringContaining("captions.srt"),
       "1\n00:00:00,000 --> 00:00:01,000\nhello",
       "utf8",
     );
     expect(fsp.writeFile).toHaveBeenNthCalledWith(
       2,
-      "C:\\exports\\captions.ass",
+      expect.stringContaining("captions.ass"),
       "[Script Info]",
       "utf8",
     );
+  });
+
+  it("opens save dialog when subtitles outputPath is omitted and cancels gracefully", async () => {
+    resetCommon();
+    showSaveDialog.mockResolvedValueOnce({ canceled: true, filePath: undefined });
+    const handlers = registerHandlers();
+    const exportSubtitles = handlers.get("export:subtitles");
+    const cues = [{ id: "cue-1", startTime: 0, endTime: 1, text: "hello" }];
+
+    await expect(
+      exportSubtitles?.({}, { format: "srt", cues }),
+    ).resolves.toBeNull();
+
+    expect(showSaveDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultPath: "subtitles.srt",
+      }),
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      "Subtitle export cancelled",
+      expect.objectContaining({ category: "export", format: "srt" }),
+    );
+  });
+
+  it("rejects subtitles export with path traversal or disallowed extension", async () => {
+    resetCommon();
+    const handlers = registerHandlers();
+    const exportSubtitles = handlers.get("export:subtitles");
+    const cues = [{ id: "cue-1", startTime: 0, endTime: 1, text: "hello" }];
+
+    await expect(
+      exportSubtitles?.({}, { format: "srt", cues, outputPath: "C:\\exports\\..\\..\\system.srt" }),
+    ).rejects.toThrow("export:subtitles: path traversal detected");
+
+    await expect(
+      exportSubtitles?.({}, { format: "srt", cues, outputPath: "C:\\exports\\payload.exe" }),
+    ).rejects.toThrow('export:subtitles: disallowed extension ".exe"');
   });
 
   it("exports storyboard PDFs with resolved thumbnails and supports dialog cancellation", async () => {

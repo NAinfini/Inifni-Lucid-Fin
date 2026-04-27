@@ -178,27 +178,57 @@ export function registerExportHandlers(ipcMain: IpcMain, cas?: CAS, canvasStore?
       args: {
         format: 'srt' | 'ass';
         cues: SubtitleCue[];
-        outputPath: string;
+        outputPath?: string;
         videoWidth?: number;
         videoHeight?: number;
       },
     ) => {
-      if (!args?.outputPath || !Array.isArray(args?.cues)) {
-        throw new Error('export:subtitles: cues and outputPath required');
+      if (!Array.isArray(args?.cues)) {
+        throw new Error('export:subtitles: cues array required');
       }
       if (args.format !== 'srt' && args.format !== 'ass') {
         throw new Error('export:subtitles: format must be "srt" or "ass"');
+      }
+
+      let outputPath = args.outputPath;
+      if (!outputPath) {
+        const ext = args.format;
+        const result = await dialog.showSaveDialog({
+          defaultPath: `subtitles.${ext}`,
+          filters: [
+            { name: args.format === 'srt' ? 'SubRip Subtitle' : 'Advanced SubStation Alpha', extensions: [ext] },
+            { name: 'All Files', extensions: ['*'] },
+          ],
+        });
+        if (result.canceled || !result.filePath) {
+          log.info('Subtitle export cancelled', { category: 'export', format: args.format });
+          return null;
+        }
+        outputPath = result.filePath;
+      } else {
+        // Validate renderer-supplied path: reject traversal and unexpected extensions
+        const normalized = _path.resolve(outputPath);
+        const relative = _path.relative(_path.dirname(normalized), normalized);
+        if (relative.includes('..') || outputPath.includes('..')) {
+          throw new Error('export:subtitles: path traversal detected');
+        }
+        const allowedExts = ['.srt', '.ass', '.vtt', '.txt'];
+        const ext = _path.extname(normalized).toLowerCase();
+        if (!allowedExts.includes(ext)) {
+          throw new Error(`export:subtitles: disallowed extension "${ext}"`);
+        }
+        outputPath = normalized;
       }
 
       const content = args.format === 'srt'
         ? exportSRT(args.cues)
         : exportASS(args.cues, args.videoWidth, args.videoHeight);
 
-      await fsp.writeFile(args.outputPath, content, 'utf8');
+      await fsp.writeFile(outputPath, content, 'utf8');
       log.info('Subtitle export completed', {
         category: 'export',
         format: args.format,
-        outputPath: args.outputPath,
+        outputPath,
         cueCount: args.cues.length,
       });
     },
