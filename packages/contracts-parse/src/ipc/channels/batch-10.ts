@@ -416,20 +416,36 @@ export const importSrtChannel = defineInvokeChannel({
 export type ImportSrtRequest = z.infer<typeof ImportSrtRequest>;
 export type ImportSrtResponse = z.infer<typeof ImportSrtResponse>;
 
-// ─── ipc:ping — INTENTIONALLY UNREGISTERED ───────────────────
+// ─── ipc:ping — typed descriptor, NOT in allChannels ────────
 // The hand-written infrastructure surface (see `LucidAPIInfrastructure`) owns
 // the `ipc` namespace with `cancel/onInvocation/onEvent`. Registering any
 // channel with the `ipc:` prefix makes the codegen emit a `LucidAPI_Ipc`
 // interface that shadows the infra methods and causes a TS2430 extends
 // conflict.
 //
-// `ipc:ping` is only used by `IpcStatus` for connection health polling; the
-// renderer calls it via `ipcRenderer.invoke('ipc:ping')` through the
-// infrastructure escape hatch, not through the generated `lucidAPI.ipc.*`
-// surface, so leaving it unregistered is safe. If this ever needs to be
-// first-class-typed, the channel should be renamed (e.g. `health:ipc-ping`)
-// or the codegen adjusted to merge new `ipc:*` methods onto the existing
-// infra namespace. Noted in the batch-10 report.
+// The channel descriptor is exported so `electron.ts` can migrate from the
+// raw `ipcMain.handle('ipc:ping', ...)` to `registerInvoke`. It is NOT
+// included in `appChannels` / `allChannels` to keep codegen safe.
+const IpcPingRequest = z.object({}).strict().default({});
+const IpcPingResponse = z.literal('pong');
+export const pingChannel = defineInvokeChannel({
+  channel: 'ipc:ping',
+  request: IpcPingRequest,
+  response: IpcPingResponse,
+});
+export type IpcPingRequest = z.infer<typeof IpcPingRequest>;
+export type IpcPingResponse = z.infer<typeof IpcPingResponse>;
+
+// ─── app:restart ──────────────────────────────────────────────
+const AppRestartRequest = z.object({}).strict().default({});
+const AppRestartResponse = z.void();
+export const appRestartChannel = defineInvokeChannel({
+  channel: 'app:restart',
+  request: AppRestartRequest,
+  response: AppRestartResponse,
+});
+export type AppRestartRequest = z.infer<typeof AppRestartRequest>;
+export type AppRestartResponse = z.infer<typeof AppRestartResponse>;
 
 // ─── keychain:* ──────────────────────────────────────────────
 const KeychainGetRequest = z.object({ provider: z.string() });
@@ -1014,7 +1030,7 @@ export const updaterToastChannel = definePushChannel({
 export type UpdaterToastPayload = z.infer<typeof UpdaterToastPayload>;
 
 // ─── Per-namespace tuples (invoke) ───────────────────────────
-export const appChannels = [appVersionChannel] as const;
+export const appChannels = [appVersionChannel, appRestartChannel] as const;
 
 export const aiChannels = [
   aiChatChannel,

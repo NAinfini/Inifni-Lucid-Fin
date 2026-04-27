@@ -121,7 +121,7 @@ describe('electron startup observability', () => {
       'Registered early IPC handlers',
       expect.objectContaining({
         category: 'ipc',
-        channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping'],
+        channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping', 'app:restart'],
       }),
     );
   });

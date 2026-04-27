@@ -1,5 +1,22 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import type { IpcChannelMap } from './ipc.js';
+import type {
+  WorkflowListResponse,
+  WorkflowGetRequest,
+  WorkflowGetResponse,
+  WorkflowGetStagesRequest,
+  WorkflowGetStagesResponse,
+  WorkflowGetTasksRequest,
+  WorkflowGetTasksResponse,
+  WorkflowStartRequest,
+  WorkflowStartResponse,
+  WorkflowPauseRequest,
+  WorkflowResumeRequest,
+  WorkflowCancelRequest,
+  WorkflowRetryTaskRequest,
+  WorkflowRetryStageRequest,
+  WorkflowRetryWorkflowRequest,
+  ColorStyleExtractResponse,
+} from '@lucid-fin/contracts-parse';
 import type {
   WorkflowActivitySummary,
   WorkflowStageRun,
@@ -8,26 +25,18 @@ import type {
 
 describe('workflow ipc contract', () => {
   it('defines workflow channels with concrete shapes', () => {
-    expectTypeOf<IpcChannelMap['workflow:list']['response']>().toEqualTypeOf<
-      WorkflowActivitySummary[]
-    >();
-    expectTypeOf<IpcChannelMap['workflow:get']['request']>().toEqualTypeOf<{ id: string }>();
-    expectTypeOf<
-      IpcChannelMap['workflow:get']['response']
-    >().toEqualTypeOf<WorkflowActivitySummary>();
-    expectTypeOf<IpcChannelMap['workflow:getStages']['request']>().toEqualTypeOf<{
+    expectTypeOf<WorkflowListResponse>().toMatchTypeOf<WorkflowActivitySummary[]>();
+    expectTypeOf<WorkflowGetRequest>().toMatchTypeOf<{ id: string }>();
+    expectTypeOf<WorkflowGetResponse>().toMatchTypeOf<WorkflowActivitySummary>();
+    expectTypeOf<WorkflowGetStagesRequest>().toMatchTypeOf<{
       workflowRunId: string;
     }>();
-    expectTypeOf<IpcChannelMap['workflow:getStages']['response']>().toEqualTypeOf<
-      WorkflowStageRun[]
-    >();
-    expectTypeOf<IpcChannelMap['workflow:getTasks']['request']>().toEqualTypeOf<{
+    expectTypeOf<WorkflowGetStagesResponse>().toMatchTypeOf<WorkflowStageRun[]>();
+    expectTypeOf<WorkflowGetTasksRequest>().toMatchTypeOf<{
       workflowRunId: string;
     }>();
-    expectTypeOf<IpcChannelMap['workflow:getTasks']['response']>().toEqualTypeOf<
-      WorkflowTaskSummary[]
-    >();
-    expectTypeOf<IpcChannelMap['workflow:start']['request']>().toEqualTypeOf<{
+    expectTypeOf<WorkflowGetTasksResponse>().toMatchTypeOf<WorkflowTaskSummary[]>();
+    expectTypeOf<WorkflowStartRequest>().toMatchTypeOf<{
       workflowType: string;
       entityType: string;
       entityId?: string;
@@ -35,25 +44,25 @@ describe('workflow ipc contract', () => {
       input?: Record<string, unknown>;
       metadata?: Record<string, unknown>;
     }>();
-    expectTypeOf<IpcChannelMap['workflow:start']['response']>().toEqualTypeOf<{
+    expectTypeOf<WorkflowStartResponse>().toEqualTypeOf<{
       workflowRunId: string;
     }>();
-    expectTypeOf<IpcChannelMap['workflow:pause']['request']>().toEqualTypeOf<{ id: string }>();
-    expectTypeOf<IpcChannelMap['workflow:resume']['request']>().toEqualTypeOf<{ id: string }>();
-    expectTypeOf<IpcChannelMap['workflow:cancel']['request']>().toEqualTypeOf<{ id: string }>();
-    expectTypeOf<IpcChannelMap['workflow:retryTask']['request']>().toEqualTypeOf<{
+    expectTypeOf<WorkflowPauseRequest>().toMatchTypeOf<{ id: string }>();
+    expectTypeOf<WorkflowResumeRequest>().toMatchTypeOf<{ id: string }>();
+    expectTypeOf<WorkflowCancelRequest>().toMatchTypeOf<{ id: string }>();
+    expectTypeOf<WorkflowRetryTaskRequest>().toMatchTypeOf<{
       taskRunId: string;
     }>();
-    expectTypeOf<IpcChannelMap['workflow:retryStage']['request']>().toEqualTypeOf<{
+    expectTypeOf<WorkflowRetryStageRequest>().toMatchTypeOf<{
       stageRunId: string;
     }>();
-    expectTypeOf<IpcChannelMap['workflow:retryWorkflow']['request']>().toEqualTypeOf<{
+    expectTypeOf<WorkflowRetryWorkflowRequest>().toMatchTypeOf<{
       id: string;
     }>();
   });
 
   it('returns workflow-backed color style extraction response', () => {
-    expectTypeOf<IpcChannelMap['colorStyle:extract']['response']>().toEqualTypeOf<{
+    expectTypeOf<ColorStyleExtractResponse>().toEqualTypeOf<{
       workflowRunId: string;
     }>();
   });

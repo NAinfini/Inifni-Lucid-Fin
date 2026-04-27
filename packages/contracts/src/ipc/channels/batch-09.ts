@@ -16,12 +16,8 @@
  *
  * Batch 9 also closes Phase B-2 ("commander:chat/stream alignment"):
  *   - `CommanderChatRequest` carries every field the handler accepts.
- *   - `CommanderStreamPayload` is a strict discriminated union over the 9
- *     variants actually emitted (see `CommanderStreamEvent` alias).
- *
- * The legacy `CommanderStreamPayload` in `commander-emit.ts` is a flat
- * all-optional bag; it stays as the runtime author's type for now, but any
- * new consumer importing from `@lucid-fin/contracts` gets the strict union.
+ *   - `CommanderStreamPayload` wraps a `TimelineEvent` in a v2
+ *     `WireEnvelope` and is the only shape that rides `commander:stream`.
  */
 
 // `HistoryEntry` mirrors the type from `@lucid-fin/application`
@@ -45,6 +41,8 @@ export type HistoryEntry =
 // consumers can import the full provider shape from the channel barrel.
 export type { LLMProviderRuntimeConfig } from '../../llm-provider.js';
 import type { LLMProviderRuntimeConfig } from '../../llm-provider.js';
+import type { TimelineEvent } from '../../agent/timeline-event.js';
+import type { WireEnvelope } from '../../agent/wire-version.js';
 
 // ── commander:chat (invoke) ──────────────────────────────────
 export interface CommanderChatRequest {
@@ -53,7 +51,7 @@ export interface CommanderChatRequest {
   message: string;
   history: HistoryEntry[];
   selectedNodeIds: string[];
-  promptGuides?: Array<{ id: string; name: string; content: string }>;
+  promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
   customLLMProvider?: LLMProviderRuntimeConfig;
   permissionMode?: 'auto' | 'normal' | 'strict';
   locale?: string;
@@ -140,133 +138,11 @@ export type CommanderToolSearchResponse = Array<{
 
 // ── commander:stream (push) — single source of truth (pure types) ──
 /**
- * Mirror of `@lucid-fin/contracts-parse`'s `CommanderStreamPayload` zod
- * schema. Kept in sync by hand (the contracts package is type-only and must
- * not depend on zod at runtime). Every variant carries the provenance fields
- * (`runId`, `step`, `emittedAt`) required by the schema.
- *
- * Discriminator is `kind` — any consumer that still reads `.type` is a
- * compile error by design.
+ * The `commander:stream` channel carries `TimelineEvent`s wrapped in a
+ * v2 `WireEnvelope`. `CommanderStreamPayload` is the envelope that
+ * actually rides the wire. The zod schema lives in
+ * `@lucid-fin/contracts-parse`'s batch-09.
  */
-interface CommanderStreamCommon {
-  runId: string;
-  step: number;
-  emittedAt: number;
-}
-
-export type CommanderStreamEvent =
-  | ({ kind: 'chunk'; content: string } & CommanderStreamCommon)
-  | ({
-      kind: 'tool_call_started';
-      toolName: string;
-      toolCallId: string;
-      startedAt: number;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'tool_call_args_delta';
-      toolCallId: string;
-      delta: string;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'tool_call_args_complete';
-      toolCallId: string;
-      arguments: Record<string, unknown>;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'tool_result';
-      toolName: string;
-      toolCallId: string;
-      result: unknown;
-      startedAt: number;
-      completedAt: number;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'tool_confirm';
-      toolName: string;
-      toolCallId: string;
-      arguments: Record<string, unknown>;
-      tier: number;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'tool_question';
-      toolName: string;
-      toolCallId: string;
-      question: string;
-      options: Array<{ label: string; description?: string }>;
-    } & CommanderStreamCommon)
-  | ({ kind: 'thinking_delta'; content: string } & CommanderStreamCommon)
-  | ({
-      kind: 'phase_note';
-      note: 'process_prompt_loaded' | 'compacted' | 'llm_retry';
-      detail: string;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'done';
-      content: string;
-      /**
-       * Phase E: terminal ExitDecision for this run. Always present for
-       * runs that reach a natural end (model stopped, no more tool calls).
-       * Absent only for `error` terminations — those emit `kind: 'error'`
-       * separately and do not produce a `done`.
-       *
-       * Consumers can render the decision as a product-level banner
-       * (e.g. "unsatisfied: missing_commit") while still using `content`
-       * as the final text payload. The Phase B shadow `exit_decision`
-       * event continues to fire alongside for richer telemetry, but the
-       * UI's terminal rendering reads the decision from `done`.
-       */
-      exitDecision?: CommanderExitDecisionPayload;
-      exitIntent?: CommanderIntentPayload;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'error';
-      toolCallId?: string;
-      error: string;
-      startedAt?: number;
-      completedAt?: number;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'context_usage';
-      estimatedTokensUsed: number;
-      contextWindowTokens: number;
-      messageCount: number;
-      systemPromptChars: number;
-      toolSchemaChars: number;
-      messageChars: number;
-      cacheChars: number;
-      cacheEntryCount: number;
-      historyMessagesTrimmed?: number;
-      utilizationRatio: number;
-    } & CommanderStreamCommon)
-  // ── Exit Contract Architecture events (Phase B shadow) ───────
-  // Emitted additively alongside existing events. The shadow-mode
-  // contract defines these as observable telemetry; the renderer
-  // and IPC consumers can ignore them without breakage.
-  | ({
-      kind: 'evidence_appended';
-      evidence: CommanderEvidencePayload;
-    } & CommanderStreamCommon)
-  | ({
-      kind: 'exit_decision';
-      decision: CommanderExitDecisionPayload;
-      intent: CommanderIntentPayload;
-    } & CommanderStreamCommon)
-  // ── Process-prompt preflight telemetry (Phase D) ─────────────
-  // Emitted once per ProcessPromptSpec per preflight evaluation. Gives
-  // observability for "why did (or didn't) the gate fire" — the study
-  // harness' report histograms `activated` vs `skipped` per spec key.
-  | ({
-      kind: 'preflight_decision';
-      decision: 'activated' | 'skipped';
-      specKey: string;
-      /**
-       * Space-separated list of pending tool call names that triggered this
-       * evaluation. Empty string when no tool calls were pending (shouldn't
-       * happen for the current spec set, but left permissive for future
-       * specs that evaluate independently of tool calls).
-       */
-      toolCall: string;
-    } & CommanderStreamCommon);
 
 /**
  * Serialisable intent, evidence, and decision shapes for the stream
@@ -308,8 +184,8 @@ export type CommanderExitDecisionPayload =
   | { outcome: 'unsatisfied'; contractId: string; blocker: CommanderBlockerPayload }
   | { outcome: 'error'; message: string };
 
-/** Alias emitted at the codegen's expected `<TypeBase>Payload` name. */
-export type CommanderStreamPayload = CommanderStreamEvent;
+/** v2 wire envelope payload for `commander:stream`. */
+export type CommanderStreamPayload = WireEnvelope<TimelineEvent>;
 
 // ── commander:canvas:dispatch (push) ─────────────────────────
 // Emitted from `commander-emit.ts:200` when a mutating tool completes.

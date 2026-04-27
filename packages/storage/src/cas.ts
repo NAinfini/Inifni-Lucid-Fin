@@ -25,6 +25,10 @@ export class CAS {
     return this.projectAssetsRoot ?? this.globalAssetsRoot;
   }
 
+  getAssetsRoot(): string {
+    return this.assetsRoot;
+  }
+
   async importAsset(
     filePath: string,
     type: AssetType,

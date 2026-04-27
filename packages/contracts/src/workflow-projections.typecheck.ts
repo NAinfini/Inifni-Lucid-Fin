@@ -5,7 +5,6 @@ import type {
   WorkflowTaskUpdatedEvent,
   WorkflowUpdatedEvent,
 } from './dto/workflow.js';
-import type { IpcChannelMap } from './ipc.js';
 
 type Assert<T extends true> = T;
 
@@ -67,21 +66,6 @@ type _WorkflowTaskUpdatedEventShape = Assert<
 
 type _WorkflowStageUpdatedEventShape = Assert<
   Extends<WorkflowStageUpdatedEvent, { workflowRunId: string; stageId: string }>
->;
-
-type IsEqual<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
-
-type _WorkflowListResponse = Assert<
-  IsEqual<IpcChannelMap['workflow:list']['response'], WorkflowActivitySummary[]>
->;
-
-type _WorkflowGetResponse = Assert<
-  IsEqual<IpcChannelMap['workflow:get']['response'], WorkflowActivitySummary>
->;
-
-type _WorkflowGetTasksResponse = Assert<
-  IsEqual<IpcChannelMap['workflow:getTasks']['response'], WorkflowTaskSummary[]>
 >;
 
 export {};

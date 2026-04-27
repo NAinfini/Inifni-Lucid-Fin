@@ -5,17 +5,15 @@ import type {
   LLMToolCall,
   LLMFinishReason,
   ProviderProfile,
-  CommanderStreamEvent,
-  CommanderEvidencePayload,
-  CommanderExitDecisionPayload,
-  CommanderIntentPayload,
+  TimelineExitDecisionMeta,
 } from '@lucid-fin/contracts';
-import { LucidError, DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
+import { LucidError, DEFAULT_PROVIDER_PROFILE, parseCanonicalToolName } from '@lucid-fin/contracts';
 import type { AgentToolRegistry } from './tool-registry.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import {
   type AgentContext,
   type HistoryEntry,
+  type ToolSelectionInput,
   ALWAYS_LOADED_TOOLS,
   ESTIMATED_CHARS_PER_TOKEN,
   DEFAULT_IN_LOOP_CHAR_BUDGET,
@@ -26,8 +24,11 @@ import {
   adaptiveToolCompaction,
   truncateOldToolResults,
   safeStringify,
+  selectContextualToolSet,
 } from './context-manager.js';
 import { ToolExecutor } from './tool-executor.js';
+import { ToolCallDeduplicator } from './tool-call-deduplicator.js';
+import { detectOptionListMarkdown } from './detect-option-list-markdown.js';
 import { TranscriptIndex } from './transcript-index.js';
 import {
   detectProcess,
@@ -52,6 +53,10 @@ import {
   contractRegistry,
   evaluateProcessPromptSpecs,
   createStylePlateLockSpec,
+  createEntitiesBeforeGenerationSpec,
+  createBatchCreateGuidanceSpec,
+  createPromptQualityGateSpec,
+  createStoryWorkflowPhaseSpec,
   type ExitDecision,
   type ProcessPromptSpec,
   type RunIntent,
@@ -61,9 +66,9 @@ import {
 export type { AgentContext, HistoryEntry };
 export type { StampedStreamEvent, StreamEmit };
 
-// Re-export CommanderStreamEvent for main-process handlers that plug directly
-// into the orchestrator's emit surface.
-export type AgentStreamEvent = CommanderStreamEvent;
+// v2 wire: stream events are TimelineEvents. Re-export for main-process
+// handlers that plug directly into the orchestrator's emit surface.
+export type AgentStreamEvent = StampedStreamEvent;
 
 /**
  * Orchestrator-internal completion shape. Adapters no longer return this —
@@ -209,10 +214,10 @@ function isProcessCategory(value: unknown): value is ProcessCategory {
  * standalone spec (`style-plate-lock`); new specs can be added to the spec
  * list without touching this constant.
  */
-type ProcessPromptKey = ProcessCategory | 'style-plate-lock';
+type ProcessPromptKey = ProcessCategory | 'style-plate-lock' | 'entities-before-generation' | 'batch-create-guidance' | 'prompt-quality-gate' | 'story-workflow-phase';
 
 const STANDALONE_SPEC_KEYS: ReadonlySet<Exclude<ProcessPromptKey, ProcessCategory>> =
-  new Set(['style-plate-lock']);
+  new Set(['style-plate-lock', 'entities-before-generation', 'batch-create-guidance', 'prompt-quality-gate', 'story-workflow-phase']);
 
 function isProcessPromptKey(value: unknown): value is ProcessPromptKey {
   if (typeof value !== 'string') return false;
@@ -338,6 +343,13 @@ export class AgentOrchestrator {
   private currentIntent: RunIntent = { kind: 'mixed' };
   private lastAssistantText = '';
 
+  // ── Scratchpad (2C) ────────────────────────────────────────────
+  /** Accumulated scratchpad sections. Updated after each tool batch. */
+  private scratchpadTodos: string[] = [];
+  private scratchpadDecisions: string[] = [];
+  private scratchpadFailures: string[] = [];
+  private static readonly SCRATCHPAD_MAX_CHARS = 500;
+
   /**
    * G2-5: graph-only items carried across sessions via SessionRepository.
    * The active `contextGraph` is rebuilt from messages every step, so
@@ -380,6 +392,30 @@ export class AgentOrchestrator {
           // IPC implementation keys by free-form string (see router.ts).
           // Cast is safe for standalone keys whose presence in the store
           // is asserted by STANDALONE_SPEC_KEYS.
+          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
+        },
+      }),
+      createEntitiesBeforeGenerationSpec({
+        resolvePromptText: (key) => {
+          if (!this.resolveProcessPrompt) return null;
+          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
+        },
+      }),
+      createBatchCreateGuidanceSpec({
+        resolvePromptText: (key) => {
+          if (!this.resolveProcessPrompt) return null;
+          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
+        },
+      }),
+      createPromptQualityGateSpec({
+        resolvePromptText: (key) => {
+          if (!this.resolveProcessPrompt) return null;
+          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
+        },
+      }),
+      createStoryWorkflowPhaseSpec({
+        resolvePromptText: (key) => {
+          if (!this.resolveProcessPrompt) return null;
           return this.resolveProcessPrompt(key as unknown as ProcessCategory);
         },
       }),
@@ -537,15 +573,37 @@ export class AgentOrchestrator {
     // intentionally never touched directly after this point.
     const wrappedEmit: StreamEmit = makeStampedEmit(runId, () => steps, emit);
 
+    // Phase G — per-run tool-call deduplicator. Fresh instance per
+    // `execute()` so dedup state can't leak across runs.
+    const toolCallDeduplicator = new ToolCallDeduplicator();
+
+    // Phase I — when the model emits an option-list markdown instead of
+    // calling `commander.askUser`, we set this flag so the *next* adapter
+    // call uses `tool_choice: commander.askUser` (forcing the structured
+    // path). Reset after the forced call completes.
+    let forceAskUserNextTurn = false;
+
+    // Phase B: emit `run_start` bracket so the renderer can group events
+    // into a per-run card (Phase D). The intent is the raw user message —
+    // renderer crops / formats for display.
+    wrappedEmit({ kind: 'run_start', intent: userMessage });
+
     if (userCtx && detectedCtx && userCtx < detectedCtx) {
       wrappedEmit({
-        kind: 'chunk',
+        kind: 'assistant_text',
         content: `[Note: Your configured context window (${userCtx.toLocaleString()} tokens) is smaller than the model's actual context (${detectedCtx.toLocaleString()} tokens). Using your configured value.]\n`,
+        isDelta: true,
       });
     }
 
     this.activeProcessPromptSteps.clear();
     this.lastAskUserAnsweredStep = null;
+
+    // 2C: Reset scratchpad state for new run.
+    this.scratchpadTodos = [];
+    this.scratchpadDecisions = [];
+    this.scratchpadFailures = [];
+    this.contextManager.setScratchpad(null);
 
     // Phase B — reset exit-contract shadow state and classify intent
     // once at the start of the run.
@@ -557,6 +615,73 @@ export class AgentOrchestrator {
         : undefined,
     });
     this.lastAssistantText = '';
+
+    // 1H: Surface classified intent to the LLM via the system prompt's
+    // dynamic context section so the model can calibrate its behavior.
+    const intentWorkflow = 'workflow' in this.currentIntent ? this.currentIntent.workflow : undefined;
+    const intentStr = intentWorkflow
+      ? `${this.currentIntent.kind} (workflow: ${intentWorkflow})`
+      : this.currentIntent.kind;
+    if (!context.extra) context.extra = {};
+    (context.extra as Record<string, unknown>).classifiedIntent = intentStr;
+
+    // 1B: Context-aware tool set selection — load only tools relevant to
+    // the current workspace state and user intent instead of all registered
+    // tools. Non-selected tools are still discoverable via `tool.get` and
+    // show up as name-only stubs in the adaptive-compaction tier-0 path.
+    {
+      const extra = context.extra as Record<string, unknown>;
+      const nodeCount = typeof extra.nodeCount === 'number' ? extra.nodeCount : 0;
+
+      // Parse entity count from the workspace snapshot when available, or
+      // fallback to zero. The snapshot follows a fixed "Characters (N/M):"
+      // / "Locations (...)" / "Equipment (...)" format — see
+      // `buildWorkspaceSnapshot` in commander.handlers.ts.
+      let entityCount = 0;
+      if (typeof extra.workspaceSnapshot === 'string') {
+        const snap = extra.workspaceSnapshot;
+        const charMatch = /Characters \((\d+)\/(\d+)\)/.exec(snap);
+        const locMatch = /Locations \((\d+)\/(\d+)\)/.exec(snap);
+        const equipMatch = /Equipment \((\d+)\/(\d+)\)/.exec(snap);
+        entityCount =
+          (charMatch ? Number(charMatch[2]) : 0) +
+          (locMatch ? Number(locMatch[2]) : 0) +
+          (equipMatch ? Number(equipMatch[2]) : 0);
+      }
+
+      const selectedNodeIds = Array.isArray(extra.selectedNodeIds)
+        ? extra.selectedNodeIds
+        : [];
+
+      // Style plate — check the snapshot text. A line "Style plate: NOT SET"
+      // means no plate; anything else means one exists.
+      let hasStylePlate = false;
+      if (typeof extra.workspaceSnapshot === 'string') {
+        const snap = extra.workspaceSnapshot;
+        const plateLineMatch = /Style plate: (.+)/.exec(snap);
+        if (plateLineMatch && plateLineMatch[1] !== 'NOT SET') {
+          hasStylePlate = true;
+        }
+      }
+
+      const selectionInput: ToolSelectionInput = {
+        nodeCount,
+        entityCount,
+        hasStylePlate,
+        hasSelectedNodes: selectedNodeIds.length > 0,
+        userMessage,
+        intentKind: this.currentIntent.kind,
+        intentWorkflow,
+      };
+      const contextualTools = selectContextualToolSet(selectionInput);
+      for (const name of contextualTools) {
+        loadedToolNames.add(name);
+        // Seed in toolLastUsedStep so adaptive compaction treats these as
+        // "recently used" during the first few steps rather than stripping
+        // them immediately.
+        toolLastUsedStep.set(name, 0);
+      }
+    }
 
     this.activateInitialProcessPrompts(messages, context);
     this.activeMessages = messages;
@@ -601,31 +726,62 @@ export class AgentOrchestrator {
       permissionMode: options?.permissionMode,
       contextGraph: this.contextGraph,
       canvasId,
-      // When tool.get returns an inline process guide, mark the category
-      // primed so the pre-flight defer doesn't re-inject it the moment the
-      // model follows up with the action tool. The guide content lives in
-      // the tool-result on the wire, not in messages[] as a system message,
-      // so we set the step map directly here.
-      onProcessGuideDiscovered: (processCategory: string) => {
-        if (isProcessCategory(processCategory)) {
-          this.activeProcessPromptSteps.set(processCategory, steps);
-        }
-      },
+      // `tool.get` responses already carry the process guide inline (see
+      // meta-tools `attachProcessGuide`). That inline payload is an
+      // immediate hint the model sees at discovery time, but it is NOT a
+      // substitute for the system-message injection: the tool-result can
+      // be compacted, dropped, or re-written on long sessions, and even
+      // within the same run the model frequently skips discovery and
+      // jumps straight to the action tool. We therefore do NOT mark the
+      // category as primed on inline discovery — the pre-flight defer
+      // (`primeProcessPromptsForToolCalls`) still runs when the model
+      // calls the actual process tool, and the system message goes in
+      // unconditionally (dedup is handled by `isProcessPromptMessage`
+      // scanning `messages[]`, so no double-injection risk).
+      //
+      // This was the root cause of "process prompt never injected when
+      // the tool is called": a prior `tool.get` suppressed the backstop
+      // even when the guide was no longer in context.
     });
 
     try {
       while (steps < this.maxSteps) {
         if (this._cancelled || options?.isAborted?.()) {
-          wrappedEmit({ kind: 'done', content: 'Cancelled.' });
+          // Counts intentionally zero — renderer derives accurate
+          // completed/pending counts from the timeline events for this
+          // run (see `selectRunToolStats` + CancelledBanner). Keeping the
+          // backend emission authoritative-free avoids double-counting
+          // when synthetic tool_result events are appended later.
+          wrappedEmit({
+            kind: 'cancelled',
+            reason: 'user',
+            completedToolCalls: 0,
+            pendingToolCalls: 0,
+          });
+          wrappedEmit({ kind: 'run_end', status: 'cancelled' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
         }
 
         steps++;
         this.stripInactiveProcessPrompts(messages, steps);
 
+        // 1I: Consolidate process-prompt system messages into the system
+        // prompt before rebuilding. This reduces message count and makes
+        // compaction behavior predictable.
+        const activeProcessPromptData = this.consolidateProcessPrompts(messages);
+
         // Rebuild system prompt with step-aware abbreviation (saves tokens after step 5)
+        // and consolidated process prompts as a structured section.
         if (steps > 1) {
-          systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
+          systemPrompt = this.contextManager.buildSystemPrompt(context, steps, activeProcessPromptData);
+          if (messages.length > 0 && messages[0].role === 'system') {
+            messages[0] = { ...messages[0], content: systemPrompt };
+          }
+        } else if (activeProcessPromptData.length > 0) {
+          // Step 1: initial system prompt was already built, but process
+          // prompts may have been injected by activateInitialProcessPrompts.
+          // Rebuild to include them as a section.
+          systemPrompt = this.contextManager.buildSystemPrompt(context, steps, activeProcessPromptData);
           if (messages.length > 0 && messages[0].role === 'system') {
             messages[0] = { ...messages[0], content: systemPrompt };
           }
@@ -721,33 +877,20 @@ export class AgentOrchestrator {
           utilizationRatio: ctxWindow > 0 ? estimatedTokensUsed / ctxWindow : 0,
         });
 
-        // Emit the context-usage wire event from here so `runId`/`step` are
-        // stamped automatically. Keeps the IPC handler's `onLLMRequest` hook
-        // as a log-only observer — it can no longer desync from the wire.
-        wrappedEmit({
-          kind: 'context_usage',
-          estimatedTokensUsed,
-          contextWindowTokens: ctxWindow,
-          messageCount: wireMessages.length,
-          systemPromptChars: systemPrompt.length,
-          toolSchemaChars: this._lastToolSchemaChars,
-          messageChars: measureMessageChars(messages),
-          cacheChars: entityCacheBlock.length,
-          cacheEntryCount: graphToolResultCount,
-          historyMessagesTrimmed,
-          utilizationRatio: ctxWindow > 0 ? estimatedTokensUsed / ctxWindow : 0,
-        });
-
         // Clear previous thinking before new LLM call — sends an empty
-        // `thinking_delta` so the renderer can reset its thinking buffer
+        // `thinking` delta so the renderer can reset its thinking buffer
         // at the start of a fresh step.
-        wrappedEmit({ kind: 'thinking_delta', content: '' });
+        wrappedEmit({ kind: 'thinking', content: '', isDelta: true });
 
         const rawResult = await this.completeWithRetry(
           wireMessages,
           {
             tools: wireTools.length > 0 ? wireTools : undefined,
-            toolChoice: wireTools.length > 0 ? 'auto' : undefined,
+            toolChoice: wireTools.length > 0
+              ? (forceAskUserNextTurn
+                  ? { name: 'commander.askUser' }
+                  : 'auto')
+              : undefined,
             temperature: this.temperature,
             maxTokens: this.maxTokens,
             signal: this._abortController?.signal,
@@ -759,6 +902,40 @@ export class AgentOrchestrator {
         // Un-sanitize tool names and dedup tool call IDs using the graph
         // serializer's reverse map.
         lastResult = destructResponse(rawResult, graphReverseMap);
+
+        // Phase I — force_ask_user was consumed this turn (whether or not
+        // the model complied). Clear the flag so we don't keep forcing
+        // forever.
+        forceAskUserNextTurn = false;
+
+        // Phase I — if the model emitted option-list markdown without
+        // calling `commander.askUser`, schedule a forced `tool_choice:
+        // commander.askUser` on the next turn and inject a system-reminder
+        // so the model knows why it's being redirected. This fixes S10
+        // (model lists A/B/C in prose rather than asking structurally).
+        const hasAskUserCall = lastResult.toolCalls.some(
+          (tc) =>
+            parseCanonicalToolName(tc.name).domain === 'commander' &&
+            parseCanonicalToolName(tc.name).action === 'askUser',
+        );
+        if (
+          !hasAskUserCall &&
+          detectOptionListMarkdown(lastResult.content ?? '')
+        ) {
+          forceAskUserNextTurn = true;
+          wrappedEmit({
+            kind: 'phase_note',
+            note: 'force_ask_user',
+            params: { detectedPattern: 'option_list' },
+          });
+          messages.push({
+            role: 'system',
+            content:
+              'Your previous response listed options as markdown (A/B/C or 1/2/3). ' +
+              'You MUST call `commander.askUser` with `options` to present these choices. ' +
+              'Do not list options in prose.',
+          });
+        }
 
         // Deltas already streamed to the renderer via `drainLLMStream` — no
         // post-hoc `thinking`/`chunk` re-emit needed.
@@ -775,17 +952,21 @@ export class AgentOrchestrator {
           this.lastAssistantText = finalContent;
 
           // Phase E — compute the exit decision and carry it on both the
-          // dedicated `exit_decision` telemetry event (for the harness)
-          // AND the `done` event (for the renderer, so it can render a
-          // banner without re-correlating by runId).
+          // v2: ExitDecision rides on `run_end`. `assistant_text` with
+          // `isDelta: false` delivers the terminal text payload.
           const { decision, intent } = this.computeExitDecision();
-          this.emitExitDecision(wrappedEmit, decision, intent);
 
+          if (finalContent.trim().length > 0) {
+            wrappedEmit({
+              kind: 'assistant_text',
+              content: finalContent,
+              isDelta: false,
+            });
+          }
           wrappedEmit({
-            kind: 'done',
-            content: finalContent,
-            exitDecision: decision as CommanderExitDecisionPayload,
-            exitIntent: intent as CommanderIntentPayload,
+            kind: 'run_end',
+            status: 'completed',
+            exitDecision: this.toTimelineExitDecisionMeta(decision),
           });
           // Phase F — the ExitDecision is the authoritative outcome. Callers
           // that want to hard-enforce (e.g. harness, E2E tests, UI banners
@@ -830,15 +1011,26 @@ export class AgentOrchestrator {
           ...deferredCategories.map((key) => getProcessCategoryName(key)),
         ];
         if (deferredLabels.length > 0) {
-          // Signal to the UI that we paused to load guidance, so the
-          // "extra step" is legible rather than looking like a stall.
-          wrappedEmit({
-            kind: 'thinking_delta',
-            content: `Loading process guidance: ${deferredLabels.join(', ')}`,
-          });
-          // Drop the would-be assistant turn — we haven't pushed it yet,
+          // The assistant turn gets dropped — we haven't pushed it yet,
           // so next iteration the model re-plans with the guide in
           // context and produces a fresh tool_calls set.
+          //
+          // The UI already received `tool_call` events for every call in
+          // this turn (emitted live from the LLM stream). Close those
+          // cards with a synthetic `tool_result` so they don't hang on
+          // the spinner forever. Renderer localizes the error code via
+          // `commander.errorCode.RUN_ENDED_BEFORE_RESULT`.
+          for (const tc of lastResult.toolCalls) {
+            wrappedEmit({
+              kind: 'tool_result',
+              toolCallId: tc.id,
+              error: {
+                code: 'RUN_ENDED_BEFORE_RESULT',
+                params: {},
+              },
+              durationMs: 0,
+            });
+          }
           continue;
         }
 
@@ -857,10 +1049,64 @@ export class AgentOrchestrator {
           toolLastUsedStep.set(tc.name, steps);
         }
 
+        // Phase G — per-turn tool-call dedup.
+        //
+        // Any `(toolRef, argsHash)` we saw execute within the last
+        // `windowSteps` is short-circuited: we emit a `phase_note` +
+        // synthetic `tool_result(skipped)` and push a `role: 'tool'`
+        // message with a feedback note so the LLM sees the prior outcome
+        // and doesn't re-call. Non-dup calls fall through to executor.
+        //
+        // Note: LLM APIs require every assistant `toolCall` to have a
+        // matching tool-role response in `messages`. The synthetic
+        // tool-role message below satisfies that contract.
+        const callsToExecute: LLMToolCall[] = [];
+        for (const tc of lastResult.toolCalls) {
+          const toolRef = parseCanonicalToolName(tc.name);
+          const args = (tc.arguments as Record<string, unknown>) ?? {};
+          const prior = toolCallDeduplicator.check(toolRef, args, steps);
+          if (!prior) {
+            callsToExecute.push(tc);
+            continue;
+          }
+          wrappedEmit({
+            kind: 'phase_note',
+            note: 'tool_skipped_dedup',
+            params: {
+              toolDomain: toolRef.domain,
+              toolAction: toolRef.action,
+              priorStep: prior.step,
+              priorWasError: prior.wasError,
+            },
+          });
+          wrappedEmit({
+            kind: 'tool_result',
+            toolCallId: tc.id,
+            result: {
+              skipped: true,
+              reason: 'duplicate_call_within_window',
+              priorToolCallId: prior.toolCallId,
+              priorStep: prior.step,
+              priorWasError: prior.wasError,
+            },
+            durationMs: 0,
+            skipped: true,
+            synthetic: true,
+          });
+          const feedback = prior.wasError
+            ? `[skipped] identical call to ${toolRef.domain}.${toolRef.action} at step ${prior.step} failed — change arguments or try a different approach instead of retrying.`
+            : `[skipped] identical call to ${toolRef.domain}.${toolRef.action} already ran at step ${prior.step} — see that tool_result instead of re-calling.`;
+          messages.push({
+            role: 'tool',
+            content: feedback,
+            toolCallId: tc.id,
+          });
+        }
+
         // Delegate tool execution to ToolExecutor
         this.toolExecutor.opts.currentStep = steps;
         const { cancelled, dupMap } = await this.toolExecutor.executeToolCalls(
-          lastResult.toolCalls,
+          callsToExecute,
           activeToolNames,
           discoveredToolNames,
           wrappedEmit,
@@ -871,14 +1117,46 @@ export class AgentOrchestrator {
         );
 
         if (cancelled) {
-          wrappedEmit({ kind: 'done', content: 'Cancelled.' });
+          wrappedEmit({
+            kind: 'cancelled',
+            reason: 'user',
+            completedToolCalls: 0,
+            pendingToolCalls: 0,
+          });
+          wrappedEmit({ kind: 'run_end', status: 'cancelled' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
+        }
+
+        // Phase G — register just-executed calls in the deduplicator so
+        // a subsequent identical `(toolRef, args)` within `windowSteps`
+        // is short-circuited. Errors are still registered — the model
+        // sees `priorWasError: true` on the skip feedback and learns not
+        // to blindly retry (S9 pathology).
+        for (const tc of callsToExecute) {
+          const toolRef = parseCanonicalToolName(tc.name);
+          const args = (tc.arguments as Record<string, unknown>) ?? {};
+          const resultMsg = messages.find(
+            (m) => m.role === 'tool' && m.toolCallId === tc.id,
+          );
+          const content = resultMsg?.content ?? '';
+          const wasError =
+            content.includes('"success":false') || /"error"\s*:/.test(content);
+          toolCallDeduplicator.register(toolRef, args, {
+            toolCallId: tc.id,
+            step: steps,
+            wasError,
+          });
         }
 
         // Phase B — record typed evidence for each tool call that just
         // completed. Pulls from the freshly-appended tool-result messages
         // (role=tool) since `executeToolCalls` wrote them in order.
-        this.recordEvidenceForStep(messages, lastResult.toolCalls, wrappedEmit);
+        // Phase G — skipped-by-dedup calls never ran, so they can't
+        // produce evidence; restrict to `callsToExecute`.
+        this.recordEvidenceForStep(messages, callsToExecute);
+
+        // 2C: Update scratchpad after each tool execution batch.
+        this.updateScratchpad(messages, callsToExecute);
 
         // Track the most recent `commander.askUser` resolution. The
         // askUser-continuation safety net in the next iteration uses this
@@ -886,6 +1164,11 @@ export class AgentOrchestrator {
         // mutation.
         if (lastResult.toolCalls.some((tc) => tc.name === 'commander.askUser')) {
           this.lastAskUserAnsweredStep = steps;
+
+          // 1G: Mid-run intent re-evaluation. When the user answers an
+          // askUser question, re-classify intent based on their answer text.
+          // If the intent changes, update the active exit contract.
+          this.reevaluateIntentFromAskUser(messages, callsToExecute, context, wrappedEmit);
         }
 
         // Push results for deduplicated tool calls
@@ -915,7 +1198,7 @@ export class AgentOrchestrator {
           // `snapshot.restore` itself: its own tool-result must remain
           // visible so the model sees the restore outcome.
           const snapshotRestoreCallIds = new Set<string>();
-          for (const tc of lastResult.toolCalls) {
+          for (const tc of callsToExecute) {
             if (tc.name === 'snapshot.restore') snapshotRestoreCallIds.add(tc.id);
           }
           const hasSnapshotRestore = snapshotRestoreCallIds.size > 0;
@@ -930,7 +1213,7 @@ export class AgentOrchestrator {
             }
             this.invalidatedToolCallKeys.clear();
           } else {
-            for (const tc of lastResult.toolCalls) {
+            for (const tc of callsToExecute) {
               const category = getToolCompactionCategory(tc.name);
               if (category !== 'mutation') continue;
               const args = (tc.arguments as Record<string, unknown>) ?? {};
@@ -951,7 +1234,7 @@ export class AgentOrchestrator {
 
         // Batching hints: detect repetitive tool patterns and inject efficiency hint
         const toolCallCounts = new Map<string, number>();
-        for (const tc of lastResult.toolCalls) {
+        for (const tc of callsToExecute) {
           toolCallCounts.set(tc.name, (toolCallCounts.get(tc.name) ?? 0) + 1);
         }
         const batchHints: string[] = [];
@@ -1016,17 +1299,19 @@ export class AgentOrchestrator {
       // so `decide()` returns the `budget_exhausted` outcome with full
       // precedence, regardless of intent or other ledger state. The
       // engine's precedence rules take care of the rest.
-      this.appendEvidence(
-        { kind: 'budget_exhausted', metric: 'steps', at: Date.now() },
-        wrappedEmit,
-      );
+      this.appendEvidence({ kind: 'budget_exhausted', metric: 'steps', at: Date.now() });
       const { decision, intent } = this.computeExitDecision();
-      this.emitExitDecision(wrappedEmit, decision, intent);
+      if (finalContent.trim().length > 0) {
+        wrappedEmit({
+          kind: 'assistant_text',
+          content: finalContent,
+          isDelta: false,
+        });
+      }
       wrappedEmit({
-        kind: 'done',
-        content: finalContent,
-        exitDecision: decision as CommanderExitDecisionPayload,
-        exitIntent: intent as CommanderIntentPayload,
+        kind: 'run_end',
+        status: 'max_steps',
+        exitDecision: this.toTimelineExitDecisionMeta(decision),
       });
       return { ...lastResult, exitDecision: decision, exitIntent: intent };
     } finally {
@@ -1115,7 +1400,14 @@ export class AgentOrchestrator {
         wrappedEmit({
           kind: 'phase_note',
           note: 'llm_retry',
-          detail: `attempt ${attemptNum} of ${totalAttempts} after ${delay}ms (${reason})`,
+          params: {
+            detail: `attempt ${attemptNum} of ${totalAttempts} after ${delay}ms (${reason})`,
+            attempt: attemptNum,
+            totalAttempts,
+            delayMs: delay,
+            reason,
+            stall: isStall,
+          },
         });
         if (delay > 0) await new Promise((r) => setTimeout(r, delay));
       }
@@ -1167,11 +1459,11 @@ export class AgentOrchestrator {
         switch (event.kind) {
           case 'reasoning_delta':
             reasoning += event.delta;
-            wrappedEmit({ kind: 'thinking_delta', content: event.delta });
+            wrappedEmit({ kind: 'thinking', content: event.delta, isDelta: true });
             break;
           case 'text_delta':
             content += event.delta;
-            wrappedEmit({ kind: 'chunk', content: event.delta });
+            wrappedEmit({ kind: 'assistant_text', content: event.delta, isDelta: true });
             break;
           case 'tool_call_started':
             if (!toolCallsById.has(event.id)) {
@@ -1179,39 +1471,37 @@ export class AgentOrchestrator {
               toolCallsById.set(event.id, { id: event.id, name: event.name, arguments: {} });
             }
             wrappedEmit({
-              kind: 'tool_call_started',
-              toolName: event.name,
+              kind: 'tool_call',
               toolCallId: event.id,
-              startedAt: Date.now(),
+              toolRef: parseCanonicalToolName(event.name),
+              args: {},
             });
             break;
           case 'tool_call_args_delta':
-            wrappedEmit({
-              kind: 'tool_call_args_delta',
-              toolCallId: event.id,
-              delta: event.delta,
-            });
+            // v2 has no partial-args event; defer emission until
+            // `tool_call_complete` lands with the parsed object.
             break;
           case 'tool_call_complete': {
             const existing = toolCallsById.get(event.id);
+            const resolvedName = event.name || existing?.name || '';
             if (existing) {
-              existing.name = event.name || existing.name;
+              existing.name = resolvedName || existing.name;
               existing.arguments = event.arguments;
             } else {
               toolOrder.push(event.id);
-              toolCallsById.set(event.id, { id: event.id, name: event.name, arguments: event.arguments });
+              toolCallsById.set(event.id, { id: event.id, name: resolvedName, arguments: event.arguments });
             }
             wrappedEmit({
-              kind: 'tool_call_args_complete',
+              kind: 'tool_call',
               toolCallId: event.id,
-              arguments: event.arguments,
+              toolRef: parseCanonicalToolName(resolvedName),
+              args: event.arguments,
             });
             break;
           }
           case 'usage':
-            // Usage aggregation is handled by the context_usage emit the loop
-            // already computes at the top of each step — nothing extra to wire
-            // through. Kept as a recognised case so the exhaustive switch holds.
+            // Usage diagnostics stay off the timeline stream; kept as a
+            // recognised case so the exhaustive switch holds.
             break;
           case 'finished':
             finishReason = event.finishReason;
@@ -1323,7 +1613,7 @@ export class AgentOrchestrator {
     toolCalls: ReadonlyArray<LLMToolCall>,
     canvasId: string | undefined,
     step: number,
-    emit: StreamEmit,
+    _emit: StreamEmit,
   ): Array<Exclude<ProcessPromptKey, ProcessCategory>> {
     if (!this.resolveProcessPrompt) return [];
     if (this.processPromptSpecs.length === 0) return [];
@@ -1357,20 +1647,6 @@ export class AgentOrchestrator {
       alreadyActivated,
     );
 
-    // Phase D: emit one `preflight_decision` per spec per evaluation —
-    // activated OR skipped — so the study harness can histogram both
-    // sides. Skipped = (predicate false | already-activated | empty content).
-    const activatedKeys = new Set(result.activated.map((a) => a.spec.key));
-    const toolCallNames = toolCalls.map((tc) => tc.name).join(' ');
-    for (const spec of this.processPromptSpecs) {
-      emit({
-        kind: 'preflight_decision',
-        decision: activatedKeys.has(spec.key) ? 'activated' : 'skipped',
-        specKey: spec.key,
-        toolCall: toolCallNames,
-      });
-    }
-
     const primed: Array<Exclude<ProcessPromptKey, ProcessCategory>> = [];
     for (const { spec, content } of result.activated) {
       const key = spec.key as Exclude<ProcessPromptKey, ProcessCategory>;
@@ -1379,15 +1655,12 @@ export class AgentOrchestrator {
         role: 'system',
         content: this.buildProcessPromptMessage(key as ProcessPromptKey, content),
       });
-      this.appendEvidence(
-        {
-          kind: 'process_prompt_activated',
-          key: spec.key,
-          reason: `spec-predicate-fired@step-${step}`,
-          at: Date.now(),
-        },
-        emit,
-      );
+      this.appendEvidence({
+        kind: 'process_prompt_activated',
+        key: spec.key,
+        reason: `spec-predicate-fired@step-${step}`,
+        at: Date.now(),
+      });
       primed.push(key);
     }
     return primed;
@@ -1468,6 +1741,12 @@ export class AgentOrchestrator {
     // is actually locked. Stripping it mid-session would regress the very
     // behaviour this prompt enforces (no ref-image before plate).
     'style-plate-lock',
+    // Entities-before-generation is a sticky early-session gate reminding
+    // the LLM to verify ref-image status. Must not be stripped while active.
+    'entities-before-generation',
+    // Story workflow phase is a sticky guide that reinforces phase gates
+    // once workflow-orchestration is active. Must not be stripped mid-phase.
+    'story-workflow-phase',
   ]);
 
   private stripInactiveProcessPrompts(messages: LLMMessage[], step: number): void {
@@ -1508,6 +1787,56 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 1I: Collect all active process prompt contents from the messages array,
+   * remove those separate system messages, and return the data needed to
+   * inject them as a structured section in the system prompt. This is called
+   * before each LLM call to consolidate process prompts.
+   */
+  private consolidateProcessPrompts(
+    messages: LLMMessage[],
+  ): Array<{ key: string; displayName: string; content: string }> {
+    const result: Array<{ key: string; displayName: string; content: string }> = [];
+    const indicesToRemove: number[] = [];
+    const processPromptPrefix = '[[process-prompt:';
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role !== 'system') continue;
+      if (!msg.content.startsWith(processPromptPrefix)) continue;
+      // Skip messages[0] (the main system prompt)
+      if (i === 0) continue;
+
+      // Parse the key from the marker: [[process-prompt:KEY]]
+      const endBracket = msg.content.indexOf(']]');
+      if (endBracket === -1) continue;
+      const key = msg.content.slice(processPromptPrefix.length, endBracket);
+
+      // Parse the display name from [Process Guide: NAME]
+      const guidePrefix = '[Process Guide: ';
+      const guideLine = msg.content.slice(endBracket + 3); // skip ]]\n
+      let displayName = key;
+      let content = guideLine;
+      if (guideLine.startsWith(guidePrefix)) {
+        const nameEnd = guideLine.indexOf(']');
+        if (nameEnd !== -1) {
+          displayName = guideLine.slice(guidePrefix.length, nameEnd);
+          content = guideLine.slice(nameEnd + 2); // skip ]\n
+        }
+      }
+
+      result.push({ key, displayName, content });
+      indicesToRemove.push(i);
+    }
+
+    // Remove from messages in reverse order to preserve indices
+    for (let i = indicesToRemove.length - 1; i >= 0; i--) {
+      messages.splice(indicesToRemove[i], 1);
+    }
+
+    return result;
+  }
+
+  /**
    * G2a-6: Rebuild the ContextGraph from the canonical `messages` array.
    *
    * Runs before every LLM call in graph-mode. This keeps the graph in lock-step
@@ -1528,11 +1857,11 @@ export class AgentOrchestrator {
     // G2-5: re-merge graph-only persisted items (seeded on resume). Only
     // kinds that are NOT reconstructable from the `messages` array are
     // merged — other kinds would duplicate what the loop below rebuilds.
-    // Today that means `entity-snapshot` + `session-summary`. Guide, user,
-    // assistant, tool-result, system-message, and reference items are all
-    // re-derived from messages so they stay authoritative.
+    // Today that means `entity-snapshot` + `session-summary` + `scratchpad`.
+    // Guide, user, assistant, tool-result, system-message, and reference
+    // items are all re-derived from messages so they stay authoritative.
     for (const seed of this.pendingGraphSeed) {
-      if (seed.kind === 'entity-snapshot' || seed.kind === 'session-summary') {
+      if (seed.kind === 'entity-snapshot' || seed.kind === 'session-summary' || seed.kind === 'scratchpad') {
         this.contextGraph.add(seed);
       }
     }
@@ -1786,6 +2115,213 @@ export class AgentOrchestrator {
   }
 
   // ──────────────────────────────────────────────────────────────────
+  // Scratchpad (2C)
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Build the scratchpad content string from accumulated sections.
+   * Budget: ~500 chars max. Truncates oldest entries first.
+   */
+  private buildScratchpadContent(): string {
+    const maxChars = AgentOrchestrator.SCRATCHPAD_MAX_CHARS;
+    const parts: string[] = [];
+
+    if (this.scratchpadTodos.length > 0) {
+      parts.push(`TODO: ${this.scratchpadTodos.join('; ')}`);
+    }
+    if (this.scratchpadDecisions.length > 0) {
+      parts.push(`DECISIONS: ${this.scratchpadDecisions.join('; ')}`);
+    }
+    if (this.scratchpadFailures.length > 0) {
+      parts.push(`FAILURES: ${this.scratchpadFailures.join('; ')}`);
+    }
+
+    let content = parts.join('\n');
+
+    // Truncate oldest entries (from each section) while over budget.
+    while (content.length > maxChars) {
+      if (this.scratchpadFailures.length > 1) {
+        this.scratchpadFailures.shift();
+      } else if (this.scratchpadDecisions.length > 1) {
+        this.scratchpadDecisions.shift();
+      } else if (this.scratchpadTodos.length > 1) {
+        this.scratchpadTodos.shift();
+      } else {
+        content = content.slice(content.length - maxChars);
+        break;
+      }
+      const rebuilt: string[] = [];
+      if (this.scratchpadTodos.length > 0) {
+        rebuilt.push(`TODO: ${this.scratchpadTodos.join('; ')}`);
+      }
+      if (this.scratchpadDecisions.length > 0) {
+        rebuilt.push(`DECISIONS: ${this.scratchpadDecisions.join('; ')}`);
+      }
+      if (this.scratchpadFailures.length > 0) {
+        rebuilt.push(`FAILURES: ${this.scratchpadFailures.join('; ')}`);
+      }
+      content = rebuilt.join('\n');
+    }
+
+    return content;
+  }
+
+  /**
+   * Update the scratchpad after a tool execution batch. Extracts:
+   * - Todo state from `todo.set` / `todo.update` results
+   * - Creative decisions from `commander.askUser` responses where user picked an option
+   * - Failure traces from tool results with errors
+   */
+  private updateScratchpad(
+    messages: readonly LLMMessage[],
+    toolCalls: readonly LLMToolCall[],
+  ): void {
+    for (const tc of toolCalls) {
+      const resultMsg = messages.find(
+        (m) => m.role === 'tool' && m.toolCallId === tc.id,
+      );
+      const content = resultMsg?.content ?? '';
+
+      // Extract todo state from todo.set / todo.update.
+      if (tc.name === 'todo.set' || tc.name === 'todo.update') {
+        try {
+          const parsed = JSON.parse(content) as { success?: boolean; data?: unknown };
+          if (parsed.success !== false) {
+            const args = tc.arguments as { items?: Array<{ text?: string; status?: string }> } | null;
+            if (Array.isArray(args?.items)) {
+              this.scratchpadTodos = args!.items
+                .filter((item) => item.text)
+                .map((item) => `${item.text}: ${item.status ?? 'pending'}`);
+            }
+          }
+        } catch { /* ignore parse errors */ }
+        continue;
+      }
+
+      // Extract decisions from askUser responses.
+      if (tc.name === 'commander.askUser') {
+        if (content && !content.includes('"success":false')) {
+          const args = tc.arguments as { question?: string } | null;
+          const question = typeof args?.question === 'string'
+            ? args.question.slice(0, 40)
+            : 'choice';
+          let answer: string;
+          try {
+            const parsed = JSON.parse(content) as { data?: { answer?: string } };
+            answer = typeof parsed.data?.answer === 'string'
+              ? parsed.data.answer.slice(0, 60)
+              : content.slice(0, 60);
+          } catch {
+            answer = content.slice(0, 60);
+          }
+          this.scratchpadDecisions.push(`${question} -> ${answer}`);
+        }
+        continue;
+      }
+
+      // Extract failure traces.
+      if (content.includes('"success":false')) {
+        let errorText: string;
+        try {
+          const parsed = JSON.parse(content) as { error?: string };
+          errorText = typeof parsed.error === 'string'
+            ? parsed.error.slice(0, 60)
+            : 'unknown error';
+        } catch {
+          errorText = 'parse error';
+        }
+        this.scratchpadFailures.push(`${tc.name}: ${errorText}`);
+      }
+    }
+
+    // Update the context manager scratchpad and push into graph.
+    const scratchpadContent = this.buildScratchpadContent();
+    this.contextManager.setScratchpad(scratchpadContent || null);
+
+    // Update the scratchpad item in the graph.
+    if (this.contextGraph && scratchpadContent) {
+      this.contextGraph.add({
+        kind: 'scratchpad',
+        itemId: freshContextItemId(),
+        producedAtStep: this.toolExecutor.opts.currentStep ?? 0,
+        content: scratchpadContent,
+      } satisfies ContextItem);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // 1G: Mid-Run Intent Re-evaluation
+  // ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Re-evaluate intent after a `commander.askUser` response. If the user's
+   * answer shifts the intent (e.g. from informational to execution), update
+   * `currentIntent` and emit a `phase_note` so the UI and harness can see
+   * the reclassification.
+   */
+  private reevaluateIntentFromAskUser(
+    messages: readonly LLMMessage[],
+    toolCalls: readonly LLMToolCall[],
+    context: AgentContext,
+    wrappedEmit: StreamEmit,
+  ): void {
+    // Find the askUser tool call and its result.
+    const askCall = toolCalls.find((tc) => tc.name === 'commander.askUser');
+    if (!askCall) return;
+
+    const resultMsg = messages.find(
+      (m) => m.role === 'tool' && m.toolCallId === askCall.id,
+    );
+    if (!resultMsg) return;
+
+    // Extract the user's answer text from the tool result.
+    let userAnswer = '';
+    try {
+      const parsed = JSON.parse(resultMsg.content) as { data?: { answer?: string } };
+      if (typeof parsed.data?.answer === 'string') {
+        userAnswer = parsed.data.answer;
+      }
+    } catch { /* ignore */ }
+    if (!userAnswer) {
+      // Fallback: use the raw content if it's short enough to be an answer.
+      userAnswer = resultMsg.content.length < 200 ? resultMsg.content : '';
+    }
+    if (!userAnswer.trim()) return;
+
+    // Determine canvas state for the classifier.
+    const canvasHasNodes = Array.isArray(
+      (context.extra as { canvasNodes?: unknown[] } | undefined)?.canvasNodes,
+    )
+      ? (context.extra as { canvasNodes?: unknown[] }).canvasNodes!.length > 0
+      : undefined;
+
+    const newIntent = classifyIntent({ userMessage: userAnswer, canvasHasNodes });
+
+    // Only act if the intent kind actually changed.
+    if (newIntent.kind === this.currentIntent.kind) return;
+
+    const oldKind = this.currentIntent.kind;
+    this.currentIntent = newIntent;
+
+    // Update the classified intent in the context extra for the system prompt.
+    if (context.extra) {
+      const intentWorkflow = 'workflow' in newIntent ? newIntent.workflow : undefined;
+      (context.extra as Record<string, unknown>).classifiedIntent = intentWorkflow
+        ? `${newIntent.kind} (workflow: ${intentWorkflow})`
+        : newIntent.kind;
+    }
+
+    wrappedEmit({
+      kind: 'phase_note',
+      note: 'intent_reclassified',
+      params: {
+        from: oldKind,
+        to: newIntent.kind,
+      },
+    });
+  }
+
+  // ──────────────────────────────────────────────────────────────────
   // Phase B — Exit Contract shadow helpers
   // ──────────────────────────────────────────────────────────────────
 
@@ -1809,7 +2345,6 @@ export class AgentOrchestrator {
   private recordEvidenceForStep(
     messages: readonly LLMMessage[],
     toolCalls: readonly LLMToolCall[],
-    emit: StreamEmit,
   ): void {
     const now = Date.now();
     // Build an id→result-json map from the tail of `messages` (all
@@ -1825,7 +2360,7 @@ export class AgentOrchestrator {
       if (tc.name === 'commander.askUser') {
         const rawArgs = tc.arguments as { question?: unknown } | null;
         const question = typeof rawArgs?.question === 'string' ? rawArgs.question : '';
-        this.appendEvidence({ kind: 'ask_user_asked', question, at: now }, emit);
+        this.appendEvidence({ kind: 'ask_user_asked', question, at: now });
         continue;
       }
 
@@ -1836,7 +2371,7 @@ export class AgentOrchestrator {
       const errorText = this.extractToolResultError(parsed);
 
       if (!ok && errorText) {
-        this.appendEvidence({ kind: 'validation_error', toolName: tc.name, errorText, at: now }, emit);
+        this.appendEvidence({ kind: 'validation_error', toolName: tc.name, errorText, at: now });
         continue;
       }
 
@@ -1844,7 +2379,7 @@ export class AgentOrchestrator {
       // pure reads (tool.*, guide.*, canvas.getState, canvas.listNodes,
       // canvas.getNode, *.list) since those can't satisfy a contract.
       if (ok && !this.isReadOnlyTool(tc.name)) {
-        this.appendEvidence({ kind: 'mutation_commit', toolName: tc.name, args: tc.arguments, resultOk: true, at: now }, emit);
+        this.appendEvidence({ kind: 'mutation_commit', toolName: tc.name, args: tc.arguments, resultOk: true, at: now });
       }
 
       // Side-effects for specific tools — surface them as their own
@@ -1853,7 +2388,7 @@ export class AgentOrchestrator {
       if (ok && tc.name === 'guide.get') {
         const guideId = this.extractGuideId(parsed);
         if (guideId) {
-          this.appendEvidence({ kind: 'guide_loaded', guideId, at: now }, emit);
+          this.appendEvidence({ kind: 'guide_loaded', guideId, at: now });
         }
       }
       if (ok && tc.name === 'canvas.setSettings') {
@@ -1862,12 +2397,12 @@ export class AgentOrchestrator {
         const keys = rawArgs?.settings && typeof rawArgs.settings === 'object'
           ? Object.keys(rawArgs.settings as Record<string, unknown>)
           : [];
-        this.appendEvidence({ kind: 'settings_write', canvasId, keys, at: now }, emit);
+        this.appendEvidence({ kind: 'settings_write', canvasId, keys, at: now });
       }
       if (ok && (tc.name === 'canvas.generate' || /\.generateRefImage$/.test(tc.name))) {
         const rawArgs = tc.arguments as { nodeId?: unknown } | null;
         const nodeId = typeof rawArgs?.nodeId === 'string' ? rawArgs.nodeId : 'unknown';
-        this.appendEvidence({ kind: 'generation_started', nodeId, at: now }, emit);
+        this.appendEvidence({ kind: 'generation_started', nodeId, at: now });
       }
     }
 
@@ -1883,29 +2418,22 @@ export class AgentOrchestrator {
         if (m.role !== 'tool' || !m.toolCallId) continue;
         const call = this.findToolCallById(messages, m.toolCallId);
         if (!call || call.name !== 'commander.askUser') continue;
-        this.appendEvidence({ kind: 'ask_user_answered', answer: m.content, at: now }, emit);
+        this.appendEvidence({ kind: 'ask_user_answered', answer: m.content, at: now });
         break;
       }
     }
   }
 
-  private appendEvidence(evidence: CommanderEvidencePayload, emit: StreamEmit): void {
-    // Cast is safe: the contracts-side payload is a structural copy of
-    // the application-side CompletionEvidence union; Phase D will make
-    // them share a single declaration.
-    this.evidenceLedger.record(evidence as Parameters<EvidenceLedger['record']>[0]);
-    emit({ kind: 'evidence_appended', evidence });
+  private appendEvidence(
+    evidence: Parameters<EvidenceLedger['record']>[0],
+  ): void {
+    this.evidenceLedger.record(evidence);
   }
 
   private computeExitDecision(): {
     decision: ExitDecision;
     intent: RunIntent;
   } {
-    // Phase C wires the real registry. `select(intent)` picks the workflow
-    // contract when the classifier named one; otherwise it returns the
-    // `info-answer` fallback. Execution-intent runs that fail to match a
-    // workflow intentionally fall through to `unsatisfied` with a
-    // `missing_commit` blocker — that's the signal we want surfaced.
     const contract = contractRegistry.select(this.currentIntent);
     const decision: ExitDecision = decide({
       contract,
@@ -1916,16 +2444,18 @@ export class AgentOrchestrator {
     return { decision, intent: this.currentIntent };
   }
 
-  private emitExitDecision(
-    emit: StreamEmit,
+  private toTimelineExitDecisionMeta(
     decision: ExitDecision,
-    intent: RunIntent,
-  ): void {
-    emit({
-      kind: 'exit_decision',
-      decision: decision as CommanderExitDecisionPayload,
-      intent: intent as CommanderIntentPayload,
-    });
+  ): TimelineExitDecisionMeta {
+    return {
+      outcome: decision.outcome,
+      contractId:
+        'contractId' in decision ? decision.contractId : undefined,
+      blocker:
+        'blocker' in decision && decision.blocker
+          ? decision.blocker.kind
+          : undefined,
+    };
   }
 
   // Narrow tool-result-is-ok check. Our result shape is

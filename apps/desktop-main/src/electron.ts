@@ -22,10 +22,13 @@ import { mark, logStartupMetrics } from './startup-metrics.js';
 import { configureUserDataPath } from './user-data-path.js';
 import { updateSettingsCache } from './ipc/settings-cache.js';
 import { createRendererPushGateway } from './features/ipc/push-gateway.js';
+import { registerInvoke } from './features/ipc/registrar.js';
 import {
-  loggerEntryChannel,
-  appReadyChannel,
   appInitErrorChannel,
+  appReadyChannel,
+  appRestartChannel,
+  loggerEntryChannel,
+  pingChannel,
 } from '@lucid-fin/contracts-parse';
 import {
   initAutoUpdater,
@@ -59,6 +62,7 @@ const mainWindowGateway = createRendererPushGateway({
 function registerEarlyIpcHandlers(): void {
   if (earlyIpcRegistered) return;
   earlyIpcRegistered = true;
+  const registrarDeps = { ipcMain, getWindow: () => mainWindow };
   ipcMain.handle('logger:getRecent', () => getBufferedLogs());
 
   // Updater + app version — must be available before renderer loads
@@ -78,11 +82,17 @@ function registerEarlyIpcHandlers(): void {
   });
 
   // IPC health check — lightweight ping/pong for connection monitoring
-  ipcMain.handle('ipc:ping', () => 'pong' as const);
+  registerInvoke(registrarDeps, pingChannel, async () => 'pong' as const);
+
+  // App restart — used after DB restore to avoid stale WAL state
+  registerInvoke(registrarDeps, appRestartChannel, async () => {
+    app.relaunch();
+    app.exit(0);
+  });
 
   log.debug('Registered early IPC handlers', {
     category: 'ipc',
-    channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping'],
+    channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping', 'app:restart'],
   });
 }
 

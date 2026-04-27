@@ -24,7 +24,7 @@ import type {
   PresetResetRequest,
 } from './dto/presets/index.js';
 import type { LLMProviderRuntimeConfig, LLMProviderRuntimeInput } from './llm-provider.js';
-import type { CommanderStreamEvent } from './ipc/channels/batch-09.js';
+import type { CommanderStreamPayload } from './ipc/channels/batch-09.js';
 
 /** Session stored in SQLite — lightweight chat-history record. */
 export interface IpcStoredSession {
@@ -361,7 +361,7 @@ export interface IpcChannelMap {
       message: string;
       history: Array<{ role: 'user' | 'assistant'; content: string }>;
       selectedNodeIds: string[];
-      promptGuides?: Array<{ id: string; name: string; content: string }>;
+      promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
       customLLMProvider?: LLMProviderRuntimeConfig;
       permissionMode?: 'auto' | 'normal' | 'strict';
     };
@@ -408,7 +408,8 @@ export interface IpcChannelMap {
     }>;
   };
   'commander:stream': {
-    request: CommanderStreamEvent;
+    // v2-only wire payload: `WireEnvelope<TimelineEvent>`.
+    request: CommanderStreamPayload;
     response: void;
   };
   'commander:canvas:updated': {

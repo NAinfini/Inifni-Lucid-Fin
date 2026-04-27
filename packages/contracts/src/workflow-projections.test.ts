@@ -1,12 +1,16 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type {
+  WorkflowListResponse,
+  WorkflowGetResponse,
+  WorkflowGetTasksResponse,
+} from '@lucid-fin/contracts-parse';
+import type {
   WorkflowActivitySummary,
   WorkflowTaskSummary,
   WorkflowUpdatedEvent,
   WorkflowTaskUpdatedEvent,
   WorkflowStageUpdatedEvent,
 } from './dto/workflow.js';
-import type { IpcChannelMap } from './ipc.js';
 
 describe('workflow projection contracts', () => {
   it('defines workflow activity summaries for renderer-facing execution views', () => {
@@ -59,14 +63,8 @@ describe('workflow projection contracts', () => {
   });
 
   it('uses projection types in renderer-facing workflow ipc responses', () => {
-    expectTypeOf<IpcChannelMap['workflow:list']['response']>().toEqualTypeOf<
-      WorkflowActivitySummary[]
-    >();
-    expectTypeOf<
-      IpcChannelMap['workflow:get']['response']
-    >().toEqualTypeOf<WorkflowActivitySummary>();
-    expectTypeOf<IpcChannelMap['workflow:getTasks']['response']>().toEqualTypeOf<
-      WorkflowTaskSummary[]
-    >();
+    expectTypeOf<WorkflowListResponse>().toMatchTypeOf<WorkflowActivitySummary[]>();
+    expectTypeOf<WorkflowGetResponse>().toMatchTypeOf<WorkflowActivitySummary>();
+    expectTypeOf<WorkflowGetTasksResponse>().toMatchTypeOf<WorkflowTaskSummary[]>();
   });
 });

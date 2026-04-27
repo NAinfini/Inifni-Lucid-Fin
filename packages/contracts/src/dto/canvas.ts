@@ -2,12 +2,11 @@ import type { PresetTrackSet } from './presets/index.js';
 import type { CharacterRef } from './character.js';
 import type { EquipmentRef } from './equipment.js';
 import type { LocationRef } from './location.js';
+import type { NodeKind } from '../types/node-kinds.js';
 
 // ---------------------------------------------------------------------------
 // Canvas DTOs — shared between main and renderer
 // ---------------------------------------------------------------------------
-
-export type CanvasNodeType = 'text' | 'image' | 'video' | 'audio' | 'backdrop';
 
 export type MediaNodeStatus = 'empty' | 'generating' | 'done' | 'failed';
 
@@ -200,7 +199,7 @@ export type CanvasNodeData =
 
 export interface CanvasNode {
   id: string;
-  type: CanvasNodeType;
+  type: NodeKind;
   position: { x: number; y: number };
   data: CanvasNodeData;
   title: string;
@@ -285,11 +284,26 @@ export interface CanvasSettings {
    */
   negativePrompt?: string;
   /**
-   * Default output resolution for ref-image generation. Individual entity
-   * defaults still apply when this is unset; when set it overrides the
-   * per-entity factory defaults (character/location/equipment).
+   * Default output size for ref-image generation. Per-entity factory
+   * defaults apply when unset; when set it overrides them for every
+   * character/location/equipment ref-image rendered on this canvas.
    */
-  defaultResolution?: CanvasResolution;
+  refResolution?: CanvasResolution;
+  /**
+   * Default publishing size for image nodes on this canvas. When unset,
+   * each image node falls back to its hardcoded factory default. Usually
+   * paired with a matching `aspectRatio`.
+   */
+  publishImageResolution?: CanvasResolution;
+  /**
+   * Default publishing size for video nodes on this canvas. When unset,
+   * each video node falls back to its hardcoded factory default. Kept
+   * separate from `publishImageResolution` because image and video providers
+   * support different max dimensions — users may publish images at 4K but
+   * videos at 1080p (Veo is the only video provider that currently supports
+   * 4K output).
+   */
+  publishVideoResolution?: CanvasResolution;
   /** Publishing aspect ratio. Does NOT govern ref-image layout (those are layout-driven). */
   aspectRatio?: CanvasAspectRatio;
   /** Provider id for LLM calls in this canvas (Commander). */

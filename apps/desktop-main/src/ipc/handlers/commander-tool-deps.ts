@@ -179,7 +179,7 @@ export function registerAllTools(
   registry: AgentToolRegistry,
   deps: ToolRegistrationDeps,
   getWindow: () => BrowserWindow | null,
-  promptGuides: Array<{ id: string; name: string; content: string }>,
+  promptGuides: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
   compactRef?: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> },
   sessionId?: string,
   defaultProviders?: Record<string, string>,

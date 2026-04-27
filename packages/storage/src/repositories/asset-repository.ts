@@ -137,6 +137,22 @@ export class AssetRepository {
     d.prepare(`DELETE FROM ${AT} WHERE ${AC.hash.sqlName} = ?`).run(hash);
   }
 
+  findByHash(hash: string, tx?: Tx): AssetMeta | undefined {
+    const d = tx ?? this.db;
+    const row = d
+      .prepare(`SELECT ${ASSET_SELECT_COLS} FROM ${AT} WHERE ${AC.hash.sqlName} = ?`)
+      .get(hash) as RawAssetRow | undefined;
+    if (!row) return undefined;
+    const SENTINEL = Symbol('degraded');
+    const parsed = parseOrDegrade(
+      AssetMetaSchema,
+      rowToAssetMeta(row),
+      SENTINEL as unknown as AssetMeta,
+      { ctx: { name: 'AssetMeta' } },
+    );
+    return (parsed as unknown) === SENTINEL ? undefined : (parsed as AssetMeta);
+  }
+
   setFolder(hash: AssetHash, folderId: string | null, tx?: Tx): void {
     const d = tx ?? this.db;
     d.prepare(
