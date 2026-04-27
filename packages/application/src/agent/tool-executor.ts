@@ -1,10 +1,17 @@
 import type { LLMToolCall } from '@lucid-fin/contracts';
-import type { AgentToolRegistry, ToolResult } from './tool-registry.js';
+import { parseCanonicalToolName } from '@lucid-fin/contracts';
+import type { CommanderError } from '@lucid-fin/contracts';
+import type { AgentToolRegistry, AgentTool, ToolResult } from './tool-registry.js';
 import type { StreamEmit } from './stream-emit.js';
 import type { ContextGraph } from './graph/context-graph.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
 import { ToolCatalog } from './tool-catalog.js';
+import { inferErrorCodeFromMessage } from './error-inference.js';
+
+function commanderErrorFromMessage(message: string): CommanderError {
+  return { code: inferErrorCodeFromMessage(message), params: { message } };
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -19,6 +26,90 @@ const MUTATION_ACTION_PREFIXES = [
   'rename', 'reorder', 'restore', 'resume', 'retry', 'save',
   'select', 'set', 'toggle', 'update',
 ];
+
+// ---------------------------------------------------------------------------
+// Pre-execution argument validation
+// ---------------------------------------------------------------------------
+
+export interface ArgValidationError {
+  field: string;
+  expected: string;
+  actual: string;
+}
+
+/**
+ * Validate tool call arguments against the tool's JSON Schema before
+ * execution. Checks required fields, type correctness, and enum membership.
+ * Returns an array of errors — empty means valid.
+ *
+ * This is lightweight and intentionally does NOT do deep nested validation
+ * or entity existence lookups (those would require DB access). It catches
+ * the most common LLM mistakes: missing required fields, wrong types, and
+ * invalid enum values.
+ */
+export function validateArgs(
+  tool: AgentTool,
+  args: Record<string, unknown>,
+): ArgValidationError[] {
+  const errors: ArgValidationError[] = [];
+  const schema = tool.parameters;
+
+  // Check required fields
+  if (schema.required) {
+    for (const field of schema.required) {
+      if (!(field in args) || args[field] === undefined || args[field] === null) {
+        const prop = schema.properties[field];
+        const expected = prop ? `${prop.type} (${prop.description})` : 'required';
+        errors.push({ field, expected, actual: 'missing' });
+      }
+    }
+  }
+
+  // Check type correctness and enum values for provided fields
+  for (const [field, value] of Object.entries(args)) {
+    if (value === undefined || value === null) continue;
+    const prop = schema.properties[field];
+    if (!prop) continue; // Unknown field — tools may accept extra args
+
+    // Type check
+    const actualType = Array.isArray(value) ? 'array' : typeof value;
+    if (prop.type === 'array' && !Array.isArray(value)) {
+      errors.push({ field, expected: 'array', actual: actualType });
+    } else if (prop.type === 'object' && (typeof value !== 'object' || Array.isArray(value))) {
+      errors.push({ field, expected: 'object', actual: actualType });
+    } else if (
+      prop.type === 'string' && typeof value !== 'string' ||
+      prop.type === 'number' && typeof value !== 'number' ||
+      prop.type === 'boolean' && typeof value !== 'boolean'
+    ) {
+      errors.push({ field, expected: prop.type, actual: actualType });
+    }
+
+    // Enum check (only for strings)
+    if (prop.enum && typeof value === 'string' && !prop.enum.includes(value)) {
+      errors.push({
+        field,
+        expected: `one of [${prop.enum.join(', ')}]`,
+        actual: value,
+      });
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Format validation errors into a structured error message for the LLM.
+ */
+function formatArgValidationErrors(
+  toolName: string,
+  errors: ArgValidationError[],
+): string {
+  const lines = errors.map(
+    (e) => `  - ${e.field}: expected ${e.expected}, got ${e.actual}`,
+  );
+  return `Argument validation failed for ${toolName}:\n${lines.join('\n')}\nFix the arguments and retry. Use tool.get('${toolName}') to check the schema.`;
+}
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -255,6 +346,16 @@ export interface ToolExecutionEntry {
   tc: LLMToolCall;
   resultContent: string;
   success: boolean;
+  /**
+   * Mirror payload used to synthesise `tool_call` + `tool_result` events
+   * for dedup'd duplicate calls so the UI's tool cards don't hang on a
+   * perpetual "pending" state. One of `result` or `error` is set.
+   */
+  mirror?: {
+    result?: ToolResult;
+    error?: CommanderError;
+    durationMs: number;
+  };
 }
 
 export interface ToolExecutorOptions {
@@ -325,9 +426,54 @@ export class ToolExecutor {
         success: false,
         error: `Tool '${tc.name}' exists but is not loaded. Call tool.get('${tc.name}') first to load its schema.`,
       };
-      const now = Date.now();
-      emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: unloadedPayload, startedAt: now, completedAt: now });
-      return { tc, resultContent: safeStringify(unloadedPayload), success: false };
+      emit({
+        kind: 'tool_result',
+        toolCallId: tc.id,
+        error: commanderErrorFromMessage(unloadedPayload.error),
+        durationMs: 0,
+        skipped: true,
+      });
+      return {
+        tc,
+        resultContent: safeStringify(unloadedPayload),
+        success: false,
+        mirror: {
+          error: commanderErrorFromMessage(unloadedPayload.error),
+          durationMs: 0,
+        },
+      };
+    }
+
+    // Pre-execution argument validation against the tool's JSON Schema.
+    // Catches missing required fields, wrong types, and invalid enum values
+    // before burning an execution round-trip.
+    if (tool) {
+      const validationErrors = validateArgs(tool, (tc.arguments as Record<string, unknown>) ?? {});
+      if (validationErrors.length > 0) {
+        const errorMsg = formatArgValidationErrors(tc.name, validationErrors);
+        const validationPayload = {
+          success: false,
+          error: errorMsg,
+          _recovery: `Parameter validation failed. Check the tool schema with tool.get('${tc.name}') for correct parameter types and required fields.`,
+        };
+        const mirrorError = commanderErrorFromMessage(errorMsg);
+        emit({
+          kind: 'tool_result',
+          toolCallId: tc.id,
+          error: mirrorError,
+          durationMs: 0,
+          skipped: true,
+        });
+        return {
+          tc,
+          resultContent: safeStringify(validationPayload),
+          success: false,
+          mirror: {
+            error: mirrorError,
+            durationMs: 0,
+          },
+        };
+      }
     }
 
     const startedAt = Date.now();
@@ -359,16 +505,47 @@ export class ToolExecutor {
               : { success: true, data: parsed };
           const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
           const resultContent = summarizeToolResult(tc.name, cachedResult, toolMaxResult);
-          emit({ kind: 'tool_call_started', toolName: tc.name, toolCallId: tc.id, startedAt });
-          emit({ kind: 'tool_call_args_complete', toolCallId: tc.id, arguments: tc.arguments });
-          emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: cachedResult, startedAt, completedAt });
-          return { tc, resultContent, success: true };
+          const durationMs = Math.max(0, completedAt - startedAt);
+          emit({
+            kind: 'tool_call',
+            toolCallId: tc.id,
+            toolRef: parseCanonicalToolName(tc.name),
+            args: {},
+          });
+          emit({
+            kind: 'tool_call',
+            toolCallId: tc.id,
+            toolRef: parseCanonicalToolName(tc.name),
+            args: tc.arguments,
+          });
+          emit({
+            kind: 'tool_result',
+            toolCallId: tc.id,
+            result: cachedResult,
+            durationMs,
+          });
+          return {
+            tc,
+            resultContent,
+            success: true,
+            mirror: { result: cachedResult, durationMs },
+          };
         }
       }
     }
 
-    emit({ kind: 'tool_call_started', toolName: tc.name, toolCallId: tc.id, startedAt });
-    emit({ kind: 'tool_call_args_complete', toolCallId: tc.id, arguments: tc.arguments });
+    emit({
+      kind: 'tool_call',
+      toolCallId: tc.id,
+      toolRef: parseCanonicalToolName(tc.name),
+      args: {},
+    });
+    emit({
+      kind: 'tool_call',
+      toolCallId: tc.id,
+      toolRef: parseCanonicalToolName(tc.name),
+      args: tc.arguments,
+    });
 
     // Auto-inject context-level arguments so the LLM never needs to provide them.
     // This is extensible — any field in `contextArgs` is merged into every tool call,
@@ -394,8 +571,20 @@ export class ToolExecutor {
           const hint = buildRecoveryHint(errorClass, tc.name, toolResult.error);
           const enriched = { ...toolResult, _recovery: hint };
           const resultContent = summarizeToolResult(tc.name, enriched as ToolResult, toolMaxResult);
-          emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: enriched, startedAt, completedAt });
-          return { tc, resultContent, success: false };
+          const durationMs = Math.max(0, completedAt - startedAt);
+          const mirrorError = commanderErrorFromMessage(toolResult.error);
+          emit({
+            kind: 'tool_result',
+            toolCallId: tc.id,
+            error: mirrorError,
+            durationMs,
+          });
+          return {
+            tc,
+            resultContent,
+            success: false,
+            mirror: { error: mirrorError, durationMs },
+          };
         }
 
         const resultContent = summarizeToolResult(tc.name, toolResult, toolMaxResult);
@@ -421,8 +610,21 @@ export class ToolExecutor {
             }
           }
         }
-        emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: toolResult, startedAt, completedAt });
-        return { tc, resultContent, success: toolResult.success !== false };
+        emit({
+          kind: 'tool_result',
+          toolCallId: tc.id,
+          result: toolResult,
+          durationMs: Math.max(0, completedAt - startedAt),
+        });
+        return {
+          tc,
+          resultContent,
+          success: toolResult.success !== false,
+          mirror: {
+            result: toolResult,
+            durationMs: Math.max(0, completedAt - startedAt),
+          },
+        };
       } catch (err) {
         const errorClass = classifyError(err);
         if (errorClass === 'transient' && attempt < maxRetries) {
@@ -433,8 +635,20 @@ export class ToolExecutor {
         const completedAt = Date.now();
         const hint = buildRecoveryHint(errorClass, tc.name, errMsg);
         const resultContent = safeStringify({ success: false, error: errMsg, _recovery: hint });
-        emit({ kind: 'error', toolCallId: tc.id, error: errMsg, startedAt, completedAt });
-        return { tc, resultContent, success: false };
+        const durationMs = Math.max(0, completedAt - startedAt);
+        const mirrorError = commanderErrorFromMessage(errMsg);
+        emit({
+          kind: 'tool_result',
+          toolCallId: tc.id,
+          error: mirrorError,
+          durationMs,
+        });
+        return {
+          tc,
+          resultContent,
+          success: false,
+          mirror: { error: mirrorError, durationMs },
+        };
       }
     }
 
@@ -465,11 +679,17 @@ export class ToolExecutor {
     const deduped = new Map<string, string>(); // signature -> first tc.id
     const dupMap = new Map<string, string>();   // duplicate tc.id -> first tc.id
     const uniqueToolCalls: LLMToolCall[] = [];
+    // Track dupes keyed on the winning id so we can mirror its tool_result
+    // back out to their cards after execution.
+    const dupesByFirstId = new Map<string, LLMToolCall[]>();
     for (const tc of toolCalls) {
       const sig = `${tc.name}::${safeStringify(tc.arguments)}`;
       const existing = deduped.get(sig);
       if (existing) {
         dupMap.set(tc.id, existing);
+        const list = dupesByFirstId.get(existing) ?? [];
+        list.push(tc);
+        dupesByFirstId.set(existing, list);
       } else {
         deduped.set(sig, tc.id);
         uniqueToolCalls.push(tc);
@@ -502,17 +722,40 @@ export class ToolExecutor {
         if (tc.name === 'commander.askUser') {
           const question = typeof tc.arguments.question === 'string' ? tc.arguments.question : '';
           const rawOptions = Array.isArray(tc.arguments.options) ? tc.arguments.options : [];
-          const questionOptions = rawOptions.map((opt: unknown) => {
-            const option = opt as { label?: string; description?: string };
-            return { label: option.label ?? '', description: option.description };
+          const mapped = rawOptions
+            .map((opt: unknown) => {
+              const option = opt as { label?: string };
+              return { label: option.label ?? '' };
+            })
+            .filter((o) => o.label.length > 0)
+            .map((o, idx) => ({ id: `opt-${idx}`, label: o.label }));
+          emit({
+            kind: 'question_prompt',
+            questionId: tc.id,
+            prompt: question,
+            options: mapped.length > 0 ? mapped : undefined,
+            allowFreeText: false,
           });
-          emit({ kind: 'tool_question', toolName: tc.name, toolCallId: tc.id, question, options: questionOptions });
           const answer = await new Promise<string>((resolve) => {
             pendingQuestionResolvers.set(tc.id, resolve);
           });
+          // Close the pending-question card on the UI before the tool_result
+          // lands. The timeline selector clears `pendingQuestion` when it
+          // sees `user_answer` with a matching `questionId`.
+          const selectedOption = mapped.find((o) => o.label === answer);
+          emit({
+            kind: 'user_answer',
+            questionId: tc.id,
+            answer,
+            selectedOptionId: selectedOption?.id,
+          });
           const answerPayload = { success: true, data: { answer } };
-          const answeredAt = Date.now();
-          emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: answerPayload, startedAt: answeredAt, completedAt: answeredAt });
+          emit({
+            kind: 'tool_result',
+            toolCallId: tc.id,
+            result: answerPayload,
+            durationMs: 0,
+          });
           messages.push({ role: 'tool', content: safeStringify(answerPayload), toolCallId: tc.id });
         } else {
           // needs-confirmation path
@@ -522,14 +765,32 @@ export class ToolExecutor {
           // — show the highest stakes so the user can't be surprised by a
           // misleadingly safe label.
           const tier = tool?.tier ?? 4;
-          emit({ kind: 'tool_confirm', toolName: tc.name, toolCallId: tc.id, arguments: tc.arguments, tier });
+          emit({
+            kind: 'tool_confirm_prompt',
+            toolCallId: tc.id,
+            toolRef: parseCanonicalToolName(tc.name),
+            tier,
+            args: tc.arguments,
+          });
           const approved = await new Promise<boolean>((resolve) => {
             pendingResolvers.set(tc.id, resolve);
           });
+          // Close the pending-confirmation card on the UI. The timeline
+          // selector clears `pendingConfirmation` on `user_confirmation`.
+          emit({
+            kind: 'user_confirmation',
+            toolCallId: tc.id,
+            approved,
+          });
           if (!approved) {
             const skippedPayload = { success: false, error: 'Tool execution skipped by user' };
-            const skippedAt = Date.now();
-            emit({ kind: 'tool_result', toolCallId: tc.id, toolName: tc.name, result: skippedPayload, startedAt: skippedAt, completedAt: skippedAt });
+            emit({
+              kind: 'tool_result',
+              toolCallId: tc.id,
+              error: commanderErrorFromMessage('Tool execution declined by user'),
+              durationMs: 0,
+              skipped: true,
+            });
             messages.push({ role: 'tool', content: safeStringify(skippedPayload), toolCallId: tc.id });
           } else {
             const res = await this.executeSingle(tc, activeToolNames, discoveredToolNames, emit);
@@ -559,6 +820,35 @@ export class ToolExecutor {
           ordered.set(res.tc.id, res.resultContent);
           if (res.success) successes++;
           else failures++;
+
+          // Mirror the winner's tool_call (final args) + tool_result to any
+          // deduplicated dupes so their UI cards don't hang on "pending".
+          const dupes = dupesByFirstId.get(res.tc.id);
+          if (dupes && res.mirror) {
+            for (const dup of dupes) {
+              emit({
+                kind: 'tool_call',
+                toolCallId: dup.id,
+                toolRef: parseCanonicalToolName(dup.name),
+                args: dup.arguments,
+              });
+              if (res.mirror.result !== undefined) {
+                emit({
+                  kind: 'tool_result',
+                  toolCallId: dup.id,
+                  result: res.mirror.result,
+                  durationMs: res.mirror.durationMs,
+                });
+              } else if (res.mirror.error) {
+                emit({
+                  kind: 'tool_result',
+                  toolCallId: dup.id,
+                  error: res.mirror.error,
+                  durationMs: res.mirror.durationMs,
+                });
+              }
+            }
+          }
         }
 
         // Adjust concurrency

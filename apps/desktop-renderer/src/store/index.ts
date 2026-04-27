@@ -18,6 +18,7 @@ import { loggerSlice } from './slices/logger.js';
 import { canvasReducer } from './slices/canvas.js';
 import { presetsSlice } from './slices/presets.js';
 import { commanderSlice } from './slices/commander.js';
+import { commanderTimelineSlice } from '../commander/state/commander-timeline-slice.js';
 import { skillDefinitionsSlice } from './slices/skillDefinitions.js';
 import { locationsSlice } from './slices/locations.js';
 import { shotTemplatesSlice } from './slices/shotTemplates.js';
@@ -47,6 +48,7 @@ export const store = configureStore({
     canvas: canvasReducer,
     presets: presetsSlice.reducer,
     commander: commanderSlice.reducer,
+    commanderTimeline: commanderTimelineSlice.reducer,
     skillDefinitions: skillDefinitionsSlice.reducer,
     locations: locationsSlice.reducer,
     shotTemplates: shotTemplatesSlice.reducer,

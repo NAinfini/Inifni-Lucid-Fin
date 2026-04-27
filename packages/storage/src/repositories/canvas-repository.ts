@@ -55,6 +55,10 @@ type RawRow = {
   negative_prompt: string | null;
   default_width: number | null;
   default_height: number | null;
+  publish_width: number | null;
+  publish_height: number | null;
+  publish_video_width: number | null;
+  publish_video_height: number | null;
   aspect_ratio: string | null;
   llm_provider_id: string | null;
   image_provider_id: string | null;
@@ -76,8 +80,12 @@ const SELECT_COLS = [
   C.notes.sqlName,
   C.stylePlate.sqlName,
   C.negativePrompt.sqlName,
-  C.defaultWidth.sqlName,
-  C.defaultHeight.sqlName,
+  C.refWidth.sqlName,
+  C.refHeight.sqlName,
+  C.publishImageWidth.sqlName,
+  C.publishImageHeight.sqlName,
+  C.publishVideoWidth.sqlName,
+  C.publishVideoHeight.sqlName,
   C.aspectRatio.sqlName,
   C.llmProviderId.sqlName,
   C.imageProviderId.sqlName,
@@ -100,12 +108,14 @@ export class CanvasRepository {
          (${C.id.sqlName}, ${C.name.sqlName}, ${C.nodes.sqlName}, ${C.edges.sqlName},
           ${C.viewport.sqlName}, ${C.notes.sqlName},
           ${C.stylePlate.sqlName}, ${C.negativePrompt.sqlName},
-          ${C.defaultWidth.sqlName}, ${C.defaultHeight.sqlName},
+          ${C.refWidth.sqlName}, ${C.refHeight.sqlName},
+          ${C.publishImageWidth.sqlName}, ${C.publishImageHeight.sqlName},
+          ${C.publishVideoWidth.sqlName}, ${C.publishVideoHeight.sqlName},
           ${C.aspectRatio.sqlName},
           ${C.llmProviderId.sqlName}, ${C.imageProviderId.sqlName},
           ${C.videoProviderId.sqlName}, ${C.audioProviderId.sqlName},
           ${C.createdAt.sqlName}, ${C.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(${C.id.sqlName}) DO UPDATE SET
          ${C.name.sqlName}            = excluded.${C.name.sqlName},
          ${C.nodes.sqlName}           = excluded.${C.nodes.sqlName},
@@ -114,8 +124,12 @@ export class CanvasRepository {
          ${C.notes.sqlName}           = excluded.${C.notes.sqlName},
          ${C.stylePlate.sqlName}      = excluded.${C.stylePlate.sqlName},
          ${C.negativePrompt.sqlName}  = excluded.${C.negativePrompt.sqlName},
-         ${C.defaultWidth.sqlName}    = excluded.${C.defaultWidth.sqlName},
-         ${C.defaultHeight.sqlName}   = excluded.${C.defaultHeight.sqlName},
+         ${C.refWidth.sqlName}        = excluded.${C.refWidth.sqlName},
+         ${C.refHeight.sqlName}       = excluded.${C.refHeight.sqlName},
+         ${C.publishImageWidth.sqlName}  = excluded.${C.publishImageWidth.sqlName},
+         ${C.publishImageHeight.sqlName} = excluded.${C.publishImageHeight.sqlName},
+         ${C.publishVideoWidth.sqlName}  = excluded.${C.publishVideoWidth.sqlName},
+         ${C.publishVideoHeight.sqlName} = excluded.${C.publishVideoHeight.sqlName},
          ${C.aspectRatio.sqlName}     = excluded.${C.aspectRatio.sqlName},
          ${C.llmProviderId.sqlName}   = excluded.${C.llmProviderId.sqlName},
          ${C.imageProviderId.sqlName} = excluded.${C.imageProviderId.sqlName},
@@ -131,8 +145,12 @@ export class CanvasRepository {
       JSON.stringify(canvas.notes ?? []),
       s.stylePlate ?? null,
       s.negativePrompt ?? null,
-      s.defaultResolution?.width ?? null,
-      s.defaultResolution?.height ?? null,
+      s.refResolution?.width ?? null,
+      s.refResolution?.height ?? null,
+      s.publishImageResolution?.width ?? null,
+      s.publishImageResolution?.height ?? null,
+      s.publishVideoResolution?.width ?? null,
+      s.publishVideoResolution?.height ?? null,
       s.aspectRatio ?? null,
       s.llmProviderId ?? null,
       s.imageProviderId ?? null,
@@ -149,15 +167,19 @@ export class CanvasRepository {
    * if the canvas doesn't exist (caller should `.get()` first when they
    * need to know). Returns the number of rows updated (0 | 1).
    *
-   * `defaultResolution` maps to two columns (default_width,
-   * default_height) and is patched atomically: a full object sets both,
-   * null clears both.
+   * `refResolution` maps to (default_width, default_height) and
+   * `publishImageResolution` maps to (publish_width, publish_height) and
+   * `publishVideoResolution` maps to (publish_video_width, publish_video_height). Each
+   * pair is patched atomically: a full object sets both, null clears
+   * both.
    */
   patchSettings(id: CanvasId, patch: CanvasSettings, tx?: Tx): number {
     const d = tx ?? this.db;
     const sets: string[] = [];
     const params: Array<string | number | null> = [];
-    const simpleFields: Array<[Exclude<keyof CanvasSettings, 'defaultResolution'>, string]> = [
+    const simpleFields: Array<
+      [Exclude<keyof CanvasSettings, 'refResolution' | 'publishImageResolution' | 'publishVideoResolution'>, string]
+    > = [
       ['stylePlate',      C.stylePlate.sqlName],
       ['negativePrompt',  C.negativePrompt.sqlName],
       ['aspectRatio',     C.aspectRatio.sqlName],
@@ -172,9 +194,19 @@ export class CanvasRepository {
         params.push(patch[key] ?? null);
       }
     }
-    if ('defaultResolution' in patch) {
-      const value = patch.defaultResolution;
-      sets.push(`${C.defaultWidth.sqlName} = ?`, `${C.defaultHeight.sqlName} = ?`);
+    if ('refResolution' in patch) {
+      const value = patch.refResolution;
+      sets.push(`${C.refWidth.sqlName} = ?`, `${C.refHeight.sqlName} = ?`);
+      params.push(value?.width ?? null, value?.height ?? null);
+    }
+    if ('publishImageResolution' in patch) {
+      const value = patch.publishImageResolution;
+      sets.push(`${C.publishImageWidth.sqlName} = ?`, `${C.publishImageHeight.sqlName} = ?`);
+      params.push(value?.width ?? null, value?.height ?? null);
+    }
+    if ('publishVideoResolution' in patch) {
+      const value = patch.publishVideoResolution;
+      sets.push(`${C.publishVideoWidth.sqlName} = ?`, `${C.publishVideoHeight.sqlName} = ?`);
       params.push(value?.width ?? null, value?.height ?? null);
     }
     if (sets.length === 0) return 0;
@@ -243,7 +275,13 @@ function rowToCanvas(row: RawRow): Canvas {
   if (row.style_plate)       settings.stylePlate       = row.style_plate;
   if (row.negative_prompt)   settings.negativePrompt   = row.negative_prompt;
   if (row.default_width && row.default_height) {
-    settings.defaultResolution = { width: row.default_width, height: row.default_height };
+    settings.refResolution = { width: row.default_width, height: row.default_height };
+  }
+  if (row.publish_width && row.publish_height) {
+    settings.publishImageResolution = { width: row.publish_width, height: row.publish_height };
+  }
+  if (row.publish_video_width && row.publish_video_height) {
+    settings.publishVideoResolution = { width: row.publish_video_width, height: row.publish_video_height };
   }
   if (row.aspect_ratio && isCanvasAspectRatio(row.aspect_ratio)) {
     settings.aspectRatio = row.aspect_ratio;

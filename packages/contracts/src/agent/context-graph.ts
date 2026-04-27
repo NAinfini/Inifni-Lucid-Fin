@@ -114,6 +114,14 @@ export interface ReferenceItem {
   referencedItemId: ContextItemId;
 }
 
+export interface ScratchpadItem {
+  kind: 'scratchpad';
+  itemId: ContextItemId;
+  producedAtStep: number;
+  /** Structured text summarizing current state (~500 chars max). */
+  content: string;
+}
+
 // ── ContextItem union ──────────────────────────────────────────
 
 export type ContextItem =
@@ -124,7 +132,8 @@ export type ContextItem =
   | GuideItem
   | SystemMessageItem
   | SessionSummaryItem
-  | ReferenceItem;
+  | ReferenceItem
+  | ScratchpadItem;
 
 // ── Compaction policy ──────────────────────────────────────────
 

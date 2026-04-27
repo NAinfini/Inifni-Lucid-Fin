@@ -80,6 +80,19 @@ export interface CommanderRunMeta {
   completedAt: number;
   summary: CommanderRunSummary;
   exitDecision?: CommanderExitDecisionMeta;
+  /**
+   * Phase D/F — present only when the run ended via a `cancelled`
+   * terminal event. `completedToolCalls` counts tools that got a real
+   * `tool_result`; `pendingToolCalls` counts those that got a synthetic
+   * orphan-cleanup result (or never got one at all). Renderer uses this
+   * to surface a `<CancelledBanner>` above the summary.
+   */
+  cancelled?: {
+    reason: 'user' | 'timeout' | 'error';
+    partialContent?: string;
+    completedToolCalls: number;
+    pendingToolCalls: number;
+  };
 }
 
 export interface CommanderMessage {
@@ -147,10 +160,15 @@ export interface CommanderState {
    */
   phase: import('./run-phase.js').RunPhase;
   currentRunStartedAt: number | null;
-  currentStreamContent: string;
-  currentToolCalls: CommanderToolCall[];
-  currentSegments: MessageSegment[];
   error: string | null;
+  /**
+   * Run ids whose finalized assistant message has already been appended to
+   * `messages`. Used by `appendFinalizedAssistantMessage` to dedup the
+   * local-cancel + late-backend-run_end race (see D2b). Cleared on session
+   * boundary transitions (newSession, loadSession, switchCanvas,
+   * clearHistory, restore).
+   */
+  finalizedRunIds: string[];
   position: { x: number; y: number };
   size: { width: number; height: number };
   permissionMode: PermissionMode;

@@ -94,6 +94,13 @@ const ReferenceItemSchema = z.object({
   referencedItemId: ContextItemIdSchema,
 });
 
+const ScratchpadItemSchema = z.object({
+  kind: z.literal('scratchpad'),
+  itemId: ContextItemIdSchema,
+  producedAtStep: z.number().int().nonnegative(),
+  content: z.string(),
+});
+
 // ── Combined discriminated union ───────────────────────────────
 
 export const ContextItemSchema = z.discriminatedUnion('kind', [
@@ -105,6 +112,7 @@ export const ContextItemSchema = z.discriminatedUnion('kind', [
   SystemMessageItemSchema,
   SessionSummaryItemSchema,
   ReferenceItemSchema,
+  ScratchpadItemSchema,
 ]);
 
 export type ContextItemSchemaType = z.infer<typeof ContextItemSchema>;

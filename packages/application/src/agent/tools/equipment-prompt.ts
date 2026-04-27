@@ -36,14 +36,17 @@ function buildOrthoGridPrompt(entity: Equipment, stylePlate?: string): string {
     segments.push(`Style: ${stylePlate}`);
   }
 
-  segments.push('Product orthographic reference grid on one image');
-  segments.push('Five panels: top-left front view, top-right back view, middle-left left profile, middle-right right profile, bottom-center macro detail close-up');
-  segments.push('All orthographic panels share identical scale, identical lighting, and centered composition');
-  segments.push('Bottom detail panel shows engravings, joints, or wear marks in shallow depth of field');
-  segments.push('Solid white background, even studio lighting, no characters, no environment, no scene');
-  segments.push(`Item: ${entity.name} (${entity.type})`);
+  // Subject first — the model needs to know what the object IS before
+  // it distributes attention to the orthographic grid cells. Earlier
+  // revisions buried name + material + function after layout text and
+  // produced generic props.
+  segments.push(`Product orthographic reference of ${entity.name} (${entity.type})`);
   if (desc) segments.push(desc);
-  segments.push('Object only, clean edges, high detail, consistent scale across every panel, professional product photography and technical illustration quality');
+  segments.push('Solid white background, even studio lighting, no characters, no environment');
+
+  segments.push('Layout: five panels on one sheet');
+  segments.push('Top-left front view, top-right back view, middle-left left profile, middle-right right profile, bottom-center macro detail close-up');
+  segments.push('All panels share identical scale, identical lighting, centered composition');
 
   return segments.join('. ') + '.';
 }
@@ -60,11 +63,9 @@ function buildExtraAnglePrompt(
     segments.push(`Style: ${stylePlate}`);
   }
 
-  segments.push(`Product reference, ${angle} view`);
-  segments.push('Solid white background, even studio lighting, no characters, no environment');
-  segments.push(`Item: ${entity.name} (${entity.type})`);
+  segments.push(`Product reference of ${entity.name} (${entity.type}), ${angle} view`);
   if (desc) segments.push(desc);
-  segments.push('Object only, clean edges, high detail, professional product photography style');
+  segments.push('Solid white background, even studio lighting, no characters, no environment');
 
   return segments.join('. ') + '.';
 }

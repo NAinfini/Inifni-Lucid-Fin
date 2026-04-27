@@ -11,6 +11,7 @@ export * from './types.js';
 export * from './helpers.js';
 export * from './run-phase.js';
 export * from './run-summary.js';
+export * from './run-derivation.js';
 export * from './session-persistence.js';
 export * from './settings-persistence.js';
 export * from './compactor.js';

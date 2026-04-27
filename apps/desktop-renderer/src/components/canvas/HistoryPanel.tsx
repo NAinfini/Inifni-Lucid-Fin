@@ -14,6 +14,8 @@ import {
 import type { RootState } from '../../store/index.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { newSession, loadSession, deleteSession, renameSession, selectIsStreaming, type CommanderMessage } from '../../store/slices/commander.js';
+import { hydrateEvents as hydrateTimelineEvents } from '../../commander/state/commander-timeline-slice.js';
+import type { TimelineEvent } from '@lucid-fin/contracts';
 import { setCharacters } from '../../store/slices/characters.js';
 import { setEquipment } from '../../store/slices/equipment.js';
 import { setLocations } from '../../store/slices/locations.js';
@@ -168,10 +170,24 @@ export function HistoryPanel() {
           /* session fetch failed — load with empty messages */
         }
       }
+
+      // v2cut Phase 5: rehydrate the timeline slice from commander_events.
+      // Fail-soft — empty events just means legacy session or first-run.
+      let timelineEvents: TimelineEvent[] = [];
+      if (api?.commander?.hydrateEvents) {
+        try {
+          const { events } = await api.commander.hydrateEvents(sessionId);
+          timelineEvents = events as TimelineEvent[];
+        } catch {
+          /* hydrate failed — timeline stays empty, legacy messages still render */
+        }
+      }
+
       // Wrap in startTransition so the heavy message list re-render
       // doesn't block INP (allows the click highlight to paint first).
       startTransition(() => {
         dispatch(loadSession({ id: sessionId, hydratedMessages }));
+        dispatch(hydrateTimelineEvents(timelineEvents));
       });
     },
     [isStreaming, sessions, dispatch],

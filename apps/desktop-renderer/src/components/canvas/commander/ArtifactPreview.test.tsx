@@ -32,6 +32,8 @@ describe('extractChanges', () => {
     const changes = extractChanges('canvas.connectNodes', result, titles);
     expect(changes).toHaveLength(1);
     expect(changes[0].type).toBe('connected');
+    // Label is null — resolved at render time via i18n.
+    expect(changes[0].label).toBeNull();
   });
 
   it('returns empty for unrecognized tools', () => {

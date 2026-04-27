@@ -37,6 +37,11 @@ const BROWSE_PHRASES: readonly RegExp[] = [
   /\bhow do i (start|begin)\b/i,
   /^help\b/i,
   /\b(browse|inventory) (the )?(tools|guides)\b/i,
+  // zh-CN browse phrasing.
+  /你能(做|干)什么/,
+  /(列出|展示|显示)(所有)?(工具|指南|工作流|流程|技能|文档|菜单|选项)/,
+  /(怎么|如何)开始/,
+  /^帮助$/,
 ];
 
 const INFO_PREFIXES: readonly RegExp[] = [
@@ -50,6 +55,22 @@ const INFO_PREFIXES: readonly RegExp[] = [
   /^tell me (about|how)\b/i,
   /^can you (explain|describe|tell me)\b/i,
   /^is (it|there|this|that)\b/i,
+];
+
+/**
+ * CJK question cues. These appear anywhere in the message rather than
+ * only as prefixes, matching how Chinese questions are actually formed
+ * (sentence-final `吗/呢`, question particles, or trailing `?`/`？`).
+ */
+const CJK_INFO_CUES: readonly RegExp[] = [
+  /什么/,
+  /为什么/,
+  /怎么(样|回事|办)?/,
+  /如何/,
+  /(解释|介绍|说明|描述|告诉我)/,
+  /(是什么|有哪些|是不是|能不能|可不可以)/,
+  /吗[？?。.!！]?$/,
+  /呢[？?。.!！]?$/,
 ];
 
 const EXECUTION_VERBS: readonly RegExp[] = [
@@ -68,7 +89,21 @@ const EXECUTION_VERBS: readonly RegExp[] = [
   /\brender\b/i,
   /\bshoot\b/i,
   /\bdirect\b/i,
+  // zh-CN execution verbs. Kept conservative — must be a verb that
+  // reasonably implies "persist / mutate", not a generic action.
+  /(创建|生成|制作|构建|搭建|编写|起草|撰写|绘制|画一?[个张])/,
+  /(添加|新增|加入|加上)/,
+  /(开始|启动)(.{0,6})(流程|管道|工作流|渲染|拍摄)?/,
+  /(渲染|执行|运行)/,
+  /(帮我|请)(.{0,6})(创建|生成|制作|构建|搭建|写|画|做|添加|新增|开始|启动|渲染|执行|运行)/,
 ];
+
+/**
+ * CJK-heavy detection: true when the message contains any Han ideographs.
+ * Used to gate CJK-specific classification rules without affecting English
+ * behavior.
+ */
+const CJK_CHAR = /[㐀-鿿]/;
 
 /**
  * Seed list of workflow hints. Keys match the `workflow-*` guide ids in
@@ -86,6 +121,14 @@ const WORKFLOW_HINTS: ReadonlyArray<{ match: RegExp; workflow: string }> = [
   { match: /\b(audio|voice|lip[\s-]*sync)\b/i, workflow: 'audio-production' },
   { match: /\b(image|photo)[\s-]*analyz(e|is)\b/i, workflow: 'image-analyze' },
   { match: /\banalyz(e|ing) (the |this |these |an? )?(image|photo|images|photos|frame)/i, workflow: 'image-analyze' },
+  // zh-CN workflow aliases.
+  { match: /(剧本|故事).*?(到|生成|转).*?视频/, workflow: 'story-to-video' },
+  { match: /(镜头列表|分镜列表|分镜表)/, workflow: 'shot-list' },
+  { match: /(风格板|风格样板)/, workflow: 'style-plate' },
+  { match: /(风格迁移|风格转换)/, workflow: 'style-transfer' },
+  { match: /(连续性|一致性检查)/, workflow: 'continuity-check' },
+  { match: /(音频制作|配音|对口型|口型同步)/, workflow: 'audio-production' },
+  { match: /(分析|解析)(这[张幅]|一[张幅])?(图片|图像|照片)/, workflow: 'image-analyze' },
 ];
 
 function matchesAny(text: string, patterns: readonly RegExp[]): boolean {
@@ -117,7 +160,12 @@ export function classifyIntent(ctx: ClassifyIntentContext): RunIntent {
 
   const workflow = detectWorkflow(msg);
   const hasExecutionVerb = matchesAny(msg, EXECUTION_VERBS);
-  const startsAsQuestion = matchesAny(msg, INFO_PREFIXES) || msg.trimEnd().endsWith('?');
+  const hasCjk = CJK_CHAR.test(msg);
+  const startsAsQuestion =
+    matchesAny(msg, INFO_PREFIXES) ||
+    msg.trimEnd().endsWith('?') ||
+    msg.trimEnd().endsWith('？') ||
+    (hasCjk && matchesAny(msg, CJK_INFO_CUES));
 
   // 2. Pure question, no execution verb → informational.
   if (startsAsQuestion && !hasExecutionVerb) {
@@ -134,6 +182,17 @@ export function classifyIntent(ctx: ClassifyIntentContext): RunIntent {
   // ask for direction before doing anything.
   if (workflow) {
     return { kind: 'mixed', workflow };
+  }
+
+  // CJK chat without execution verbs and without workflow hints is much
+  // more likely to be casual Q&A than "please silently create nodes";
+  // default to informational so the exit contract doesn't flag every
+  // friendly Chinese message as `missing_commit`. English messages keep
+  // their stricter `mixed` default — the English classifier already has
+  // broad verb/prefix coverage, so a fall-through there is usually a
+  // real ambiguity.
+  if (hasCjk) {
+    return { kind: 'informational' };
   }
 
   return { kind: 'mixed' };

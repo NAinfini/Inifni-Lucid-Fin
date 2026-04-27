@@ -62,7 +62,7 @@
   },
   "publish": {
     "provider": "github",
-    "releaseType": "draft"
+    "releaseType": "release"
   },
   "afterSign": "build/notarize.cjs"
 }

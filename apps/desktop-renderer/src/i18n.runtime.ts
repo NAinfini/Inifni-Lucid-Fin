@@ -122,6 +122,26 @@ export function localizeWorkflowDefinitionName(id: string, fallback: string): st
   return localizeWithFallback('workflowDefinitionNames.' + id, fallback);
 }
 
+/**
+ * Localize a guide/skill display name by checking all three name maps
+ * (promptTemplateNames, workflowDefinitionNames, workflowGuideNames)
+ * for a built-in id. Returns the fallback (usually the raw English
+ * name) when no localized entry exists — this preserves user-renamed
+ * custom skills and any id we haven't translated yet.
+ */
+export function localizeSkillName(id: string, fallback: string): string {
+  const candidates = [
+    'promptTemplateNames.' + id,
+    'workflowDefinitionNames.' + id,
+    'workflowGuideNames.' + id,
+  ];
+  for (const key of candidates) {
+    const translated = localizeWithFallback(key, key);
+    if (translated !== key) return translated;
+  }
+  return fallback;
+}
+
 export function localizeSettingsCategory(category: string): string {
   return localizeWithFallback('settings.category.' + category, category);
 }

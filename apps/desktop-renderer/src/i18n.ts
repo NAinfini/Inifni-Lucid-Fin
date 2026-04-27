@@ -11,6 +11,7 @@ export {
   localizeSettingsCategory,
   localizeShotTemplateDescription,
   localizeShotTemplateName,
+  localizeSkillName,
   localizeSlot,
   localizeWorkflowDefinitionName,
   onLocaleChange,

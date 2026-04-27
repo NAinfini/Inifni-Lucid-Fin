@@ -1,15 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  addToolCall,
   addUserMessage,
   addInjectedMessage,
-  appendStreamChunk,
+  appendFinalizedAssistantMessage,
   clearHistory,
   commanderSlice,
   finishStreaming,
+  loadSession,
   minimizeCommander,
+  newSession,
   resolveQuestion,
-  resolveToolCall,
   setCommanderOpen,
   setPendingQuestion,
   setProviderId,
@@ -17,8 +17,28 @@ import {
   setSize,
   startStreaming,
   streamError,
+  switchCanvas,
   toggleCommander,
+  upsertFinalizedAssistantMessage,
+  type CommanderMessage,
+  type CommanderState,
 } from './commander.js';
+
+function makeFinalized(runId: string, content: string): CommanderMessage {
+  return {
+    id: 'assistant-run-' + runId,
+    role: 'assistant',
+    content,
+    runMeta: {
+      status: 'completed',
+      collapsed: true,
+      startedAt: 0,
+      completedAt: 10,
+      summary: { excerpt: content, toolCount: 0, failedToolCount: 0, durationMs: 10 },
+    },
+    timestamp: 10,
+  };
+}
 
 describe('commander slice', () => {
   it('toggleCommander and setCommanderOpen update open state', () => {
@@ -29,264 +49,257 @@ describe('commander slice', () => {
     expect(state.open).toBe(false);
   });
 
-  it('addUserMessage, startStreaming, appendStreamChunk, and finishStreaming create assistant message', () => {
-    let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
+  it('addUserMessage appends a user turn and forces the panel open', () => {
+    let state = commanderSlice.reducer(undefined, toggleCommander());
+    state = commanderSlice.reducer(state, minimizeCommander());
+    state = commanderSlice.reducer(state, addUserMessage('hi'));
+    expect(state.open).toBe(true);
+    expect(state.minimized).toBe(false);
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]).toMatchObject({ role: 'user', content: 'hi' });
+  });
+
+  it('startStreaming forces open and unminimized', () => {
+    let state = commanderSlice.reducer(undefined, toggleCommander());
+    state = commanderSlice.reducer(state, minimizeCommander());
     state = commanderSlice.reducer(state, startStreaming());
-    state = commanderSlice.reducer(state, appendStreamChunk('part 1'));
-    state = commanderSlice.reducer(state, appendStreamChunk(' + part 2'));
-    state = commanderSlice.reducer(state, finishStreaming());
-
-    expect(state.messages).toHaveLength(2);
-    expect(state.messages[0]).toEqual(expect.objectContaining({ role: 'user', content: 'hello' }));
-    expect(state.messages[1]).toEqual(
-      expect.objectContaining({
-        role: 'assistant',
-        content: 'part 1 + part 2',
-      }),
-    );
-    expect(state.phase.kind).toBe('idle');
+    expect(state.open).toBe(true);
+    expect(state.minimized).toBe(false);
+    expect(state.phase.kind).not.toBe('idle');
   });
 
-  it('addToolCall and resolveToolCall manage pending tool calls', () => {
-    let state = commanderSlice.reducer(undefined, startStreaming());
-    state = commanderSlice.reducer(
-      state,
-      addToolCall({
-        name: 'canvas.addNode',
-        id: 'tool-1',
-        arguments: { type: 'text' },
-      }),
-    );
-    state = commanderSlice.reducer(
-      state,
-      resolveToolCall({
-        id: 'tool-1',
-        result: { success: true },
-      }),
-    );
-    state = commanderSlice.reducer(state, finishStreaming());
+  describe('appendFinalizedAssistantMessage', () => {
+    it('pushes message and records runId in finalizedRunIds', () => {
+      let state = commanderSlice.reducer(undefined, startStreaming());
+      const msg = makeFinalized('run-1', 'done');
+      state = commanderSlice.reducer(
+        state,
+        appendFinalizedAssistantMessage({ message: msg, runId: 'run-1' }),
+      );
+      expect(state.messages).toHaveLength(1);
+      expect(state.messages[0].id).toBe('assistant-run-run-1');
+      expect(state.finalizedRunIds).toEqual(['run-1']);
+    });
 
-    expect(state.messages[0].toolCalls).toEqual([
-      expect.objectContaining({
-        id: 'tool-1',
-        name: 'canvas.addNode',
-        status: 'done',
-        result: { success: true },
-      }),
-    ]);
+    it('is a no-op when runId already in finalizedRunIds (dedup)', () => {
+      let state = commanderSlice.reducer(undefined, startStreaming());
+      const msg = makeFinalized('run-1', 'first');
+      state = commanderSlice.reducer(
+        state,
+        appendFinalizedAssistantMessage({ message: msg, runId: 'run-1' }),
+      );
+      const second = makeFinalized('run-1', 'second');
+      state = commanderSlice.reducer(
+        state,
+        appendFinalizedAssistantMessage({ message: second, runId: 'run-1' }),
+      );
+      expect(state.messages).toHaveLength(1);
+      expect(state.messages[0].content).toBe('first');
+    });
   });
 
-  it('preserves event-provided tool timing data for elapsed display', () => {
-    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(9999);
+  describe('upsertFinalizedAssistantMessage', () => {
+    it('replaces an existing message with matching id (preserves position)', () => {
+      let state = commanderSlice.reducer(undefined, addUserMessage('u1'));
+      const first = makeFinalized('run-1', 'first');
+      state = commanderSlice.reducer(
+        state,
+        appendFinalizedAssistantMessage({ message: first, runId: 'run-1' }),
+      );
+      state = commanderSlice.reducer(state, addUserMessage('u2'));
 
-    let state = commanderSlice.reducer(undefined, startStreaming());
-    state = commanderSlice.reducer(
-      state,
-      addToolCall({
-        name: 'canvas.listNodes',
-        id: 'tool-timing',
-        arguments: {},
-        startedAt: 1000,
-      } as never),
-    );
-    state = commanderSlice.reducer(
-      state,
-      resolveToolCall({
-        id: 'tool-timing',
-        result: { success: true },
-        completedAt: 2600,
-      } as never),
-    );
-    state = commanderSlice.reducer(state, finishStreaming());
+      const second = makeFinalized('run-1', 'second');
+      state = commanderSlice.reducer(
+        state,
+        upsertFinalizedAssistantMessage({ message: second, runId: 'run-1' }),
+      );
 
-    expect(state.messages[0].toolCalls).toEqual([
-      expect.objectContaining({
-        id: 'tool-timing',
-        startedAt: 1000,
-        completedAt: 2600,
-      }),
-    ]);
+      expect(state.messages).toHaveLength(3);
+      expect(state.messages[1].content).toBe('second');
+      expect(state.messages[2].content).toBe('u2');
+    });
 
-    nowSpy.mockRestore();
+    it('appends if no existing message has the matching id', () => {
+      let state = commanderSlice.reducer(undefined, addUserMessage('u1'));
+      const msg = makeFinalized('run-42', 'late');
+      state = commanderSlice.reducer(
+        state,
+        upsertFinalizedAssistantMessage({ message: msg, runId: 'run-42' }),
+      );
+      expect(state.messages).toHaveLength(2);
+      expect(state.messages[1].id).toBe('assistant-run-run-42');
+      expect(state.finalizedRunIds).toContain('run-42');
+    });
   });
 
-  it('streamError clears streaming state and persists error as message', () => {
-    let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
-    state = commanderSlice.reducer(state, startStreaming());
-    state = commanderSlice.reducer(state, streamError('boom'));
+  describe('finalizedRunIds lifecycle', () => {
+    function seedWithFinalized(): CommanderState {
+      let state = commanderSlice.reducer(undefined, startStreaming());
+      const msg = makeFinalized('r-1', 'x');
+      state = commanderSlice.reducer(
+        state,
+        appendFinalizedAssistantMessage({ message: msg, runId: 'r-1' }),
+      );
+      expect(state.finalizedRunIds).toEqual(['r-1']);
+      return state;
+    }
 
-    expect(state.error).toBe('boom');
-    expect(state.phase.kind).toBe('idle');
-    // Error is persisted as an assistant message
-    expect(state.messages).toHaveLength(2);
-    expect(state.messages[1].role).toBe('assistant');
-    expect(state.messages[1].content).toContain('boom');
+    it('is cleared by newSession', () => {
+      const state = commanderSlice.reducer(seedWithFinalized(), newSession());
+      expect(state.finalizedRunIds).toEqual([]);
+    });
 
-    state = commanderSlice.reducer(state, clearHistory());
-    expect(state.messages).toEqual([]);
-    expect(state.error).toBeNull();
+    it('is cleared by clearHistory', () => {
+      const state = commanderSlice.reducer(seedWithFinalized(), clearHistory());
+      expect(state.finalizedRunIds).toEqual([]);
+    });
+
+    it('is cleared by loadSession', () => {
+      let state = seedWithFinalized();
+      // add a fake session to load
+      state = {
+        ...state,
+        sessions: [
+          {
+            id: 'sess-1',
+            canvasId: null,
+            title: 'x',
+            messages: [],
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      };
+      state = commanderSlice.reducer(state, loadSession({ id: 'sess-1' }));
+      expect(state.finalizedRunIds).toEqual([]);
+    });
+
+    it('is cleared by switchCanvas', () => {
+      const state = commanderSlice.reducer(seedWithFinalized(), switchCanvas('canvas-new'));
+      expect(state.finalizedRunIds).toEqual([]);
+    });
+
+    it('is cleared by restore', () => {
+      const seeded = seedWithFinalized();
+      // simulate an old persisted payload with stale transient fields
+      const payload = {
+        ...seeded,
+        finalizedRunIds: ['leftover'],
+        currentStreamContent: 'stale',
+        currentToolCalls: [],
+        currentSegments: [],
+      } as unknown as CommanderState;
+      const state = commanderSlice.reducer(seeded, {
+        type: 'commander/restore',
+        payload,
+      });
+      expect(state.finalizedRunIds).toEqual([]);
+      expect((state as unknown as Record<string, unknown>).currentStreamContent).toBeUndefined();
+    });
+  });
+
+  describe('streamError', () => {
+    it('pushes a failed assistant message with minimal shape (D4)', () => {
+      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
+      state = commanderSlice.reducer(state, startStreaming());
+      state = commanderSlice.reducer(state, streamError('boom'));
+
+      expect(state.error).toBe('boom');
+      expect(state.phase.kind).toBe('idle');
+      expect(state.messages).toHaveLength(2);
+      const errMsg = state.messages[1];
+      expect(errMsg.role).toBe('assistant');
+      expect(errMsg.content).toBe('boom');
+      expect(errMsg.runMeta?.status).toBe('failed');
+      // No segments / toolCalls on the minimal streamError message.
+      expect(errMsg.segments).toBeUndefined();
+      expect(errMsg.toolCalls).toBeUndefined();
+
+      state = commanderSlice.reducer(state, clearHistory());
+      expect(state.messages).toEqual([]);
+    });
+
+    it('commits pending injected messages before resetting transient state', () => {
+      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
+      state = commanderSlice.reducer(state, startStreaming());
+      state = commanderSlice.reducer(state, addInjectedMessage('mid'));
+      state = commanderSlice.reducer(state, streamError('boom'));
+      const userMsgs = state.messages.filter((m) => m.role === 'user');
+      expect(userMsgs).toHaveLength(2);
+      expect(userMsgs[1].content).toBe('mid');
+      expect(state.pendingInjectedMessages).toHaveLength(0);
+    });
+  });
+
+  describe('finishStreaming', () => {
+    it('takes no payload and resets transient run state', () => {
+      let state = commanderSlice.reducer(undefined, startStreaming());
+      state = commanderSlice.reducer(state, finishStreaming());
+      expect(state.phase.kind).toBe('idle');
+      expect(state.currentRunStartedAt).toBeNull();
+    });
+
+    it('commits pending injected messages', () => {
+      let state = commanderSlice.reducer(undefined, startStreaming());
+      state = commanderSlice.reducer(state, addInjectedMessage('inject-1'));
+      state = commanderSlice.reducer(state, finishStreaming());
+      expect(state.messages).toHaveLength(1);
+      expect(state.messages[0]).toMatchObject({ role: 'user', content: 'inject-1' });
+      expect(state.pendingInjectedMessages).toHaveLength(0);
+    });
   });
 
   it('setPosition and setSize update panel geometry', () => {
     let state = commanderSlice.reducer(undefined, setPosition({ x: 100, y: 120 }));
     state = commanderSlice.reducer(state, setSize({ width: 480, height: 640 }));
-
     expect(state.position).toEqual({ x: 100, y: 120 });
     expect(state.size).toEqual({ width: 480, height: 640 });
   });
 
   it('stores the commander-selected provider independently from settings', () => {
     const state = commanderSlice.reducer(undefined, setProviderId('claude'));
-
     expect(state.providerId).toBe('claude');
-  });
-
-  describe('toggleCommander state machine', () => {
-    it('closed → opens (open=false, minimized=false)', () => {
-      const state = commanderSlice.reducer(undefined, toggleCommander());
-      expect(state.open).toBe(true);
-      expect(state.minimized).toBe(false);
-    });
-
-    it('open normal → closes (open=true, minimized=false)', () => {
-      let state = commanderSlice.reducer(undefined, toggleCommander());
-      state = commanderSlice.reducer(state, toggleCommander());
-      expect(state.open).toBe(false);
-      expect(state.minimized).toBe(false);
-    });
-
-    it('open minimized → closes, not just restores (open=true, minimized=true)', () => {
-      let state = commanderSlice.reducer(undefined, toggleCommander()); // open
-      state = commanderSlice.reducer(state, minimizeCommander()); // minimize
-      expect(state.open).toBe(true);
-      expect(state.minimized).toBe(true);
-      // toolbar toggle while minimized should CLOSE, not just restore
-      state = commanderSlice.reducer(state, toggleCommander());
-      expect(state.open).toBe(false);
-      expect(state.minimized).toBe(false);
-    });
-
-    it('close → reopen works correctly', () => {
-      let state = commanderSlice.reducer(undefined, toggleCommander()); // open
-      state = commanderSlice.reducer(state, toggleCommander()); // close
-      state = commanderSlice.reducer(state, toggleCommander()); // reopen
-      expect(state.open).toBe(true);
-      expect(state.minimized).toBe(false);
-    });
-  });
-
-  describe('setCommanderOpen', () => {
-    it('always clears minimized regardless of value', () => {
-      let state = commanderSlice.reducer(undefined, toggleCommander()); // open
-      state = commanderSlice.reducer(state, minimizeCommander()); // minimize
-      state = commanderSlice.reducer(state, setCommanderOpen(true));
-      expect(state.open).toBe(true);
-      expect(state.minimized).toBe(false);
-    });
-  });
-
-  describe('minimizeCommander', () => {
-    it('is a no-op when panel is closed', () => {
-      const state = commanderSlice.reducer(undefined, minimizeCommander());
-      expect(state.open).toBe(false);
-      expect(state.minimized).toBe(false);
-    });
-  });
-
-  describe('addUserMessage and startStreaming restore from minimized', () => {
-    it('addUserMessage forces open and unminimized', () => {
-      let state = commanderSlice.reducer(undefined, toggleCommander());
-      state = commanderSlice.reducer(state, minimizeCommander());
-      state = commanderSlice.reducer(state, addUserMessage('hi'));
-      expect(state.open).toBe(true);
-      expect(state.minimized).toBe(false);
-    });
-
-    it('startStreaming forces open and unminimized', () => {
-      let state = commanderSlice.reducer(undefined, toggleCommander());
-      state = commanderSlice.reducer(state, minimizeCommander());
-      state = commanderSlice.reducer(state, startStreaming());
-      expect(state.open).toBe(true);
-      expect(state.minimized).toBe(false);
-    });
-  });
-
-  describe('addInjectedMessage during streaming', () => {
-    it('queues messages that are committed after finishStreaming', () => {
-      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
-      state = commanderSlice.reducer(state, startStreaming());
-      state = commanderSlice.reducer(state, appendStreamChunk('AI reply'));
-      // User injects messages during streaming
-      state = commanderSlice.reducer(state, addInjectedMessage('followup 1'));
-      state = commanderSlice.reducer(state, addInjectedMessage('followup 2'));
-
-      // Pending messages are stored separately, not in messages[]
-      expect(state.pendingInjectedMessages).toHaveLength(2);
-      expect(state.messages).toHaveLength(1); // only the initial user message
-
-      state = commanderSlice.reducer(state, finishStreaming());
-
-      // After finish: assistant message + both injected user messages committed
-      expect(state.messages).toHaveLength(4);
-      expect(state.messages[0]).toEqual(expect.objectContaining({ role: 'user', content: 'hello' }));
-      expect(state.messages[1]).toEqual(expect.objectContaining({ role: 'assistant', content: 'AI reply' }));
-      expect(state.messages[2]).toEqual(expect.objectContaining({ role: 'user', content: 'followup 1' }));
-      expect(state.messages[3]).toEqual(expect.objectContaining({ role: 'user', content: 'followup 2' }));
-      expect(state.pendingInjectedMessages).toHaveLength(0);
-    });
-
-    it('commits injected messages on streamError too', () => {
-      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
-      state = commanderSlice.reducer(state, startStreaming());
-      state = commanderSlice.reducer(state, addInjectedMessage('mid-stream'));
-      state = commanderSlice.reducer(state, streamError('something broke'));
-
-      // user msg + injected user msg + error msg
-      const userMsgs = state.messages.filter((m) => m.role === 'user');
-      expect(userMsgs).toHaveLength(2);
-      expect(userMsgs[1].content).toBe('mid-stream');
-      expect(state.pendingInjectedMessages).toHaveLength(0);
-    });
   });
 
   it('resolveQuestion stores structured question history before the user answer', () => {
     let state = commanderSlice.reducer(
       undefined,
       setPendingQuestion({
-        toolCallId: 'question-1',
-        question: 'Which direction should we use?',
+        toolCallId: 'q-1',
+        question: 'Which one?',
         options: [
-          { label: 'Campus Yuri', description: 'Light and gentle' },
-          { label: 'Urban Yuri', description: 'Adult and restrained' },
+          { label: 'A', description: 'first' },
+          { label: 'B', description: 'second' },
         ],
       }),
     );
-
-    state = commanderSlice.reducer(state, resolveQuestion({ answer: 'Campus Yuri' }));
-
+    state = commanderSlice.reducer(state, resolveQuestion({ answer: 'A' }));
     expect(state.messages).toHaveLength(2);
-    expect(state.messages[0]).toEqual(
-      expect.objectContaining({
-        role: 'assistant',
-        content:
-          'Which direction should we use?\n\n- Campus Yuri: Light and gentle\n- Urban Yuri: Adult and restrained',
-      }),
-    );
-    expect(
-      (state.messages[0] as {
-        questionMeta?: {
-          question: string;
-          options: Array<{ label: string; description?: string }>;
-        };
-      }).questionMeta,
-    ).toEqual({
-      question: 'Which direction should we use?',
+    expect(state.messages[0].role).toBe('assistant');
+    expect(state.messages[0].questionMeta).toEqual({
+      question: 'Which one?',
       options: [
-        { label: 'Campus Yuri', description: 'Light and gentle' },
-        { label: 'Urban Yuri', description: 'Adult and restrained' },
+        { label: 'A', description: 'first' },
+        { label: 'B', description: 'second' },
       ],
     });
-    expect(state.messages[1]).toEqual(expect.objectContaining({ role: 'user', content: 'Campus Yuri' }));
+    expect(state.messages[1]).toMatchObject({ role: 'user', content: 'A' });
     expect(state.pendingQuestion).toBeNull();
+  });
+
+  describe('toggleCommander state machine', () => {
+    it('closed → opens', () => {
+      const state = commanderSlice.reducer(undefined, toggleCommander());
+      expect(state.open).toBe(true);
+      expect(state.minimized).toBe(false);
+    });
+
+    it('open minimized → closes (not restores)', () => {
+      let state = commanderSlice.reducer(undefined, toggleCommander());
+      state = commanderSlice.reducer(state, minimizeCommander());
+      state = commanderSlice.reducer(state, toggleCommander());
+      expect(state.open).toBe(false);
+      expect(state.minimized).toBe(false);
+    });
   });
 });

@@ -26,3 +26,13 @@ export const SnapshotsTable = defineTable('snapshots', {
   data: col<string>('data'),
   createdAt: col<number>('created_at'),
 });
+
+export const CommanderEventsTable = defineTable('commander_events', {
+  sessionId: col<SessionId>('session_id'),
+  runId: col<string>('run_id'),
+  seq: col<number>('seq'),
+  kind: col<string>('kind'),
+  step: col<number>('step'),
+  emittedAt: col<number>('emitted_at'),
+  payload: col<string>('payload'),
+});

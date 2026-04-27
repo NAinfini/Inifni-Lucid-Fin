@@ -1,27 +1,27 @@
 /**
- * `commander/transport/CommanderTransport.ts` — Phase E split-2.
+ * `commander/transport/CommanderTransport.ts` — v2 cutover.
  *
  * Thin IPC wrapper over the preload `api.commander` bridge. Knows nothing
- * about history, permissions, Redux, or session state. Its sole job is to
- * surface the renderer-side commander IPC surface as a typed object the
- * `CommanderSessionService` can drive.
+ * about history, permissions, Redux, or session state.
  *
- * The preload bridge uses **positional** arguments for `commander:chat`
- * (see `apps/desktop-main/src/preload.cts:337`), so this wrapper preserves
- * that signature even though the generated `LucidAPI_Commander` interface
- * models it with a single-object request. That mismatch is handled by
- * Phase B's registry; until the renderer switches over, the transport
- * matches the live runtime shape.
+ * Post-cutover the wire is pure v2: every event is a `TimelineEvent` wrapped
+ * in `WireEnvelope<TimelineEvent>` at the IPC boundary. `onStream` returns
+ * the raw event (envelope unwrapped); `onStreamEnvelope` returns the full
+ * envelope for consumers that need `wireVersion` provenance.
  */
 
+import type {
+  CommanderWireVersion,
+  TimelineEvent,
+  WireEnvelope,
+} from '@lucid-fin/contracts';
 import type { LucidAPI } from '../../utils/api.js';
 
 type CommanderAPI = NonNullable<LucidAPI>['commander'];
 type OptionalCommanderAPI = NonNullable<LucidAPI>['commander'] | undefined;
 
-export type CommanderStreamEvent = Parameters<
-  Parameters<CommanderAPI['onStream']>[0]
->[0];
+export type CommanderStreamEnvelope = WireEnvelope<TimelineEvent>;
+
 export type CommanderCanvasUpdatedPayload = Parameters<
   Parameters<CommanderAPI['onCanvasUpdated']>[0]
 >[0];
@@ -36,6 +36,7 @@ export type CommanderUndoDispatchPayload = Parameters<
 >[0];
 
 export type CommanderChatArgs = Parameters<CommanderAPI['chat']>;
+export type CommanderChatResult = Awaited<ReturnType<CommanderAPI['chat']>>;
 
 export type Unsub = () => void;
 
@@ -46,11 +47,7 @@ export class CommanderTransport {
     return !!this.api;
   }
 
-  /**
-   * Start a commander chat. Arguments mirror the current preload contract
-   * (positional). The main process streams events back via `onStream`.
-   */
-  async chat(...args: CommanderChatArgs): Promise<unknown> {
+  async chat(...args: CommanderChatArgs): Promise<CommanderChatResult> {
     if (!this.api) throw new Error('Commander IPC bridge unavailable');
     return this.api.chat(...args);
   }
@@ -80,9 +77,22 @@ export class CommanderTransport {
     await this.api.answerQuestion(canvasId, toolCallId, answer);
   }
 
-  onStream(cb: (payload: CommanderStreamEvent) => void): Unsub {
+  /**
+   * Subscribe to stream events with envelope unwrapped. Most consumers use
+   * this — only provenance-aware paths need the raw envelope.
+   */
+  onStream(cb: (event: TimelineEvent) => void): Unsub {
+    return this.onStreamEnvelope((envelope) => cb(envelope.event));
+  }
+
+  /**
+   * Subscribe to stream events with the full `WireEnvelope`. The preload
+   * layer guarantees envelopes are well-formed; no defensive unwrap needed
+   * post-cutover.
+   */
+  onStreamEnvelope(cb: (envelope: CommanderStreamEnvelope) => void): Unsub {
     if (!this.api) return () => {};
-    return this.api.onStream(cb);
+    return this.api.onStream(cb as (e: CommanderStreamEnvelope) => void);
   }
 
   onCanvasUpdated(cb: (payload: CommanderCanvasUpdatedPayload) => void): Unsub {
@@ -105,3 +115,5 @@ export class CommanderTransport {
     return this.api.onUndoDispatch(cb) ?? (() => {});
   }
 }
+
+export type { CommanderWireVersion };

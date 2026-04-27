@@ -75,7 +75,7 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
   const setActive: AgentTool = {
     name: 'provider.setActive',
     description:
-      'Set the active provider for a group. This is only supported for llm; image, video, and audio providers are selected in their own generation UIs.',
+      'Set the active (default) provider for a group. This is only supported for llm; image, video, and audio providers are selected in their own generation UIs. Use this for project-wide provider defaults; for per-node provider override, use canvas.setNodeProvider instead.',
     tier: 2,
     parameters: {
       type: 'object',

@@ -51,17 +51,22 @@ function buildBiblePrompt(entity: Location, stylePlate?: string): string {
     segments.push(`Style: ${stylePlate}`);
   }
 
-  segments.push('Environment concept art bible for production reference');
-  segments.push('Five-frame composite on one image');
-  segments.push('Frame 1 (large, left): wide establishing shot, full environment visible, cinematic composition, layered foreground/midground/background depth');
-  segments.push('Frame 2 (top right): interior detail study, architectural close-ups, material transitions, wear patterns');
-  segments.push('Frame 3 (middle right): atmosphere study, lighting and weather emphasis, shadows pool in recesses, rain or dust as appropriate');
-  segments.push('Frame 4 (bottom right A): primary key camera angle, eye-level cinematic shot for scene staging');
-  segments.push('Frame 5 (bottom right B): alternate key camera angle, secondary perspective revealing circulation paths');
-  segments.push(`Location: ${entity.name}`);
+  // Subject first — the model needs to know WHAT the place is before
+  // it fills in grid frames. Earlier revisions buried the description
+  // after 5+ layout lines and produced generic concept art.
+  segments.push(`Environment concept art bible of ${entity.name}`);
   if (desc) segments.push(desc);
   segments.push('No characters, no people, no figures, environment only');
-  segments.push('Detailed textures, professional environment concept art, cinematic quality, consistent lighting and material language across all frames');
+
+  // Compact layout block — one short line per frame instead of a full
+  // paragraph of composition direction. Five frames, consistent light.
+  segments.push('Layout: five frames on one sheet');
+  segments.push('Frame 1 (large, left): wide establishing shot — full environment, layered depth');
+  segments.push('Frame 2 (top right): interior detail study — architectural close-ups, material wear');
+  segments.push('Frame 3 (middle right): atmosphere study — lighting and weather in the space');
+  segments.push('Frame 4 (bottom right A): primary key camera angle, eye-level staging shot');
+  segments.push('Frame 5 (bottom right B): alternate key angle revealing circulation paths');
+  segments.push('Consistent lighting and material language across every frame');
 
   return segments.join('. ') + '.';
 }
@@ -74,15 +79,13 @@ function buildFake360Prompt(entity: Location, stylePlate?: string): string {
     segments.push(`Style: ${stylePlate}`);
   }
 
-  segments.push('Environment pseudo-panorama for production reference');
-  segments.push('Eight panels arranged in a 4x2 grid, each panel shows the scene from a camera rotated 45 degrees from the previous one');
-  segments.push('Reading order left-to-right, top-to-bottom: 0°, 45°, 90°, 135° (top row); 180°, 225°, 270°, 315° (bottom row)');
-  segments.push('All panels share the same camera height, same focal length, same lighting, same time of day');
-  segments.push('Consistent material and color palette across every panel so they read as views of the same space');
-  segments.push(`Location: ${entity.name}`);
+  segments.push(`Environment pseudo-panorama of ${entity.name}`);
   if (desc) segments.push(desc);
   segments.push('No characters, no people, no figures, environment only');
-  segments.push('Detailed textures, professional environment concept art, cinematic quality');
+
+  segments.push('Layout: eight panels in a 4x2 grid, camera rotated 45° per panel');
+  segments.push('Reading order: 0°, 45°, 90°, 135° (top row); 180°, 225°, 270°, 315° (bottom row)');
+  segments.push('Same camera height, same focal length, same lighting, same time of day across every panel');
 
   return segments.join('. ') + '.';
 }
@@ -99,11 +102,9 @@ function buildExtraAnglePrompt(
     segments.push(`Style: ${stylePlate}`);
   }
 
-  segments.push(`Environment concept art reference, ${angle} camera angle`);
-  segments.push(`Location: ${entity.name}`);
+  segments.push(`Environment concept art of ${entity.name}, ${angle} camera angle`);
   if (desc) segments.push(desc);
   segments.push('No characters, no people, no figures, environment only');
-  segments.push('Detailed textures, professional environment concept art, cinematic quality');
 
   return segments.join('. ') + '.';
 }

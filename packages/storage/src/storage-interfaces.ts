@@ -1,4 +1,5 @@
 import type { SessionRepository } from './repositories/session-repository.js';
+import type { CommanderEventRepository } from './repositories/commander-event-repository.js';
 import type { JobRepository } from './repositories/job-repository.js';
 import type { AssetRepository } from './repositories/asset-repository.js';
 import type { CanvasRepository } from './repositories/canvas-repository.js';
@@ -20,6 +21,7 @@ import type { DependencyRepository } from './repositories/dependency-repository.
  */
 export interface RepoBundle {
   sessions: SessionRepository;
+  commanderEvents: CommanderEventRepository;
   jobs: JobRepository;
   assets: AssetRepository;
   canvases: CanvasRepository;

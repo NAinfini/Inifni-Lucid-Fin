@@ -162,6 +162,16 @@ describe('exit-contract/decide', () => {
       const d = decide({ contract: infoAnswerContract, intent: execIntent, ledger: [] });
       expect(d.outcome).toBe('unsatisfied');
     });
+
+    it('mixed intent + info-exempt contract → informational_answered', () => {
+      // `mixed` is the classifier's "I am not sure" — when it lands on
+      // the fallback contract with no workflow, we treat it as an
+      // answered question rather than a missed execution. This keeps
+      // every plain-chat Chinese or short English message from being
+      // banner-flagged as `missing_commit`.
+      const d = decide({ contract: infoAnswerContract, intent: { kind: 'mixed' }, ledger: [] });
+      expect(d.outcome).toBe('informational_answered');
+    });
   });
 
   describe('unsatisfied blockers', () => {

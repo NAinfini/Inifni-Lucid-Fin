@@ -1,24 +1,50 @@
 // apps/desktop-renderer/src/components/canvas/commander/tool-formatting.ts
 
-/** Format camelCase action name to human-readable. e.g. "generateReferenceImage" → "Generate Reference Image" */
+/**
+ * Some LLM adapters (OpenAI Responses, Claude) rewrite `.` to `_` in tool
+ * names because those APIs disallow dots in function names. Live-progress
+ * chips occasionally surface the wire-format name (e.g. `commander_ask_user`)
+ * before the orchestrator maps it back. Normalize by splitting on `.` OR
+ * the first `_` so display is stable regardless of which form arrives.
+ */
+function splitToolName(name: string): { domain: string; action: string } {
+  if (name.includes('.')) {
+    const parts = name.split('.');
+    return { domain: parts[0] ?? '', action: parts[parts.length - 1] ?? name };
+  }
+  const firstUnderscore = name.indexOf('_');
+  if (firstUnderscore > 0) {
+    return {
+      domain: name.slice(0, firstUnderscore),
+      action: name.slice(firstUnderscore + 1),
+    };
+  }
+  return { domain: '', action: name };
+}
+
+/** Format camelCase or snake_case action name to human-readable. e.g. "generateReferenceImage" or "generate_reference_image" → "Generate Reference Image" */
 export function formatAction(action: string, t?: (key: string) => string): string {
-  // Try localized action name first
+  // Try localized action name first — try both camelCase and snake→camel.
   if (t) {
-    const localized = t(`commander.toolAction.${action}`);
-    if (!localized.startsWith('commander.toolAction.')) return localized;
+    const snakeToCamel = action.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    for (const key of [action, snakeToCamel]) {
+      const localized = t(`commander.toolAction.${key}`);
+      if (!localized.startsWith('commander.toolAction.')) return localized;
+    }
   }
   return action
+    .replace(/_/g, ' ')
     .replace(/([A-Z])/g, ' $1')
+    .replace(/\s+/g, ' ')
     .replace(/^./, (c) => c.toUpperCase())
-    .trim();
+    .trim()
+    .replace(/\b([a-z])/g, (c) => c.toUpperCase());
 }
 
 /** Format full tool name for display. e.g. "character.list" → "角色: 列表" (localized) */
 export function formatToolName(name: string, t?: (key: string) => string): string {
-  const parts = name.split('.');
-  const domain = parts[0] ?? '';
-  const action = parts[parts.length - 1] ?? name;
-  if (parts.length > 1) {
+  const { domain, action } = splitToolName(name);
+  if (domain) {
     const localizedDomain = t?.(`commander.toolDomain.${domain}`);
     const domainLabel = localizedDomain && !localizedDomain.startsWith('commander.toolDomain.')
       ? localizedDomain
@@ -26,6 +52,77 @@ export function formatToolName(name: string, t?: (key: string) => string): strin
     return `${domainLabel}: ${formatAction(action, t)}`;
   }
   return formatAction(action, t);
+}
+
+/**
+ * Return a production-language display name for well-known tool patterns.
+ * Returns `null` when no match is found so callers can fall back to
+ * `formatToolName`.
+ */
+export function formatProductionToolName(
+  toolName: string,
+  args: Record<string, unknown>,
+  result: unknown,
+  t: (key: string) => string,
+): string | null {
+  const { domain, action } = splitToolName(toolName);
+  const r = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>;
+  const a = args ?? {};
+
+  if (domain === 'canvas' && action === 'batchCreate') {
+    const nodes = Array.isArray(r.nodes) ? r.nodes : [];
+    const count = nodes.length || (Array.isArray(a.nodes) ? a.nodes.length : 0);
+    if (count > 0) return t('commander.productionTool.createdNodes').replace('{count}', String(count));
+  }
+
+  if (domain === 'canvas' && action === 'addNode') {
+    const nodeType = typeof a.type === 'string' ? a.type : '';
+    const title = typeof a.title === 'string' ? a.title : '';
+    if (nodeType || title) {
+      return t('commander.productionTool.addedNode')
+        .replace('{type}', nodeType)
+        .replace('{title}', title || nodeType);
+    }
+  }
+
+  if (domain === 'canvas' && action === 'connectNodes') {
+    const nodeIds = Array.isArray(a.nodeIds) ? a.nodeIds : [];
+    const count = nodeIds.length || 2;
+    return t('commander.productionTool.connectedNodes').replace('{count}', String(count));
+  }
+
+  if (domain === 'canvas' && action === 'updateNodes') {
+    const nodeIds = Array.isArray(a.nodeIds) ? a.nodeIds : [];
+    const count = nodeIds.length || (a.nodeId ? 1 : 0);
+    if (count > 0) return t('commander.productionTool.updatedNodes').replace('{count}', String(count));
+  }
+
+  if (domain === 'canvas' && action === 'deleteNode') {
+    return t('commander.productionTool.deletedNode');
+  }
+
+  if (domain === 'canvas' && action === 'generate') {
+    const title = typeof a.title === 'string' ? a.title : typeof a.nodeId === 'string' ? a.nodeId.slice(0, 8) : '';
+    const done = r.success === true || (r.status === 'done');
+    const key = done ? 'commander.productionTool.generated' : 'commander.productionTool.generating';
+    return t(key).replace('{title}', title);
+  }
+
+  if (domain === 'character' && action === 'create') {
+    const name = typeof a.name === 'string' ? a.name : typeof r.name === 'string' ? r.name : '';
+    if (name) return t('commander.productionTool.createdCharacter').replace('{name}', name);
+  }
+
+  if (domain === 'character' && action === 'update') {
+    const name = typeof a.name === 'string' ? a.name : typeof r.name === 'string' ? r.name : '';
+    if (name) return t('commander.productionTool.updatedCharacter').replace('{name}', name);
+  }
+
+  if (domain === 'snapshot' && action === 'create') {
+    return t('commander.productionTool.createdRollback');
+  }
+
+  return null;
 }
 
 /** Build a human-readable one-line summary of what a tool call will do. */

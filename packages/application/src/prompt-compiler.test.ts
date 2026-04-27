@@ -8,7 +8,7 @@ import {
   type PresetDefinition,
   type PresetTrackSet,
 } from '@lucid-fin/contracts';
-import { compilePrompt, getCameraShot, type ResolvedCharacter } from './prompt-compiler.js';
+import { compilePrompt, getCameraShot, tokenizeForWordCount, type ResolvedCharacter } from './prompt-compiler.js';
 
 function makePreset(
   id: string,
@@ -568,5 +568,60 @@ describe('getCameraShot', () => {
 
   it('returns default when preset tracks are undefined', () => {
     expect(getCameraShot(undefined)).toBe('default');
+  });
+});
+
+describe('tokenizeForWordCount', () => {
+  it('splits ASCII on whitespace', () => {
+    expect(tokenizeForWordCount('hello world foo')).toEqual(['hello', 'world', 'foo']);
+  });
+
+  it('treats each CJK ideograph as its own token', () => {
+    // Without CJK tokenization this whole string would be one "word" and
+    // every downstream word-budget / duplicate-phrase check would silently
+    // no-op on Chinese prompts.
+    expect(tokenizeForWordCount('身材高大')).toEqual(['身', '材', '高', '大']);
+  });
+
+  it('preserves ASCII word groups when mixed with CJK', () => {
+    // "tall hero 高大的 person" → 5 tokens: tall | hero | 高 | 大 | 的 | person
+    expect(tokenizeForWordCount('tall hero 高大的 person')).toEqual([
+      'tall',
+      'hero',
+      '高',
+      '大',
+      '的',
+      'person',
+    ]);
+  });
+
+  it('handles Japanese kana as CJK', () => {
+    expect(tokenizeForWordCount('こんにちは')).toHaveLength(5);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(tokenizeForWordCount('')).toEqual([]);
+    expect(tokenizeForWordCount('   ')).toEqual([]);
+  });
+});
+
+describe('compilePrompt — CJK word budget', () => {
+  it('trims a CJK-only prompt to the model-specific word budget', () => {
+    // 200 Chinese ideographs — old code treated this as 1 "word", budget
+    // never triggered, prompt was never trimmed. After the tokenizer fix
+    // every ideograph counts as one token.
+    const longCjk = '的'.repeat(200);
+
+    const result = compilePrompt({
+      nodeType: 'video',
+      prompt: longCjk,
+      providerId: 'runway',
+      mode: 'text-to-video',
+      presetLibrary: [],
+    });
+
+    // Runway budget is 150; wordCount should match the trimmed length, not
+    // the untrimmed 200.
+    expect(tokenizeForWordCount(result.prompt).length).toBe(150);
   });
 });

@@ -153,33 +153,63 @@ describe('canvas.getSettings / canvas.setSettings', () => {
     expect(deps.patchCanvasSettings).not.toHaveBeenCalled();
   });
 
-  it('patches defaultResolution object via setSettings', async () => {
+  it('patches refResolution object via setSettings', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
     const tool = findTool(deps, 'canvas.setSettings');
 
     const result = await tool.execute({
       canvasId: canvas.id,
-      defaultResolution: { width: 1536, height: 1024 },
+      refResolution: { width: 1536, height: 1024 },
     });
 
     expect(result.success).toBe(true);
     const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(patchCall[1]).toEqual({ defaultResolution: { width: 1536, height: 1024 } });
+    expect(patchCall[1]).toEqual({ refResolution: { width: 1536, height: 1024 } });
   });
 
-  it('rejects defaultResolution with non-positive dimensions', async () => {
+  it('rejects refResolution with non-positive dimensions', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
     const tool = findTool(deps, 'canvas.setSettings');
 
     const result = await tool.execute({
       canvasId: canvas.id,
-      defaultResolution: { width: 0, height: 1024 },
+      refResolution: { width: 0, height: 1024 },
     });
 
     expect(result.success).toBe(false);
     expect(deps.patchCanvasSettings).not.toHaveBeenCalled();
+  });
+
+  it('patches publishImageResolution via setSettings', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+    const tool = findTool(deps, 'canvas.setSettings');
+
+    const result = await tool.execute({
+      canvasId: canvas.id,
+      publishImageResolution: { width: 1920, height: 1080 },
+    });
+
+    expect(result.success).toBe(true);
+    const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(patchCall[1]).toEqual({ publishImageResolution: { width: 1920, height: 1080 } });
+  });
+
+  it('patches publishVideoResolution via setSettings', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+    const tool = findTool(deps, 'canvas.setSettings');
+
+    const result = await tool.execute({
+      canvasId: canvas.id,
+      publishVideoResolution: { width: 1280, height: 720 },
+    });
+
+    expect(result.success).toBe(true);
+    const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(patchCall[1]).toEqual({ publishVideoResolution: { width: 1280, height: 720 } });
   });
 
   it('patches negativePrompt via setSettings', async () => {

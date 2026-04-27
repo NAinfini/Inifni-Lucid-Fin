@@ -6,6 +6,7 @@ import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { AppShell } from './AppShell.js';
 import { uiSlice } from '../../store/slices/ui.js';
+import { canvasSlice } from '../../store/slices/canvas.js';
 import { settingsSlice } from '../../store/slices/settings.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
 
@@ -13,6 +14,7 @@ function createStore() {
   return configureStore({
     reducer: {
       ui: uiSlice.reducer,
+      canvas: canvasSlice.reducer,
       settings: settingsSlice.reducer,
       jobs: jobsSlice.reducer,
     },

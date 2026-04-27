@@ -53,6 +53,27 @@ export default tseslint.config(
     },
   },
 
+  // ── Phase B cleanup: ban deleted legacy IPC types ──────────────
+  // IpcChannelMap, IpcChannel, IpcRequest, IpcResponse were removed in the
+  // legacy-IPC migration. Use typed channel descriptors from contracts-parse.
+  {
+    ignores: ['apps/desktop-main/src/preload.cts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@lucid-fin/contracts',
+              importNames: ['IpcChannelMap', 'IpcChannel', 'IpcRequest', 'IpcResponse'],
+              message:
+                'Legacy IPC types deleted. Use typed channel descriptors from @lucid-fin/contracts-parse instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   // ── Phase A: Redline rules ─────────────────────────────────────
 
   // Redline: renderer must not import from contracts-parse (zod stays out of renderer)

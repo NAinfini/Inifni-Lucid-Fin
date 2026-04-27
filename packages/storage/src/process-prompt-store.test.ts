@@ -15,43 +15,6 @@ function createTempDbPath(): string {
   return dbPath;
 }
 
-function insertLegacyPrompt(
-  store: ProcessPromptStore,
-  processKey: string,
-  name: string,
-  customValue: string,
-): void {
-  const db = (store as unknown as {
-    db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } };
-  }).db;
-
-  db.prepare(`
-    INSERT INTO process_prompts (
-      process_key,
-      name,
-      description,
-      default_value,
-      custom_value,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(process_key) DO UPDATE SET
-      name = excluded.name,
-      description = excluded.description,
-      default_value = excluded.default_value,
-      custom_value = excluded.custom_value,
-      updated_at = excluded.updated_at
-  `).run(
-    processKey,
-    name,
-    `Legacy ${name}`,
-    'Legacy default rules',
-    customValue,
-    1,
-    1,
-  );
-}
-
 afterEach(() => {
   for (const file of tempFiles.splice(0)) {
     if (fs.existsSync(file)) {
@@ -67,9 +30,9 @@ afterEach(() => {
 describe('ProcessPromptStore', () => {
   it('ships compact, substantive defaults for every process category', () => {
     const expectedSnippets: Record<string, string[]> = {
-      'character-ref-image-generation': ['two-row model sheet', 'anti-collapse'],
-      'location-ref-image-generation': ['wide-establishing', 'No characters, no people'],
-      'equipment-ref-image-generation': ['orthographic', 'silhouette'],
+      'character-ref-image-generation': ['full-sheet', 'anti-collapse'],
+      'location-ref-image-generation': ['bible', 'no characters, no people'],
+      'equipment-ref-image-generation': ['ortho-grid', 'silhouette'],
       'image-node-generation': ['five elements', 'canvas.setNodeRefs'],
       'video-node-generation': ['three-part', 'canvas.setVideoFrames'],
       'audio-voice': ['emotionVector', 'bracketed'],
@@ -99,9 +62,13 @@ describe('ProcessPromptStore', () => {
       'prompt-template-management': ['prompt.setCustom', 'process-prompt store'],
       'asset-library-management': ['asset.import', 'asset.list'],
       'job-control': ['job.control', 'pause'],
+      'entities-before-generation': ['reference images', 'character.generateRefImage'],
+      'batch-create-guidance': ['batch-creating', 'backdrops'],
+      'prompt-quality-gate': ['canvas.getNode', 'canvas.previewPrompt'],
+      'story-workflow-phase': ['phase gates', 'ref images'],
     };
 
-    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(33);
+    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(37);
 
     for (const entry of PROCESS_PROMPT_DEFAULTS) {
       expect(entry.defaultValue.length).toBeGreaterThan(220);
@@ -162,119 +129,6 @@ describe('ProcessPromptStore', () => {
     second.close();
 
     expect(secondCount).toBe(firstCount);
-  });
-
-  it('migrates legacy entity-management custom prompts into the split entity keys', () => {
-    const dbPath = createTempDbPath();
-    const first = new ProcessPromptStore(dbPath);
-    insertLegacyPrompt(first, 'entity-management', 'Entity Management', 'Legacy entity rules');
-    first.close();
-
-    const second = new ProcessPromptStore(dbPath);
-
-    expect(second.get('entity-management')).toBeNull();
-    expect(second.get('character-management')?.customValue).toBe('Legacy entity rules');
-    expect(second.get('location-management')?.customValue).toBe('Legacy entity rules');
-    expect(second.get('equipment-management')?.customValue).toBe('Legacy entity rules');
-    second.close();
-  });
-
-  it('migrates legacy ref-image-generation custom prompts into the split ref-image keys', () => {
-    const dbPath = createTempDbPath();
-    const first = new ProcessPromptStore(dbPath);
-    insertLegacyPrompt(
-      first,
-      'ref-image-generation',
-      'Reference Image Generation',
-      'Legacy ref-image rules',
-    );
-    first.close();
-
-    const second = new ProcessPromptStore(dbPath);
-
-    expect(second.get('ref-image-generation')).toBeNull();
-    expect(second.get('character-ref-image-generation')?.customValue).toBe(
-      'Legacy ref-image rules',
-    );
-    expect(second.get('location-ref-image-generation')?.customValue).toBe(
-      'Legacy ref-image rules',
-    );
-    expect(second.get('equipment-ref-image-generation')?.customValue).toBe(
-      'Legacy ref-image rules',
-    );
-    second.close();
-  });
-
-  it('migrates legacy preset-and-style custom prompts into split style keys', () => {
-    const dbPath = createTempDbPath();
-    const first = new ProcessPromptStore(dbPath);
-    insertLegacyPrompt(first, 'preset-and-style', 'Preset And Style', 'Legacy style rules');
-    first.close();
-
-    const second = new ProcessPromptStore(dbPath);
-
-    expect(second.get('preset-and-style')).toBeNull();
-    expect(second.get('node-preset-tracks')?.customValue).toBe('Legacy style rules');
-    expect(second.get('preset-definition-management')?.customValue).toBe(
-      'Legacy style rules',
-    );
-    expect(second.get('shot-template-management')?.customValue).toBe('Legacy style rules');
-    expect(second.get('color-style-management')?.customValue).toBe('Legacy style rules');
-    second.close();
-  });
-
-  it('migrates legacy canvas-workflow custom prompts into split canvas keys', () => {
-    const dbPath = createTempDbPath();
-    const first = new ProcessPromptStore(dbPath);
-    insertLegacyPrompt(first, 'canvas-workflow', 'Canvas Workflow', 'Legacy canvas rules');
-    first.close();
-
-    const second = new ProcessPromptStore(dbPath);
-
-    expect(second.get('canvas-workflow')).toBeNull();
-    expect(second.get('canvas-structure')?.customValue).toBe('Legacy canvas rules');
-    expect(second.get('canvas-graph-and-layout')?.customValue).toBe('Legacy canvas rules');
-    expect(second.get('canvas-node-editing')?.customValue).toBe('Legacy canvas rules');
-    second.close();
-  });
-
-  it('migrates legacy provider-and-config custom prompts into split provider keys', () => {
-    const dbPath = createTempDbPath();
-    const first = new ProcessPromptStore(dbPath);
-    insertLegacyPrompt(
-      first,
-      'provider-and-config',
-      'Provider And Config',
-      'Legacy provider rules',
-    );
-    first.close();
-
-    const second = new ProcessPromptStore(dbPath);
-
-    expect(second.get('provider-and-config')).toBeNull();
-    expect(second.get('provider-management')?.customValue).toBe('Legacy provider rules');
-    expect(second.get('node-provider-selection')?.customValue).toBe(
-      'Legacy provider rules',
-    );
-    expect(second.get('image-config')?.customValue).toBe('Legacy provider rules');
-    expect(second.get('video-config')?.customValue).toBe('Legacy provider rules');
-    expect(second.get('audio-config')?.customValue).toBe('Legacy provider rules');
-    second.close();
-  });
-
-  it('migrates legacy audio-generation custom prompts into split audio keys', () => {
-    const dbPath = createTempDbPath();
-    const first = new ProcessPromptStore(dbPath);
-    insertLegacyPrompt(first, 'audio-generation', 'Audio Generation', 'Legacy audio rules');
-    first.close();
-
-    const second = new ProcessPromptStore(dbPath);
-
-    expect(second.get('audio-generation')).toBeNull();
-    expect(second.get('audio-voice')?.customValue).toBe('Legacy audio rules');
-    expect(second.get('audio-music')?.customValue).toBe('Legacy audio rules');
-    expect(second.get('audio-sfx')?.customValue).toBe('Legacy audio rules');
-    second.close();
   });
 
   it('throws for unknown process keys', () => {

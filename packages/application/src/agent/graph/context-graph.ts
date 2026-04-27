@@ -38,6 +38,7 @@ function estimateItemChars(item: ContextItem): number {
     case 'guide':
     case 'system-message':
     case 'session-summary':
+    case 'scratchpad':
       return item.content.length;
     case 'assistant-turn':
       return item.content.length + (item.reasoning?.length ?? 0);

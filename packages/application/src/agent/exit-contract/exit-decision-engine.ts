@@ -74,12 +74,27 @@ export function decide(input: DecideInput): ExitDecision {
   // comes BEFORE the satisfaction check because a contract with zero
   // requirements is trivially satisfied, which would otherwise swallow
   // the semantically correct "informational_answered" outcome.
-  if (contract.infoIntentExemption && (intent.kind === 'informational' || intent.kind === 'browse')) {
+  //
+  // `mixed` is included for exempt contracts only: `mixed` means the
+  // classifier could not commit to execute-vs-answer, so a run that
+  // lands on the info-exempt fallback with no mutations attempted should
+  // be treated as "the LLM answered" rather than "the LLM failed to
+  // execute". Pure `execution` intent stays strict — it is a hard
+  // promise and will fall through to `unsatisfied`.
+  if (
+    contract.infoIntentExemption &&
+    (intent.kind === 'informational' ||
+      intent.kind === 'browse' ||
+      intent.kind === 'mixed')
+  ) {
     return {
       outcome: 'informational_answered',
-      reason: intent.kind === 'browse'
-        ? 'browse intent; contract exempts'
-        : 'informational intent; contract exempts',
+      reason:
+        intent.kind === 'browse'
+          ? 'browse intent; contract exempts'
+          : intent.kind === 'mixed'
+            ? 'mixed intent on info-exempt contract; treated as answered'
+            : 'informational intent; contract exempts',
     };
   }
 

@@ -257,25 +257,17 @@ export type CommanderToolSearchResponse = z.infer<
 
 // ── commander:stream (push) — single zod source of truth ─────
 /**
- * Discriminated union over every Commander stream event. This is THE schema.
- * Orchestrator, preload, and renderer all derive their types from here via
- * `z.infer`. Adding a new variant is a compile error at every consumer site.
+ * The `commander:stream` wire carries `TimelineEvent`s wrapped in a v2
+ * `WireEnvelope`. The schema below mirrors the type-only `TimelineEvent`
+ * union defined in `@lucid-fin/contracts/agent/timeline-event.ts`; both
+ * must stay in sync (Phase H adds a CI drift check).
  *
- * Every variant carries three required provenance fields:
- *   - `runId`: monotonic per-run identifier (UUID) — so the renderer can group
- *     events by run and detect run boundaries unambiguously.
- *   - `step`: the orchestrator step number at emission time (0-based).
- *   - `emittedAt`: `Date.now()` at emission — used for elapsed / stall detection.
- *
- * The discriminator is `kind` (not `type`) to force every legacy string compare
- * on `.type` to surface as a compile error during the migration.
+ * Every event carries four provenance fields:
+ *   - `runId`: monotonic per-run identifier — groups events into runs.
+ *   - `step`: semantic model-step index (0-based); NOT a sort key.
+ *   - `seq`: primary ordering key, monotonic per-run.
+ *   - `emittedAt`: `Date.now()` at emission — debug/display only.
  */
-const CommanderStreamCommon = {
-  runId: z.string(),
-  step: z.number().int().nonnegative(),
-  emittedAt: z.number(),
-};
-
 // ── Exit Contract payloads (Phase B) ─────────────────────────
 // Mirror the TypeScript unions in `packages/contracts/src/ipc/channels/batch-09.ts`.
 // Contracts package is type-only (no zod dep); these runtime schemas are the
@@ -361,131 +353,176 @@ const CommanderExitDecisionPayload = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('error'), message: z.string() }),
 ]);
 
-const CommanderStreamPayload = z.discriminatedUnion('kind', [
+// ── commander:stream (push) — TimelineEvent zod schema ───────
+/**
+ * Mirror of the `TimelineEvent` discriminated union from
+ * `@lucid-fin/contracts/agent/timeline-event.ts`. Contracts package is
+ * type-only (no zod); this is the runtime source of truth. The two must
+ * stay in sync by hand — a CI drift check is tracked in Phase H.
+ *
+ * Ordering invariants (Codex freeze 2026-04-20):
+ *   - `seq` is required, monotonic per-run (primary order key).
+ *   - `step` is semantic (model-step-index, used for dedup window).
+ *   - `emittedAt` is debug/display only.
+ */
+const TimelineEventCommon = {
+  runId: z.string(),
+  step: z.number().int().nonnegative(),
+  seq: z.number().int().nonnegative(),
+  emittedAt: z.number(),
+};
+
+const TimelineParamValue = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+
+const ToolRefShape = z.object({
+  domain: z.string(),
+  action: z.string(),
+  version: z.number().int().optional(),
+});
+
+const CommanderErrorShape = z.object({
+  code: z.enum([
+    'LLM_TRANSIENT',
+    'LLM_FATAL',
+    'TOOL_VALIDATION',
+    'TOOL_NOT_FOUND',
+    'TOOL_PERMISSION',
+    'TOOL_RUNTIME',
+    'STREAM_STALLED',
+    'RUN_CANCELLED',
+    'RUN_MAX_STEPS',
+    'CONTRACT_UNSATISFIED',
+    'RUN_ENDED_BEFORE_RESULT',
+  ]),
+  params: z.record(z.string(), TimelineParamValue),
+});
+
+const TimelineExitDecisionMeta = z.object({
+  outcome: z.string(),
+  contractId: z.string().optional(),
+  blocker: z.string().optional(),
+});
+
+const TimelineEvent = z.discriminatedUnion('kind', [
   z.object({
-    kind: z.literal('chunk'),
+    kind: z.literal('run_start'),
+    intent: z.string(),
+    ...TimelineEventCommon,
+  }),
+  z.object({
+    kind: z.literal('run_end'),
+    status: z.enum(['completed', 'failed', 'cancelled', 'max_steps']),
+    exitDecision: TimelineExitDecisionMeta.optional(),
+    ...TimelineEventCommon,
+  }),
+  z.object({
+    kind: z.literal('user_message'),
     content: z.string(),
-    ...CommanderStreamCommon,
+    ...TimelineEventCommon,
   }),
   z.object({
-    kind: z.literal('tool_call_started'),
-    toolName: z.string(),
-    toolCallId: z.string(),
-    startedAt: z.number(),
-    ...CommanderStreamCommon,
+    kind: z.literal('assistant_text'),
+    content: z.string(),
+    isDelta: z.boolean(),
+    ...TimelineEventCommon,
   }),
   z.object({
-    kind: z.literal('tool_call_args_delta'),
-    toolCallId: z.string(),
-    delta: z.string(),
-    ...CommanderStreamCommon,
+    kind: z.literal('thinking'),
+    content: z.string(),
+    isDelta: z.boolean(),
+    ...TimelineEventCommon,
   }),
   z.object({
-    kind: z.literal('tool_call_args_complete'),
+    kind: z.literal('tool_call'),
     toolCallId: z.string(),
-    arguments: z.record(z.string(), z.unknown()),
-    ...CommanderStreamCommon,
+    toolRef: ToolRefShape,
+    args: z.record(z.string(), z.unknown()),
+    ...TimelineEventCommon,
   }),
   z.object({
     kind: z.literal('tool_result'),
-    toolName: z.string(),
     toolCallId: z.string(),
-    result: z.unknown(),
-    startedAt: z.number(),
-    completedAt: z.number(),
-    ...CommanderStreamCommon,
+    result: z.unknown().optional(),
+    error: CommanderErrorShape.optional(),
+    durationMs: z.number(),
+    skipped: z.literal(true).optional(),
+    synthetic: z.literal(true).optional(),
+    ...TimelineEventCommon,
   }),
   z.object({
-    kind: z.literal('tool_confirm'),
-    toolName: z.string(),
+    kind: z.literal('tool_confirm_prompt'),
     toolCallId: z.string(),
-    arguments: z.record(z.string(), z.unknown()),
+    toolRef: ToolRefShape,
     tier: z.number(),
-    ...CommanderStreamCommon,
+    args: z.record(z.string(), z.unknown()),
+    ...TimelineEventCommon,
   }),
   z.object({
-    kind: z.literal('tool_question'),
-    toolName: z.string(),
+    kind: z.literal('user_confirmation'),
     toolCallId: z.string(),
-    question: z.string(),
-    options: z.array(
-      z.object({ label: z.string(), description: z.string().optional() }),
-    ),
-    ...CommanderStreamCommon,
+    approved: z.boolean(),
+    ...TimelineEventCommon,
   }),
   z.object({
-    kind: z.literal('thinking_delta'),
-    content: z.string(),
-    ...CommanderStreamCommon,
+    kind: z.literal('question_prompt'),
+    questionId: z.string(),
+    prompt: z.string(),
+    options: z
+      .array(z.object({ id: z.string(), label: z.string() }))
+      .optional(),
+    allowFreeText: z.boolean(),
+    ...TimelineEventCommon,
+  }),
+  z.object({
+    kind: z.literal('user_answer'),
+    questionId: z.string(),
+    answer: z.string(),
+    selectedOptionId: z.string().optional(),
+    ...TimelineEventCommon,
   }),
   z.object({
     kind: z.literal('phase_note'),
-    note: z.enum(['process_prompt_loaded', 'compacted', 'llm_retry']),
-    detail: z.string(),
-    ...CommanderStreamCommon,
+    note: z.enum([
+      'llm_retry',
+      'tool_skipped_dedup',
+      'compacted',
+      'prompt_loaded',
+      'max_steps_warning',
+      'force_ask_user',
+      'intent_reclassified',
+    ]),
+    params: z.record(z.string(), TimelineParamValue),
+    ...TimelineEventCommon,
   }),
   z.object({
-    kind: z.literal('done'),
-    content: z.string(),
-    // Phase E: terminal ExitDecision payload (+ intent for display) —
-    // optional so that older-emitter runtimes (e.g. pre-Phase-E desktop-main
-    // talking to a newer renderer) still validate.
-    exitDecision: CommanderExitDecisionPayload.optional(),
-    exitIntent: CommanderIntentPayload.optional(),
-    ...CommanderStreamCommon,
-  }),
-  z.object({
-    kind: z.literal('error'),
-    toolCallId: z.string().optional(),
-    error: z.string(),
-    startedAt: z.number().optional(),
-    completedAt: z.number().optional(),
-    ...CommanderStreamCommon,
-  }),
-  z.object({
-    kind: z.literal('context_usage'),
-    estimatedTokensUsed: z.number(),
-    contextWindowTokens: z.number(),
-    messageCount: z.number(),
-    systemPromptChars: z.number(),
-    toolSchemaChars: z.number(),
-    messageChars: z.number(),
-    cacheChars: z.number(),
-    cacheEntryCount: z.number(),
-    historyMessagesTrimmed: z.number().optional(),
-    utilizationRatio: z.number(),
-    ...CommanderStreamCommon,
-  }),
-  // ── Exit Contract Architecture events (Phase B shadow) ───────
-  z.object({
-    kind: z.literal('evidence_appended'),
-    evidence: CommanderEvidencePayload,
-    ...CommanderStreamCommon,
-  }),
-  z.object({
-    kind: z.literal('exit_decision'),
-    decision: CommanderExitDecisionPayload,
-    intent: CommanderIntentPayload,
-    ...CommanderStreamCommon,
-  }),
-  // ── Process-prompt preflight telemetry (Phase D) ─────────────
-  z.object({
-    kind: z.literal('preflight_decision'),
-    decision: z.enum(['activated', 'skipped']),
-    specKey: z.string(),
-    toolCall: z.string(),
-    ...CommanderStreamCommon,
+    kind: z.literal('cancelled'),
+    reason: z.enum(['user', 'timeout', 'error']),
+    completedToolCalls: z.number().int().nonnegative(),
+    pendingToolCalls: z.number().int().nonnegative(),
+    partialContent: z.string().optional(),
+    ...TimelineEventCommon,
   }),
 ]);
+
+const CommanderStreamPayload = z.object({
+  wireVersion: z.literal(2),
+  event: TimelineEvent,
+});
 export const commanderStreamChannel = definePushChannel({
   channel: 'commander:stream',
   payload: CommanderStreamPayload,
 });
 export type CommanderStreamPayload = z.infer<typeof CommanderStreamPayload>;
-export type CommanderStreamEvent = CommanderStreamPayload;
 export { CommanderStreamPayload as CommanderStreamPayloadSchema };
 
-// Phase B exit-contract payload types (derived from the zod schemas above).
+// Legacy exit-contract payload type exports (still referenced elsewhere
+// in the contracts-parse surface). Kept for downstream consumers until
+// the exit-contract v2 landing; they no longer appear on the stream wire.
 export type CommanderIntentPayload = z.infer<typeof CommanderIntentPayload>;
 export type CommanderEvidencePayload = z.infer<typeof CommanderEvidencePayload>;
 export type CommanderBlockerPayload = z.infer<typeof CommanderBlockerPayload>;
@@ -550,6 +587,29 @@ export type CommanderUndoDispatchPayload = z.infer<
   typeof CommanderUndoDispatchPayload
 >;
 
+// ── commander:events:hydrate (invoke) ───────────────────────
+// Renderer → main: read back all persisted `TimelineEvent`s for a
+// session so the timeline slice can be rebuilt on session resume.
+// `events` is the in-memory wire shape — the `payload` JSON column has
+// already been parsed by the repo.
+const CommanderEventsHydrateRequest = z.object({
+  sessionId: z.string().min(1),
+});
+const CommanderEventsHydrateResponse = z.object({
+  events: z.array(TimelineEvent),
+});
+export const commanderEventsHydrateChannel = defineInvokeChannel({
+  channel: 'commander:events:hydrate',
+  request: CommanderEventsHydrateRequest,
+  response: CommanderEventsHydrateResponse,
+});
+export type CommanderEventsHydrateRequest = z.infer<
+  typeof CommanderEventsHydrateRequest
+>;
+export type CommanderEventsHydrateResponse = z.infer<
+  typeof CommanderEventsHydrateResponse
+>;
+
 // ── Channel tuples ──────────────────────────────────────────
 export const commanderChannels = [
   commanderChatChannel,
@@ -560,6 +620,7 @@ export const commanderChannels = [
   commanderCompactChannel,
   commanderToolListChannel,
   commanderToolSearchChannel,
+  commanderEventsHydrateChannel,
 ] as const;
 
 export const commanderPushChannels = [

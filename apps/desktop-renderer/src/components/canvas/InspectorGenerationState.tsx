@@ -32,12 +32,13 @@ import {
   CUSTOM_RESOLUTION_VALUE,
   DURATION_PRESETS,
   FPS_PRESETS,
-  RESOLUTION_PRESETS,
   createRandomSeed,
   getDefaultResolution,
   getResolutionPresetDimensions,
   getResolutionPresetValue,
+  getResolutionPresetsForNodeType,
   resolveSeedRequest,
+  type ResolutionPreset,
   type VisualGenerationNodeType,
   type ResolutionPresetValue,
 } from './inspector-generation-utils.js';
@@ -49,17 +50,25 @@ import type {
 } from '@lucid-fin/contracts';
 
 const VARIANT_OPTIONS = [1, 2, 4, 9];
-const RESOLUTION_PRESET_GROUPS = RESOLUTION_PRESETS.reduce<
-  Array<{ label: (typeof RESOLUTION_PRESETS)[number]['groupLabel']; options: (typeof RESOLUTION_PRESETS)[number][] }>
->((groups, preset) => {
-  const existing = groups.find((group) => group.label === preset.groupLabel);
-  if (existing) {
-    existing.options.push(preset);
+
+type ResolutionPresetGroup = {
+  label: ResolutionPreset['groupLabel'];
+  options: ResolutionPreset[];
+};
+
+function groupResolutionPresets(
+  presets: readonly ResolutionPreset[],
+): ResolutionPresetGroup[] {
+  return presets.reduce<ResolutionPresetGroup[]>((groups, preset) => {
+    const existing = groups.find((group) => group.label === preset.groupLabel);
+    if (existing) {
+      existing.options.push(preset);
+      return groups;
+    }
+    groups.push({ label: preset.groupLabel, options: [preset] });
     return groups;
-  }
-  groups.push({ label: preset.groupLabel, options: [preset] });
-  return groups;
-}, []);
+  }, []);
+}
 
 function isVisualGenerationNode(node: CanvasNode): node is CanvasNode & {
   type: VisualGenerationNodeType;
@@ -167,8 +176,20 @@ export function InspectorGenerationState({
   const activeVariants = generationData.variants ?? [];
   const selectedVariantIndex = generationData.selectedVariantIndex ?? 0;
   const visualGenerationNode = isVisualGenerationNode(selectedNode) ? selectedNode : undefined;
+  // Canvas-scoped publish resolution layers over the per-node-type factory
+  // default. Image and video are stored separately on the canvas, so pick
+  // the right one based on the selected node type.
+  const canvasPublishResolution = useSelector((s: RootState) => {
+    const id = s.canvas.activeCanvasId;
+    if (!id) return undefined;
+    const settings = s.canvas.canvases.entities[id]?.settings;
+    if (!visualGenerationNode) return undefined;
+    return visualGenerationNode.type === 'video'
+      ? settings?.publishVideoResolution
+      : settings?.publishImageResolution;
+  });
   const defaultResolution = visualGenerationNode
-    ? getDefaultResolution(visualGenerationNode.type)
+    ? (canvasPublishResolution ?? getDefaultResolution(visualGenerationNode.type))
     : undefined;
   const activeWidth = visualGenerationNode
     ? (visualGenerationNode.data.width ?? defaultResolution?.width)
@@ -620,7 +641,7 @@ export function InspectorGenerationState({
       nodeType={selectedNode.type}
       resolutionGroups={
         visualGenerationNode
-          ? RESOLUTION_PRESET_GROUPS.map((group) => ({
+          ? groupResolutionPresets(getResolutionPresetsForNodeType(visualGenerationNode.type)).map((group) => ({
               label: t(`resolutionPresetGroups.${group.label.toLowerCase()}`),
               options: group.options.map((preset) => ({ value: preset.value, label: preset.label })),
             }))

@@ -9,6 +9,7 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import log from '../../logger.js';
+import { sanitizePng } from '../../sanitize-png.js';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import { getBuiltinProviderCapabilityProfile } from '@lucid-fin/contracts';
@@ -174,7 +175,7 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
   const ext = inferRemoteExtension(url, response.headers.get('content-type'));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-commander-'));
   const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
+  const buffer = sanitizePng(Buffer.from(await response.arrayBuffer()));
   await fsp.writeFile(filePath, buffer);
 
   return {

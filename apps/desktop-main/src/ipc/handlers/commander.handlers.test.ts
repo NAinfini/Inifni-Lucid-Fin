@@ -97,6 +97,13 @@ describe('buildContext', () => {
       upsertCharacter: vi.fn(),
       upsertLocation: vi.fn(),
       upsertEquipment: vi.fn(),
+      repos: {
+        entities: {
+          listCharacters: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+          listLocations: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+          listEquipment: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+        },
+      },
     } as unknown as SqliteIndex;
   }
 
@@ -128,7 +135,7 @@ describe('buildContext', () => {
     expect(extra).not.toHaveProperty('locations');
   });
 
-  it('does not inject prompt guide content into commander context', () => {
+  it('auto-injects guides that fit within budget and demotes the rest to discovery-only', () => {
     const db = makeDb();
     const context = buildContext(
       makeCanvas(2),
@@ -143,10 +150,45 @@ describe('buildContext', () => {
     );
 
     const extra = context.extra as Record<string, unknown>;
+    // Old key should never appear
     expect(extra).not.toHaveProperty('promptGuides');
+    // All 4 guides (~660 chars each) fit in the 8k auto-inject budget
+    expect(extra).toHaveProperty('autoInjectGuides');
+    const autoInjected = extra.autoInjectGuides as Array<{ id: string; name: string; content: string }>;
+    expect(autoInjected).toHaveLength(4);
+    // Guide content IS present in auto-inject (rendered in system prompt)
+    expect(autoInjected[0].content).toContain('body-1');
+    // No overflow guides → no availablePromptGuides
+    expect(extra).not.toHaveProperty('availablePromptGuides');
+  });
+
+  it('demotes overflow guides to discovery-only when auto-inject budget exceeded', () => {
+    const db = makeDb();
+    // Create guides that exceed the 8k budget: 3 guides of 3k chars each = 9k, only 2 fit
+    const context = buildContext(
+      makeCanvas(2),
+      [],
+      ['node-1'],
+      db,
+      Array.from({ length: 3 }, (_, index) => ({
+        id: `guide-${index + 1}`,
+        name: `Guide ${index + 1}`,
+        content: `body-${index + 1}-${'x'.repeat(3000)}-TAIL-${index + 1}`,
+      })),
+    );
+
+    const extra = context.extra as Record<string, unknown>;
+    // First 2 guides fit in 8k budget (~3k each)
+    expect(extra).toHaveProperty('autoInjectGuides');
+    const autoInjected = extra.autoInjectGuides as Array<{ id: string; name: string; content: string }>;
+    expect(autoInjected).toHaveLength(2);
+    // Third guide is demoted to discovery-only
     expect(extra).toHaveProperty('availablePromptGuides');
-    expect(JSON.stringify(extra)).not.toContain('body-1');
-    expect(JSON.stringify(extra)).not.toContain('TAIL-1');
+    const discoveryOnly = extra.availablePromptGuides as Array<{ id: string; name: string }>;
+    expect(discoveryOnly).toHaveLength(1);
+    expect(discoveryOnly[0].id).toBe('guide-3');
+    // Discovery-only entries do not contain content
+    expect(discoveryOnly[0]).not.toHaveProperty('content');
   });
 
   it('keeps selected node context lightweight and leaves full node data to tools/cache', () => {

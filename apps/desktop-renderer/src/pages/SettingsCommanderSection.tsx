@@ -1,7 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { Bot, Cog, Database, Layers, RotateCcw } from 'lucide-react';
+import { Bot, Cog, Database, RotateCcw } from 'lucide-react';
 import type { RootState } from '../store/index.js';
-import type { APIGroup } from '../store/slices/settings/types.js';
 import { CommitSlider } from '../components/ui/CommitSlider.js';
 import {
   setMaxSteps,
@@ -18,7 +17,6 @@ import {
   setClipboardMinLength,
   setGenerationConcurrency,
 } from '../store/slices/commander.js';
-import { setDefaultProvider } from '../store/slices/settings.js';
 import { t } from '../i18n.js';
 
 // ---------------------------------------------------------------------------
@@ -122,45 +120,6 @@ function SliderInput({
   );
 }
 
-const PROVIDER_GROUPS: { group: APIGroup; label: string; fallback: string }[] = [
-  { group: 'image', label: 'settings.commander.defaultImage', fallback: 'Image' },
-  { group: 'video', label: 'settings.commander.defaultVideo', fallback: 'Video' },
-  { group: 'audio', label: 'settings.commander.defaultAudio', fallback: 'Audio' },
-  { group: 'vision', label: 'settings.commander.defaultVision', fallback: 'Vision' },
-];
-
-function ProviderSelect({
-  group,
-  label,
-}: {
-  group: APIGroup;
-  label: string;
-}) {
-  const dispatch = useDispatch();
-  const providers = useSelector((s: RootState) => s.settings[group].providers);
-  const defaultId = useSelector((s: RootState) => s.settings[group].defaultProviderId);
-  const configured = providers.filter((p) => p.hasKey || p.isCustom);
-
-  return (
-    <SettingRow label={label} description={tr('settings.commander.defaultProviderDesc', 'Auto-assigned to new nodes.')}>
-      <select
-        className="h-7 rounded border border-border bg-background px-2 text-xs text-foreground"
-        value={defaultId ?? ''}
-        onChange={(e) =>
-          dispatch(setDefaultProvider({ group, provider: e.target.value || undefined }))
-        }
-      >
-        <option value="">{tr('settings.commander.none', 'None')}</option>
-        {configured.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-    </SettingRow>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Main section
 // ---------------------------------------------------------------------------
@@ -193,13 +152,6 @@ export function SettingsCommanderSection() {
 
   return (
     <div className="space-y-6">
-      {/* Default Providers */}
-      <SectionCard icon={Layers} title={tr('settings.commander.defaultProviders', 'Default Providers')}>
-        {PROVIDER_GROUPS.map(({ group, label, fallback }) => (
-          <ProviderSelect key={group} group={group} label={tr(label, fallback)} />
-        ))}
-      </SectionCard>
-
       {/* Agent Parameters */}
       <SectionCard icon={Bot} title={tr('settings.commander.agentParams', 'Agent Parameters')} onReset={handleResetAgent}>
         <SettingRow label={tr('settings.commander.maxSteps', 'Max Steps')} description={tr('settings.commander.maxStepsDesc', 'Maximum tool call iterations per request.')}>

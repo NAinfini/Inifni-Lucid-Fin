@@ -27,7 +27,7 @@ import {
  *   input.view     — CharacterRefImageView | LocationRefImageView
  *   input.canvasId — optional; when present, canvas.settings.stylePlate
  *                    leads the prompt, negativePrompt trails it, and
- *                    defaultResolution overrides the hardcoded size.
+ *                    refResolution overrides the hardcoded size.
  *
  * The old `slot: string` input is gone; callers MUST pass a structured view.
  */
@@ -159,8 +159,8 @@ export function createRefImageWorkflowHandlers(options: {
           buildCharacterRefImagePrompt(character, view, stylePlate),
           canvasSettings?.negativePrompt,
         );
-        const width  = canvasSettings?.defaultResolution?.width  ?? DEFAULT_REF_IMAGE_WIDTH;
-        const height = canvasSettings?.defaultResolution?.height ?? DEFAULT_REF_IMAGE_HEIGHT;
+        const width  = canvasSettings?.refResolution?.width  ?? DEFAULT_REF_IMAGE_WIDTH;
+        const height = canvasSettings?.refResolution?.height ?? DEFAULT_REF_IMAGE_HEIGHT;
         const result = await generateImage(prompt, { width, height });
 
         return {
@@ -307,8 +307,8 @@ export function createRefImageWorkflowHandlers(options: {
           buildLocationRefImagePrompt(location, view, stylePlate),
           canvasSettings?.negativePrompt,
         );
-        const width  = canvasSettings?.defaultResolution?.width  ?? DEFAULT_REF_IMAGE_WIDTH;
-        const height = canvasSettings?.defaultResolution?.height ?? DEFAULT_REF_IMAGE_HEIGHT;
+        const width  = canvasSettings?.refResolution?.width  ?? DEFAULT_REF_IMAGE_WIDTH;
+        const height = canvasSettings?.refResolution?.height ?? DEFAULT_REF_IMAGE_HEIGHT;
         const result = await generateImage(prompt, { width, height });
 
         return {

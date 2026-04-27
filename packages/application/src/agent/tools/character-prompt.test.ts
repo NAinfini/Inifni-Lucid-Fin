@@ -68,12 +68,17 @@ describe('character prompt builders', () => {
   it('builds a full-sheet composite prompt for the default view', () => {
     const prompt = buildCharacterRefImagePrompt(createCharacter(), { kind: 'full-sheet' });
 
-    expect(prompt).toContain('Character turnaround and expression sheet');
-    expect(prompt).toContain('three horizontal bands');
-    expect(prompt).toContain('front, left profile, right profile, and rear');
-    expect(prompt).toContain('six head-and-shoulders expression panels');
-    expect(prompt).toContain('neutral, happy, sad, angry, surprised, and determined');
-    expect(prompt).toContain('Solid white background, even studio lighting, single character only');
+    expect(prompt).toContain('Character reference sheet of Captain Mire');
+    expect(prompt).toContain('six panels on one sheet, two rows of three');
+    expect(prompt).toContain('front, left profile, rear');
+    expect(prompt).toContain('neutral, happy, angry');
+    expect(prompt).toContain('~70% height');
+    expect(prompt).toContain('~30% height');
+    expect(prompt).toContain('Solid white studio background');
+    // Appearance (the expensive description) must reach the prompt —
+    // earlier revisions drowned it in layout text.
+    expect(prompt).toContain('Face: almond eyes');
+    expect(prompt).toContain('Costume materials and textures');
   });
 
   it('builds an extra-angle prompt with the angle label', () => {
@@ -84,7 +89,7 @@ describe('character prompt builders', () => {
 
     expect(prompt).toContain('Full-body three-quarter overhead character reference');
     expect(prompt).toContain('solid white background');
-    expect(prompt).not.toContain('turnaround and expression sheet');
+    expect(prompt).not.toContain('six panels on one sheet');
   });
 
   it('prepends stylePlate as the first prompt segment for full-sheet', () => {
@@ -94,9 +99,9 @@ describe('character prompt builders', () => {
       'neo-noir watercolor, muted teal palette',
     );
 
-    // Style prompt must appear before the "Character turnaround" header.
+    // Style prompt must appear before the subject line.
     const styleIdx = prompt.indexOf('Style: neo-noir watercolor, muted teal palette');
-    const sheetIdx = prompt.indexOf('Character turnaround and expression sheet');
+    const sheetIdx = prompt.indexOf('Character reference sheet of');
     expect(styleIdx).toBeGreaterThanOrEqual(0);
     expect(sheetIdx).toBeGreaterThan(styleIdx);
   });

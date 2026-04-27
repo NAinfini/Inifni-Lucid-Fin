@@ -63,3 +63,19 @@ export {
   stylePlateLockPredicate,
   isGenerationTool,
 } from './specs/style-plate-lock.js';
+export {
+  createEntitiesBeforeGenerationSpec,
+  entitiesBeforeGenerationPredicate,
+} from './specs/entities-before-generation.js';
+export {
+  createBatchCreateGuidanceSpec,
+  batchCreateGuidancePredicate,
+} from './specs/batch-create-guidance.js';
+export {
+  createPromptQualityGateSpec,
+  promptQualityGatePredicate,
+} from './specs/prompt-quality-gate.js';
+export {
+  createStoryWorkflowPhaseSpec,
+  storyWorkflowPhasePredicate,
+} from './specs/story-workflow-phase.js';

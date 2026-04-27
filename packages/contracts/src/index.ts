@@ -28,7 +28,6 @@ export * from './error.js';
 export type { IpcChannelMap, IpcStoredSession, IpcSnapshotMeta, IpcProcessPrompt } from './ipc.js';
 export type { IpcChannel, IpcRequest, IpcResponse } from './ipc-helpers.js';
 export type {
-  CommanderStreamEvent,
   CommanderStreamPayload,
   CommanderIntentPayload,
   CommanderEvidencePayload,
@@ -76,6 +75,7 @@ export type {
   GuideItem,
   SessionSummaryItem,
   ReferenceItem,
+  ScratchpadItem,
   ContextItem,
   CompactionKeepRules,
   CompactStrategy,
@@ -153,3 +153,40 @@ export type {
 export type { ToolCatalog, ProcessCategory } from './agent/tool-catalog-type.js';
 export type { ToolKey as CatalogToolKey } from './agent/tool-catalog-type.js';
 export { ENTITY_REFRESH_TOOL_ENTITY } from './agent/entity-refresh-map.js';
+
+// ── Commander wire envelope (v2-only) ──────────────────────────
+export {
+  COMMANDER_WIRE_VERSION,
+  COMMANDER_WIRE_VERSION_LATEST,
+} from './agent/wire-version.js';
+export type {
+  CommanderWireVersion,
+  WireEnvelope,
+  CommanderStreamEnvelope,
+} from './agent/wire-version.js';
+
+// ── Phase A: Commander timeline contracts ──────────────────────
+export { toolRefKey, parseCanonicalToolName } from './agent/tool-ref.js';
+export type { ToolRef } from './agent/tool-ref.js';
+export { COMMANDER_ERROR_CODES } from './agent/error-code.js';
+export type { CommanderError, CommanderErrorCode } from './agent/error-code.js';
+export { PHASE_NOTE_CODES } from './agent/timeline-event.js';
+export type {
+  TimelineEvent,
+  TimelineEventKind,
+  TimelineExitDecisionMeta,
+  PhaseNoteCode,
+  RunStartEvent,
+  RunEndEvent,
+  UserMessageEvent,
+  AssistantTextEvent,
+  ThinkingEvent,
+  ToolCallEvent,
+  ToolResultEvent,
+  ToolConfirmPromptEvent,
+  UserConfirmationEvent,
+  QuestionPromptEvent,
+  UserAnswerEvent,
+  PhaseNoteEvent,
+  CancelledEvent,
+} from './agent/timeline-event.js';

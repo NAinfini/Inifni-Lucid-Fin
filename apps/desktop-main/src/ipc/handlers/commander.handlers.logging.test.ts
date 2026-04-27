@@ -162,8 +162,10 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'error',
-        error: 'No configured LLM adapter. Please configure an AI provider in Settings.',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'No configured LLM adapter. Please configure an AI provider in Settings.',
+        }),
       }),
     );
   });
@@ -244,8 +246,10 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'error',
-        error: 'Selected provider request failed',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'Selected provider request failed',
+        }),
       }),
     );
   });
@@ -328,8 +332,10 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'error',
-        error: 'Selected provider request failed',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'Selected provider request failed',
+        }),
       }),
     );
   });
@@ -396,8 +402,10 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'error',
-        error: 'Selected LLM provider "OpenAI" is missing a base URL or model.',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'Selected LLM provider "OpenAI" is missing a base URL or model.',
+        }),
       }),
     );
   });
@@ -463,8 +471,10 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'error',
-        error: 'Selected LLM provider "OpenAI" has no API key configured.',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'Selected LLM provider "OpenAI" has no API key configured.',
+        }),
       }),
     );
   });
@@ -619,8 +629,10 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'done',
-        content: 'hello from commander',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'hello from commander',
+        }),
       }),
     );
     expect(logger.info).toHaveBeenCalledWith(
@@ -628,8 +640,6 @@ describe('registerCommanderHandlers logging', () => {
       expect.objectContaining({
         category: 'commander',
         canvasId: 'canvas-1',
-        responseChars: 'hello from commander'.length,
-        hasContent: true,
       }),
     );
   });
@@ -640,8 +650,9 @@ describe('registerCommanderHandlers logging', () => {
     const canvas = makeCanvas();
     vi.spyOn(AgentOrchestrator.prototype, 'execute').mockImplementationOnce(
       async (_message, _context, rawEmit, options) => {
+        let seq = 0;
         const emit = (body: Record<string, unknown>) =>
-          rawEmit({ ...body, runId: 'run-test', step: 1, emittedAt: Date.now() } as never);
+          rawEmit({ ...body, runId: 'run-test', step: 1, seq: seq++, emittedAt: Date.now() } as never);
         options?.onLLMRequest?.({
           step: 1,
           toolCount: 4,
@@ -658,61 +669,70 @@ describe('registerCommanderHandlers logging', () => {
         });
 
         emit({
-          kind: 'chunk',
+          kind: 'assistant_text',
           content: 'partial response',
+          isDelta: true,
         });
         emit({
-          kind: 'tool_call_started',
-          toolName: 'canvas.addNode',
+          kind: 'tool_call',
           toolCallId: 'call-1',
-          startedAt: 10,
-        });
-        emit({
-          kind: 'tool_call_args_complete',
-          toolCallId: 'call-1',
-          arguments: { canvasId: 'canvas-1', nodeId: 'node-1' },
+          toolRef: { domain: 'canvas', action: 'addNode' },
+          args: { canvasId: 'canvas-1', nodeId: 'node-1' },
         });
         emit({
           kind: 'tool_result',
-          toolName: 'canvas.addNode',
           toolCallId: 'call-1',
           result: { ok: true },
-          startedAt: 10,
-          completedAt: 20,
+          durationMs: 10,
         });
         emit({
-          kind: 'tool_confirm',
-          toolName: 'character.create',
+          kind: 'tool_confirm_prompt',
           toolCallId: 'call-2',
-          arguments: { name: 'Hero' },
+          toolRef: { domain: 'character', action: 'create' },
+          args: { name: 'Hero' },
           tier: 3,
         });
         emit({
-          kind: 'tool_question',
-          toolName: 'commander.askUser',
-          toolCallId: 'call-3',
-          question: 'Continue?',
-          options: [{ label: 'Yes', description: 'Proceed' }],
+          kind: 'question_prompt',
+          questionId: 'q-1',
+          prompt: 'Continue?',
+          options: [{ id: 'yes', label: 'Yes' }],
+          allowFreeText: false,
+        });
+        emit({
+          kind: 'tool_call',
+          toolCallId: 'call-4',
+          toolRef: { domain: 'character', action: 'create' },
+          args: { name: 'Hero' },
         });
         emit({
           kind: 'tool_result',
-          toolName: 'character.create',
           toolCallId: 'call-4',
           result: { id: 'char-1' },
-          startedAt: 21,
-          completedAt: 30,
+          durationMs: 9,
         });
         emit({
-          kind: 'error',
+          kind: 'tool_call',
           toolCallId: 'call-5',
-          error: 'Tool exploded',
-          startedAt: 31,
-          completedAt: 32,
+          toolRef: { domain: 'character', action: 'explode' },
+          args: {},
         });
         emit({
-          kind: 'done',
-          content: 'assistant response',
+          kind: 'tool_result',
+          toolCallId: 'call-5',
+          error: { code: 'TOOL_RUNTIME', params: { message: 'Tool exploded' } },
+          durationMs: 1,
         });
+        emit({
+          kind: 'assistant_text',
+          content: 'assistant response',
+          isDelta: false,
+        });
+        emit({
+          kind: 'run_end',
+          status: 'completed',
+        });
+        return { content: 'assistant response', toolCalls: [], finishReason: 'stop' } as never;
       },
     );
 
@@ -764,51 +784,62 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'chunk',
-        content: 'partial response',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'partial response',
+        }),
       }),
     );
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'tool_call_started',
-        toolName: 'canvas.addNode',
-        toolCallId: 'call-1',
+        event: expect.objectContaining({
+          kind: 'tool_call',
+          toolCallId: 'call-1',
+          toolRef: { domain: 'canvas', action: 'addNode' },
+        }),
       }),
     );
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'tool_result',
-        toolName: 'canvas.addNode',
-        toolCallId: 'call-1',
-        result: { ok: true },
+        event: expect.objectContaining({
+          kind: 'tool_result',
+          toolCallId: 'call-1',
+          result: { ok: true },
+        }),
       }),
     );
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'tool_confirm',
-        toolName: 'character.create',
-        toolCallId: 'call-2',
-        tier: 3,
+        event: expect.objectContaining({
+          kind: 'tool_confirm_prompt',
+          toolCallId: 'call-2',
+          tier: 3,
+        }),
       }),
     );
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'tool_question',
-        toolName: 'commander.askUser',
-        toolCallId: 'call-3',
-        question: 'Continue?',
+        event: expect.objectContaining({
+          kind: 'question_prompt',
+          questionId: 'q-1',
+          prompt: 'Continue?',
+        }),
       }),
     );
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'error',
-        toolCallId: 'call-5',
-        error: 'Tool exploded',
+        event: expect.objectContaining({
+          kind: 'tool_result',
+          toolCallId: 'call-5',
+          error: expect.objectContaining({
+            params: expect.objectContaining({ message: 'Tool exploded' }),
+          }),
+        }),
       }),
     );
     expect(send).toHaveBeenCalledWith(
@@ -849,7 +880,7 @@ describe('registerCommanderHandlers logging', () => {
       }),
     );
     expect(logger.error).toHaveBeenCalledWith(
-      'Tool exploded',
+      'TOOL_RUNTIME',
       expect.objectContaining({
         category: 'commander',
         toolCallId: 'call-5',
@@ -915,8 +946,10 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:stream',
       expect.objectContaining({
-        kind: 'error',
-        error: 'LLM transport failed',
+        event: expect.objectContaining({
+          kind: 'assistant_text',
+          content: 'LLM transport failed',
+        }),
       }),
     );
     expect(logger.error).toHaveBeenCalledWith(
@@ -934,16 +967,19 @@ describe('registerCommanderHandlers logging', () => {
     vi
       .spyOn(AgentOrchestrator.prototype, 'execute')
       .mockImplementationOnce(async (_message, _context, rawEmit) => {
+        let seq = 0;
         const emit = (body: Record<string, unknown>) =>
-          rawEmit({ ...body, runId: 'run-test', step: 1, emittedAt: Date.now() } as never);
+          rawEmit({ ...body, runId: 'run-test', step: 1, seq: seq++, emittedAt: Date.now() } as never);
         emit({
-          kind: 'chunk',
-          content: 'partial response',
-        });
-        emit({
-          kind: 'done',
+          kind: 'assistant_text',
           content: 'assistant response',
+          isDelta: false,
         });
+        emit({
+          kind: 'run_end',
+          status: 'completed',
+        });
+        return { content: 'assistant response', toolCalls: [], finishReason: 'stop' } as never;
       });
 
     registerCommanderHandlers(
@@ -993,7 +1029,6 @@ describe('registerCommanderHandlers logging', () => {
       expect.objectContaining({
         category: 'commander',
         canvasId: 'canvas-1',
-        hasContent: true,
       }),
     );
   });

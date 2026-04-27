@@ -23,6 +23,7 @@ import {
 } from '@lucid-fin/contracts';
 import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
 import log from '../../logger.js';
+import { sanitizePng } from '../../sanitize-png.js';
 import type { CanvasStore } from './canvas.handlers.js';
 
 // ---------------------------------------------------------------------------
@@ -127,32 +128,6 @@ export const STYLE_GUIDE_LIGHTING_PRESETS: Record<StyleGuide['global']['lighting
   custom: undefined,
 };
 
-export const LEGACY_CANVAS_PROVIDER_ALIASES: Record<string, string> = {
-  // Settings ID → Adapter ID
-  'openai-image': 'openai-dalle',
-  'google-image': 'google-imagen3',
-  'google-video': 'google-veo-2',
-  recraft: 'recraft-v3',
-  'recraft-v4': 'recraft-v3',
-  'elevenlabs': 'elevenlabs-v2',
-  'openai-tts': 'openai-tts-1-hd',
-  // Legacy shorthand
-  runway: 'runway-gen4',
-  veo: 'google-veo-2',
-  pika: 'pika-v2',
-  imagen: 'google-imagen3',
-  luma: 'luma-ray2',
-  minimax: 'minimax-video01',
-  // Chinese video providers
-  kling: 'kling-v1',
-  wan: 'wan-2.1',
-  seedance: 'seedance-2',
-  hunyuan: 'hunyuan-video',
-  cartesia: 'cartesia-sonic',
-  playht: 'playht-3',
-  'fish-audio': 'fish-audio-v1',
-};
-
 // ---------------------------------------------------------------------------
 // Utility functions
 // ---------------------------------------------------------------------------
@@ -170,17 +145,27 @@ export function normalizePresetLookupValue(value: string | undefined): string {
   return (value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-export function canonicalizeCanvasProviderId(
-  providerId: string | undefined,
-  generationType?: GenerationType,
-): string | undefined {
-  const normalized = normalizeOptionalString(providerId);
-  if (!normalized) return undefined;
-  if (normalized === 'openai') {
-    if (generationType === 'image') return 'openai-dalle';
-    if (generationType === 'voice') return 'openai-tts-1-hd';
-  }
-  return LEGACY_CANVAS_PROVIDER_ALIASES[normalized] ?? normalized;
+/**
+ * Extract the first http(s) media URL from free-form LLM output.
+ *
+ * The old pattern `https?:\/\/\S+\.(png|...)\S*` used `\S+` / `\S*`, which
+ * over-matches on locales with no ASCII whitespace (e.g. Chinese "。"
+ * directly following a URL is not whitespace, so the trailing `\S*` keeps
+ * swallowing it). Restrict to the RFC-3986 unreserved + sub-delims set so
+ * a URL ends at the first non-URL character — CJK punctuation, quotes,
+ * fences, backticks, parentheses, commas.
+ *
+ * Returns `null` if no URL is found.
+ */
+const URL_CHAR = "[A-Za-z0-9\\-._~:/?#\\[\\]@!$&*+;=%]";
+const MEDIA_URL_RE = new RegExp(
+  `(https?://${URL_CHAR}+\\.(?:png|jpg|jpeg|webp|mp4|mov|webm)(?:${URL_CHAR}*)?)`,
+  'i',
+);
+export function extractMediaUrlFromLLMText(text: string): string | null {
+  if (!text) return null;
+  const m = text.match(MEDIA_URL_RE);
+  return m?.[1] ?? null;
 }
 
 export function resolvePositiveInteger(value: number | undefined, fallback: number): number {
@@ -510,7 +495,7 @@ async function decodeBase64DataUrl(dataUrl: string): Promise<MaterializedAsset> 
   const match = dataUrl.match(/^data:(?:image|video|audio)\/(\w+);base64,(.+)$/);
   if (!match) throw new Error('Invalid base64 data URL');
   const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-  const buffer = Buffer.from(match[2], 'base64');
+  const buffer = sanitizePng(Buffer.from(match[2], 'base64'));
   const tmpPath = path.join(os.tmpdir(), `lucid-fin-gen-${Date.now()}.${ext}`);
   fs.writeFileSync(tmpPath, buffer);
   return { filePath: tmpPath };
@@ -525,7 +510,7 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
   const ext = inferRemoteExtension(url, response.headers.get('content-type'));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-'));
   const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
+  const buffer = sanitizePng(Buffer.from(await response.arrayBuffer()));
   fs.writeFileSync(filePath, buffer);
   log.info('[canvas:generation] downloaded remote asset', {
     url,
@@ -728,9 +713,9 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
     if (content.startsWith('data:')) {
       return validateDataUrlForGeneration(content, genType, 'choices[0].message.content');
     }
-    const mediaUrlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|mp4|mov|webm)\S*)/i);
-    if (mediaUrlMatch?.[1]) {
-      return validateAssetUrlForGeneration(mediaUrlMatch[1], genType, 'choices[0].message.content');
+    const mediaUrl = extractMediaUrlFromLLMText(content);
+    if (mediaUrl) {
+      return validateAssetUrlForGeneration(mediaUrl, genType, 'choices[0].message.content');
     }
     if (content.startsWith('http')) {
       return validateAssetUrlForGeneration(content.trim(), genType, 'choices[0].message.content');
@@ -954,8 +939,8 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       if (msg?.images?.[0]?.image_url?.url) return { assetHash: '', assetPath: msg.images[0].image_url.url, provider: id };
       const content = msg?.content ?? '';
       if (content.startsWith('data:')) return { assetHash: '', assetPath: content, provider: id };
-      const mediaUrlMatch = content.match(/(https?:\/\/\S+\.(?:png|jpg|jpeg|webp|mp4|mov|webm)\S*)/i);
-      if (mediaUrlMatch?.[1]) return { assetHash: '', assetPath: mediaUrlMatch[1], provider: id };
+      const mediaUrl = extractMediaUrlFromLLMText(content);
+      if (mediaUrl) return { assetHash: '', assetPath: mediaUrl, provider: id };
       if (content.startsWith('http')) return { assetHash: '', assetPath: content.trim(), provider: id };
 
       // Format: { id, status } -- async job (Runway, Luma, Pixazo, etc.)

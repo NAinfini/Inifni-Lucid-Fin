@@ -1,16 +1,16 @@
 /**
  * Commander event emission helpers.
  *
- * The orchestrator stamps every event with `runId`/`step`/`emittedAt` via
- * `makeStampedEmit`, so the event it passes here already matches the
- * `commander:stream` wire schema one-to-one. This module just forwards the
- * event to the typed `RendererPushGateway`, adds structured logging, and
- * fires the companion canvas / entities dispatch channels when a mutating
- * tool_result lands.
+ * The orchestrator stamps every event with `runId`/`step`/`seq`/`emittedAt`
+ * via `makeStampedEmit`, producing a `TimelineEvent`. This module wraps the
+ * event in a `WireEnvelope` and forwards it to the typed renderer gateway,
+ * adds structured logging, and fires companion canvas / entities dispatch
+ * channels when a mutating `tool_result` lands.
  *
- * No mapping layer exists anymore. Any drift between the orchestrator's
- * emit shape and the wire schema is a compile error, caught at the import
- * of `CommanderStreamPayload` and the `StampedStreamEvent` alias above it.
+ * `ToolResultEvent` no longer carries `toolRef` (see Phase A invariant freeze
+ * in timeline-event.ts). We maintain a per-handler map of
+ * `toolCallId → toolName` populated on `tool_call` so companion dispatch can
+ * resolve the tool name when the matching result arrives.
  */
 import type { BrowserWindow } from 'electron';
 import {
@@ -19,6 +19,9 @@ import {
   commanderEntitiesUpdatedChannel,
   type CommanderStreamPayload,
 } from '@lucid-fin/contracts-parse';
+import { COMMANDER_WIRE_VERSION } from '@lucid-fin/contracts';
+import type { SessionId } from '@lucid-fin/contracts';
+import type { CommanderEventRepository } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import type { StampedStreamEvent } from '@lucid-fin/application';
 import type { CanvasStore } from './canvas.handlers.js';
@@ -27,20 +30,12 @@ import {
   type RendererPushGateway,
 } from '../../features/ipc/push-gateway.js';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type { CommanderStreamPayload };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 export function safeStringifyForLog(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
-  } catch { /* circular reference or non-serializable value — fall back to String() */
+  } catch {
     return String(value);
   }
 }
@@ -64,7 +59,6 @@ export function formatErrorDetail(error: unknown): string {
       extra.code = extended.code;
     }
     if (extended.details !== undefined) {
-      // Strip bulky fields that bloat logs (raw HTML error pages, full request bodies)
       const details = extended.details as Record<string, unknown>;
       const { responseText: _responseText, requestBody: _requestBody, responseBody: _responseBody, ...compactDetails } = details;
       extra.details = compactDetails;
@@ -83,10 +77,6 @@ export function formatErrorDetail(error: unknown): string {
   return typeof error === 'string' ? error : safeStringifyForLog(error);
 }
 
-// ---------------------------------------------------------------------------
-// Emit handler
-// ---------------------------------------------------------------------------
-
 export function createEmitHandler(
   getWindow: () => BrowserWindow | null,
   canvasId: string,
@@ -94,70 +84,105 @@ export function createEmitHandler(
   mutatingToolNames: ReadonlySet<string>,
   entityMutatingToolNames: ReadonlySet<string>,
   pushGateway?: RendererPushGateway,
+  persistence?: {
+    sessionId: SessionId | null;
+    eventRepo: CommanderEventRepository;
+  },
 ): (event: StampedStreamEvent) => void {
   const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
+  const toolNameByCallId = new Map<string, string>();
 
   return (event: StampedStreamEvent) => {
-    gateway.emit(commanderStreamChannel, event);
+    gateway.emit(commanderStreamChannel, {
+      wireVersion: COMMANDER_WIRE_VERSION,
+      event,
+    });
 
-    // Structured logging — discriminator is `kind`, not `type`.
+    // Phase 5: persist the event to the commander_events table so the
+    // renderer can rehydrate the timeline on next session resume. We
+    // swallow write errors (same philosophy as ContextGraph side-channel
+    // saves — a persistence failure must never abort a live run).
+    if (persistence?.sessionId) {
+      try {
+        persistence.eventRepo.append({
+          sessionId: persistence.sessionId,
+          runId: event.runId,
+          seq: event.seq,
+          kind: event.kind,
+          step: event.step,
+          emittedAt: event.emittedAt,
+          payload: JSON.stringify(event),
+        });
+      } catch (err) {
+        log.warn('Commander event persist failed', {
+          category: 'commander',
+          sessionId: persistence.sessionId,
+          runId: event.runId,
+          seq: event.seq,
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     switch (event.kind) {
-      case 'tool_call_started':
-        log.debug(`Tool: ${event.toolName}`, {
+      case 'tool_call': {
+        const toolName = `${event.toolRef.domain}.${event.toolRef.action}`;
+        toolNameByCallId.set(event.toolCallId, toolName);
+        log.debug(`Tool: ${toolName}`, {
           category: 'commander',
-          toolName: event.toolName,
+          toolName,
           toolCallId: event.toolCallId,
-        });
-        break;
-      case 'tool_call_args_complete':
-        log.debug(`Tool args: ${event.toolCallId}`, {
-          category: 'commander',
-          toolCallId: event.toolCallId,
-          detail: JSON.stringify(event.arguments, null, 2),
-        });
-        break;
-      case 'tool_result': {
-        const resultStr = event.result != null ? JSON.stringify(event.result, null, 2) : '';
-        log.debug(`Result: ${event.toolName}`, {
-          category: 'commander',
-          toolName: event.toolName,
-          toolCallId: event.toolCallId,
-          detail: resultStr || undefined,
+          detail: event.args ? JSON.stringify(event.args, null, 2) : undefined,
         });
         break;
       }
-      case 'error':
-        log.error(event.error, {
+      case 'tool_result': {
+        const toolName = toolNameByCallId.get(event.toolCallId);
+        const resultStr = event.result != null ? JSON.stringify(event.result, null, 2) : '';
+        log.debug(`Result: ${toolName ?? event.toolCallId}`, {
           category: 'commander',
+          toolName,
           toolCallId: event.toolCallId,
-          detail: event.toolCallId ? `Tool call: ${event.toolCallId}` : undefined,
+          detail: resultStr || undefined,
         });
+        if (event.error) {
+          log.error(event.error.code, {
+            category: 'commander',
+            toolCallId: event.toolCallId,
+            detail: `Tool call: ${event.toolCallId}`,
+          });
+        }
         break;
-      case 'done':
+      }
+      case 'run_end':
         log.info('Session complete', {
           category: 'commander',
           canvasId,
-          responseChars: event.content.length,
-          hasContent: event.content.trim().length > 0,
+          status: event.status,
+          outcome: event.exitDecision?.outcome,
+        });
+        break;
+      case 'cancelled':
+        log.info('Session cancelled', {
+          category: 'commander',
+          canvasId,
+          reason: event.reason,
         });
         break;
       case 'phase_note':
         log.info(`Phase note: ${event.note}`, {
           category: 'commander',
           phaseNote: event.note,
-          detail: event.detail,
+          detail: event.params ? JSON.stringify(event.params) : undefined,
         });
         break;
       default:
-        // Other kinds (chunk, thinking_delta, tool_call_args_delta,
-        // tool_confirm, tool_question, context_usage) are high-volume /
-        // low-signal — logging them would flood the debug log.
         break;
     }
 
-    // Companion dispatches for mutating tools.
     if (event.kind === 'tool_result') {
-      if (mutatingToolNames.has(event.toolName)) {
+      const toolName = toolNameByCallId.get(event.toolCallId);
+      if (toolName && mutatingToolNames.has(toolName)) {
         const canvas = canvasStore.get(canvasId);
         if (canvas) {
           gateway.emit(commanderCanvasDispatchChannel, {
@@ -166,8 +191,8 @@ export function createEmitHandler(
           });
         }
       }
-      if (entityMutatingToolNames.has(event.toolName)) {
-        gateway.emit(commanderEntitiesUpdatedChannel, { toolName: event.toolName });
+      if (toolName && entityMutatingToolNames.has(toolName)) {
+        gateway.emit(commanderEntitiesUpdatedChannel, { toolName });
       }
     }
   };

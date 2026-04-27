@@ -15,7 +15,6 @@ import type {
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 import type { CAS, Keychain } from '@lucid-fin/storage';
 import log from '../../logger.js';
-import { resolveMediaProviderIds } from '../../bootstrap/init-app.js';
 import {
   type BuiltGenerationContext,
   type CanvasGenerationDeps,
@@ -27,7 +26,6 @@ import {
   DEFAULT_VIDEO_SIZE,
   MAX_VARIANTS,
   buildAdhocAdapter,
-  canonicalizeCanvasProviderId,
   normalizeErrorMessage,
   normalizeOptionalString,
   resolvePositiveInteger,
@@ -79,7 +77,7 @@ export async function buildGenerationContext(
   const connectedTextContent = collectConnectedTextContent(canvas, node.id);
   const mode = determinePromptMode(canvas, node);
   const generationType = determineGenerationType(node);
-  const providerId = resolveNodeProviderId(node, generationType, input.requestedProviderId);
+  const providerId = resolveNodeProviderId(node, input.requestedProviderId);
   const adapter = await resolveAdapter(deps.adapterRegistry, providerId, generationType, mode, input.requestedProviderConfig, deps.keychain, deps.cas);
   const nodeData = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
   const variantCount = resolveVariantCount(nodeData, input.requestedVariantCount);
@@ -253,15 +251,13 @@ export function determineGenerationType(node: CanvasNode): GenerationType {
 
 export function resolveNodeProviderId(
   node: CanvasNode,
-  generationType: GenerationType,
   requestedProviderId?: string,
 ): string | undefined {
-  if (requestedProviderId) return canonicalizeCanvasProviderId(requestedProviderId, generationType);
+  if (requestedProviderId) return normalizeOptionalString(requestedProviderId);
   const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
-  return canonicalizeCanvasProviderId(
+  return (
     normalizeOptionalString(data.providerId) ??
-      normalizeOptionalString((data as AudioNodeData).provider),
-    generationType,
+    normalizeOptionalString((data as AudioNodeData).provider)
   );
 }
 
@@ -278,7 +274,7 @@ export async function resolveAdapter(
   keychain?: Keychain,
   cas?: CAS,
 ): Promise<AIProviderAdapter> {
-  const canonicalProviderId = canonicalizeCanvasProviderId(requestedProviderId, generationType);
+  const canonicalProviderId = normalizeOptionalString(requestedProviderId);
   if (canonicalProviderId) {
     const adapter = registry.get(canonicalProviderId);
     if (adapter) {
@@ -342,14 +338,7 @@ async function resolveProviderApiKey(
     return undefined;
   }
 
-  for (const candidateId of resolveMediaProviderIds(providerId)) {
-    const apiKey = await keychain.getKey(candidateId);
-    if (apiKey) {
-      return apiKey;
-    }
-  }
-
-  return undefined;
+  return (await keychain.getKey(providerId)) ?? undefined;
 }
 
 export function ensureAdapterSupports(

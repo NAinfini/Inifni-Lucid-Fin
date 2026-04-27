@@ -28,7 +28,9 @@ export const CanvasSettingsSchema = z
   .object({
     stylePlate: z.string().min(1).optional(),
     negativePrompt: z.string().min(1).optional(),
-    defaultResolution: CanvasResolutionSchema.optional(),
+    refResolution: CanvasResolutionSchema.optional(),
+    publishImageResolution: CanvasResolutionSchema.optional(),
+    publishVideoResolution: CanvasResolutionSchema.optional(),
     aspectRatio: CanvasAspectRatioSchema.optional(),
     llmProviderId: z.string().min(1).optional(),
     imageProviderId: z.string().min(1).optional(),

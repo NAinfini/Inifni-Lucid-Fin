@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { AIProviderAdapter, GenerationRequest } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import log from './logger.js';
+import { sanitizePng } from './sanitize-png.js';
 
 type MaterializedAsset = {
   filePath: string;
@@ -85,7 +86,7 @@ async function decodeBase64DataUrl(dataUrl: string): Promise<MaterializedAsset> 
   const match = dataUrl.match(/^data:(?:image|video|audio)\/(\w+);base64,(.+)$/);
   if (!match) throw new Error('Invalid base64 data URL');
   const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-  const buffer = Buffer.from(match[2], 'base64');
+  const buffer = sanitizePng(Buffer.from(match[2], 'base64'));
   const tmpPath = path.join(os.tmpdir(), `lucid-fin-gen-${Date.now()}.${ext}`);
   await fsp.writeFile(tmpPath, buffer);
   return { filePath: tmpPath, cleanupPath: tmpPath };
@@ -99,7 +100,7 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
   const ext = inferRemoteExtension(url, response.headers.get('content-type'));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-pipeline-'));
   const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
-  const buffer = Buffer.from(await response.arrayBuffer());
+  const buffer = sanitizePng(Buffer.from(await response.arrayBuffer()));
   await fsp.writeFile(filePath, buffer);
   log.info('[generation-pipeline] downloaded remote asset', { url, filePath, fileSize: buffer.byteLength });
   return { filePath, cleanupPath: dir, sourceUrl: url };

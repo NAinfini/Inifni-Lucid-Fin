@@ -3,7 +3,6 @@ import type { LLMProviderRuntimeInput } from '@lucid-fin/contracts';
 import type { Keychain } from '@lucid-fin/storage';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
 import log from '../../logger.js';
-import { resolveMediaProviderIds } from '../../bootstrap/init-app.js';
 import {
   createConfiguredLLMAdapter,
   getLLMProviderLogFields,
@@ -47,9 +46,7 @@ export function registerKeychainHandlers(
   });
 
   ipcMain.handle('keychain:delete', async (_e, args: { provider: string }) => {
-    await Promise.all(
-      resolveMediaProviderIds(args.provider).map((providerId) => keychain.deleteKey(providerId)),
-    );
+    await keychain.deleteKey(args.provider);
     log.warn('Provider API key deleted', {
       category: 'provider',
       providerId: args.provider,
@@ -202,13 +199,7 @@ export function registerKeychainHandlers(
 }
 
 async function getStoredKey(keychain: Keychain, provider: string): Promise<string | null> {
-  for (const providerId of resolveMediaProviderIds(provider)) {
-    const key = await keychain.getKey(providerId);
-    if (key) {
-      return key;
-    }
-  }
-  return null;
+  return (await keychain.getKey(provider)) ?? null;
 }
 
 async function hasConfiguredKey(keychain: Keychain, provider: string): Promise<boolean> {
@@ -216,11 +207,5 @@ async function hasConfiguredKey(keychain: Keychain, provider: string): Promise<b
 }
 
 function resolveMediaAdapter(registry: AdapterRegistry, provider: string) {
-  for (const providerId of resolveMediaProviderIds(provider)) {
-    const adapter = registry.get(providerId);
-    if (adapter) {
-      return adapter;
-    }
-  }
-  return undefined;
+  return registry.get(provider);
 }

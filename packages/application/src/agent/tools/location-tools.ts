@@ -83,7 +83,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
 
   const locationCreate: AgentTool = {
     name: 'location.create',
-    description: 'Create a new location in the current project.',
+    description: 'Create a new location in the current project. To update an existing location, use location.update instead. To generate a reference image, use location.generateRefImage after creation.',
     tags: ['location', 'mutate'],
     tier: 2,
     parameters: {
@@ -150,7 +150,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
 
   const locationUpdate: AgentTool = {
     name: 'location.update',
-    description: 'Update an existing location by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
+    description: 'Update an existing location by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new location, use location.create instead.',
     tags: ['location', 'mutate'],
     tier: 2,
     parameters: {

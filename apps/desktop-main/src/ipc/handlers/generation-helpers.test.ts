@@ -35,7 +35,6 @@ import {
   normalizeOptionalString,
   normalizeErrorMessage,
   normalizePresetLookupValue,
-  canonicalizeCanvasProviderId,
   resolvePositiveInteger,
   capitalizeUpdateStatus,
   isRemoteUrl,
@@ -55,7 +54,6 @@ import {
   MAX_VARIANTS,
   DEFAULT_STYLE_GUIDE,
   STYLE_GUIDE_LIGHTING_PRESETS,
-  LEGACY_CANVAS_PROVIDER_ALIASES,
 } from './generation-helpers.js';
 
 afterEach(() => {
@@ -101,16 +99,6 @@ describe('constants', () => {
     expect(STYLE_GUIDE_LIGHTING_PRESETS.dramatic).toBe('scene:low-key');
     expect(STYLE_GUIDE_LIGHTING_PRESETS.neon).toBe('scene:neon-noir');
     expect(STYLE_GUIDE_LIGHTING_PRESETS.custom).toBeUndefined();
-  });
-
-  it('LEGACY_CANVAS_PROVIDER_ALIASES maps legacy ids to canonical adapter ids', () => {
-    expect(LEGACY_CANVAS_PROVIDER_ALIASES['openai-image']).toBe('openai-dalle');
-    expect(LEGACY_CANVAS_PROVIDER_ALIASES['google-image']).toBe('google-imagen3');
-    expect(LEGACY_CANVAS_PROVIDER_ALIASES['google-video']).toBe('google-veo-2');
-    expect(LEGACY_CANVAS_PROVIDER_ALIASES['runway']).toBe('runway-gen4');
-    expect(LEGACY_CANVAS_PROVIDER_ALIASES['veo']).toBe('google-veo-2');
-    expect(LEGACY_CANVAS_PROVIDER_ALIASES['kling']).toBe('kling-v1');
-    expect(LEGACY_CANVAS_PROVIDER_ALIASES['wan']).toBe('wan-2.1');
   });
 });
 
@@ -174,53 +162,6 @@ describe('normalizePresetLookupValue', () => {
 
   it('returns empty string for an empty string', () => {
     expect(normalizePresetLookupValue('')).toBe('');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// canonicalizeCanvasProviderId
-// ---------------------------------------------------------------------------
-
-describe('canonicalizeCanvasProviderId', () => {
-  it('maps legacy provider aliases to canonical adapter ids', () => {
-    expect(canonicalizeCanvasProviderId('runway')).toBe('runway-gen4');
-    expect(canonicalizeCanvasProviderId('veo')).toBe('google-veo-2');
-    expect(canonicalizeCanvasProviderId('pika')).toBe('pika-v2');
-    expect(canonicalizeCanvasProviderId('imagen')).toBe('google-imagen3');
-    expect(canonicalizeCanvasProviderId('luma')).toBe('luma-ray2');
-    expect(canonicalizeCanvasProviderId('kling')).toBe('kling-v1');
-    expect(canonicalizeCanvasProviderId('wan')).toBe('wan-2.1');
-    expect(canonicalizeCanvasProviderId('seedance')).toBe('seedance-2');
-    expect(canonicalizeCanvasProviderId('hunyuan')).toBe('hunyuan-video');
-    expect(canonicalizeCanvasProviderId('minimax')).toBe('minimax-video01');
-    expect(canonicalizeCanvasProviderId('elevenlabs')).toBe('elevenlabs-v2');
-    expect(canonicalizeCanvasProviderId('cartesia')).toBe('cartesia-sonic');
-    expect(canonicalizeCanvasProviderId('playht')).toBe('playht-3');
-    expect(canonicalizeCanvasProviderId('fish-audio')).toBe('fish-audio-v1');
-    expect(canonicalizeCanvasProviderId('recraft')).toBe('recraft-v3');
-    expect(canonicalizeCanvasProviderId('recraft-v4')).toBe('recraft-v3');
-    expect(canonicalizeCanvasProviderId('openai-image')).toBe('openai-dalle');
-    expect(canonicalizeCanvasProviderId('openai-tts')).toBe('openai-tts-1-hd');
-  });
-
-  it('resolves "openai" based on generation type', () => {
-    expect(canonicalizeCanvasProviderId('openai', 'image')).toBe('openai-dalle');
-    expect(canonicalizeCanvasProviderId('openai', 'voice')).toBe('openai-tts-1-hd');
-    // No generation type — openai has no alias, falls through to itself
-    expect(canonicalizeCanvasProviderId('openai')).toBe('openai');
-  });
-
-  it('passes through already-canonical ids unchanged', () => {
-    expect(canonicalizeCanvasProviderId('runway-gen4')).toBe('runway-gen4');
-    expect(canonicalizeCanvasProviderId('google-veo-2')).toBe('google-veo-2');
-    expect(canonicalizeCanvasProviderId('openai-dalle')).toBe('openai-dalle');
-    expect(canonicalizeCanvasProviderId('some-unknown-provider')).toBe('some-unknown-provider');
-  });
-
-  it('returns undefined for falsy / blank provider ids', () => {
-    expect(canonicalizeCanvasProviderId(undefined)).toBeUndefined();
-    expect(canonicalizeCanvasProviderId('')).toBeUndefined();
-    expect(canonicalizeCanvasProviderId('   ')).toBeUndefined();
   });
 });
 

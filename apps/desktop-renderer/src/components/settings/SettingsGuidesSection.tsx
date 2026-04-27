@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
-import { localizeSettingsCategory, t } from '../../i18n.js';
+import { localizeSettingsCategory, localizeSkillName, t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 import {
   getDefaultSkillName,
@@ -63,17 +63,23 @@ export function SettingsGuidesSection({
 
   const guideItems = useMemo<GuideItem[]>(
     () =>
-      skills.map<GuideItem>((skill) => ({
-        badgeLabel: localizeSettingsCategory(skill.category),
-        builtIn: skill.builtIn,
-        canDelete: !skill.builtIn,
-        category: skill.category,
-        content: skill.customContent ?? skill.defaultContent,
-        id: skill.id,
-        name: skill.name,
-        resettable: skill.builtIn && isSkillCustomized(skill),
-        customized: isSkillCustomized(skill),
-      })),
+      skills.map<GuideItem>((skill) => {
+        const defaultName = getDefaultSkillName(skill.id);
+        const userRenamed = defaultName !== undefined && skill.name !== defaultName;
+        const displayName =
+          skill.builtIn && !userRenamed ? localizeSkillName(skill.id, skill.name) : skill.name;
+        return {
+          badgeLabel: localizeSettingsCategory(skill.category),
+          builtIn: skill.builtIn,
+          canDelete: !skill.builtIn,
+          category: skill.category,
+          content: skill.customContent ?? skill.defaultContent,
+          id: skill.id,
+          name: displayName,
+          resettable: skill.builtIn && isSkillCustomized(skill),
+          customized: isSkillCustomized(skill),
+        };
+      }),
     [skills],
   );
 
@@ -228,7 +234,10 @@ export function SettingsGuidesSection({
                     <button
                       type="button"
                       onClick={() => {
-                        onRenameSkill({ id: item.id, name: draft.name });
+                        const trimmed = draft.name.trim();
+                        if (trimmed && trimmed !== item.name) {
+                          onRenameSkill({ id: item.id, name: trimmed });
+                        }
                         onSetSkillContent({ id: item.id, content: draft.content });
                         setExpandedId(null);
                       }}

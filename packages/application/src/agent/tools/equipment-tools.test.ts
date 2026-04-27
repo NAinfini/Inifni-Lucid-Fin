@@ -116,11 +116,11 @@ describe('createEquipmentTools', () => {
       await tool.execute({ id: 'eq-1' });
 
       expect(deps.generateImage).toHaveBeenCalledWith(
-        expect.stringContaining('Product orthographic reference grid on one image'),
+        expect.stringContaining('Product orthographic reference of'),
         expect.anything(),
       );
       expect(deps.generateImage).toHaveBeenCalledWith(
-        expect.stringContaining('Five panels'),
+        expect.stringContaining('Layout: five panels on one sheet'),
         expect.anything(),
       );
       expect(deps.generateImage).toHaveBeenCalledWith(

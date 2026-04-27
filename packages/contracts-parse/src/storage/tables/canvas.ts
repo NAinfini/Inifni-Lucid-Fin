@@ -20,8 +20,16 @@ export const CanvasesTable = defineTable('canvases', {
   notes: col<string>('notes'),
   stylePlate:         col<string | null>('style_plate'),
   negativePrompt:     col<string | null>('negative_prompt'),
-  defaultWidth:       col<number | null>('default_width'),
-  defaultHeight:      col<number | null>('default_height'),
+  // refWidth/refHeight back `CanvasSettings.refResolution` (ref-image default).
+  // SQL column names stay as `default_width` / `default_height` so existing
+  // installs don't need a RENAME COLUMN migration — the legacy column meaning
+  // (ref-image default) is preserved.
+  refWidth:           col<number | null>('default_width'),
+  refHeight:          col<number | null>('default_height'),
+  publishImageWidth:  col<number | null>('publish_width'),
+  publishImageHeight: col<number | null>('publish_height'),
+  publishVideoWidth:  col<number | null>('publish_video_width'),
+  publishVideoHeight: col<number | null>('publish_video_height'),
   aspectRatio:        col<string | null>('aspect_ratio'),
   llmProviderId:      col<string | null>('llm_provider_id'),
   imageProviderId:    col<string | null>('image_provider_id'),

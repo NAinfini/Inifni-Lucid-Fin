@@ -310,6 +310,10 @@ CREATE TABLE IF NOT EXISTS canvases (
   negative_prompt      TEXT,
   default_width        INTEGER,
   default_height       INTEGER,
+  publish_width        INTEGER,
+  publish_height       INTEGER,
+  publish_video_width  INTEGER,
+  publish_video_height INTEGER,
   aspect_ratio         TEXT,
   llm_provider_id      TEXT,
   image_provider_id    TEXT,
@@ -400,6 +404,28 @@ CREATE TABLE IF NOT EXISTS snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_session
   ON snapshots(session_id, created_at DESC);
+
+-- Phase E: commander timeline events. Additive — legacy
+-- 'commander_sessions.messages' JSON column stays as the v1 snapshot;
+-- v2 consumers hydrate from per-event rows here. 'payload' is a JSON
+-- blob of the full event minus the columns we factor out.
+CREATE TABLE IF NOT EXISTS commander_events (
+  session_id   TEXT    NOT NULL,
+  run_id       TEXT    NOT NULL,
+  seq          INTEGER NOT NULL,
+  kind         TEXT    NOT NULL,
+  step         INTEGER NOT NULL,
+  emitted_at   INTEGER NOT NULL,
+  payload      TEXT    NOT NULL,
+  PRIMARY KEY (session_id, run_id, seq),
+  FOREIGN KEY (session_id) REFERENCES commander_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_commander_events_run
+  ON commander_events(session_id, run_id, seq);
+
+CREATE INDEX IF NOT EXISTS idx_commander_events_kind
+  ON commander_events(session_id, kind);
 
 CREATE TABLE IF NOT EXISTS asset_embeddings (
   hash        TEXT PRIMARY KEY,

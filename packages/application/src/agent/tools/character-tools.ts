@@ -84,7 +84,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
   const characterCreate: AgentTool = {
     name: 'character.create',
-    description: 'Create a new character in the current project.',
+    description: 'Create a new character in the current project. To update an existing character, use character.update instead. To generate a reference image, use character.generateRefImage after creation.',
     tags: ['character', 'mutate'],
     tier: 2,
     parameters: {
@@ -196,7 +196,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
   const characterUpdate: AgentTool = {
     name: 'character.update',
-    description: 'Update an existing character by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
+    description: 'Update an existing character by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new character, use character.create instead.',
     tags: ['character', 'mutate'],
     tier: 2,
     parameters: {
@@ -343,8 +343,8 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     tags: ['character', 'generation'],
     description:
       'Manage a character reference image. '
-      + 'Default view kind "full-sheet" produces ONE composite image with front/back/left/right/full-body + six expressions on a single sheet. '
-      + 'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom angles. '
+      + 'Default view kind "full-sheet" produces ONE composite image: top row is the full-body turnaround (front, left profile, rear) at ~70% sheet height; bottom row is a small expression strip (neutral, happy, angry) at ~30% sheet height. Everything is on a single landscape sheet so the character has one canonical reference. '
+      + 'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom angles that the full-sheet does not cover. '
       + 'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
     getEntity: async (id) => {
       const characters = await deps.listCharacters();

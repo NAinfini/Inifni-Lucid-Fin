@@ -1,18 +1,16 @@
 /**
- * `commander/state/run-phase.ts` — Phase 3 live-progress architecture.
+ * `commander/state/run-phase.ts` — v2 cutover.
  *
- * Replaces the boolean `streaming` flag with a precise state machine
- * describing what the agent is doing right now. Drives the LiveActivityBar,
- * honest elapsed timers, and cursor gating.
+ * State machine describing what the agent is doing right now. Drives the
+ * LiveActivityBar, honest elapsed timers, and cursor gating.
  *
- * The transition function `phaseFromEvent` is a pure reducer: `(prev, event) → next`.
- * Every stream event kind is handled explicitly. The `default` branch of the
- * switch is `assertNever(event)` so adding a new event kind on the wire
- * surfaces as a compile error here — you cannot forget to route it through
- * the phase machine.
+ * `phaseFromEvent` is a pure reducer: `(prev, event) → next`. Every
+ * `TimelineEvent.kind` is handled explicitly. The `default` branch is
+ * `assertNever(event)` so adding a new event kind surfaces as a compile
+ * error.
  */
 
-import type { CommanderStreamEvent } from '../transport/CommanderTransport.js';
+import type { TimelineEvent } from '@lucid-fin/contracts';
 import { assertNever } from '../../utils/assert-never.js';
 
 export type ToolCallId = string;
@@ -45,55 +43,42 @@ export type RunPhase =
 
 export const idlePhase: RunPhase = { kind: 'idle' };
 
-/**
- * Pure transition function for RunPhase. Takes the previous phase + the
- * next stream event and produces the next phase. Does NOT mutate inputs.
- */
-export function phaseFromEvent(prev: RunPhase, event: CommanderStreamEvent): RunPhase {
+export function phaseFromEvent(prev: RunPhase, event: TimelineEvent): RunPhase {
   switch (event.kind) {
-    case 'chunk': {
-      // Model is mid-stream — either we were already streaming and update
-      // `lastTextDeltaAt`, or we transition from awaiting/tool_running back
-      // into streaming on this step.
+    case 'run_start':
+      return { kind: 'awaiting_model', step: event.step, since: event.emittedAt };
+    case 'assistant_text': {
       const step = event.step;
       const now = event.emittedAt;
       if (prev.kind === 'model_streaming' && prev.step === step) {
-        return { ...prev, lastTextDeltaAt: now };
+        return event.isDelta ? { ...prev, lastTextDeltaAt: now } : prev;
       }
       return { kind: 'model_streaming', step, since: now, lastTextDeltaAt: now };
     }
-    case 'thinking_delta':
-      // Thinking deltas live in the `model_streaming` phase too — the model
-      // is producing output, even if reasoning rather than final text.
-      if (prev.kind === 'model_streaming' && prev.step === event.step) {
-        return prev;
-      }
+    case 'thinking': {
+      if (prev.kind === 'model_streaming' && prev.step === event.step) return prev;
       return {
         kind: 'model_streaming',
         step: event.step,
         since: event.emittedAt,
         lastTextDeltaAt: null,
       };
-    case 'tool_call_started': {
+    }
+    case 'tool_call': {
       const tools =
         prev.kind === 'tool_running' && prev.step === event.step
           ? prev.tools.includes(event.toolCallId)
             ? prev.tools
             : [...prev.tools, event.toolCallId]
           : [event.toolCallId];
-      const since = prev.kind === 'tool_running' && prev.step === event.step ? prev.since : event.emittedAt;
+      const since =
+        prev.kind === 'tool_running' && prev.step === event.step
+          ? prev.since
+          : event.emittedAt;
       return { kind: 'tool_running', step: event.step, tools, since };
     }
-    case 'tool_call_args_delta':
-    case 'tool_call_args_complete':
-      // Args streaming is a pure data channel — the phase stays in whatever
-      // tool_running / model_streaming state the pair started from.
-      return prev;
     case 'tool_result': {
       if (prev.kind !== 'tool_running') {
-        // Out-of-order result — the orchestrator is about to ship the next
-        // chunk/tool. Don't invent state; fall back to awaiting_model on the
-        // same step so the UI doesn't flicker to idle.
         return { kind: 'awaiting_model', step: event.step, since: event.emittedAt };
       }
       const remaining = prev.tools.filter((id) => id !== event.toolCallId);
@@ -102,49 +87,39 @@ export function phaseFromEvent(prev: RunPhase, event: CommanderStreamEvent): Run
       }
       return { ...prev, tools: remaining };
     }
-    case 'tool_confirm':
+    case 'tool_confirm_prompt':
       return {
         kind: 'awaiting_confirmation',
         toolCallId: event.toolCallId,
-        toolName: event.toolName,
+        toolName: `${event.toolRef.domain}.${event.toolRef.action}`,
         since: event.emittedAt,
       };
-    case 'tool_question':
+    case 'question_prompt':
       return {
         kind: 'awaiting_question',
-        toolCallId: event.toolCallId,
-        question: event.question,
+        toolCallId: event.questionId,
+        question: event.prompt,
         since: event.emittedAt,
       };
-    case 'context_usage':
-      // Ephemeral metrics — does not drive the phase machine. The reducer
-      // stores `backendContextUsage` separately, so we pass through.
+    case 'user_message':
+    case 'user_confirmation':
+    case 'user_answer':
+      // User-side events don't transition the agent's phase; the next
+      // agent-side event (run_end, tool_call, assistant_text) will.
       return prev;
     case 'phase_note':
-      // Informational status-line segments (llm_retry, compacted,
-      // process_prompt_loaded). They annotate the run but don't change
-      // which phase we're in — the retry's NEXT `chunk` / `tool_call_started`
-      // moves the machine forward.
       return prev;
-    case 'done':
+    case 'run_end':
+      return event.status === 'failed'
+        ? { kind: 'failed', error: 'run_failed' }
+        : { kind: 'done' };
+    case 'cancelled':
       return { kind: 'done' };
-    case 'error':
-      return { kind: 'failed', error: event.error };
-    // Phase B shadow events — additive telemetry, no phase transition.
-    case 'evidence_appended':
-    case 'exit_decision':
-    case 'preflight_decision':
-      return prev;
     default:
       return assertNever(event, 'phaseFromEvent');
   }
 }
 
-/**
- * Whether the Commander is currently in an active run (sending / awaiting /
- * streaming / running tools / awaiting input). Everything except idle /
- * done / failed counts as "streaming" for the purposes of UI gating.
- */
 export function isActivePhase(phase: RunPhase): boolean {
   return phase.kind !== 'idle' && phase.kind !== 'done' && phase.kind !== 'failed';
 }

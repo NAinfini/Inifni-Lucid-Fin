@@ -44,9 +44,6 @@ export function hasUserMessage(messages: CommanderMessage[]): boolean {
 export function resetTransientRunState(state: CommanderState): void {
   state.phase = idlePhase;
   state.currentRunStartedAt = null;
-  state.currentStreamContent = '';
-  state.currentToolCalls = [];
-  state.currentSegments = [];
   state.confirmAutoMode = 'none';
   state.consecutiveConfirmCount = 0;
 }

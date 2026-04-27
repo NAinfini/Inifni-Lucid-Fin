@@ -42,38 +42,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const APP_DIR = path.join(os.homedir(), '.lucid-fin');
 
-const MEDIA_PROVIDER_KEY_ALIASES: Record<string, readonly string[]> = {
-  'openai-dalle': ['openai-image', 'openai'],
-  'google-imagen3': ['google-image'],
-  'google-veo-2': ['google-video'],
-  'recraft-v3': ['recraft-v4', 'recraft'],
-  'runway-gen4': ['runway'],
-  'luma-ray2': ['luma'],
-  'minimax-video01': ['minimax'],
-  'pika-v2': ['pika'],
-  'elevenlabs-v2': ['elevenlabs'],
-  'openai-tts-1-hd': ['openai-tts', 'openai'],
-  'cartesia-sonic': ['cartesia'],
-  'playht-3': ['playht'],
-  'fish-audio-v1': ['fish-audio'],
-};
-
-export function resolveMediaProviderIds(providerId: string): string[] {
-  const ids = new Set<string>([providerId]);
-  const aliases = MEDIA_PROVIDER_KEY_ALIASES[providerId];
-  if (aliases) {
-    for (const alias of aliases) {
-      ids.add(alias);
-    }
-  }
-  for (const [adapterId, legacyIds] of Object.entries(MEDIA_PROVIDER_KEY_ALIASES)) {
-    if (legacyIds.includes(providerId)) {
-      ids.add(adapterId);
-    }
-  }
-  return Array.from(ids);
-}
-
 export function createAdapterRegistry(): AdapterRegistry {
   const adapterRegistry = new AdapterRegistry();
   // Image
@@ -196,7 +164,7 @@ export async function restoreAdapterKeys(
 
   const mediaResults = await Promise.all(
     mediaAdapters.map(async (adapter) => {
-      const key = await getFirstConfiguredKey(keychain, resolveMediaProviderIds(adapter.id));
+      const key = await keychain.getKey(adapter.id);
       return { adapter, key };
     }),
   );
@@ -206,24 +174,11 @@ export async function restoreAdapterKeys(
 
   const llmResults = await Promise.all(
     llmAdapters.map(async (adapter) => {
-      const key = await getFirstConfiguredKey(keychain, [adapter.id]);
+      const key = await keychain.getKey(adapter.id);
       return { adapter, key };
     }),
   );
   for (const { adapter, key } of llmResults) {
     if (key) adapter.configure(key);
   }
-}
-
-async function getFirstConfiguredKey(
-  keychain: Keychain,
-  providerIds: readonly string[],
-): Promise<string | null> {
-  for (const providerId of providerIds) {
-    const key = await keychain.getKey(providerId);
-    if (key) {
-      return key;
-    }
-  }
-  return null;
 }

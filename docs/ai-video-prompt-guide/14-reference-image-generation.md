@@ -2,234 +2,178 @@
 
 ## Overview
 
-This guide provides prompt templates for generating multi-angle reference images for characters, equipment, and locations. These templates are designed to produce consistent, professional reference sheets that can be used throughout your project.
+Reference images lock durable identity for characters, equipment, and locations. Every downstream shot leans on them, so the goal is a sheet the model and the pipeline can both reuse — not a dramatic hero frame.
+
+Each entity has exactly one primary reference-image slot (plus an `extra-angle` escape hatch for rare custom views). The old per-angle slot sets (`main`/`back`/`left-side`/`right-side`/`face-closeup`/`top-down`, etc.) survive only as DB-migration aliases; do not ask the agent to generate them.
 
 ## Research Sources
 
-Based on industry best practices from:
 - [Character Turnaround Best Practices](https://spines.com/character-turnaround)
 - [AI Character Turnarounds with Scenario](https://www.scenario.com/blog/generate-character-turnarounds-scenario)
 - [Multi-Angle Reference Sheets](https://editor-dev.opencreator.io/blog/ai-character-reference-sheet)
 - [AI Character Consistency Guide 2026](https://www.cinemadrop.com/blog/how-to-create-consistent-ai-characters-the-complete-guide-for-ai-filmmakers-in-2026)
 - [Character Turnarounds by Elbert Gu](https://lbrtgu.com/new-blog/2026/2/7/character-turnarounds)
 
-## Character Turnaround Sheet
+## Character — `full-sheet`
 
 ### Purpose
-Generate a production-ready character model sheet in a single image: full-body multi-view turnaround plus enlarged facial expression studies.
 
-### Standard Layout
-- **Top row**: Front, left profile, right profile, back view
-- **Bottom row**: Enlarged face studies with multiple emotions
-- **Body panels**: Full body visible in every panel, identical scale
-- **Face panels**: Head-and-shoulders only, same face structure in every emotion
+One composite sheet that carries the full-body turnaround AND a compact expression set. Used as the identity anchor for every downstream character shot.
 
-### Best Practices
-- Consistent lighting across all panels
-- Neutral standing pose for body views
-- White or neutral background
-- Full body visible in every body panel
-- Same character proportions in all body views
-- Expression panels must keep identical facial structure, hairstyle, and color
-- Explicitly forbid cropped limbs, extra props, extra characters, and scene background clutter
+### Layout
+
+- Exactly two rows × three columns = six panels total.
+- Row heights are NOT equal. Top row ~70% of sheet height, bottom row ~30%.
+- **Top row (tall, full-body, identical scale, head-to-toe, feet grounded, no crop):** column 1 front view, column 2 left profile, column 3 rear view.
+- **Bottom row (shorter, head-and-shoulders, shoulders included, direct gaze):** column 1 neutral, column 2 happy, column 3 angry.
+- Solid white background, flat even studio lighting, single character only, no environment, no props unless part of the costume, no cast shadows.
+- **Do NOT** ask for more panels. 10-panel layouts (4 full-body + 6 expressions) collapse: the model drops the full-body row and returns only the expression grid.
 
 ### Default Prompt Template
 
 ```
-Character turnaround model sheet, {CHARACTER_DESCRIPTION},
-two-row layout on white background,
-top row shows full-body front view, left profile, right profile, and back view at identical scale,
-full body visible in every body panel, neutral standing pose, arms slightly away from body,
-bottom row shows enlarged head-and-shoulders face studies with neutral, happy, sad, angry, surprised, and determined expressions,
-same character in every panel, identical facial structure, hairstyle, costume, proportions, and colors,
-professional character design model sheet, clean lines, even studio lighting, orthographic reference feel
+Character turnaround and expression sheet, {CHARACTER_DESCRIPTION},
+two rows and three columns, six panels total, separated by thin neutral gutters,
+row heights NOT equal — top row occupies roughly 70% of the sheet height, bottom row roughly 30%,
+top row (three tall full-body panels at identical scale, head-to-toe, feet grounded, no cropping,
+arms slightly away from the body): column 1 front view, column 2 left profile, column 3 rear view,
+bottom row (three shorter head-and-shoulders expression panels, shoulders included, direct gaze):
+column 1 neutral, column 2 happy, column 3 angry,
+solid white background, flat even studio lighting, single character only, no props unless part of the costume,
+every panel shows the exact same wardrobe, silhouette, proportions, hairstyle, colors, and identifying details
 ```
 
 ### Negative Prompt
 
 ```
-blurry, inconsistent lighting, different poses, different characters, cropped limbs,
-waist-up only, single view only, dynamic pose, action pose, extra props, background scene clutter
+blurry, inconsistent lighting, different characters, cropped limbs, waist-up only,
+single view only, action pose, extra props, scene background clutter,
+equal row heights, dropped top row, dropped bottom row, more than six panels
 ```
 
-### Recommended Settings
-- **Aspect Ratio**: 3:2 (2048x1360)
-- **Providers**: Google Imagen 4, OpenAI gpt-image-1
-- **Variant Count**: 3-5 (to get best result)
+### Settings
 
-### Examples
+- **Aspect ratio:** 3:2 or 4:3 landscape (give the top row vertical room).
+- **Providers:** Google Imagen 4, OpenAI gpt-image-1.
+- **Variant count:** 3–5.
 
-**Example 1: Fantasy Warrior**
-```
-Character turnaround model sheet, young female warrior with red armor and long black hair,
-two-row layout on white background,
-top row shows full-body front view, left profile, right profile, and back view at identical scale,
-bottom row shows enlarged face studies with neutral, happy, sad, angry, surprised, and determined expressions,
-same character in every panel, consistent lighting, neutral standing pose, full body visible
-```
-
-**Example 2: Sci-Fi Character**
-```
-Character turnaround model sheet, cyberpunk hacker with neon blue jacket and augmented eyes,
-two-row layout on white background,
-top row shows full-body front view, left profile, right profile, and back view at identical scale,
-bottom row shows enlarged face studies with neutral, happy, sad, angry, surprised, and determined expressions,
-same character in every panel, consistent lighting, neutral standing pose, full body visible
-```
-
-## Equipment Reference Sheet
+## Equipment — `ortho-grid`
 
 ### Purpose
-Generate technical reference sheet with orthographic views (front, side, top) for props and equipment.
 
-### Standard Views
-- **Front orthographic**: Straight-on view
-- **Side orthographic**: Pure side view
-- **Top orthographic**: Bird's eye view
+Orthographic technical reference: silhouette, controls, materials, and handling on one sheet.
 
-### Best Practices
-- Technical drawing style
-- Consistent scale across all views
-- White or grid background
-- Detailed mechanical parts visible
-- Material indications
-- Clean, precise lines
+### Layout
+
+- Two rows × two columns = four orthographic panels (plus one optional detail-closeup inset in the bottom-right when `visualDetails` calls for it).
+- True orthographic projection in every panel — no perspective, no camera tilt.
+- **Top-left:** front. **Top-right:** back. **Bottom-left:** left profile. **Bottom-right:** right profile.
+- Solid white background, flat studio lighting, single object, no environment.
 
 ### Default Prompt Template
 
 ```
-Equipment reference sheet, {EQUIPMENT_DESCRIPTION},
-showing front orthographic view, side orthographic view, and top orthographic view in a single image,
-all views aligned in technical drawing layout on white background,
-consistent scale across all views, clean technical illustration style,
-detailed mechanical parts visible, material indications,
-professional product design reference sheet, blueprint style
+Equipment orthographic reference sheet, {EQUIPMENT_DESCRIPTION},
+two rows and two columns, four orthographic panels at identical scale,
+top-left front, top-right back, bottom-left left profile, bottom-right right profile,
+true orthographic projection, no perspective, no vanishing points, no camera tilt,
+solid white background, flat even studio lighting, single object, no environment,
+detailed mechanical parts and material indications visible, professional product design reference sheet
 ```
 
 ### Negative Prompt
 
 ```
-blurry, perspective view, artistic rendering, inconsistent scale, cropped, 
-low quality, single view only, photorealistic, dynamic angle
+perspective view, inconsistent scale, single view only, artistic rendering, dynamic angle,
+extra objects, environment, hero shot, single merged image
 ```
 
-### Recommended Settings
-- **Aspect Ratio**: 16:9 (1920x1080)
-- **Providers**: Google Imagen 4, OpenAI gpt-image-1
-- **Variant Count**: 2-3
+### Settings
 
-### Examples
+- **Aspect ratio:** 1:1 or 4:3.
+- **Providers:** Google Imagen 4, OpenAI gpt-image-1.
+- **Variant count:** 2–3.
 
-**Example 1: Weapon**
-```
-Equipment reference sheet, futuristic energy sword with glowing blue blade,
-showing front orthographic view, side orthographic view, and top orthographic view in a single image,
-technical drawing layout on white background, consistent scale,
-detailed mechanical parts, professional product design reference sheet
-```
-
-**Example 2: Device**
-```
-Equipment reference sheet, steampunk mechanical gauntlet with brass gears,
-showing front orthographic view, side orthographic view, and top orthographic view in a single image,
-technical drawing layout on white background, consistent scale,
-detailed mechanical parts, professional product design reference sheet
-```
-
-## Location Reference Sheet
+## Location — `bible`
 
 ### Purpose
-Generate multi-angle location reference with establishing shot and key camera angles.
 
-### Standard Views
-- **Wide establishing shot**: Full view of location (top panel)
-- **Key angle 1**: Important camera position
-- **Key angle 2**: Alternative view
-- **Key angle 3** (optional): Additional perspective
+Composite model sheet that carries wide establishing geography plus repeat camera angles for the space. The identity anchor most locations need.
 
-### Best Practices
-- Consistent lighting and time of day
-- Consistent weather and atmosphere
-- Same location in all views
-- Architectural details visible
-- Scale reference (human figure optional)
-- Cinematic composition
+### Layout
+
+- Single image, five tiles.
+- **Top half:** one large wide-establishing panel covering the full environment — entry path and far boundary visible.
+- **Bottom half:** four equal tiles on a 2×2 grid — interior detail, atmosphere study, key camera angle 1, key camera angle 2.
+- Neutral gutters between tiles. No tile dominates the whole frame.
+- Consistent time-of-day, weather, and lighting across every tile. No characters, no people, no figures.
 
 ### Default Prompt Template
 
 ```
-Location reference sheet, {LOCATION_DESCRIPTION},
-showing wide establishing shot in top panel and 2-3 different key camera angles in bottom panels,
-all views in a single composite image with consistent lighting and atmosphere,
-{TIME_OF_DAY} lighting, consistent weather and mood across all views,
-professional environment concept art reference sheet, cinematic composition,
-architectural details visible, scale reference with human figure
+Location bible reference sheet, {LOCATION_DESCRIPTION},
+one composite image with five tiles separated by thin neutral gutters,
+top half is a single wide establishing panel showing the full environment with entry path and far boundary visible,
+bottom half is a 2x2 grid of four equal tiles: interior detail, atmosphere study, key camera angle 1, key camera angle 2,
+consistent {TIME_OF_DAY} lighting, consistent weather and atmosphere across every tile,
+no characters, no people, no figures, empty scene, environment only,
+professional environment concept art reference sheet, cinematic composition, architectural details visible
 ```
 
 ### Negative Prompt
 
 ```
-blurry, inconsistent lighting, different locations, different time of day, 
-low quality, single view only, cropped, people as main focus
+blurry, inconsistent lighting, different locations, different time of day, characters, figures, people,
+single view only, hero wall only, tile collapsed into one frame
 ```
 
-### Recommended Settings
-- **Aspect Ratio**: 16:9 (1920x1080)
-- **Providers**: Google Imagen 4, OpenAI gpt-image-1
-- **Variant Count**: 2-4
+### Settings
 
-### Examples
+- **Aspect ratio:** 16:9 or 3:2.
+- **Providers:** Google Imagen 4, OpenAI gpt-image-1.
+- **Variant count:** 2–4.
 
-**Example 1: Urban Scene**
-```
-Location reference sheet, cyberpunk city street with neon signs,
-showing wide establishing shot in top panel and 2-3 different key camera angles in bottom panels,
-all views in a single composite image with consistent night lighting and rainy atmosphere,
-professional environment concept art reference sheet, cinematic composition
-```
+## Location — `fake-360` (optional)
 
-**Example 2: Interior**
-```
-Location reference sheet, medieval castle throne room with stone pillars,
-showing wide establishing shot in top panel and 2-3 different key camera angles in bottom panels,
-all views in a single composite image with consistent warm torch lighting,
-professional environment concept art reference sheet, cinematic composition
-```
+Use only when shots will move around the space (dolly, pan, walk-through) and you need every compass direction locked.
+
+- One image, eight equal panels (2 rows × 4 columns).
+- Top row left-to-right: 0°, 45°, 90°, 135°. Bottom row: 180°, 225°, 270°, 315°.
+- Matching eye-level, time-of-day, and weather across every panel.
+
+## Extra-angle — universal escape hatch
+
+Every entity supports `extra-angle` with a free-form angle string for rare custom views (action pose for a character, macro of a specific mechanism for equipment, blocking diagram for a location). `extra-angle` does not replace the primary slot — it augments it.
 
 ## Advanced Tips
 
 ### Character Consistency
-- Define 15-20 specific physical attributes before generating
-- Generate 8-10 reference images for best consistency
-- Use locked seed for variations
-- Include distinctive features in description
+- Fill the character record (face, hair, body, skinTone, distinctTraits, costume) before generating. `buildCharacterAppearancePrompt` assembles those fields automatically.
+- Generate 3–5 variants and promote the cleanest via `character.setRefImage` / `character.setRefImageFromNode`.
+- If variants keep missing, describe the failure in one line ("top row collapsed, only expressions returned") and regenerate with corrective language — do not retry blindly.
 
-### Multi-Angle Composition
-- Specify "aligned horizontally" or "aligned in grid" for layout
-- Use "orthographic projection" for technical accuracy
-- Add "model sheet" or "reference sheet" keywords
-- Include "consistent lighting" explicitly
+### Equipment Consistency
+- Durable identity lives in the equipment record (`material`, `color`, `condition`, `visualDetails`, `subtype`). The custom prompt is only for anti-collapse language, scale indicators, or a specific camera tweak.
+- Regenerate the ortho-grid when silhouette breaks; do not add adjective piles to fix material reads — generate an `extra-angle` close-up instead.
+
+### Location Consistency
+- Lock `timeOfDay`, `weather`, `lighting`, `architectureStyle`, and `dominantColors` on the record before generating. The bible sheet inherits them.
+- Every tile is empty scene — no people. If a figure appears, delete the sheet and regenerate with "no characters, no people, no figures" echoed.
 
 ### Quality Control
-- Always specify "professional" and "detailed"
-- Use "clean lines" for clarity
-- Avoid action poses for reference sheets
-- Request "full body visible" to prevent cropping
+- Always specify the exact grid ("two rows, three columns, six panels") rather than vague "model sheet".
+- Use "head-to-toe", "feet grounded", "shoulders included", "orthographic projection" — process vocabulary, not adjective piles.
+- Avoid `cinematic`, `dramatic`, `epic`, `masterpiece`, `8k`, `hyperdetailed` — they destroy identity stability in ref images.
 
 ## Integration with Lucid Fin
 
-These prompts are integrated into the Character, Equipment, and Location managers. When generating reference images:
+These layouts are emitted by `buildCharacterRefImagePrompt`, `buildEquipmentRefImagePrompt`, and `buildLocationRefImagePrompt` when the agent calls the corresponding `*.generateRefImage` tool. The workflow is:
 
-1. Select entity type (Character/Equipment/Location)
-2. For standard slots, prefer the built-in slot template instead of hand-writing a custom prompt
-3. Only override prompt when you need a user-approved custom layout or style
-4. Strengthen entity data first, then generate with recommended settings
-5. Review whether the sheet actually proves silhouette, construction, and identity before accepting it
+1. Fill the entity record first — durable identity is the source of truth.
+2. Call `character.generateRefImage` / `equipment.generateRefImage` / `location.generateRefImage` with just the entity id. The builder compiles the prompt from the record and the layout rules above.
+3. Only pass a custom `prompt` when you need direction the record cannot express. Do not repeat record fields in the custom prompt — it fights the auto-compiled appearance line.
+4. Review whether the sheet actually proves silhouette, construction, and identity before accepting it. The sheet is an anchor for the whole project — a broken anchor drifts every downstream shot.
 
 ## Customization
 
-Users can customize these templates in Settings > Generation > Reference Prompts. All templates can be:
-- Edited to match your style
-- Reset to defaults
-- Duplicated for variations
-- Shared across projects
+Users can customize these templates in Settings > Generation > Reference Prompts. Templates can be edited, reset to defaults, duplicated, or shared across projects.

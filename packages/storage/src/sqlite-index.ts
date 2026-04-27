@@ -4,6 +4,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 
 import type { IStorageLayer, RepoBundle } from './storage-interfaces.js';
 import { SessionRepository } from './repositories/session-repository.js';
+import { CommanderEventRepository } from './repositories/commander-event-repository.js';
 import { JobRepository } from './repositories/job-repository.js';
 import { AssetRepository } from './repositories/asset-repository.js';
 import { CanvasRepository } from './repositories/canvas-repository.js';
@@ -41,6 +42,10 @@ const CANVAS_SETTINGS_COLUMNS: ReadonlyArray<{ name: string; ddl: string }> = [
   { name: 'negative_prompt',    ddl: 'ALTER TABLE canvases ADD COLUMN negative_prompt TEXT' },
   { name: 'default_width',      ddl: 'ALTER TABLE canvases ADD COLUMN default_width INTEGER' },
   { name: 'default_height',     ddl: 'ALTER TABLE canvases ADD COLUMN default_height INTEGER' },
+  { name: 'publish_width',      ddl: 'ALTER TABLE canvases ADD COLUMN publish_width INTEGER' },
+  { name: 'publish_height',     ddl: 'ALTER TABLE canvases ADD COLUMN publish_height INTEGER' },
+  { name: 'publish_video_width',  ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_width INTEGER' },
+  { name: 'publish_video_height', ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_height INTEGER' },
   { name: 'aspect_ratio',       ddl: 'ALTER TABLE canvases ADD COLUMN aspect_ratio TEXT' },
   { name: 'llm_provider_id',    ddl: 'ALTER TABLE canvases ADD COLUMN llm_provider_id TEXT' },
   { name: 'image_provider_id',  ddl: 'ALTER TABLE canvases ADD COLUMN image_provider_id TEXT' },
@@ -62,6 +67,7 @@ function addMissingCanvasColumns(db: BetterSqlite3.Database): void {
 export class SqliteIndex implements IStorageLayer {
   private db: BetterSqlite3.Database;
   private sessions!: SessionRepository;
+  private commanderEvents!: CommanderEventRepository;
   private jobs!: JobRepository;
   private assets!: AssetRepository;
   private canvases!: CanvasRepository;
@@ -85,6 +91,7 @@ export class SqliteIndex implements IStorageLayer {
   get repos(): RepoBundle {
     return {
       sessions: this.sessions,
+      commanderEvents: this.commanderEvents,
       jobs: this.jobs,
       assets: this.assets,
       canvases: this.canvases,
@@ -115,6 +122,7 @@ export class SqliteIndex implements IStorageLayer {
     addMissingCanvasColumns(this.db);
 
     this.sessions = new SessionRepository(this.db);
+    this.commanderEvents = new CommanderEventRepository(this.db);
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
@@ -183,6 +191,7 @@ export class SqliteIndex implements IStorageLayer {
 
     // Repo handles pin to the live db — rebuild after the swap above.
     this.sessions = new SessionRepository(this.db);
+    this.commanderEvents = new CommanderEventRepository(this.db);
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);

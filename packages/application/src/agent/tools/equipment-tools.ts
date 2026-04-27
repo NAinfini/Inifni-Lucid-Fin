@@ -77,7 +77,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
 
   const equipmentCreate: AgentTool = {
     name: 'equipment.create',
-    description: 'Create a new equipment item in the current project.',
+    description: 'Create a new equipment item in the current project. To update an existing item, use equipment.update instead. To generate a reference image, use equipment.generateRefImage after creation.',
     tags: ['equipment', 'mutate'],
     tier: 2,
     parameters: {
@@ -126,7 +126,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
 
   const equipmentUpdate: AgentTool = {
     name: 'equipment.update',
-    description: 'Update an existing equipment item by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
+    description: 'Update an existing equipment item by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new item, use equipment.create instead.',
     tags: ['equipment', 'mutate'],
     tier: 2,
     parameters: {

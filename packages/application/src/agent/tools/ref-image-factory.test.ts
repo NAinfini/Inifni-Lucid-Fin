@@ -240,10 +240,10 @@ describe('createRefImageTools', () => {
       );
     });
 
-    it('uses canvas defaultResolution when args.width/height are omitted', async () => {
+    it('uses canvas refResolution when args.width/height are omitted', async () => {
       const config = createConfig({
         getCanvas: vi.fn(async () => ({
-          settings: { defaultResolution: { width: 1536, height: 1024 } },
+          settings: { refResolution: { width: 1536, height: 1024 } },
         } as never)),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;

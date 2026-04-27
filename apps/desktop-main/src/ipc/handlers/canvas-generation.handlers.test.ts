@@ -25,7 +25,6 @@ vi.mock('../../logger.js', () => ({
 
 import {
   applyStyleGuideDefaultsToEmptyTracks,
-  canonicalizeCanvasProviderId,
   startCanvasGeneration,
 } from './canvas-generation.handlers.js';
 import { mergeGenerationParams } from './generation-context.js';
@@ -133,33 +132,6 @@ describe('applyStyleGuideDefaultsToEmptyTracks', () => {
     expect(result.look.entries).toHaveLength(1);
     expect(result.look.entries[0]?.presetId).toBe('look:anime-cel');
     expect(result.scene.entries[0]?.presetId).toBe('scene:neon-noir');
-  });
-});
-
-describe('canonicalizeCanvasProviderId', () => {
-  it('maps legacy provider ids to the current adapter ids', () => {
-    expect(canonicalizeCanvasProviderId('runway')).toBe('runway-gen4');
-    expect(canonicalizeCanvasProviderId('veo')).toBe('google-veo-2');
-    expect(canonicalizeCanvasProviderId('pika')).toBe('pika-v2');
-    expect(canonicalizeCanvasProviderId('openai-image', 'image')).toBe('openai-dalle');
-    expect(canonicalizeCanvasProviderId('openai', 'image')).toBe('openai-dalle');
-    expect(canonicalizeCanvasProviderId('openai', 'voice')).toBe('openai-tts-1-hd');
-    expect(canonicalizeCanvasProviderId('google-image', 'image')).toBe('google-imagen3');
-    expect(canonicalizeCanvasProviderId('google-video', 'video')).toBe('google-veo-2');
-    expect(canonicalizeCanvasProviderId('recraft', 'image')).toBe('recraft-v3');
-    expect(canonicalizeCanvasProviderId('recraft-v4')).toBe('recraft-v3');
-    expect(canonicalizeCanvasProviderId('elevenlabs')).toBe('elevenlabs-v2');
-    expect(canonicalizeCanvasProviderId('openai-tts', 'voice')).toBe('openai-tts-1-hd');
-    expect(canonicalizeCanvasProviderId('cartesia', 'voice')).toBe('cartesia-sonic');
-    expect(canonicalizeCanvasProviderId('playht', 'voice')).toBe('playht-3');
-    expect(canonicalizeCanvasProviderId('fish-audio', 'voice')).toBe('fish-audio-v1');
-  });
-
-  it('passes through already-canonical ids', () => {
-    expect(canonicalizeCanvasProviderId('runway-gen4')).toBe('runway-gen4');
-    expect(canonicalizeCanvasProviderId('google-veo-2')).toBe('google-veo-2');
-    expect(canonicalizeCanvasProviderId('openai-dalle')).toBe('openai-dalle');
-    expect(canonicalizeCanvasProviderId(undefined)).toBeUndefined();
   });
 });
 
@@ -937,7 +909,7 @@ describe('startCanvasGeneration progress events', () => {
     }
   });
 
-  it('configures registered adapters with aliased keys and runtime provider overrides', async () => {
+  it('configures registered adapters with runtime provider overrides', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-provider-config-'));
     const assetPath = path.join(tmpDir, 'configured.png');
     fs.writeFileSync(assetPath, Buffer.from([1, 2, 3, 4]));
@@ -975,7 +947,7 @@ describe('startCanvasGeneration progress events', () => {
       {
         canvasId: 'canvas-1',
         nodeId: 'node-1',
-        providerId: 'openai-image',
+        providerId: 'openai-dalle',
         providerConfig: {
           baseUrl: 'https://proxy.example/v1',
           model: 'gpt-image-1',
@@ -1013,7 +985,7 @@ describe('startCanvasGeneration progress events', () => {
           save,
         },
         keychain: {
-          getKey: vi.fn(async (provider: string) => (provider === 'openai' ? 'sk-openai' : null)),
+          getKey: vi.fn(async (provider: string) => (provider === 'openai-dalle' ? 'sk-openai' : null)),
         },
       } as never,
     );

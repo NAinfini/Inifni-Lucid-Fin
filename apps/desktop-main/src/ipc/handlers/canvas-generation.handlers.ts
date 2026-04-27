@@ -39,7 +39,6 @@ import { autoChainVideoFrame } from './video-chain.js';
 import { runLipSyncPostProcess } from './lipsync.handlers.js';
 
 // Re-export for external consumers
-export { canonicalizeCanvasProviderId } from './generation-helpers.js';
 export { applyStyleGuideDefaultsToEmptyTracks } from './generation-prompt-compiler.js';
 
 // ---------------------------------------------------------------------------

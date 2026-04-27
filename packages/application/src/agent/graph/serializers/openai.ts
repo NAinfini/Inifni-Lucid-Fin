@@ -150,6 +150,10 @@ function itemToMessages(
     case 'session-summary':
       return [{ role: 'system', content: `<summary>\n${item.content}\n</summary>` }];
 
+    case 'scratchpad':
+      // Rendered as a system message so the model always sees it.
+      return [{ role: 'system', content: `<scratchpad>\n${item.content}\n</scratchpad>` }];
+
     case 'reference': {
       if (visited.has(item.referencedItemId)) return [];
       visited.add(item.referencedItemId);

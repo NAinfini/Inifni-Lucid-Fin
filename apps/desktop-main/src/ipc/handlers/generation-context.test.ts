@@ -65,11 +65,6 @@ vi.mock('@lucid-fin/application', () => ({
 
 // project-context has been removed — loadCurrentProjectStyleGuide now returns DEFAULT_STYLE_GUIDE directly
 
-// Mock bootstrap/init-app to avoid filesystem / keychain reads in resolveProviderApiKey
-vi.mock('../../bootstrap/init-app.js', () => ({
-  resolveMediaProviderIds: vi.fn((id: string) => [id]),
-}));
-
 // ---------------------------------------------------------------------------
 // The module under test — imported AFTER mocks are registered
 // ---------------------------------------------------------------------------
@@ -375,38 +370,26 @@ describe('determineGenerationType', () => {
 describe('resolveNodeProviderId', () => {
   it('prefers requestedProviderId when provided', () => {
     const node = makeImageNode({ providerId: 'node-provider' });
-    const result = resolveNodeProviderId(node, 'image', 'runway');
-    expect(result).toBe('runway-gen4'); // canonicalized legacy alias
+    const result = resolveNodeProviderId(node, 'runway-gen4');
+    expect(result).toBe('runway-gen4');
   });
 
   it('falls back to node data providerId when requestedProviderId is absent', () => {
     const node = makeImageNode({ providerId: 'openai-dalle' });
-    const result = resolveNodeProviderId(node, 'image', undefined);
+    const result = resolveNodeProviderId(node, undefined);
     expect(result).toBe('openai-dalle');
   });
 
   it('returns undefined when neither requestedProviderId nor node providerId is set', () => {
     const node = makeImageNode();
-    const result = resolveNodeProviderId(node, 'image', undefined);
+    const result = resolveNodeProviderId(node, undefined);
     expect(result).toBeUndefined();
   });
 
-  it('canonicalizes legacy audio provider alias "elevenlabs"', () => {
-    const node = makeAudioNode({ provider: 'elevenlabs' });
-    const result = resolveNodeProviderId(node, 'voice', undefined);
+  it('reads audio node provider field', () => {
+    const node = makeAudioNode({ provider: 'elevenlabs-v2' });
+    const result = resolveNodeProviderId(node, undefined);
     expect(result).toBe('elevenlabs-v2');
-  });
-
-  it('canonicalizes type-sensitive "openai" alias for image', () => {
-    const node = makeImageNode({ providerId: 'openai' });
-    const result = resolveNodeProviderId(node, 'image', undefined);
-    expect(result).toBe('openai-dalle');
-  });
-
-  it('canonicalizes type-sensitive "openai" alias for voice', () => {
-    const node = makeAudioNode({ providerId: 'openai' });
-    const result = resolveNodeProviderId(node, 'voice', undefined);
-    expect(result).toBe('openai-tts-1-hd');
   });
 });
 

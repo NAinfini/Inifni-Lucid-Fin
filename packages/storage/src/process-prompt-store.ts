@@ -42,29 +42,28 @@ export const PROCESS_PROMPT_DEFAULTS: ProcessPromptDefault[] = [
 
 Workflow — always, in order:
 1. Call \`character.list\` (if you do not yet know the character) or rely on the ID Commander already gave you.
-2. Call \`canvas.getNode\` / entity read is not enough — also read the existing reference images on the character record. Know which slots already exist and whether the current \`main\` turnaround is usable.
-3. Pick ONE slot per generation call. Do not batch slots. Slots: \`main\` (turnaround sheet), \`back\`, \`left-side\`, \`right-side\`, \`face-closeup\`, \`top-down\`. Aliases like \`front\`, \`default\`, \`hero\`, \`rear\`, \`profile-left\` are normalized into these six — prefer the canonical name.
-4. Decide what this slot must prove. Use the slot → goal table below.
-5. Call \`character.generateRefImage\` with \`{ characterId, slot }\`. If the caller provided a \`prompt\`, it overrides the auto-built fallback — only pass a custom \`prompt\` when you intentionally want to add direction the entity fields do not capture. Otherwise omit it and let \`buildCharacterRefImagePrompt\` compile from the record.
-6. Wait for success. Call ONE at a time. Verify the returned asset before starting the next slot.
+2. Also read the existing reference images on the character record — know whether the current sheet is usable before regenerating.
+3. Each character has ONE reference-image slot: \`full-sheet\`. It packs the full-body turnaround AND a small expression strip on a single image. Rare custom angles (overhead, action pose, specific hero close-up) live under \`extra-angle\` with a free-form angle string; they do not replace the full-sheet.
+4. Call \`character.generateRefImage\` with \`{ characterId }\` (the view defaults to \`full-sheet\`). If the caller passes a custom \`prompt\`, it overrides the auto-built fallback — only do that when you need direction the entity record does not capture. Otherwise omit and let \`buildCharacterRefImagePrompt\` compile from the record.
+5. Wait for success. Call ONE at a time. Verify the returned asset before triggering any follow-up.
 
-Slot → goal table:
-- \`main\` — two-row model sheet (3:2 landscape). Top row: full-body front, left profile, right profile, rear view at identical scale. Bottom row: head studies with neutral, happy, sad, angry, surprised, determined expressions. ANTI-COLLAPSE rules (state these explicitly in any custom prompt): one character only, neutral background, even studio light, no single-portrait collapse, no half-body crop, no missing side or back view, no hero pose.
-- \`back\` — full-body rear view; hair shape, cape, backpack, back-fastening details must be legible.
-- \`left-side\` / \`right-side\` — full-body profile; arms slightly away from the body so silhouette reads cleanly head to toe.
-- \`face-closeup\` — six head-and-shoulders panels (2:3 portrait) with the same six expressions; direct gaze, maximum facial detail, same hairstyle and lighting in every panel.
-- \`top-down\` — bird's-eye straight down; hair crown, shoulders, stance, posture.
+Sheet layout (what the generator produces and what any custom prompt must respect):
+- One landscape image, two rows, six panels total. Row heights are NOT equal.
+- Top row (~70% of sheet height): three full-body panels at identical scale — front, left profile, rear. Head-to-toe, feet grounded, no crop, arms slightly away from the body so the silhouette reads.
+- Bottom row (~30% of sheet height): three head-and-shoulders expression panels — neutral, happy, angry. Same face, same hair, same lighting as the turnaround row.
+- Solid white background, flat even studio lighting, single character only, no props unless part of the costume, no environment, no cast shadows.
+- Total panel count stays at six. Do not ask for more panels; 10-panel layouts (4 full-body + 6 expressions) collapse and drop the full-body row.
 
-Decision tree — do I regenerate or add a new slot?
-- Existing \`main\` has wrong costume/hair/proportions → regenerate \`main\`; everything else will rebuild around it.
-- Existing \`main\` is clean but you need a profile or rear → generate only the missing slot; do NOT regenerate \`main\`.
-- Costume just changed on the character record → regenerate \`main\` first; re-run any downstream slots whose costume read is now wrong.
-- Emotion range feels thin → regenerate \`face-closeup\` with a custom prompt extending the expression list. Do not touch \`main\`.
+When to regenerate vs leave alone:
+- Wrong costume, hair, proportions, or the full-body row collapsed to portraits → regenerate.
+- Costume changed on the character record → regenerate, then re-run any downstream nodes that depended on the old look.
+- Expression range feels thin → do NOT cram more expression panels into the same sheet. Generate an \`extra-angle\` with an expression-close-up angle string instead, or accept the base three.
+- Sheet is clean → leave it alone. This slot is the identity anchor; gratuitous regeneration churns downstream consistency.
 
 What to write (custom prompt) vs what to let the record carry:
 - Put enduring identity in the entity record (face, hair, body, skinTone, distinctTraits, costume). \`buildCharacterAppearancePrompt\` assembles these automatically.
-- Custom prompt text is for this-sheet-only guidance: slot-specific pose, alternate expression set, extra anti-collapse language, prop held for scale.
-- Do NOT repeat record fields inside a custom prompt. That produces doubled descriptions that fight with the auto-compiled appearance line.
+- Custom prompt text is for this-sheet-only guidance: alternate expression set, extra anti-collapse language, prop held for scale.
+- Do NOT repeat record fields inside a custom prompt. Doubled descriptions fight with the auto-compiled appearance line.
 - Do NOT bury scene, environment, or story context in a ref-image prompt. Ref images are studio-neutral.
 
 Quality language — prefer process vocabulary over adjective piles:
@@ -76,7 +75,8 @@ Quality language — prefer process vocabulary over adjective piles:
 Word budget (custom prompt, if any): 40-120 words. Beyond that you are duplicating the entity record or drifting into style decoration.
 
 Common pitfalls — stop and fix if you catch any:
-- Sheet collapses to one portrait → add explicit layout language: "two rows, top row four panels, bottom row six panels".
+- Sheet collapses to only the expression row (six faces, no full body) → reinforce "two rows, TOP row full-body at 70% height, BOTTOM row expressions at 30% height, do NOT drop the full-body row, do NOT return expressions only".
+- Top row cropped at waist → add "head-to-toe, feet visible, no waist crop, top row needs vertical space".
 - Face drifts between expression panels → add "same face shape, same hairstyle, same colors, same lighting in every panel".
 - Shadows mistaken for facial structure → demand "flat even studio lighting, no harsh rim, no deep cast shadows".
 - Random background appears → demand "solid white background, no environment, no props unless required for scale".
@@ -84,7 +84,7 @@ Common pitfalls — stop and fix if you catch any:
 
 After generation:
 - Promote the best result via \`character.setRefImageFromNode\` if it came from a canvas node, or \`character.setRefImage\` if the user picked a variant.
-- If none of the variants hold up, describe what failed in one line ("profile view collapsed to 3/4"), then regenerate with corrective language targeting that specific failure. Do not retry blindly.
+- If none of the variants hold up, describe what failed in one line ("full-body row collapsed, only expressions returned"), then regenerate with corrective language targeting that specific failure. Do not retry blindly.
 - Never silently accept a broken sheet. If the main turnaround is broken, downstream identity across the whole project will drift.`,
   ),
   defineProcessPrompt(
@@ -94,32 +94,32 @@ After generation:
     `Location reference images lock durable place identity — geography, landmarks, atmosphere, repeatable camera angles. They are concept-art model sheets, not dramatic one-off frames.
 
 Workflow — always, in order:
-1. Read the location record (and existing reference slots if Commander did not already surface them). Know which slots exist and whether their architecture, mood, weather, and lighting still match the current record.
-2. Pick ONE slot per call. Slot vocabulary: \`main\` / \`wide-establishing\` (default), \`interior-detail\`, \`atmosphere\`, \`key-angle-1\`, \`key-angle-2\`, \`overhead\`. Any other slot string becomes a generic "<slot> angle view" — prefer canonical names.
-3. Decide what this slot must prove. Use the table below.
-4. Call \`location.generateRefImage\` with \`{ locationId, slot }\`. Only pass a custom \`prompt\` when the record fields do not capture the specific camera choice you need. Otherwise let \`buildLocationRefImagePrompt\` compile from \`description\`, \`architectureStyle\`, \`mood\`, \`lighting\`, \`weather\`, \`timeOfDay\`, \`dominantColors\`, \`keyFeatures\`, \`atmosphereKeywords\`, \`tags\`.
-5. Call ONE at a time. Verify success before starting the next slot.
+1. Read the location record and its existing reference images. Know whether the current sheets still match the record's architecture, mood, weather, and lighting.
+2. Each location has two canonical reference-image slots (plus \`extra-angle\` for rare custom needs):
+   - \`bible\` — a composite model-sheet bundling a wide establishing shot, an interior / architectural detail, an atmosphere study, and two repeatable key camera angles on a single image. This is the identity anchor; most locations need only this one.
+   - \`fake-360\` — eight panels at 45° intervals stitched into a pseudo-panorama. Use this ONLY when shots will move around the space and you need every compass direction locked. Most scenes do not need it.
+   - \`extra-angle\` — free-form custom view (overhead, blocking plan, specific hero angle) when neither canonical slot fits.
+   The legacy per-slot names (\`main\`, \`wide-establishing\`, \`interior-detail\`, \`atmosphere\`, \`key-angle-1\`, \`key-angle-2\`, \`overhead\`) survive only as DB-migration aliases — do not request them.
+3. Call \`location.generateRefImage\` with \`{ locationId }\` (view defaults to \`bible\`) or \`{ locationId, view: { kind: 'fake-360' } }\` / \`{ kind: 'extra-angle', angle: '…' }\`. Pass a custom \`prompt\` only when the record fields do not capture a specific camera choice you need. Otherwise let \`buildLocationRefImagePrompt\` compile from the record.
+4. Call ONE at a time. Verify success before triggering any follow-up.
 
-Slot → goal table:
-- \`main\` / \`wide-establishing\` — wide establishing shot; full environment visible; cinematic composition; overall scale and layout readable; weather traces on the ground plane. Geography first, atmosphere second.
-- \`interior-detail\` — architectural close study; furniture, joints, wear patterns, material transitions; shadows pool in recessed doorways.
-- \`atmosphere\` — mood study; light and weather are the subject; "light filters through dusty panes", "shadows pool in recessed doorways", "rain collects in gutter channels".
-- \`key-angle-1\` — primary camera angle for scene staging; eye-level cinematic; layered foreground / midground / background depth.
-- \`key-angle-2\` — alternate angle of the same location; secondary details, circulation paths, back-of-room reveal.
-- \`overhead\` — bird's-eye straight down; spatial layout, drainage lines, circulation paths.
+Sheet layouts (what the generator produces and what any custom prompt must respect):
+- \`bible\` — one image, five tiles on a controlled grid: large wide-establishing panel on the top half; bottom half split into four equal tiles for interior detail, atmosphere study, key angle 1, key angle 2. Each tile is clearly separated by neutral gutters. No single tile dominates the whole frame.
+- \`fake-360\` — one image, eight equal panels (2 rows × 4 columns), compass order left-to-right top-to-bottom: 0°, 45°, 90°, 135° (top row); 180°, 225°, 270°, 315° (bottom row). Matching eye-level, matching time-of-day, matching weather.
+- \`extra-angle\` — a single panel honoring the angle string; no grid.
+- All slots: empty scene, no characters, no people, no figures (\`buildLocationRefImagePrompt\` enforces this).
 
-Decision tree — which slot to build first?
-- Brand-new location, no refs → \`main\` / \`wide-establishing\` first. Nothing else makes sense until geography is locked.
-- Geography clear but shots keep drifting → add \`key-angle-1\` (most common repeat camera).
-- Prompts keep losing mood → add \`atmosphere\`. Use it downstream as the lighting reference, not the layout reference.
-- Scene relies on interior close-ups → add \`interior-detail\` before any interior node generation.
-- Scenes will use blocking or movement → add \`overhead\` so spatial choreography has a ground plan.
+When to regenerate vs leave alone:
+- Bible reads clean → leave it alone. It is the identity anchor; regenerating churns every downstream shot.
+- Wrong architecture, wrong palette, wrong time-of-day → regenerate \`bible\`, then re-run any downstream nodes that lean on the old look.
+- Scenes will move around the space (dolly, pan, walk-through) → add \`fake-360\` once; do NOT repeatedly regenerate \`bible\` to chase different angles.
+- Need a blocking diagram or a very specific hero angle → use \`extra-angle\`, not a bible regeneration.
 
 What to write (custom prompt) vs what to let the record carry:
 - Put durable place identity in the record: architecture, mood, weather tendencies, lighting logic, landmark structure, palette anchors.
-- Custom prompt is for slot-specific camera language: "eye-level, 35mm equivalent, slight upward tilt revealing ceiling beams", "overhead orthographic, no perspective distortion".
+- Custom prompt is for extra camera language ("eye-level, 35mm equivalent, slight upward tilt revealing ceiling beams"), extra anti-collapse language, or a tile-ordering reminder.
 - Do NOT write actor blocking, weather of a specific scene, or one-shot props into the ref image. That belongs on a node prompt, not on the location record.
-- Do NOT write characters, figures, or people into any location ref. Location sheets are empty — \`buildLocationRefImagePrompt\` forces "No characters, no people, no figures, empty scene, environment only"; keep any custom prompt aligned with that rule.
+- Do NOT write characters, figures, or people into any location ref. Location sheets are empty — keep any custom prompt aligned with that rule.
 
 Quality language — prefer process vocabulary:
 - Surface: "cracked plaster", "lichen-stained stone", "rain-darkened wood", "sun-bleached concrete". Not "weathered".
@@ -130,16 +130,16 @@ Quality language — prefer process vocabulary:
 Word budget (custom prompt, if any): 40-120 words.
 
 Common pitfalls — stop and fix if you catch any:
-- Time-of-day drift across the slot set → explicitly lock \`timeOfDay\` on the record, then echo it in every custom prompt.
-- Random character appears → add "no characters, no people, no figures" and run \`location.deleteRefImage\` on the bad slot before retrying.
-- Wide-establishing shows only a hero wall → add "full environment visible, reveal entry path and far boundary".
-- Atmosphere slot ends up a realistic wide → add "atmosphere study, light and weather are the subject, environment recedes".
-- Overhead becomes a perspective oblique → demand "orthographic top-down, no perspective distortion, camera looking straight down".
+- Bible collapses to a single wide shot → reinforce "five tiles on one sheet, top half wide-establishing, bottom half four equal tiles, clearly separated".
+- fake-360 drifts in time-of-day / weather between panels → lock \`timeOfDay\` + \`weather\` on the record and echo in the custom prompt.
+- Random character appears → add "no characters, no people, no figures" and run \`location.deleteRefImage\` on the bad sheet before retrying.
+- Wide-establishing tile shows only a hero wall → add "full environment visible, reveal entry path and far boundary".
+- Atmosphere tile becomes a realistic wide → add "atmosphere tile: light and weather are the subject, environment recedes".
 
 After generation:
 - Promote the best result via \`location.setRefImageFromNode\` (from a canvas node) or \`location.setRefImage\` (from a variant).
 - If results miss, describe the failure in one line and regenerate with corrective language. Do not retry blindly.
-- When re-architecting a location (palette shift, renovation story beat), update the record first with \`location.update\`, then regenerate \`main\` and any slot whose architecture read now mismatches.`,
+- When re-architecting a location (palette shift, renovation story beat), update the record first with \`location.update\`, then regenerate \`bible\`. Re-run \`fake-360\` / \`extra-angle\` only if they now mismatch.`,
   ),
   defineProcessPrompt(
     'equipment-ref-image-generation',
@@ -148,28 +148,27 @@ After generation:
     `Equipment reference images prove the object's silhouette, controls, materials, and handling. Treat the item as the subject. Environment mood never buries the form.
 
 Workflow — always, in order:
-1. Read the equipment record and its existing ref slots.
-2. Pick ONE slot per call. Slot vocabulary: \`main\`, \`front\`, \`back\`, \`left-side\`, \`right-side\`, \`detail-closeup\`, \`in-use\`. Prefer canonical names.
-3. Decide what this slot must prove. Use the table below.
-4. Call \`equipment.generateRefImage\` with \`{ equipmentId, slot }\`. Omit \`prompt\` and let \`buildPrompt\` compile from \`description\`, \`function\`, \`material\`, \`color\`, \`condition\`, \`visualDetails\`, \`subtype\`, \`tags\` unless the record lacks a specific piece of info you need.
-5. Call ONE at a time. Verify success before starting the next slot.
+1. Read the equipment record and its existing reference image.
+2. Each equipment entry has ONE reference-image slot: \`ortho-grid\`. There is no separate \`main\`, \`front\`, \`back\`, or per-side slot — the single sheet bundles every orthographic view plus a detail callout into one composite. Rare custom needs (action shot, macro of a specific part) live under \`extra-angle\` with a free-form angle string; they do not replace the ortho-grid.
+3. Call \`equipment.generateRefImage\` with \`{ equipmentId }\` (the view defaults to \`ortho-grid\`). Omit \`prompt\` and let \`buildPrompt\` compile from \`description\`, \`function\`, \`material\`, \`color\`, \`condition\`, \`visualDetails\`, \`subtype\`, \`tags\` unless the record lacks a specific piece of info you need.
+4. Call ONE at a time. Verify success before triggering any follow-up.
 
-Slot → goal table:
-- \`main\` / \`front\` — orthographic front; straight-on angle; full item visible; centered composition; default reference. Portrait framing (2:3) by default.
-- \`back\` — orthographic back; rear details (sights, clasps, straps, hidden controls) readable.
-- \`left-side\` / \`right-side\` — pure profile; silhouette clarity; scale control lines readable.
-- \`detail-closeup\` — extreme macro; shallow DoF; fine surface textures, engravings, mechanical joints, wear marks; scale indicator if ambiguous.
-- \`in-use\` — contextual action shot; generic human silhouette or anonymous hand ONLY for scale/grip reference; item is still the subject; minimal background.
+Sheet layout (what the generator produces and what any custom prompt must respect):
+- Exactly two rows × two columns = four panels, plus one optional fifth inset for a detail close-up. All panels at identical scale.
+- True orthographic projection in every panel — no perspective vanishing points, no camera tilt.
+- Panels: top-left front, top-right back, bottom-left left profile, bottom-right right profile. Optional detail-closeup inset overlaps the bottom-right corner only if the record's \`visualDetails\` calls for it.
+- Solid white background, flat even studio lighting, single object, no environment, no hand/body unless needed for scale (use an anonymous neutral silhouette if scale is genuinely ambiguous).
+- Keep the panel count at four (plus the optional inset). Asking for six or more panels collapses to a single hero render.
 
-Decision tree — which slot to build first?
-- Brand-new equipment → \`main\` / \`front\` first; silhouette must lock before anything else.
-- Silhouette is clean but material reads wrong in node generations → add \`detail-closeup\` so downstream prompts can reference the macro surface.
-- Hero shots keep losing scale or grip → add \`in-use\`. Keep the human silhouette anonymous.
-- Pipeline needs to model or kit-bash the object → add \`back\` + both profiles so the orthographic set is complete.
+When to regenerate vs leave alone:
+- Silhouette is wrong, proportions drifted, wrong color palette, or a panel is missing → regenerate.
+- Record just changed (material, condition, subtype) → regenerate so downstream nodes see the new identity.
+- Pipeline needs a contextual action shot or a macro not captured on the ortho-grid → generate an \`extra-angle\` sheet, do NOT regenerate the ortho-grid.
+- Ortho-grid reads clean → leave it alone. It is the identity anchor.
 
 What to write (custom prompt) vs what to let the record carry:
-- Put durable object identity in the record: \`function\`, \`material\`, \`color\`, \`condition\`, \`visualDetails\`, \`subtype\`, \`tags\`.
-- Custom prompt is for slot-specific camera and lighting choices, scale indicators, or a specific handling posture for \`in-use\`.
+- Put durable object identity in the record: \`function\`, \`material\`, \`color\`, \`condition\`, \`visualDetails\`, \`subtype\`, \`tags\`. \`buildPrompt\` appends them automatically.
+- Custom prompt is for extra anti-collapse language, a scale indicator, or a specific camera/lighting tweak.
 - Do NOT write story context, owner identity, or environment drama into a ref image. Those belong on the node prompt for scene shots.
 - Do NOT copy record fields into the custom prompt text — \`buildPrompt\` has already appended them.
 
@@ -182,16 +181,16 @@ Quality language — prefer process vocabulary:
 Word budget (custom prompt, if any): 40-120 words.
 
 Common pitfalls — stop and fix if you catch any:
+- Sheet collapses to a single hero render → reinforce "two rows, two columns, four orthographic panels, do NOT merge into one image".
 - Background leaks in → demand "solid white background, no environment, no scene".
 - Multiple objects appear → demand "single object, solo subject".
-- Scale unclear on \`in-use\` → add "hand or silhouette at known scale, keep item as the subject, hand is anonymous and unlit".
-- Macro slot loses silhouette context → add a small callout: "inset thumbnail showing full object for context at top-right corner" (optional, provider permitting).
 - Orthographic shots show perspective distortion → demand "true orthographic projection, no vanishing points, no camera perspective".
+- Scale unclear → add "anonymous neutral silhouette at known scale beside the front panel, keep item as the subject".
 
 After generation:
 - Promote via \`equipment.setRefImageFromNode\` or \`equipment.setRefImage\`.
-- If silhouette is broken, regenerate \`main\` before re-running any other slot. Every other slot leans on \`main\` reading correctly.
-- If material read is the failure, regenerate \`detail-closeup\` with corrective material language rather than throwing more adjectives at \`main\`.`,
+- If silhouette is broken, regenerate the ortho-grid before triggering downstream node generations. Every scene shot leans on this sheet reading correctly.
+- If the failure is a specific macro detail, generate an \`extra-angle\` close-up rather than regenerating the whole ortho-grid.`,
   ),
   defineProcessPrompt(
     'image-node-generation',
@@ -1769,49 +1768,118 @@ Verification after locking:
 - \`canvas.getSettings\` returns the exact string you wrote.
 - The originally requested ref-image tool now runs with the plate prepended (check \`stylePlateUsed: true\` in the result).`,
   ),
-];
+  defineProcessPrompt(
+    'entities-before-generation',
+    'Entities Before Generation',
+    'Triggered on early steps when a visual-generation tool is pending. Reminds Commander to verify that referenced entities have reference images before generating scene visuals.',
+    `One or more referenced entities may not have reference images yet. Before generating scene images or video, verify that every attached character, location, and equipment entity has a usable reference image.
 
-const LEGACY_PROCESS_PROMPT_SPLITS = [
-  {
-    legacyKey: 'ref-image-generation',
-    replacementKeys: [
-      'character-ref-image-generation',
-      'location-ref-image-generation',
-      'equipment-ref-image-generation',
-    ],
-  },
-  {
-    legacyKey: 'entity-management',
-    replacementKeys: ['character-management', 'location-management', 'equipment-management'],
-  },
-  {
-    legacyKey: 'preset-and-style',
-    replacementKeys: [
-      'node-preset-tracks',
-      'preset-definition-management',
-      'shot-template-management',
-      'color-style-management',
-    ],
-  },
-  {
-    legacyKey: 'canvas-workflow',
-    replacementKeys: ['canvas-structure', 'canvas-graph-and-layout', 'canvas-node-editing'],
-  },
-  {
-    legacyKey: 'provider-and-config',
-    replacementKeys: [
-      'provider-management',
-      'node-provider-selection',
-      'image-config',
-      'video-config',
-      'audio-config',
-    ],
-  },
-  {
-    legacyKey: 'audio-generation',
-    replacementKeys: ['audio-voice', 'audio-music', 'audio-sfx'],
-  },
-] as const;
+Why this matters:
+- Reference images are the identity anchors for the entire pipeline. Scene generation without them produces identity drift that is expensive to correct across dozens of shots.
+- Generating ref images first costs one extra step per entity but saves multiple regeneration passes later.
+
+Checklist — run before your first canvas.generate in this session:
+1. For each character ref attached to the target node(s): call \`character.list\` and check that the character's \`referenceImages\` array contains at least one entry with a non-null asset. If missing, call \`character.generateRefImage\` first.
+2. For each location ref: call \`location.list\` and check the same. If missing, call \`location.generateRefImage\`.
+3. For each equipment ref: call \`equipment.list\` and check the same. If missing, call \`equipment.generateRefImage\`.
+4. Only after all referenced entities have ref images should you proceed with \`canvas.generate\`.
+
+Exceptions:
+- If the user explicitly asks to skip ref-image generation ("just generate the shot, I'll fix refs later"), comply but warn that identity may drift.
+- If the entity is brand new and the user is iterating on its record fields, generating the ref image after the record stabilizes is acceptable.
+- Text-only nodes and audio nodes do not require entity ref images.`,
+  ),
+  defineProcessPrompt(
+    'batch-create-guidance',
+    'Batch Create Guidance',
+    'Triggered when canvas.batchCreate is called with more than 5 nodes. Provides structural guidance for large batch operations.',
+    `You are about to batch-create a large number of nodes. Large batches benefit from deliberate structure — without it, the canvas becomes a disorganized pile that is hard to navigate and harder to edit.
+
+Structural guidance for large batches (>5 nodes):
+1. Group nodes by scene or sequence. Each scene should form a visual cluster on the canvas — text brief at the top, image nodes below, video nodes chained left-to-right.
+2. Use backdrops for scene containers. After batch-creating the nodes, call \`canvas.updateBackdrop\` to group each scene's nodes under a labeled backdrop (scene title, act number). This makes the canvas navigable.
+3. Set proper edge flow between sequential shots. Image → video (first-frame), video → image (last-frame for next shot). Do not leave nodes disconnected — orphan nodes miss context during generation.
+4. Apply shot templates for consistent quality. If the project has established shot templates (check \`shotTemplate.list\`), apply them to new nodes via \`canvas.applyShotTemplate\` rather than manually setting preset tracks on each node.
+5. Consider splitting into multiple batch calls if creating >20 nodes. A single batch with 30+ nodes is atomic but harder to debug if something goes wrong. Two batches of 15 with a verification step in between is safer.
+6. After the batch completes, call \`canvas.layout\` to auto-arrange the graph so the director can visually scan the structure.
+7. Set entity refs (\`canvas.setNodeRefs\`) on the new nodes in a follow-up pass — batch-create supports inline refs via characterIds/locationIds/equipmentIds, but a dedicated pass lets you verify IDs first.`,
+  ),
+  defineProcessPrompt(
+    'prompt-quality-gate',
+    'Prompt Quality Gate',
+    'Triggered when canvas.generate is called. Reminds Commander to verify and expand thin prompts before committing to generation.',
+    `Before generating: verify that the target node has a detailed, actionable prompt. Short or empty prompts produce generic results that waste generation tokens and require regeneration.
+
+Quick check:
+1. Call \`canvas.getNode\` on the target node.
+2. Read the \`prompt\` field.
+3. If the prompt is missing, empty, or under ~20 characters, STOP and expand it before generating.
+
+What a good prompt includes (for image nodes):
+- Subject: who or what is in the frame, identifying marks, pose or state.
+- Environment: concrete place, time, visible ground plane and surroundings.
+- Lighting: directional, colored, with interaction ("low-angle afternoon sun slicing through louvers").
+- Composition: framing, camera distance, lens feel, focal anchor.
+- Mood: one or two words anchoring the emotional register.
+
+What a good prompt includes (for video nodes):
+- Camera move: one move only (dolly in, pan left, tracking, static).
+- Subject action: concrete verbs in present tense.
+- Beat resolution: how the shot ends.
+
+What to do if the prompt is thin:
+- Use \`canvas.updateNodes\` to expand the prompt with shot type, angle, lighting, and mood.
+- Check \`canvas.readNodePresetTracks\` — if preset tracks already carry camera/lens/look direction, the prompt can be shorter because presets handle those layers.
+- Check attached entity refs — if character/location refs are attached, the prompt does not need to re-describe identity; focus on action and environment.
+- Use \`canvas.previewPrompt\` to see the full compiled prompt (node text + refs + presets + text edges) before generating.`,
+  ),
+  defineProcessPrompt(
+    'story-workflow-phase',
+    'Story Workflow Phase',
+    'Triggered when workflow-orchestration is active. Reinforces phase-gate discipline for the story-to-video pipeline.',
+    `You are in a story-to-video workflow. The pipeline has strict phase gates — skipping phases or reordering them produces cascading quality failures that are expensive to fix.
+
+Phase gates — follow in order, stop at each boundary for user confirmation:
+
+Phase 1: Outline
+- Expand the story concept into scenes.
+- Create text nodes for each scene on the canvas.
+- STOP. Present the outline to the user. Do not proceed until approved.
+
+Phase 2: Entity extraction
+- Identify recurring characters, locations, and equipment from the scene summaries.
+- Create entity records (character.create, location.create, equipment.create).
+- Merge duplicates — one shared entity beats per-scene copies.
+- STOP. Present the entity list. Do not proceed until approved.
+
+Phase 3: Canvas structure
+- Create image and video nodes for each scene.
+- Set prompts, preset tracks, and entity refs.
+- Connect nodes with proper edge flow (text → image → video chains).
+- STOP. Present the canvas structure. Do not proceed until approved.
+
+Phase 4: Reference images
+- Generate ref images for EVERY character, location, and equipment entity.
+- Do this BEFORE generating any scene images. Ref images are identity anchors.
+- One at a time. Verify each before moving on.
+- STOP. Present ref images. Do not proceed until approved.
+
+Phase 5: Scene images (first/last frames)
+- Generate image nodes. Verify quality. Select best variants.
+- STOP. Present scene images. Do not proceed until approved.
+
+Phase 6: Video generation + final render
+- Set video frame anchors (canvas.setVideoFrames).
+- Generate video nodes. Verify motion coherence.
+- Run render.start for the final cut.
+
+Hard rules:
+- Never generate scene images before all referenced entity ref images are complete.
+- Never skip user confirmation at phase boundaries.
+- Between phases, run canvas.estimateCost for the next phase and present the estimate.
+- If a phase partially fails, fix in place — do not restart the whole pipeline.`,
+  ),
+];
 
 export class ProcessPromptStore {
   private db: BetterSqlite3.Database;
@@ -1829,7 +1897,6 @@ export class ProcessPromptStore {
     // through `this.get` / `this.repo`.
     this.repo = new ProcessPromptRepository(this.db);
     this.seedDefaults(PROCESS_PROMPT_DEFAULTS);
-    this.migrateLegacyProcessPrompts();
   }
 
   private init(): void {
@@ -1882,46 +1949,10 @@ export class ProcessPromptStore {
     seedMany(defaults);
   }
 
-  private migrateLegacyProcessPrompts(): void {
-    const copyCustomValue = this.db.prepare(`
-      UPDATE process_prompts
-      SET custom_value = COALESCE(custom_value, ?), updated_at = ?
-      WHERE process_key = ?
-    `);
-    const deleteLegacy = this.db.prepare(`
-      DELETE FROM process_prompts
-      WHERE process_key = ?
-    `);
-
-    const migrate = this.db.transaction(() => {
-      for (const entry of LEGACY_PROCESS_PROMPT_SPLITS) {
-        // Legacy keys bypass brand validation — they exist only in old DBs.
-        const legacy = this.get(entry.legacyKey);
-        if (!legacy) continue;
-
-        if (legacy.customValue !== null) {
-          const now = Date.now();
-          for (const replacementKey of entry.replacementKeys) {
-            copyCustomValue.run(legacy.customValue, now, replacementKey);
-          }
-        }
-
-        deleteLegacy.run(entry.legacyKey);
-      }
-    });
-
-    migrate();
-  }
-
   list(): ProcessPromptRecord[] {
     return this.repo.list().rows;
   }
 
-  /**
-   * Looks up a process prompt by key. Accepts raw string for back-compat with
-   * IPC handlers + legacy migration; the typed path (`ProcessPromptRepository`)
-   * enforces the brand at compile time.
-   */
   get(processKey: string): ProcessPromptRecord | null {
     return this.repo.get(processKey as ProcessPromptKey);
   }

@@ -116,7 +116,7 @@ describe('Settings updater UI', () => {
       expect(screen.getAllByText('Guides').length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: 'Add Template' })).toBeTruthy();
       expect(screen.getByText('Meta-Prompt (AI Instructor)')).toBeTruthy();
-      expect(screen.getByText('Story Idea → Video')).toBeTruthy();
+      expect(screen.getByText('Novel/Book → Video')).toBeTruthy();
     });
   });
 
@@ -305,7 +305,6 @@ describe('Settings updater UI', () => {
     await waitFor(() => {
       expect(screen.getByText('工作流与技能')).toBeTruthy();
       expect(screen.getByText('专门管理工作流和技能的空间。')).toBeTruthy();
-      expect(screen.getByText('故事创意 → 视频')).toBeTruthy();
       expect(screen.getByText('小说/书籍 → 视频')).toBeTruthy();
       expect(screen.getAllByText('工作流').length).toBeGreaterThan(0);
       expect(screen.getAllByText('内置').length).toBeGreaterThan(0);
@@ -370,8 +369,8 @@ describe('Settings updater UI', () => {
     await waitFor(() => {
       expect(screen.getAllByText(t('settings.guides.title')).length).toBeGreaterThan(0);
       expect(screen.getByText(t('settings.guides.subtitle'))).toBeTruthy();
-      expect(screen.getByText('Video Clone → Remake')).toBeTruthy();
-      expect(screen.getByText('Reverse Prompt Inference')).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.wf-video-clone'))).toBeTruthy();
+      expect(screen.getByText(t('workflowDefinitionNames.sk-reverse-prompt'))).toBeTruthy();
       expect(screen.getAllByText(t('settings.builtIn')).length).toBeGreaterThan(0);
     });
   });

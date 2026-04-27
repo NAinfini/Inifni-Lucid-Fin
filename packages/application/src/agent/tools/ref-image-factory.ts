@@ -178,10 +178,10 @@ export function createRefImageTools<T extends RefImageEntity, V>(
             finalPrompt = `${finalPrompt}\n\nAvoid: ${negativePrompt}`;
           }
 
-          // Canvas-scoped defaultResolution overrides factory defaults when set;
+          // Canvas-scoped refResolution overrides factory defaults when set;
           // explicit width/height args still take top priority.
-          const resolvedDefaultWidth  = canvasSettings?.defaultResolution?.width  ?? defaultWidth;
-          const resolvedDefaultHeight = canvasSettings?.defaultResolution?.height ?? defaultHeight;
+          const resolvedDefaultWidth  = canvasSettings?.refResolution?.width  ?? defaultWidth;
+          const resolvedDefaultHeight = canvasSettings?.refResolution?.height ?? defaultHeight;
           const reqWidth  = typeof args.width  === 'number' && args.width  > 0 ? args.width  : resolvedDefaultWidth;
           const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : resolvedDefaultHeight;
 

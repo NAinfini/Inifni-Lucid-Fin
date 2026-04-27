@@ -38,4 +38,16 @@ describe('formatToolName', () => {
     };
     expect(formatToolName('canvas.addNode', t)).toBe('Canvas: Add Node');
   });
+
+  it('normalizes LLM wire-format snake_case tool names', () => {
+    // OpenAI Responses / Claude rewrite `.` to `_` in function names;
+    // the UI may see the wire-format name before orchestrator remapping.
+    const t = (key: string) => {
+      if (key === 'commander.toolDomain.commander') return 'Commander';
+      if (key === 'commander.toolAction.askUser') return 'Ask User';
+      return key;
+    };
+    expect(formatToolName('commander_ask_user', t)).toBe('Commander: Ask User');
+    expect(formatToolName('commander.askUser', t)).toBe('Commander: Ask User');
+  });
 });

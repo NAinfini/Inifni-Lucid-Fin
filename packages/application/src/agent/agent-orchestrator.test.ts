@@ -65,11 +65,11 @@ describe('AgentOrchestrator', () => {
 
     expect(result.content).toBe('Hello!');
     expect(result.toolCalls).toHaveLength(0);
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'done')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(true);
     expect(
       events.some(
         (e: unknown) =>
-          (e as Record<string, unknown>).kind === 'chunk' &&
+          (e as Record<string, unknown>).kind === 'assistant_text' &&
           (e as Record<string, unknown>).content === 'Hello!',
       ),
     ).toBe(true);
@@ -106,7 +106,7 @@ describe('AgentOrchestrator', () => {
 
     expect(mockTool).toHaveBeenCalled();
     expect(result.content).toBe('Found 5 characters.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_call_started')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_call')).toBe(true);
     expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_result')).toBe(true);
   });
 
@@ -141,7 +141,14 @@ describe('AgentOrchestrator', () => {
     });
 
     expect(result.content).toBe('Tool failed, sorry.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'error' && (e as Record<string, unknown>).error === 'boom')).toBe(true);
+    expect(
+      events.some((e: unknown) => {
+        const ev = e as Record<string, unknown>;
+        if (ev.kind !== 'tool_result') return false;
+        const err = ev.error as { params?: { message?: unknown } } | undefined;
+        return err?.params?.message === 'boom';
+      }),
+    ).toBe(true);
   });
 
   it('respects maxSteps limit', async () => {
@@ -347,7 +354,7 @@ describe('AgentOrchestrator', () => {
     expect(result.content).toBe('Cancelled.');
     expect((adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
     expect(events.at(-1)).toEqual(
-      expect.objectContaining({ kind: 'done', content: 'Cancelled.' }),
+      expect.objectContaining({ kind: 'run_end', status: 'cancelled' }),
     );
   });
 
@@ -641,7 +648,7 @@ describe('AgentOrchestrator', () => {
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({
         success: true,
-        data: { name: 'character.list', description: 'List characters', parameters: { type: 'object', properties: {}, required: [] } },
+        data: { name: 'series.addEpisode', description: 'Add an episode to a series', parameters: { type: 'object', properties: {}, required: [] } },
       })),
     });
     toolRegistry.register({
@@ -687,10 +694,10 @@ describe('AgentOrchestrator', () => {
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
 
-    // Register a tool that is NOT always-loaded
+    // Register a tool that is NOT always-loaded or contextually-loaded
     toolRegistry.register({
-      name: 'character.list',
-      description: 'List characters',
+      name: 'series.addEpisode',
+      description: 'Add an episode to a series',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
@@ -699,12 +706,12 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-get', name: 'tool.get', arguments: { names: 'character.list' } }],
+        toolCalls: [{ id: 'tc-get', name: 'tool.get', arguments: { names: 'series.addEpisode' } }],
         finishReason: 'tool_calls',
       },
       {
         content: '',
-        toolCalls: [{ id: 'tc-use', name: 'character.list', arguments: {} }],
+        toolCalls: [{ id: 'tc-use', name: 'series.addEpisode', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -715,23 +722,22 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('list characters', { page: 'canvas' }, () => {});
+    await agent.execute('add episode', { page: 'canvas' }, () => {});
 
-    // First call: only always-loaded tools (8)
+    // First call: always-loaded + contextually-selected tools
     const firstOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
       tools: Array<{ name: string }>;
     };
     const firstToolNames = firstOpts.tools.map((t) => t.name);
-    expect(firstToolNames).not.toContain('character.list');
+    expect(firstToolNames).not.toContain('series.addEpisode');
     expect(firstToolNames).toContain('tool.get');
     expect(firstToolNames).toContain('canvas.getState');
-    expect(firstToolNames.length).toBe(6);
 
-    // Second call: character.list now available after tool.get
+    // Second call: series.addEpisode now available after tool.get
     const secondOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][1] as {
       tools: Array<{ name: string }>;
     };
-    expect(secondOpts.tools.map((t) => t.name)).toContain('character.list');
+    expect(secondOpts.tools.map((t) => t.name)).toContain('series.addEpisode');
   });
 
   it('returns error when calling an unloaded tool', async () => {
@@ -750,8 +756,8 @@ describe('AgentOrchestrator', () => {
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
     toolRegistry.register({
-      name: 'character.list',
-      description: 'List characters',
+      name: 'series.addEpisode',
+      description: 'Add an episode to a series',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: [] })),
@@ -760,7 +766,7 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-blocked', name: 'character.list', arguments: {} }],
+        toolCalls: [{ id: 'tc-blocked', name: 'series.addEpisode', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -772,20 +778,29 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: Array<Record<string, unknown>> = [];
-    await agent.execute('list characters', {}, (e) => events.push(e as unknown as Record<string, unknown>));
+    await agent.execute('add an episode', {}, (e) => events.push(e as unknown as Record<string, unknown>));
 
     // Tool should NOT have been executed
-    expect(toolRegistry.get('character.list')!.execute).not.toHaveBeenCalled();
+    expect(toolRegistry.get('series.addEpisode')!.execute).not.toHaveBeenCalled();
 
-    // Should have emitted a tool_result event with the error
+    // Should have emitted a tool_result event with the error. v2 tool_result
+    // has no toolName — match via toolCallId against the preceding tool_call.
+    const toolCallIds = new Set(
+      events
+        .filter((e) => e.kind === 'tool_call')
+        .filter((e) => {
+          const ref = e.toolRef as { domain?: string; action?: string } | undefined;
+          return ref && `${ref.domain}.${ref.action}` === 'series.addEpisode';
+        })
+        .map((e) => e.toolCallId),
+    );
     const toolResultEvent = events.find(
-      (e) => e.kind === 'tool_result' && e.toolName === 'character.list',
+      (e) => e.kind === 'tool_result' && toolCallIds.has(e.toolCallId),
     );
     expect(toolResultEvent).toBeDefined();
-    const result = toolResultEvent?.result as { success: boolean; error: string };
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Tool 'character.list' exists but is not loaded");
-    expect(result.error).toContain('tool.get');
+    const err = toolResultEvent?.error as { params?: { message?: string } } | undefined;
+    expect(err?.params?.message).toContain("Tool 'series.addEpisode' exists but is not loaded");
+    expect(err?.params?.message).toContain('tool.get');
   });
 
   it('injects a process-bound system prompt after a matching tool call', async () => {
@@ -824,18 +839,12 @@ describe('AgentOrchestrator', () => {
       content: string;
     }>;
 
-    expect(secondCallMessages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          role: 'system',
-          content: expect.stringContaining('[[process-prompt:character-ref-image-generation]]'),
-        }),
-        expect.objectContaining({
-          role: 'system',
-          content: expect.stringContaining('[Process Guide: Character Reference Image Generation]'),
-        }),
-      ]),
-    );
+    // 1I: Process prompts are now consolidated into the system prompt
+    // (messages[0]) rather than injected as separate system messages.
+    const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
+    expect(systemPrompt).toContain('character-ref-image-generation');
+    expect(systemPrompt).toContain('Character Reference Image Generation');
+    expect(systemPrompt).toContain('Ref image rules go here.');
   });
 
   it('injects initial process prompts before the first LLM call when context requests them', async () => {
@@ -856,14 +865,10 @@ describe('AgentOrchestrator', () => {
       content: string;
     }>;
 
-    expect(firstCallMessages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          role: 'system',
-          content: expect.stringContaining('[[process-prompt:image-node-generation]]'),
-        }),
-      ]),
-    );
+    // 1I: Process prompts are now consolidated into the system prompt.
+    const systemPrompt = firstCallMessages.find((m) => m.role === 'system')?.content ?? '';
+    expect(systemPrompt).toContain('image-node-generation');
+    expect(systemPrompt).toContain('Image prompt rules.');
   });
 
   it('deduplicates and later strips inactive process prompts', async () => {
@@ -936,24 +941,18 @@ describe('AgentOrchestrator', () => {
       role: string;
       content: string;
     }>;
-    const injectedSystemMessages = thirdCallMessages.filter(
-      (message) =>
-        message.role === 'system' &&
-        message.content.includes('[[process-prompt:canvas-structure]]'),
-    );
-    expect(injectedSystemMessages).toHaveLength(1);
+    // 1I: Process prompt is now consolidated into the system prompt.
+    const thirdSystemPrompt = thirdCallMessages.find((m) => m.role === 'system')?.content ?? '';
+    expect(thirdSystemPrompt).toContain('canvas-structure');
+    expect(thirdSystemPrompt).toContain('Canvas structure rules.');
 
     const sixthCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[5][0] as Array<{
       role: string;
       content: string;
     }>;
-    expect(
-      sixthCallMessages.some(
-        (message) =>
-          message.role === 'system' &&
-          message.content.includes('[[process-prompt:canvas-structure]]'),
-      ),
-    ).toBe(false);
+    // After inactivity, the process prompt should be stripped.
+    const sixthSystemPrompt = sixthCallMessages.find((m) => m.role === 'system')?.content ?? '';
+    expect(sixthSystemPrompt).not.toContain('canvas-structure');
   });
 
   // ── ContextGraph path (openai adapter) ───
@@ -983,7 +982,7 @@ describe('AgentOrchestrator', () => {
     const result = await agent.execute('Hello from graph path', {}, (e) => events.push(e));
 
     expect(result.content).toBe('Graph path response.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'done')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(true);
 
     // Verify the LLM adapter was invoked with a non-empty messages array
     // and that the first kept message is a system prompt.
@@ -1026,7 +1025,7 @@ describe('AgentOrchestrator', () => {
     const result = await agent.execute('Hello Claude', {}, (e) => events.push(e));
 
     expect(result.content).toBe('Claude graph response.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'done')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(true);
     expect(capturedRequests.length).toBeGreaterThan(0);
     const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
     expect(firstRequest[0]!.role).toBe('system');
@@ -1322,7 +1321,7 @@ describe('AgentOrchestrator', () => {
       expect(callCount).toBe(2);
       const retryNotes = emits.filter((e) => e.kind === 'phase_note' && e.note === 'llm_retry');
       expect(retryNotes).toHaveLength(1);
-      expect(String(retryNotes[0].detail)).toMatch(/attempt 2 of 3 after \d+ms/);
+      expect(String((retryNotes[0].params as Record<string, unknown>).detail)).toMatch(/attempt 2 of 3 after \d+ms/);
       vi.restoreAllMocks();
     });
 
@@ -1375,7 +1374,7 @@ describe('AgentOrchestrator', () => {
       expect(sawSignal).toBeDefined();
       const retryNotes = emits.filter((e) => e.kind === 'phase_note' && e.note === 'llm_retry');
       expect(retryNotes).toHaveLength(1);
-      expect(String(retryNotes[0].detail)).toContain('step_cancel');
+      expect(String((retryNotes[0].params as Record<string, unknown>).detail)).toContain('step_cancel');
       vi.restoreAllMocks();
     });
 
@@ -1420,14 +1419,10 @@ describe('AgentOrchestrator', () => {
         content: string;
       }>;
 
-      expect(firstCallMessages).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            role: 'system',
-            content: expect.stringContaining('[[process-prompt:style-plate-lock]]'),
-          }),
-        ]),
-      );
+      // 1I: Process prompts are now consolidated into the system prompt.
+      const systemPrompt = firstCallMessages.find((m) => m.role === 'system')?.content ?? '';
+      expect(systemPrompt).toContain('style-plate-lock');
+      expect(systemPrompt).toContain('Lock the plate before ref-images.');
     });
 
     it('Bug B — injects style-plate-lock pre-flight when canvas.batchCreate includes an image node and stylePlate is empty', async () => {
@@ -1464,14 +1459,10 @@ describe('AgentOrchestrator', () => {
         role: string;
         content: string;
       }>;
-      expect(secondCallMessages).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            role: 'system',
-            content: expect.stringContaining('[[process-prompt:style-plate-lock]]'),
-          }),
-        ]),
-      );
+      // 1I: Process prompts are now consolidated into the system prompt.
+      const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
+      expect(systemPrompt).toContain('style-plate-lock');
+      expect(systemPrompt).toContain('Lock the plate.');
     });
 
     it('does NOT inject when canvas.batchCreate payload has only text nodes', async () => {
@@ -1628,6 +1619,170 @@ describe('AgentOrchestrator', () => {
         (args) => args[0] === ('style-plate-lock' as never),
       );
       expect(stylePlateCalls).toHaveLength(0);
+    });
+  });
+
+  describe('Phase G — per-turn tool-call dedup', () => {
+    it('short-circuits an identical back-to-back call, emits tool_skipped_dedup, and only executes the original', async () => {
+      const mockTool = vi.fn(async () => ({ success: true, data: { x: 1 } }));
+      toolRegistry.register({
+        name: 'character.list',
+        description: 'List characters',
+        tier: 1,
+        parameters: { type: 'object', properties: {}, required: [] },
+        execute: mockTool,
+      });
+
+      // Step 1: model calls character.list({}).
+      // Step 2: model calls character.list({}) again with identical args —
+      //         dedup should short-circuit this one.
+      // Step 3: model finishes.
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{ id: 'tc-1', name: 'character.list', arguments: {} }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: '',
+          toolCalls: [{ id: 'tc-2', name: 'character.list', arguments: {} }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: 'done',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const events: Array<Record<string, unknown>> = [];
+      await agent.execute('list', {}, (e) => events.push(e as Record<string, unknown>), {
+        discoveredTools: ['character.list'],
+      });
+
+      // Only the first call actually executes.
+      expect(mockTool).toHaveBeenCalledTimes(1);
+
+      // A tool_skipped_dedup phase_note fired for the second call.
+      const skipNotes = events.filter(
+        (e) => e.kind === 'phase_note' && e.note === 'tool_skipped_dedup',
+      );
+      expect(skipNotes).toHaveLength(1);
+      const params = skipNotes[0]!.params as Record<string, unknown>;
+      expect(params.toolDomain).toBe('character');
+      expect(params.toolAction).toBe('list');
+      expect(params.priorWasError).toBe(false);
+
+      // A synthetic skipped tool_result was emitted for tc-2.
+      const skippedResults = events.filter(
+        (e) => e.kind === 'tool_result' && (e as Record<string, unknown>).skipped === true,
+      );
+      expect(skippedResults).toHaveLength(1);
+      expect((skippedResults[0] as Record<string, unknown>).toolCallId).toBe('tc-2');
+      expect((skippedResults[0] as Record<string, unknown>).synthetic).toBe(true);
+    });
+
+    it('does not short-circuit when args differ', async () => {
+      const mockTool = vi.fn(async (args: unknown) => ({ success: true, data: args }));
+      toolRegistry.register({
+        name: 'character.get',
+        description: 'Get character',
+        tier: 1,
+        parameters: {
+          type: 'object',
+          properties: { id: { type: 'string' } },
+          required: ['id'],
+        },
+        execute: mockTool,
+      });
+
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{ id: 'tc-1', name: 'character.get', arguments: { id: 'a' } }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: '',
+          toolCalls: [{ id: 'tc-2', name: 'character.get', arguments: { id: 'b' } }],
+          finishReason: 'tool_calls',
+        },
+        { content: 'done', toolCalls: [], finishReason: 'stop' },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const events: Array<Record<string, unknown>> = [];
+      await agent.execute('x', {}, (e) => events.push(e as Record<string, unknown>), {
+        discoveredTools: ['character.get'],
+      });
+
+      expect(mockTool).toHaveBeenCalledTimes(2);
+      const skipNotes = events.filter(
+        (e) => e.kind === 'phase_note' && e.note === 'tool_skipped_dedup',
+      );
+      expect(skipNotes).toHaveLength(0);
+    });
+  });
+
+  describe('Phase I — askUser forcing on rogue option-list markdown', () => {
+    it('emits force_ask_user phase_note when model emits A/B/C prose without calling askUser', async () => {
+      toolRegistry.register({
+        name: 'commander.askUser',
+        description: 'Ask user',
+        tier: 1,
+        parameters: {
+          type: 'object',
+          properties: {
+            question: { type: 'string' },
+            options: { type: 'array' },
+          },
+          required: ['question'],
+        },
+        execute: async () => ({ success: true, data: { answer: 'A' } }),
+      });
+
+      const adapter = createMockAdapter([
+        {
+          content:
+            'You could go a couple of ways:\nA. add a character\nB. add an image\nC. set the scene',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const events: Array<Record<string, unknown>> = [];
+      await agent.execute('what next?', {}, (e) => events.push(e as Record<string, unknown>), {
+        discoveredTools: ['commander.askUser'],
+      });
+
+      const forceNotes = events.filter(
+        (e) => e.kind === 'phase_note' && e.note === 'force_ask_user',
+      );
+      expect(forceNotes).toHaveLength(1);
+      expect((forceNotes[0]!.params as Record<string, unknown>).detectedPattern).toBe(
+        'option_list',
+      );
+    });
+
+    it('does not fire force_ask_user when there is no option-list markdown', async () => {
+      const adapter = createMockAdapter([
+        {
+          content: 'Here is a summary of your project state.',
+          toolCalls: [],
+          finishReason: 'stop',
+        },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const events: Array<Record<string, unknown>> = [];
+      await agent.execute('status', {}, (e) => events.push(e as Record<string, unknown>));
+
+      const forceNotes = events.filter(
+        (e) => e.kind === 'phase_note' && e.note === 'force_ask_user',
+      );
+      expect(forceNotes).toHaveLength(0);
     });
   });
 

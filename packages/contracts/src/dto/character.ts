@@ -77,10 +77,12 @@ export function isCharacterReferenceSlotStandard(slot: string | undefined | null
 
 // --- Phase 2 overhaul: view-kind discriminated union ----------------------
 // Replaces ad-hoc `slot` strings with a typed view kind. The `full-sheet`
-// kind packs front/back/side profiles, full-body, AND detailed expressions
-// onto one composed sheet (per Q27). `extra-angle` carries a free-form angle
-// string for rare custom views; the entity still snapshots to a single
-// reference image for each unique (kind, angle) pair.
+// kind packs the full-body turnaround (front / left profile / rear) AND a
+// small expression strip (neutral / happy / angry) onto one composed sheet,
+// with the turnaround row taking ~70% of the sheet height and the expression
+// row ~30%. Everything lives on a single reference image per explicit
+// product requirement. `extra-angle` carries a free-form angle string for
+// rare custom views that the full-sheet does not cover.
 
 export type CharacterRefImageView =
   | { kind: 'full-sheet' }

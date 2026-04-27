@@ -39,6 +39,7 @@ function estimateItemTokens(item: ContextItem, charsPerToken = 4): number {
     case 'guide':
     case 'system-message':
     case 'session-summary':
+    case 'scratchpad':
       return Math.ceil(item.content.length / charsPerToken);
     case 'assistant-turn':
       return Math.ceil((item.content.length + (item.reasoning?.length ?? 0)) / charsPerToken);
@@ -154,6 +155,9 @@ export function evaluate(graph: ContextGraph, policy: CompactionPolicy): Compact
     // system instructions that must reach the model verbatim).
     if (item.kind === 'guide') return true;
     if (item.kind === 'system-message') return true;
+    // Scratchpad items always survive compaction — they carry persistent
+    // state (todo progress, decisions, failure traces) across turns.
+    if (item.kind === 'scratchpad') return true;
     return false;
   }
 

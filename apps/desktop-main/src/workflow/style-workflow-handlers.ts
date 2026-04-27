@@ -268,16 +268,63 @@ async function findConfiguredAdapter(llmRegistry: LLMRegistry): Promise<LLMAdapt
 }
 
 function parseExtractionJson(jsonText: string): Record<string, unknown> {
-  const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  // Walk the string finding brace-balanced candidates instead of relying on
+  // `/\{[\s\S]*\}/`, which greedily spans from the first `{` to the last
+  // `}` — if the model emits "{prelude:1}. final: {...valid...}" the old
+  // pattern returned the whole span and JSON.parse failed. Also handles
+  // fenced ```json blocks by just treating them as more surrounding text.
+  //
+  // Braces that appear inside JSON string literals do not count toward
+  // nesting, so we track string state + escape state while walking.
+  const candidates: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < jsonText.length; i++) {
+    const ch = jsonText[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === '}') {
+      if (depth > 0) {
+        depth -= 1;
+        if (depth === 0 && start !== -1) {
+          candidates.push(jsonText.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+  }
+  if (candidates.length === 0) {
     throw new Error('AI returned invalid response — no JSON found');
   }
-
-  try {
-    return JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-  } catch { /* JSON.parse failed on AI response — propagate a descriptive error */
-    throw new Error('AI returned malformed JSON');
+  // Try each balanced candidate, longest first — the largest balanced
+  // block is most likely the intended payload.
+  candidates.sort((a, b) => b.length - a.length);
+  let lastErr: unknown;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate) as Record<string, unknown>;
+    } catch (err) {
+      lastErr = err;
+    }
   }
+  throw new Error(`AI returned malformed JSON${lastErr instanceof Error ? `: ${lastErr.message}` : ''}`);
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {

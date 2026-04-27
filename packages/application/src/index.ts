@@ -97,8 +97,16 @@ export {
 import './agent/exit-contract/contracts/index.js';
 export { freshRunId } from './agent/agent-run-id.js';
 export { makeStampedEmit } from './agent/stream-emit.js';
+export {
+  coercePhaseNoteCode,
+  inferErrorCodeFromMessage,
+} from './agent/error-inference.js';
 export { detectProcess, getProcessCategoryName, type ProcessCategory } from './agent/process-detection.js';
-export { ContextManager } from './agent/context-manager.js';
+export {
+  ContextManager,
+  selectContextualToolSet,
+  type ToolSelectionInput,
+} from './agent/context-manager.js';
 export { ToolExecutor } from './agent/tool-executor.js';
 export { TranscriptIndex } from './agent/transcript-index.js';
 export { registerAgentTools, type AllToolDeps } from './agent/register-agent-tools.js';

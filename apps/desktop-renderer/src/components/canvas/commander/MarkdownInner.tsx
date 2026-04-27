@@ -1,4 +1,4 @@
-import { memo, useMemo, type ComponentPropsWithoutRef } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, type ComponentPropsWithoutRef } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -49,11 +49,40 @@ function DefaultLinkRenderer({ href, children, ...props }: ComponentPropsWithout
 const remarkPlugins = [remarkGfm, remarkMath];
 const rehypePlugins = [rehypeKatex];
 
+/** Fenced code block with a floating "Copy" button on hover. */
+function CodeBlock({ children, ...props }: ComponentPropsWithoutRef<'pre'>) {
+  const [copied, setCopied] = useState(false);
+  const codeRef = useRef<HTMLPreElement>(null);
+  const handleCopy = useCallback(() => {
+    const text = codeRef.current?.textContent ?? '';
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, []);
+  return (
+    <div className="group/code relative my-2">
+      <pre
+        ref={codeRef}
+        className="commander-codeblock overflow-x-auto rounded-md bg-muted/50 p-3 text-xs"
+        {...props}
+      >
+        {children}
+      </pre>
+      <button
+        type="button"
+        className="absolute right-2 top-2 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover/code:opacity-100 hover:text-foreground"
+        onClick={handleCopy}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
 const baseComponents = {
   a: DefaultLinkRenderer,
-  pre: (props: ComponentPropsWithoutRef<'pre'>) => (
-    <pre className="commander-codeblock my-2 overflow-x-auto rounded-md bg-muted/50 p-3 text-xs" {...props} />
-  ),
+  pre: CodeBlock,
   code: ({ className, children, ...props }: ComponentPropsWithoutRef<'code'>) => {
     const isBlock = className?.startsWith('language-');
     if (isBlock) {

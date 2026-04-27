@@ -6,12 +6,9 @@
  * slice — identical logic, no behavior change.
  */
 
-import { createMessageId, createSegmentId } from './helpers.js';
 import type {
-  CommanderExitDecisionMeta,
   CommanderRunStatus,
   CommanderRunSummary,
-  CommanderState,
   CommanderToolCall,
   MessageSegment,
 } from './types.js';
@@ -73,53 +70,4 @@ export function buildRunSummary(
     failedToolCount,
     durationMs: Math.max(0, completedAt - startedAt),
   };
-}
-
-export function finalizeCurrentRunMessage(
-  state: CommanderState,
-  status: CommanderRunStatus,
-  fallbackContent?: string,
-  errorMessage?: string,
-  exitDecision?: CommanderExitDecisionMeta,
-): void {
-  const content = state.currentStreamContent || fallbackContent || '';
-  const hasSegments = state.currentSegments.length > 0;
-  const hasTools = state.currentToolCalls.length > 0;
-
-  if (!content && !hasTools && !hasSegments && !errorMessage) {
-    return;
-  }
-
-  const completedAt = Date.now();
-  const startedAt = state.currentRunStartedAt ?? completedAt;
-  const segments: MessageSegment[] | undefined = hasSegments
-    ? [...state.currentSegments]
-    : content
-      ? [{ kind: 'text' as const, id: createSegmentId('text'), content }]
-      : undefined;
-
-  state.messages.push({
-    id: createMessageId('assistant'),
-    role: 'assistant',
-    content,
-    runMeta: {
-      status,
-      collapsed: true,
-      startedAt,
-      completedAt,
-      summary: buildRunSummary(
-        status,
-        content,
-        segments,
-        state.currentToolCalls,
-        startedAt,
-        completedAt,
-        errorMessage,
-      ),
-      exitDecision,
-    },
-    segments,
-    toolCalls: hasTools ? [...state.currentToolCalls] : undefined,
-    timestamp: completedAt,
-  });
 }

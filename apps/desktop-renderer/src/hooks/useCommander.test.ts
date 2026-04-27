@@ -21,8 +21,6 @@ vi.mock('../utils/api.js', () => ({
   getAPI: vi.fn(),
 }));
 
-type CommanderStreamEvent = Parameters<Parameters<LucidAPI['commander']['onStream']>[0]>[0];
-
 describe('syncCommanderEntitiesForTool', () => {
   it('refreshes equipment state for equipment tool updates', async () => {
     const list = [{ id: 'eq-1', name: 'Lantern' }] as import('@lucid-fin/contracts').Equipment[];
@@ -160,7 +158,7 @@ describe('useCommander stream completion', () => {
   });
 
   it('persists streamed content when the done event completes the session', async () => {
-    let onStream: ((data: CommanderStreamEvent) => void) | undefined;
+    let onStream: Parameters<LucidAPI['commander']['onStream']>[0] | undefined;
 
     vi.mocked(getAPI).mockReturnValue({
       settings: {
@@ -194,8 +192,8 @@ describe('useCommander stream completion', () => {
     render(React.createElement(Provider, { store, children: React.createElement(HookHarness) }));
 
     await act(async () => {
-      onStream?.({ kind: 'chunk', content: 'Final answer', runId: 'r', step: 1, emittedAt: 0 });
-      onStream?.({ kind: 'done', content: '', runId: 'r', step: 1, emittedAt: 0 });
+      onStream?.({ wireVersion: 2, event: { kind: 'assistant_text', content: 'Final answer', isDelta: false, runId: 'r', step: 1, seq: 0, emittedAt: 0 } });
+      onStream?.({ wireVersion: 2, event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 1, emittedAt: 0 } });
     });
 
     await waitFor(() => {
@@ -418,7 +416,7 @@ describe('useCommander stream completion', () => {
   });
 
   it('captures the auto snapshot only once per session', async () => {
-    let onStream: ((data: CommanderStreamEvent) => void) | undefined;
+    let onStream: Parameters<LucidAPI['commander']['onStream']>[0] | undefined;
     const chat = vi.fn().mockResolvedValue(undefined);
     const capture = vi.fn().mockResolvedValue({
       id: 'snap-1',
@@ -484,7 +482,7 @@ describe('useCommander stream completion', () => {
     });
 
     await act(async () => {
-      onStream?.({ kind: 'done', content: '', runId: 'r', step: 1, emittedAt: 0 });
+      onStream?.({ wireVersion: 2, event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 0, emittedAt: 0 } });
     });
 
     await waitFor(() => {

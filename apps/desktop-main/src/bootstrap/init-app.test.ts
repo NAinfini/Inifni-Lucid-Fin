@@ -24,7 +24,6 @@ import {
   createAdapterRegistry,
   createLLMRegistry,
   restoreAdapterKeys,
-  resolveMediaProviderIds,
   selectConfiguredLLMAdapter,
 } from './init-app.js';
 
@@ -136,47 +135,6 @@ describe('createLLMRegistry', () => {
   });
 });
 
-describe('resolveMediaProviderIds', () => {
-  it('includes both legacy and settings registry ids for renamed media providers', () => {
-    expect(resolveMediaProviderIds('openai-dalle')).toEqual(
-      expect.arrayContaining(['openai-dalle', 'openai-image', 'openai']),
-    );
-    expect(resolveMediaProviderIds('google-imagen3')).toEqual(
-      expect.arrayContaining(['google-imagen3', 'google-image']),
-    );
-    expect(resolveMediaProviderIds('google-veo-2')).toEqual(
-      expect.arrayContaining(['google-veo-2', 'google-video']),
-    );
-    expect(resolveMediaProviderIds('runway-gen4')).toEqual(
-      expect.arrayContaining(['runway-gen4', 'runway']),
-    );
-    expect(resolveMediaProviderIds('luma-ray2')).toEqual(
-      expect.arrayContaining(['luma-ray2', 'luma']),
-    );
-    expect(resolveMediaProviderIds('minimax-video01')).toEqual(
-      expect.arrayContaining(['minimax-video01', 'minimax']),
-    );
-    expect(resolveMediaProviderIds('pika-v2')).toEqual(
-      expect.arrayContaining(['pika-v2', 'pika']),
-    );
-    expect(resolveMediaProviderIds('recraft-v3')).toEqual(
-      expect.arrayContaining(['recraft-v3', 'recraft-v4', 'recraft']),
-    );
-    expect(resolveMediaProviderIds('openai-tts-1-hd')).toEqual(
-      expect.arrayContaining(['openai-tts-1-hd', 'openai-tts', 'openai']),
-    );
-    expect(resolveMediaProviderIds('cartesia-sonic')).toEqual(
-      expect.arrayContaining(['cartesia-sonic', 'cartesia']),
-    );
-    expect(resolveMediaProviderIds('playht-3')).toEqual(
-      expect.arrayContaining(['playht-3', 'playht']),
-    );
-    expect(resolveMediaProviderIds('fish-audio-v1')).toEqual(
-      expect.arrayContaining(['fish-audio-v1', 'fish-audio']),
-    );
-  });
-});
-
 describe('restoreAdapterKeys', () => {
   it('restores media keys saved under registry ids onto the registered adapters', async () => {
     const registry = createAdapterRegistry();
@@ -209,11 +167,12 @@ describe('restoreAdapterKeys', () => {
       getKey: vi.fn(async (provider: string) => {
         return (
           {
-            openai: 'sk-openai',
-            'google-image': 'sk-google',
-            'google-video': 'sk-google',
-            recraft: 'sk-recraft',
-            elevenlabs: 'sk-elevenlabs',
+            'openai-dalle': 'sk-openai-image',
+            'google-imagen3': 'sk-google-image',
+            'google-veo-2': 'sk-google-video',
+            'recraft-v3': 'sk-recraft',
+            'elevenlabs-v2': 'sk-elevenlabs',
+            'openai-tts-1-hd': 'sk-openai-tts',
             deepseek: 'sk-deepseek',
           }[provider] ?? null
         );
@@ -222,12 +181,12 @@ describe('restoreAdapterKeys', () => {
 
     await restoreAdapterKeys(keychain, registry, llmRegistry);
 
-    expect(openaiConfigure).toHaveBeenCalledWith('sk-openai');
-    expect(googleImageConfigure).toHaveBeenCalledWith('sk-google');
-    expect(googleVideoConfigure).toHaveBeenCalledWith('sk-google');
+    expect(openaiConfigure).toHaveBeenCalledWith('sk-openai-image');
+    expect(googleImageConfigure).toHaveBeenCalledWith('sk-google-image');
+    expect(googleVideoConfigure).toHaveBeenCalledWith('sk-google-video');
     expect(recraftConfigure).toHaveBeenCalledWith('sk-recraft');
     expect(elevenlabsConfigure).toHaveBeenCalledWith('sk-elevenlabs');
-    expect(openAITtsConfigure).toHaveBeenCalledWith('sk-openai');
+    expect(openAITtsConfigure).toHaveBeenCalledWith('sk-openai-tts');
     expect(deepSeekConfigure).toHaveBeenCalledWith('sk-deepseek');
   });
 });

@@ -26,6 +26,10 @@ export type {
   ListResult as RepoListResult,
 } from './repositories/session-repository.js';
 
+// ── v2cut Phase 5: CommanderEventRepository ────────────────────
+export { CommanderEventRepository } from './repositories/commander-event-repository.js';
+export type { StoredCommanderEvent } from './repositories/commander-event-repository.js';
+
 // ── Phase G1-2.2: ProcessPromptRepository ──────────────────────
 export { ProcessPromptRepository } from './repositories/process-prompt-repository.js';
 export type {

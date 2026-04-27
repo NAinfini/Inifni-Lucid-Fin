@@ -42,7 +42,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const generate: AgentTool = {
     name: 'canvas.generate',
-    description: 'Trigger media generation for an image, video, or audio node. Returns immediately (fire-and-forget) — check status later via canvas.getNode. Set wait=true to block until completion (up to 5 min).',
+    description: 'Trigger media generation for an image, video, or audio node. Returns immediately (fire-and-forget) — check status later via canvas.getNode. Set wait=true to block until completion (up to 5 min). Before calling, verify the node has a detailed prompt (use canvas.previewPrompt to check) and proper entity refs (use canvas.setNodeRefs).',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -160,7 +160,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 1. Same update for multiple nodes: use nodeId/nodeIds + "set": { ... }
 2. Different updates per node: use "nodes": [{ nodeId, set: {...} }, ...] — preferred for efficiency when each node needs different values.
 Supported fields in "set": title, content (text only), prompt, negativePrompt (media only).
-For generation parameters, use canvas.setNodeGenParams. For layout, use canvas.setNodeLayout.`,
+For image generation params (width/height/steps/cfgScale), use canvas.setImageParams. For video params (duration/audio/quality), use canvas.setVideoParams. For audio params (audioType/emotionVector), use canvas.setAudioParams. For entity refs (character/location/equipment), use canvas.setNodeRefs. For layout (position/bypassed/locked), use canvas.setNodeLayout.`,
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -253,7 +253,7 @@ For generation parameters, use canvas.setNodeGenParams. For layout, use canvas.s
   // ---------------------------------------------------------------------------
   const setNodeLayout: AgentTool = {
     name: 'canvas.setNodeLayout',
-    description: `Set layout properties on one or more nodes: position, bypassed, locked, colorTag. Wrap fields in "set": { ... }.`,
+    description: `Set layout properties (position/bypassed/locked/colorTag) on one or more nodes. Wrap fields in "set": { ... }. Use this for node position and display state; for prompt text, use canvas.updateNodes. For entity refs, use canvas.setNodeRefs.`,
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -318,7 +318,7 @@ For generation parameters, use canvas.setNodeGenParams. For layout, use canvas.s
   // ---------------------------------------------------------------------------
   const setNodeProvider: AgentTool = {
     name: 'canvas.setNodeProvider',
-    description: `Set provider and seed options on image/video/audio nodes. Wrap fields in "set": { ... }.
+    description: `Set provider and seed options on image/video/audio nodes. Wrap fields in "set": { ... }. Use this for per-node provider override and seed control; for project-wide default provider, use provider.setActive instead.
 IMPORTANT: Before assigning providerId, verify the provider has an API key (hasKey=true) via provider.list.`,
     context: CANVAS_CONTEXT,
     tier: 2,
@@ -389,7 +389,7 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
   // ---------------------------------------------------------------------------
   const setImageParams: AgentTool = {
     name: 'canvas.setImageParams',
-    description: 'Set visual generation parameters on image or video nodes. Wrap fields in "set": { ... }.',
+    description: 'Set image generation parameters (width/height/steps/cfgScale/scheduler) on image or video nodes. Wrap fields in "set": { ... }. For prompt text or title changes, use canvas.updateNodes. For video-specific params (duration/audio/quality), use canvas.setVideoParams.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -448,7 +448,7 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
   // ---------------------------------------------------------------------------
   const setVideoParams: AgentTool = {
     name: 'canvas.setVideoParams',
-    description: `Set video-specific generation parameters on video nodes. Wrap fields in "set": { ... }.
+    description: `Set video-specific generation parameters (duration/audio/quality/lipSync) on video nodes. Wrap fields in "set": { ... }. For prompt text or title, use canvas.updateNodes. For image params (width/height/steps), use canvas.setImageParams.
 Audio generation: only ${AUDIO_CAPABLE_VIDEO_PROVIDER_IDS} support audio.
 Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
     context: CANVAS_CONTEXT,
@@ -505,7 +505,7 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
   // ---------------------------------------------------------------------------
   const setAudioParams: AgentTool = {
     name: 'canvas.setAudioParams',
-    description: 'Set audio-specific generation parameters on audio nodes. Wrap fields in "set": { ... }.',
+    description: 'Set audio-specific generation parameters (audioType/emotionVector/sampleRate) on audio nodes. Wrap fields in "set": { ... }. For prompt text or title, use canvas.updateNodes. For image/video params, use canvas.setImageParams or canvas.setVideoParams.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -1002,7 +1002,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
     description: `Set character, equipment, and/or location references on image/video nodes. Two modes:
 1. Same refs for multiple nodes: use nodeId/nodeIds + characterRefs/equipmentRefs/locationRefs at top level.
 2. Different refs per node: use "nodes": [{ nodeId, characterRefs?, equipmentRefs?, locationRefs? }, ...] — preferred for efficiency.
-Pass empty array to clear refs of that type. Only provide the ref types you want to change — omitted types are left unchanged.`,
+Pass empty array to clear refs of that type. Only provide the ref types you want to change — omitted types are left unchanged.
+Use this for entity refs (character/location/equipment). For prompt text changes, use canvas.updateNodes. For layout, use canvas.setNodeLayout.`,
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {

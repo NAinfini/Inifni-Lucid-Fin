@@ -56,7 +56,7 @@ describe('PromptStore', () => {
     const val = store.resolve('agent-system');
     expect(val.length).toBeGreaterThan(0);
     expect(val).toContain('Lucid Fin');
-    expect(val).toContain('Specialized process guidance may be injected');
+    expect(val).toContain('Specialized process guidance is injected');
     expect(val).not.toContain('Generation baseline');
     expect(val).not.toContain('Prompt compilation');
     store.close();

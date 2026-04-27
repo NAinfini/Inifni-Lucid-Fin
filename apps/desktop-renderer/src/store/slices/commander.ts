@@ -1,10 +1,23 @@
 /**
- * Commander Redux slice — Phase E split-1.
+ * Commander Redux slice — Batch 2 (legacy reducer removal).
  *
- * After the split: this file owns the state shape + reducer wiring only.
- * All pure logic (persistence, run summary, context compaction) moved to
- * `commander/state/` siblings. Public action/type exports are unchanged so
- * existing consumers continue to import `from '../store/slices/commander'`.
+ * After Batch 2:
+ * - 8 dead stream reducers deleted (`appendStreamChunk`, `addToolCall`,
+ *   `updateToolCallArguments`, `resolveToolCall`, `appendThinking`,
+ *   `collapseThinking`, `pushStepMarker`, `pushPhaseNote`) — the timeline
+ *   slice is the single source of truth for live run events.
+ * - 3 transient state fields deleted (`currentStreamContent`,
+ *   `currentToolCalls`, `currentSegments`) — selector derives from the
+ *   timeline on the fly.
+ * - `finalizeCurrentRunMessage` helper deleted — finalized messages are
+ *   built by `buildFinalizedAssistantMessage` (run-derivation.ts) and
+ *   appended via `appendFinalizedAssistantMessage` / upserted via
+ *   `upsertFinalizedAssistantMessage`.
+ * - `finishStreaming()` is payloadless.
+ * - `streamError` still pushes a failed CommanderMessage (D4) but only
+ *   from `start()`'s pre-run_end exception catch.
+ * - `state.commander.finalizedRunIds: string[]` dedup set guards against
+ *   local-cancel + late-backend-run_end producing duplicate messages.
  */
 
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
@@ -26,10 +39,9 @@ import {
   DEFAULT_UNDO_GROUP_WINDOW_MS,
   DEFAULT_UNDO_STACK_DEPTH,
   MAX_SESSIONS,
+  buildRunSummary,
   createMessageId,
-  createSegmentId,
   deriveSessionTitle,
-  finalizeCurrentRunMessage,
   formatQuestionTranscript,
   hasUserMessage,
   idlePhase,
@@ -44,15 +56,13 @@ import {
   resetTransientRunState,
   writePersistedProviderId,
 } from '../../commander/state/index.js';
-import type { CommanderStreamEvent } from '../../commander/transport/CommanderTransport.js';
+import type { TimelineEvent } from '@lucid-fin/contracts';
 import type { RunPhase } from '../../commander/state/run-phase.js';
 import type {
   CommanderBackendContextUsage,
-  CommanderExitDecisionMeta,
   CommanderMessage,
   CommanderSession,
   CommanderState,
-  CommanderToolCall,
   PendingConfirmation,
   PendingQuestion,
   PermissionMode,
@@ -88,10 +98,8 @@ const initialState: CommanderState = {
   messages: [],
   phase: idlePhase,
   currentRunStartedAt: null,
-  currentStreamContent: '',
-  currentToolCalls: [],
-  currentSegments: [],
   error: null,
+  finalizedRunIds: [],
   position: { x: 24, y: 96 },
   size: { width: 400, height: 500 },
   permissionMode: persistedSettings.permissionMode ?? 'normal',
@@ -119,6 +127,20 @@ const initialState: CommanderState = {
   pendingInjectedMessages: [],
   backendContextUsage: null,
 };
+
+/** Commit queued injected user messages to the message list. Shared by
+ *  finishStreaming / streamError paths so both preserve ordering. */
+function commitPendingInjectedMessages(state: CommanderState): void {
+  for (const msg of state.pendingInjectedMessages) {
+    state.messages.push({
+      id: createMessageId('user'),
+      role: 'user',
+      content: msg,
+      timestamp: Date.now(),
+    });
+  }
+  state.pendingInjectedMessages = [];
+}
 
 export const commanderSlice = createSlice({
   name: 'commander',
@@ -167,190 +189,105 @@ export const commanderSlice = createSlice({
     startStreaming(state) {
       state.phase = { kind: 'awaiting_model', step: 0, since: Date.now() };
       state.currentRunStartedAt = Date.now();
-      state.currentStreamContent = '';
-      state.currentToolCalls = [];
-      state.currentSegments = [];
       state.error = null;
       state.open = true;
       state.minimized = false;
     },
     /**
-     * Apply a stream event to the RunPhase state machine. Called alongside
-     * the other event-specific dispatches (appendStreamChunk, addToolCall,
-     * …) to keep `state.phase` honest.
+     * Advance the RunPhase state machine by one TimelineEvent. Called by
+     * the service after it pushes the event into `commanderTimeline` so
+     * `state.phase` stays in sync with the v2 event stream.
      */
-    applyStreamEvent(state, action: PayloadAction<CommanderStreamEvent>) {
+    updateRunPhase(state, action: PayloadAction<TimelineEvent>) {
       state.phase = phaseFromEvent(state.phase, action.payload);
     },
-    appendStreamChunk(state, action: PayloadAction<string>) {
-      state.currentStreamContent += action.payload;
-      // Append only when the tail segment is still text. Crossing a
-      // non-text boundary (tool / thinking / step_marker / phase_note)
-      // opens a fresh text segment so ordering in the UI matches the
-      // wire order of events.
-      const last = state.currentSegments[state.currentSegments.length - 1];
-      if (last && last.kind === 'text') {
-        last.content += action.payload;
-      } else {
-        state.currentSegments.push({
-          kind: 'text',
-          id: createSegmentId('text'),
-          content: action.payload,
-        });
-      }
-    },
-    addToolCall(
+    /**
+     * D2/D2b — normal-path finalize. No-op when runId is already in
+     * `finalizedRunIds` (late-run_end-after-local-cancel race handled by
+     * `upsertFinalizedAssistantMessage` instead).
+     */
+    appendFinalizedAssistantMessage(
       state,
-      action: PayloadAction<{
-        name: string;
-        id: string;
-        arguments: Record<string, unknown>;
-        startedAt?: number;
-      }>,
+      action: PayloadAction<{ message: CommanderMessage; runId: string }>,
     ) {
-      const existingIdx = state.currentToolCalls.findIndex(
-        (existing) => existing.id === action.payload.id,
-      );
-      if (existingIdx >= 0) {
-        // Upsert: merge the new fields onto the existing tool call so a
-        // re-dispatched event (StrictMode double-render, retry, reordered
-        // transport) updates rather than drops information.
-        const existing = state.currentToolCalls[existingIdx]!;
-        existing.name = action.payload.name;
-        existing.arguments = { ...existing.arguments, ...action.payload.arguments };
-        if (action.payload.startedAt !== undefined) {
-          existing.startedAt = action.payload.startedAt;
-        }
-        const segIdx = state.currentSegments.findIndex(
-          (s) => s.kind === 'tool' && s.toolCall.id === action.payload.id,
-        );
-        if (segIdx >= 0) {
-          const seg = state.currentSegments[segIdx]!;
-          if (seg.kind === 'tool') {
-            seg.toolCall = existing;
-          }
-        }
-        return;
-      }
-      const tc: CommanderToolCall = {
-        name: action.payload.name,
-        id: action.payload.id,
-        arguments: action.payload.arguments,
-        startedAt: action.payload.startedAt ?? Date.now(),
-        status: 'pending',
-      };
-      state.currentToolCalls.push(tc);
-      state.currentSegments.push({
-        kind: 'tool',
-        id: createSegmentId('tool'),
-        toolCall: tc,
-      });
+      const { message, runId } = action.payload;
+      if (state.finalizedRunIds.includes(runId)) return;
+      state.messages.push(message);
+      state.finalizedRunIds.push(runId);
+      persistCurrentSession(state);
     },
     /**
-     * Replace the accumulated arguments for a tool call once they finalize
-     * (emitted as `tool_call_args_complete` from the orchestrator's drain
-     * loop or the tool-executor's cache/approve paths). The matching
-     * segment's snapshot is also updated so the UI re-renders with the
-     * parsed args.
+     * D2b — late-run_end-after-cancel merge. Always dispatched by the
+     * service's `run_end` side-effect when the runId is already in
+     * `finalizedRunIds`. Replaces the message in place (preserving the
+     * list position) so the backend's richer `exitDecision` / `summary`
+     * wins while the user sees no flicker.
      */
-    updateToolCallArguments(
+    upsertFinalizedAssistantMessage(
       state,
-      action: PayloadAction<{ id: string; arguments: Record<string, unknown> }>,
+      action: PayloadAction<{ message: CommanderMessage; runId: string }>,
     ) {
-      const tc = state.currentToolCalls.find((existing) => existing.id === action.payload.id);
-      if (tc) {
-        tc.arguments = action.payload.arguments;
+      const { message, runId } = action.payload;
+      const idx = state.messages.findIndex((m) => m.id === message.id);
+      if (idx >= 0) {
+        state.messages[idx] = message;
+      } else {
+        state.messages.push(message);
       }
-      const seg = state.currentSegments.find(
-        (s) => s.kind === 'tool' && s.toolCall.id === action.payload.id,
-      );
-      if (seg?.kind === 'tool' && tc) {
-        seg.toolCall = tc;
+      if (!state.finalizedRunIds.includes(runId)) {
+        state.finalizedRunIds.push(runId);
       }
+      persistCurrentSession(state);
     },
-    resolveToolCall(
-      state,
-      action: PayloadAction<{
-        id: string;
-        result?: unknown;
-        error?: string;
-        completedAt?: number;
-      }>,
-    ) {
-      const toolCall = state.currentToolCalls.find((entry) => entry.id === action.payload.id);
-      if (!toolCall) {
-        return;
-      }
-      toolCall.result = action.payload.error ?? action.payload.result;
-      toolCall.status = action.payload.error ? 'error' : 'done';
-      toolCall.completedAt = action.payload.completedAt ?? Date.now();
-      // Also update in segments
-      const seg = state.currentSegments.find(
-        (s) => s.kind === 'tool' && s.toolCall.id === action.payload.id,
-      );
-      if (seg && seg.kind === 'tool') {
-        seg.toolCall.result = toolCall.result;
-        seg.toolCall.status = toolCall.status;
-        seg.toolCall.completedAt = toolCall.completedAt;
-      }
-    },
-    finishStreaming(
-      state,
-      action: PayloadAction<
-        | string
-        | undefined
-        | { content?: string; exitDecision?: CommanderExitDecisionMeta }
-      >,
-    ) {
-      const payload = action.payload;
-      const content =
-        typeof payload === 'string'
-          ? payload
-          : payload?.content;
-      const exitDecision =
-        typeof payload === 'object' && payload !== null
-          ? payload.exitDecision
-          : undefined;
-      finalizeCurrentRunMessage(state, 'completed', content, undefined, exitDecision);
-      // Commit injected user messages (sent during streaming) in correct chronological order
-      for (const msg of state.pendingInjectedMessages) {
-        state.messages.push({
-          id: createMessageId('user'),
-          role: 'user',
-          content: msg,
-          timestamp: Date.now(),
-        });
-      }
-      state.pendingInjectedMessages = [];
+    finishStreaming(state) {
+      commitPendingInjectedMessages(state);
       resetTransientRunState(state);
       persistCurrentSession(state);
     },
+    /**
+     * Pre-run_end error path (D4). Pushes a minimal failed assistant
+     * message — no segments, no toolCalls — since no timeline events
+     * existed when this error fired. The run_end.failed path does NOT
+     * dispatch this reducer; it uses `appendFinalizedAssistantMessage`
+     * with a derived message.
+     */
     streamError(state, action: PayloadAction<string>) {
-      state.error = action.payload;
-      finalizeCurrentRunMessage(state, 'failed', action.payload, action.payload);
-      // Commit injected user messages before the error notice
-      for (const msg of state.pendingInjectedMessages) {
-        state.messages.push({
-          id: createMessageId('user'),
-          role: 'user',
-          content: msg,
-          timestamp: Date.now(),
-        });
-      }
-      state.pendingInjectedMessages = [];
+      const errorMsg = action.payload;
+      state.error = errorMsg;
+      const completedAt = Date.now();
+      const startedAt = state.currentRunStartedAt ?? completedAt;
+      state.messages.push({
+        id: createMessageId('assistant'),
+        role: 'assistant',
+        content: errorMsg,
+        runMeta: {
+          status: 'failed',
+          collapsed: true,
+          startedAt,
+          completedAt,
+          summary: buildRunSummary(
+            'failed',
+            errorMsg,
+            undefined,
+            [],
+            startedAt,
+            completedAt,
+            errorMsg,
+          ),
+        },
+        timestamp: completedAt,
+      });
+      commitPendingInjectedMessages(state);
       resetTransientRunState(state);
       persistCurrentSession(state);
     },
     clearHistory(state) {
-      // Save current session before clearing
       persistCurrentSession(state);
       state.activeSessionId = null;
       state.messages = [];
       state.currentRunStartedAt = null;
-      state.currentStreamContent = '';
-      state.currentToolCalls = [];
-      state.currentSegments = [];
       state.error = null;
+      state.finalizedRunIds = [];
       state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
@@ -365,10 +302,8 @@ export const commanderSlice = createSlice({
       state.activeSessionId = null;
       state.messages = [];
       state.currentRunStartedAt = null;
-      state.currentStreamContent = '';
-      state.currentToolCalls = [];
-      state.currentSegments = [];
       state.error = null;
+      state.finalizedRunIds = [];
       state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
@@ -386,7 +321,6 @@ export const commanderSlice = createSlice({
         typeof action.payload === 'string'
           ? { id: action.payload, hydratedMessages: undefined }
           : action.payload;
-      // Save current session first
       if (hasUserMessage(state.messages) && state.activeSessionId) {
         const existing = state.sessions.findIndex((s) => s.id === state.activeSessionId);
         if (existing >= 0) {
@@ -397,7 +331,6 @@ export const commanderSlice = createSlice({
       }
       const session = state.sessions.find((s) => s.id === id);
       if (!session) return;
-      // Hydrate session messages from DB if provided and session was lazy-loaded
       if (hydratedMessages && session.messages.length === 0) {
         session.messages = hydratedMessages;
       }
@@ -405,10 +338,8 @@ export const commanderSlice = createSlice({
       state.activeCanvasId = session.canvasId;
       state.messages = session.messages;
       state.currentRunStartedAt = null;
-      state.currentStreamContent = '';
-      state.currentToolCalls = [];
-      state.currentSegments = [];
       state.error = null;
+      state.finalizedRunIds = [];
       state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
@@ -516,59 +447,6 @@ export const commanderSlice = createSlice({
     setBackendContextUsage(state, action: PayloadAction<CommanderBackendContextUsage | null>) {
       state.backendContextUsage = action.payload;
     },
-    /**
-     * Append (or extend) a `thinking` segment. The model's reasoning stream
-     * surfaces as a first-class segment rather than a sibling string — the
-     * UI can then show it inline, collapsed by default, with `✦` styling.
-     * Contiguous thinking deltas are coalesced into the tail segment.
-     */
-    appendThinking(state, action: PayloadAction<string>) {
-      if (!action.payload) return;
-      const last = state.currentSegments[state.currentSegments.length - 1];
-      if (last && last.kind === 'thinking') {
-        last.content += action.payload;
-        return;
-      }
-      // When a text segment starts again after a thinking segment, the
-      // caller is responsible for setting `collapsed: true` on the prior
-      // thinking segment. Here we simply open a new one.
-      state.currentSegments.push({
-        kind: 'thinking',
-        id: createSegmentId('thinking'),
-        content: action.payload,
-        collapsed: false,
-      });
-    },
-    /** Collapse every thinking segment in the current run (e.g. when text arrives). */
-    collapseThinking(state) {
-      for (const seg of state.currentSegments) {
-        if (seg.kind === 'thinking') {
-          seg.collapsed = true;
-        }
-      }
-    },
-    pushStepMarker(state, action: PayloadAction<{ step: number; at?: number }>) {
-      state.currentSegments.push({
-        kind: 'step_marker',
-        id: createSegmentId('step'),
-        step: action.payload.step,
-        at: action.payload.at ?? Date.now(),
-      });
-    },
-    pushPhaseNote(
-      state,
-      action: PayloadAction<{
-        note: 'process_prompt_loaded' | 'compacted' | 'llm_retry';
-        detail: string;
-      }>,
-    ) {
-      state.currentSegments.push({
-        kind: 'phase_note',
-        id: createSegmentId('phase'),
-        note: action.payload.note,
-        detail: action.payload.detail,
-      });
-    },
     setPendingQuestion(state, action: PayloadAction<PendingQuestion>) {
       state.pendingQuestion = action.payload;
     },
@@ -585,7 +463,6 @@ export const commanderSlice = createSlice({
         questionMeta: { question, options },
         timestamp: Date.now(),
       });
-      // Record the user's answer
       state.messages.push({
         id: createMessageId('user'),
         role: 'user',
@@ -625,19 +502,32 @@ export const commanderSlice = createSlice({
       compactCommanderMessages(state);
     },
     restore(_state, action: PayloadAction<CommanderState>) {
+      // Defensive destructure — old persisted payloads may include the
+      // three deleted transient fields; strip them before spread.
+      const {
+        currentStreamContent: _a,
+        currentToolCalls: _b,
+        currentSegments: _c,
+        ...rest
+      } = action.payload as CommanderState & {
+        currentStreamContent?: unknown;
+        currentToolCalls?: unknown;
+        currentSegments?: unknown;
+      };
+      void _a;
+      void _b;
+      void _c;
       return {
         ...initialState,
-        ...action.payload,
+        ...rest,
         phase: idlePhase,
         currentRunStartedAt: null,
-        currentStreamContent: '',
-        currentToolCalls: [],
-        currentSegments: [],
         error: null,
-        permissionMode: action.payload.permissionMode ?? 'normal',
-        maxSteps: action.payload.maxSteps ?? DEFAULT_MAX_STEPS,
-        temperature: action.payload.temperature ?? DEFAULT_TEMPERATURE,
-        maxTokens: action.payload.maxTokens ?? DEFAULT_MAX_TOKENS,
+        finalizedRunIds: [],
+        permissionMode: rest.permissionMode ?? 'normal',
+        maxSteps: rest.maxSteps ?? DEFAULT_MAX_STEPS,
+        temperature: rest.temperature ?? DEFAULT_TEMPERATURE,
+        maxTokens: rest.maxTokens ?? DEFAULT_MAX_TOKENS,
         pendingConfirmation: null,
         pendingQuestion: null,
         confirmAutoMode: 'none',
@@ -645,15 +535,13 @@ export const commanderSlice = createSlice({
         messageQueue: [],
       };
     },
-    /** Merge sessions loaded from SQLite into in-memory list. DB wins on conflict,
-     *  but preserves in-memory messages if the DB version was lazy-loaded (empty). */
+    /** Merge sessions loaded from SQLite into in-memory list. */
     loadSessionsFromDB(state, action: PayloadAction<CommanderSession[]>) {
       const localMap = new Map(state.sessions.map((s) => [s.id, s]));
       const dbMap = new Map(action.payload.map((s) => [s.id, s]));
       const merged: CommanderSession[] = [];
       for (const [id, dbSession] of dbMap) {
         const local = localMap.get(id);
-        // DB session has lazy-loaded empty messages — prefer local messages if available
         if (local && local.messages.length > 0 && dbSession.messages.length === 0) {
           merged.push({ ...dbSession, messages: local.messages });
         } else {
@@ -669,10 +557,8 @@ export const commanderSlice = createSlice({
     /** Called when the active canvas changes. Saves current session, resets state, and loads the most recent session for the new canvas (if any). */
     switchCanvas(state, action: PayloadAction<string | null>) {
       const newCanvasId = action.payload;
-      // Noop if same canvas
       if (newCanvasId === state.activeCanvasId) return;
 
-      // 1. Save current session (if it has user messages)
       if (hasUserMessage(state.messages)) {
         const now = Date.now();
         const sessionId = state.activeSessionId ?? crypto.randomUUID();
@@ -696,10 +582,8 @@ export const commanderSlice = createSlice({
         persistSessions(state.sessions);
       }
 
-      // 2. Update canvas binding
       state.activeCanvasId = newCanvasId;
 
-      // 3. Try to load the most recent session for the new canvas
       const canvasSession = newCanvasId
         ? state.sessions.find((s) => s.canvasId === newCanvasId)
         : undefined;
@@ -712,12 +596,9 @@ export const commanderSlice = createSlice({
         state.messages = [];
       }
 
-      // 4. Reset transient state
       state.currentRunStartedAt = null;
-      state.currentStreamContent = '';
-      state.currentToolCalls = [];
-      state.currentSegments = [];
       state.error = null;
+      state.finalizedRunIds = [];
       state.phase = idlePhase;
       state.pendingConfirmation = null;
       state.pendingQuestion = null;
@@ -738,11 +619,9 @@ export const {
   addUserMessage,
   addInjectedMessage,
   startStreaming,
-  applyStreamEvent,
-  appendStreamChunk,
-  addToolCall,
-  updateToolCallArguments,
-  resolveToolCall,
+  updateRunPhase,
+  appendFinalizedAssistantMessage,
+  upsertFinalizedAssistantMessage,
   finishStreaming,
   streamError,
   clearHistory,
@@ -770,10 +649,6 @@ export const {
   clearPendingConfirmation,
   setConfirmAutoMode,
   setBackendContextUsage,
-  appendThinking,
-  collapseThinking,
-  pushStepMarker,
-  pushPhaseNote,
   setPendingQuestion,
   clearPendingQuestion,
   resolveQuestion,
@@ -788,9 +663,6 @@ export const {
   switchCanvas,
 } = commanderSlice.actions;
 
-// Re-export the legacy localStorage key so callers that referenced it
-// from here keep working. The canonical definition lives in
-// `commander/state/constants.ts`.
 export { COMMANDER_PROVIDER_KEY };
 
 /**

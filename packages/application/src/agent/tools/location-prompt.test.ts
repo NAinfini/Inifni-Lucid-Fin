@@ -27,22 +27,24 @@ describe('buildLocationRefImagePrompt', () => {
   it('builds a five-frame bible composite for the default view', () => {
     const prompt = buildLocationRefImagePrompt(createLocation(), { kind: 'bible' });
 
-    expect(prompt).toContain('Environment concept art bible');
-    expect(prompt).toContain('Five-frame composite on one image');
+    expect(prompt).toContain('Environment concept art bible of Old Arcade');
+    expect(prompt).toContain('Layout: five frames on one sheet');
     expect(prompt).toContain('wide establishing shot');
     expect(prompt).toContain('interior detail study');
     expect(prompt).toContain('atmosphere study');
     expect(prompt).toContain('primary key camera angle');
-    expect(prompt).toContain('alternate key camera angle');
+    expect(prompt).toContain('alternate key angle');
     expect(prompt).toContain('No characters, no people');
+    // Appearance/description must reach the prompt, not be drowned in layout.
     expect(prompt).toContain('Architecture: art deco');
+    expect(prompt).toContain('abandoned shopping arcade with cracked terrazzo floors');
   });
 
   it('builds an 8-panel fake-360 pseudo-panorama', () => {
     const prompt = buildLocationRefImagePrompt(createLocation(), { kind: 'fake-360' });
 
-    expect(prompt).toContain('pseudo-panorama');
-    expect(prompt).toContain('Eight panels arranged in a 4x2 grid');
+    expect(prompt).toContain('pseudo-panorama of Old Arcade');
+    expect(prompt).toContain('eight panels in a 4x2 grid');
     expect(prompt).toContain('0°, 45°, 90°, 135°');
     expect(prompt).toContain('180°, 225°, 270°, 315°');
     expect(prompt).toContain('No characters, no people');

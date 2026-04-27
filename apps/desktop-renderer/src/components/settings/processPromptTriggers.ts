@@ -1,3 +1,5 @@
+import { t } from '../../i18n.js';
+
 const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'character-ref-image-generation': [
     'character.generateRefImage',
@@ -77,12 +79,12 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'job-control': ['job.list', 'job.control'],
 };
 
-const PROCESS_PROMPT_TRIGGER_NOTES: Record<string, string | undefined> = {
-  'image-node-generation': 'nodeType === image',
-  'video-node-generation': 'nodeType === video',
-  'audio-voice': 'nodeType === audio && (audioType === voice || missing)',
-  'audio-music': 'nodeType === audio && audioType === music',
-  'audio-sfx': 'nodeType === audio && audioType === sfx',
+const PROCESS_PROMPT_TRIGGER_NOTE_KEYS: Record<string, string | undefined> = {
+  'image-node-generation': 'settings.processGuides.triggerNote.imageNode',
+  'video-node-generation': 'settings.processGuides.triggerNote.videoNode',
+  'audio-voice': 'settings.processGuides.triggerNote.audioVoice',
+  'audio-music': 'settings.processGuides.triggerNote.audioMusic',
+  'audio-sfx': 'settings.processGuides.triggerNote.audioSfx',
 };
 
 export function getProcessPromptTriggerTools(processKey: string): string[] {
@@ -90,5 +92,8 @@ export function getProcessPromptTriggerTools(processKey: string): string[] {
 }
 
 export function getProcessPromptTriggerNote(processKey: string): string | null {
-  return PROCESS_PROMPT_TRIGGER_NOTES[processKey] ?? null;
+  const key = PROCESS_PROMPT_TRIGGER_NOTE_KEYS[processKey];
+  if (!key) return null;
+  const translated = t(key);
+  return translated === key ? null : translated;
 }

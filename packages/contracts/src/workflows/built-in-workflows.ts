@@ -69,9 +69,9 @@ For each location:
         description: 'Generate turnaround reference sheets for characters and locations',
         commanderPrompt: `Generate reference images for all characters and locations:
 
-For characters: Generate the main/front slot as a two-row model sheet — full-body front, left, right, and back panels on the top row, enlarged facial expression studies on the bottom row, white background, even studio lighting, neutral body pose.
+For characters: Generate the single \`full-sheet\` reference — a six-panel composite in a 2×3 grid with unequal row heights. The top row (~70% of sheet height) holds three full-body panels at identical scale: front, left profile, rear. The bottom row (~30%) holds three head-and-shoulders expression panels: neutral, happy, angry. Solid white background, flat even studio lighting, single character, no props or environment.
 
-For locations: Use the location reference template — wide establishing shot + 2-3 key angles, consistent time of day.
+For locations: Generate the \`bible\` reference — a five-tile model sheet with a wide establishing panel on the top half and four equal tiles on the bottom half (interior detail, atmosphere, key angle 1, key angle 2). Consistent time of day, weather, and lighting across every tile. No characters in the frame.
 
 Use google-imagen3 or openai-image provider for best quality.`,
         guidesUsed: ['14-reference-image-generation', '05-style-and-aesthetics'],

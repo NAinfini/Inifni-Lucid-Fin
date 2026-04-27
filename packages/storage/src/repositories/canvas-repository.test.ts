@@ -19,6 +19,10 @@ CREATE TABLE canvases (
   negative_prompt      TEXT,
   default_width        INTEGER,
   default_height       INTEGER,
+  publish_width        INTEGER,
+  publish_height       INTEGER,
+  publish_video_width  INTEGER,
+  publish_video_height INTEGER,
   aspect_ratio         TEXT,
   llm_provider_id      TEXT,
   image_provider_id    TEXT,
@@ -226,28 +230,69 @@ describe('CanvasRepository', () => {
     expect(got?.settings?.aspectRatio).toBeUndefined();
   });
 
-  it('round-trips negativePrompt and defaultResolution', () => {
+  it('round-trips negativePrompt and refResolution', () => {
     repo.upsert(
       mkCanvas('cs5', {
         settings: {
           negativePrompt: 'text, watermark, blurry',
-          defaultResolution: { width: 1536, height: 1536 },
+          refResolution: { width: 1536, height: 1536 },
         },
       }),
     );
     const got = repo.get('cs5' as CanvasId);
     expect(got?.settings?.negativePrompt).toBe('text, watermark, blurry');
-    expect(got?.settings?.defaultResolution).toEqual({ width: 1536, height: 1536 });
+    expect(got?.settings?.refResolution).toEqual({ width: 1536, height: 1536 });
   });
 
-  it('patchSettings patches defaultResolution atomically (both columns change together)', () => {
+  it('patchSettings patches refResolution atomically (both columns change together)', () => {
     repo.upsert(mkCanvas('cs6'));
-    repo.patchSettings('cs6' as CanvasId, { defaultResolution: { width: 2048, height: 1024 } });
+    repo.patchSettings('cs6' as CanvasId, { refResolution: { width: 2048, height: 1024 } });
     let got = repo.get('cs6' as CanvasId);
-    expect(got?.settings?.defaultResolution).toEqual({ width: 2048, height: 1024 });
+    expect(got?.settings?.refResolution).toEqual({ width: 2048, height: 1024 });
     // Clearing via null should drop both columns.
-    repo.patchSettings('cs6' as CanvasId, { defaultResolution: null } as never);
+    repo.patchSettings('cs6' as CanvasId, { refResolution: null } as never);
     got = repo.get('cs6' as CanvasId);
-    expect(got?.settings?.defaultResolution).toBeUndefined();
+    expect(got?.settings?.refResolution).toBeUndefined();
+  });
+
+  it('round-trips publishImageResolution independently of refResolution', () => {
+    repo.upsert(
+      mkCanvas('cs7', {
+        settings: {
+          refResolution: { width: 1024, height: 1024 },
+          publishImageResolution: { width: 1920, height: 1080 },
+          aspectRatio: '16:9',
+        },
+      }),
+    );
+    const got = repo.get('cs7' as CanvasId);
+    expect(got?.settings?.refResolution).toEqual({ width: 1024, height: 1024 });
+    expect(got?.settings?.publishImageResolution).toEqual({ width: 1920, height: 1080 });
+    expect(got?.settings?.aspectRatio).toBe('16:9');
+  });
+
+  it('patchSettings clears publishImageResolution via null', () => {
+    repo.upsert(
+      mkCanvas('cs8', {
+        settings: { publishImageResolution: { width: 3840, height: 2160 } },
+      }),
+    );
+    repo.patchSettings('cs8' as CanvasId, { publishImageResolution: null } as never);
+    const got = repo.get('cs8' as CanvasId);
+    expect(got?.settings?.publishImageResolution).toBeUndefined();
+  });
+
+  it('round-trips publishVideoResolution independently of image resolution', () => {
+    repo.upsert(
+      mkCanvas('cs9', {
+        settings: {
+          publishImageResolution: { width: 3840, height: 2160 },
+          publishVideoResolution: { width: 1920, height: 1080 },
+        },
+      }),
+    );
+    const got = repo.get('cs9' as CanvasId);
+    expect(got?.settings?.publishImageResolution).toEqual({ width: 3840, height: 2160 });
+    expect(got?.settings?.publishVideoResolution).toEqual({ width: 1920, height: 1080 });
   });
 });

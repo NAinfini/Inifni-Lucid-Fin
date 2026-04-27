@@ -8,7 +8,9 @@ import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommanderPanel } from './CommanderPanel.js';
 import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas.js';
+import { charactersSlice } from '../../store/slices/characters.js';
 import { commanderSlice, type CommanderMessage } from '../../store/slices/commander.js';
+import { commanderTimelineSlice } from '../../commander/state/commander-timeline-slice.js';
 import { setBootstrapped, settingsSlice } from '../../store/slices/settings.js';
 import { setLocale } from '../../i18n.js';
 
@@ -68,7 +70,9 @@ function renderCommanderPanel(
   const store = configureStore({
     reducer: {
       canvas: canvasSlice.reducer,
+      characters: charactersSlice.reducer,
       commander: commanderSlice.reducer,
+      commanderTimeline: commanderTimelineSlice.reducer,
       settings: settingsSlice.reducer,
     },
     preloadedState: {
@@ -147,6 +151,9 @@ describe('CommanderPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Set Node Provider/i }));
 
+    // Switch to the Inputs tab to see annotated node references
+    fireEvent.click(screen.getByRole('button', { name: /Inputs/i }));
+
     expect(screen.getAllByText(/Opening Shot \(node-1\)/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/providerId/)).toBeTruthy();
   });
@@ -204,7 +211,7 @@ describe('CommanderPanel', () => {
   it('disables chat input and send button until bootstrap finishes', () => {
     const { container } = renderCommanderPanel([], [createCanvas()], { bootstrapped: false });
 
-    const input = container.querySelector('textarea[placeholder="Send message"]');
+    const input = container.querySelector('textarea[placeholder="Message Commander AI... (/ for commands)"]');
     const sendButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent?.trim() === 'Send',
     );

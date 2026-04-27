@@ -5,14 +5,15 @@ import {
 } from '@lucid-fin/contracts';
 
 /**
- * Phase 2 overhaul — character ref-image prompts.
+ * Character ref-image prompts.
  *
- * The old per-slot template set (main/back/left/right/face-closeup/top-down)
- * is replaced by a single composite `full-sheet` prompt. One generation call
- * produces ONE image that packs front, back, left/right profiles, full body,
- * AND detailed expressions onto a single sheet the model composes. This
- * matches Q27 ("front back side full body, + detailed faces in one image")
- * and halves API cost vs. the old 6-slot approach.
+ * A character has exactly one reference-image slot — `full-sheet` — that
+ * packs the full-body turnaround (front / left profile / rear) AND a
+ * compact expression set (neutral / happy / angry) onto a single composed
+ * sheet. The legacy per-slot set (main/back/left/right/face-closeup/
+ * top-down) survives only as a DB-migration alias layer (see
+ * `characterSlotToView`); it no longer drives generation and must not be
+ * referenced in prompts.
  *
  * `extra-angle` covers any rare custom view.
  *
@@ -92,8 +93,19 @@ export function buildCharacterAppearancePrompt(entity: Character): string {
 
 /**
  * Build the full-sheet composite prompt — everything on one image.
- * The layout string tells the model to produce a three-band composition so
- * training examples of model sheets reliably activate.
+ *
+ * Layout: 2 rows × 3 columns = 6 panels. Top row = full-body turnaround
+ * (front / left profile / rear) at ~70% sheet height, bottom row =
+ * expressions (neutral / happy / angry) at ~30% sheet height.
+ *
+ * Prompt-budget discipline (why this is short): earlier revisions poured
+ * 200+ words into layout policing and anti-collapse clauses, and the
+ * image model produced generic anime faces — attention was starved from
+ * the character description. Layout now gets ~3 lines; the character's
+ * appearance (face, hair, build, costume, distinct traits) gets the rest
+ * of the budget. Identity > layout discipline. The model still collapses
+ * mixed sheets sometimes; we accept that probabilistic failure rather
+ * than drowning the subject description to chase it.
  */
 function buildFullSheetPrompt(entity: Character, stylePlate?: string): string {
   const appearance = buildCharacterAppearancePrompt(entity);
@@ -105,15 +117,18 @@ function buildFullSheetPrompt(entity: Character, stylePlate?: string): string {
     segments.push(`Style: ${stylePlate}`);
   }
 
-  segments.push('Character turnaround and expression sheet for production reference');
-  segments.push('Wide landscape composition, three horizontal bands');
-  segments.push('Top band: four matching full-body panels showing front, left profile, right profile, and rear — identical scale, feet grounded, no cropping');
-  segments.push('Middle band: one taller full-body hero pose, clean silhouette, arms relaxed');
-  segments.push('Bottom band: six head-and-shoulders expression panels showing neutral, happy, sad, angry, surprised, and determined — each panel reads the same face shape, hairstyle, and lighting');
-  segments.push('Solid white background, even studio lighting, single character only, no props unless they are part of the costume');
-  segments.push(`Character: ${entity.name}`);
+  // Subject first — appearance carries identity, which is what every
+  // downstream shot actually needs the sheet to lock.
+  segments.push(`Character reference sheet of ${entity.name}`);
   if (appearance) segments.push(appearance);
-  segments.push('Preserve wardrobe, silhouette, proportions, and identifying details across every panel');
+  segments.push('Same wardrobe, hair, face, proportions, and colors in every panel');
+
+  // Compact layout block. Keep this short — long layout text cannibalizes
+  // the model's attention and produces generic faces.
+  segments.push('Layout: six panels on one sheet, two rows of three');
+  segments.push('Top row (taller, ~70% height) shows full-body turnaround: front, left profile, rear — head-to-toe, feet grounded, no crop');
+  segments.push('Bottom row (shorter, ~30% height) shows head-and-shoulders expressions: neutral, happy, angry');
+  segments.push('Solid white studio background, flat even lighting, single character, no props, no environment');
 
   return segments.join('. ') + '.';
 }

@@ -197,8 +197,12 @@ describe('MessageList run summaries', () => {
     );
 
     expect(screen.getByText('Done.')).toBeTruthy();
-    expect(screen.getByText(/thinking/i)).toBeTruthy();
-    expect(screen.getByText(/Step\s*2/i)).toBeTruthy();
+    // Thinking segments render plain content — no "thinking" label or
+    // star icon wrapper.
+    expect(screen.getByText('let me think')).toBeTruthy();
+    // Step markers are kept in the timeline for selectors/tests but no
+    // longer surfaced in the UI — the chat list shouldn't render them.
+    expect(screen.queryByText(/Step\s*2/i)).toBeNull();
     expect(screen.getByText(/LLM retry: 2\/3/)).toBeTruthy();
   });
 });

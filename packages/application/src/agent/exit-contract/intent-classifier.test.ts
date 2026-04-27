@@ -88,4 +88,43 @@ describe('exit-contract/classifyIntent', () => {
         .toEqual({ kind: 'execution' });
     });
   });
+
+  describe('zh-CN CJK support', () => {
+    it.each(['你能做什么', '列出所有工具', '展示菜单', '怎么开始'])(
+      'classifies "%s" as browse',
+      (msg) => {
+        expect(classifyIntent({ userMessage: msg })).toEqual({ kind: 'browse' });
+      },
+    );
+
+    it.each([
+      '什么是风格板？',
+      '如何使用连续性检查？',
+      '解释一下镜头列表',
+      '这是什么？',
+      '这个功能可以用吗？',
+    ])('classifies "%s" as informational', (msg) => {
+      expect(classifyIntent({ userMessage: msg })).toEqual({ kind: 'informational' });
+    });
+
+    it('classifies zh execution verb + workflow hint as execution with workflow', () => {
+      expect(classifyIntent({ userMessage: '帮我生成一个镜头列表' })).toEqual({
+        kind: 'execution',
+        workflow: 'shot-list',
+      });
+    });
+
+    it('classifies bare zh execution verb as execution (no hint)', () => {
+      expect(classifyIntent({ userMessage: '创建三个场景节点' })).toEqual({
+        kind: 'execution',
+      });
+    });
+
+    it('classifies plain zh chat without verbs or cues as informational (not mixed)', () => {
+      // The whole point of the CJK default: "你好" / "谢谢" / casual
+      // statements should not trip the missing_commit banner.
+      expect(classifyIntent({ userMessage: '你好' })).toEqual({ kind: 'informational' });
+      expect(classifyIntent({ userMessage: '谢谢' })).toEqual({ kind: 'informational' });
+    });
+  });
 });

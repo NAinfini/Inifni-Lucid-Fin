@@ -27,7 +27,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const addNode: AgentTool = {
     name: 'canvas.addNode',
-    description: 'Add a new node to the current canvas. Position is optional — if omitted, the node is auto-placed in the correct column based on type (image nodes left, video center, text/audio right). For image/video nodes, you can set prompt, provider, and entity refs (characters, locations, equipment) in one call.',
+    description: 'Add a single node to the current canvas. Position is optional — if omitted, the node is auto-placed in the correct column based on type (image nodes left, video center, text/audio right). For image/video nodes, you can set prompt, provider, and entity refs (characters, locations, equipment) in one call. Use this for a single node; for multiple nodes with edges, use canvas.batchCreate instead.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -153,7 +153,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const connectNodes: AgentTool = {
     name: 'canvas.connectNodes',
-    description: 'Create directional edges between nodes. Single pair: pass sourceId+targetId. Batch: pass "connections" array of {sourceId, targetId, label?} objects.',
+    description: 'Create directional edges between nodes. Single pair: pass sourceId+targetId. Batch: pass "connections" array of {sourceId, targetId, label?} objects. Use this for edge connections between nodes; for spatial layout/positioning, use canvas.layout instead.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -532,7 +532,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const layout: AgentTool = {
     name: 'canvas.layout',
-    description: 'Arrange all canvas nodes. "auto" arranges by type and edge connections into columns: first-frame images (left) | video (center) | last-frame images (right) | text (far right). "horizontal"/"vertical" arrange in a single line.',
+    description: 'Arrange all canvas nodes spatially. "auto" arranges by type and edge connections into columns: first-frame images (left) | video (center) | last-frame images (right) | text (far right). "horizontal"/"vertical" arrange in a single line. Use this for spatial positioning; for creating/deleting edge connections, use canvas.connectNodes or canvas.deleteEdge instead.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -803,7 +803,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
       + 'stylePlate is a free-form style prompt describing the visual look of this canvas/video; '
       + 'it is prepended to every ref-image generation prompt as the leading style anchor. '
       + 'negativePrompt is a free-form "avoid" prompt appended to every ref-image generation. '
-      + 'defaultResolution sets the default output size for ref-image generation (overrides per-entity defaults). '
+      + 'refResolution sets the default size for ref-image generation (overrides per-entity defaults). '
+      + 'publishImageResolution sets the default size for image-node outputs. '
+      + 'publishVideoResolution sets the default size for video-node outputs. '
       + 'Valid aspectRatio: 16:9 | 9:16 | 1:1 | 2.39:1.',
     tags: ['canvas', 'write', 'settings'],
     context: CANVAS_CONTEXT,
@@ -824,13 +826,31 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
             'Free-form negative prompt (e.g. "text, watermark, blurry, low-quality, extra limbs"). '
             + 'Appended to every ref-image prompt as "Avoid: …". Pass null to clear.',
         },
-        defaultResolution: {
+        refResolution: {
           type: 'object',
           description:
-            'Default output resolution for ref-image generation. Both width and height are required when set. Pass null to clear.',
+            'Default resolution for ref-image generation. Both width and height are required when set. Pass null to clear.',
           properties: {
             width:  { type: 'number', description: 'Image width in pixels.' },
             height: { type: 'number', description: 'Image height in pixels.' },
+          },
+        },
+        publishImageResolution: {
+          type: 'object',
+          description:
+            'Default resolution for image-node outputs (publishing format). Both width and height are required when set. Pass null to clear.',
+          properties: {
+            width:  { type: 'number', description: 'Width in pixels.' },
+            height: { type: 'number', description: 'Height in pixels.' },
+          },
+        },
+        publishVideoResolution: {
+          type: 'object',
+          description:
+            'Default resolution for video-node outputs (publishing format). Both width and height are required when set. Pass null to clear.',
+          properties: {
+            width:  { type: 'number', description: 'Width in pixels.' },
+            height: { type: 'number', description: 'Height in pixels.' },
           },
         },
         aspectRatio: {
@@ -870,21 +890,31 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         copy('imageProviderId');
         copy('videoProviderId');
         copy('audioProviderId');
-        if ('defaultResolution' in args) {
-          const raw = args.defaultResolution;
+        const copyResolution = (key: 'refResolution' | 'publishImageResolution' | 'publishVideoResolution') => {
+          if (!(key in args)) return null;
+          const raw = args[key];
           if (raw === null) {
-            (patch as Record<string, unknown>).defaultResolution = null;
-          } else if (raw && typeof raw === 'object') {
+            (patch as Record<string, unknown>)[key] = null;
+            return null;
+          }
+          if (raw && typeof raw === 'object') {
             const obj = raw as { width?: unknown; height?: unknown };
             const w = typeof obj.width === 'number' && obj.width > 0 ? Math.floor(obj.width) : null;
             const h = typeof obj.height === 'number' && obj.height > 0 ? Math.floor(obj.height) : null;
             if (w !== null && h !== null) {
-              patch.defaultResolution = { width: w, height: h };
-            } else {
-              return fail('defaultResolution requires positive numeric width and height');
+              (patch as Record<string, unknown>)[key] = { width: w, height: h };
+              return null;
             }
+            return `${key} requires positive numeric width and height`;
           }
-        }
+          return null;
+        };
+        const refErr = copyResolution('refResolution');
+        if (refErr) return fail(refErr);
+        const pubImgErr = copyResolution('publishImageResolution');
+        if (pubImgErr) return fail(pubImgErr);
+        const pubVidErr = copyResolution('publishVideoResolution');
+        if (pubVidErr) return fail(pubVidErr);
         const settings = await deps.patchCanvasSettings(canvasId, patch);
         return ok({ canvasId, settings });
       } catch (error) {

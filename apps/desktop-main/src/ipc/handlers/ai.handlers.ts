@@ -1,5 +1,6 @@
 import type { IpcMain, BrowserWindow } from 'electron';
 import { aiStreamChannel, aiEventChannel } from '@lucid-fin/contracts-parse';
+import { COMMANDER_WIRE_VERSION } from '@lucid-fin/contracts';
 import log from '../../logger.js';
 import type { AgentOrchestrator, StampedStreamEvent } from '@lucid-fin/application';
 import type { PromptStore } from '@lucid-fin/storage';
@@ -39,10 +40,13 @@ export function registerAiHandlers(
       }
 
       const emit = (event: StampedStreamEvent) => {
-        if (event.kind === 'chunk' && event.content) {
+        if (event.kind === 'assistant_text' && event.content && event.isDelta !== false) {
           gateway.emit(aiStreamChannel, event.content);
         }
-        gateway.emit(aiEventChannel, event);
+        gateway.emit(aiEventChannel, {
+          wireVersion: COMMANDER_WIRE_VERSION,
+          event,
+        });
       };
 
       try {
