@@ -1,10 +1,10 @@
 import { createContext, useContext } from 'react';
-import type { CanvasNodeType } from '@lucid-fin/contracts';
+import type { NodeKind } from '@lucid-fin/contracts';
 
 export interface EdgeCallbacks {
   onDelete: (id: string) => void;
   onSwapDirection: (id: string) => void;
-  onInsertNode: (id: string, type: CanvasNodeType, position: { x: number; y: number }) => void;
+  onInsertNode: (id: string, type: NodeKind, position: { x: number; y: number }) => void;
 }
 
 const NOOP = () => {};

@@ -12,7 +12,7 @@ import type { ReactFlowInstance } from '@xyflow/react';
 import {
   createEmptyPresetTrackSet,
   type AudioNodeData,
-  type CanvasNodeType,
+  type NodeKind,
   type ImageNodeData,
   type VideoNodeData,
 } from '@lucid-fin/contracts';
@@ -34,7 +34,7 @@ interface DragAssetPayload {
 // ---------------------------------------------------------------------------
 
 export function createNodePayloadFromAsset(asset: DragAssetPayload): {
-  type: CanvasNodeType;
+  type: NodeKind;
   title: string;
   data: ImageNodeData | VideoNodeData | AudioNodeData;
 } {
@@ -159,7 +159,7 @@ export function useCanvasDragDrop(
               dispatch(
                 addNode({
                   id: crypto.randomUUID(),
-                  type: 'text' as CanvasNodeType,
+                  type: 'text' as NodeKind,
                   title,
                   data: { content },
                   position: pos,

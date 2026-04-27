@@ -6,7 +6,8 @@ import type {
   Character,
   CharacterGender,
   ColorStyle,
-  CommanderStreamEvent,
+  TimelineEvent,
+  WireEnvelope,
   Equipment,
   EquipmentLoadout,
   EquipmentType,
@@ -440,7 +441,7 @@ declare global {
           message: string,
           history: Array<Record<string, unknown>>,
           selectedNodeIds: string[],
-          promptGuides?: Array<{ id: string; name: string; content: string }>,
+          promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
           customLLMProvider?: LLMProviderRuntimeConfig,
           permissionMode?: 'auto' | 'normal' | 'strict',
           locale?: string,
@@ -458,7 +459,8 @@ declare global {
         answerQuestion: (canvasId: string, toolCallId: string, answer: string) => Promise<void>;
         toolList: () => Promise<CommanderToolSummary[]>;
         toolSearch: (query?: string) => Promise<CommanderToolSearchResult[]>;
-        onStream: (cb: (data: CommanderStreamEvent) => void) => () => void;
+        hydrateEvents: (sessionId: string) => Promise<{ events: unknown[] }>;
+        onStream: (cb: (envelope: WireEnvelope<TimelineEvent>) => void) => () => void;
         onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;
         onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) => () => void;

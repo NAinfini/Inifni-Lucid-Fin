@@ -1,6 +1,6 @@
 import { memo, type DragEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { MapPin, Package, Plus, Search, Trash2, Upload, User, type LucideIcon } from 'lucide-react';
-import type { CanvasNodeType } from '@lucid-fin/contracts';
+import type { NodeKind } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 
 type Translate = (key: string) => string;
@@ -57,7 +57,7 @@ interface VideoFramesSection {
 
 interface InspectorContextTabProps {
   t: Translate;
-  selectedNodeType: CanvasNodeType;
+  selectedNodeType: NodeKind;
   charPickerOpen: boolean;
   equipPickerOpen: boolean;
   locPickerOpen: boolean;

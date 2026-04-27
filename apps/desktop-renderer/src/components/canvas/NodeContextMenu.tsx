@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
-import type { CanvasNodeType } from '@lucid-fin/contracts';
+import type { NodeKind } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
 import {
   Check,
@@ -37,7 +37,7 @@ const COLOR_TAGS = [
 interface NodeContextMenuProps {
   children: React.ReactNode;
   nodeId: string;
-  nodeType: CanvasNodeType;
+  nodeType: NodeKind;
   locked: boolean;
   colorTag?: string;
 }

@@ -43,7 +43,7 @@ import { InspectorGenerationState, type GenerationRenderProps } from './Inspecto
 import { hasTracks, isGenerationNode } from './inspector/guardTypes.js';
 import type {
   CanvasNode,
-  CanvasNodeType,
+  NodeKind,
   PresetCategory,
   PresetDefinition,
   TextNodeData,
@@ -56,7 +56,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 
-const TYPE_META: Record<CanvasNodeType, { label: string; icon: LucideIcon; color: string }> = {
+const TYPE_META: Record<NodeKind, { label: string; icon: LucideIcon; color: string }> = {
   text: { label: 'node.text', icon: FileText, color: 'text-foreground' },
   image: { label: 'node.image', icon: Image, color: 'text-blue-400' },
   video: { label: 'node.video', icon: Video, color: 'text-purple-400' },

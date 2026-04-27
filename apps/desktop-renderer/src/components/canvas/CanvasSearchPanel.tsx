@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { useCallback, useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import type { CanvasNodeType, NodeStatus } from '@lucid-fin/contracts';
+import type { NodeKind, NodeStatus } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
 import type { RootState } from '../../store/index.js';
 import {
@@ -14,7 +14,7 @@ import {
 import { cn } from '../../lib/utils.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 
-const NODE_FILTERS: CanvasNodeType[] = ['text', 'image', 'video', 'audio', 'backdrop'];
+const NODE_FILTERS: NodeKind[] = ['text', 'image', 'video', 'audio', 'backdrop'];
 const STATUS_FILTERS: NodeStatus[] = ['idle', 'generating', 'done', 'failed'];
 
 interface CanvasSearchPanelProps {

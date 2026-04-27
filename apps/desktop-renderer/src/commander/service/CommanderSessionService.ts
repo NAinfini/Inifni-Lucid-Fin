@@ -1,20 +1,14 @@
 /**
- * `commander/service/CommanderSessionService.ts` — Phase E split-2.
+ * `commander/service/CommanderSessionService.ts` — v2 cutover.
  *
- * Holds all commander session orchestration that was previously inlined in
- * `hooks/useCommander.ts`. Pure TypeScript — no React, no hooks, so the
- * behavior is directly unit-testable.
+ * Drives user-initiated Commander flows (start a turn, cancel, inject follow-up
+ * messages) and forwards incoming timeline events into the v2 timeline slice.
+ * Stream events are no longer normalized into the legacy `commanderSlice` —
+ * UI consumers read directly from `commanderTimelineSlice.events`.
  *
- * Responsibilities (in dependency order):
- *   - resolve the active provider / canvas / history from the Redux store
- *   - drive the auto-snapshot + canvas-save preamble before a new turn
- *   - call `transport.chat(...)` with the positional preload contract
- *   - normalize the incoming stream events and dispatch slice actions
- *   - mirror main-process canvas updates into renderer state with granular diffs
- *   - fan out settings / undo / entities push payloads to the store
- *
- * Lifecycle: the hook creates a service on mount, calls `subscribe()` inside
- * a `useEffect`, and tears it down with the returned unsubscriber.
+ * Non-stream side-effects (canvas updates, settings/undo pushes, entity
+ * refreshes) still land on their dedicated slices — those channels are
+ * orthogonal to the Commander timeline.
  */
 
 import { ENTITY_REFRESH_TOOL_ENTITY, normalizeLLMProviderRuntimeConfig } from '@lucid-fin/contracts';
@@ -22,26 +16,17 @@ import { ENTITY_REFRESH_TOOL_ENTITY, normalizeLLMProviderRuntimeConfig } from '@
 import type { AppDispatch, RootState } from '../../store/index.js';
 import {
   addInjectedMessage,
-  addToolCall,
   addUserMessage,
-  appendStreamChunk,
-  appendThinking,
-  applyStreamEvent,
-  clearPendingConfirmation,
-  collapseThinking,
+  updateRunPhase,
+  appendFinalizedAssistantMessage,
   ensureActiveSession,
   finishStreaming,
-  pushPhaseNote,
-  resolveToolCall,
   selectIsStreaming,
-  setBackendContextUsage,
-  setPendingConfirmation,
-  setPendingQuestion,
   setProviderId,
   startStreaming,
   streamError,
   switchCanvas,
-  updateToolCallArguments,
+  upsertFinalizedAssistantMessage,
 } from '../../store/slices/commander.js';
 import {
   addNode,
@@ -79,72 +64,38 @@ import type {
   CommanderCanvasUpdatedPayload,
   CommanderEntitiesUpdatedPayload,
   CommanderSettingsDispatchPayload,
-  CommanderStreamEvent,
   CommanderTransport,
   CommanderUndoDispatchPayload,
   Unsub,
 } from '../transport/CommanderTransport.js';
 import { buildCommanderHistory } from './history-builder.js';
+import type { TimelineEvent } from '@lucid-fin/contracts';
+import { appendEvent as appendTimelineEvent } from '../state/commander-timeline-slice.js';
+import { selectEventsForRun } from '../state/commander-timeline-selectors.js';
+import { buildFinalizedAssistantMessage } from '../state/run-derivation.js';
 import {
   incrementLLMRetry,
-  incrementParseFailure,
   incrementRunAbort,
   incrementStallWarning,
   incrementStepAbort,
-  incrementUnknownKind,
-  recordCoalescedBatch,
-  recordRenderLagSample,
 } from './telemetry.js';
-import { BatchedDispatcher, type BatchedDeltaKind } from './batched-dispatcher.js';
-
-/**
- * Exhaustiveness helper. If the `kind` switch below ever fails to cover a
- * new discriminator, TypeScript forces this call to become a type error —
- * surfacing the missing case at compile time rather than a silent drop at
- * runtime. Boundary check has already normalized shape before we hit here.
- */
-function assertNever(value: never): never {
-  throw new Error(`Unhandled commander stream kind: ${JSON.stringify(value)}`);
-}
-
-/**
- * Known Commander stream event kinds. This set is the renderer-side mirror of
- * the zod-owned `CommanderStreamPayload.kind` union in
- * `@lucid-fin/contracts-parse`. We duplicate it here because the renderer
- * bundle must not pull zod in — but the duplication is guarded: the
- * `kind` TS narrowing in the switch below covers exactly these literals, so a
- * drift between this set and the schema becomes a compile error at the
- * `assertNever` call.
- */
-const COMMANDER_STREAM_KINDS = new Set<string>([
-  'chunk',
-  'tool_call_started',
-  'tool_call_args_delta',
-  'tool_call_args_complete',
-  'tool_result',
-  'tool_confirm',
-  'tool_question',
-  'thinking_delta',
-  'phase_note',
-  'done',
-  'error',
-  'context_usage',
-]);
-
-function isCommanderStreamEvent(raw: unknown): raw is CommanderStreamEvent {
-  if (typeof raw !== 'object' || raw === null) return false;
-  const record = raw as Record<string, unknown>;
-  return (
-    typeof record.kind === 'string' &&
-    COMMANDER_STREAM_KINDS.has(record.kind) &&
-    typeof record.runId === 'string' &&
-    typeof record.step === 'number' &&
-    typeof record.emittedAt === 'number'
-  );
-}
 
 type CommanderEntityAPI = Pick<NonNullable<LucidAPI>, 'character' | 'equipment' | 'location'>;
-type CommanderPromptGuide = { id: string; name: string; content: string };
+type CommanderPromptGuide = { id: string; name: string; content: string; autoInject?: boolean };
+
+/**
+ * Map well-known runtime error strings (Electron IPC failures, AbortError
+ * messages) to localized user-facing strings. Falls through to the raw
+ * message when nothing matches — most backend errors are already
+ * localization-keyed via CommanderError.
+ */
+function localizeRuntimeError(raw: string, t: (key: string) => string): string {
+  if (/reply was never sent/i.test(raw)) return t('commander.runtimeError.ipcReplyNeverSent');
+  if (/operation was aborted|the user aborted a request|AbortError/i.test(raw)) {
+    return t('commander.runtimeError.operationAborted');
+  }
+  return raw;
+}
 
 function selectCommanderPromptGuides(state: RootState): CommanderPromptGuide[] {
   const guides: CommanderPromptGuide[] = [];
@@ -198,31 +149,30 @@ export interface CommanderSessionServiceDeps {
   getLocale: () => string;
 }
 
+/**
+ * User-initiated `cancel()` waits this long for the backend's
+ * `run_end(status='cancelled')` before locally finalizing. Matches D2b
+ * in PLAN v7.
+ */
+const CANCEL_TIMEOUT_MS = 2000;
+
+interface RunEndLatch {
+  promise: Promise<boolean>;
+  resolve: (arrived: boolean) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export class CommanderSessionService {
   /** Maps in-flight tool call ids → tool names, so we can record usage on result. */
   private readonly toolCallNames = new Map<string, string>();
-  /**
-   * Accumulates tool_call args as they stream in via `tool_call_args_delta`.
-   * Buffered per-`toolCallId`; cleared on `tool_call_args_complete`. Kept in
-   * service state (not the Redux store) because it's a transient parse
-   * artefact — consumers only ever see the parsed `arguments` record.
-   */
-  private readonly toolCallArgBuffers = new Map<string, string>();
 
   /**
-   * Coalesces high-frequency delta events (text / thinking / tool args)
-   * into one dispatch per animation frame. Created lazily on `subscribe`
-   * and disposed on unsubscribe so the scheduler handle doesn't leak
-   * across tests.
+   * D2b — Promise latches indexed by runId. `cancel()` awaits the
+   * matching latch; the `run_end` side-effect resolves it. Idempotent on
+   * repeat-cancel: a second `cancel()` for the same runId receives the
+   * same Promise. Never leaks — timer-expiry clears the entry.
    */
-  private batcher: BatchedDispatcher | null = null;
-
-  /**
-   * Push-timestamp map so `recordRenderLagSample` can report honest
-   * end-to-end latency. Keyed by the same `(kind, key)` compound as the
-   * batcher's internal buffer; cleared on flush.
-   */
-  private readonly batchPushStart = new Map<string, number>();
+  private readonly runEndLatches = new Map<string, RunEndLatch>();
 
   constructor(private readonly deps: CommanderSessionServiceDeps) {}
 
@@ -377,12 +327,13 @@ export class CommanderSessionService {
         Object.keys(defaultProviders).length > 0 ? defaultProviders : undefined,
       );
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const rawMsg = error instanceof Error ? error.message : String(error);
+      const msg = localizeRuntimeError(rawMsg, t);
       dispatch(
         addLog({
           level: 'error',
           category: 'commander',
-          message: msg,
+          message: rawMsg,
           detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         }),
       );
@@ -390,24 +341,47 @@ export class CommanderSessionService {
     }
   }
 
-  /** User-initiated cancel. Finalizes local streaming state even if the
-   *  main-process session is already gone. */
+  /**
+   * User-initiated cancel. Prefers the backend-driven finalize (richer
+   * exitDecision/summary) and only falls back to a local `terminalKind=
+   * 'cancelled'` finalize when (a) transport unavailable, (b) no
+   * activeCanvasId, or (c) `awaitRunEnd` times out. See D2b in PLAN v7.
+   */
   async cancel(): Promise<void> {
     const { dispatch, getState, transport } = this.deps;
     incrementRunAbort();
-    this.batcher?.flushNow();
-    if (!transport.available) {
-      dispatch(finishStreaming(undefined));
+
+    const state = getState();
+    const currentRunId = state.commanderTimeline.currentRunId;
+    const activeCanvasId = state.commander.activeCanvasId;
+
+    if (!transport.available || !activeCanvasId) {
+      if (currentRunId) this.finalizeLocallyAsCancelled(currentRunId);
+      dispatch(finishStreaming());
+      this.persistSessionOnTerminal();
       return;
     }
-    dispatch(finishStreaming(undefined));
-    const activeCanvasId = getState().canvas.activeCanvasId;
-    if (activeCanvasId) {
-      try {
-        await transport.cancel(activeCanvasId);
-      } catch {
-        /* main-process session already gone */
-      }
+
+    try {
+      await transport.cancel(activeCanvasId);
+    } catch {
+      // Transport cancel itself failed — fall through to timeout path.
+    }
+
+    // Fast-path: if run_end already finalized during the transport.cancel
+    // await, no reason to wait further.
+    if (
+      !currentRunId ||
+      getState().commander.finalizedRunIds.includes(currentRunId)
+    ) {
+      return;
+    }
+
+    const arrived = await this.awaitRunEnd(currentRunId, CANCEL_TIMEOUT_MS);
+    if (!arrived) {
+      this.finalizeLocallyAsCancelled(currentRunId);
+      dispatch(finishStreaming());
+      this.persistSessionOnTerminal();
     }
   }
 
@@ -422,14 +396,16 @@ export class CommanderSessionService {
   async cancelCurrentStep(): Promise<{ escalated: boolean }> {
     const { dispatch, getState, transport } = this.deps;
     incrementStepAbort();
-    this.batcher?.flushNow();
     const activeCanvasId = getState().canvas.activeCanvasId;
     if (!transport.available || !activeCanvasId) return { escalated: false };
     try {
       const result = await transport.cancelCurrentStep(activeCanvasId);
       if (result.escalated) {
         incrementRunAbort();
-        dispatch(finishStreaming(undefined));
+        const runId = getState().commanderTimeline.currentRunId;
+        if (runId) this.finalizeLocallyAsCancelled(runId);
+        dispatch(finishStreaming());
+        this.persistSessionOnTerminal();
       }
       return result;
     } catch {
@@ -437,28 +413,78 @@ export class CommanderSessionService {
     }
   }
 
+  /** Build a cancelled-finalize message from the current timeline and
+   *  dispatch it through the normal append path (reducer dedup will no-op
+   *  if a backend run_end already finalized this runId). */
+  private finalizeLocallyAsCancelled(runId: string): void {
+    const { dispatch, getState } = this.deps;
+    const state = getState();
+    const events = selectEventsForRun(state, runId);
+    const message = buildFinalizedAssistantMessage(
+      runId,
+      'cancelled',
+      events,
+      state.commanderTimeline.locallyResolvedConfirmations,
+      state.commanderTimeline.locallyResolvedQuestions,
+    );
+    if (message) {
+      dispatch(appendFinalizedAssistantMessage({ message, runId }));
+    }
+  }
+
+  /** Resolve a run_end Promise latch if one exists for this runId. No-op
+   *  when no latch was created (e.g. normal completion without cancel). */
+  private resolveRunEndLatch(runId: string): void {
+    const entry = this.runEndLatches.get(runId);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    this.runEndLatches.delete(runId);
+    entry.resolve(true);
+  }
+
+  /** Wait for the `run_end` event matching `runId`. Idempotent: repeat
+   *  calls receive the same Promise. Timer expiry resolves `false` and
+   *  deletes the entry. */
+  private awaitRunEnd(runId: string, ms: number): Promise<boolean> {
+    const existing = this.runEndLatches.get(runId);
+    if (existing) return existing.promise;
+    let resolve!: (arrived: boolean) => void;
+    const promise = new Promise<boolean>((r) => {
+      resolve = r;
+    });
+    const timer = setTimeout(() => {
+      this.runEndLatches.delete(runId);
+      resolve(false);
+    }, ms);
+    this.runEndLatches.set(runId, { promise, resolve, timer });
+    return promise;
+  }
+
   /**
    * Subscribe to all commander push channels. Returns a single unsub that
    * tears down every listener. Intended to be called once per hook mount.
+   */
+  /**
+   * Subscribe to all commander push channels. Returns a single unsub that
+   * tears down every listener. Intended to be called once per hook mount.
+   *
+   * Post-cutover: the stream dispatcher appends each `TimelineEvent` to the
+   * timeline slice, fires `run_end`/`cancelled` side-effects (record tool
+   * call telemetry, persist session, clear streaming flag), and forwards
+   * canvas/entities/settings/undo pushes to their respective slices.
    */
   subscribe(): Unsub {
     const { transport, api, dispatch } = this.deps;
     if (!transport.available) return () => {};
 
-    this.batcher = new BatchedDispatcher({
-      flush: (kind, key, joined) => {
-        const compound = `${kind}\u0000${key}`;
-        const startedAt = this.batchPushStart.get(compound);
-        if (startedAt !== undefined) {
-          recordRenderLagSample(performance.now() - startedAt);
-          this.batchPushStart.delete(compound);
-        }
-        this.applyCoalescedFlush(kind, key, joined);
-      },
-      onCoalesced: (batchSize) => recordCoalescedBatch(batchSize),
+    const unsubStream = transport.onStreamEnvelope((envelope) => {
+      const event = envelope.event as TimelineEvent;
+      dispatch(appendTimelineEvent(event));
+      // Phase FSM — drive the legacy `commander.phase` field so the
+      // LiveActivityBar / cursor gate / elapsed timers stay honest.
+      dispatch(updateRunPhase(event));
+      this.applyTimelineSideEffects(event);
     });
-
-    const unsubStream = transport.onStream((data) => this.handleStreamEvent(data));
     const unsubCanvas = transport.onCanvasUpdated((data) => this.handleCanvasUpdate(data));
     const unsubEntities = transport.onEntitiesUpdated((data) => {
       void syncCommanderEntitiesForTool(
@@ -476,322 +502,107 @@ export class CommanderSessionService {
       unsubEntities();
       unsubSettings();
       unsubUndo();
-      this.batcher?.dispose();
-      this.batcher = null;
-      this.batchPushStart.clear();
     };
   }
 
   /**
-   * Route a deferred batched delta into the same reducer path the
-   * un-batched case would have taken. Called exclusively by the
-   * BatchedDispatcher's rAF flush.
+   * Side-effects triggered by specific timeline events. UI state lives in
+   * the timeline slice; this handler is for things outside that slice —
+   * recording telemetry, clearing the `isStreaming` flag on terminal
+   * frames, running per-tool entity-refresh dispatches, persisting the
+   * session on `run_end`, etc.
    */
-  private applyCoalescedFlush(kind: BatchedDeltaKind, key: string, joined: string): void {
+  private applyTimelineSideEffects(event: TimelineEvent): void {
     const { dispatch } = this.deps;
-    switch (kind) {
-      case 'text_delta':
-        dispatch(collapseThinking());
-        dispatch(appendStreamChunk(joined));
-        return;
-      case 'thinking_delta':
-        dispatch(appendThinking(joined));
-        return;
-      case 'tool_call_args_delta': {
-        const prior = this.toolCallArgBuffers.get(key) ?? '';
-        this.toolCallArgBuffers.set(key, prior + joined);
+
+    switch (event.kind) {
+      case 'tool_call': {
+        const toolName = `${event.toolRef.domain}.${event.toolRef.action}`;
+        this.toolCallNames.set(event.toolCallId, toolName);
         return;
       }
-    }
-  }
-
-  /**
-   * Push a delta into the batcher, timestamping the first push per
-   * (kind, key) so render-lag samples measure honest end-to-end latency
-   * instead of just the final flush.
-   */
-  private enqueueDelta(kind: BatchedDeltaKind, key: string, delta: string): void {
-    if (!this.batcher) return;
-    const compound = `${kind}\u0000${key}`;
-    if (!this.batchPushStart.has(compound)) {
-      this.batchPushStart.set(compound, performance.now());
-    }
-    this.batcher.push(kind, key, delta);
-  }
-
-  private handleStreamEvent(raw: CommanderStreamEvent): void {
-    const { dispatch, getState, t, transport } = this.deps;
-
-    // Boundary check: re-validate shape at the renderer edge. `onStream` is
-    // typed, but in dev a stale preload or manually-crafted test double can
-    // deliver a payload TS accepts but our union rejects. Count the drop,
-    // log, and return — never throw — so one bad event cannot kill the
-    // session. Full zod validation is done in the preload; this check is
-    // the last line of defense before the narrowed switch below.
-    if (!isCommanderStreamEvent(raw)) {
-      incrementParseFailure();
-      dispatch(
-        addLog({
-          level: 'warn',
-          category: 'commander',
-          message: 'Dropped malformed commander:stream event',
-          detail: JSON.stringify(raw),
-        }),
-      );
-      return;
-    }
-    const data = raw;
-
-    // Keep the RunPhase state machine in sync before the event-specific
-    // reducers run. The phase is what LiveActivityBar + elapsed timers + the
-    // cursor gate all read, so it has to lead.
-    dispatch(applyStreamEvent(data));
-
-    switch (data.kind) {
-      case 'chunk':
-        if (data.content) {
-          this.enqueueDelta('text_delta', '', data.content);
-        }
-        return;
-
-      case 'thinking_delta':
-        this.enqueueDelta('thinking_delta', '', data.content);
-        return;
-
-      case 'tool_call_started':
-        // Any buffered thinking/text must reach the store before the
-        // tool-card renders — otherwise the tool card flips to "running"
-        // above text that hasn't landed yet.
-        this.batcher?.flushNow();
-        dispatch(collapseThinking());
-        this.toolCallNames.set(data.toolCallId, data.toolName);
-        // Buffer args as they stream in; persisted in `toolCallArgBuffers`
-        // until `tool_call_args_complete` (LLM-originated) or the
-        // tool-executor's `tool_call_args_complete` for non-LLM paths.
-        this.toolCallArgBuffers.set(data.toolCallId, '');
-        dispatch(
-          addToolCall({
-            name: data.toolName,
-            id: data.toolCallId,
-            arguments: {},
-            startedAt: data.startedAt,
-          }),
-        );
-        return;
-
-      case 'tool_call_args_delta': {
-        this.enqueueDelta('tool_call_args_delta', data.toolCallId, data.delta);
-        return;
-      }
-
-      case 'tool_call_args_complete': {
-        // Drain any pending args deltas for this id so the final parsed
-        // arguments land after (not before) the streamed partial text.
-        this.batcher?.flushNow();
-        this.toolCallArgBuffers.delete(data.toolCallId);
-        dispatch(
-          updateToolCallArguments({
-            id: data.toolCallId,
-            arguments: data.arguments,
-          }),
-        );
-        return;
-      }
-
       case 'tool_result': {
-        this.batcher?.flushNow();
-        const resultRecord =
-          typeof data.result === 'object' && data.result !== null
-            ? (data.result as { success?: unknown; error?: unknown; data?: unknown })
-            : undefined;
-        const isError = resultRecord?.success === false;
-        dispatch(
-          resolveToolCall({
-            id: data.toolCallId,
-            result: data.result,
-            error: isError
-              ? typeof resultRecord?.error === 'string'
-                ? resultRecord.error
-                : t('commander.toolExecutionFailed')
-              : undefined,
-            completedAt: data.completedAt,
-          }),
-        );
-        const toolName = data.toolName ?? this.toolCallNames.get(data.toolCallId);
+        const toolName = this.toolCallNames.get(event.toolCallId);
+        this.toolCallNames.delete(event.toolCallId);
+        const isError = !!event.error;
         if (toolName) {
           dispatch(recordToolCall({ toolName, error: isError }));
-          this.toolCallNames.delete(data.toolCallId);
-        }
-        if (toolName && !isError) {
-          if (toolName === 'node.create' || toolName === 'shot.create') {
-            dispatch(recordShotCreate());
-            dispatch(recordProjectActivity({ nodesCreated: 1 }));
-          } else if (toolName === 'edge.create') {
-            dispatch(recordProjectActivity({ edgesCreated: 1 }));
-          } else if (toolName === 'prop.create') {
-            dispatch(recordEntityCreate({ entityType: 'prop' }));
-          } else if (toolName.endsWith('.create')) {
-            const bucket = ENTITY_REFRESH_TOOL_ENTITY[toolName];
-            if (bucket === 'character' || bucket === 'location' || bucket === 'equipment') {
-              dispatch(recordEntityCreate({ entityType: bucket }));
+          if (!isError) {
+            const resultRecord =
+              typeof event.result === 'object' && event.result !== null
+                ? (event.result as { success?: unknown; data?: unknown })
+                : undefined;
+            if (toolName === 'node.create' || toolName === 'shot.create') {
+              dispatch(recordShotCreate());
+              dispatch(recordProjectActivity({ nodesCreated: 1 }));
+            } else if (toolName === 'edge.create') {
+              dispatch(recordProjectActivity({ edgesCreated: 1 }));
+            } else if (toolName === 'prop.create') {
+              dispatch(recordEntityCreate({ entityType: 'prop' }));
+            } else if (toolName.endsWith('.create')) {
+              const bucket = ENTITY_REFRESH_TOOL_ENTITY[toolName];
+              if (bucket === 'character' || bucket === 'location' || bucket === 'equipment') {
+                dispatch(recordEntityCreate({ entityType: bucket }));
+              }
+            }
+            if (
+              (toolName === 'preset.create' || toolName === 'preset.update') &&
+              resultRecord &&
+              'data' in resultRecord &&
+              resultRecord.data &&
+              typeof resultRecord.data === 'object' &&
+              'id' in (resultRecord.data as Record<string, unknown>)
+            ) {
+              dispatch(
+                upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition),
+              );
             }
           }
-          if (
-            (toolName === 'preset.create' || toolName === 'preset.update') &&
-            resultRecord &&
-            'data' in resultRecord &&
-            resultRecord.data &&
-            typeof resultRecord.data === 'object' &&
-            'id' in (resultRecord.data as Record<string, unknown>)
-          ) {
-            dispatch(
-              upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition),
-            );
-          }
         }
         return;
       }
-
-      case 'tool_confirm': {
-        const { confirmAutoMode } = getState().commander;
-        if (confirmAutoMode !== 'none') {
-          const approved = confirmAutoMode === 'approve';
-          const cid = getState().canvas.activeCanvasId;
-          if (cid) {
-            void transport.confirmTool(cid, data.toolCallId, approved);
-          }
-          dispatch(clearPendingConfirmation());
-          return;
-        }
-        dispatch(
-          setPendingConfirmation({
-            toolCallId: data.toolCallId,
-            toolName: data.toolName,
-            args: data.arguments,
-            tier: data.tier,
-          }),
-        );
-        return;
-      }
-
-      case 'tool_question':
-        dispatch(
-          setPendingQuestion({
-            toolCallId: data.toolCallId,
-            question: data.question,
-            options: data.options,
-          }),
-        );
-        return;
-
-      case 'context_usage':
-        dispatch(
-          setBackendContextUsage({
-            estimatedTokensUsed: data.estimatedTokensUsed,
-            contextWindowTokens: data.contextWindowTokens,
-            messageCount: data.messageCount,
-            systemPromptChars: data.systemPromptChars,
-            toolSchemaChars: data.toolSchemaChars,
-            messageChars: data.messageChars,
-            cacheChars: data.cacheChars,
-            cacheEntryCount: data.cacheEntryCount,
-            historyMessagesTrimmed: data.historyMessagesTrimmed ?? 0,
-            utilizationRatio: data.utilizationRatio,
-          }),
-        );
-        return;
-
       case 'phase_note':
-        // Flush so buffered text lands before the note segment — the
-        // segment appears as a status line between prior output and
-        // whatever comes next (retry, new call, etc).
-        this.batcher?.flushNow();
-        if (data.note === 'llm_retry') {
+        if (event.note === 'llm_retry') {
           incrementLLMRetry();
-          // The orchestrator tags stall-triggered retries with `(stall)`
-          // in the detail string. Keeping the attribution here (instead
-          // of a separate wire kind) avoids growing the surface for a
-          // purely observability concern.
-          if (data.detail.includes('(stall)')) incrementStallWarning();
+          const stall = event.params?.stall;
+          if (stall === true || stall === 'true') incrementStallWarning();
         }
-        dispatch(pushPhaseNote({ note: data.note, detail: data.detail }));
         return;
+      case 'run_end': {
+        const runId = event.runId;
+        if (event.status === 'failed') dispatch(recordError());
 
-      case 'error': {
-        this.batcher?.flushNow();
-        const errMsg = data.error || t('commander.unknownError');
-        dispatch(recordError());
-        dispatch(
-          addLog({
-            level: 'error',
-            category: 'commander',
-            message: errMsg,
-            detail: data.toolCallId ? `Tool call ID: ${data.toolCallId}` : undefined,
-          }),
+        const events = selectEventsForRun(this.deps.getState(), runId);
+        const state = this.deps.getState();
+        const message = buildFinalizedAssistantMessage(
+          runId,
+          event.status,
+          events,
+          state.commanderTimeline.locallyResolvedConfirmations,
+          state.commanderTimeline.locallyResolvedQuestions,
         );
-        if (data.toolCallId) {
-          dispatch(
-            resolveToolCall({
-              id: data.toolCallId,
-              error: data.error || t('commander.toolExecutionFailed'),
-              completedAt: data.completedAt,
-            }),
-          );
+        if (message) {
+          const alreadyFinalized = state.commander.finalizedRunIds.includes(runId);
+          if (alreadyFinalized) {
+            // Late run_end after local cancel: merge backend's richer
+            // exitDecision/summary into the existing message.
+            dispatch(upsertFinalizedAssistantMessage({ message, runId }));
+          } else {
+            dispatch(appendFinalizedAssistantMessage({ message, runId }));
+          }
         }
-        dispatch(streamError(errMsg));
+        this.resolveRunEndLatch(runId);
+        dispatch(finishStreaming());
         this.persistSessionOnTerminal();
         return;
       }
-
-      case 'done': {
-        this.batcher?.flushNow();
-        // Phase E — forward the ExitDecision meta so MessageList can render
-        // a non-satisfied banner. Pre-Phase-E builds won't ship these
-        // fields; the reducer treats the old string payload as
-        // before.
-        const ed = data.exitDecision;
-        const exitDecisionMeta = ed
-          ? {
-              outcome: ed.outcome,
-              contractId:
-                'contractId' in ed
-                  ? (ed as { contractId?: string }).contractId
-                  : undefined,
-              reason:
-                'reason' in ed
-                  ? (ed as { reason?: string }).reason
-                  : undefined,
-              blockerKind:
-                'blocker' in ed &&
-                ed.blocker &&
-                typeof ed.blocker === 'object' &&
-                'kind' in ed.blocker
-                  ? String((ed.blocker as { kind?: unknown }).kind ?? '')
-                  : undefined,
-            }
-          : undefined;
-        dispatch(
-          finishStreaming(
-            exitDecisionMeta
-              ? { content: data.content, exitDecision: exitDecisionMeta }
-              : data.content,
-          ),
-        );
-        this.persistSessionOnTerminal();
+      case 'cancelled':
+        // Informational-only per D2. The subsequent run_end(status=
+        // 'cancelled') drives finalize. Its partialContent survives in
+        // the timeline and is read during run-derivation.
         return;
-      }
-
-      // Phase B/D shadow events — carried in the `done` payload, but also
-      // emitted as dedicated telemetry events for the harness. The
-      // renderer has no separate reaction.
-      case 'evidence_appended':
-      case 'exit_decision':
-      case 'preflight_decision':
-        return;
-
       default:
-        incrementUnknownKind();
-        assertNever(data);
+        return;
     }
   }
 
@@ -814,6 +625,7 @@ export class CommanderSessionService {
       })
       .catch(() => {});
   }
+
 
   private handleCanvasUpdate(data: CommanderCanvasUpdatedPayload): void {
     const { dispatch, getState } = this.deps;

@@ -1,16 +1,21 @@
-import { memo, useState } from 'react';
-import { AlertTriangle, ChevronDown, MessageCircleQuestion, Sparkles } from 'lucide-react';
+import { memo, useMemo, useState } from 'react';
+import { AlertTriangle, Brain, ChevronDown, MessageCircleQuestion } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
 import { assertNever } from '../../../utils/assert-never.js';
 import { Markdown } from './Markdown.js';
 import { ToolCallCard } from './ToolCallCard.js';
+import { ChangesetCard } from './ChangesetCard.js';
 import { CopyButton } from './CopyButton.js';
 import { MessageActionStrip } from './MessageActionStrip.js';
+import { CancelledBanner } from './CancelledBanner.js';
 import type {
   CommanderMessage,
   CommanderToolCall,
   MessageSegment,
 } from '../../../store/slices/commander.js';
+
+/** Minimum consecutive same-domain tool calls to trigger changeset grouping. */
+const CHANGESET_MIN_SIZE = 3;
 
 interface MessageListProps {
   messages: CommanderMessage[];
@@ -26,9 +31,11 @@ interface MessageListProps {
   showTextCursor: boolean;
   error: string | null;
   nodeTitlesById: Record<string, string>;
+  resolveNodeAssetHash?: (nodeId: string) => string | undefined;
   t: (key: string) => string;
   emptyLabel: string;
   onNodeClick?: (nodeId: string) => void;
+  onSendMessage?: (message: string) => void;
 }
 
 export const MessageList = memo(function MessageList({
@@ -39,9 +46,11 @@ export const MessageList = memo(function MessageList({
   showTextCursor,
   error,
   nodeTitlesById,
+  resolveNodeAssetHash,
   t,
   emptyLabel,
   onNodeClick,
+  onSendMessage,
 }: MessageListProps) {
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const toggleRunExpanded = (messageId: string) => {
@@ -75,7 +84,9 @@ export const MessageList = memo(function MessageList({
               expanded={Boolean(expandedRuns[message.id])}
               message={message}
               nodeTitlesById={nodeTitlesById}
+              resolveNodeAssetHash={resolveNodeAssetHash}
               onNodeClick={onNodeClick}
+              onSendMessage={onSendMessage}
               onToggle={() => toggleRunExpanded(message.id)}
               t={t}
             />
@@ -87,20 +98,21 @@ export const MessageList = memo(function MessageList({
                 </MessageActionStrip>
               ) : null}
               <div className="px-3 py-2">
-                {message.segments.map((seg) => (
-                  <SegmentRenderer
-                    key={seg.id}
-                    seg={seg}
-                    nodeTitlesById={nodeTitlesById}
-                    onNodeClick={onNodeClick}
-                    t={t}
-                  />
-                ))}
+                <GroupedSegments
+                  segments={message.segments}
+                  nodeTitlesById={nodeTitlesById}
+                  resolveNodeAssetHash={resolveNodeAssetHash}
+                  onNodeClick={onNodeClick}
+                  onSendMessage={onSendMessage}
+                  t={t}
+                />
               </div>
               <RemainingToolCalls
                 message={message}
                 nodeTitlesById={nodeTitlesById}
+                resolveNodeAssetHash={resolveNodeAssetHash}
                 onNodeClick={onNodeClick}
+                onSendMessage={onSendMessage}
                 t={t}
               />
             </>
@@ -118,15 +130,14 @@ export const MessageList = memo(function MessageList({
               ) : null}
               {message.toolCalls?.length ? (
                 <div className={cn('px-3', message.content ? 'pb-2' : 'py-2')}>
-                  {message.toolCalls.map((toolCall) => (
-                    <ToolCallCard
-                      key={toolCall.id}
-                      toolCall={toolCall}
-                      nodeTitlesById={nodeTitlesById}
-                      t={t}
-                      onNodeClick={onNodeClick}
-                    />
-                  ))}
+                  <GroupedToolCalls
+                    toolCalls={message.toolCalls}
+                    nodeTitlesById={nodeTitlesById}
+                    resolveNodeAssetHash={resolveNodeAssetHash}
+                    onNodeClick={onNodeClick}
+                    onSendMessage={onSendMessage}
+                    t={t}
+                  />
                 </div>
               ) : null}
             </>
@@ -145,6 +156,7 @@ export const MessageList = memo(function MessageList({
                     key={seg.id}
                     seg={seg}
                     nodeTitlesById={nodeTitlesById}
+                    resolveNodeAssetHash={resolveNodeAssetHash}
                     onNodeClick={onNodeClick}
                     t={t}
                     showCursor={showTextCursor && isLast && seg.kind === 'text'}
@@ -178,15 +190,19 @@ export const MessageList = memo(function MessageList({
 interface RemainingToolCallsProps {
   message: CommanderMessage;
   nodeTitlesById: Record<string, string>;
+  resolveNodeAssetHash?: (nodeId: string) => string | undefined;
   t: (key: string) => string;
   onNodeClick?: (nodeId: string) => void;
+  onSendMessage?: (message: string) => void;
 }
 
 function RemainingToolCalls({
   message,
   nodeTitlesById,
+  resolveNodeAssetHash,
   t,
   onNodeClick,
+  onSendMessage,
 }: RemainingToolCallsProps) {
   const segmentToolCallIds = new Set(
     (message.segments ?? [])
@@ -203,15 +219,14 @@ function RemainingToolCalls({
 
   return (
     <div className={cn('px-3', message.content ? 'pb-2' : 'py-2')}>
-      {remainingToolCalls.map((toolCall) => (
-        <ToolCallCard
-          key={toolCall.id}
-          toolCall={toolCall}
-          nodeTitlesById={nodeTitlesById}
-          t={t}
-          onNodeClick={onNodeClick}
-        />
-      ))}
+      <GroupedToolCalls
+        toolCalls={remainingToolCalls}
+        nodeTitlesById={nodeTitlesById}
+        resolveNodeAssetHash={resolveNodeAssetHash}
+        onNodeClick={onNodeClick}
+        onSendMessage={onSendMessage}
+        t={t}
+      />
     </div>
   );
 }
@@ -220,9 +235,11 @@ interface RunSummaryCardProps {
   expanded: boolean;
   message: CommanderMessage;
   nodeTitlesById: Record<string, string>;
+  resolveNodeAssetHash?: (nodeId: string) => string | undefined;
   t: (key: string) => string;
   onToggle: () => void;
   onNodeClick?: (nodeId: string) => void;
+  onSendMessage?: (message: string) => void;
 }
 
 /**
@@ -237,9 +254,11 @@ function RunSummaryCard({
   expanded,
   message,
   nodeTitlesById,
+  resolveNodeAssetHash,
   t,
   onToggle,
   onNodeClick,
+  onSendMessage,
 }: RunSummaryCardProps) {
   const runMeta = message.runMeta;
   if (!runMeta) {
@@ -271,7 +290,27 @@ function RunSummaryCard({
 
   return (
     <div className="min-w-0">
-      {runMeta.exitDecision ? <ExitDecisionBanner decision={runMeta.exitDecision} /> : null}
+      {runMeta.exitDecision ? <ExitDecisionBanner decision={runMeta.exitDecision} t={t} /> : null}
+      {runMeta.cancelled ? (
+        <CancelledBanner
+          event={{
+            kind: 'cancelled',
+            reason: runMeta.cancelled.reason,
+            partialContent: runMeta.cancelled.partialContent,
+            completedToolCalls: runMeta.cancelled.completedToolCalls,
+            pendingToolCalls: runMeta.cancelled.pendingToolCalls,
+            runId: message.id,
+            step: 0,
+            seq: 0,
+            emittedAt: runMeta.completedAt,
+          }}
+          stats={{
+            completed: runMeta.cancelled.completedToolCalls,
+            pending: runMeta.cancelled.pendingToolCalls,
+          }}
+          t={t}
+        />
+      ) : null}
       {hasProcess ? (
         <>
           <button
@@ -321,18 +360,19 @@ function RunSummaryCard({
               <ProcessSegments
                 segments={processSegments}
                 nodeTitlesById={nodeTitlesById}
+                resolveNodeAssetHash={resolveNodeAssetHash}
                 onNodeClick={onNodeClick}
+                onSendMessage={onSendMessage}
                 t={t}
               />
-              {processToolCalls.map((toolCall) => (
-                <ToolCallCard
-                  key={toolCall.id}
-                  toolCall={toolCall}
-                  nodeTitlesById={nodeTitlesById}
-                  t={t}
-                  onNodeClick={onNodeClick}
-                />
-              ))}
+              <GroupedToolCalls
+                toolCalls={processToolCalls}
+                nodeTitlesById={nodeTitlesById}
+                resolveNodeAssetHash={resolveNodeAssetHash}
+                onNodeClick={onNodeClick}
+                onSendMessage={onSendMessage}
+                t={t}
+              />
             </div>
           ) : null}
         </>
@@ -356,24 +396,24 @@ function RunSummaryCard({
 interface ProcessSegmentsProps {
   segments: MessageSegment[];
   nodeTitlesById: Record<string, string>;
+  resolveNodeAssetHash?: (nodeId: string) => string | undefined;
   t: (key: string) => string;
   onNodeClick?: (nodeId: string) => void;
+  onSendMessage?: (message: string) => void;
 }
 
-function ProcessSegments({ segments, nodeTitlesById, t, onNodeClick }: ProcessSegmentsProps) {
+function ProcessSegments({ segments, nodeTitlesById, resolveNodeAssetHash, t, onNodeClick, onSendMessage }: ProcessSegmentsProps) {
   if (segments.length === 0) return null;
   return (
-    <>
-      {segments.map((seg) => (
-        <ProcessSegmentRenderer
-          key={seg.id}
-          seg={seg}
-          nodeTitlesById={nodeTitlesById}
-          onNodeClick={onNodeClick}
-          t={t}
-        />
-      ))}
-    </>
+    <GroupedSegments
+      segments={segments}
+      nodeTitlesById={nodeTitlesById}
+      resolveNodeAssetHash={resolveNodeAssetHash}
+      onNodeClick={onNodeClick}
+      onSendMessage={onSendMessage}
+      t={t}
+      variant="process"
+    />
   );
 }
 
@@ -444,61 +484,12 @@ interface HistoricalQuestionCardProps {
  */
 interface ExitDecisionBannerProps {
   decision: NonNullable<CommanderMessage['runMeta']>['exitDecision'];
+  t: (key: string) => string;
 }
 
 function ExitDecisionBanner({ decision }: ExitDecisionBannerProps) {
-  if (!decision) return null;
-  if (decision.outcome === 'satisfied' || decision.outcome === 'informational_answered') {
-    return null;
-  }
-
-  let label = 'Run ended without satisfying the contract.';
-  let tone: 'warn' | 'danger' = 'warn';
-  switch (decision.outcome) {
-    case 'unsatisfied':
-      label = decision.blockerKind
-        ? `Started but didn't finish — ${decision.blockerKind.replace(/_/g, ' ')}.`
-        : "Started but didn't finish.";
-      tone = 'warn';
-      break;
-    case 'blocked_waiting_user':
-      label = 'Waiting on your answer to continue.';
-      tone = 'warn';
-      break;
-    case 'refused':
-      label = decision.reason
-        ? `Refused: ${decision.reason}`
-        : 'Commander refused this request.';
-      tone = 'danger';
-      break;
-    case 'budget_exhausted':
-      label = 'Budget exhausted before the task could finish.';
-      tone = 'warn';
-      break;
-    case 'error':
-      label = decision.reason ? `Error: ${decision.reason}` : 'Run ended with an error.';
-      tone = 'danger';
-      break;
-  }
-
-  const toneClass =
-    tone === 'danger'
-      ? 'border-destructive/60 bg-destructive/10 text-destructive'
-      : 'border-amber-500/60 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-
-  return (
-    <div
-      data-testid="exit-decision-banner"
-      data-outcome={decision.outcome}
-      className={cn(
-        'mx-3 my-1.5 rounded-md border px-2.5 py-1.5 text-xs flex items-start gap-1.5',
-        toneClass,
-      )}
-    >
-      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-[1px]" />
-      <span>{label}</span>
-    </div>
-  );
+  void decision;
+  return null;
 }
 
 function HistoricalQuestionCard({ message, t }: HistoricalQuestionCardProps) {
@@ -536,12 +527,14 @@ function formatDuration(durationMs: number): string {
 interface SegmentRendererProps {
   seg: MessageSegment;
   nodeTitlesById: Record<string, string>;
+  resolveNodeAssetHash?: (nodeId: string) => string | undefined;
   onNodeClick?: (nodeId: string) => void;
+  onSendMessage?: (message: string) => void;
   t: (key: string) => string;
 }
 
 /** Renders a segment in the "finished message" (history) context. */
-function SegmentRenderer({ seg, nodeTitlesById, onNodeClick, t }: SegmentRendererProps) {
+function SegmentRenderer({ seg, nodeTitlesById, resolveNodeAssetHash, onNodeClick, onSendMessage, t }: SegmentRendererProps) {
   switch (seg.kind) {
     case 'text':
       return <Markdown content={seg.content} onNodeClick={onNodeClick} />;
@@ -550,12 +543,14 @@ function SegmentRenderer({ seg, nodeTitlesById, onNodeClick, t }: SegmentRendere
         <ToolCallCard
           toolCall={seg.toolCall}
           nodeTitlesById={nodeTitlesById}
+          resolveNodeAssetHash={resolveNodeAssetHash}
           t={t}
           onNodeClick={onNodeClick}
+          onSendMessage={onSendMessage}
         />
       );
     case 'thinking':
-      return <ThinkingSegment seg={seg} />;
+      return <ThinkingSegment seg={seg} t={t} />;
     case 'step_marker':
       return <StepMarkerSegment seg={seg} t={t} />;
     case 'phase_note':
@@ -573,18 +568,20 @@ interface LiveSegmentRendererProps extends SegmentRendererProps {
 function LiveSegmentRenderer({
   seg,
   nodeTitlesById,
+  resolveNodeAssetHash,
   onNodeClick,
+  onSendMessage,
   t,
-  showCursor,
+  showCursor: _showCursor,
 }: LiveSegmentRendererProps) {
   switch (seg.kind) {
     case 'text':
       return (
         <div>
           <Markdown content={seg.content} onNodeClick={onNodeClick} />
-          {showCursor ? (
-            <span className="inline-block animate-pulse text-primary">▌</span>
-          ) : null}
+          {/* Phase D (S4): blue cursor caret removed — streaming speed is
+              already visible from text arriving. Activity bar + phase
+              banners carry the "model is thinking" signal. */}
         </div>
       );
     case 'tool':
@@ -592,12 +589,14 @@ function LiveSegmentRenderer({
         <ToolCallCard
           toolCall={seg.toolCall}
           nodeTitlesById={nodeTitlesById}
+          resolveNodeAssetHash={resolveNodeAssetHash}
           t={t}
           onNodeClick={onNodeClick}
+          onSendMessage={onSendMessage}
         />
       );
     case 'thinking':
-      return <ThinkingSegment seg={seg} />;
+      return <ThinkingSegment seg={seg} t={t} />;
     case 'step_marker':
       return <StepMarkerSegment seg={seg} t={t} />;
     case 'phase_note':
@@ -608,7 +607,7 @@ function LiveSegmentRenderer({
 }
 
 /** Renders a segment inside the expanded "process" card of a completed run. */
-function ProcessSegmentRenderer({ seg, nodeTitlesById, onNodeClick, t }: SegmentRendererProps) {
+function ProcessSegmentRenderer({ seg, nodeTitlesById, resolveNodeAssetHash, onNodeClick, onSendMessage, t }: SegmentRendererProps) {
   switch (seg.kind) {
     case 'text':
       return (
@@ -621,12 +620,14 @@ function ProcessSegmentRenderer({ seg, nodeTitlesById, onNodeClick, t }: Segment
         <ToolCallCard
           toolCall={seg.toolCall}
           nodeTitlesById={nodeTitlesById}
+          resolveNodeAssetHash={resolveNodeAssetHash}
           t={t}
           onNodeClick={onNodeClick}
+          onSendMessage={onSendMessage}
         />
       );
     case 'thinking':
-      return <ThinkingSegment seg={seg} />;
+      return <ThinkingSegment seg={seg} t={t} />;
     case 'step_marker':
       return <StepMarkerSegment seg={seg} t={t} />;
     case 'phase_note':
@@ -638,37 +639,28 @@ function ProcessSegmentRenderer({ seg, nodeTitlesById, onNodeClick, t }: Segment
 
 interface ThinkingSegmentProps {
   seg: Extract<MessageSegment, { kind: 'thinking' }>;
+  t: (key: string) => string;
 }
 
 /**
- * Dimmed collapsible reasoning block. Starts expanded while the model is
- * thinking; collapses automatically once real text begins to arrive (the
- * reducer flips `collapsed`). The user can toggle it back open.
+ * Collapsible reasoning block. Defaults to collapsed so the user can
+ * focus on the assistant's answer but peek at the thinking chain when
+ * needed. Header shows a brain icon plus word count.
  */
-function ThinkingSegment({ seg }: ThinkingSegmentProps) {
-  const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-  const expanded = userExpanded ?? !seg.collapsed;
+function ThinkingSegment({ seg, t }: ThinkingSegmentProps) {
   if (!seg.content.trim()) return null;
+  const wordCount = seg.content.trim().split(/\s+/).length;
+  const label = t('commander.reasoning').replace('{count}', String(wordCount));
   return (
-    <div className="my-1 text-[11px] text-muted-foreground/80">
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setUserExpanded(!expanded)}
-        className="flex items-center gap-1.5 opacity-70 hover:opacity-100 transition-opacity"
-      >
-        <Sparkles className="h-3 w-3 text-muted-foreground/60" />
-        <span className="italic">thinking</span>
-        <ChevronDown
-          className={cn('h-3 w-3 transition-transform', expanded ? 'rotate-0' : '-rotate-90')}
-        />
-      </button>
-      {expanded ? (
-        <pre className="mt-1 ml-4 whitespace-pre-wrap break-words font-sans text-[11px] leading-snug text-muted-foreground/70">
-          {seg.content}
-        </pre>
-      ) : null}
-    </div>
+    <details className="my-1 rounded border border-border/40 bg-muted/20 text-xs">
+      <summary className="flex cursor-pointer items-center gap-1.5 px-2 py-1 text-muted-foreground select-none">
+        <Brain className="h-3 w-3 shrink-0" />
+        <span>{label}</span>
+      </summary>
+      <pre className="whitespace-pre-wrap break-words px-2 py-1 font-sans text-[11px] leading-snug text-muted-foreground/70">
+        {seg.content}
+      </pre>
+    </details>
   );
 }
 
@@ -677,16 +669,11 @@ interface StepMarkerSegmentProps {
   t: (key: string) => string;
 }
 
-function StepMarkerSegment({ seg, t }: StepMarkerSegmentProps) {
-  return (
-    <div className="my-1 flex items-center gap-2 text-[10px] text-muted-foreground/70">
-      <span className="h-px flex-1 bg-border/60" />
-      <span className="whitespace-nowrap tabular-nums">
-        {t('commander.stepLabel')} {seg.step}
-      </span>
-      <span className="h-px flex-1 bg-border/60" />
-    </div>
-  );
+function StepMarkerSegment(_props: StepMarkerSegmentProps) {
+  // Step boundaries stay in the timeline as a semantic anchor for
+  // selectors/tests, but we don't surface them in the chat UI — they added
+  // visual noise without helping the reader.
+  return null;
 }
 
 interface PhaseNoteSegmentProps {
@@ -707,5 +694,199 @@ function PhaseNoteSegment({ seg, t }: PhaseNoteSegmentProps) {
       {label}
       {seg.detail ? `: ${seg.detail}` : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 3D: Changeset grouping helpers
+// ---------------------------------------------------------------------------
+
+/** Extract the domain from a tool name (e.g. "canvas.addNode" -> "canvas"). */
+function extractDomain(toolName: string): string {
+  if (toolName.includes('.')) return toolName.split('.')[0] ?? '';
+  const idx = toolName.indexOf('_');
+  return idx > 0 ? toolName.slice(0, idx) : '';
+}
+
+/**
+ * Group consecutive tool-kind segments into changesets when 3+ in a row
+ * share the same domain. Non-tool segments pass through individually.
+ */
+type SegmentGroup =
+  | { kind: 'segment'; seg: MessageSegment }
+  | { kind: 'changeset'; domain: string; toolCalls: CommanderToolCall[] };
+
+function groupSegments(segments: MessageSegment[]): SegmentGroup[] {
+  const result: SegmentGroup[] = [];
+  let i = 0;
+  while (i < segments.length) {
+    const seg = segments[i]!;
+    if (seg.kind !== 'tool') {
+      result.push({ kind: 'segment', seg });
+      i += 1;
+      continue;
+    }
+    // Scan consecutive tool segments with the same domain
+    const domain = extractDomain(seg.toolCall.name);
+    let j = i + 1;
+    while (j < segments.length) {
+      const next = segments[j]!;
+      if (next.kind !== 'tool') break;
+      if (extractDomain(next.toolCall.name) !== domain) break;
+      j += 1;
+    }
+    const count = j - i;
+    if (count >= CHANGESET_MIN_SIZE && domain) {
+      const toolCalls: CommanderToolCall[] = [];
+      for (let k = i; k < j; k += 1) {
+        const s = segments[k]!;
+        if (s.kind === 'tool') toolCalls.push(s.toolCall);
+      }
+      result.push({ kind: 'changeset', domain, toolCalls });
+    } else {
+      for (let k = i; k < j; k += 1) {
+        result.push({ kind: 'segment', seg: segments[k]! });
+      }
+    }
+    i = j;
+  }
+  return result;
+}
+
+interface GroupedSegmentsProps {
+  segments: MessageSegment[];
+  nodeTitlesById: Record<string, string>;
+  resolveNodeAssetHash?: (nodeId: string) => string | undefined;
+  t: (key: string) => string;
+  onNodeClick?: (nodeId: string) => void;
+  onSendMessage?: (message: string) => void;
+  variant?: 'default' | 'process';
+}
+
+function GroupedSegments({
+  segments,
+  nodeTitlesById,
+  resolveNodeAssetHash,
+  t,
+  onNodeClick,
+  onSendMessage,
+  variant = 'default',
+}: GroupedSegmentsProps) {
+  const groups = useMemo(() => groupSegments(segments), [segments]);
+  const Renderer = variant === 'process' ? ProcessSegmentRenderer : SegmentRenderer;
+  return (
+    <>
+      {groups.map((group, i) => {
+        if (group.kind === 'changeset') {
+          return (
+            <ChangesetCard
+              key={`changeset-${i}`}
+              domain={group.domain}
+              toolCalls={group.toolCalls}
+              nodeTitlesById={nodeTitlesById}
+              resolveNodeAssetHash={resolveNodeAssetHash}
+              t={t}
+              onNodeClick={onNodeClick}
+              onSendMessage={onSendMessage}
+            />
+          );
+        }
+        return (
+          <Renderer
+            key={group.seg.id}
+            seg={group.seg}
+            nodeTitlesById={nodeTitlesById}
+            resolveNodeAssetHash={resolveNodeAssetHash}
+            onNodeClick={onNodeClick}
+            onSendMessage={onSendMessage}
+            t={t}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * Group consecutive tool calls by domain into changesets (3+ same domain).
+ * Used for standalone toolCalls arrays (not segment lists).
+ */
+type ToolCallGroup =
+  | { kind: 'single'; toolCall: CommanderToolCall }
+  | { kind: 'changeset'; domain: string; toolCalls: CommanderToolCall[] };
+
+function groupToolCalls(toolCalls: CommanderToolCall[]): ToolCallGroup[] {
+  const result: ToolCallGroup[] = [];
+  let i = 0;
+  while (i < toolCalls.length) {
+    const tc = toolCalls[i]!;
+    const domain = extractDomain(tc.name);
+    let j = i + 1;
+    while (j < toolCalls.length) {
+      if (extractDomain(toolCalls[j]!.name) !== domain) break;
+      j += 1;
+    }
+    const count = j - i;
+    if (count >= CHANGESET_MIN_SIZE && domain) {
+      result.push({ kind: 'changeset', domain, toolCalls: toolCalls.slice(i, j) });
+    } else {
+      for (let k = i; k < j; k += 1) {
+        result.push({ kind: 'single', toolCall: toolCalls[k]! });
+      }
+    }
+    i = j;
+  }
+  return result;
+}
+
+interface GroupedToolCallsProps {
+  toolCalls: CommanderToolCall[];
+  nodeTitlesById: Record<string, string>;
+  resolveNodeAssetHash?: (nodeId: string) => string | undefined;
+  t: (key: string) => string;
+  onNodeClick?: (nodeId: string) => void;
+  onSendMessage?: (message: string) => void;
+}
+
+function GroupedToolCalls({
+  toolCalls,
+  nodeTitlesById,
+  resolveNodeAssetHash,
+  t,
+  onNodeClick,
+  onSendMessage,
+}: GroupedToolCallsProps) {
+  const groups = useMemo(() => groupToolCalls(toolCalls), [toolCalls]);
+  if (groups.length === 0) return null;
+  return (
+    <>
+      {groups.map((group, i) => {
+        if (group.kind === 'changeset') {
+          return (
+            <ChangesetCard
+              key={`changeset-${i}`}
+              domain={group.domain}
+              toolCalls={group.toolCalls}
+              nodeTitlesById={nodeTitlesById}
+              resolveNodeAssetHash={resolveNodeAssetHash}
+              t={t}
+              onNodeClick={onNodeClick}
+              onSendMessage={onSendMessage}
+            />
+          );
+        }
+        return (
+          <ToolCallCard
+            key={group.toolCall.id}
+            toolCall={group.toolCall}
+            nodeTitlesById={nodeTitlesById}
+            resolveNodeAssetHash={resolveNodeAssetHash}
+            t={t}
+            onNodeClick={onNodeClick}
+            onSendMessage={onSendMessage}
+          />
+        );
+      })}
+    </>
   );
 }

@@ -1,12 +1,12 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { Children, isValidElement, type ReactElement } from 'react';
 import { Clipboard, FileText, Image, LayoutTemplate, Redo2, Undo2, Upload, Video, Volume2 } from 'lucide-react';
-import type { CanvasNodeType } from '@lucid-fin/contracts';
+import type { NodeKind } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
 
 interface CanvasContextMenuProps {
   children: React.ReactNode;
-  onAddNode: (type: CanvasNodeType, position: { x: number; y: number }) => void;
+  onAddNode: (type: NodeKind, position: { x: number; y: number }) => void;
   onPaste?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
@@ -38,7 +38,7 @@ function requireNativeTriggerChild(children: React.ReactNode): ReactElement {
   return child;
 }
 
-const MENU_ITEMS: Array<{ type: CanvasNodeType; label: string; icon: typeof FileText }> = [
+const MENU_ITEMS: Array<{ type: NodeKind; label: string; icon: typeof FileText }> = [
   { type: 'text', label: 'contextMenu.addTextNode', icon: FileText },
   { type: 'image', label: 'contextMenu.addImageNode', icon: Image },
   { type: 'video', label: 'contextMenu.addVideoNode', icon: Video },

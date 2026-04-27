@@ -50,7 +50,7 @@ import {
 import { recordUndo, recordRedo, recordShotCreate, recordProjectActivity } from '../../store/slices/settings.js';
 import { canUndo, canRedo } from '../../store/middleware/undo.js';
 import { enqueueToast } from '../../store/slices/toast.js';
-import type { CanvasNodeType } from '@lucid-fin/contracts';
+import type { NodeKind } from '@lucid-fin/contracts';
 
 import { TextNode } from './nodes/TextNode.js';
 import { ImageNode } from './nodes/ImageNode.js';
@@ -482,7 +482,7 @@ export function CanvasWorkspace() {
   // ---- Add node from context menu -------------------------------------------
 
   const handleAddNode = useCallback(
-    (type: CanvasNodeType, screenPosition: { x: number; y: number }) => {
+    (type: NodeKind, screenPosition: { x: number; y: number }) => {
       const rfInstance = rfInstanceRef.current;
       if (!rfInstance) return;
 

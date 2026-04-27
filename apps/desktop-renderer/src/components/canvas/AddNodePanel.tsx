@@ -2,14 +2,14 @@ import type { ComponentType } from 'react';
 import { FileText, Image, LayoutTemplate, Video, Volume2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useReactFlow } from '@xyflow/react';
-import type { CanvasNodeType } from '@lucid-fin/contracts';
+import type { NodeKind } from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
 import { addNode } from '../../store/slices/canvas.js';
 import { setActivePanel } from '../../store/slices/ui.js';
 import { t } from '../../i18n.js';
 
 const NODE_OPTIONS: Array<{
-  type: CanvasNodeType;
+  type: NodeKind;
   label: string;
   icon: ComponentType<{ className?: string }>;
 }> = [

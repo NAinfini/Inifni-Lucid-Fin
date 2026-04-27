@@ -4,7 +4,7 @@ import * as ContextMenu from '@radix-ui/react-context-menu';
 import { ArrowLeftRight, FileText, Image, LayoutTemplate, Trash2, Video, Volume2, X } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
-import type { CanvasNodeType, EdgeStatus } from '@lucid-fin/contracts';
+import type { NodeKind, EdgeStatus } from '@lucid-fin/contracts';
 import { useEdgeCallbacks } from '../edge-callbacks-context.js';
 
 export interface LinkEdgeData {
@@ -23,7 +23,7 @@ const EDGE_COLORS: Record<EdgeStatus, string> = {
 
 const DEFAULT_EDGE_DATA: LinkEdgeData = { status: 'idle' };
 
-const INSERT_ACTIONS: Array<{ type: CanvasNodeType; labelKey: string; icon: typeof FileText }> = [
+const INSERT_ACTIONS: Array<{ type: NodeKind; labelKey: string; icon: typeof FileText }> = [
   { type: 'text', labelKey: 'contextMenu.insertText', icon: FileText },
   { type: 'image', labelKey: 'contextMenu.insertImage', icon: Image },
   { type: 'video', labelKey: 'contextMenu.insertVideo', icon: Video },
@@ -77,7 +77,7 @@ function LinkEdgeComponent({
   }, [cb, id]);
 
   const handleInsertNode = useCallback(
-    (type: CanvasNodeType) => {
+    (type: NodeKind) => {
       cb.onInsertNode(id, type, {
         x: (sourceX + targetX) / 2,
         y: (sourceY + targetY) / 2,

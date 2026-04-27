@@ -14,7 +14,7 @@ import {
   swapEdgeDirection,
   insertNodeIntoEdge,
 } from '../../store/slices/canvas.js';
-import type { CanvasNodeType } from '@lucid-fin/contracts';
+import type { NodeKind } from '@lucid-fin/contracts';
 import type { EdgeCallbacks } from './edge-callbacks-context.js';
 
 export function useCanvasEdgeCallbacks(): EdgeCallbacks {
@@ -37,7 +37,7 @@ export function useCanvasEdgeCallbacks(): EdgeCallbacks {
   const handleInsertNodeIntoEdge = useCallback(
     (
       edgeId: string,
-      type: CanvasNodeType,
+      type: NodeKind,
       position: { x: number; y: number },
     ) => {
       dispatch(

@@ -5,7 +5,7 @@ import { CommitSlider } from '../ui/CommitSlider.js';
 import type {
   AudioNodeData,
   BackdropNodeData,
-  CanvasNodeType,
+  NodeKind,
   ImageNodeData,
   PresetTrackSet,
   ShotTemplate,
@@ -30,7 +30,7 @@ interface BackdropControls {
 
 interface InspectorCreativeTabProps {
   t: Translate;
-  selectedNodeType: CanvasNodeType;
+  selectedNodeType: NodeKind;
   generationData?: ImageNodeData | VideoNodeData | AudioNodeData;
   audioType?: string;
   textContent?: string;

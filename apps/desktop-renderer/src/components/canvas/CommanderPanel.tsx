@@ -36,6 +36,11 @@ import {
   clearQueue,
   selectPhase,
 } from '../../store/slices/commander.js';
+import { selectCommanderView } from '../../commander/state/commander-timeline-selectors.js';
+import {
+  markConfirmationResolvedLocally,
+  markQuestionResolvedLocally,
+} from '../../commander/state/commander-timeline-slice.js';
 import { useCommander } from '../../hooks/useCommander.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { cn } from '../../lib/utils.js';
@@ -47,6 +52,7 @@ import { useSlashCommands } from './commander/useSlashCommands.js';
 import { usePanelDrag } from './commander/usePanelDrag.js';
 import { MessageList } from './commander/MessageList.js';
 import { LiveActivityBar } from './commander/LiveActivityBar.js';
+import { PipelineRail } from './commander/PipelineRail.js';
 import { computeContextUsage } from '../../commander/state/context-usage.js';
 
 const SAFE_Y = 56;
@@ -108,16 +114,9 @@ export function CommanderPanel() {
     open,
     minimized,
     providerId,
-    messages,
-    currentStreamContent,
-    currentToolCalls,
-    currentSegments,
     position,
     size,
-    error,
     permissionMode,
-    pendingConfirmation,
-    pendingQuestion,
     consecutiveConfirmCount,
     messageQueue,
     pendingInjectedMessages,
@@ -125,6 +124,17 @@ export function CommanderPanel() {
     maxSteps,
     backendContextUsage,
   } = useSelector((state: RootState) => state.commander);
+  // Phase 4 — read message/segment/pending state from the v2 timeline
+  // derivation. Legacy slice still owns provider/settings/session-meta
+  // fields above; only the stream-driven view is swapped here.
+  const derived = useSelector((state: RootState) => selectCommanderView(state));
+  const messages = derived.messages;
+  const currentStreamContent = derived.currentStreamContent;
+  const currentToolCalls = derived.currentToolCalls;
+  const currentSegments = derived.currentSegments;
+  const pendingConfirmation = derived.pendingConfirmation;
+  const pendingQuestion = derived.pendingQuestion;
+  const error = derived.error;
   const [input, setInput] = useState('');
   const inputHasText = input.trim().length > 0;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -147,6 +157,15 @@ export function CommanderPanel() {
       Object.fromEntries(
         (canvasNodes ?? []).map((node) => [node.id, node.title?.trim() || node.type]),
       ) as Record<string, string>,
+    [canvasNodes],
+  );
+  const resolveNodeAssetHash = useCallback(
+    (nodeId: string): string | undefined => {
+      const node = canvasNodes?.find((n) => n.id === nodeId);
+      if (!node) return undefined;
+      const data = node.data as Record<string, unknown>;
+      return typeof data.assetHash === 'string' ? data.assetHash : undefined;
+    },
     [canvasNodes],
   );
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -509,17 +528,22 @@ export function CommanderPanel() {
         </div>
       </header>
 
-      <LiveActivityBar
-        maxSteps={maxSteps}
-        t={t}
-        onCancelCurrentStep={() => void cancelCurrentStep()}
-      />
+      {/* Phase D (S5): LiveActivityBar moved into footer, directly above
+          the textarea. Users see phase status where their eye is already
+          resting — at the input field, not the top of the panel. */}
+
+      {/* 3K: Entity context strip */}
+      <EntityContextStrip t={t} />
+
+      {/* 3I: Film pipeline rail — renders when todo snapshot is active */}
+      <PipelineRail snapshot={null} isStreaming={isStreaming} t={t} />
 
       <div
         ref={scrollRef}
         data-testid="commander-message-scroll"
         className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-2 pb-3"
       >
+        <FirstSessionHint show={messages.length === 0 && !liveMessage} t={t} />
         <MessageList
           messages={messages}
           liveMessage={liveMessage}
@@ -528,9 +552,11 @@ export function CommanderPanel() {
           showTextCursor={showTextCursor}
           error={error}
           nodeTitlesById={nodeTitlesById}
+          resolveNodeAssetHash={resolveNodeAssetHash}
           t={t}
           emptyLabel={t('commander.thinking')}
           onNodeClick={handleNodeClick}
+          onSendMessage={(msg) => void sendMessage(msg)}
         />
       </div>
 
@@ -547,6 +573,7 @@ export function CommanderPanel() {
               if (api?.commander && canvasId) {
                 void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, true);
               }
+              dispatch(markConfirmationResolvedLocally(pendingConfirmation.toolCallId));
               dispatch(clearPendingConfirmation());
             }}
             onSkip={() => {
@@ -555,6 +582,7 @@ export function CommanderPanel() {
               if (api?.commander && canvasId) {
                 void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, false);
               }
+              dispatch(markConfirmationResolvedLocally(pendingConfirmation.toolCallId));
               dispatch(clearPendingConfirmation());
             }}
             t={t}
@@ -574,6 +602,7 @@ export function CommanderPanel() {
                     void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, false);
                   }
                   dispatch(setConfirmAutoMode('skip'));
+                  dispatch(markConfirmationResolvedLocally(pendingConfirmation.toolCallId));
                   dispatch(clearPendingConfirmation());
                 }}
               >
@@ -589,6 +618,7 @@ export function CommanderPanel() {
                     void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, true);
                   }
                   dispatch(setConfirmAutoMode('approve'));
+                  dispatch(markConfirmationResolvedLocally(pendingConfirmation.toolCallId));
                   dispatch(clearPendingConfirmation());
                 }}
               >
@@ -600,6 +630,11 @@ export function CommanderPanel() {
       )}
 
       <footer className="relative shrink-0 border-t border-border/60 bg-card">
+        <LiveActivityBar
+          maxSteps={maxSteps}
+          t={t}
+          onCancelCurrentStep={() => void cancelCurrentStep()}
+        />
         {/* Question card overlay — extends upward from footer to cover chatbox */}
         {pendingQuestion && (
           <div className="absolute inset-x-0 bottom-0 z-10 bg-card/95 backdrop-blur-[2px] rounded-b-lg border-t border-blue-500/30">
@@ -612,6 +647,7 @@ export function CommanderPanel() {
                 if (api?.commander && canvasId) {
                   void api.commander.answerQuestion(canvasId, pendingQuestion.toolCallId, answer);
                 }
+                dispatch(markQuestionResolvedLocally(pendingQuestion.toolCallId));
                 dispatch(resolveQuestion({ answer }));
               }}
               t={t}
@@ -760,6 +796,14 @@ export function CommanderPanel() {
               ))}
             </div>
           )}
+          {/* 3L: Contextual composer chips */}
+          <ComposerChips
+            t={t}
+            onTemplate={(msg) => {
+              setInput(msg);
+              inputRef.current?.focus();
+            }}
+          />
           {/* Textarea */}
           <textarea
             ref={inputRef}
@@ -810,7 +854,7 @@ export function CommanderPanel() {
               if (event.key === 'Escape' && isStreaming) void cancel();
             }}
             rows={1}
-            placeholder={t('commander.sendMessage')}
+            placeholder={t('commander.sendMessageHint')}
             className="w-full resize-none border-0 bg-transparent px-3 pt-2.5 pb-1 text-xs outline-none placeholder:text-muted-foreground/60 overflow-y-auto"
             style={{ minHeight: '32px', maxHeight: '120px' }}
             disabled={!isBackendReady}
@@ -1141,5 +1185,151 @@ export function CommanderPanel() {
         }}
       />
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 3K: Entity Context Strip
+// ---------------------------------------------------------------------------
+
+interface EntityContextStripProps {
+  t: (key: string) => string;
+}
+
+function EntityContextStrip({ t }: EntityContextStripProps) {
+  const activeCanvas = useSelector((state: RootState) => {
+    const id = state.canvas.activeCanvasId;
+    if (!id) return undefined;
+    return state.canvas.canvases.entities[id];
+  });
+  const selectedCount = useSelector((state: RootState) => state.canvas.selectedNodeIds.length);
+  const characterCount = useSelector((state: RootState) => state.characters.items.length);
+
+  // Heuristic: check if any node has preset tracks with a color-style entry
+  const hasStylePlate = useMemo(() => {
+    if (!activeCanvas?.nodes) return false;
+    return activeCanvas.nodes.some((node) => {
+      const data = node.data as Record<string, unknown>;
+      const tracks = data.presetTracks;
+      if (!tracks || typeof tracks !== 'object') return false;
+      return Object.values(tracks as Record<string, unknown>).some(
+        (track) =>
+          Array.isArray(track) &&
+          track.some(
+            (entry) =>
+              entry &&
+              typeof entry === 'object' &&
+              'category' in entry &&
+              (entry as Record<string, unknown>).category === 'colorStyle',
+          ),
+      );
+    });
+  }, [activeCanvas?.nodes]);
+
+  const canvasName = activeCanvas?.name ?? t('commander.noActiveCanvas');
+
+  return (
+    <div className="flex items-center gap-3 border-b border-border/40 px-3 py-1 text-[10px] text-muted-foreground">
+      <span className="truncate font-medium">{canvasName}</span>
+      {selectedCount > 0 ? (
+        <span>{t('commander.entityStrip.selected').replace('{count}', String(selectedCount))}</span>
+      ) : null}
+      <span>
+        {t('commander.entityStrip.characters').replace('{count}', String(characterCount))}
+      </span>
+      <span className={cn(hasStylePlate ? 'text-emerald-400' : 'text-amber-400')}>
+        {hasStylePlate
+          ? t('commander.entityStrip.styleLocked')
+          : t('commander.entityStrip.styleNotSet')}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 3L: Contextual Composer Chips
+// ---------------------------------------------------------------------------
+
+interface ComposerChipsProps {
+  t: (key: string) => string;
+  onTemplate: (message: string) => void;
+}
+
+function ComposerChips({ t, onTemplate }: ComposerChipsProps) {
+  const selectedCount = useSelector((state: RootState) => state.canvas.selectedNodeIds.length);
+
+  const templates = useMemo(
+    () => [
+      {
+        key: 'breakIntoShots',
+        label: t('commander.composerChip.breakIntoShots'),
+        message: 'Break the selected content into individual shots with camera and lighting presets',
+        show: true,
+      },
+      {
+        key: 'generateRefs',
+        label: t('commander.composerChip.generateRefs'),
+        message: 'Generate reference images for all characters that are missing them',
+        show: true,
+      },
+      {
+        key: 'applyStyle',
+        label: t('commander.composerChip.applyStyle'),
+        message: 'Apply the current style plate to all selected nodes',
+        show: true,
+      },
+    ],
+    [t],
+  );
+
+  return (
+    <div className="flex flex-wrap gap-1 px-3 pt-1.5">
+      {selectedCount > 0 ? (
+        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+          {t('commander.entityStrip.selected').replace('{count}', String(selectedCount))}
+        </span>
+      ) : null}
+      {templates
+        .filter((tmpl) => tmpl.show)
+        .map((tmpl) => (
+          <button
+            key={tmpl.key}
+            type="button"
+            className="rounded-full border border-border/40 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            onClick={() => onTemplate(tmpl.message)}
+          >
+            {tmpl.label}
+          </button>
+        ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 3G: First-session toast hint
+// ---------------------------------------------------------------------------
+
+const LS_KEY_FIRST_SESSION = 'lucid-commander-first-session-seen';
+
+function FirstSessionHint({ show, t }: { show: boolean; t: (key: string) => string }) {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(LS_KEY_FIRST_SESSION) === '1'; } catch { return false; }
+  });
+  if (!show || dismissed) return null;
+  return (
+    <div className="mb-2 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+      <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+      <span className="flex-1">{t('commander.firstSessionHint')}</span>
+      <button
+        type="button"
+        className="shrink-0 text-muted-foreground hover:text-foreground"
+        onClick={() => {
+          setDismissed(true);
+          try { localStorage.setItem(LS_KEY_FIRST_SESSION, '1'); } catch { /* noop */ }
+        }}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
   );
 }

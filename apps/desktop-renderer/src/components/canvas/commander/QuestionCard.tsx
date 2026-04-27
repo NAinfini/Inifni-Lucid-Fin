@@ -20,9 +20,9 @@ export function QuestionCard({ question, options, onAnswer, t }: QuestionCardPro
       </div>
       <p className="mt-2 text-sm text-foreground">{question}</p>
       <div className="mt-3 flex flex-col gap-1.5">
-        {options.map((opt) => (
+        {options.map((opt, index) => (
           <button
-            key={opt.label}
+            key={`${index}-${opt.label}`}
             type="button"
             className="flex flex-col items-start rounded-md border border-border/60 px-3 py-2 text-left text-xs transition-colors hover:border-blue-500/50 hover:bg-blue-500/10"
             onClick={() => onAnswer(opt.label)}
