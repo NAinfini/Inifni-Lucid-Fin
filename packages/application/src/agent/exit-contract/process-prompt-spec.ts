@@ -40,6 +40,8 @@ export interface ActivationContext {
    * default specs.
    */
   step: number;
+  /** True when this session is being resumed from a prior run. */
+  isResumedSession?: boolean;
 }
 
 export interface ProcessPromptSpec {

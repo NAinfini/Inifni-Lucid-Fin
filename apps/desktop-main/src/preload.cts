@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   Canvas,
-  CommanderStreamEvent,
+  TimelineEvent,
+  WireEnvelope,
   LLMProviderRuntimeInput,
   LLMProviderRuntimeConfig,
   PresetCategory,
@@ -378,7 +379,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       message: string,
       history: Array<Record<string, unknown>>,
       selectedNodeIds: string[],
-      promptGuides?: Array<{ id: string; name: string; content: string }>,
+      promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
       customLLMProvider?: LLMProviderRuntimeConfig,
       permissionMode?: 'auto' | 'normal' | 'strict',
       locale?: string,
@@ -387,7 +388,11 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       maxTokens?: number,
       sessionId?: string,
       defaultProviders?: Record<string, string>,
-    ) => invoke('commander:chat', { canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider, permissionMode, locale, maxSteps, temperature, maxTokens, sessionId, defaultProviders }),
+    ) => invoke<void>('commander:chat', {
+      canvasId, message, history, selectedNodeIds, promptGuides, customLLMProvider,
+      permissionMode, locale, maxSteps, temperature, maxTokens, sessionId,
+      defaultProviders,
+    }),
     cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),
     cancelCurrentStep: (canvasId: string) =>
       invoke<{ escalated: boolean }>('commander:cancel-step', { canvasId }),
@@ -408,8 +413,15 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       name: string;
       description: string;
     }>>('commander:tool-search', { query }),
-    onStream: (cb: (data: CommanderStreamEvent) => void) =>
-      subscribe('commander:stream', cb as Callback),
+    hydrateEvents: (sessionId: string) =>
+      invoke<{ events: unknown[] }>('commander:events:hydrate', { sessionId }),
+    onStream: (cb: (envelope: WireEnvelope<TimelineEvent>) => void) => {
+      // Main emits v2 envelopes directly — no wrapping needed at the bridge.
+      const wrapped: Callback = (...args: unknown[]) => {
+        cb(args[0] as WireEnvelope<TimelineEvent>);
+      };
+      return subscribe('commander:stream', wrapped);
+    },
     onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) =>
       subscribe('commander:canvas:dispatch', cb as Callback),
     onEntitiesUpdated: (cb: (data: { toolName: string }) => void) =>

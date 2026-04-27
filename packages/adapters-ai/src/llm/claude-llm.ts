@@ -191,6 +191,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       'Content-Type': 'application/json',
       'x-api-key': this.apiKey,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
     };
   }
 
@@ -229,8 +230,15 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     };
   }
 
+  /**
+   * Split system messages and convert conversation messages to Claude's
+   * wire format. When the system text contains a `<!-- CACHE_BREAK -->`
+   * marker, the static portion (before the marker) gets a
+   * `cache_control: { type: "ephemeral" }` annotation so Anthropic can
+   * cache it across requests in the same session.
+   */
   private splitSystem(messages: LLMMessage[]): {
-    system: string | undefined;
+    system: string | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> | undefined;
     msgs: Array<{ role: string; content: unknown }>;
   } {
     const systemMsgs = messages.filter((m) => m.role === 'system');
@@ -253,7 +261,60 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         }
         return { role: m.role, content: m.content };
       });
-    return { system: systemMsgs.map((m) => m.content).join('\n') || undefined, msgs };
+
+    const joinedSystem = systemMsgs.map((m) => m.content).join('\n');
+    if (!joinedSystem) return { system: undefined, msgs };
+
+    // Check for CACHE_BREAK marker to split into static (cacheable) and
+    // dynamic portions. The marker is injected by ContextManager.buildSystemPrompt.
+    const CACHE_MARKER = '<!-- CACHE_BREAK -->';
+    const markerIdx = joinedSystem.indexOf(CACHE_MARKER);
+
+    if (markerIdx === -1) {
+      // No marker — send as a single string (backward compat)
+      return { system: joinedSystem, msgs };
+    }
+
+    const staticPart = joinedSystem.slice(0, markerIdx).trimEnd();
+    const dynamicPart = joinedSystem.slice(markerIdx + CACHE_MARKER.length).trimStart();
+
+    // Build content blocks with cache_control on the static portion.
+    const blocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [];
+
+    if (staticPart) {
+      blocks.push({
+        type: 'text',
+        text: staticPart,
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+    if (dynamicPart) {
+      blocks.push({ type: 'text', text: dynamicPart });
+    }
+
+    // Annotate the second-to-last user turn with cache_control so the
+    // Anthropic API can cache the stable conversation prefix. The very last
+    // user turn changes every request, but the penultimate one is stable.
+    if (msgs.length >= 4) {
+      for (let i = msgs.length - 3; i >= 0; i--) {
+        if (msgs[i].role !== 'user') continue;
+        const c = msgs[i].content;
+        if (typeof c === 'string') {
+          msgs[i] = {
+            role: 'user',
+            content: [{ type: 'text', text: c, cache_control: { type: 'ephemeral' } }],
+          };
+        } else if (Array.isArray(c) && c.length > 0) {
+          const last = c[c.length - 1] as Record<string, unknown>;
+          if (!last.cache_control) {
+            c[c.length - 1] = { ...last, cache_control: { type: 'ephemeral' } };
+          }
+        }
+        break;
+      }
+    }
+
+    return { system: blocks.length > 0 ? blocks : undefined, msgs };
   }
 
   private async parseJsonResponse<T>(result: ClaudeRequestResult): Promise<T> {

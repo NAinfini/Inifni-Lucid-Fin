@@ -320,10 +320,100 @@ function buildPresetMap(library: PresetDefinition[]): Record<string, PresetDefin
   return map;
 }
 
+/**
+ * Tokenize text for word-budget measurement and phrase diagnostics.
+ * English/ASCII words split on whitespace; runs of CJK ideographs and
+ * Japanese kana are split character-by-character. Without the CJK
+ * fallback `"身材高大肤色古铜色"` counts as 1 "word" — budgets never
+ * trigger and duplicate-phrase 3-grams never form. Casing is preserved
+ * at this layer; callers lowercase where appropriate.
+ */
+export function tokenizeForWordCount(text: string): string[] {
+  const tokens: string[] = [];
+  const chunks = text.split(/\s+/).filter(Boolean);
+  for (const chunk of chunks) {
+    let buffer = '';
+    for (const ch of chunk) {
+      const code = ch.codePointAt(0) ?? 0;
+      // CJK unified ideographs + extensions A–G, plus Japanese kana ranges.
+      const isCjk =
+        (code >= 0x3400 && code <= 0x9fff) ||
+        (code >= 0x20000 && code <= 0x2ffff) ||
+        (code >= 0x3040 && code <= 0x30ff);
+      if (isCjk) {
+        if (buffer) {
+          tokens.push(buffer);
+          buffer = '';
+        }
+        tokens.push(ch);
+      } else {
+        buffer += ch;
+      }
+    }
+    if (buffer) tokens.push(buffer);
+  }
+  return tokens;
+}
+
 function trimToWordBudget(text: string, maxWords: number): string {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length <= maxWords) return text;
-  return words.slice(0, maxWords).join(' ');
+  const tokens = tokenizeForWordCount(text);
+  if (tokens.length <= maxWords) return text;
+  // Reconstruct: join ASCII tokens with spaces, but when the trimmed prefix
+  // ends on an ideograph sequence the spaces between individual CJK tokens
+  // are visually wrong. Rebuild by walking the original text and tracking
+  // token boundaries instead — stop once we've consumed `maxWords` tokens.
+  let tokenCount = 0;
+  let cutIndex = 0;
+  let inCjkRun = false;
+  let inWord = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charAt(i);
+    const code = text.codePointAt(i) ?? 0;
+    const isWhitespace = /\s/.test(ch);
+    const isCjk =
+      (code >= 0x3400 && code <= 0x9fff) ||
+      (code >= 0x20000 && code <= 0x2ffff) ||
+      (code >= 0x3040 && code <= 0x30ff);
+    if (isWhitespace) {
+      inCjkRun = false;
+      inWord = false;
+      continue;
+    }
+    if (isCjk) {
+      if (inWord && !inCjkRun) {
+        inWord = false;
+      }
+      tokenCount += 1;
+      inCjkRun = true;
+      if (tokenCount === maxWords) {
+        cutIndex = i + 1;
+        break;
+      }
+    } else {
+      if (!inWord) {
+        tokenCount += 1;
+        inWord = true;
+        if (tokenCount === maxWords) {
+          // Consume the rest of this ASCII word to avoid mid-word cuts.
+          let j = i + 1;
+          while (j < text.length) {
+            const nch = text.charAt(j);
+            const ncode = text.codePointAt(j) ?? 0;
+            const ncjk =
+              (ncode >= 0x3400 && ncode <= 0x9fff) ||
+              (ncode >= 0x20000 && ncode <= 0x2ffff) ||
+              (ncode >= 0x3040 && ncode <= 0x30ff);
+            if (/\s/.test(nch) || ncjk) break;
+            j += 1;
+          }
+          cutIndex = j;
+          break;
+        }
+      }
+      inCjkRun = false;
+    }
+  }
+  return cutIndex === 0 ? text : text.slice(0, cutIndex).trimEnd();
 }
 
 /**
@@ -351,10 +441,6 @@ function blendPromptFragments(
 
 function readPromptFragment(preset: PresetDefinition | undefined): string {
   if (!preset) return '';
-  const maybePromptFragment = (preset as unknown as { promptFragment?: unknown }).promptFragment;
-  if (typeof maybePromptFragment === 'string' && maybePromptFragment.trim()) {
-    return maybePromptFragment.trim();
-  }
   return preset.prompt?.trim() ?? '';
 }
 
@@ -381,7 +467,14 @@ export function resolvePromptTemplate(
     } else {
       phrase = String(value);
     }
-    result = result.replace(new RegExp(`\\{${def.key}\\}`, 'g'), phrase);
+    // Literal-token substitution. Must NOT build a RegExp from `def.key` —
+    // user-defined preset keys routinely contain regex metacharacters
+    // (`.`, `*`, `(`, `+`) which would either throw SyntaxError or enable
+    // a ReDoS. `split().join()` is O(n) and treats the needle as a literal.
+    const token = `{${def.key}}`;
+    if (result.includes(token)) {
+      result = result.split(token).join(phrase);
+    }
   }
   return result;
 }
@@ -420,9 +513,8 @@ function resolveEntryPrompt(
 
 function readPresetNegativePrompt(preset: PresetDefinition | undefined): string | undefined {
   if (!preset) return undefined;
-  const explicitNegative = (preset as unknown as { negativePrompt?: unknown }).negativePrompt;
-  if (typeof explicitNegative === 'string' && explicitNegative.trim()) {
-    return explicitNegative.trim();
+  if (typeof preset.negativePrompt === 'string' && preset.negativePrompt.trim()) {
+    return preset.negativePrompt.trim();
   }
   const fromDefaultParams = preset.defaultParams?.negativePrompt;
   if (typeof fromDefaultParams === 'string' && fromDefaultParams.trim()) {
@@ -793,10 +885,11 @@ function detectDuplicatePhrases(segments: PromptSegment[]): PromptDiagnostic[] {
   const seen = new Map<string, string>(); // normalized phrase -> source
 
   for (const seg of segments) {
-    // Split into phrases (3+ word groups)
-    const words = seg.text.toLowerCase().split(/\s+/).filter(Boolean);
-    for (let i = 0; i <= words.length - 3; i++) {
-      const phrase = words.slice(i, i + 3).join(' ');
+    // 3-gram tokens. For English: 3 whitespace-separated words. For CJK: 3
+    // consecutive ideographs (effectively a trigram on characters).
+    const tokens = tokenizeForWordCount(seg.text.toLowerCase());
+    for (let i = 0; i <= tokens.length - 3; i++) {
+      const phrase = tokens.slice(i, i + 3).join(' ');
       if (seen.has(phrase) && seen.get(phrase) !== seg.source) {
         diagnostics.push({
           type: 'duplicate',
@@ -840,7 +933,11 @@ export function getCameraShot(presetTracks: PresetTrackSet | undefined): CameraS
 }
 
 function firstSentence(text: string): string {
-  const match = text.match(/^[^.!?]*[.!?]?/);
+  // Sentence terminators: ASCII .!? plus Chinese full-stop 。, full-width
+  // ？！, and ideographic semicolon-style ；. Without the CJK additions a
+  // "名字。身材..." string collapses to the whole thing while an
+  // "English. 中文..." string would drop the Chinese half.
+  const match = text.match(/^[^.!?。！？；]*[.!?。！？；]?/);
   return match ? match[0].trim() : text.trim();
 }
 
@@ -1186,7 +1283,7 @@ function compileVoice(input: PromptCompilerInput): CompiledPrompt {
     prompt,
     diagnostics: [],
     segments,
-    wordCount: prompt.split(/\s+/).filter(Boolean).length,
+    wordCount: tokenizeForWordCount(prompt).length,
     budget: 0,
   };
 }
@@ -1240,7 +1337,7 @@ function compileMusic(input: PromptCompilerInput): CompiledPrompt {
     prompt,
     diagnostics: [],
     segments,
-    wordCount: prompt.split(/\s+/).filter(Boolean).length,
+    wordCount: tokenizeForWordCount(prompt).length,
     budget: 0,
   };
 }
@@ -1295,7 +1392,7 @@ function compileSfx(input: PromptCompilerInput): CompiledPrompt {
     prompt,
     diagnostics: [],
     segments,
-    wordCount: prompt.split(/\s+/).filter(Boolean).length,
+    wordCount: tokenizeForWordCount(prompt).length,
     budget: 0,
   };
 }
@@ -1460,7 +1557,7 @@ High resolution, 4K or higher`);
     referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
     diagnostics: [],
     segments: [{ source: 'character-sheet', text: sections.join('\n'), trimmed: false }],
-    wordCount: sections.join('\n').split(/\s+/).filter(Boolean).length,
+    wordCount: tokenizeForWordCount(sections.join('\n')).length,
     budget: 0, // no budget for character sheets
   };
 }
@@ -1631,7 +1728,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
 
   // Budget pre-check
   const rawPrompt = trackedSegments.map(s => normalizeTextSegment(s.text)).filter(Boolean).join('. ').replace(/\.\s*\./g, '. ');
-  const wordCount = rawPrompt.split(/\s+/).filter(Boolean).length;
+  const wordCount = tokenizeForWordCount(rawPrompt).length;
   if (wordCount > budget.positive) {
     diagnostics.push({
       type: 'budget_warning',
@@ -1642,10 +1739,10 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const prompt = trimToWordBudget(rawPrompt, budget.positive);
 
   // Mark trimmed segments
-  const promptWords = prompt.split(/\s+/).filter(Boolean).length;
+  const promptWords = tokenizeForWordCount(prompt).length;
   let runningWords = 0;
   for (const seg of trackedSegments) {
-    const segWords = seg.text.split(/\s+/).filter(Boolean).length;
+    const segWords = tokenizeForWordCount(seg.text).length;
     runningWords += segWords;
     seg.trimmed = runningWords > promptWords;
   }

@@ -4,7 +4,7 @@ import { ToolCatalog } from '../tool-catalog.js';
 import { getProcessCategoryName, type ProcessCategory } from '../process-detection.js';
 
 export interface MetaToolDeps {
-  promptGuides?: Array<{ id: string; name: string; content: string }>;
+  promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
   context?: string;
   /** Callback to trigger mid-loop context compaction. Optional instructions guide the summary focus. */
   compactContext?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;

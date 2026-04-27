@@ -23,11 +23,12 @@ const DEFAULT_IN_LOOP_CHAR_BUDGET = 120000;
 const COMPACT_RESULT_THRESHOLD = 300;
 const COMPACT_KEEP_RECENT_GROUPS = 3;
 
-/** Tools always loaded regardless of discovery. */
+/** Tools always loaded regardless of discovery or context. */
 export const ALWAYS_LOADED_TOOLS = [
   'tool.get', 'tool.compact', 'commander.askUser',
   'canvas.getState', 'canvas.listNodes', 'canvas.getNode',
-  'guide.get',
+  'canvas.getSettings', 'guide.get', 'logger.list',
+  'todo.set', 'todo.update',
 ] as const;
 
 export { ESTIMATED_CHARS_PER_TOKEN, DEFAULT_IN_LOOP_CHAR_BUDGET };
@@ -528,6 +529,232 @@ export interface AgentContext {
 }
 
 // ---------------------------------------------------------------------------
+// Context-aware tool set selection  (1B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Workspace-state + user-intent inputs for context-aware tool loading.
+ * All fields are cheap scalars derived from the `AgentContext.extra` bag
+ * and the classified `RunIntent`, so the function remains pure and fast.
+ */
+export interface ToolSelectionInput {
+  /** Number of canvas nodes (0 = empty canvas). */
+  nodeCount: number;
+  /** Total characters + locations + equipment. */
+  entityCount: number;
+  /** Whether the canvas has a non-empty stylePlate. */
+  hasStylePlate: boolean;
+  /** Whether the user has selected nodes in the canvas. */
+  hasSelectedNodes: boolean;
+  /** Raw user message text (for keyword-based heuristics). */
+  userMessage: string;
+  /** Classified intent kind: 'execution' | 'informational' | 'browse' | 'mixed'. */
+  intentKind: string;
+  /** Optional detected workflow hint (e.g. 'character-ref-image', 'story-to-video'). */
+  intentWorkflow?: string;
+}
+
+/** @internal — mutating helper, avoids repetitive `.add()` chains. */
+function addToolNames(set: Set<string>, names: readonly string[]): void {
+  for (const name of names) set.add(name);
+}
+
+// ── Keyword regexes ──────────────────────────────────────────────────────
+// Compiled once at module load. Language-neutral where practical — CJK
+// workflow triggers come from intent classification, not message scanning.
+const RE_GENERATION_VERBS =
+  /generat|render|creat.*image|creat.*video|produce|make.*shot/i;
+const RE_SCRIPT_KEYWORDS =
+  /script|novel|story|screenplay|fountain|import.*script/i;
+const RE_RENDER_KEYWORDS =
+  /render|export|publish|output|deliver/i;
+const RE_PROVIDER_KEYWORDS =
+  /provider|api.?key|model|switch.*provider|change.*model/i;
+const RE_PRESET_KEYWORDS =
+  /preset|style|color.?style/i;
+
+/**
+ * Return a set of tool names that should be fully loaded (schema + description)
+ * on step 1, given the workspace state and user intent. Tools NOT in this set
+ * are still discoverable via `tool.get` and become name-only stubs in the
+ * adaptive-compaction tier-0 path.
+ *
+ * Pure function — no side-effects, no registry mutation.
+ */
+export function selectContextualToolSet(input: ToolSelectionInput): Set<string> {
+  const tools = new Set<string>(ALWAYS_LOADED_TOOLS);
+  const msg = input.userMessage.toLowerCase();
+
+  // ── Informational / browse intents → read-only minimum ─────────────
+  if (input.intentKind === 'informational' || input.intentKind === 'browse') {
+    addToolNames(tools, [
+      'canvas.listEdges',
+      'character.list', 'location.list', 'equipment.list',
+      'snapshot.list', 'preset.list', 'preset.get',
+      'series.get', 'series.listEpisodes',
+      'provider.list', 'provider.getActive', 'provider.getCapabilities',
+      'prompt.get',
+      'vision.describeImage',
+    ]);
+    return tools;
+  }
+
+  // ── Canvas empty → creation-focused ────────────────────────────────
+  if (input.nodeCount === 0) {
+    addToolNames(tools, [
+      'canvas.addNode', 'canvas.batchCreate', 'canvas.importWorkflow',
+      'canvas.renameCanvas', 'canvas.layout', 'canvas.setSettings',
+      'character.create', 'character.list',
+      'location.create', 'location.list',
+      'equipment.create', 'equipment.list',
+      'script.read', 'script.write', 'script.import',
+      'workflow.control', 'workflow.expandIdea',
+      'snapshot.create',
+    ]);
+  }
+
+  // ── Canvas has nodes → editing + graph tools ───────────────────────
+  if (input.nodeCount > 0) {
+    addToolNames(tools, [
+      'canvas.addNode', 'canvas.batchCreate', 'canvas.updateNodes',
+      'canvas.deleteNode', 'canvas.connectNodes', 'canvas.deleteEdge',
+      'canvas.swapEdgeDirection', 'canvas.disconnectNode',
+      'canvas.setNodeLayout', 'canvas.layout', 'canvas.duplicateNodes',
+      'canvas.undo', 'canvas.redo', 'canvas.listEdges',
+      'canvas.renameCanvas', 'canvas.addNote', 'canvas.updateNote',
+      'character.list', 'location.list', 'equipment.list',
+      'snapshot.create', 'snapshot.list', 'snapshot.restore',
+    ]);
+
+    // Entities needed if canvas has nodes but no entities yet
+    if (input.entityCount === 0) {
+      addToolNames(tools, [
+        'character.create', 'location.create', 'equipment.create',
+      ]);
+    }
+  }
+
+  // ── Entities exist → ref management + updates ──────────────────────
+  if (input.entityCount > 0) {
+    addToolNames(tools, [
+      'canvas.setNodeRefs',
+      'character.update', 'character.list',
+      'character.generateRefImage', 'character.setRefImage',
+      'character.setRefImageFromNode',
+      'location.update', 'location.list',
+      'location.generateRefImage', 'location.setRefImage',
+      'location.setRefImageFromNode',
+      'equipment.update', 'equipment.list',
+      'equipment.generateRefImage', 'equipment.setRefImage',
+      'equipment.setRefImageFromNode',
+    ]);
+  }
+
+  // ── Style plate not set → settings tools ───────────────────────────
+  if (!input.hasStylePlate) {
+    tools.add('canvas.setSettings');
+  }
+
+  // ── Generation verbs in message ────────────────────────────────────
+  if (RE_GENERATION_VERBS.test(msg)) {
+    addToolNames(tools, [
+      'canvas.generate', 'canvas.cancelGeneration', 'canvas.selectVariant',
+      'canvas.estimateCost', 'canvas.previewPrompt',
+      'canvas.setImageParams', 'canvas.setVideoParams', 'canvas.setAudioParams',
+      'canvas.setNodeProvider',
+      'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks',
+      'canvas.writePresetTracksBatch', 'canvas.applyShotTemplate',
+      'canvas.setVideoFrames',
+    ]);
+  }
+
+  // ── Script / novel keywords ────────────────────────────────────────
+  if (RE_SCRIPT_KEYWORDS.test(msg)) {
+    addToolNames(tools, [
+      'script.read', 'script.write', 'script.import',
+      'text.transform',
+    ]);
+  }
+
+  // ── Render / export keywords ───────────────────────────────────────
+  if (RE_RENDER_KEYWORDS.test(msg)) {
+    addToolNames(tools, [
+      'render.start', 'render.cancel', 'render.exportBundle',
+      'job.list', 'job.control',
+      'canvas.exportWorkflow',
+    ]);
+  }
+
+  // ── Provider keywords ──────────────────────────────────────────────
+  if (RE_PROVIDER_KEYWORDS.test(msg)) {
+    addToolNames(tools, [
+      'provider.list', 'provider.getActive', 'provider.getCapabilities',
+      'provider.setActive', 'provider.setKey',
+      'provider.update', 'provider.addCustom', 'provider.removeCustom',
+    ]);
+  }
+
+  // ── Preset / style keywords ────────────────────────────────────────
+  if (RE_PRESET_KEYWORDS.test(msg)) {
+    addToolNames(tools, [
+      'preset.list', 'preset.get', 'preset.create', 'preset.update',
+      'preset.delete', 'preset.reset',
+      'colorStyle.list', 'colorStyle.save', 'colorStyle.delete',
+      'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks',
+    ]);
+  }
+
+  // ── Selected nodes → likely editing or generating those ────────────
+  if (input.hasSelectedNodes) {
+    addToolNames(tools, [
+      'canvas.generate', 'canvas.updateNodes',
+      'canvas.setImageParams', 'canvas.setVideoParams',
+      'canvas.setNodeRefs', 'canvas.setNodeLayout',
+      'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks',
+      'canvas.applyShotTemplate', 'canvas.deleteNode',
+      'canvas.previewPrompt', 'canvas.selectVariant',
+    ]);
+  }
+
+  // ── Workflow-specific loading ──────────────────────────────────────
+  if (input.intentWorkflow) {
+    const wf = input.intentWorkflow.toLowerCase();
+    if (wf.includes('character') || wf.includes('ref-image')) {
+      addToolNames(tools, [
+        'character.create', 'character.update', 'character.list',
+        'character.generateRefImage', 'character.setRefImage',
+        'character.setRefImageFromNode', 'character.deleteRefImage',
+      ]);
+    }
+    if (wf.includes('location')) {
+      addToolNames(tools, [
+        'location.create', 'location.update', 'location.list',
+        'location.generateRefImage', 'location.setRefImage',
+        'location.setRefImageFromNode',
+      ]);
+    }
+    if (wf.includes('equipment')) {
+      addToolNames(tools, [
+        'equipment.create', 'equipment.update', 'equipment.list',
+        'equipment.generateRefImage', 'equipment.setRefImage',
+        'equipment.setRefImageFromNode',
+      ]);
+    }
+    if (wf.includes('story') || wf.includes('video')) {
+      addToolNames(tools, [
+        'canvas.addNode', 'canvas.batchCreate', 'canvas.generate',
+        'canvas.connectNodes', 'canvas.layout',
+        'canvas.setImageParams', 'canvas.setVideoParams',
+        'script.read', 'script.write', 'script.import',
+        'workflow.control', 'workflow.expandIdea',
+      ]);
+    }
+  }
+
+  return tools;
+}
+
+// ---------------------------------------------------------------------------
 // ContextManager class
 // ---------------------------------------------------------------------------
 
@@ -537,6 +764,7 @@ export interface ContextManagerOptions {
 
 export class ContextManager {
   private _compactInstructions: string | null = null;
+  private _scratchpad: string | null = null;
   private _lastCompactTime = 0;
   /** Minimum interval between auto-compactions in milliseconds. */
   private static readonly COMPACT_MIN_INTERVAL_MS = 5_000;
@@ -566,7 +794,25 @@ export class ContextManager {
     this._compactInstructions = instructions;
   }
 
-  buildSystemPrompt(context: AgentContext, step?: number): string {
+  /** Update the scratchpad content (persists across compaction). */
+  setScratchpad(content: string | null): void {
+    this._scratchpad = content;
+  }
+
+  /** Get the current scratchpad content. */
+  getScratchpad(): string | null {
+    return this._scratchpad;
+  }
+
+  buildSystemPrompt(
+    context: AgentContext,
+    step?: number,
+    processPrompts?: Array<{ key: string; displayName: string; content: string }>,
+  ): string {
+    // ── STATIC portion (identity + rules + tool discovery) ───────────
+    // This section is byte-identical across all requests in a session,
+    // enabling Anthropic prompt caching when the adapter splits on the
+    // CACHE_BREAK marker.
     let prompt = this.resolvePrompt('agent-system');
 
     // After step 5, abbreviate: strip prompt guide content (tools are known)
@@ -582,11 +828,18 @@ export class ContextManager {
       }
     }
 
+    // ── CACHE_BREAK — everything above is static, everything below is
+    // dynamic (changes per request: context, snapshot, guides, process
+    // prompts). The Claude adapter splits on this marker to place a
+    // cache_control breakpoint.
+    prompt += '\n\n<!-- CACHE_BREAK -->\n';
+
+    // ── DYNAMIC portion (context + snapshot + guides + process prompts) ─
+
     // MASTER INDEX — the catalog of every guide/skill/process-prompt
-    // Commander can reach. Appended to system message #0 so the model can
-    // resolve names without trial-and-error on its first turn. Dropped after
-    // step 5 along with the other discovery scaffolding (tools are known by
-    // then and the index just burns tokens).
+    // Commander can reach. Moved to the dynamic section because its
+    // content may vary when the user attaches or detaches guides between
+    // requests. Dropped after step 5 (tools are known by then).
     if (!step || step <= 5) {
       const masterIndex = context.extra?.masterIndex;
       if (typeof masterIndex === 'string' && masterIndex.trim().length > 0) {
@@ -602,13 +855,65 @@ export class ContextManager {
         // masterIndex is rendered as its own section above — don't re-emit
         // it as a single "key: value" line.
         if (k === 'masterIndex') continue;
+        // workspaceSnapshot is rendered as its own section below — the full
+        // text (3-5k chars) must not be truncated to the 600-char value limit.
+        if (k === 'workspaceSnapshot') continue;
+        // autoInjectGuides are rendered as their own section below.
+        if (k === 'autoInjectGuides') continue;
         // On first step, include full context. After step 5, skip verbose entries.
         if (step && step > 5 && k === 'promptGuides') continue;
+        // classifiedIntent gets a descriptive label.
+        if (k === 'classifiedIntent') {
+          contextLines.push(`Classified intent: ${String(v)}`);
+          continue;
+        }
         contextLines.push(`${k}: ${stringifyContextExtraValue(v)}`);
       }
     }
     if (contextLines.length > 0) {
       prompt += `\n\n## Current Context\n${contextLines.join('\n')}`;
+    }
+
+    // Workspace snapshot — rendered verbatim as its own section so the full
+    // 3-5k chars are visible to the LLM without truncation.
+    const workspaceSnapshot = context.extra?.workspaceSnapshot;
+    if (typeof workspaceSnapshot === 'string' && workspaceSnapshot.trim().length > 0) {
+      prompt += `\n\n## Workspace Snapshot\n${workspaceSnapshot}`;
+    }
+
+    // Scratchpad — persistent across compaction. Contains current todo state,
+    // key creative decisions, and failure traces. Always rendered when present.
+    if (this._scratchpad && this._scratchpad.trim().length > 0) {
+      prompt += `\n\n## Scratchpad\n${this._scratchpad}`;
+    }
+
+    // Auto-injected guides — guide content the user attached, rendered in
+    // the system prompt so the LLM sees them without calling guide.get.
+    // Budget-limited to 8k chars in the handler; overflow guides are
+    // discovery-only via availablePromptGuides.
+    const autoInjectGuides = context.extra?.autoInjectGuides;
+    if (Array.isArray(autoInjectGuides) && autoInjectGuides.length > 0) {
+      prompt += '\n\n## Auto-Injected Guides';
+      for (const guide of autoInjectGuides) {
+        if (
+          guide &&
+          typeof guide === 'object' &&
+          typeof (guide as { name?: unknown }).name === 'string' &&
+          typeof (guide as { content?: unknown }).content === 'string'
+        ) {
+          const g = guide as { name: string; content: string };
+          prompt += `\n\n### ${g.name}\n${g.content}`;
+        }
+      }
+    }
+
+    // Active process prompts — consolidated into the system prompt as a
+    // structured section instead of separate system messages (1I).
+    if (Array.isArray(processPrompts) && processPrompts.length > 0) {
+      prompt += '\n\n## Active Process Guides';
+      for (const pp of processPrompts) {
+        prompt += `\n\n### [${pp.key}] ${pp.displayName}\n${pp.content}`;
+      }
     }
 
     return prompt;
@@ -683,16 +988,20 @@ export class ContextManager {
       }).join('\n');
 
       const compactionPrompt =
-        'You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for the AI that will continue this task.\n\n'
-        + 'Include:\n'
-        + '1. Current progress and key decisions made (what was accomplished, which entities/nodes were modified)\n'
-        + '2. Important context, constraints, or user preferences discovered\n'
-        + '3. What remains to be done (clear next steps)\n'
-        + '4. Any critical data: entity IDs, node IDs, canvas IDs, names, settings that were changed\n'
-        + '5. Errors encountered and how they were resolved (or still pending)\n\n'
-        + 'Be concise, structured, and focused on helping the next AI seamlessly continue the work.\n'
-        + 'Output ONLY the summary, no headings or markdown formatting.\n\n'
+        'You are performing a CONTEXT CHECKPOINT COMPACTION. Create a structured handoff summary for the AI that will continue this task.\n\n'
+        + 'Use EXACTLY these section tags:\n'
+        + '[done] What was accomplished successfully (include entity IDs, node IDs, canvas IDs, file paths, key results)\n'
+        + '[failed] What was attempted and why it failed (include error reasons, tool names, error messages)\n'
+        + '[skipped] What the user declined or the agent decided to skip (include reasons)\n'
+        + '[pending] What remains to be done (clear next steps)\n'
+        + '[decisions] Key creative decisions confirmed by the user\n\n'
+        + 'Rules:\n'
+        + '- Preserve ALL entity IDs, file paths, and confirmed creative choices\n'
+        + '- For failures, include the tool name and error reason so the next AI can avoid repeating the same mistake\n'
+        + '- Be concise and actionable — the next AI should be able to continue without re-reading the full transcript\n'
+        + '- Output ONLY the tagged sections, no extra headings or markdown formatting\n\n'
         + (this._compactInstructions ? `FOCUS: ${this._compactInstructions}\n\n` : '')
+        + (this._scratchpad ? `SCRATCHPAD (preserve this context):\n${this._scratchpad}\n\n` : '')
         + compactionInput;
 
       const summary = await this.llm.complete(
