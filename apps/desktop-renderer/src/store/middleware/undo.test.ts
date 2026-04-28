@@ -40,7 +40,6 @@ function createCanvasState(): CanvasSliceState {
         position: { x: 10, y: 20 },
         data: { content: 'hello' },
         title: 'Node 1',
-        status: 'idle' as const,
         bypassed: false,
         locked: false,
         createdAt: 1,

@@ -1,5 +1,5 @@
-import { forwardRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { Download, Grid2X2, Map, Palette, Redo2, Search, Undo2, Upload } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Download, Grid2X2, Map, Maximize, Palette, Redo2, Search, Undo2, Upload, ZoomIn, ZoomOut } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
 import {
@@ -9,35 +9,63 @@ import {
   TooltipTrigger,
 } from '../ui/Tooltip.js';
 
-interface ToolbarButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
+/* -------------------------------------------------------------------------- */
+/*  Toolbar button rendered as a plain TooltipTrigger (no asChild).           */
+/*                                                                            */
+/*  Radix TooltipTrigger renders its own Primitive.button.  Using asChild to  */
+/*  merge into a forwardRef <button> creates a multi-layer Slot chain where   */
+/*  composeRefs is called inline (not memoised).  On every re-render React 19 */
+/*  sees a new callback-ref identity, detaches the old ref (calling           */
+/*  setTrigger(null)) and attaches the new one (setTrigger(node)), which      */
+/*  schedules state updates and triggers an infinite re-render loop.          */
+/*                                                                            */
+/*  Fix: let TooltipTrigger render its own <button> and apply styling to it   */
+/*  directly via className.  This keeps a single Slot layer and a stable ref. */
+/* -------------------------------------------------------------------------- */
+
+interface ToolbarTriggerButtonProps {
   active?: boolean;
   ariaLabel: string;
   icon: ReactNode;
+  disabled?: boolean;
+  className?: string;
+  onClick?: () => void;
+  tooltip: string;
 }
 
-const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
-  ({ active = false, ariaLabel, className, icon, type = 'button', ...props }, ref) => (
-    <button
-      ref={ref}
-      type={type}
-      aria-label={ariaLabel}
-      aria-pressed={active}
-      className={cn(
-        'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-        props.disabled
-          ? 'cursor-not-allowed text-muted-foreground/30'
-          : active
-            ? 'bg-primary/12 text-primary'
-            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-        className,
-      )}
-      {...props}
-    >
-      {icon}
-    </button>
-  ),
-);
-ToolbarButton.displayName = 'ToolbarButton';
+function ToolbarTriggerButton({
+  active = false,
+  ariaLabel,
+  className,
+  icon,
+  disabled,
+  onClick,
+  tooltip,
+}: ToolbarTriggerButtonProps) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        type="button"
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-pressed={active}
+        className={cn(
+          'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+          disabled
+            ? 'cursor-not-allowed text-muted-foreground/30'
+            : active
+              ? 'bg-primary/12 text-primary'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          className,
+        )}
+        onClick={onClick}
+      >
+        {icon}
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 interface StyleGuideIndicatorProps {
   artStyle?: string;
@@ -48,11 +76,31 @@ interface StyleGuideIndicatorProps {
 
 function StyleGuideIndicator({ artStyle, lighting, freeformDescription, onOpenSettings }: StyleGuideIndicatorProps) {
   const [expanded, setExpanded] = useState(false);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const hasContent = Boolean(artStyle || freeformDescription);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExpanded(false);
+    };
+    const handleClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setExpanded(false);
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    document.addEventListener('mousedown', handleClick);
+    return () => {
+      document.removeEventListener('keydown', handleKey);
+      document.removeEventListener('mousedown', handleClick);
+    };
+  }, [expanded]);
+
   if (!hasContent) return null;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={popoverRef}>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -112,6 +160,9 @@ interface CanvasToolbarProps {
   onRedo: () => void;
   undoEnabled: boolean;
   redoEnabled: boolean;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onFitView?: () => void;
   styleGuide?: StyleGuideIndicatorProps;
 }
 
@@ -128,6 +179,9 @@ export function CanvasToolbar({
   onRedo,
   undoEnabled,
   redoEnabled,
+  onZoomIn,
+  onZoomOut,
+  onFitView,
   styleGuide,
 }: CanvasToolbarProps) {
   const buttons = [
@@ -169,44 +223,55 @@ export function CanvasToolbar({
   return (
     <TooltipProvider delayDuration={120}>
       <div className="absolute right-3 top-3 z-30 flex items-center gap-1.5">
-        <div role="toolbar" aria-label="Undo / Redo" className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ToolbarButton
-                disabled={!undoEnabled}
-                ariaLabel={t('canvas.undo')}
-                icon={<Undo2 className="h-3.5 w-3.5" />}
-                onClick={onUndo}
-              />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{t('canvas.undo')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ToolbarButton
-                disabled={!redoEnabled}
-                ariaLabel={t('canvas.redo')}
-                icon={<Redo2 className="h-3.5 w-3.5" />}
-                onClick={onRedo}
-              />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{t('canvas.redo')}</TooltipContent>
-          </Tooltip>
+        <div role="toolbar" aria-label={t('canvas.toolbar.undoRedo')} className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
+          <ToolbarTriggerButton
+            disabled={!undoEnabled}
+            ariaLabel={t('canvas.undo')}
+            icon={<Undo2 className="h-3.5 w-3.5" />}
+            onClick={onUndo}
+            tooltip={t('canvas.undo')}
+          />
+          <ToolbarTriggerButton
+            disabled={!redoEnabled}
+            ariaLabel={t('canvas.redo')}
+            icon={<Redo2 className="h-3.5 w-3.5" />}
+            onClick={onRedo}
+            tooltip={t('canvas.redo')}
+          />
         </div>
-        <div role="toolbar" aria-label="Canvas tools" className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
+        {onZoomIn && onZoomOut && onFitView && (
+        <div role="toolbar" aria-label={t('canvas.toolbar.zoom')} className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
+          <ToolbarTriggerButton
+            ariaLabel={t('canvas.zoomIn')}
+            icon={<ZoomIn className="h-3.5 w-3.5" />}
+            onClick={onZoomIn}
+            tooltip={t('canvas.zoomIn')}
+          />
+          <ToolbarTriggerButton
+            ariaLabel={t('canvas.zoomOut')}
+            icon={<ZoomOut className="h-3.5 w-3.5" />}
+            onClick={onZoomOut}
+            tooltip={t('canvas.zoomOut')}
+          />
+          <ToolbarTriggerButton
+            ariaLabel={t('canvas.fitView')}
+            icon={<Maximize className="h-3.5 w-3.5" />}
+            onClick={onFitView}
+            tooltip={t('canvas.fitView')}
+          />
+        </div>
+        )}
+        <div role="toolbar" aria-label={t('canvas.toolbar.canvasTools')} className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
         {styleGuide && <StyleGuideIndicator {...styleGuide} />}
         {buttons.map((button) => (
-          <Tooltip key={button.id}>
-            <TooltipTrigger asChild>
-              <ToolbarButton
-                active={button.active}
-                ariaLabel={button.label}
-                icon={button.icon}
-                onClick={button.onClick}
-              />
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{button.label}</TooltipContent>
-          </Tooltip>
+          <ToolbarTriggerButton
+            key={button.id}
+            active={button.active}
+            ariaLabel={button.label}
+            icon={button.icon}
+            onClick={button.onClick}
+            tooltip={button.label}
+          />
         ))}
         </div>
       </div>

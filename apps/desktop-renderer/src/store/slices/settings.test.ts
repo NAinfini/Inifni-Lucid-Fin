@@ -721,3 +721,71 @@ describe('usage stats reducers', () => {
     expect(restored.usage.nodesCreated).toBe(0);
   });
 });
+
+describe('provider merge on restore', () => {
+  function restoreWith(saved: Parameters<typeof settingsSlice.actions.restore>[0]) {
+    return settingsSlice.reducer(undefined, settingsSlice.actions.restore(saved));
+  }
+
+  it('preserves user-customized model when baseUrl is unchanged', () => {
+    const state = restoreWith({
+      image: {
+        providers: [
+          { id: 'openai-image', name: 'OpenAI GPT Image', baseUrl: 'https://api.openai.com/v1', model: 'dall-e-3', hasKey: true, isCustom: false },
+        ],
+      },
+    });
+    const provider = state.image.providers.find((p) => p.id === 'openai-image');
+    expect(provider).toBeDefined();
+    expect(provider!.model).toBe('dall-e-3');
+    expect(provider!.hasKey).toBe(true);
+  });
+
+  it('preserves user-customized model AND baseUrl together', () => {
+    const state = restoreWith({
+      llm: {
+        providers: [
+          { id: 'openai', name: 'OpenAI', baseUrl: 'https://my-proxy.example.com/v1', model: 'gpt-4o', hasKey: true, isCustom: false },
+        ],
+      },
+    });
+    const provider = state.llm.providers.find((p) => p.id === 'openai');
+    expect(provider!.baseUrl).toBe('https://my-proxy.example.com/v1');
+    expect(provider!.model).toBe('gpt-4o');
+  });
+
+  it('uses default model when saved model matches defaults', () => {
+    const defaultProvider = PROVIDER_REGISTRY.llm.find((p) => p.id === 'openai');
+    const state = restoreWith({
+      llm: {
+        providers: [
+          { id: 'openai', name: 'OpenAI', baseUrl: defaultProvider!.baseUrl, model: defaultProvider!.model, hasKey: false, isCustom: false },
+        ],
+      },
+    });
+    const provider = state.llm.providers.find((p) => p.id === 'openai');
+    expect(provider!.model).toBe(defaultProvider!.model);
+  });
+
+  it('restores custom providers alongside built-in ones', () => {
+    const state = restoreWith({
+      llm: {
+        providers: [
+          { id: 'my-custom-llm', name: 'My LLM', baseUrl: 'https://custom.example.com', model: 'custom-model', hasKey: true, isCustom: true },
+        ],
+      },
+    });
+    const custom = state.llm.providers.find((p) => p.id === 'my-custom-llm');
+    expect(custom).toBeDefined();
+    expect(custom!.isCustom).toBe(true);
+    expect(custom!.model).toBe('custom-model');
+  });
+
+  it('adds new built-in providers that did not exist in saved state', () => {
+    const state = restoreWith({
+      llm: { providers: [] },
+    });
+    expect(state.llm.providers.length).toBeGreaterThan(0);
+    expect(state.llm.providers.every((p) => !p.isCustom)).toBe(true);
+  });
+});

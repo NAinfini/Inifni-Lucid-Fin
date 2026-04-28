@@ -42,17 +42,6 @@ interface ParsedScript {
   [key: string]: unknown;
 }
 
-/** Scene data */
-interface SceneData {
-  id: string;
-  heading: string;
-  synopsis?: string;
-  order: number;
-  title?: string;
-  keyframes?: unknown[];
-  [key: string]: unknown;
-}
-
 /** Character data */
 interface CharacterData {
   id: string;
@@ -77,25 +66,6 @@ interface StyleGuide {
   };
   sceneOverrides?: Record<string, unknown>;
   [key: string]: unknown;
-}
-
-/** Orchestration segment */
-interface SegmentData {
-  id: string;
-  sceneId: string;
-  order?: number;
-  startKeyframeId?: string;
-  endKeyframeId?: string;
-  motion?: string;
-  camera?: string;
-  mood?: string;
-  moodIntensity?: number;
-  negativePrompt?: string;
-  seed?: number | null;
-  duration?: number;
-  shotType?: string;
-  description?: string;
-  prompt?: string;
 }
 
 /** Asset metadata */
@@ -268,12 +238,6 @@ declare global {
         load: () => Promise<ParsedScript | null>;
         import: (filePath: string) => Promise<ParsedScript>;
       };
-      scene: {
-        list: () => Promise<SceneData[]>;
-        create: (data: Omit<SceneData, 'id'>) => Promise<SceneData>;
-        update: (id: string, data: Partial<SceneData>) => Promise<SceneData>;
-        delete: (id: string) => Promise<void>;
-      };
       character: {
         list: () => Promise<Character[]>;
         get: (id: string) => Promise<Character>;
@@ -347,13 +311,6 @@ declare global {
           assetHash: string,
           assetType: 'image' | 'video',
         ) => Promise<{ workflowRunId: string }>;
-      };
-      orchestration: {
-        list: (sceneId: string) => Promise<SegmentData[]>;
-        save: (data: Omit<SegmentData, 'id'> & { id?: string }) => Promise<SegmentData>;
-        delete: (id: string) => Promise<void>;
-        reorder: (sceneId: string, segmentIds: string[]) => Promise<void>;
-        generatePrompt: (segmentId: string) => Promise<string | { prompt: string }>;
       };
       asset: {
         import: (filePath: string, type: string) => Promise<AssetMeta>;
@@ -607,6 +564,12 @@ declare global {
           primaryAssetHash: string;
           cost?: number;
           generationTimeMs: number;
+          characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+          equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+          locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+          frameReferenceHashes?: { first?: string; last?: string };
+          sourceImageHash?: string;
+          model?: string;
         }) => void) => () => void;
         onFailed: (cb: (data: {
           canvasId: string;

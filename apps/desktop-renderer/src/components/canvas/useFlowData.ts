@@ -17,6 +17,7 @@ import { applyNodeChanges, type Node, type Edge } from '@xyflow/react';
 import type { RootState } from '../../store/index.js';
 import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
 import type { BackdropNodeData } from '@lucid-fin/contracts';
+import { deriveNodeStatus } from '@lucid-fin/contracts';
 import {
   toFlowNode,
   toFlowEdge,
@@ -97,7 +98,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
         canvasTypeFilters.length === 0 || canvasTypeFilters.includes(node.type);
       const matchesStatus =
         canvasStatusFilters.length === 0 ||
-        canvasStatusFilters.includes(node.status);
+        canvasStatusFilters.includes(deriveNodeStatus(node));
       if (matchesQuery && matchesType && matchesStatus) {
         matches.add(node.id);
       }
@@ -315,6 +316,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
     const seen = new Set<string>();
     const prevCache = flowEdgeDataCacheRef.current;
     const nextCache = new Map<string, Record<string, unknown>>();
+    const selectedSet = new Set(selectedNodeIds);
     const edges = (canvas?.edges ?? [])
       .filter((edge) => {
         if (seen.has(edge.id)) return false;
@@ -336,9 +338,12 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
             !matchingNodeIds.has(edge.source) &&
             !matchingNodeIds.has(edge.target)) ||
           (!!dependencyFocusNodeId && dependencyRole === null);
+        const connectedToSelection =
+          selectedSet.has(edge.source) || selectedSet.has(edge.target);
         const rfEdge = toFlowEdge(edge, targetSummaryByNodeId, {
           dependencyRole,
           dimmed,
+          connectedToSelection,
         });
 
         // Stabilize edge data reference for memo()
@@ -360,6 +365,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
     dependencyState.upstreamEdges,
     matchingNodeIds,
     searchActive,
+    selectedNodeIds,
     targetSummaryByNodeId,
   ]);
 

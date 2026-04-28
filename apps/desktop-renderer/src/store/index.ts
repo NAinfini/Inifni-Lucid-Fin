@@ -10,7 +10,6 @@ import { audioSlice } from './slices/audio.js';
 import { jobsSlice } from './slices/jobs.js';
 import { workflowsSlice } from './slices/workflows.js';
 import { assetsSlice } from './slices/assets.js';
-import { aiSlice } from './slices/ai.js';
 import { uiSlice } from './slices/ui.js';
 import { settingsSlice } from './slices/settings.js';
 import { toastSlice } from './slices/toast.js';
@@ -40,7 +39,6 @@ export const store = configureStore({
     jobs: jobsSlice.reducer,
     workflows: workflowsSlice.reducer,
     assets: assetsSlice.reducer,
-    ai: aiSlice.reducer,
     ui: uiSlice.reducer,
     settings: settingsSlice.reducer,
     toast: toastSlice.reducer,

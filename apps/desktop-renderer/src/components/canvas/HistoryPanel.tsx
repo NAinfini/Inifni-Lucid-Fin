@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import {
   History,
   Plus,
+  Camera,
   Trash2,
   MessageSquare,
   ChevronRight,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { getLocale } from '../../i18n.js';
 import { newSession, loadSession, deleteSession, renameSession, selectIsStreaming, type CommanderMessage } from '../../store/slices/commander.js';
 import { hydrateEvents as hydrateTimelineEvents } from '../../commander/state/commander-timeline-slice.js';
 import type { TimelineEvent } from '@lucid-fin/contracts';
@@ -37,12 +39,13 @@ interface SnapshotMeta {
 function formatDate(ts: number) {
   const d = new Date(ts);
   const now = new Date();
+  const locale = getLocale();
   const isToday = d.toDateString() === now.toDateString();
-  if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
   return (
-    d.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+    d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }) +
     ' ' +
-    d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
   );
 }
 
@@ -60,6 +63,7 @@ export function HistoryPanel() {
   const [sessionSnapshots, setSessionSnapshots] = useState<Record<string, SnapshotMeta[]>>({});
   const [loadingSnaps, setLoadingSnaps] = useState<Set<string>>(new Set());
   const [restoringSnap, setRestoringSnap] = useState<string | null>(null);
+  const [deletingSnapId, setDeletingSnapId] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -167,7 +171,7 @@ export function HistoryPanel() {
           const full = await api.session.get(sessionId);
           hydratedMessages = JSON.parse(full.messages) as CommanderMessage[];
         } catch {
-          /* session fetch failed — load with empty messages */
+          dispatch(enqueueToast({ variant: 'warning', title: t('history.sessionLoadFailed') }));
         }
       }
 
@@ -190,7 +194,7 @@ export function HistoryPanel() {
         dispatch(hydrateTimelineEvents(timelineEvents));
       });
     },
-    [isStreaming, sessions, dispatch],
+    [isStreaming, sessions, dispatch, t],
   );
 
   // -----------------------------------------------------------------------
@@ -267,6 +271,8 @@ export function HistoryPanel() {
   const handleDeleteSnapshot = useCallback(
     async (sessionId: string, snapId: string, e: React.MouseEvent) => {
       e.stopPropagation();
+      if (deletingSnapId) return;
+      setDeletingSnapId(snapId);
       const api = getAPI();
       try {
         await api?.snapshot?.delete(snapId);
@@ -281,10 +287,25 @@ export function HistoryPanel() {
             title: t('history.deleteSnapshotFailed'),
           }),
         );
+      } finally {
+        setDeletingSnapId(null);
       }
     },
-    [dispatch, t],
+    [deletingSnapId, dispatch, t],
   );
+
+  const handleTakeSnapshot = useCallback(async () => {
+    if (!activeSessionId) return;
+    const api = getAPI();
+    try {
+      await api?.snapshot?.capture(activeSessionId, t('history.manualSnapshot'), 'manual');
+      const snaps = (await api?.snapshot?.list(activeSessionId)) ?? [];
+      setSessionSnapshots((prev) => ({ ...prev, [activeSessionId]: snaps as SnapshotMeta[] }));
+      dispatch(enqueueToast({ variant: 'success', title: t('history.snapshotCreated') }));
+    } catch {
+      dispatch(enqueueToast({ variant: 'error', title: t('history.snapshotFailed') }));
+    }
+  }, [activeSessionId, dispatch, t]);
 
   return (
     <div className="h-full bg-card border-l border-border/60 flex flex-col">
@@ -293,16 +314,27 @@ export function HistoryPanel() {
           <History className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="text-xs font-medium">{t('history.title')}</span>
         </div>
-        <button
-          type="button"
-          onClick={() => dispatch(newSession())}
-          disabled={isStreaming}
-          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-          title={t('history.newSession')}
-        >
-          <Plus className="w-3 h-3" />
-          {t('history.newSession')}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void handleTakeSnapshot()}
+            disabled={!activeSessionId}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+            title={t('history.takeSnapshot')}
+          >
+            <Camera className="w-3 h-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() => dispatch(newSession())}
+            disabled={isStreaming}
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
+            title={t('history.newSession')}
+          >
+            <Plus className="w-3 h-3" />
+            {t('history.newSession')}
+          </button>
+        </div>
       </div>
 
       <div className="px-2 py-1.5 border-b border-border/60">
@@ -330,11 +362,14 @@ export function HistoryPanel() {
               <div key={session.id}>
                 {/* Session row */}
                 <div
+                  role="button"
+                  tabIndex={0}
                   className={cn(
                     'group flex items-start gap-2 rounded-md px-2.5 py-2 cursor-pointer transition-colors hover:bg-muted/60',
                     activeSessionId === session.id && 'bg-primary/10 border border-primary/20',
                   )}
                   onClick={() => void handleSessionClick(session.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void handleSessionClick(session.id); } }}
                 >
                   {/* Expand/collapse chevron — only toggles expand */}
                   <button
@@ -478,8 +513,9 @@ export function HistoryPanel() {
                         <button
                           type="button"
                           title={t('history.deleteSnapshot')}
+                          disabled={deletingSnapId === snap.id}
                           onClick={(e) => void handleDeleteSnapshot(session.id, snap.id, e)}
-                          className="hidden group-hover/snap:flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-destructive"
+                          className="hidden group-hover/snap:flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>

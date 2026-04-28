@@ -213,7 +213,7 @@ describe('canvas equipment refs', () => {
       state,
       setNodeEquipmentRefs({
         id: 'img-1',
-        equipmentRefs: ['eq-a', 'eq-b', 'eq-c'],
+        equipmentRefs: [{ equipmentId: 'eq-a' }, { equipmentId: 'eq-b' }, { equipmentId: 'eq-c' }],
       }),
     );
 

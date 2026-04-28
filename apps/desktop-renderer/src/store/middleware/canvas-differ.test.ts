@@ -9,7 +9,6 @@ function createNode(overrides: Partial<CanvasNode> = {}): CanvasNode {
     title: 'Node 1',
     position: { x: 10, y: 20 },
     data: { content: 'before' },
-    status: 'idle',
     bypassed: false,
     locked: false,
     createdAt: 1,

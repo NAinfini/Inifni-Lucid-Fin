@@ -234,3 +234,26 @@ export interface ActiveTodoSnapshot {
     status: 'pending' | 'in_progress' | 'done';
   }>;
 }
+
+export const selectActiveTodoSnapshot = createSelector(
+  [selectCurrentRunEvents, selectCurrentRunId],
+  (events, currentRunId): ActiveTodoSnapshot | null => {
+    if (!currentRunId) return null;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i];
+      if (ev.kind !== 'tool_result') continue;
+      const toolCall = events.find(
+        (e) => e.kind === 'tool_call' && 'toolCallId' in e && e.toolCallId === (ev as { toolCallId?: string }).toolCallId,
+      );
+      if (!toolCall || toolCall.kind !== 'tool_call') continue;
+      const ref = (toolCall as { toolRef?: { domain?: string } }).toolRef;
+      if (ref?.domain !== 'todo') continue;
+      const result = (ev as { result?: { data?: { todoSnapshot?: ActiveTodoSnapshot } } }).result;
+      const snapshot = result?.data?.todoSnapshot;
+      if (snapshot && typeof snapshot.todoId === 'string' && Array.isArray(snapshot.items)) {
+        return snapshot;
+      }
+    }
+    return null;
+  },
+);

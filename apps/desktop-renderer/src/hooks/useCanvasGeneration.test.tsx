@@ -22,7 +22,6 @@ function createCanvasNode(overrides: Partial<CanvasNode> = {}): CanvasNode {
     type: 'image',
     title: 'Opening Frame',
     position: { x: 0, y: 0 },
-    status: 'idle',
     bypassed: false,
     locked: false,
     width: 320,

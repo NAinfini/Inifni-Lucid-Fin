@@ -13,7 +13,6 @@ function createCanvasWithImageNode(data: ImageNodeData): Canvas {
         title: 'Hero Shot',
         position: { x: 0, y: 0 },
         data,
-        status: 'idle',
         bypassed: false,
         locked: false,
         createdAt: 1,

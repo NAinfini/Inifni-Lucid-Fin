@@ -38,7 +38,7 @@ export function InspectorPanelTabBar({
             </span>
           ) : null}
           {activeTab === tab ? (
-            <span className="absolute bottom-0 left-2.5 right-2.5 h-0.5 rounded-t bg-primary" />
+            <span className="absolute bottom-0 left-2.5 right-2.5 h-0.5 rounded-t bg-primary transition-all duration-150" />
           ) : null}
         </button>
       ))}

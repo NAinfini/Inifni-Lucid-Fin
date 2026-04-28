@@ -15,6 +15,7 @@ import {
   getCanvasNodeType,
   createEntityId,
   createNodeRecord,
+  stampCanvasDefaultProvider,
 } from './canvas-helpers.js';
 
 /**
@@ -160,9 +161,15 @@ export function swapEdgeDirection(state: CanvasSliceState, action: PayloadAction
 export function disconnectNode(state: CanvasSliceState, action: PayloadAction<string>): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
+  const removedEdges = canvas.edges.filter(
+    (e) => e.source === action.payload || e.target === action.payload,
+  );
   canvas.edges = canvas.edges.filter(
     (e) => e.source !== action.payload && e.target !== action.payload,
   );
+  for (const edge of removedEdges) {
+    clearStaleFrameRefs(canvas, edge.source, edge.target);
+  }
   canvas.updatedAt = Date.now();
 }
 
@@ -195,6 +202,7 @@ export function insertNodeIntoEdge(
     width: action.payload.width,
     height: action.payload.height,
   });
+  stampCanvasDefaultProvider(insertedNode, canvas);
 
   canvas.nodes.push(insertedNode);
   canvas.edges.splice(edgeIndex, 1);

@@ -1,5 +1,5 @@
 import { createSelector } from '@reduxjs/toolkit';
-import type { Canvas } from '@lucid-fin/contracts';
+import type { Canvas, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
 import type { RootState } from '../index.js';
 import { canvasAdapter } from './canvas.js';
 
@@ -14,6 +14,18 @@ const adapterSelectors = canvasAdapter.getSelectors();
 export const selectAllCanvases = createSelector(
   [(s: RootState) => s.canvas.canvases],
   (canvasEntity) => adapterSelectors.selectAll(canvasEntity),
+);
+
+/** Light-weight metadata for the canvas navigator — avoids pulling full nodes/edges arrays. */
+export const selectCanvasMetadataList = createSelector(
+  [(s: RootState) => s.canvas.canvases],
+  (canvasEntity) => adapterSelectors.selectAll(canvasEntity).map((c) => ({
+    id: c.id,
+    name: c.name,
+    updatedAt: c.updatedAt,
+    nodeCount: c.nodes.length,
+    edgeCount: c.edges.length,
+  })),
 );
 
 /**
@@ -78,5 +90,48 @@ export const selectSingleSelectedNode = createSelector(
   (nodesById, selectedIds) => {
     if (selectedIds.length !== 1) return undefined;
     return nodesById.get(selectedIds[0]);
+  },
+);
+
+interface EntityRefCounts {
+  character: Record<string, number>;
+  equipment: Record<string, number>;
+  location: Record<string, number>;
+}
+
+/**
+ * Shared memoized selector: entity usage counts across all canvases.
+ * Replaces the triple-nested loops that were duplicated in
+ * CharacterManagerPanel, EquipmentManagerPanel, and LocationManagerPanel.
+ */
+export const selectEntityUsageCounts = createSelector(
+  [selectAllCanvases],
+  (canvases): EntityRefCounts => {
+    const character: Record<string, number> = {};
+    const equipment: Record<string, number> = {};
+    const location: Record<string, number> = {};
+    for (const canvas of canvases) {
+      for (const node of canvas.nodes) {
+        if (node.type !== 'image' && node.type !== 'video') continue;
+        const data = node.data as ImageNodeData | VideoNodeData;
+        if (data.characterRefs) {
+          for (const ref of data.characterRefs) {
+            character[ref.characterId] = (character[ref.characterId] ?? 0) + 1;
+          }
+        }
+        if (data.equipmentRefs) {
+          for (const ref of data.equipmentRefs) {
+            const eqId = typeof ref === 'string' ? ref : (ref as { equipmentId: string }).equipmentId;
+            equipment[eqId] = (equipment[eqId] ?? 0) + 1;
+          }
+        }
+        if (data.locationRefs) {
+          for (const ref of data.locationRefs) {
+            location[ref.locationId] = (location[ref.locationId] ?? 0) + 1;
+          }
+        }
+      }
+    }
+    return { character, equipment, location };
   },
 );

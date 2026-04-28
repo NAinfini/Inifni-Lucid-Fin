@@ -3,14 +3,19 @@ import type {
   ImageNodeData,
   VideoNodeData,
   AudioNodeData,
+  GenerationEntityRef,
   GenerationHistoryEntry,
   NodeAnnotation,
 } from '@lucid-fin/contracts';
 import type { CanvasSliceState } from './canvas.js';
-import { findActiveCanvas, getGenerationNodeData } from './canvas-helpers.js';
+import { findActiveCanvas, findCanvasById, getGenerationNodeData } from './canvas-helpers.js';
 
 const MAX_VARIANTS = 20;
 const MAX_GENERATION_HISTORY = 50;
+
+function findCanvasForGeneration(state: CanvasSliceState, canvasId?: string) {
+  return canvasId ? findCanvasById(state, canvasId) : findActiveCanvas(state);
+}
 
 /**
  * Append new variants to existing ones, deduplicate, enforce cap.
@@ -50,9 +55,9 @@ function mergeVariants(
 
 export function setNodeGenerating(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; jobId: string }>,
+  action: PayloadAction<{ id: string; jobId: string; canvasId?: string }>,
 ): void {
-  const canvas = findActiveCanvas(state);
+  const canvas = findCanvasForGeneration(state, action.payload.canvasId);
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node) return;
@@ -62,16 +67,15 @@ export function setNodeGenerating(
   data.progress = 0;
   data.error = undefined;
   data.jobId = action.payload.jobId;
-  node.status = 'generating';
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
 
 export function setNodeProgress(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; progress: number; currentStep?: string }>,
+  action: PayloadAction<{ id: string; progress: number; currentStep?: string; canvasId?: string }>,
 ): void {
-  const canvas = findActiveCanvas(state);
+  const canvas = findCanvasForGeneration(state, action.payload.canvasId);
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node) return;
@@ -84,7 +88,6 @@ export function setNodeProgress(
   // Promote to 'generating' if still idle/empty (e.g. Commander AI triggered generation)
   if (!data.status || data.status === 'empty') {
     data.status = 'generating';
-    node.status = 'generating';
   }
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
@@ -92,9 +95,9 @@ export function setNodeProgress(
 
 export function clearNodeGenerationStatus(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string }>,
+  action: PayloadAction<{ id: string; canvasId?: string }>,
 ): void {
-  const canvas = findActiveCanvas(state);
+  const canvas = findCanvasForGeneration(state, action.payload.canvasId);
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node) return;
@@ -105,7 +108,6 @@ export function clearNodeGenerationStatus(
   data.error = undefined;
   data.currentStep = undefined;
   data.jobId = undefined;
-  node.status = 'idle';
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -114,13 +116,20 @@ export function setNodeGenerationComplete(
   state: CanvasSliceState,
   action: PayloadAction<{
     id: string;
+    canvasId?: string;
     variants: string[];
     primaryAssetHash: string;
     cost?: number;
     generationTimeMs: number;
+    characterRefs?: GenerationEntityRef[];
+    equipmentRefs?: GenerationEntityRef[];
+    locationRefs?: GenerationEntityRef[];
+    frameReferenceHashes?: { first?: string; last?: string };
+    sourceImageHash?: string;
+    model?: string;
   }>,
 ): void {
-  const canvas = findActiveCanvas(state);
+  const canvas = findCanvasForGeneration(state, action.payload.canvasId);
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node) return;
@@ -143,18 +152,30 @@ export function setNodeGenerationComplete(
     data.cost = action.payload.cost;
     data.estimatedCost = action.payload.cost;
   }
-  // Append to generation history
   if ('generationHistory' in data) {
     const history = (data as ImageNodeData | VideoNodeData | AudioNodeData).generationHistory ?? [];
+    const imgVidData = data as ImageNodeData | VideoNodeData;
     const entry: GenerationHistoryEntry = {
       assetHash: action.payload.primaryAssetHash,
       prompt: data.prompt ?? '',
+      negativePrompt: 'negativePrompt' in data ? (data as ImageNodeData).negativePrompt : undefined,
       providerId: data.providerId ?? '',
       seed: data.seed,
-      negativePrompt: 'negativePrompt' in data ? (data as ImageNodeData).negativePrompt : undefined,
       cost: action.payload.cost,
       generationTimeMs: action.payload.generationTimeMs,
       createdAt: Date.now(),
+      sourceImageHash: action.payload.sourceImageHash ?? imgVidData?.sourceImageHash,
+      characterRefs: action.payload.characterRefs,
+      equipmentRefs: action.payload.equipmentRefs,
+      locationRefs: action.payload.locationRefs,
+      frameReferenceHashes: action.payload.frameReferenceHashes,
+      width: 'width' in data ? (data as ImageNodeData).width : undefined,
+      height: 'height' in data ? (data as ImageNodeData).height : undefined,
+      steps: 'steps' in imgVidData ? imgVidData.steps : undefined,
+      cfgScale: 'cfgScale' in imgVidData ? imgVidData.cfgScale : undefined,
+      scheduler: 'scheduler' in imgVidData ? imgVidData.scheduler : undefined,
+      img2imgStrength: 'img2imgStrength' in imgVidData ? imgVidData.img2imgStrength : undefined,
+      model: action.payload.model,
     };
     history.push(entry);
     if (history.length > MAX_GENERATION_HISTORY) {
@@ -162,16 +183,15 @@ export function setNodeGenerationComplete(
     }
     (data as ImageNodeData | VideoNodeData | AudioNodeData).generationHistory = history;
   }
-  node.status = 'done';
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
 
 export function setNodeGenerationFailed(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; error: string }>,
+  action: PayloadAction<{ id: string; error: string; canvasId?: string }>,
 ): void {
-  const canvas = findActiveCanvas(state);
+  const canvas = findCanvasForGeneration(state, action.payload.canvasId);
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node) return;
@@ -180,7 +200,6 @@ export function setNodeGenerationFailed(
   data.status = 'failed';
   data.error = action.payload.error;
   data.progress = undefined;
-  node.status = 'failed';
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -438,20 +457,6 @@ export function setNodeSourceImage(
   if (!node || (node.type !== 'image' && node.type !== 'video')) return;
   const data = node.data as ImageNodeData | VideoNodeData;
   data.sourceImageHash = action.payload.sourceImageHash;
-  node.updatedAt = Date.now();
-  canvas.updatedAt = node.updatedAt;
-}
-
-export function setNodeFaceReferences(
-  state: CanvasSliceState,
-  action: PayloadAction<{ id: string; faceReferenceHashes: string[] }>,
-): void {
-  const canvas = findActiveCanvas(state);
-  if (!canvas) return;
-  const node = canvas.nodes.find((n) => n.id === action.payload.id);
-  if (!node || (node.type !== 'image' && node.type !== 'video')) return;
-  const data = node.data as ImageNodeData | VideoNodeData;
-  data.faceReferenceHashes = action.payload.faceReferenceHashes;
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }

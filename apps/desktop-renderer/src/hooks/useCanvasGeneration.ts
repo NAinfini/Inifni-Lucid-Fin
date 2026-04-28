@@ -78,21 +78,26 @@ export function useCanvasGeneration(): {
 
   useEffect(() => {
     const api = getAPI();
-    if (!api?.canvasGeneration || !activeCanvasId) return;
+    if (!api?.canvasGeneration) return;
 
     const unsubProgress = api.canvasGeneration.onProgress((data) => {
-      if (data.canvasId !== activeCanvasId) return;
-      dispatch(setNodeProgress({ id: data.nodeId, progress: data.progress, currentStep: data.currentStep }));
+      dispatch(setNodeProgress({ id: data.nodeId, progress: data.progress, currentStep: data.currentStep, canvasId: data.canvasId }));
     });
     const unsubComplete = api.canvasGeneration.onComplete((data) => {
-      if (data.canvasId !== activeCanvasId) return;
       dispatch(
         setNodeGenerationComplete({
           id: data.nodeId,
+          canvasId: data.canvasId,
           variants: data.variants,
           primaryAssetHash: data.primaryAssetHash,
           cost: data.cost,
           generationTimeMs: data.generationTimeMs,
+          characterRefs: data.characterRefs,
+          equipmentRefs: data.equipmentRefs,
+          locationRefs: data.locationRefs,
+          frameReferenceHashes: data.frameReferenceHashes,
+          sourceImageHash: data.sourceImageHash,
+          model: data.model,
         }),
       );
       dispatch(recordGeneration({ type: 'image', success: true, durationMs: data.generationTimeMs ?? 0 }));
@@ -138,8 +143,7 @@ export function useCanvasGeneration(): {
       }).catch(() => { /* asset refresh is best-effort */ });
     });
     const unsubFailed = api.canvasGeneration.onFailed((data) => {
-      if (data.canvasId !== activeCanvasId) return;
-      dispatch(setNodeGenerationFailed({ id: data.nodeId, error: data.error }));
+      dispatch(setNodeGenerationFailed({ id: data.nodeId, error: data.error, canvasId: data.canvasId }));
       dispatch(recordGeneration({ type: 'image', success: false, durationMs: 0 }));
       dispatch(recordError());
       dispatch(
@@ -160,7 +164,7 @@ export function useCanvasGeneration(): {
       unsubComplete();
       unsubFailed();
     };
-  }, [activeCanvasId, dispatch]);
+  }, [dispatch]);
 
   const generate = useCallback(
     async (nodeId: string, providerId?: string, variantCount?: number, seed?: number) => {

@@ -168,7 +168,13 @@ function GridCard({ asset, isSelected, onAssetClick, onAssetKeyDown, onContextMe
           event.dataTransfer.effectAllowed = 'copyMove';
         }}
         onClick={(e) => onAssetClick(asset, e)}
-        onKeyDown={(event) => onAssetKeyDown(asset, event)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onAssetClick(asset, event as unknown as React.MouseEvent);
+          }
+          onAssetKeyDown(asset, event);
+        }}
         onContextMenu={(e) => onContextMenuSelect(asset, e)}
         className="text-left"
       >

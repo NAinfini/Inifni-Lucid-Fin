@@ -6,6 +6,7 @@ export type CanvasOperation =
   | 'updateNode'
   | 'removeNode'
   | 'addEdge'
+  | 'updateEdge'
   | 'removeEdge'
   | 'renameCanvas';
 
@@ -21,6 +22,7 @@ export interface CanvasPatch {
   updatedNodes?: Array<{ id: string; changes: Record<string, unknown> }>;
   addedEdges?: CanvasEdge[];
   removedEdgeIds?: string[];
+  updatedEdges?: Array<{ id: string; edge: CanvasEdge }>;
 }
 
 export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch | null {
@@ -69,14 +71,25 @@ export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch 
   if (updated.length > 0) { patch.updatedNodes = updated; patch.operations.push('updateNode'); hasChanges = true; }
 
   // Edge diffs
-  const prevEdgeIds = new Set(prev.edges.map(e => e.id));
-  const nextEdgeIds = new Set(next.edges.map(e => e.id));
+  const prevEdgeMap = new Map(prev.edges.map(e => [e.id, e]));
+  const nextEdgeMap = new Map(next.edges.map(e => [e.id, e]));
 
-  const addedEdges = next.edges.filter(e => !prevEdgeIds.has(e.id));
+  const addedEdges = next.edges.filter(e => !prevEdgeMap.has(e.id));
   if (addedEdges.length > 0) { patch.addedEdges = addedEdges; patch.operations.push('addEdge'); hasChanges = true; }
 
-  const removedEdges = prev.edges.filter(e => !nextEdgeIds.has(e.id)).map(e => e.id);
+  const removedEdges = prev.edges.filter(e => !nextEdgeMap.has(e.id)).map(e => e.id);
   if (removedEdges.length > 0) { patch.removedEdgeIds = removedEdges; patch.operations.push('removeEdge'); hasChanges = true; }
+
+  // Updated edges: detect source/target/handle/data changes on existing edges
+  const updatedEdges: Array<{ id: string; edge: CanvasEdge }> = [];
+  for (const nextEdge of next.edges) {
+    const prevEdge = prevEdgeMap.get(nextEdge.id);
+    if (!prevEdge) continue;
+    if (JSON.stringify(prevEdge) !== JSON.stringify(nextEdge)) {
+      updatedEdges.push({ id: nextEdge.id, edge: nextEdge });
+    }
+  }
+  if (updatedEdges.length > 0) { patch.updatedEdges = updatedEdges; patch.operations.push('updateEdge'); hasChanges = true; }
 
   return hasChanges ? patch : null;
 }

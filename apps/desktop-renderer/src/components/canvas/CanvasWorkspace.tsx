@@ -40,6 +40,7 @@ import {
   updateContainerSize,
   reconnectCanvasEdge,
   setCanvases,
+  addCanvas,
 } from '../../store/slices/canvas.js';
 import {
   setRightPanel,
@@ -64,7 +65,7 @@ import { VideoCloneDialog } from './VideoCloneDialog.js';
 import { EditView } from './views/EditView.js';
 import { AudioView } from './views/AudioView.js';
 import { MaterialsView } from './views/MaterialsView.js';
-import { CanvasContextMenu, setContextMenuPosition } from './CanvasContextMenu.js';
+import { CanvasContextMenu, setContextMenuPosition, type AlignDirection } from './CanvasContextMenu.js';
 import { useCanvasGeneration } from '../../hooks/useCanvasGeneration.js';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard.js';
 import { useCanvasDragDrop } from '../../hooks/useCanvasDragDrop.js';
@@ -504,7 +505,7 @@ export function CanvasWorkspace() {
   );
 
   // Drag-drop — delegated to extracted hook
-  const { handleDrop, handleDragOver } = useCanvasDragDrop(rfInstanceRef);
+  const { handleDrop, handleDragOver, handleDragLeave, isDraggingOver } = useCanvasDragDrop(rfInstanceRef);
 
   // ---- Paste / Undo / Redo (shared by keyboard shortcuts + context menu) ----
 
@@ -561,6 +562,51 @@ export function CanvasWorkspace() {
     buildClipboardPayload,
   });
 
+  // ---- Node alignment -------------------------------------------------------
+
+  const handleAlign = useCallback((direction: AlignDirection) => {
+    if (!canvas || selectedNodeIds.length < 2) return;
+    const nodes = selectedNodeIds
+      .map((id) => canvas.nodes.find((n) => n.id === id))
+      .filter((n): n is NonNullable<typeof n> => n != null && !n.locked);
+    if (nodes.length < 2) return;
+
+    let moves: Array<{ id: string; position: { x: number; y: number } }>;
+    switch (direction) {
+      case 'left': {
+        const minX = Math.min(...nodes.map((n) => n.position.x));
+        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, x: minX } }));
+        break;
+      }
+      case 'right': {
+        const maxX = Math.max(...nodes.map((n) => n.position.x + (n.width ?? 200)));
+        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, x: maxX - (n.width ?? 200) } }));
+        break;
+      }
+      case 'top': {
+        const minY = Math.min(...nodes.map((n) => n.position.y));
+        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, y: minY } }));
+        break;
+      }
+      case 'bottom': {
+        const maxY = Math.max(...nodes.map((n) => n.position.y + (n.height ?? 100)));
+        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, y: maxY - (n.height ?? 100) } }));
+        break;
+      }
+      case 'centerH': {
+        const avgX = nodes.reduce((s, n) => s + n.position.x + (n.width ?? 200) / 2, 0) / nodes.length;
+        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, x: avgX - (n.width ?? 200) / 2 } }));
+        break;
+      }
+      case 'centerV': {
+        const avgY = nodes.reduce((s, n) => s + n.position.y + (n.height ?? 100) / 2, 0) / nodes.length;
+        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, y: avgY - (n.height ?? 100) / 2 } }));
+        break;
+      }
+    }
+    dispatch(moveNodes(moves));
+  }, [canvas, dispatch, selectedNodeIds]);
+
   // ---- Context menu position tracking ---------------------------------------
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -610,11 +656,20 @@ export function CanvasWorkspace() {
 
   const handleExportWorkflow = useCallback(() => {
     if (!canvas) return;
-    const canvasWithViewport = canvas.viewport === canvasViewport
-      ? canvas
-      : { ...canvas, viewport: canvasViewport };
-    downloadWorkflowDocument(canvasWithViewport);
-  }, [canvas, canvasViewport]);
+    try {
+      const canvasWithViewport = canvas.viewport === canvasViewport
+        ? canvas
+        : { ...canvas, viewport: canvasViewport };
+      downloadWorkflowDocument(canvasWithViewport);
+      dispatch(enqueueToast({ variant: 'success', title: t('toast.workflowExported') }));
+    } catch (error) {
+      dispatch(enqueueToast({
+        variant: 'error',
+        title: t('toast.error.workflowExportFailed'),
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, [canvas, canvasViewport, dispatch]);
 
   const handleOpenWorkflowImport = useCallback(() => {
     workflowImportInputRef.current?.click();
@@ -641,7 +696,7 @@ export function CanvasWorkspace() {
         const importedCanvas = materializeImportedCanvas({
           document,
           canvasId: replacingActiveCanvas ? canvas.id : crypto.randomUUID(),
-          name: replacingActiveCanvas ? canvas.name : `${document.canvas.name} Imported`,
+          name: replacingActiveCanvas ? canvas.name : `${document.canvas.name} ${t('canvas.importedSuffix')}`,
         });
 
         await getAPI()?.canvas.save(importedCanvas);
@@ -671,8 +726,20 @@ export function CanvasWorkspace() {
 
   if (!canvas) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {t('canvasWorkspace.noCanvasSelected')}
+      <div className="flex h-full flex-col items-center justify-center gap-4 text-sm text-muted-foreground">
+        <span>{t('canvasWorkspace.noCanvasSelected')}</span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          onClick={async () => {
+            const created = await getAPI()?.canvas.create(t('panels.untitledCanvas'));
+            if (!created) return;
+            dispatch(addCanvas(created));
+            dispatch(setActiveCanvas(created.id));
+          }}
+        >
+          {t('panels.createCanvas')}
+        </button>
       </div>
     );
   }
@@ -684,6 +751,8 @@ export function CanvasWorkspace() {
       onPaste={() => { void handlePaste(); }}
       onUndo={handleUndo}
       onRedo={handleRedo}
+      onAlign={handleAlign}
+      selectedNodeCount={selectedNodeIds.length}
       hasClipboard={Boolean(clipboard)}
     >
       <div
@@ -694,7 +763,13 @@ export function CanvasWorkspace() {
         onContextMenu={handleContextMenu}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
       >
+        {isDraggingOver && (
+          <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-primary/5 border-2 border-dashed border-primary/40 rounded-lg">
+            <span className="text-sm font-medium text-primary/70">{t('canvas.dropHere')}</span>
+          </div>
+        )}
         <input
           ref={workflowImportInputRef}
           type="file"
@@ -718,6 +793,9 @@ export function CanvasWorkspace() {
           onRedo={handleRedo}
           undoEnabled={undoEnabled}
           redoEnabled={redoEnabled}
+          onZoomIn={() => reactFlow.zoomIn()}
+          onZoomOut={() => reactFlow.zoomOut()}
+          onFitView={() => reactFlow.fitView({ padding: 0.15 })}
           styleGuide={{
             artStyle: projectStyleGuide?.global?.artStyle,
             lighting: projectStyleGuide?.global?.lighting,

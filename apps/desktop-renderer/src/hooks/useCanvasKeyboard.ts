@@ -10,9 +10,13 @@ import {
   toggleLock,
   setSelection,
   clearSelection,
+  moveNodes,
   type CanvasClipboardPayload,
 } from '../store/slices/canvas.js';
 import { setSearchPanelOpen } from '../store/slices/ui.js';
+import { enqueueToast } from '../store/slices/toast.js';
+import { flushPendingCanvasSave } from '../store/middleware/persist.js';
+import { t } from '../i18n.js';
 
 interface CanvasKeyboardDeps {
   canvas: Canvas | undefined;
@@ -84,6 +88,23 @@ export function useCanvasKeyboard({
           dispatch(setSearchPanelOpen(false));
         }
         if (!editable) {
+          if (selectedNodeIds.length > 0 && event.key.startsWith('Arrow')) {
+            event.preventDefault();
+            const step = event.shiftKey ? 20 : 5;
+            const dx = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
+            const dy = event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
+            if (dx === 0 && dy === 0) return;
+            if (!canvas) return;
+            const moves = selectedNodeIds
+              .map(id => {
+                const node = canvas.nodes.find(n => n.id === id);
+                if (!node || node.locked) return null;
+                return { id, position: { x: node.position.x + dx, y: node.position.y + dy } };
+              })
+              .filter((m): m is { id: string; position: { x: number; y: number } } => m !== null);
+            if (moves.length > 0) dispatch(moveNodes(moves));
+            return;
+          }
           switch (event.key.toLowerCase()) {
             case 'd':
               if (selectedNodeIds.length === 0) return;
@@ -138,6 +159,11 @@ export function useCanvasKeyboard({
           if (editable || selectedNodeIds.length === 0) return;
           event.preventDefault();
           for (const id of selectedNodeIds) dispatch(toggleLock({ id }));
+          return;
+        case 's':
+          event.preventDefault();
+          flushPendingCanvasSave();
+          dispatch(enqueueToast({ title: t('toast.saved'), variant: 'success' }));
           return;
         case 'v':
           if (editable) return;

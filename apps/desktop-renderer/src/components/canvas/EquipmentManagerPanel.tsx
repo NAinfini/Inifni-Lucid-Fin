@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { selectAllCanvases } from '../../store/slices/canvas-selectors.js';
+import { selectEntityUsageCounts } from '../../store/slices/canvas-selectors.js';
+import { removeEntityRefsFromAllCanvases } from '../../store/slices/canvas.js';
+import { enqueueToast } from '../../store/slices/toast.js';
 import {
   setEquipment,
   addEquipment,
@@ -25,9 +27,6 @@ import type {
   Equipment,
   EquipmentType,
   ReferenceImage,
-  ImageNodeData,
-  VideoNodeData,
-  EquipmentRef,
 } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { Image, ImageOff, Link2, Package, Upload, X } from 'lucide-react';
@@ -118,24 +117,7 @@ export function EquipmentManagerPanel() {
     return new Set(p?.items.map((it) => it.id) ?? []);
   }, [clipboard]);
 
-  const canvases = useSelector(selectAllCanvases);
-
-  const usageCountById = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const canvas of canvases) {
-      for (const node of canvas.nodes) {
-        if (node.type !== 'image' && node.type !== 'video') continue;
-        const data = node.data as ImageNodeData | VideoNodeData;
-        if (data.equipmentRefs) {
-          for (const ref of data.equipmentRefs) {
-            const eqId = typeof ref === 'string' ? ref : (ref as EquipmentRef).equipmentId;
-            counts[eqId] = (counts[eqId] ?? 0) + 1;
-          }
-        }
-      }
-    }
-    return counts;
-  }, [canvases]);
+  const usageCountById = useSelector(selectEntityUsageCounts).equipment;
 
   useEffect(() => {
     if (!selectedEquip) {
@@ -232,7 +214,7 @@ export function EquipmentManagerPanel() {
               const { id: _id, ...rest } = original;
               const saved = (await api.equipment.save({
                 ...rest,
-                name: `${original.name} (copy)`,
+                name: `${original.name} ${t('action.copySuffix')}`,
                 folderId,
               } as Record<string, unknown>)) as Equipment;
               dispatch(addEquipment(saved));
@@ -243,7 +225,7 @@ export function EquipmentManagerPanel() {
         })();
       }
     },
-    [folderApi.currentFolderId, handleMoveIdsToFolder, dispatch, reportError],
+    [folderApi.currentFolderId, handleMoveIdsToFolder, dispatch, reportError, t],
   );
 
   const saveDraft = useCallback(async () => {
@@ -266,11 +248,12 @@ export function EquipmentManagerPanel() {
       if (api?.equipment) {
         const saved = (await api.equipment.save(data as Record<string, unknown>)) as Equipment;
         dispatch(updateEquipment({ id: saved.id, data: saved }));
+        dispatch(enqueueToast({ variant: 'success', title: t('toast.entitySaved') }));
       }
     } catch (reason) {
       reportError(reason, 'saveDraft');
     }
-  }, [dispatch, draft, reportError, selectedEquip, setError]);
+  }, [dispatch, draft, reportError, selectedEquip, setError, t]);
 
   const handleDeleteIds = useCallback(
     async (ids: string[]) => {
@@ -291,6 +274,7 @@ export function EquipmentManagerPanel() {
         try {
           if (api?.equipment) await api.equipment.delete(id);
           dispatch(removeEquipment(id));
+          dispatch(removeEntityRefsFromAllCanvases({ entityType: 'equipment', entityId: id }));
           if (selectedId === id) setDrawerOpen(false);
         } catch (reason) {
           reportError(reason, 'handleDeleteIds');

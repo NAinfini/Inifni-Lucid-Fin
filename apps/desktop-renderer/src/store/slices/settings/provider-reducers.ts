@@ -199,10 +199,3 @@ export function removeCustomProvider(
     (entry) => entry.id !== action.payload.provider,
   );
 }
-
-export function setDefaultProvider(
-  state: SettingsState,
-  action: PayloadAction<{ group: APIGroup; provider: string | undefined }>,
-) {
-  state[action.payload.group].defaultProviderId = action.payload.provider;
-}

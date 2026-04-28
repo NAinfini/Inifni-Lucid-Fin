@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { t } from '../i18n.js';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -32,25 +33,37 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       if (this.props.fallback) {
         return this.props.fallback(this.state.error, this.reset);
       }
+      const label = this.props.name ?? 'App';
+      const safeMessage = this.state.error.message.length > 200
+        ? this.state.error.message.slice(0, 200) + '…'
+        : this.state.error.message;
       return (
-        <div style={{ padding: 16, color: '#ef4444', fontSize: 13 }}>
-          <p style={{ fontWeight: 600 }}>{this.props.name ?? 'App'} encountered an error</p>
-          <p style={{ opacity: 0.7, fontSize: 12 }}>{this.state.error.message}</p>
-          <button
-            onClick={this.reset}
-            style={{
-              marginTop: 8,
-              padding: '4px 12px',
-              fontSize: 12,
-              cursor: 'pointer',
-              border: '1px solid currentColor',
-              borderRadius: 4,
-              background: 'transparent',
-              color: 'inherit',
-            }}
-          >
-            Retry
-          </button>
+        <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="rounded-full bg-destructive/10 p-3">
+            <svg className="h-6 w-6 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+            </svg>
+          </div>
+          <p className="text-sm font-semibold text-foreground">
+            {label} — {t('errorBoundary.title')}
+          </p>
+          <p className="max-w-sm text-xs text-muted-foreground">
+            {safeMessage}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={this.reset}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              {t('errorBoundary.retry')}
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            >
+              {t('errorBoundary.reload')}
+            </button>
+          </div>
         </div>
       );
     }

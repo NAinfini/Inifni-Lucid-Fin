@@ -32,7 +32,6 @@ function createImageNode(id: string) {
     type: 'image' as const,
     title: `Node ${id}`,
     position: { x: 0, y: 0 },
-    status: 'idle' as const,
     bypassed: false,
     locked: false,
     createdAt: 1,

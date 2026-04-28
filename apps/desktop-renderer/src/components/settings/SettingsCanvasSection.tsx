@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  Canvas,
   CanvasAspectRatio,
   CanvasSettings,
 } from '@lucid-fin/contracts';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { Palette, Image as ImageIcon, Layers } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
-import { getAPI } from '../../utils/api.js';
+import { updateCanvasSettings } from '../../store/slices/canvas.js';
 import { t } from '../../i18n.js';
 import { Input } from '../ui/Input.js';
 import { Textarea } from '../ui/Textarea.js';
@@ -203,69 +202,39 @@ export function SettingsCanvasSection() {
     [audioProviders],
   );
 
-  const [canvas, setCanvas] = useState<Canvas | null>(null);
+  const dispatch = useDispatch();
+  const canvasName = useSelector((state: RootState) => {
+    if (!activeCanvasId) return undefined;
+    return state.canvas.canvases.entities[activeCanvasId]?.name;
+  });
+  const canvasSettings = useSelector((state: RootState) => {
+    if (!activeCanvasId) return undefined;
+    return state.canvas.canvases.entities[activeCanvasId]?.settings;
+  });
+
   const [draft, setDraft] = useState<DraftState>(() => settingsToDraft(undefined));
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestRef = useRef<{ canvas: Canvas | null; draft: DraftState }>({
-    canvas: null,
+  const latestRef = useRef<{ draft: DraftState }>({
     draft: settingsToDraft(undefined),
   });
-  latestRef.current = { canvas, draft };
+  latestRef.current = { draft };
 
   useEffect(() => {
-    if (!activeCanvasId) {
-      setCanvas(null);
-      setDraft(settingsToDraft(undefined));
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const api = getAPI();
-        if (!api) throw new Error('IPC bridge unavailable');
-        const loaded = await api.canvas.load(activeCanvasId);
-        if (cancelled) return;
-        setCanvas(loaded);
-        setDraft(settingsToDraft(loaded.settings));
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [activeCanvasId]);
+    setDraft(settingsToDraft(canvasSettings));
+  }, [activeCanvasId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const persist = useCallback(async () => {
-    const { canvas: liveCanvas, draft: liveDraft } = latestRef.current;
-    if (!liveCanvas) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const api = getAPI();
-      if (!api) throw new Error('IPC bridge unavailable');
-      const nextSettings = draftToSettings(liveDraft);
-      const next: Canvas = {
-        ...liveCanvas,
-        settings: Object.keys(nextSettings).length > 0 ? nextSettings : undefined,
-        updatedAt: Date.now(),
-      };
-      await api.canvas.save(next);
-      setCanvas(next);
-      setSavedAt(Date.now());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }, []);
+  const persist = useCallback(() => {
+    if (!activeCanvasId) return;
+    const { draft: liveDraft } = latestRef.current;
+    const nextSettings = draftToSettings(liveDraft);
+    dispatch(updateCanvasSettings({
+      canvasId: activeCanvasId,
+      settings: Object.keys(nextSettings).length > 0 ? nextSettings : undefined,
+    }));
+    setSavedAt(Date.now());
+  }, [activeCanvasId, dispatch]);
 
   const updateDraft = useCallback((patch: Partial<DraftState>) => {
     setDraft((d) => ({ ...d, ...patch }));
@@ -297,25 +266,16 @@ export function SettingsCanvasSection() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {canvas?.name && (
+        {canvasName && (
           <span>
-            {t('settings.canvas.editing')}: <span className="font-medium text-foreground">{canvas.name}</span>
+            {t('settings.canvas.editing')}: <span className="font-medium text-foreground">{canvasName}</span>
           </span>
         )}
         <span className="ml-auto">
-          {saving
-            ? t('canvas.canvasSettings.saving')
-            : savedAt
-              ? t('settings.canvas.saved')
-              : ''}
+          {savedAt ? t('settings.canvas.saved') : ''}
         </span>
       </div>
 
-      {loading ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">
-          {t('canvas.canvasSettings.loading')}
-        </div>
-      ) : (
         <div className="space-y-4">
           {/* Style */}
           <SectionCard icon={Palette} title={t('canvas.canvasSettings.sectionStyle')}>
@@ -553,13 +513,6 @@ export function SettingsCanvasSection() {
             </div>
           </SectionCard>
         </div>
-      )}
-
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {error}
-        </div>
-      )}
     </div>
   );
 }

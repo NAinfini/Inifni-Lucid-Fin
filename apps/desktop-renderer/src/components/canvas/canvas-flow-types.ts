@@ -21,4 +21,5 @@ export interface PresetTrackNodeData {
 export interface FlowVisualState {
   dependencyRole: 'upstream' | 'downstream' | 'focus' | null;
   dimmed: boolean;
+  connectedToSelection?: boolean;
 }

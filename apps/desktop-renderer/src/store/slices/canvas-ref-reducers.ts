@@ -90,7 +90,7 @@ export function updateNodeCharacterRef(
 
 export function setNodeEquipmentRefs(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; equipmentRefs: Array<EquipmentRef | string> }>,
+  action: PayloadAction<{ id: string; equipmentRefs: EquipmentRef[] }>,
 ): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;

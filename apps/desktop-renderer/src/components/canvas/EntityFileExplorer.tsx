@@ -10,6 +10,7 @@ import { ArrowUpDown, ClipboardPaste, Copy, FolderPlus, Plus, Scissors, Search, 
 import type { Folder } from '@lucid-fin/contracts';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
+import { SkeletonList } from '../ui/Skeleton.js';
 import { FolderBreadcrumb } from './folders/FolderBreadcrumb.js';
 import { FolderTile } from './folders/FolderTile.js';
 import { TileContextMenu } from './folders/TileContextMenu.js';
@@ -142,6 +143,7 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
   const panelRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const tilesRef = useRef<HTMLDivElement>(null);
+  const tileBoundsRef = useRef<Array<{ id: string; rect: DOMRect; isFolder: boolean }>>([]);
   // Suppresses the trailing background-click (fires after mouseup) when the
   // user actually completed a marquee drag, so we don't immediately wipe the
   // selection the rubber-band just produced.
@@ -350,6 +352,18 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
     const baseItems = additive ? new Set(selectedIds) : new Set<string>();
     const baseFolders = additive ? new Set(selectedFolderIds) : new Set<string>();
 
+    // Pre-cache all tile bounding rects once at drag-start to avoid
+    // querySelectorAll on every mousemove event.
+    const tileRoot = tilesRef.current;
+    if (tileRoot) {
+      const items = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-tile-id]'));
+      const folders = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-folder-id]'));
+      tileBoundsRef.current = [
+        ...items.map((el) => ({ id: el.dataset.tileId!, rect: el.getBoundingClientRect(), isFolder: false })),
+        ...folders.map((el) => ({ id: el.dataset.folderId!, rect: el.getBoundingClientRect(), isFolder: true })),
+      ];
+    }
+
     const onMove = (ev: MouseEvent) => {
       const sc = gridRef.current;
       if (!sc) return;
@@ -366,23 +380,17 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
       marqueeCommittedRef.current = true;
       setMarquee({ x, y, w, h });
 
-      const tileRoot = tilesRef.current;
-      if (!tileRoot) return;
       const nextItems = new Set(baseItems);
       const nextFolders = new Set(baseFolders);
-      const intersect = (el: HTMLElement) => {
-        const tr = el.getBoundingClientRect();
+      for (const cached of tileBoundsRef.current) {
+        const tr = cached.rect;
         const tx = tr.left - r.left + sc.scrollLeft;
         const ty = tr.top - r.top + sc.scrollTop;
-        return tx + tr.width >= x && tx <= x + w && ty + tr.height >= y && ty <= y + h;
-      };
-      for (const el of tileRoot.querySelectorAll<HTMLElement>('[data-tile-id]')) {
-        const id = el.dataset.tileId;
-        if (id && intersect(el)) nextItems.add(id);
-      }
-      for (const el of tileRoot.querySelectorAll<HTMLElement>('[data-folder-id]')) {
-        const id = el.dataset.folderId;
-        if (id && intersect(el)) nextFolders.add(id);
+        const overlaps = tx + tr.width >= x && tx <= x + w && ty + tr.height >= y && ty <= y + h;
+        if (overlaps) {
+          if (cached.isFolder) nextFolders.add(cached.id);
+          else nextItems.add(cached.id);
+        }
       }
       setSelectedIds(nextItems);
       setSelectedFolderIds(nextFolders);
@@ -609,7 +617,7 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
             />
           ))}
           {loading ? (
-            <div className="col-span-full text-[11px] text-muted-foreground">{t('fileExplorer.loading')}</div>
+            <div className="col-span-full"><SkeletonList count={5} /></div>
           ) : visibleItems.length === 0 && childFolders.length === 0 ? (
             <div className="col-span-full py-6 text-center text-[11px] text-muted-foreground">
               {emptyLabel}
@@ -644,6 +652,14 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
                     const ids = isSelected && selectedIds.size > 1 ? [...selectedIds] : [item.id];
                     e.dataTransfer.setData(dndMime, ids.length === 1 ? ids[0]! : ids.join(','));
                     e.dataTransfer.effectAllowed = 'move';
+                    if (ids.length > 1) {
+                      const ghost = document.createElement('div');
+                      ghost.textContent = `${ids.length} ${t('fileExplorer.itemsSelected')}`;
+                      ghost.style.cssText = 'position:fixed;left:-1000px;top:-1000px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;background:hsl(var(--primary));color:hsl(var(--primary-foreground));white-space:nowrap;pointer-events:none;';
+                      document.body.appendChild(ghost);
+                      e.dataTransfer.setDragImage(ghost, 0, 0);
+                      requestAnimationFrame(() => ghost.remove());
+                    }
                   }}
                   className={cn(
                     'group relative flex flex-col rounded-md border bg-background p-1.5 text-left transition-colors focus:outline-none',

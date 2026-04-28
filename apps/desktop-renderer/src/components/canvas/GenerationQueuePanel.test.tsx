@@ -2,8 +2,9 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Canvas, CanvasNode } from '@lucid-fin/contracts';
+import { deriveNodeStatus } from '@lucid-fin/contracts';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale, t } from '../../i18n.js';
@@ -23,7 +24,6 @@ function createCanvasNode(overrides: Partial<CanvasNode> = {}): CanvasNode {
     type: 'image',
     title: 'Opening Frame',
     position: { x: 0, y: 0 },
-    status: 'idle',
     bypassed: false,
     locked: false,
     width: 320,
@@ -98,157 +98,11 @@ describe('GenerationQueuePanel', () => {
     expect(screen.getByText(t('generation.noJobs'))).toBeTruthy();
   });
 
-  it('does not subscribe to progress when no active canvas is selected', () => {
-    const onProgress = vi.fn(() => () => {});
-
-    vi.mocked(getAPI).mockReturnValue({
-      canvasGeneration: {
-        onProgress,
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    renderPanel({ activeCanvasId: null });
-
-    expect(onProgress).not.toHaveBeenCalled();
-  });
-
-  it('subscribes to progress updates, applies active-canvas progress, and unsubscribes on unmount', async () => {
-    let progressCallback:
-      | ((data: { canvasId: string; nodeId: string; progress: number; currentStep?: string }) => void)
-      | undefined;
-    const unsubscribe = vi.fn();
-
-    vi.mocked(getAPI).mockReturnValue({
-      canvasGeneration: {
-        onProgress: vi.fn((cb) => {
-          progressCallback = cb;
-          return unsubscribe;
-        }),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    const { store, unmount } = renderPanel({
-      canvases: [
-        createCanvas([
-          createCanvasNode({
-            data: {
-              status: 'generating',
-              progress: 5,
-              variants: [],
-              selectedVariantIndex: 0,
-            },
-          }),
-        ]),
-      ],
-    });
-
-    progressCallback?.({
-      canvasId: 'other-canvas',
-      nodeId: 'node-1',
-      progress: 15,
-      currentStep: 'Ignored',
-    });
-    progressCallback?.({
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-      progress: 48,
-      currentStep: 'Rendering frames',
-    });
-
-    await waitFor(() => {
-      const node = store.getState().canvas.canvases.entities['canvas-1']?.nodes[0];
-      expect(node?.data).toEqual(
-        expect.objectContaining({
-          progress: 48,
-          currentStep: 'Rendering frames',
-        }),
-      );
-    });
-
-    unmount();
-
-    expect(unsubscribe).toHaveBeenCalledTimes(1);
-  });
-
-  it('re-subscribes when the active canvas changes', async () => {
-    const unsubscribes = [vi.fn(), vi.fn()];
-    const progressCallbacks: Array<
-      (data: { canvasId: string; nodeId: string; progress: number; currentStep?: string }) => void
-    > = [];
-
-    vi.mocked(getAPI).mockReturnValue({
-      canvasGeneration: {
-        onProgress: vi.fn((cb) => {
-          progressCallbacks.push(cb);
-          return unsubscribes[progressCallbacks.length - 1] ?? vi.fn();
-        }),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    const { store } = renderPanel({
-      canvases: [
-        createCanvas([
-          createCanvasNode({
-            data: {
-              status: 'generating',
-              progress: 10,
-              variants: [],
-              selectedVariantIndex: 0,
-            },
-          }),
-        ]),
-        {
-          ...createCanvas([
-            createCanvasNode({
-              id: 'node-2',
-              title: 'Second Frame',
-              data: {
-                status: 'generating',
-                progress: 0,
-                variants: [],
-                selectedVariantIndex: 0,
-              },
-            }),
-          ]),
-          id: 'canvas-2',
-          name: 'Second Shot',
-        },
-      ],
-    });
-
-    store.dispatch(setActiveCanvas('canvas-2'));
-
-    await waitFor(() => {
-      expect(unsubscribes[0]).toHaveBeenCalledTimes(1);
-      expect(progressCallbacks).toHaveLength(2);
-    });
-
-    act(() => {
-      progressCallbacks[1]?.({
-        canvasId: 'canvas-2',
-        nodeId: 'node-2',
-        progress: 88,
-        currentStep: 'Upscaling',
-      });
-    });
-
-    await waitFor(() => {
-      const canvas = store.getState().canvas.canvases.entities['canvas-2'];
-      expect(canvas?.nodes[0]?.data).toEqual(
-        expect.objectContaining({
-          progress: 88,
-          currentStep: 'Upscaling',
-        }),
-      );
-    });
-  });
-
   it('cancels an in-flight generation task from the queue', async () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
 
     vi.mocked(getAPI).mockReturnValue({
       canvasGeneration: {
-        onProgress: vi.fn(() => () => {}),
         cancel,
       },
     } as unknown as ReturnType<typeof getAPI>);
@@ -305,7 +159,7 @@ describe('GenerationQueuePanel', () => {
           jobId: undefined,
         }),
       );
-      expect(node?.status).toBe('idle');
+      expect(deriveNodeStatus(node!)).toBe('idle');
     });
   });
 

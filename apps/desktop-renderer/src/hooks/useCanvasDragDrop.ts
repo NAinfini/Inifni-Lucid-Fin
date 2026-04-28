@@ -6,7 +6,7 @@
  * - Entity reference images (application/x-lucid-ref-image)
  * - OS file explorer (Files)
  */
-import { useCallback, type RefObject } from 'react';
+import { useCallback, useState, type RefObject } from 'react';
 import { useDispatch } from 'react-redux';
 import type { ReactFlowInstance } from '@xyflow/react';
 import {
@@ -92,10 +92,12 @@ export function useCanvasDragDrop(
   rfInstanceRef: RefObject<ReactFlowInstance | null>,
 ) {
   const dispatch = useDispatch();
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
 
   const handleDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
+      setIsDraggingOver(false);
 
       const rfInstance = rfInstanceRef.current;
       if (!rfInstance) return;
@@ -242,8 +244,14 @@ export function useCanvasDragDrop(
     ) {
       event.preventDefault();
       event.dataTransfer.dropEffect = 'copy';
+      setIsDraggingOver(true);
     }
   }, []);
 
-  return { handleDrop, handleDragOver };
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+    setIsDraggingOver(false);
+  }, []);
+
+  return { handleDrop, handleDragOver, handleDragLeave, isDraggingOver };
 }

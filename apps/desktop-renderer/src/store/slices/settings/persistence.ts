@@ -19,11 +19,11 @@ interface SparseProviderConfig {
 }
 
 export interface SparseSettingsState {
-  llm: { providers: SparseProviderConfig[]; defaultProviderId?: string };
-  image: { providers: SparseProviderConfig[]; defaultProviderId?: string };
-  video: { providers: SparseProviderConfig[]; defaultProviderId?: string };
-  audio: { providers: SparseProviderConfig[]; defaultProviderId?: string };
-  vision: { providers: SparseProviderConfig[]; defaultProviderId?: string };
+  llm: { providers: SparseProviderConfig[] };
+  image: { providers: SparseProviderConfig[] };
+  video: { providers: SparseProviderConfig[] };
+  audio: { providers: SparseProviderConfig[] };
+  vision: { providers: SparseProviderConfig[] };
   renderPreset: string;
   usage: UsageStats;
   production: ProductionConfig;
@@ -76,7 +76,6 @@ export function buildSparseSettings(state: SettingsState): SparseSettingsState {
       providers: state[group].providers
         .filter((p) => isProviderConfigured(group, p))
         .map(toSparseProvider),
-      ...(state[group].defaultProviderId ? { defaultProviderId: state[group].defaultProviderId } : {}),
     };
   }
 

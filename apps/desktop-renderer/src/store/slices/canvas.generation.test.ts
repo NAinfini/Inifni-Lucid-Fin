@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Canvas } from '@lucid-fin/contracts';
+import { deriveNodeStatus } from '@lucid-fin/contracts';
 import {
   addNode,
   canvasSlice,
@@ -67,7 +68,6 @@ describe('canvas generation reducers', () => {
         type: 'image',
         title: 'Legacy image',
         position: { x: 0, y: 0 },
-        status: 'idle',
         bypassed: false,
         locked: false,
         data: {
@@ -85,7 +85,6 @@ describe('canvas generation reducers', () => {
         type: 'video',
         title: 'Legacy video',
         position: { x: 120, y: 0 },
-        status: 'idle',
         bypassed: false,
         locked: false,
         data: {
@@ -125,7 +124,7 @@ describe('canvas generation reducers', () => {
 
     const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as { status: string; progress?: number; jobId?: string };
-    expect(node?.status).toBe('generating');
+    expect(deriveNodeStatus(node!)).toBe('generating');
     expect(data.status).toBe('generating');
     expect(data.progress).toBe(45);
     expect(data.jobId).toBe('job-1');
@@ -157,7 +156,7 @@ describe('canvas generation reducers', () => {
       estimatedCost?: number;
       generationTimeMs?: number;
     };
-    expect(node?.status).toBe('done');
+    expect(deriveNodeStatus(node!)).toBe('done');
     expect(data.status).toBe('done');
     expect(data.variants).toEqual(['hash-a', 'hash-b']);
     expect(data.selectedVariantIndex).toBe(0);
@@ -178,7 +177,7 @@ describe('canvas generation reducers', () => {
 
     const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'aud-1');
     const data = node?.data as { status: string; error?: string; progress?: number };
-    expect(node?.status).toBe('failed');
+    expect(deriveNodeStatus(node!)).toBe('failed');
     expect(data.status).toBe('failed');
     expect(data.error).toBe('provider timeout');
     expect(data.progress).toBeUndefined();

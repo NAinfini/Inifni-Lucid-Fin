@@ -82,7 +82,7 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
         className={cn(
           'rounded-2xl border shadow-inner transition-[height] duration-150',
           borderClass,
-          selected ? 'border-blue-400 ring-2 ring-blue-400/30' : 'border-slate-500/30',
+          selected ? 'border-primary ring-2 ring-primary/30' : 'border-muted-foreground/30',
         )}
         style={{
           width: d.width ?? 420,
@@ -99,10 +99,10 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
           className="!h-3 !w-3 !border-background !bg-primary"
         />
         <div className={cn('flex h-full flex-col', collapsed ? 'justify-center px-3 py-1' : 'justify-between p-4')}>
-          <div className="flex items-center gap-2 text-slate-200/90">
+          <div className="flex items-center gap-2 text-foreground/90">
             <button
               type="button"
-              className="nodrag inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-300 transition-colors hover:bg-slate-700/50 hover:text-slate-100"
+              className="nodrag inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground"
               aria-label={collapsed ? t('node.expandBackdrop') : t('node.collapseBackdrop')}
               onClick={(e) => { e.stopPropagation(); if (!d.locked) cb.onToggleCollapse(d.nodeId); }}
               onContextMenu={(e) => e.preventDefault()}
@@ -139,7 +139,7 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
                 }}
                 onContextMenu={(e) => e.preventDefault()}
                 className={cn(
-                  'flex-1 truncate text-left font-semibold tracking-wide text-slate-100',
+                  'flex-1 truncate text-left font-semibold tracking-wide text-foreground',
                   TITLE_SIZE_CLASSES[titleSize],
                 )}
               >
@@ -147,7 +147,7 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
               </button>
             )}
             {typeof d.childCount === 'number' && d.childCount > 0 && (
-              <span className="shrink-0 rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-400">
+              <span className="shrink-0 rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {d.childCount} {t('inspector.backdrop.childCount')}
               </span>
             )}
@@ -155,7 +155,7 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
 
           {!collapsed && (
             <div className="mt-auto">
-              <div className="rounded-2xl border border-dashed border-slate-300/20 px-3 py-2 text-[11px] text-slate-200/70">
+              <div className="rounded-2xl border border-dashed border-foreground/20 px-3 py-2 text-[11px] text-foreground/70">
                 {t('node.backdropHelpText')}
               </div>
             </div>

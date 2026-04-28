@@ -54,14 +54,14 @@ import type {
   ReferenceImage,
   ShotTemplate,
 } from '@lucid-fin/contracts';
-import { normalizeCharacterRefSlot } from '@lucid-fin/contracts';
+import { normalizeCharacterRefSlot, deriveNodeStatus } from '@lucid-fin/contracts';
 
 const TYPE_META: Record<NodeKind, { label: string; icon: LucideIcon; color: string }> = {
   text: { label: 'node.text', icon: FileText, color: 'text-foreground' },
   image: { label: 'node.image', icon: Image, color: 'text-blue-400' },
   video: { label: 'node.video', icon: Video, color: 'text-purple-400' },
   audio: { label: 'node.audio', icon: Volume2, color: 'text-green-400' },
-  backdrop: { label: 'node.backdrop', icon: LayoutTemplate, color: 'text-slate-300' },
+  backdrop: { label: 'node.backdrop', icon: LayoutTemplate, color: 'text-muted-foreground' },
 };
 
 const CATEGORY_FALLBACK: PresetCategory[] = [
@@ -349,6 +349,106 @@ export function InspectorPanel() {
     [nodeLocationRefs],
   );
 
+  const hiddenPresetIdSet = useMemo(() => new Set(hiddenPresetIds), [hiddenPresetIds]);
+  const presetsByCategory = useMemo(() => {
+    const map = new Map<PresetCategory, PresetDefinition[]>();
+    for (const preset of presets) {
+      if (hiddenPresetIdSet.has(preset.id)) continue;
+      const list = map.get(preset.category);
+      if (list) list.push(preset);
+      else map.set(preset.category, [preset]);
+    }
+    return map;
+  }, [presets, hiddenPresetIdSet]);
+
+  const characterPickerOptions = useMemo(
+    () => characters.map((character) => ({
+      id: character.id,
+      label: character.name || t('characterManager.untitled'),
+    })),
+    [characters, t],
+  );
+  const characterContextItems = useMemo(
+    () => nodeCharacterRefs.map((ref) => {
+      const character = characterById[ref.characterId];
+      const slotOptions = Array.from(
+        new Map(
+          (character?.referenceImages ?? [])
+            .filter((image: ReferenceImage) => image.assetHash)
+            .map((image: ReferenceImage) => [
+              normalizeCharacterRefSlot(image.slot),
+              {
+                value: normalizeCharacterRefSlot(image.slot),
+                label: localizeSlot(image.slot),
+              },
+            ]),
+        ).values(),
+      );
+      const thumbnailAssetHash =
+        ref.referenceImageHash ??
+        (character?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
+      return {
+        id: ref.characterId,
+        label: character?.name ?? ref.characterId.slice(0, 8),
+        thumbnailAssetHash,
+        selectedSlot: ref.angleSlot ? normalizeCharacterRefSlot(ref.angleSlot) : '',
+        slotOptions,
+      };
+    }),
+    [nodeCharacterRefs, characterById],
+  );
+  const equipmentPickerOptions = useMemo(
+    () => equipmentItems.map((equipment) => ({
+      id: equipment.id,
+      label: equipment.name || t('equipmentManager.untitled'),
+      description: equipment.type,
+    })),
+    [equipmentItems, t],
+  );
+  const equipmentContextItems = useMemo(
+    () => nodeEquipmentRefs.map((ref) => {
+      const equipment = equipmentById[ref.equipmentId];
+      const slotOptions = (equipment?.referenceImages ?? [])
+        .filter((image: ReferenceImage) => image.assetHash)
+        .map((image: ReferenceImage) => ({
+          value: image.slot,
+          label: localizeSlot(image.slot),
+        }));
+      const thumbnailAssetHash =
+        ref.referenceImageHash ??
+        (equipment?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
+      return {
+        id: ref.equipmentId,
+        label: equipment?.name ?? ref.equipmentId.slice(0, 8),
+        thumbnailAssetHash,
+        selectedSlot: ref.angleSlot ?? '',
+        slotOptions,
+      };
+    }),
+    [nodeEquipmentRefs, equipmentById],
+  );
+  const locationPickerOptions = useMemo(
+    () => locationItems.map((location) => ({
+      id: location.id,
+      label: location.name || t('locationManager.title'),
+    })),
+    [locationItems, t],
+  );
+  const locationContextItems = useMemo(
+    () => nodeLocationRefs.map((ref) => {
+      const location = locationById[ref.locationId];
+      const thumbnailAssetHash =
+        ref.referenceImageHash ??
+        (location?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
+      return {
+        id: ref.locationId,
+        label: location?.name ?? ref.locationId.slice(0, 8),
+        thumbnailAssetHash,
+      };
+    }),
+    [nodeLocationRefs, locationById],
+  );
+
   if (!selectedNode) {
     return <InspectorPanelEmptyState text={t('inspector.selectNode')} />;
   }
@@ -361,9 +461,7 @@ export function InspectorPanel() {
           key={category}
           nodeId={selectedNode.id}
           category={category}
-          presets={presets.filter(
-            (preset) => preset.category === category && !hiddenPresetIds.includes(preset.id),
-          )}
+          presets={presetsByCategory.get(category) ?? []}
           presetById={presetById}
           track={
             selectedNode.data.presetTracks[category] ?? {
@@ -397,75 +495,6 @@ export function InspectorPanel() {
           onAutoArrange: handleBackdropAutoArrange,
         }
       : undefined;
-  const characterPickerOptions = characters.map((character) => ({
-    id: character.id,
-    label: character.name || t('characterManager.untitled'),
-  }));
-  const characterContextItems = nodeCharacterRefs.map((ref) => {
-    const character = characterById[ref.characterId];
-    const slotOptions = Array.from(
-      new Map(
-        (character?.referenceImages ?? [])
-          .filter((image: ReferenceImage) => image.assetHash)
-          .map((image: ReferenceImage) => [
-            normalizeCharacterRefSlot(image.slot),
-            {
-              value: normalizeCharacterRefSlot(image.slot),
-              label: localizeSlot(image.slot),
-            },
-          ]),
-      ).values(),
-    );
-    const thumbnailAssetHash =
-      ref.referenceImageHash ??
-      (character?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
-    return {
-      id: ref.characterId,
-      label: character?.name ?? ref.characterId.slice(0, 8),
-      thumbnailAssetHash,
-      selectedSlot: ref.angleSlot ? normalizeCharacterRefSlot(ref.angleSlot) : '',
-      slotOptions,
-    };
-  });
-  const equipmentPickerOptions = equipmentItems.map((equipment) => ({
-    id: equipment.id,
-    label: equipment.name || t('equipmentManager.untitled'),
-    description: equipment.type,
-  }));
-  const equipmentContextItems = nodeEquipmentRefs.map((ref) => {
-    const equipment = equipmentById[ref.equipmentId];
-    const slotOptions = (equipment?.referenceImages ?? [])
-      .filter((image: ReferenceImage) => image.assetHash)
-      .map((image: ReferenceImage) => ({
-        value: image.slot,
-        label: localizeSlot(image.slot),
-      }));
-    const thumbnailAssetHash =
-      ref.referenceImageHash ??
-      (equipment?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
-    return {
-      id: ref.equipmentId,
-      label: equipment?.name ?? ref.equipmentId.slice(0, 8),
-      thumbnailAssetHash,
-      selectedSlot: ref.angleSlot ?? '',
-      slotOptions,
-    };
-  });
-  const locationPickerOptions = locationItems.map((location) => ({
-    id: location.id,
-    label: location.name || t('locationManager.title'),
-  }));
-  const locationContextItems = nodeLocationRefs.map((ref) => {
-    const location = locationById[ref.locationId];
-    const thumbnailAssetHash =
-      ref.referenceImageHash ??
-      (location?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
-    return {
-      id: ref.locationId,
-      label: location?.name ?? ref.locationId.slice(0, 8),
-      thumbnailAssetHash,
-    };
-  });
   const videoFramesSection =
     selectedNode.type === 'video'
       ? (() => {
@@ -597,7 +626,7 @@ export function InspectorPanel() {
               : undefined
           }
           nodeTypeLabel={t(meta.label)}
-          nodeStatusLabel={t('status.' + selectedNode.status)}
+          nodeStatusLabel={t('status.' + deriveNodeStatus(selectedNode))}
           onTitleChange={handleTitleChange}
         />
 

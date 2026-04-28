@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import type { NodeProps } from '@xyflow/react';
 import { getProviderDisplayName } from '../../../utils/provider-names.js';
-import { t } from '../../../i18n.js';
+import { t, getLocale } from '../../../i18n.js';
 import { Volume2, Sparkles, Lock, Unlock } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
@@ -82,7 +82,7 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
           <NodeStatusBadge status={d.status} />
           {typeof d.estimatedCost === 'number' && (
             <div className="absolute right-1 top-1 z-20 rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-300">
-              ${d.estimatedCost.toFixed(2)}
+              {new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(d.estimatedCost)}
             </div>
           )}
 

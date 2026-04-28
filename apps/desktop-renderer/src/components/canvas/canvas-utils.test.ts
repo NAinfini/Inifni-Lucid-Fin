@@ -33,7 +33,6 @@ function makeNode(overrides: Partial<CanvasNode> = {}): CanvasNode {
     type: 'text',
     position: { x: 0, y: 0 },
     title: 'Test Node',
-    status: 'idle',
     data: { content: 'hello' } as TextNodeData,
     bypassed: false,
     locked: false,
@@ -137,13 +136,16 @@ describe('canvas-utils', () => {
   });
 
   describe('collectNodeSearchText', () => {
-    it('includes title, status, type for text nodes', () => {
-      const node = makeNode({ title: 'My Title', status: 'done', type: 'text' });
+    it('includes title, derived status, and type for media nodes', () => {
+      const node = makeNode({
+        title: 'My Title',
+        type: 'image',
+        data: { status: 'done', variants: [], selectedVariantIndex: 0 } as ImageNodeData,
+      });
       const text = collectNodeSearchText(node);
       expect(text).toContain('my title');
       expect(text).toContain('done');
-      expect(text).toContain('text');
-      expect(text).toContain('hello'); // content from TextNodeData
+      expect(text).toContain('image');
     });
 
     it('includes prompt and provider for image nodes', () => {

@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { setNodeAnnotation } from '../../../../store/slices/canvas.js';
 import { LazyDetails } from '../../LazyDetails.js';
 import type { InspectorSectionProps } from '../inspector-registry.js';
@@ -30,7 +31,7 @@ export function AnnotationSection({ node, dispatch, t }: InspectorSectionProps) 
         className="group"
         summary={
           <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-            <span className="transition-transform group-open:rotate-90">&#9654;</span>
+            <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
             {t('inspector.annotation')}
           </summary>
         }

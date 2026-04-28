@@ -12,6 +12,9 @@ import type {
   CanvasEdge,
   CanvasViewport,
   CanvasNote,
+  CanvasSettings,
+  ImageNodeData,
+  VideoNodeData,
 } from '@lucid-fin/contracts';
 import { findActiveCanvas, normalizeCanvasNodeFrames } from './canvas-helpers.js';
 import * as nodeReducers from './canvas-node-reducers.js';
@@ -143,7 +146,6 @@ const internalCanvasSlice = createSlice({
     moveNode: nodeReducers.moveNode,
     moveNodes: nodeReducers.moveNodes,
     renameNode: nodeReducers.renameNode,
-    setNodeStatus: nodeReducers.setNodeStatus,
     toggleBypass: nodeReducers.toggleBypass,
     setNodeColorTag: nodeReducers.setNodeColorTag,
     toggleLock: nodeReducers.toggleLock,
@@ -221,7 +223,6 @@ const internalCanvasSlice = createSlice({
 
     setNodeAdvancedParams: generationReducers.setNodeAdvancedParams,
     setNodeSourceImage: generationReducers.setNodeSourceImage,
-    setNodeFaceReferences: generationReducers.setNodeFaceReferences,
 
     // --- Duration / scene metadata (L19) ----------------------------------
 
@@ -313,6 +314,56 @@ const internalCanvasSlice = createSlice({
       canvas.updatedAt = Date.now();
     },
 
+    // --- Canvas Settings (H2 fix: route through Redux) --------------------
+
+    updateCanvasSettings(state, action: PayloadAction<{ canvasId: string; settings: CanvasSettings | undefined }>) {
+      const canvas = state.canvases.entities[action.payload.canvasId];
+      if (!canvas) return;
+      canvas.settings = action.payload.settings && Object.keys(action.payload.settings).length > 0
+        ? action.payload.settings
+        : undefined;
+      canvas.updatedAt = Date.now();
+    },
+
+    // --- Entity ref cleanup (H9) -------------------------------------------
+
+    /** Remove all references to a deleted entity across ALL canvases. */
+    removeEntityRefsFromAllCanvases(
+      state,
+      action: PayloadAction<{
+        entityType: 'character' | 'equipment' | 'location';
+        entityId: string;
+      }>,
+    ) {
+      const { entityType, entityId } = action.payload;
+      const now = Date.now();
+      for (const canvasId of state.canvases.ids) {
+        const canvas = state.canvases.entities[canvasId as string];
+        if (!canvas) continue;
+        let dirty = false;
+        for (const node of canvas.nodes) {
+          if (node.type !== 'image' && node.type !== 'video' && node.type !== 'backdrop') continue;
+          const data = node.data as ImageNodeData | VideoNodeData;
+          if (entityType === 'character' && data.characterRefs) {
+            const before = data.characterRefs.length;
+            data.characterRefs = data.characterRefs.filter((r) => r.characterId !== entityId);
+            if (data.characterRefs.length < before) dirty = true;
+          }
+          if (entityType === 'equipment' && data.equipmentRefs) {
+            const before = data.equipmentRefs.length;
+            data.equipmentRefs = data.equipmentRefs.filter((r) => r.equipmentId !== entityId);
+            if (data.equipmentRefs.length < before) dirty = true;
+          }
+          if (entityType === 'location' && data.locationRefs) {
+            const before = data.locationRefs.length;
+            data.locationRefs = data.locationRefs.filter((r) => r.locationId !== entityId);
+            if (data.locationRefs.length < before) dirty = true;
+          }
+        }
+        if (dirty) canvas.updatedAt = now;
+      }
+    },
+
     // --- Undo support ------------------------------------------------------
 
     restore(_state, action: PayloadAction<CanvasSliceState>) {
@@ -347,7 +398,6 @@ export const {
   moveNode,
   moveNodes,
   renameNode,
-  setNodeStatus,
   setNodeGenerating,
   setNodeProgress,
   clearNodeGenerationStatus,
@@ -431,8 +481,11 @@ export const {
   // L17: Advanced generation params
   setNodeAdvancedParams,
   setNodeSourceImage,
-  setNodeFaceReferences,
   // L19: Duration / scene metadata
   setNodeDurationOverride,
   setNodeSceneMetadata,
+  // H9: Entity ref cleanup
+  removeEntityRefsFromAllCanvases,
+  // H2: Canvas settings
+  updateCanvasSettings,
 } = internalCanvasSlice.actions;

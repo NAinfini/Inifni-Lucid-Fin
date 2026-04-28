@@ -37,14 +37,14 @@ function TextNodeComponent({ data, selected }: NodeProps) {
             minWidth={200}
             minHeight={120}
             isVisible={selected}
-            className="!h-2.5 !w-2.5 !border-background !bg-blue-400"
+            className="!h-2.5 !w-2.5 !border-background !bg-primary"
           />
         )}
         <div
           className={cn(
             'relative flex flex-col rounded-md border bg-card shadow-sm h-full w-full min-w-[200px] min-h-[120px]',
             'transition-shadow',
-            selected ? 'border-blue-400 ring-2 ring-blue-400/40' : 'border-border',
+            selected ? 'border-primary ring-2 ring-primary/40' : 'border-border',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}

@@ -28,6 +28,7 @@ import { getAPI } from '../../utils/api.js';
 import { getProviderMetadata, type ProviderConfig } from '../../store/slices/settings.js';
 import { InspectorGenerationBar } from './InspectorGenerationBar.js';
 import { InspectorVariantThumb } from './InspectorVariantThumb.js';
+import { getLocale } from '../../i18n.js';
 import {
   CUSTOM_RESOLUTION_VALUE,
   DURATION_PRESETS,
@@ -628,7 +629,7 @@ export function InspectorGenerationState({
       hasVariants={activeVariants.length > 0}
       estimatedCost={
         typeof generationData.estimatedCost === 'number'
-          ? `${t('inspector.estimated')}: $${generationData.estimatedCost.toFixed(2)}`
+          ? `${t('inspector.estimated')}: ${new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(generationData.estimatedCost)}`
           : undefined
       }
       onGenerate={handleGenerate}

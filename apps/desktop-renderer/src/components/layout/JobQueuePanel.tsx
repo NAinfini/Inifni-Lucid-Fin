@@ -14,13 +14,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  queued: 'bg-yellow-500',
-  running: 'bg-blue-500',
-  completed: 'bg-green-500',
-  failed: 'bg-red-500',
-  cancelled: 'bg-gray-500',
-  paused: 'bg-orange-500',
-  dead: 'bg-red-800',
+  queued: 'bg-amber-500',
+  running: 'bg-primary',
+  completed: 'bg-emerald-500',
+  failed: 'bg-destructive',
+  cancelled: 'bg-muted-foreground',
+  paused: 'bg-amber-500',
+  dead: 'bg-destructive',
 };
 
 export function JobQueuePanel() {
@@ -35,7 +35,7 @@ export function JobQueuePanel() {
       {jobs.map((job) => (
         <div key={job.id} className="flex items-center gap-3 px-3 py-2 text-xs">
           <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[job.status] ?? 'bg-gray-400'}`}
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[job.status] ?? 'bg-muted-foreground'}`}
           />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">

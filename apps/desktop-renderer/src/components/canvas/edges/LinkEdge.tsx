@@ -12,6 +12,7 @@ export interface LinkEdgeData {
   status: EdgeStatus;
   dependencyRole?: 'upstream' | 'downstream' | 'focus' | null;
   dimmed?: boolean;
+  connectedToSelection?: boolean;
 }
 
 const EDGE_COLORS: Record<EdgeStatus, string> = {
@@ -152,8 +153,8 @@ function LinkEdgeComponent({
         style={{
           ...style,
           stroke: strokeColor,
-          strokeWidth: selected ? 2.5 : 1.5,
-          opacity: edgeData.dimmed ? 0.18 : selected ? 1 : 0.72,
+          strokeWidth: selected ? 2.5 : edgeData.connectedToSelection ? 2 : 1.5,
+          opacity: edgeData.dimmed ? 0.18 : (selected || edgeData.connectedToSelection) ? 1 : 0.72,
         }}
       />
 

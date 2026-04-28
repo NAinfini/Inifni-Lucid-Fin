@@ -1,18 +1,26 @@
 import React, { useEffect } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { StatusBar } from './StatusBar.js';
 import type { RootState } from '../../store/index.js';
+import { applyThemeToDOM } from '../../store/slices/ui.js';
 import { t } from '../../i18n.js';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const theme = useSelector((state: RootState) => state.ui.theme);
+  const dispatch = useDispatch();
   const appLogoSrc = `${import.meta.env.BASE_URL}favicon.png`;
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.classList.toggle('dark', theme === 'dark');
-    root.classList.toggle('high-contrast', theme === 'high-contrast');
+    applyThemeToDOM(theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (theme !== 'auto') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => applyThemeToDOM('auto');
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [theme, dispatch]);
 
   return (
     <div className="flex h-screen flex-col">
@@ -25,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </a>
       {/* Custom title bar — drag region, 40px matches titleBarOverlay height in electron.ts */}
       <div
-        className="flex h-10 w-full shrink-0 items-center gap-2 border-b border-border/40 bg-background px-3 select-none"
+        className="flex h-10 w-full shrink-0 items-center gap-2 border-b border-border/40 bg-background pl-3 pr-36 select-none"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <img src={appLogoSrc} alt="Lucid Fin logo" className="h-4 w-4 shrink-0 object-contain" />

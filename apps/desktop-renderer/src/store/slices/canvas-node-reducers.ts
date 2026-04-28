@@ -2,7 +2,6 @@ import type { PayloadAction } from '@reduxjs/toolkit';
 import type {
   NodeKind,
   CanvasNodeData,
-  NodeStatus,
   BackdropNodeData,
   ImageNodeData,
   VideoNodeData,
@@ -12,6 +11,7 @@ import {
   findActiveCanvas,
   createNodeRecord,
   getGenerationNodeData,
+  stampCanvasDefaultProvider,
 } from './canvas-helpers.js';
 
 // ---------------------------------------------------------------------------
@@ -33,6 +33,7 @@ export function addNode(
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
   const node = createNodeRecord(action.payload);
+  stampCanvasDefaultProvider(node, canvas);
   canvas.nodes.push(node);
   canvas.updatedAt = node.updatedAt;
 }
@@ -41,6 +42,22 @@ export function removeNodes(state: CanvasSliceState, action: PayloadAction<strin
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
   const ids = new Set(action.payload);
+
+  // Clear frame references on video nodes pointing to removed nodes (H8)
+  for (const node of canvas.nodes) {
+    if (node.type === 'video') {
+      const data = node.data as VideoNodeData;
+      if (data.firstFrameNodeId && ids.has(data.firstFrameNodeId)) {
+        data.firstFrameNodeId = undefined;
+        data.firstFrameAssetHash = undefined;
+      }
+      if (data.lastFrameNodeId && ids.has(data.lastFrameNodeId)) {
+        data.lastFrameNodeId = undefined;
+        data.lastFrameAssetHash = undefined;
+      }
+    }
+  }
+
   canvas.nodes = canvas.nodes.filter((n) => !ids.has(n.id));
   canvas.edges = canvas.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target));
   state.selectedNodeIds = state.selectedNodeIds.filter((id) => !ids.has(id));
@@ -123,20 +140,6 @@ export function renameNode(
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (node) {
     node.title = action.payload.title;
-    node.updatedAt = Date.now();
-    canvas.updatedAt = node.updatedAt;
-  }
-}
-
-export function setNodeStatus(
-  state: CanvasSliceState,
-  action: PayloadAction<{ id: string; status: NodeStatus }>,
-): void {
-  const canvas = findActiveCanvas(state);
-  if (!canvas) return;
-  const node = canvas.nodes.find((n) => n.id === action.payload.id);
-  if (node) {
-    node.status = action.payload.status;
     node.updatedAt = Date.now();
     canvas.updatedAt = node.updatedAt;
   }
@@ -392,6 +395,13 @@ export function setVideoFrameNode(
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node || node.type !== 'video') return;
+
+  // Validate the referenced frame node exists and is an image node (M19)
+  if (action.payload.frameNodeId) {
+    const frameNode = canvas.nodes.find((n) => n.id === action.payload.frameNodeId);
+    if (!frameNode || (frameNode.type !== 'image' && frameNode.type !== 'backdrop')) return;
+  }
+
   const data = node.data as import('@lucid-fin/contracts').VideoNodeData;
   if (action.payload.role === 'first') {
     data.firstFrameNodeId = action.payload.frameNodeId;

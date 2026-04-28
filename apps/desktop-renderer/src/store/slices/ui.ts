@@ -20,7 +20,7 @@ export type RightPanelId =
   | 'notes'
   | 'export';
 
-export type Theme = 'light' | 'dark' | 'high-contrast';
+export type Theme = 'light' | 'dark' | 'high-contrast' | 'auto';
 
 export type CanvasViewMode = 'main' | 'edit' | 'audio' | 'materials';
 
@@ -42,16 +42,27 @@ export interface UIState {
   editViewFocusedNodeId: string | null;
 }
 
+export function resolveEffectiveTheme(theme: Theme): 'light' | 'dark' | 'high-contrast' {
+  if (theme !== 'auto') return theme;
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch { return 'dark'; }
+}
+
+export function applyThemeToDOM(theme: Theme): void {
+  const effective = resolveEffectiveTheme(theme);
+  document.documentElement.classList.toggle('dark', effective === 'dark');
+  document.documentElement.classList.toggle('high-contrast', effective === 'high-contrast');
+}
+
 function loadTheme(): Theme {
   try {
     const stored = localStorage.getItem('lucid-fin:theme');
-    if (stored === 'light' || stored === 'dark' || stored === 'high-contrast') {
-      document.documentElement.classList.toggle('dark', stored === 'dark');
-      document.documentElement.classList.toggle('high-contrast', stored === 'high-contrast');
+    if (stored === 'light' || stored === 'dark' || stored === 'high-contrast' || stored === 'auto') {
+      applyThemeToDOM(stored);
       return stored;
     }
   } catch { /* localStorage unavailable */ }
-  // Default: dark
   document.documentElement.classList.add('dark');
   return 'dark';
 }
@@ -145,6 +156,7 @@ export const uiSlice = createSlice({
     },
     setTheme(state, action: PayloadAction<Theme>) {
       state.theme = action.payload;
+      applyThemeToDOM(action.payload);
       try {
         localStorage.setItem('lucid-fin:theme', action.payload);
       } catch { /* localStorage unavailable */ }

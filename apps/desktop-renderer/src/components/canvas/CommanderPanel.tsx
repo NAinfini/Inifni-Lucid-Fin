@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch, useSelector, shallowEqual } from 'react-redux';
 import {
   Check,
   ChevronDown,
@@ -36,7 +36,7 @@ import {
   clearQueue,
   selectPhase,
 } from '../../store/slices/commander.js';
-import { selectCommanderView } from '../../commander/state/commander-timeline-selectors.js';
+import { selectCommanderView, selectActiveTodoSnapshot } from '../../commander/state/commander-timeline-selectors.js';
 import {
   markConfirmationResolvedLocally,
   markQuestionResolvedLocally,
@@ -46,6 +46,7 @@ import { useI18n } from '../../hooks/use-i18n.js';
 import { cn } from '../../lib/utils.js';
 import { getAPI } from '../../utils/api.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip.js';
+import { useConfirm } from '../ui/ConfirmDialog.js';
 import { ToolConfirmCard } from './commander/ToolConfirmCard.js';
 import { QuestionCard } from './commander/QuestionCard.js';
 import { useSlashCommands } from './commander/useSlashCommands.js';
@@ -54,6 +55,7 @@ import { MessageList } from './commander/MessageList.js';
 import { LiveActivityBar } from './commander/LiveActivityBar.js';
 import { PipelineRail } from './commander/PipelineRail.js';
 import { computeContextUsage } from '../../commander/state/context-usage.js';
+import { selectActiveCanvasNodes } from '../../store/slices/canvas-selectors.js';
 
 const SAFE_Y = 56;
 
@@ -106,6 +108,7 @@ function useTextCursorGate(phase: import('../../commander/state/run-phase.js').R
 export function CommanderPanel() {
   const dispatch = useDispatch();
   const { t } = useI18n();
+  const { confirm, ConfirmDialog } = useConfirm();
   const { sendMessage, cancel, cancelCurrentStep, isStreaming } = useCommander();
   const isBackendReady = useSelector((state: RootState) => state.settings.bootstrapped);
   const phase = useSelector((state: RootState) => selectPhase(state));
@@ -123,11 +126,12 @@ export function CommanderPanel() {
     maxTokens,
     maxSteps,
     backendContextUsage,
-  } = useSelector((state: RootState) => state.commander);
+  } = useSelector((state: RootState) => state.commander, shallowEqual);
   // Phase 4 — read message/segment/pending state from the v2 timeline
   // derivation. Legacy slice still owns provider/settings/session-meta
   // fields above; only the stream-driven view is swapped here.
   const derived = useSelector((state: RootState) => selectCommanderView(state));
+  const todoSnapshot = useSelector(selectActiveTodoSnapshot);
   const messages = derived.messages;
   const currentStreamContent = derived.currentStreamContent;
   const currentToolCalls = derived.currentToolCalls;
@@ -147,11 +151,7 @@ export function CommanderPanel() {
 
   // LLM model selector state
   const llmSettings = useSelector((state: RootState) => state.settings.llm);
-  const canvasNodes = useSelector((state: RootState) => {
-    const activeId = state.canvas.activeCanvasId;
-    if (!activeId) return undefined;
-    return state.canvas.canvases.entities[activeId]?.nodes;
-  });
+  const canvasNodes = useSelector(selectActiveCanvasNodes);
   const nodeTitlesById = useMemo(
     () =>
       Object.fromEntries(
@@ -391,20 +391,23 @@ export function CommanderPanel() {
         <Zap className="h-4 w-4 text-amber-400" />
         <span className="text-xs font-medium">{t('commander.commanderAI')}</span>
         {isStreaming && (
-          <div className="flex gap-0.5">
-            <span
-              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-              style={{ animationDelay: '0ms' }}
-            />
-            <span
-              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-              style={{ animationDelay: '150ms' }}
-            />
-            <span
-              className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-              style={{ animationDelay: '300ms' }}
-            />
-          </div>
+          <span role="status">
+            <span className="sr-only">{t('commander.streaming')}</span>
+            <span className="flex gap-0.5" aria-hidden="true">
+              <span
+                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                style={{ animationDelay: '0ms' }}
+              />
+              <span
+                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                style={{ animationDelay: '150ms' }}
+              />
+              <span
+                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                style={{ animationDelay: '300ms' }}
+              />
+            </span>
+          </span>
         )}
       </button>
     );
@@ -476,6 +479,7 @@ export function CommanderPanel() {
   return (
     <section
       ref={sectionRef}
+      aria-label={t('commander.commanderAI')}
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl backdrop-blur-sm"
       style={{
         left: position.x,
@@ -500,7 +504,14 @@ export function CommanderPanel() {
         <div className="flex items-center gap-1">
           <button
             className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            onClick={() => dispatch(newSession())}
+            onClick={async () => {
+              const ok = await confirm({
+                title: t('commander.clearHistoryConfirmTitle'),
+                description: t('commander.clearHistoryConfirmDesc'),
+                confirmLabel: t('action.confirm'),
+              });
+              if (ok) dispatch(newSession());
+            }}
             title={t('commander.clearHistory')}
             aria-label={t('commander.clearHistory')}
           >
@@ -536,7 +547,7 @@ export function CommanderPanel() {
       <EntityContextStrip t={t} />
 
       {/* 3I: Film pipeline rail — renders when todo snapshot is active */}
-      <PipelineRail snapshot={null} isStreaming={isStreaming} t={t} />
+      <PipelineRail snapshot={todoSnapshot} isStreaming={isStreaming} t={t} />
 
       <div
         ref={scrollRef}
@@ -671,6 +682,7 @@ export function CommanderPanel() {
                 <button
                   type="button"
                   onClick={() => removeAttachment(i)}
+                  aria-label={t('action.remove')}
                   className="hover:text-destructive"
                 >
                   <X className="h-2.5 w-2.5" />
@@ -879,7 +891,7 @@ export function CommanderPanel() {
                   </div>
                   <div className="max-h-40 overflow-auto p-1">
                     {!canvasNodes || canvasNodes.length === 0 ? (
-                      <div className="px-2 py-1 text-[10px] text-muted-foreground">No nodes</div>
+                      <div className="px-2 py-1 text-[10px] text-muted-foreground">{t('commander.noNodes')}</div>
                     ) : (
                       canvasNodes.map((node) => (
                         <button
@@ -930,7 +942,7 @@ export function CommanderPanel() {
             {/* Context indicator — attached count */}
             {attachments.length > 0 && (
               <span className="text-[10px] text-muted-foreground">
-                {`${attachments.length} attached`}
+                {`${attachments.length} ${t('commander.attachedCount')}`}
               </span>
             )}
 
@@ -1184,6 +1196,7 @@ export function CommanderPanel() {
           target.dataset.resizeStartHeight = String(size.height);
         }}
       />
+      {ConfirmDialog}
     </section>
   );
 }

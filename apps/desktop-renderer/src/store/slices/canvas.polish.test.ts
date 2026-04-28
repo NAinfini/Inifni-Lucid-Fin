@@ -150,7 +150,6 @@ describe('canvas polish reducers', () => {
           position: { x: 24, y: 32 },
           data: { content: 'Imported' },
           title: 'Imported',
-          status: 'idle' as const,
           bypassed: false,
           locked: false,
           createdAt: 2,

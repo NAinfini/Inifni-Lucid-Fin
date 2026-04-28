@@ -415,7 +415,7 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
               {t('inspector.backdrop.autoArrange')}
             </button>
 
-            <div className="text-[10px] text-muted-foreground/70 italic">Collapse hides child nodes</div>
+            <div className="text-[10px] text-muted-foreground/70 italic">{t('inspector.backdrop.collapseHint')}</div>
           </div>
         </>
       ) : null}

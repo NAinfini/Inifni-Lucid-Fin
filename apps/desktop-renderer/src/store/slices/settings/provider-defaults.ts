@@ -1075,13 +1075,10 @@ function mergeBuiltinProvider(
       ? savedProvider.model
       : defaults.model;
 
-  const userCustomizedEndpoint = savedBaseUrl !== defaults.baseUrl;
-  const effectiveModel = userCustomizedEndpoint ? savedModel : defaults.model;
-
   const merged: ProviderConfig = {
     ...defaults,
     baseUrl: savedBaseUrl,
-    model: effectiveModel,
+    model: savedModel,
     hasKey: savedProvider.hasKey,
     isCustom: false,
     ...(savedProvider.contextWindow ? { contextWindow: savedProvider.contextWindow } : {}),
@@ -1112,7 +1109,6 @@ function mergeProviderDefaults(
 
   return {
     providers,
-    ...(savedGroup?.defaultProviderId ? { defaultProviderId: savedGroup.defaultProviderId } : {}),
   };
 }
 

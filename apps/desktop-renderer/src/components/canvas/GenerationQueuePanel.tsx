@@ -1,12 +1,13 @@
 import { useSelector } from 'react-redux';
-import { ListTodo, Loader2, CheckCircle2, XCircle, X, ChevronDown, ChevronRight, Trash2, ImageIcon } from 'lucide-react';
+import { ListTodo, Loader2, CheckCircle2, XCircle, X, ChevronDown, ChevronRight, Trash2, ImageIcon, RotateCcw } from 'lucide-react';
 import { useDispatch } from 'react-redux';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RootState } from '../../store/index.js';
 import { setRightPanel } from '../../store/slices/ui.js';
-import { setNodeProgress, clearNodeGenerationStatus } from '../../store/slices/canvas.js';
+import { clearNodeGenerationStatus } from '../../store/slices/canvas.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { getLocale } from '../../i18n.js';
 import { getAPI } from '../../utils/api.js';
 import { matchNode } from '@lucid-fin/shared-utils';
 import type { NodeKind } from '@lucid-fin/contracts';
@@ -41,37 +42,19 @@ export function GenerationQueuePanel() {
     if (!id) return undefined;
     return state.canvas.canvases.entities[id];
   });
-  const activeCanvasId = canvas?.id;
-  const settings = useSelector((state: RootState) => state.settings);
-  const allProviders = [
-    ...(settings.image?.providers ?? []),
-    ...(settings.video?.providers ?? []),
-    ...(settings.audio?.providers ?? []),
-    ...(settings.llm?.providers ?? []),
-  ];
-  const resolveProviderName = (id?: string) => {
+  const allProviders = useSelector((state: RootState) => {
+    const s = state.settings;
+    return [
+      ...(s.image?.providers ?? []),
+      ...(s.video?.providers ?? []),
+      ...(s.audio?.providers ?? []),
+      ...(s.llm?.providers ?? []),
+    ];
+  });
+  const resolveProviderName = useCallback((id?: string) => {
     if (!id) return undefined;
     return allProviders.find((p) => p.id === id)?.name ?? id;
-  };
-
-  // Listen for real-time progress updates from backend
-  useEffect(() => {
-    const api = getAPI();
-    if (!api?.canvasGeneration || !activeCanvasId) return;
-
-    const unsubscribe = api.canvasGeneration.onProgress((data) => {
-      // Only update if the progress event is for the active canvas
-      if (data.canvasId !== activeCanvasId) return;
-
-      dispatch(setNodeProgress({
-        id: data.nodeId,
-        progress: data.progress,
-        currentStep: data.currentStep
-      }));
-    });
-
-    return unsubscribe;
-  }, [activeCanvasId, dispatch]);
+  }, [allProviders]);
 
   // --- Ref image generation jobs (character/equipment/location ref images) ---
   interface RefImageJob {
@@ -108,7 +91,8 @@ export function GenerationQueuePanel() {
     return () => unsubs.forEach((u) => u());
   }, []);
 
-  const generationNodes = (canvas?.nodes ?? [])
+  const canvasNodes = canvas?.nodes;
+  const generationNodes = useMemo(() => (canvasNodes ?? [])
     .filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio')
     .map((n) => {
       const data = n.data as { status?: string; progress?: number; error?: string; providerId?: string; jobId?: string; currentStep?: string; estimatedCost?: number; cost?: number; generationTimeMs?: number };
@@ -128,26 +112,50 @@ export function GenerationQueuePanel() {
         generationTimeMs: data.generationTimeMs,
       };
     })
-    .filter((n) => n.status !== 'empty');
+    .filter((n) => n.status !== 'empty'),
+  [canvasNodes, resolveProviderName]);
 
-  const generating = generationNodes.filter((n) => n.status === 'generating');
-  const completed = generationNodes.filter((n) => n.status === 'done');
-  const failed = generationNodes.filter((n) => n.status === 'failed');
+  const { generating, completed, failed } = useMemo(() => {
+    const gen: typeof generationNodes = [];
+    const done: typeof generationNodes = [];
+    const fail: typeof generationNodes = [];
+    for (const n of generationNodes) {
+      if (n.status === 'generating') gen.push(n);
+      else if (n.status === 'done') done.push(n);
+      else if (n.status === 'failed') fail.push(n);
+    }
+    return { generating: gen, completed: done, failed: fail };
+  }, [generationNodes]);
 
   const handleRemoveTask = async (nodeId: string, status: string) => {
     if (!canvas) return;
 
     if (status === 'generating') {
-      // Cancel ongoing generation
-      const api = getAPI();
-      if (api?.canvasGeneration) {
-        await api.canvasGeneration.cancel(canvas.id, nodeId);
+      try {
+        const api = getAPI();
+        if (api?.canvasGeneration) {
+          await api.canvasGeneration.cancel(canvas.id, nodeId);
+        }
+      } catch (err) {
+        console.error('[GenerationQueue] cancel failed', err);
       }
     } else {
-      // Clear completed/failed status
       dispatch(clearNodeGenerationStatus({ id: nodeId }));
     }
   };
+
+  const handleRetry = useCallback(async (nodeId: string) => {
+    if (!canvas) return;
+    dispatch(clearNodeGenerationStatus({ id: nodeId }));
+    try {
+      const api = getAPI();
+      if (api?.canvasGeneration) {
+        await api.canvasGeneration.generate(canvas.id, nodeId);
+      }
+    } catch (err) {
+      console.error('[GenerationQueue] retry failed', err);
+    }
+  }, [canvas, dispatch]);
 
   return (
     <div className="h-full flex flex-col bg-card border-l border-border/60 overflow-auto">
@@ -268,6 +276,7 @@ export function GenerationQueuePanel() {
                 key={node.id}
                 node={node}
                 onRemove={handleRemoveTask}
+                onRetry={(id) => void handleRetry(id)}
               />
             ))}
           </div>
@@ -299,12 +308,13 @@ function formatElapsed(seconds: number): string {
 }
 
 function formatCost(value: number): string {
-  return `$${value.toFixed(3)}`;
+  return new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 3 }).format(value);
 }
 
 function TaskItem({
   node,
   onRemove,
+  onRetry,
 }: {
   node: {
     id: string;
@@ -322,6 +332,7 @@ function TaskItem({
     generationTimeMs?: number;
   };
   onRemove: (nodeId: string, status: string) => void;
+  onRetry?: (nodeId: string) => void;
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
@@ -397,6 +408,16 @@ function TaskItem({
             )}
           </button>
         )}
+        {node.status === 'failed' && onRetry && (
+          <button
+            onClick={() => onRetry(node.id)}
+            className="p-0.5 rounded hover:bg-primary/20 transition-colors"
+            aria-label={t('generation.retry')}
+            title={t('generation.retry')}
+          >
+            <RotateCcw className="h-3 w-3 text-muted-foreground hover:text-primary" />
+          </button>
+        )}
         <button
           onClick={() => onRemove(node.id, node.status)}
           className="p-0.5 rounded hover:bg-destructive/20 transition-colors"
@@ -430,10 +451,10 @@ function TaskItem({
       {node.status === 'done' && (node.estimatedCost != null || node.cost != null) && (
         <div className="mt-1 text-[10px] text-muted-foreground font-mono">
           {node.estimatedCost != null && node.cost != null && node.estimatedCost !== node.cost
-            ? `Est: ${formatCost(node.estimatedCost)} → Actual: ${formatCost(node.cost)}`
+            ? `${t('generation.estimatedLabel')}: ${formatCost(node.estimatedCost)} → ${t('generation.actualLabel')}: ${formatCost(node.cost)}`
             : node.cost != null
-            ? `Cost: ${formatCost(node.cost)}`
-            : `Est: ${formatCost(node.estimatedCost!)}`}
+            ? `${t('generation.costLabel')}: ${formatCost(node.cost)}`
+            : `${t('generation.estimatedLabel')}: ${formatCost(node.estimatedCost!)}`}
         </div>
       )}
 

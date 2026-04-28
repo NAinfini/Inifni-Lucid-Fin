@@ -8,62 +8,26 @@ import { buildSparseSettings } from '../slices/settings.js';
 // eslint-disable-next-line no-restricted-imports -- Phase C (LRUCache relocation to shared-utils) will fix this
 import { LRUCache } from '@lucid-fin/application/dist/lru-cache.js';
 
-// Canvas actions that mutate node/edge data and need canvas:save
-const CANVAS_MUTATE_PREFIXES = [
-  'canvas/addNode',
-  'canvas/removeNodes',
-  'canvas/updateNode',
-  'canvas/updateNodeData',
-  'canvas/moveNode',
-  'canvas/moveNodes',
-  'canvas/renameNode',
-  'canvas/addEdge',
-  'canvas/removeEdges',
-  'canvas/updateEdge',
-  'canvas/pasteNodes',
-  'canvas/duplicateNode',
-  'canvas/duplicateNodes',
-  'canvas/insertNodeIntoEdge',
-  'canvas/disconnectNode',
-  'canvas/toggleBypass',
-  'canvas/toggleLock',
-  'canvas/toggleBackdropCollapse',
-  'canvas/setBackdropOpacity',
-  'canvas/setNodeColorTag',
-  'canvas/setNodeStatus',
-  'canvas/setNodeGenerationComplete',
-  'canvas/setNodeGenerationFailed',
-  'canvas/selectVariant',
-  'canvas/addNodePresetTrackEntry',
-  'canvas/updateNodePresetTrackEntry',
-  'canvas/removeNodePresetTrackEntry',
-  'canvas/setVideoFrameNode',
-  'canvas/setVideoFrameAsset',
-  'canvas/setNodeUploadedAsset',
-  'canvas/clearNodeAsset',
-  'canvas/setNodeSeed',
-  'canvas/toggleSeedLock',
-  'canvas/setNodeProvider',
-  'canvas/setNodeVariantCount',
-  'canvas/setNodeTrackAiDecide',
-  'canvas/setAllTracksAiDecide',
-  'canvas/applyNodeShotTemplate',
-  'canvas/addNodeCharacterRef',
-  'canvas/removeNodeCharacterRef',
-  'canvas/updateNodeCharacterRef',
-  'canvas/addNodeEquipmentRef',
-  'canvas/removeNodeEquipmentRef',
-  'canvas/updateNodeEquipmentRef',
-  'canvas/addNodeLocationRef',
-  'canvas/removeNodeLocationRef',
-  'canvas/setNodeLocationRefs',
-  'canvas/addCanvasNote',
-  'canvas/updateCanvasNote',
-  'canvas/deleteCanvasNote',
-  'canvas/setNodeResolution',
-  'canvas/setNodeDuration',
-  'canvas/setNodeFps',
-];
+// Canvas actions that are UI-only or transient and should NOT trigger a persist save.
+// Every canvas/ action NOT in this set automatically persists — this prevents future
+// omissions when new reducers are added (blocklist is safer than allowlist).
+const CANVAS_NO_PERSIST = new Set([
+  'canvas/setCanvases',
+  'canvas/addCanvas',
+  'canvas/removeCanvas',
+  'canvas/setActiveCanvas',
+  'canvas/setSelection',
+  'canvas/clearSelection',
+  'canvas/updateViewport',
+  'canvas/updateContainerSize',
+  'canvas/setLoading',
+  'canvas/copyNodes',
+  'canvas/setClipboard',
+  'canvas/setNodeGenerating',
+  'canvas/setNodeProgress',
+  'canvas/clearNodeGenerationStatus',
+  'canvas/restore',
+]);
 
 const DEBOUNCE_MS = 500;
 
@@ -88,6 +52,15 @@ let settingsRestoredFromDisk = false;
 let isInteracting = false;
 let pendingSave = false;
 let flushPendingSave: (() => void) | null = null;
+
+/** Timestamp of the last successful canvas save. StatusBar reads this. */
+let lastCanvasSavedAt = 0;
+/** Whether there are unsaved canvas changes pending. */
+let hasPendingChanges = false;
+
+export function getCanvasSaveStatus(): { lastSavedAt: number; pending: boolean } {
+  return { lastSavedAt: lastCanvasSavedAt, pending: hasPendingChanges || pendingSave || canvasTimer !== null };
+}
 
 export function setCanvasInteracting(value: boolean): void {
   isInteracting = value;
@@ -138,8 +111,9 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
       savedCanvasSnapshots.delete(removedId);
     }
 
-    // Canvas-level save: persist the active canvas when nodes/edges change
-    if (CANVAS_MUTATE_PREFIXES.includes(actionType) && state.settings.bootstrapped) {
+    // Canvas-level save: persist the active canvas on any canvas/ action
+    // that isn't in the no-persist blocklist (selection, viewport, loading, etc.)
+    if (sliceName === 'canvas' && !CANVAS_NO_PERSIST.has(actionType) && state.settings.bootstrapped) {
       const runSave = (): void => {
         const currentState = store.getState() as RootState;
         const { activeCanvasId, canvases, viewport } = currentState.canvas;
@@ -164,6 +138,8 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
             .save(canvasToSave)
             .then(() => {
               savedCanvasSnapshots.set(canvas.id, canvasToSave);
+              lastCanvasSavedAt = Date.now();
+              hasPendingChanges = false;
             })
             .catch((error: unknown) => {
               store.dispatch(
@@ -182,6 +158,8 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
             .patch({ canvasId: canvas.id, patch })
             .then(() => {
               savedCanvasSnapshots.set(canvas.id, canvasToSave);
+              lastCanvasSavedAt = Date.now();
+              hasPendingChanges = false;
             })
             .catch((error: unknown) => {
               // Patch failed — fall back to full save
@@ -205,9 +183,11 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
       // setCanvasInteracting(false) can flush once at interaction end.
       if (isInteracting) {
         pendingSave = true;
+        hasPendingChanges = true;
         flushPendingSave = runSave;
       } else {
         if (canvasTimer) clearTimeout(canvasTimer);
+        hasPendingChanges = true;
         flushPendingSave = runSave;
         canvasTimer = setTimeout(() => {
           canvasTimer = null;

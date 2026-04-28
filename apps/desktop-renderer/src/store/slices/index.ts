@@ -49,12 +49,9 @@ export {
   retryWorkflow,
 } from './workflows.js';
 export { assetsSlice, setAssets } from './assets.js';
-export { aiSlice, addMessage, appendStream, flushStream, setContext, clearMessages } from './ai.js';
 export { uiSlice, setActivePanel, togglePanel, setPanelWidth, setRightPanel, toggleRightPanel, setRightPanelWidth, setTheme, type Theme, type RightPanelId } from './ui.js';
 export {
   settingsSlice,
-  setProviders,
-  toggleProvider,
   setRenderPreset,
   setProviderBaseUrl,
   setProviderModel,

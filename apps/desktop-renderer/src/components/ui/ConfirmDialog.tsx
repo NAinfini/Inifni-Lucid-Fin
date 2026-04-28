@@ -5,6 +5,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from './Dialog.js';
+import { Button } from './Button.js';
 import { t } from '../../i18n.js';
 
 interface ConfirmOptions {
@@ -54,24 +55,20 @@ export function useConfirm() {
           <DialogDescription className="sr-only">Confirm action</DialogDescription>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleCancel}
-            className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted transition-colors"
           >
             {options.cancelLabel ?? t('dialog.cancel')}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={options.destructive ? 'destructive' : 'default'}
+            size="sm"
             onClick={handleConfirm}
-            className={`rounded-md px-3 py-1.5 text-xs transition-colors ${
-              options.destructive
-                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
-            }`}
           >
             {options.confirmLabel ?? t('dialog.ok')}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

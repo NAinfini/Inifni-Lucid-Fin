@@ -95,7 +95,6 @@ export const settingsSlice = createSlice({
     resetProviderToDefaults: providerReducers.resetProviderToDefaults,
     addCustomProvider: providerReducers.addCustomProvider,
     removeCustomProvider: providerReducers.removeCustomProvider,
-    setDefaultProvider: providerReducers.setDefaultProvider,
 
     // Telemetry reducers
     recordToolCall: telemetryReducers.recordToolCall,
@@ -137,11 +136,6 @@ export const settingsSlice = createSlice({
       state.bootstrapped = true;
     },
 
-    // Legacy compat - keep slice compiling with old index.ts exports
-    setActiveProvider() {},
-    setProviders() {},
-    toggleProvider() {},
-
     restore(_state, action: PayloadAction<PersistedSettingsState>) {
       return mergeSavedSettings(action.payload, initialState);
     },
@@ -162,7 +156,6 @@ export const {
   resetProviderToDefaults,
   addCustomProvider,
   removeCustomProvider,
-  setDefaultProvider,
   setRenderPreset,
   recordToolCall,
   recordSession,
@@ -187,7 +180,5 @@ export const {
   updateProduction,
   setStyleGuide,
   setBootstrapped,
-  setProviders,
-  toggleProvider,
   restore,
 } = settingsSlice.actions;

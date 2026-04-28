@@ -80,7 +80,7 @@ export function useInspectorEntityRefs({
     if (!selectedNode || (selectedNode.type !== 'image' && selectedNode.type !== 'video'))
       return [];
     const raw = (selectedNode.data as ImageNodeData | VideoNodeData).equipmentRefs ?? [];
-    return raw.map((r) => (typeof r === 'string' ? { equipmentId: r } : r));
+    return raw;
   }, [selectedNode]);
 
   const nodeLocationRefs: LocationRef[] = useMemo(() => {

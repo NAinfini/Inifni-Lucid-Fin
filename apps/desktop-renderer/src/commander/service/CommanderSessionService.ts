@@ -304,12 +304,12 @@ export class CommanderSessionService {
       const permissionMode = state.commander.permissionMode;
       const { maxSteps, temperature, maxTokens } = state.commander;
 
-      // Build default provider map from settings
+      // Build default provider map from canvas settings
       const defaultProviders: Record<string, string> = {};
-      for (const group of ['image', 'video', 'audio'] as const) {
-        const id = state.settings[group].defaultProviderId;
-        if (id) defaultProviders[group] = id;
-      }
+      const cs = activeCanvas?.settings;
+      if (cs?.imageProviderId) defaultProviders.image = cs.imageProviderId;
+      if (cs?.videoProviderId) defaultProviders.video = cs.videoProviderId;
+      if (cs?.audioProviderId) defaultProviders.audio = cs.audioProviderId;
 
       await transport.chat(
         currentCanvasId,

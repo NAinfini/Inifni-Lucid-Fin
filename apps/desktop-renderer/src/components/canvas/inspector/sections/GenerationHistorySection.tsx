@@ -1,4 +1,6 @@
+import { ChevronRight } from 'lucide-react';
 import { LazyDetails } from '../../LazyDetails.js';
+import { getLocale } from '../../../../i18n.js';
 import type { InspectorSectionProps } from '../inspector-registry.js';
 import type { ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
 
@@ -28,7 +30,7 @@ export function GenerationHistorySection({ node, t }: InspectorSectionProps) {
         className="group"
         summary={
           <summary className="flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wider select-none">
-            <span className="transition-transform group-open:rotate-90">&#9654;</span>
+            <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" />
             {t('inspector.generationHistory')} ({history.length})
           </summary>
         }
@@ -48,7 +50,7 @@ export function GenerationHistorySection({ node, t }: InspectorSectionProps) {
                     {entry.providerId}
                   </span>
                   <span className="text-muted-foreground">
-                    {new Date(entry.createdAt).toLocaleTimeString()}
+                    {new Date(entry.createdAt).toLocaleTimeString(getLocale())}
                   </span>
                 </div>
                 <div className="text-muted-foreground truncate">
@@ -56,7 +58,9 @@ export function GenerationHistorySection({ node, t }: InspectorSectionProps) {
                   {entry.prompt.length > 80 ? '...' : ''}
                 </div>
                 {entry.cost != null && (
-                  <span className="text-muted-foreground">${entry.cost.toFixed(3)}</span>
+                  <span className="text-muted-foreground">
+                    {new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 3 }).format(entry.cost)}
+                  </span>
                 )}
               </div>
             ))}

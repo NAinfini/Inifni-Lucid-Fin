@@ -222,7 +222,6 @@ export function createNodeRecord(payload: {
     position: payload.position,
     data: payload.data ?? defaultData[payload.type],
     title: payload.title ?? (payload.type === 'backdrop' ? t('canvas.nodeType.backdrop') : ''),
-    status: 'idle',
     bypassed: false,
     locked: false,
     width: payload.width ?? defaultFrame?.width,
@@ -232,6 +231,20 @@ export function createNodeRecord(payload: {
   };
 
   return node;
+}
+
+export function stampCanvasDefaultProvider(node: CanvasNode, canvas: Canvas): void {
+  const s = canvas.settings;
+  if (!s) return;
+  const t = node.type === 'backdrop' ? 'image' : node.type;
+  if (t !== 'image' && t !== 'video' && t !== 'audio') return;
+  const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
+  if (data.providerId) return;
+  const fallback =
+    t === 'image' ? s.imageProviderId :
+    t === 'video' ? s.videoProviderId :
+    s.audioProviderId;
+  if (fallback) data.providerId = fallback;
 }
 
 export function pasteClipboardPayload(
@@ -354,21 +367,16 @@ export function getGenerationNodeData(node: CanvasNode): GenerationNodeData | un
   return undefined;
 }
 
-export function normalizeEquipmentRefs(refs: Array<EquipmentRef | string> | undefined): EquipmentRef[] {
+export function normalizeEquipmentRefs(refs: EquipmentRef[] | undefined): EquipmentRef[] {
   if (!Array.isArray(refs)) return [];
+  const seen = new Set<string>();
   const result: EquipmentRef[] = [];
   for (const ref of refs) {
-    if (typeof ref === 'string') {
-      const equipmentId = ref.trim();
-      if (equipmentId && !result.some((r) => r.equipmentId === equipmentId)) {
-        result.push({ equipmentId });
-      }
-    } else if (ref && typeof ref === 'object' && typeof ref.equipmentId === 'string' && ref.equipmentId.trim()) {
-      const equipmentId = ref.equipmentId.trim();
-      if (!result.some((r) => r.equipmentId === equipmentId)) {
-        result.push({ equipmentId, angleSlot: ref.angleSlot, referenceImageHash: ref.referenceImageHash });
-      }
-    }
+    if (!ref?.equipmentId?.trim()) continue;
+    const equipmentId = ref.equipmentId.trim();
+    if (seen.has(equipmentId)) continue;
+    seen.add(equipmentId);
+    result.push({ equipmentId, angleSlot: ref.angleSlot, referenceImageHash: ref.referenceImageHash });
   }
   return result;
 }

@@ -219,6 +219,8 @@ export function SettingsStorageSection() {
       } else {
         showMessage('error', result.error ?? t('settings.storage.actionFailed'));
       }
+    } catch {
+      showMessage('error', t('settings.storage.actionFailed'));
     } finally {
       setActionLoading(null);
     }

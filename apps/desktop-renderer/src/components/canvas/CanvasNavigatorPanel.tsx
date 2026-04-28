@@ -1,13 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { ArrowDownAZ, Check, Clock, Layers, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
-import type { Canvas } from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
 import { addCanvas, removeCanvas, renameCanvas, setActiveCanvas } from '../../store/slices/canvas.js';
-import { selectAllCanvases } from '../../store/slices/canvas-selectors.js';
+import { selectCanvasMetadataList } from '../../store/slices/canvas-selectors.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import { t } from '../../i18n.js';
+import { t, getLocale } from '../../i18n.js';
 import { useConfirm } from '../../components/ui/ConfirmDialog.js';
 
 type SortMode = 'recent' | 'name';
@@ -15,7 +14,7 @@ type SortMode = 'recent' | 'name';
 export function CanvasNavigatorPanel() {
   const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
-  const canvases = useSelector(selectAllCanvases);
+  const canvases = useSelector(selectCanvasMetadataList);
   const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -35,7 +34,7 @@ export function CanvasNavigatorPanel() {
     );
   }, [canvases, searchQuery, sortMode]);
 
-  const startEditing = (canvas: Canvas) => {
+  const startEditing = (canvas: { id: string; name: string }) => {
     setEditingId(canvas.id);
     setEditingName(canvas.name);
   };
@@ -50,7 +49,11 @@ export function CanvasNavigatorPanel() {
 
     dispatch(renameCanvas({ id: editingId, name }));
     setEditingId(null);
-    await getAPI()?.canvas.rename(editingId, name);
+    try {
+      await getAPI()?.canvas.rename(editingId, name);
+    } catch {
+      // rename failed on backend — local state already updated, non-critical
+    }
   };
 
   return (
@@ -156,10 +159,10 @@ export function CanvasNavigatorPanel() {
                         <>
                           <span className="block truncate text-xs font-medium">{canvas.name}</span>
                           <span className="block text-[10px] text-muted-foreground">
-                            {canvas.nodes.length} {t('panels.nodes')} · {canvas.edges.length} {t('panels.edges')}
+                            {canvas.nodeCount} {t('panels.nodes')} · {canvas.edgeCount} {t('panels.edges')}
                           </span>
                           <span className="block text-[11px] text-muted-foreground">
-                            {new Date(canvas.updatedAt).toLocaleString()}
+                            {new Date(canvas.updatedAt).toLocaleString(getLocale())}
                           </span>
                         </>
                       )}

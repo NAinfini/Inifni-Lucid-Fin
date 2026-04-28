@@ -17,6 +17,7 @@ import {
   type Asset,
 } from '../../store/slices/assets.js';
 import { t, getLocale } from '../../i18n.js';
+import { enqueueToast } from '../../store/slices/toast.js';
 import { cn } from '../../lib/utils.js';
 import { useAssetOperations } from '../../hooks/useAssetOperations.js';
 import { useEntityFolders } from '../../hooks/useEntityFolders.js';
@@ -93,8 +94,8 @@ export function AssetBrowserPanel() {
         try {
           await api.asset.setFolder(hash, folderId);
           dispatch(moveItemToFolder({ hash, folderId }));
-        } catch {
-          /* swallow — the user can retry; keep browsing experience uninterrupted */
+        } catch (reason) {
+          dispatch(enqueueToast({ variant: 'error', title: t('toast.error.operationFailed'), message: String(reason) }));
         }
       }
     },
@@ -122,16 +123,20 @@ export function AssetBrowserPanel() {
       const asset = allAssets.find((a) => a.id === id);
       if (asset) hashes.add(asset.hash);
     }
-    const deleted = await ops.executeDelete(hashes);
-    setDetailAsset((prev) => {
-      if (prev && deleted.has(prev.hash)) {
-        setDrawerOpen(false);
-        return null;
-      }
-      return prev;
-    });
+    try {
+      const deleted = await ops.executeDelete(hashes);
+      setDetailAsset((prev) => {
+        if (prev && deleted.has(prev.hash)) {
+          setDrawerOpen(false);
+          return null;
+        }
+        return prev;
+      });
+    } catch (reason) {
+      dispatch(enqueueToast({ variant: 'error', title: t('toast.error.operationFailed'), message: String(reason) }));
+    }
     setPendingDeleteIds([]);
-  }, [pendingDeleteIds, allAssets, ops]);
+  }, [pendingDeleteIds, allAssets, ops, dispatch]);
 
   const handlePaste = useCallback((payload: { mode: 'copy' | 'cut'; items: Asset[] }) => {
     const folderId = folderApi.currentFolderId;

@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { selectAllCanvases } from '../../store/slices/canvas-selectors.js';
+import { selectEntityUsageCounts } from '../../store/slices/canvas-selectors.js';
+import { removeEntityRefsFromAllCanvases } from '../../store/slices/canvas.js';
+import { enqueueToast } from '../../store/slices/toast.js';
 import {
   setCharacters,
   addCharacter,
@@ -20,8 +22,6 @@ import {
 import { getAPI } from '../../utils/api.js';
 import type {
   Character,
-  ImageNodeData,
-  VideoNodeData,
 } from '@lucid-fin/contracts';
 import { normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 import { Link2, User } from 'lucide-react';
@@ -81,22 +81,7 @@ export function CharacterManagerPanel() {
 
   const selectedChar = useMemo(() => items.find((c) => c.id === selectedId), [items, selectedId]);
 
-  const canvases = useSelector(selectAllCanvases);
-  const usageCountById = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const canvas of canvases) {
-      for (const node of canvas.nodes) {
-        if (node.type !== 'image' && node.type !== 'video') continue;
-        const data = node.data as ImageNodeData | VideoNodeData;
-        if (data.characterRefs) {
-          for (const ref of data.characterRefs) {
-            counts[ref.characterId] = (counts[ref.characterId] ?? 0) + 1;
-          }
-        }
-      }
-    }
-    return counts;
-  }, [canvases]);
+  const usageCountById = useSelector(selectEntityUsageCounts).character;
 
   useEffect(() => {
     if (!selectedChar) {
@@ -190,11 +175,12 @@ export function CharacterManagerPanel() {
       if (api?.character) {
         const saved = (await api.character.save(data as Record<string, unknown>)) as Character;
         dispatch(updateCharacter({ id: saved.id, data: saved }));
+        dispatch(enqueueToast({ variant: 'success', title: t('toast.entitySaved') }));
       }
     } catch (reason) {
       reportError(reason, 'saveDraft');
     }
-  }, [dispatch, draft, reportError, selectedChar, setError]);
+  }, [dispatch, draft, reportError, selectedChar, setError, t]);
 
   const handleDeleteIds = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
@@ -214,6 +200,7 @@ export function CharacterManagerPanel() {
       try {
         if (api?.character) await api.character.delete(id);
         dispatch(removeCharacter(id));
+        dispatch(removeEntityRefsFromAllCanvases({ entityType: 'character', entityId: id }));
         if (selectedId === id) setDrawerOpen(false);
       } catch (reason) {
         reportError(reason, 'handleDeleteIds');
@@ -251,7 +238,7 @@ export function CharacterManagerPanel() {
             const { id: _id, ...rest } = original;
             const saved = (await api.character.save({
               ...rest,
-              name: `${original.name} (copy)`,
+              name: `${original.name} ${t('action.copySuffix')}`,
               folderId,
             } as Record<string, unknown>)) as Character;
             dispatch(addCharacter(saved));
@@ -261,7 +248,7 @@ export function CharacterManagerPanel() {
         }
       })();
     }
-  }, [folderApi.currentFolderId, handleMoveToFolder, dispatch, reportError]);
+  }, [folderApi.currentFolderId, handleMoveToFolder, dispatch, reportError, t]);
 
   const drawerShown = drawerOpen && draft !== null;
   return (

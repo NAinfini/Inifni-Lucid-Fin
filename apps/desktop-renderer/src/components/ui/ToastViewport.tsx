@@ -33,7 +33,7 @@ function ToastCard({ toast }: { toast: ToastItem }) {
 
   return (
     <article
-      className={`pointer-events-auto rounded-lg border bg-card/95 px-3 py-2 shadow-lg backdrop-blur ${variantStyle.accent}`}
+      className={`pointer-events-auto rounded-lg border bg-card/95 px-3 py-2 shadow-lg backdrop-blur animate-in fade-in-0 slide-in-from-right-full ${variantStyle.accent}`}
       role="status"
       aria-live="polite"
     >

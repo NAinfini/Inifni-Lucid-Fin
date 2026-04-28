@@ -19,6 +19,7 @@ import type {
   TextNodeData,
   VideoNodeData,
 } from '@lucid-fin/contracts';
+import { deriveNodeStatus } from '@lucid-fin/contracts';
 import { isGeneratableMedia } from '@lucid-fin/shared-utils';
 import type { CanvasClipboardPayload } from '../../store/slices/canvas.js';
 import type { LinkEdgeData } from './edges/LinkEdge.js';
@@ -118,7 +119,7 @@ export function parseClipboardPayload(raw: string): CanvasClipboardPayload | nul
 // ---------------------------------------------------------------------------
 
 export function collectNodeSearchText(node: CanvasNodeDTO): string {
-  const fragments: Array<string | undefined> = [node.title, node.status, node.type];
+  const fragments: Array<string | undefined> = [node.title, deriveNodeStatus(node), node.type];
   if (node.type === 'text') {
     fragments.push((node.data as TextNodeData).content);
   }
@@ -248,7 +249,7 @@ export function toFlowNode(
           nodeId: n.id,
           title: n.title,
           content: td.content,
-          status: n.status,
+          status: deriveNodeStatus(n),
           bypassed: n.bypassed,
           locked: n.locked,
           colorTag: n.colorTag,
@@ -267,7 +268,7 @@ export function toFlowNode(
         data: {
           nodeId: n.id,
           title: n.title,
-          status: n.status,
+          status: deriveNodeStatus(n),
           bypassed: n.bypassed,
           locked: n.locked,
           colorTag: n.colorTag,
@@ -306,7 +307,7 @@ export function toFlowNode(
         data: {
           nodeId: n.id,
           title: n.title,
-          status: n.status,
+          status: deriveNodeStatus(n),
           bypassed: n.bypassed,
           locked: n.locked,
           colorTag: n.colorTag,
@@ -335,7 +336,7 @@ export function toFlowNode(
         data: {
           nodeId: n.id,
           title: n.title,
-          status: n.status,
+          status: deriveNodeStatus(n),
           bypassed: n.bypassed,
           locked: n.locked,
           colorTag: n.colorTag,
@@ -399,6 +400,7 @@ export function toFlowEdge(
       status: e.data.status,
       dependencyRole: visualState.dependencyRole,
       dimmed: visualState.dimmed,
+      connectedToSelection: visualState.connectedToSelection,
     } satisfies LinkEdgeData,
   };
 }
