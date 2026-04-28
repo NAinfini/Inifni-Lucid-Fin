@@ -82,18 +82,3 @@ export interface WorkflowRetryWorkflowRequest {
 }
 export type WorkflowRetryWorkflowResponse = void;
 
-// ── workflow:updated (push) ──────────────────────────────────
-export interface WorkflowUpdatedPayload {
-  workflow: unknown;
-}
-
-// ── workflow:task-updated (push) ─────────────────────────────
-export interface WorkflowTaskUpdatedPayload {
-  task: unknown;
-}
-
-// ── workflow:stage-updated (push) ────────────────────────────
-export interface WorkflowStageUpdatedPayload {
-  workflowRunId: string;
-  stageId: string;
-}

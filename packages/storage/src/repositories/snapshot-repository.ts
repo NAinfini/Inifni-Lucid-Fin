@@ -25,8 +25,34 @@ import {
   SnapshotsTable,
   StoredSnapshotSchema,
 } from '@lucid-fin/contracts-parse';
-import type { StoredSnapshot } from '../sqlite-snapshots.js';
 import type { Tx } from '../transactions.js';
+
+export interface StoredSession {
+  id: string;
+  canvasId: string | null;
+  title: string;
+  messages: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface StoredSnapshot {
+  id: string;
+  sessionId: string;
+  label: string;
+  trigger: 'auto' | 'manual';
+  data: string;
+  createdAt: number;
+}
+
+export interface SnapshotData {
+  canvases: unknown[];
+  characters: unknown[];
+  equipment: unknown[];
+  locations: unknown[];
+  scripts: unknown[];
+  presetOverrides: unknown[];
+}
 
 export interface ListResult<T> {
   rows: T[];
@@ -67,9 +93,6 @@ function rowToSnapshot(row: RawRow): StoredSnapshot {
   };
 }
 
-// Mirrors the hardcoded whitelist in sqlite-snapshots.ts — duplicated here so
-// the repository is self-contained. SqliteIndex's legacy module remains the
-// source of truth until G1-4 consumer migration deletes the old file.
 const SNAPSHOT_TABLES = [
   'canvases',
   'characters',

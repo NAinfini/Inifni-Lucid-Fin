@@ -15,7 +15,6 @@ const TRACKED_PREFIXES = [
   'characters/',
   'equipment/',
   'storyboard/',
-  'orchestration/',
   'audio/',
   'canvas/',
   'presets/',

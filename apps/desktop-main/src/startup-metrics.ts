@@ -11,12 +11,6 @@ export function mark(name: string): void {
   marks[name] = Date.now();
 }
 
-export function measure(from: string, to: string): number {
-  const start = marks[from] ?? appStart;
-  const end = marks[to] ?? Date.now();
-  return end - start;
-}
-
 export function logStartupMetrics(): void {
   const total = Date.now() - appStart;
   const metrics: Record<string, number> = { totalMs: total };
@@ -35,6 +29,3 @@ export function logStartupMetrics(): void {
   }
 }
 
-export function getStartupMetrics(): Record<string, number> {
-  return { ...marks, appStart, elapsed: Date.now() - appStart };
-}

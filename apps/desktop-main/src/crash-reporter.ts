@@ -28,10 +28,6 @@ export function initCrashReporter(optIn = false): void {
   });
 }
 
-export function setCrashReportEnabled(enabled: boolean): void {
-  crashReportEnabled = enabled;
-}
-
 function sendCrashReport(error: Error): void {
   // Placeholder for opt-in crash reporting service
   // In production, this would POST to a crash reporting endpoint

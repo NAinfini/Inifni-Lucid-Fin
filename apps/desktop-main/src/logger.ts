@@ -305,10 +305,6 @@ export function getBufferedLogs(): LoggerEntry[] {
   return [...logBuffer];
 }
 
-export function getLogPath(): string {
-  return logFile;
-}
-
 const defaultLogger = {
   debug: (message: unknown, ...args: unknown[]) => writeFlexible('debug', message, ...args),
   info: (message: unknown, ...args: unknown[]) => writeFlexible('info', message, ...args),

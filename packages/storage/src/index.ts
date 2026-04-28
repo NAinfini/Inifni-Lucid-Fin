@@ -15,7 +15,7 @@ export { PromptStore } from './prompt-store.js';
 export type { PromptRecord } from './prompt-store.js';
 export { ProcessPromptStore, PROCESS_PROMPT_DEFAULTS } from './process-prompt-store.js';
 export type { ProcessPromptRecord, ProcessPromptDefault } from './process-prompt-store.js';
-export type { StoredSession, StoredSnapshot, SnapshotData } from './sqlite-snapshots.js';
+export type { StoredSession, StoredSnapshot, SnapshotData } from './repositories/snapshot-repository.js';
 export { withTx } from './transactions.js';
 export type { Tx } from './transactions.js';
 

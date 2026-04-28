@@ -5,9 +5,8 @@
  * about history, permissions, Redux, or session state.
  *
  * Post-cutover the wire is pure v2: every event is a `TimelineEvent` wrapped
- * in `WireEnvelope<TimelineEvent>` at the IPC boundary. `onStream` returns
- * the raw event (envelope unwrapped); `onStreamEnvelope` returns the full
- * envelope for consumers that need `wireVersion` provenance.
+ * in `WireEnvelope<TimelineEvent>` at the IPC boundary. `onStreamEnvelope`
+ * returns the full envelope; consumers unwrap `envelope.event` as needed.
  */
 
 import type {
@@ -75,14 +74,6 @@ export class CommanderTransport {
   async answerQuestion(canvasId: string, toolCallId: string, answer: string): Promise<void> {
     if (!this.api) return;
     await this.api.answerQuestion(canvasId, toolCallId, answer);
-  }
-
-  /**
-   * Subscribe to stream events with envelope unwrapped. Most consumers use
-   * this — only provenance-aware paths need the raw envelope.
-   */
-  onStream(cb: (event: TimelineEvent) => void): Unsub {
-    return this.onStreamEnvelope((envelope) => cb(envelope.event));
   }
 
   /**

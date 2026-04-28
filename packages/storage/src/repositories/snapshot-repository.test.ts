@@ -6,7 +6,7 @@ import {
   type DegradeReporter,
 } from '@lucid-fin/contracts-parse';
 import { SnapshotRepository } from './snapshot-repository.js';
-import type { StoredSnapshot } from '../sqlite-snapshots.js';
+import type { StoredSnapshot } from './snapshot-repository.js';
 
 const SCHEMA = `
 CREATE TABLE commander_sessions (

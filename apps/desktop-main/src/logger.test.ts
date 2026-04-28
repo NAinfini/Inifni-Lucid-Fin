@@ -90,7 +90,7 @@ describe('main logger foundation', () => {
     expect(entry?.detail).not.toContain('top-secret');
     expect(entry?.detail).not.toContain('abc123');
 
-    const fileContents = fs.readFileSync(logger.getLogPath(), 'utf8');
+    const fileContents = fs.readFileSync(path.join(userDataDir, 'logs', 'lucid-fin.log'), 'utf8');
     expect(fileContents).toContain('[REDACTED]');
     expect(fileContents).not.toContain('sk-secret');
     expect(fileContents).not.toContain('top-secret');

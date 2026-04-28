@@ -3,8 +3,6 @@ import { seriesSlice } from './slices/series.js';
 import { charactersSlice } from './slices/characters.js';
 import { equipmentSlice } from './slices/equipment.js';
 import { storyboardSlice } from './slices/storyboard.js';
-import { orchestrationSlice } from './slices/orchestration.js';
-import { timelineSlice } from './slices/timeline.js';
 import { audioSlice } from './slices/audio.js';
 import { jobsSlice } from './slices/jobs.js';
 import { workflowsSlice } from './slices/workflows.js';
@@ -31,8 +29,6 @@ export const store = configureStore({
     characters: charactersSlice.reducer,
     equipment: equipmentSlice.reducer,
     storyboard: storyboardSlice.reducer,
-    orchestration: orchestrationSlice.reducer,
-    timeline: timelineSlice.reducer,
     audio: audioSlice.reducer,
     jobs: jobsSlice.reducer,
     workflows: workflowsSlice.reducer,

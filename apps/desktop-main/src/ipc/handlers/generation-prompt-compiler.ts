@@ -218,23 +218,6 @@ export function resolveEntityRefsAndImages(
   };
 }
 
-export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: CanvasNode): string[] {
-  void canvas;
-  return resolveEntityRefsAndImages(db, node).referenceImages;
-}
-
-export function resolveStructuredEntityRefs(
-  db: SqliteIndex,
-  node: CanvasNode,
-): {
-  characterRefs?: GenerationEntityRef[];
-  equipmentRefs?: GenerationEntityRef[];
-  locationRefs?: GenerationEntityRef[];
-} {
-  const { characterRefs, equipmentRefs, locationRefs } = resolveEntityRefsAndImages(db, node);
-  return { characterRefs, equipmentRefs, locationRefs };
-}
-
 export type ResolvedVideoFrameReferenceImages = {
   first?: string;
   last?: string;

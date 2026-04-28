@@ -19,7 +19,6 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'LRUCache',
   'compilePrompt',
   'getCameraShot',
-  'CostCenter',
   'TemplateManager',
   'WorkflowRegistry',
   'WorkflowPlanner',
@@ -81,10 +80,6 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'ToolCatalog',
   'entityMutatingToolNames',
   'canvasSyncMutatingToolNames',
-  // Generation
-  'GenerationApplicationService',
-  'STRATEGIES',
-  'selectStrategy',
   // Exit-contract extensibility (Phase F public surface)
   'contractRegistry',
   'decide',

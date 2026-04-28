@@ -2,9 +2,7 @@
  * workflow:* channels — Batch 6.
  *
  * Covers the 11 invoke handlers in
- * `apps/desktop-main/src/ipc/handlers/workflow.handlers.ts` plus the 3 push
- * channels the WorkflowEngine emits through the main process
- * (`workflow:updated`, `workflow:task-updated`, `workflow:stage-updated`).
+ * `apps/desktop-main/src/ipc/handlers/workflow.handlers.ts`.
  *
  * Complex workflow DTOs (`WorkflowActivitySummary`, `WorkflowStageRun`,
  * `WorkflowTaskSummary`) remain `z.unknown()` per Phase B-1 precedent — Phase C
@@ -14,7 +12,7 @@
  * `z.string()`; brand enforcement is compile-time only.
  */
 import { z } from 'zod';
-import { defineInvokeChannel, definePushChannel } from '../../channels.js';
+import { defineInvokeChannel } from '../../channels.js';
 
 // ── Shared primitives ────────────────────────────────────────
 // WorkflowActivitySummary / WorkflowStageRun / WorkflowTaskSummary stay opaque
@@ -155,37 +153,6 @@ export const workflowRetryWorkflowChannel = defineInvokeChannel({
 export type WorkflowRetryWorkflowRequest = z.infer<typeof WorkflowRetryWorkflowRequest>;
 export type WorkflowRetryWorkflowResponse = z.infer<typeof WorkflowRetryWorkflowResponse>;
 
-// ── workflow:updated (push) ──────────────────────────────────
-// Payload mirrors `WorkflowUpdatedEvent` ({ workflow: WorkflowActivitySummary }).
-// The inner summary stays opaque at this stage.
-const WorkflowUpdatedPayload = z.object({ workflow: WorkflowSummaryShape });
-export const workflowUpdatedChannel = definePushChannel({
-  channel: 'workflow:updated',
-  payload: WorkflowUpdatedPayload,
-});
-export type WorkflowUpdatedPayload = z.infer<typeof WorkflowUpdatedPayload>;
-
-// ── workflow:task-updated (push) ─────────────────────────────
-// Payload mirrors `WorkflowTaskUpdatedEvent` ({ task: WorkflowTaskSummary }).
-const WorkflowTaskUpdatedPayload = z.object({ task: WorkflowTaskShape });
-export const workflowTaskUpdatedChannel = definePushChannel({
-  channel: 'workflow:task-updated',
-  payload: WorkflowTaskUpdatedPayload,
-});
-export type WorkflowTaskUpdatedPayload = z.infer<typeof WorkflowTaskUpdatedPayload>;
-
-// ── workflow:stage-updated (push) ────────────────────────────
-// Payload mirrors `WorkflowStageUpdatedEvent` ({ workflowRunId, stageId }).
-const WorkflowStageUpdatedPayload = z.object({
-  workflowRunId: z.string(),
-  stageId: z.string(),
-});
-export const workflowStageUpdatedChannel = definePushChannel({
-  channel: 'workflow:stage-updated',
-  payload: WorkflowStageUpdatedPayload,
-});
-export type WorkflowStageUpdatedPayload = z.infer<typeof WorkflowStageUpdatedPayload>;
-
 export const workflowChannels = [
   workflowListChannel,
   workflowGetChannel,
@@ -198,7 +165,4 @@ export const workflowChannels = [
   workflowRetryTaskChannel,
   workflowRetryStageChannel,
   workflowRetryWorkflowChannel,
-  workflowUpdatedChannel,
-  workflowTaskUpdatedChannel,
-  workflowStageUpdatedChannel,
 ] as const;

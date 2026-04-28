@@ -9,12 +9,6 @@ export {
   type PromptMode,
   type ResolvedCharacter,
 } from './prompt-compiler.js';
-export {
-  CostCenter,
-  type UsageRecord,
-  type BudgetLimit,
-  type BudgetStatus,
-} from './cost-center.js';
 export { TemplateManager, type SceneTemplate } from './template-manager.js';
 export type {
   WorkflowTaskExecutionContext,
@@ -157,13 +151,3 @@ export {
   type AppToolKey,
   type AppProcessCategory,
 } from './agent/tool-catalog.js';
-
-// Phase D-1: Generation application service scaffold
-export {
-  GenerationApplicationService,
-  STRATEGIES,
-  selectStrategy,
-  type PipelineRequest,
-  type GenerationEvent,
-  type GenerationStrategy,
-} from './generation/application-service.js';

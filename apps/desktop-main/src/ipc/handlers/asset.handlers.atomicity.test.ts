@@ -3,14 +3,12 @@
  *
  * These tests verify:
  *  1. A1: DB insert failure triggers CAS rollback (no orphan CAS file).
- *  2. A2: reconcileCasDb backfills an orphan CAS entry into the DB.
- *  3. A2: reconcileCasDb removes an orphan DB row when the CAS file is missing.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import type { AssetMeta, AssetType } from '@lucid-fin/contracts';
+import type { AssetMeta } from '@lucid-fin/contracts';
 
 vi.mock('../../logger.js', () => ({
   default: {
@@ -23,7 +21,6 @@ vi.mock('../../logger.js', () => ({
 }));
 
 import { CAS } from '@lucid-fin/storage';
-import { reconcileCasDb } from '../../bootstrap/reconcile-cas-db.js';
 
 // Minimal 1x1 PNG
 const PNG_BUFFER = Buffer.from(
@@ -89,56 +86,3 @@ describe('A1: CAS rollback on DB insert failure', () => {
     expect(cas.assetExists(ref.hash, 'image', 'png')).toBe(false);
   });
 });
-
-describe('A2: reconcileCasDb', () => {
-  let base: string;
-  let srcFile: string;
-  let cas: CAS;
-
-  beforeEach(() => {
-    base = tmpDir();
-    cas = new CAS(path.join(base, 'assets'));
-    srcFile = path.join(base, 'test.png');
-    fs.writeFileSync(srcFile, PNG_BUFFER);
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    fs.rmSync(base, { recursive: true, force: true });
-  });
-
-  it('backfills DB row for an orphan CAS entry (crash before DB insert)', async () => {
-    // Import to CAS only — simulate crash before db.repos.assets.insert.
-    const { ref } = await cas.importAsset(srcFile, 'image');
-    // Intentionally skip DB insert.
-
-    const db = makeDbMock();
-
-    reconcileCasDb(cas, db as never);
-
-    // CAS file must still be present.
-    expect(cas.assetExists(ref.hash, 'image', 'png')).toBe(true);
-    // DB row should now be backfilled.
-    expect(db.repos.assets.findByHash(ref.hash)).toBeDefined();
-  });
-
-  it('removes orphan DB row when the CAS asset file is missing', () => {
-    const fakeMeta: AssetMeta = {
-      hash: 'a'.repeat(64),
-      type: 'image' as AssetType,
-      format: 'png',
-      originalName: 'ghost.png',
-      fileSize: 100,
-      tags: [],
-      createdAt: Date.now(),
-    };
-
-    const db = makeDbMock([fakeMeta]);
-
-    reconcileCasDb(cas, db as never);
-
-    // DB row should be removed because no CAS file exists.
-    expect(db.repos.assets.findByHash(fakeMeta.hash)).toBeUndefined();
-  });
-});
-
