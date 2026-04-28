@@ -1,5 +1,4 @@
 export { JobQueue } from './job-queue.js';
-export { Semaphore } from './semaphore.js';
 export { LRUCache, type LRUCacheOptions } from './lru-cache.js';
 export {
   compilePrompt,
@@ -16,7 +15,6 @@ export {
   type BudgetLimit,
   type BudgetStatus,
 } from './cost-center.js';
-export { SnapshotManager, type Snapshot, type DiffEntry } from './snapshot-manager.js';
 export { TemplateManager, type SceneTemplate } from './template-manager.js';
 export type {
   WorkflowTaskExecutionContext,
@@ -49,7 +47,7 @@ export { locationGenerateReferencesWorkflow } from './workflows/location.generat
 export { buildCharacterAppearancePrompt, buildCharacterRefImagePrompt } from './agent/tools/character-prompt.js';
 export { buildLocationRefImagePrompt } from './agent/tools/location-prompt.js';
 export { AgentToolRegistry, type AgentTool, type ToolResult } from './agent/tool-registry.js';
-export { defineToolModule, registerToolModule, type ToolModule } from './agent/tool-module.js';
+export { registerToolModule, type ToolModule } from './agent/tool-module.js';
 export {
   AgentOrchestrator,
   type AgentContext,
@@ -96,19 +94,15 @@ export {
 // public identity; consumers should go through `contractRegistry`.
 import './agent/exit-contract/contracts/index.js';
 export { freshRunId } from './agent/agent-run-id.js';
-export { makeStampedEmit } from './agent/stream-emit.js';
 export {
   coercePhaseNoteCode,
   inferErrorCodeFromMessage,
 } from './agent/error-inference.js';
-export { detectProcess, getProcessCategoryName, type ProcessCategory } from './agent/process-detection.js';
 export {
   ContextManager,
   selectContextualToolSet,
   type ToolSelectionInput,
 } from './agent/context-manager.js';
-export { ToolExecutor } from './agent/tool-executor.js';
-export { TranscriptIndex } from './agent/transcript-index.js';
 export { registerAgentTools, type AllToolDeps } from './agent/register-agent-tools.js';
 export { createCanvasTools, type CanvasToolDeps } from './agent/tools/canvas-tools.js';
 export { createCharacterTools, type CharacterToolDeps } from './agent/tools/character-tools.js';

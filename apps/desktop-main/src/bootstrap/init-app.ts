@@ -12,6 +12,7 @@ import {
   IdeogramAdapter,
   GoogleImagen3Adapter,
   RecraftAdapter,
+  LeonardoAdapter,
   // Video adapters
   RunwayAdapter,
   VeoAdapter,
@@ -22,6 +23,7 @@ import {
   WanAdapter,
   SeedanceAdapter,
   HunyuanVideoAdapter,
+  HiggsfieldAdapter,
   // Audio adapters
   ElevenLabsAdapter,
   ElevenLabsSFXAdapter,
@@ -30,6 +32,14 @@ import {
   PlayHTAdapter,
   FishAudioAdapter,
   StabilityAudioAdapter,
+  // Music adapters
+  SunoAdapter,
+  UdioAdapter,
+  MusicGenAdapter,
+  // Local adapters
+  OllamaAdapter,
+  ComfyUIAdapter,
+  SDWebUIAdapter,
   // LLM adapters
   LLMRegistry,
   buildRuntimeLLMAdapter,
@@ -50,6 +60,7 @@ export function createAdapterRegistry(): AdapterRegistry {
   adapterRegistry.register(new IdeogramAdapter());
   adapterRegistry.register(new GoogleImagen3Adapter());
   adapterRegistry.register(new RecraftAdapter());
+  adapterRegistry.register(new LeonardoAdapter());
   // Video
   adapterRegistry.register(new RunwayAdapter());
   adapterRegistry.register(new VeoAdapter());
@@ -60,6 +71,7 @@ export function createAdapterRegistry(): AdapterRegistry {
   adapterRegistry.register(new WanAdapter());
   adapterRegistry.register(new SeedanceAdapter());
   adapterRegistry.register(new HunyuanVideoAdapter());
+  adapterRegistry.register(new HiggsfieldAdapter());
   // Audio
   adapterRegistry.register(new ElevenLabsAdapter());
   adapterRegistry.register(new ElevenLabsSFXAdapter());
@@ -68,6 +80,14 @@ export function createAdapterRegistry(): AdapterRegistry {
   adapterRegistry.register(new PlayHTAdapter());
   adapterRegistry.register(new FishAudioAdapter());
   adapterRegistry.register(new StabilityAudioAdapter());
+  // Music
+  adapterRegistry.register(new SunoAdapter());
+  adapterRegistry.register(new UdioAdapter());
+  adapterRegistry.register(new MusicGenAdapter());
+  // Local
+  adapterRegistry.register(new OllamaAdapter());
+  adapterRegistry.register(new ComfyUIAdapter());
+  adapterRegistry.register(new SDWebUIAdapter());
   return adapterRegistry;
 }
 

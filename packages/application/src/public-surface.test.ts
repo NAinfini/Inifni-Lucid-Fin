@@ -16,12 +16,10 @@ import * as pkg from './index.js';
 const EXPECTED_EXPORTS: readonly string[] = [
   // Utility primitives
   'JobQueue',
-  'Semaphore',
   'LRUCache',
   'compilePrompt',
   'getCameraShot',
   'CostCenter',
-  'SnapshotManager',
   'TemplateManager',
   'WorkflowRegistry',
   'WorkflowPlanner',
@@ -36,20 +34,14 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'buildLocationRefImagePrompt',
   // Agent orchestration
   'AgentToolRegistry',
-  'defineToolModule',
   'registerToolModule',
   'AgentOrchestrator',
   'createAgentOrchestratorForRun',
   'freshRunId',
-  'makeStampedEmit',
   'coercePhaseNoteCode',
   'inferErrorCodeFromMessage',
-  'detectProcess',
-  'getProcessCategoryName',
   'ContextManager',
   'selectContextualToolSet',
-  'ToolExecutor',
-  'TranscriptIndex',
   'registerAgentTools',
   // Tool factories
   'createCanvasTools',

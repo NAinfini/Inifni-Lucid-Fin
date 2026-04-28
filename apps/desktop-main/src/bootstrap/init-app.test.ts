@@ -99,16 +99,21 @@ describe('createAdapterRegistry', () => {
 
     expect(registry.list().map((adapter) => adapter.id).sort()).toEqual([
       'cartesia-sonic',
+      'comfyui-local',
       'elevenlabs-sfx',
       'elevenlabs-v2',
       'fish-audio-v1',
       'google-imagen3',
       'google-veo-2',
+      'higgsfield-v1',
       'hunyuan-video',
       'ideogram',
       'kling-v1',
+      'leonardo-v2',
       'luma-ray2',
       'minimax-video01',
+      'musicgen-local',
+      'ollama-local',
       'openai-dalle',
       'openai-tts-1-hd',
       'pika-v2',
@@ -116,8 +121,11 @@ describe('createAdapterRegistry', () => {
       'recraft-v3',
       'replicate',
       'runway-gen4',
+      'sd-webui-local',
       'seedance-2',
       'stability-audio-v2',
+      'suno-v4',
+      'udio',
       'wan-2.1',
     ]);
   });
