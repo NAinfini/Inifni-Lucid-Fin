@@ -104,6 +104,15 @@ export type MaterializedAsset = {
   sourceUrl?: string;
 };
 
+export type PollOptions = {
+  /** Maximum number of poll iterations before timeout (default 120 = ~10 min at 5 s) */
+  maxIterations?: number;
+  /** Abort signal to cancel polling early */
+  signal?: AbortSignal;
+  /** Interval between polls in ms (default 5000) */
+  intervalMs?: number;
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -526,7 +535,7 @@ async function decodeBase64DataUrl(dataUrl: string): Promise<MaterializedAsset> 
   const buffer = sanitizePng(Buffer.from(match[2], 'base64'));
   const tmpPath = path.join(os.tmpdir(), `lucid-fin-gen-${Date.now()}.${ext}`);
   fs.writeFileSync(tmpPath, buffer);
-  return { filePath: tmpPath };
+  return { filePath: tmpPath, cleanupPath: tmpPath };
 }
 
 async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
@@ -806,9 +815,29 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
     return json;
   }
 
-  async function pollStatus(statusUrl: string, taskId: string, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
-    for (;;) {
-      const res = await fetch(statusUrl, { headers });
+  async function pollStatus(
+    statusUrl: string,
+    taskId: string,
+    callbacks: SubscribeCallbacks,
+    options?: PollOptions,
+  ): Promise<import('@lucid-fin/contracts').GenerationResult> {
+    const maxIterations = options?.maxIterations ?? 120;
+    const signal = options?.signal;
+    const intervalMs = options?.intervalMs ?? 5_000;
+
+    for (let iteration = 0; ; iteration++) {
+      if (signal?.aborted) {
+        throw new Error(`Polling aborted for task ${taskId}: ${signal.reason ?? 'signal aborted'}`);
+      }
+
+      if (iteration >= maxIterations) {
+        throw new Error(
+          `Polling timed out for task ${taskId} after ${iteration} iterations`
+          + ` (~${Math.round((iteration * intervalMs) / 1_000)}s)`,
+        );
+      }
+
+      const res = await fetch(statusUrl, { headers, signal });
       if (!res.ok) {
         const errBody = await res.text().catch(() => '');
         throw new Error(`Provider status error ${res.status}: ${errBody.slice(0, 400)}`);
@@ -857,7 +886,7 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
         throw new Error(`Provider task ${taskId} failed`);
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
   }
 

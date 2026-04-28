@@ -43,7 +43,11 @@ describe('initDb', () => {
       healthCheck: vi.fn(() => {
         throw healthError;
       }),
-      repair: vi.fn(),
+      repair: vi.fn(() => ({
+        recoveredTables: ['canvases', 'characters'],
+        failedTables: [],
+        backupReadable: true,
+      })),
     };
 
     initDb(db as never);
@@ -53,7 +57,35 @@ describe('initDb', () => {
       healthError,
     );
     expect(db.repair).toHaveBeenCalledOnce();
-    expect(logger.info).toHaveBeenCalledWith('Database repaired successfully');
+    expect(logger.info).toHaveBeenCalledWith('Database repaired successfully', {
+      category: 'startup',
+      recovered: ['canvases', 'characters'],
+      backupReadable: true,
+    });
+  });
+
+  it('logs partial recovery when some tables fail', () => {
+    const healthError = new Error('corrupt');
+    const db = {
+      healthCheck: vi.fn(() => {
+        throw healthError;
+      }),
+      repair: vi.fn(() => ({
+        recoveredTables: ['canvases'],
+        failedTables: [{ name: 'characters', error: 'row parse error' }],
+        backupReadable: true,
+      })),
+    };
+
+    initDb(db as never);
+
+    expect(db.repair).toHaveBeenCalledOnce();
+    expect(logger.warn).toHaveBeenCalledWith('Database repair completed with losses', {
+      category: 'startup',
+      recovered: ['canvases'],
+      failed: [{ name: 'characters', error: 'row parse error' }],
+      backupReadable: true,
+    });
   });
 
   it('logs repair failures without throwing', () => {

@@ -20,18 +20,18 @@ import type { ResolvedCharacter } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { tryCharacterId, tryEquipmentId, tryLocationId } from '@lucid-fin/contracts-parse';
 import {
-  DEFAULT_STYLE_GUIDE,
   STYLE_GUIDE_LIGHTING_PRESETS,
   normalizeOptionalString,
   normalizePresetLookupValue,
 } from './generation-helpers.js';
+import { loadStyleGuide } from './style.handlers.js';
 
 // ---------------------------------------------------------------------------
 // Style guide loading
 // ---------------------------------------------------------------------------
 
-export function loadCurrentProjectStyleGuide(): StyleGuide {
-  return DEFAULT_STYLE_GUIDE;
+export function loadCurrentProjectStyleGuide(db: SqliteIndex): StyleGuide {
+  return loadStyleGuide(db);
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import type { WorkflowRepository } from './repositories/workflow-repository.js';
 import type { ScriptRepository } from './repositories/script-repository.js';
 import type { ColorStyleRepository } from './repositories/color-style-repository.js';
 import type { DependencyRepository } from './repositories/dependency-repository.js';
+import type { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
 
 /**
  * Repository bundle exposed by `SqliteIndex.repos`. The strangler
@@ -35,6 +36,7 @@ export interface RepoBundle {
   scripts: ScriptRepository;
   colorStyles: ColorStyleRepository;
   dependencies: DependencyRepository;
+  projectSettings: ProjectSettingsRepository;
 }
 
 /**

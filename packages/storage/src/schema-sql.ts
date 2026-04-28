@@ -310,6 +310,12 @@ CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_entity
 CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_asset_hash
   ON workflow_artifacts(asset_hash);
 
+CREATE TABLE IF NOT EXISTS project_settings (
+  key         TEXT PRIMARY KEY,
+  value       TEXT NOT NULL DEFAULT '',
+  updated_at  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS canvases (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,

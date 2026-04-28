@@ -1,7 +1,8 @@
 import type { IpcMain } from 'electron';
 import type { StyleGuide } from '@lucid-fin/contracts';
+import type { SqliteIndex } from '@lucid-fin/storage';
 
-let cachedStyleGuide: StyleGuide | null = null;
+const STYLE_GUIDE_KEY = 'styleGuide';
 
 function isStyleGuide(v: unknown): v is StyleGuide {
   if (!v || typeof v !== 'object') return false;
@@ -26,18 +27,18 @@ const DEFAULT_STYLE_GUIDE: StyleGuide = {
   sceneOverrides: {},
 };
 
-/** Called by settings handlers to warm the cache on boot. */
-export function primeStyleGuideCache(guide: StyleGuide | null): void {
-  if (guide && isStyleGuide(guide)) cachedStyleGuide = guide;
+export function loadStyleGuide(db: SqliteIndex): StyleGuide {
+  const stored = db.repos.projectSettings.getJson<StyleGuide>(STYLE_GUIDE_KEY);
+  return stored && isStyleGuide(stored) ? stored : DEFAULT_STYLE_GUIDE;
 }
 
-export function registerStyleHandlers(ipcMain: IpcMain): void {
+export function registerStyleHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   ipcMain.handle('style:save', async (_e, args: StyleGuide) => {
     if (!isStyleGuide(args)) throw new Error('Invalid style guide payload');
-    cachedStyleGuide = args;
+    db.repos.projectSettings.setJson(STYLE_GUIDE_KEY, args);
   });
 
   ipcMain.handle('style:load', async () => {
-    return cachedStyleGuide ?? DEFAULT_STYLE_GUIDE;
+    return loadStyleGuide(db);
   });
 }

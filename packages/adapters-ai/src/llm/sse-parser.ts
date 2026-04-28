@@ -29,8 +29,8 @@ export async function* parseSseStream(response: Response): AsyncGenerator<unknow
       if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
       try {
         yield JSON.parse(line.slice(6));
-      } catch { /* malformed SSE JSON line -- skip and continue */
-        /* skip malformed */
+      } catch {
+        console.warn('[sse-parser] malformed JSON line:', line.slice(6, 206));
       }
     }
   }

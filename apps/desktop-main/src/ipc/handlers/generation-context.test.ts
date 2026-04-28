@@ -6,7 +6,7 @@ import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
  * Wrap flat entity spies into the new `.repos.entities` shape (Phase G1-4.7).
  */
 function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
-  repos: { entities: Record<string, unknown> };
+  repos: { entities: Record<string, unknown>; projectSettings: Record<string, unknown> };
 } {
   return {
     ...flat,
@@ -18,6 +18,9 @@ function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
         upsertCharacter: flat.upsertCharacter,
         upsertEquipment: flat.upsertEquipment,
         upsertLocation: flat.upsertLocation,
+      },
+      projectSettings: {
+        getJson: () => undefined,
       },
     },
   };

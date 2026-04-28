@@ -12,8 +12,21 @@ export function initDb(db: SqliteIndex): void {
   } catch (err) {
     log.error('Database health check failed, attempting repair:', err);
     try {
-      db.repair();
-      log.info('Database repaired successfully');
+      const result = db.repair();
+      if (result.failedTables.length > 0) {
+        log.warn('Database repair completed with losses', {
+          category: 'startup',
+          recovered: result.recoveredTables,
+          failed: result.failedTables,
+          backupReadable: result.backupReadable,
+        });
+      } else {
+        log.info('Database repaired successfully', {
+          category: 'startup',
+          recovered: result.recoveredTables,
+          backupReadable: result.backupReadable,
+        });
+      }
     } catch (repairErr) {
       log.error('Database repair failed:', repairErr);
     }

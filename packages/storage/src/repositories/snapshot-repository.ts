@@ -79,31 +79,11 @@ const SNAPSHOT_TABLES = [
   'preset_overrides',
 ] as const;
 
-const SNAPSHOT_TABLE_COLUMNS: Record<(typeof SNAPSHOT_TABLES)[number], readonly string[]> = {
-  canvases: [
-    'id', 'name', 'nodes', 'edges', 'viewport', 'notes', 'created_at', 'updated_at',
-  ],
-  characters: [
-    'id', 'name', 'role', 'description', 'appearance', 'personality', 'ref_image',
-    'costumes', 'tags', 'age', 'gender', 'voice', 'reference_images',
-    'loadouts', 'default_loadout_id', 'created_at', 'updated_at',
-  ],
-  equipment: [
-    'id', 'name', 'type', 'subtype', 'description', 'function_desc',
-    'tags', 'reference_images', 'created_at', 'updated_at',
-  ],
-  locations: [
-    'id', 'name', 'type', 'sub_location', 'description', 'time_of_day',
-    'mood', 'weather', 'lighting', 'tags', 'reference_images', 'created_at', 'updated_at',
-  ],
-  scripts: [
-    'id', 'content', 'format', 'parsed_scenes', 'created_at', 'updated_at',
-  ],
-  preset_overrides: [
-    'id', 'preset_id', 'category', 'name', 'description', 'prompt',
-    'params', 'defaults', 'is_user', 'created_at', 'updated_at',
-  ],
-};
+/** Discover column names from the live schema — future-proof against ALTER TABLE additions. */
+function discoverColumns(db: BetterSqlite3.Database, table: string): string[] {
+  const info = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+  return info.map((col) => col.name);
+}
 
 export class SnapshotRepository {
   constructor(private readonly db: BetterSqlite3.Database) {}
@@ -267,7 +247,8 @@ export class SnapshotRepository {
   capture(sessionId: SessionId, label: string, trigger: 'auto' | 'manual'): StoredSnapshot {
     const data: Record<string, unknown[]> = {};
     for (const table of SNAPSHOT_TABLES) {
-      const cols = SNAPSHOT_TABLE_COLUMNS[table];
+      const cols = discoverColumns(this.db, table);
+      if (cols.length === 0) continue;
       data[table] = this.db.prepare(`SELECT ${cols.join(', ')} FROM ${table}`).all() as unknown[];
     }
 
@@ -303,15 +284,9 @@ export class SnapshotRepository {
         this.db.exec(`DELETE FROM ${table}`);
         if (rows.length === 0) continue;
 
-        const allowedCols = new Set<string>(SNAPSHOT_TABLE_COLUMNS[table]);
+        const liveCols = new Set(discoverColumns(this.db, table));
         const rawCols = Object.keys(rows[0]);
-        const unknownCols = rawCols.filter((c) => !allowedCols.has(c));
-        if (unknownCols.length > 0) {
-          throw new Error(
-            `Snapshot restore blocked: table "${table}" contains disallowed columns: ${unknownCols.join(', ')}`,
-          );
-        }
-        const cols = rawCols.filter((c) => allowedCols.has(c));
+        const cols = rawCols.filter((c) => liveCols.has(c));
         if (cols.length === 0) continue;
 
         const placeholders = cols.map(() => '?').join(', ');

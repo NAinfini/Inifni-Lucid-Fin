@@ -149,9 +149,15 @@ export class SeriesRepository {
    * concurrent reads can't observe a half-torn-down series.
    */
   deleteSeries(id: SeriesId, tx?: Tx): void {
-    const d = tx ?? this.db;
-    d.prepare(`DELETE FROM ${S_TBL} WHERE ${S.id.sqlName} = ?`).run(id);
-    d.prepare(`DELETE FROM ${E_TBL} WHERE ${E.seriesId.sqlName} = ?`).run(id);
+    const run = (d: BetterSqlite3.Database | Tx) => {
+      d.prepare(`DELETE FROM ${E_TBL} WHERE ${E.seriesId.sqlName} = ?`).run(id);
+      d.prepare(`DELETE FROM ${S_TBL} WHERE ${S.id.sqlName} = ?`).run(id);
+    };
+    if (tx) {
+      run(tx);
+    } else {
+      this.db.transaction(() => { run(this.db); })();
+    }
   }
 
   // ── Episodes ───────────────────────────────────────────────────

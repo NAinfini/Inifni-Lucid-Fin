@@ -90,3 +90,6 @@ export { ScriptRepository } from './repositories/script-repository.js';
 export { ColorStyleRepository } from './repositories/color-style-repository.js';
 export { DependencyRepository } from './repositories/dependency-repository.js';
 export type { Dependent } from './repositories/dependency-repository.js';
+
+// ── Project settings KV store ─────────────────────────────────
+export { ProjectSettingsRepository } from './repositories/project-settings-repository.js';

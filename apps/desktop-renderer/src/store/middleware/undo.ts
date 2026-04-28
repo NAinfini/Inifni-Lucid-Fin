@@ -133,7 +133,12 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
       undoStackBytes -= lastEntry.byteSize;
       lastEntry.execute = typed;
       lastEntry.timestamp = now;
-      // Keep the original undo action (earliest state in the group)
+      // Keep the original undo action (earliest state in the group).
+      // Recalculate byteSize conservatively: max of undo and updated execute sizes.
+      lastEntry.byteSize = Math.max(
+        estimateActionBytes(lastEntry.undo),
+        estimateActionBytes(lastEntry.execute),
+      );
       undoStackBytes += lastEntry.byteSize;
     } else {
       const command: UndoCommand = {

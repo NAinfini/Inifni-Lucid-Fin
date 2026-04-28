@@ -18,6 +18,7 @@ import { WorkflowRepository } from './repositories/workflow-repository.js';
 import { ScriptRepository } from './repositories/script-repository.js';
 import { ColorStyleRepository } from './repositories/color-style-repository.js';
 import { DependencyRepository } from './repositories/dependency-repository.js';
+import { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
 import { SCHEMA_SQL } from './schema-sql.js';
 
 const require = createRequire(import.meta.url);
@@ -64,6 +65,12 @@ function addMissingCanvasColumns(db: BetterSqlite3.Database): void {
 }
 
 
+export interface RepairResult {
+  recoveredTables: string[];
+  failedTables: Array<{ name: string; error: string }>;
+  backupReadable: boolean;
+}
+
 export class SqliteIndex implements IStorageLayer {
   private db: BetterSqlite3.Database;
   private sessions!: SessionRepository;
@@ -81,6 +88,7 @@ export class SqliteIndex implements IStorageLayer {
   private scripts!: ScriptRepository;
   private colorStyles!: ColorStyleRepository;
   private dependencies!: DependencyRepository;
+  private projectSettings!: ProjectSettingsRepository;
 
   /**
    * Repository bundle — the sole persistence surface exposed to
@@ -105,6 +113,7 @@ export class SqliteIndex implements IStorageLayer {
       scripts: this.scripts,
       colorStyles: this.colorStyles,
       dependencies: this.dependencies,
+      projectSettings: this.projectSettings,
     };
   }
 
@@ -136,6 +145,7 @@ export class SqliteIndex implements IStorageLayer {
     this.scripts = new ScriptRepository(this.db);
     this.colorStyles = new ColorStyleRepository(this.db);
     this.dependencies = new DependencyRepository(this.db);
+    this.projectSettings = new ProjectSettingsRepository(this.db);
   }
 
   close(): void {
@@ -151,7 +161,8 @@ export class SqliteIndex implements IStorageLayer {
   }
 
   /** Attempt to repair by exporting to SQL and reimporting into a fresh DB */
-  repair(): void {
+  repair(): RepairResult {
+    const result: RepairResult = { recoveredTables: [], failedTables: [], backupReadable: true };
     const dbPath = this.db.name;
     const backupPath = `${dbPath}.corrupt.${Date.now()}`;
     this.db.close();
@@ -170,7 +181,7 @@ export class SqliteIndex implements IStorageLayer {
       for (const { name } of tables) {
         try {
           const rows = old.prepare(`SELECT * FROM ${name}`).all() as Array<Record<string, unknown>>;
-          if (!rows.length) continue;
+          if (!rows.length) { result.recoveredTables.push(name); continue; }
           const cols = Object.keys(rows[0]);
           const placeholders = cols.map(() => '?').join(', ');
           const insert = this.db.prepare(
@@ -180,13 +191,18 @@ export class SqliteIndex implements IStorageLayer {
             for (const row of rows) insert.run(...cols.map((c) => row[c]));
           });
           tx();
-        } catch { /* insert failed for this table during migration seed — skip unrecoverable tables */
-          /* skip unrecoverable tables */
+          result.recoveredTables.push(name);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          result.failedTables.push({ name, error: msg });
+          console.warn(`[repair] Failed to recover table "${name}": ${msg}`);
         }
       }
       old.close();
-    } catch { /* backup DB unreadable — fresh DB is still valid */
-      /* backup unreadable -- fresh DB is still valid */
+    } catch (err) {
+      result.backupReadable = false;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[repair] Backup database unreadable: ${msg}`);
     }
 
     // Repo handles pin to the live db — rebuild after the swap above.
@@ -205,6 +221,8 @@ export class SqliteIndex implements IStorageLayer {
     this.scripts = new ScriptRepository(this.db);
     this.colorStyles = new ColorStyleRepository(this.db);
     this.dependencies = new DependencyRepository(this.db);
+    this.projectSettings = new ProjectSettingsRepository(this.db);
+    return result;
   }
 
   vacuum(): void {

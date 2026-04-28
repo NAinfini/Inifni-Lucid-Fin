@@ -3,22 +3,21 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 /**
  * Wrapper around fetch that adds an AbortSignal timeout.
  * Accepts the same arguments as global fetch plus an optional timeout in ms.
+ *
+ * Uses AbortSignal.any() + AbortSignal.timeout() (Node 20+) so no manual
+ * listener registration or cleanup is needed — no listener leaks.
  */
 export function fetchWithTimeout(
   input: string | URL | Request,
   init?: RequestInit & { timeoutMs?: number },
 ): Promise<Response> {
   const ms = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
+  const { timeoutMs: _, signal: callerSignal, ...rest } = init ?? {};
 
-  // Merge caller's signal if provided
-  const existingSignal = init?.signal;
-  if (existingSignal) {
-    existingSignal.addEventListener('abort', () => controller.abort());
-  }
+  const timeoutSignal = AbortSignal.timeout(ms);
+  const signal = callerSignal
+    ? AbortSignal.any([callerSignal, timeoutSignal])
+    : timeoutSignal;
 
-  const { timeoutMs: _, ...rest } = init ?? {};
-
-  return fetch(input, { ...rest, signal: controller.signal }).finally(() => clearTimeout(timer));
+  return fetch(input, { ...rest, signal });
 }

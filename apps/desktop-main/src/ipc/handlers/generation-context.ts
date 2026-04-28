@@ -82,7 +82,7 @@ export async function buildGenerationContext(
   const nodeData = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
   const variantCount = resolveVariantCount(nodeData, input.requestedVariantCount);
   const baseSeed = resolveBaseSeed(nodeData, input.requestedSeed);
-  const projectStyleGuide = loadCurrentProjectStyleGuide();
+  const projectStyleGuide = loadCurrentProjectStyleGuide(deps.db);
 
   const presetTracks =
     generableNodeType === 'audio'

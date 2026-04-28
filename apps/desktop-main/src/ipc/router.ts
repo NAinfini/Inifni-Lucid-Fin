@@ -76,7 +76,7 @@ export function registerAllHandlers(
   registerCharacterHandlers(ipcMain, db);
   registerEquipmentHandlers(ipcMain, db);
   registerLocationHandlers(ipcMain, db);
-  registerStyleHandlers(ipcMain);
+  registerStyleHandlers(ipcMain, db);
   registerAiHandlers(ipcMain, getWindow, agent, promptStore);
   registerProcessPromptHandlers(ipcMain, processPromptStore);
   registerColorStyleHandlers(ipcMain, db, cas, workflowEngine);

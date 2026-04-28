@@ -19,3 +19,4 @@ export * from './series.js';
 export * from './preset.js';
 export * from './session-snapshot.js';
 export * from './prompt.js';
+export * from './project-settings.js';

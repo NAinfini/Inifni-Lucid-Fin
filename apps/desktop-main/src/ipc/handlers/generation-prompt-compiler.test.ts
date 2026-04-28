@@ -205,17 +205,37 @@ afterEach(() => {
 // ===========================================================================
 
 describe('loadCurrentProjectStyleGuide', () => {
-  it('returns DEFAULT_STYLE_GUIDE when no project path is set', () => {
-    const result = loadCurrentProjectStyleGuide();
+  function mockDb(styleGuide?: StyleGuide) {
+    return {
+      repos: {
+        projectSettings: {
+          getJson: () => styleGuide ?? undefined,
+        },
+      },
+    } as unknown as SqliteIndex;
+  }
+
+  it('returns default when no style guide saved', () => {
+    const result = loadCurrentProjectStyleGuide(mockDb());
     expect(result.global.lighting).toBe('natural');
     expect(result.sceneOverrides).toEqual({});
   });
 
-  it('always returns DEFAULT_STYLE_GUIDE (project layer removed)', () => {
-    const result = loadCurrentProjectStyleGuide();
-    expect(result.global.lighting).toBe('natural');
-    expect(result.global.artStyle).toBe('');
-    expect(result.sceneOverrides).toEqual({});
+  it('returns saved style guide from DB', () => {
+    const guide: StyleGuide = {
+      global: {
+        artStyle: 'anime',
+        colorPalette: { primary: '#f00', secondary: '#0f0', forbidden: [] },
+        lighting: 'dramatic',
+        texture: 'cel',
+        referenceImages: [],
+        freeformDescription: '',
+      },
+      sceneOverrides: {},
+    };
+    const result = loadCurrentProjectStyleGuide(mockDb(guide));
+    expect(result.global.artStyle).toBe('anime');
+    expect(result.global.lighting).toBe('dramatic');
   });
 });
 

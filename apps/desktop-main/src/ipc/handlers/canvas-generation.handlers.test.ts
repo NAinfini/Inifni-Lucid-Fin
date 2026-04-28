@@ -38,7 +38,7 @@ import { buildAdhocAdapter } from './generation-helpers.js';
  * read/write the flat spies keep working.
  */
 function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
-  repos: { entities: Record<string, unknown>; assets: Record<string, unknown> };
+  repos: { entities: Record<string, unknown>; assets: Record<string, unknown>; projectSettings: Record<string, unknown> };
 } {
   const insertAsset = flat.insertAsset as ReturnType<typeof vi.fn> | undefined;
   return {
@@ -62,6 +62,9 @@ function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
         queryEmbeddingByHash: vi.fn(),
         searchByTokens: vi.fn(() => []),
         getAllEmbeddedHashes: vi.fn(() => []),
+      },
+      projectSettings: {
+        getJson: vi.fn(() => undefined),
       },
     },
   };
