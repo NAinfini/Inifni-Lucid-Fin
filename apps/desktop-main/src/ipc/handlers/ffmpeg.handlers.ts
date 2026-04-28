@@ -5,6 +5,8 @@ import type { IpcMain } from 'electron';
 import log from '../../logger.js';
 import { createCommand, runCommand, detectFfmpeg } from '@lucid-fin/media-engine';
 
+const APP_ROOT = path.join(os.homedir(), '.lucid-fin');
+
 function requireFilePath(args: unknown, channel: string): string {
   if (!args || typeof args !== 'object') throw new Error(`${channel}: args required`);
   const filePath = (args as { filePath?: unknown }).filePath;
@@ -73,9 +75,20 @@ export function registerFfmpegHandlers(ipcMain: IpcMain): void {
     'ffmpeg:transcode',
     async (_e, args: { input: string; output: string; options?: Record<string, unknown> }) => {
       if (!args?.input || !args?.output) throw new Error('ffmpeg:transcode: input and output required');
-      log.info('ffmpeg:transcode', args.input, '->', args.output);
+      const resolvedInput = path.resolve(args.input);
+      const resolvedOutput = path.resolve(args.output);
+      if (!fs.existsSync(resolvedInput)) throw new Error('ffmpeg:transcode: input file not found');
+      const outputDir = path.dirname(resolvedOutput);
+      const allowedOutputRoots = [APP_ROOT, os.tmpdir()];
+      if (!allowedOutputRoots.some((root) => resolvedOutput.startsWith(path.resolve(root) + path.sep))) {
+        throw new Error('ffmpeg:transcode: output path outside allowed directories');
+      }
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+      log.info('ffmpeg:transcode', resolvedInput, '->', resolvedOutput);
 
-      const cmd = createCommand(args.input);
+      const cmd = createCommand(resolvedInput);
 
       if (args.options?.videoCodec && typeof args.options.videoCodec === 'string') {
         cmd.videoCodec(args.options.videoCodec);
@@ -87,9 +100,9 @@ export function registerFfmpegHandlers(ipcMain: IpcMain): void {
         cmd.addOutputOptions(args.options.outputOptions as string[]);
       }
 
-      cmd.output(args.output);
+      cmd.output(resolvedOutput);
       await runCommand(cmd);
-      log.info('ffmpeg:transcode complete', args.output);
+      log.info('ffmpeg:transcode complete', resolvedOutput);
     },
   );
 }

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Canvas, GenerationResult } from '@lucid-fin/contracts';
+import { deriveNodeStatus } from '@lucid-fin/contracts';
 import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet, type StyleGuide } from '@lucid-fin/contracts';
 import { CAS } from '../../../../../packages/storage/src/cas.js';
 
@@ -1172,7 +1173,7 @@ describe('startCanvasGeneration progress events', () => {
     await done;
 
     expect(db.insertAsset).not.toHaveBeenCalled();
-    expect(canvas.nodes[0]?.status).toBe('failed');
+    expect(deriveNodeStatus(canvas.nodes[0]!)).toBe('failed');
     expect((canvas.nodes[0]?.data as { error?: string }).error).toMatch(/expected video asset/i);
     expect(events).toEqual(
       expect.arrayContaining([

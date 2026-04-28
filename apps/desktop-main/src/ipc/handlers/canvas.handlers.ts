@@ -15,6 +15,7 @@ interface CanvasPatch {
   updatedNodes?: Array<{ id: string; changes: Record<string, unknown> }>;
   addedEdges?: CanvasEdge[];
   removedEdgeIds?: string[];
+  updatedEdges?: Array<{ id: string; edge: CanvasEdge }>;
 }
 
 function applyPatch(canvas: Canvas, patch: CanvasPatch): void {
@@ -44,6 +45,11 @@ function applyPatch(canvas: Canvas, patch: CanvasPatch): void {
   if (patch.removedEdgeIds && patch.removedEdgeIds.length > 0) {
     const removedSet = new Set(patch.removedEdgeIds);
     canvas.edges = canvas.edges.filter(e => !removedSet.has(e.id));
+  }
+
+  if (patch.updatedEdges && patch.updatedEdges.length > 0) {
+    const updateMap = new Map(patch.updatedEdges.map(u => [u.id, u.edge]));
+    canvas.edges = canvas.edges.map(e => updateMap.get(e.id) ?? e);
   }
 
   if (patch.addedEdges && patch.addedEdges.length > 0) {

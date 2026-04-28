@@ -4,6 +4,7 @@ import type {
   CanvasNode,
   Equipment,
   EquipmentRef,
+  GenerationEntityRef,
   ImageNodeData,
   Location,
   LocationRef,
@@ -123,93 +124,115 @@ export function hasLocationRefs(data: unknown): data is { locationRefs?: Locatio
 // Reference image resolution
 // ---------------------------------------------------------------------------
 
-export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: CanvasNode): string[] {
-  void canvas;
-  const hashes = new Set<string>();
+export interface ResolvedEntityRefsAndImages {
+  referenceImages: string[];
+  characterRefs?: GenerationEntityRef[];
+  equipmentRefs?: GenerationEntityRef[];
+  locationRefs?: GenerationEntityRef[];
+}
 
-  const withCharacterRefs = node.data as ImageNodeData | VideoNodeData;
-  for (const ref of withCharacterRefs.characterRefs ?? []) {
+function resolveRefImageHashes(
+  entity: { referenceImages?: Array<{ slot?: string; assetHash?: string }> } | undefined,
+  ref: { angleSlot?: string; referenceImageHash?: string },
+  normalizeSlot?: (s: string | undefined) => string | undefined,
+): string[] {
+  const hashes: string[] = [];
+  const explicitHash = normalizeOptionalString(ref.referenceImageHash);
+  if (explicitHash) {
+    hashes.push(explicitHash);
+    return hashes;
+  }
+  if (ref.angleSlot && entity?.referenceImages) {
+    const normalize = normalizeSlot ?? ((s: string | undefined) => s);
+    const slotHash = normalizeOptionalString(
+      entity.referenceImages.find(
+        (r) => normalize(r.slot) === normalize(ref.angleSlot),
+      )?.assetHash,
+    );
+    if (slotHash) {
+      hashes.push(slotHash);
+      return hashes;
+    }
+  }
+  for (const image of entity?.referenceImages ?? []) {
+    const h = normalizeOptionalString(image.assetHash);
+    if (h) hashes.push(h);
+  }
+  return hashes;
+}
+
+export function resolveEntityRefsAndImages(
+  db: SqliteIndex,
+  node: CanvasNode,
+): ResolvedEntityRefsAndImages {
+  const nodeData = node.data as ImageNodeData | VideoNodeData;
+  const allHashes = new Set<string>();
+  const chars: GenerationEntityRef[] = [];
+  const equips: GenerationEntityRef[] = [];
+  const locs: GenerationEntityRef[] = [];
+
+  for (const ref of nodeData.characterRefs ?? []) {
     const characterId = tryCharacterId(ref.characterId);
     if (!characterId) continue;
     const character = db.repos.entities.getCharacter(characterId);
     if (!character) continue;
 
-    // Prefer explicit hash on ref, then angle slot lookup, then legacy single image, then all images
-    const explicitHash = normalizeOptionalString(ref.referenceImageHash);
-    if (explicitHash) {
-      hashes.add(explicitHash);
-      continue;
-    }
-    const slotHash = ref.angleSlot
-      ? normalizeOptionalString(
-        character.referenceImages?.find(
-          (r) => normalizeCharacterRefSlot(r.slot) === normalizeCharacterRefSlot(ref.angleSlot),
-        )?.assetHash,
-      )
-      : undefined;
-    if (slotHash) {
-      hashes.add(slotHash);
-      continue;
-    }
-    for (const image of character.referenceImages ?? []) {
-      if (normalizeOptionalString(image.assetHash)) {
-        hashes.add(image.assetHash as string);
-      }
+    const hashes = resolveRefImageHashes(character, ref, normalizeCharacterRefSlot);
+    for (const h of hashes) allHashes.add(h);
+    if (hashes.length > 0) {
+      chars.push({ entityId: ref.characterId, imageHashes: hashes });
     }
   }
 
-  for (const rawRef of (withCharacterRefs as { equipmentRefs?: Array<EquipmentRef | string> }).equipmentRefs ?? []) {
-    const ref: EquipmentRef = typeof rawRef === 'string' ? { equipmentId: rawRef } : rawRef;
+  for (const ref of (nodeData as { equipmentRefs?: EquipmentRef[] }).equipmentRefs ?? []) {
     const equipmentId = tryEquipmentId(ref.equipmentId);
     if (!equipmentId) continue;
     const equipment = db.repos.entities.getEquipment(equipmentId);
     if (!equipment) continue;
 
-    const explicitHash = normalizeOptionalString(ref.referenceImageHash);
-    if (explicitHash) {
-      hashes.add(explicitHash);
-      continue;
-    }
-    const slotHash = ref.angleSlot
-      ? normalizeOptionalString(equipment.referenceImages?.find((r) => r.slot === ref.angleSlot)?.assetHash)
-      : undefined;
-    if (slotHash) {
-      hashes.add(slotHash);
-      continue;
-    }
-    for (const image of equipment.referenceImages ?? []) {
-      if (normalizeOptionalString(image.assetHash)) {
-        hashes.add(image.assetHash as string);
-      }
+    const hashes = resolveRefImageHashes(equipment, ref);
+    for (const h of hashes) allHashes.add(h);
+    if (hashes.length > 0) {
+      equips.push({ entityId: ref.equipmentId, imageHashes: hashes });
     }
   }
 
-  for (const ref of withCharacterRefs.locationRefs ?? []) {
+  for (const ref of nodeData.locationRefs ?? []) {
     const locationId = tryLocationId(ref.locationId);
     if (!locationId) continue;
     const location = db.repos.entities.getLocation(locationId);
     if (!location) continue;
 
-    const explicitHash = normalizeOptionalString(ref.referenceImageHash);
-    if (explicitHash) {
-      hashes.add(explicitHash);
-      continue;
-    }
-    const slotHash = ref.angleSlot
-      ? normalizeOptionalString(location.referenceImages?.find((r) => r.slot === ref.angleSlot)?.assetHash)
-      : undefined;
-    if (slotHash) {
-      hashes.add(slotHash);
-      continue;
-    }
-    for (const image of location.referenceImages ?? []) {
-      if (normalizeOptionalString(image.assetHash)) {
-        hashes.add(image.assetHash as string);
-      }
+    const hashes = resolveRefImageHashes(location, ref);
+    for (const h of hashes) allHashes.add(h);
+    if (hashes.length > 0) {
+      locs.push({ entityId: ref.locationId, imageHashes: hashes });
     }
   }
 
-  return Array.from(hashes);
+  return {
+    referenceImages: Array.from(allHashes),
+    characterRefs: chars.length > 0 ? chars : undefined,
+    equipmentRefs: equips.length > 0 ? equips : undefined,
+    locationRefs: locs.length > 0 ? locs : undefined,
+  };
+}
+
+export function resolveReferenceImages(db: SqliteIndex, canvas: Canvas, node: CanvasNode): string[] {
+  void canvas;
+  return resolveEntityRefsAndImages(db, node).referenceImages;
+}
+
+export function resolveStructuredEntityRefs(
+  db: SqliteIndex,
+  node: CanvasNode,
+): {
+  characterRefs?: GenerationEntityRef[];
+  equipmentRefs?: GenerationEntityRef[];
+  locationRefs?: GenerationEntityRef[];
+} {
+  const { characterRefs, equipmentRefs, locationRefs } = resolveEntityRefsAndImages(db, node);
+  return { characterRefs, equipmentRefs, locationRefs };
 }
 
 export type ResolvedVideoFrameReferenceImages = {
@@ -362,7 +385,7 @@ export function resolveLocationEntities(
 
 export function resolveStandaloneEquipment(
   db: SqliteIndex,
-  refs: Array<EquipmentRef | string> | undefined,
+  refs: EquipmentRef[] | undefined,
   resolvedCharacters: ResolvedCharacter[],
 ): Equipment[] {
   if (!refs?.length) return [];
@@ -373,10 +396,9 @@ export function resolveStandaloneEquipment(
     }
   }
   const result: Equipment[] = [];
-  for (const rawRef of refs) {
-    const eqId = typeof rawRef === 'string' ? rawRef : rawRef.equipmentId;
-    if (loadoutEquipmentIds.has(eqId)) continue;
-    const equipmentId = tryEquipmentId(eqId);
+  for (const ref of refs) {
+    if (loadoutEquipmentIds.has(ref.equipmentId)) continue;
+    const equipmentId = tryEquipmentId(ref.equipmentId);
     if (!equipmentId) continue;
     const equipment = db.repos.entities.getEquipment(equipmentId);
     if (equipment) result.push(equipment);

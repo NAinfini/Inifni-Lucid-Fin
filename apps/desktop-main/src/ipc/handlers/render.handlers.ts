@@ -29,12 +29,24 @@ type RenderJob = {
   outputPath: string;
   error?: string;
   abortController: AbortController;
+  completedAt?: number;
 };
 
 const runningJobs = new Map<string, RenderJob>();
+const COMPLETED_JOB_TTL_MS = 5 * 60 * 1000;
+
+function evictStaleJobs(): void {
+  const cutoff = Date.now() - COMPLETED_JOB_TTL_MS;
+  for (const [id, job] of runningJobs) {
+    if (job.completedAt && job.completedAt < cutoff) {
+      runningJobs.delete(id);
+    }
+  }
+}
 
 export function registerRenderHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('render:start', async (_e, args: RenderStartArgs) => {
+    evictStaleJobs();
     if (!args || !Array.isArray(args.segments) || args.segments.length === 0) {
       throw new Error('render:start: segments array is required');
     }
@@ -63,13 +75,15 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
       try {
         job.stage = 'rendering';
         job.progress = 10;
-        await renderTimeline(args.segments, outputPath, { codec, preset: quality, width, height, fps });
+        await renderTimeline(args.segments, outputPath, { codec, preset: quality, width, height, fps, signal: job.abortController.signal });
         job.stage = 'completed';
         job.progress = 100;
+        job.completedAt = Date.now();
         log.info('render:complete', { jobId, outputPath });
       } catch (error) {
         job.stage = 'failed';
         job.error = error instanceof Error ? error.message : String(error);
+        job.completedAt = Date.now();
         log.error('render:failed', { jobId, error: job.error });
       }
     })();
@@ -95,6 +109,7 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
     if (!job) return;
     job.abortController.abort();
     job.stage = 'cancelled';
+    job.completedAt = Date.now();
     log.info('render:cancel', args.jobId);
   });
 }

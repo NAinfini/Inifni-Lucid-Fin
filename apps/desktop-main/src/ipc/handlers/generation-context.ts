@@ -41,7 +41,7 @@ import {
   loadCurrentProjectStyleGuide,
   resolveCharacterEntities,
   resolveLocationEntities,
-  resolveReferenceImages,
+  resolveEntityRefsAndImages,
   resolveVideoFrameReferenceImageSet,
   resolveVideoFrameReferenceImages,
   resolveStandaloneEquipment,
@@ -99,7 +99,8 @@ export async function buildGenerationContext(
   const resolvedCharacters = resolveCharacterEntities(deps.db, characterRefs);
   const resolvedLocations = resolveLocationEntities(deps.db, locationRefs);
   const resolvedEquipment = resolveStandaloneEquipment(deps.db, equipmentRefs, resolvedCharacters);
-  const referenceImages = resolveReferenceImages(deps.db, canvas, node);
+  const entityRefsAndImages = resolveEntityRefsAndImages(deps.db, node);
+  const referenceImages = entityRefsAndImages.referenceImages;
   const videoFrameReferenceImages = generableNodeType === 'video'
     ? resolveVideoFrameReferenceImageSet(canvas, node)
     : undefined;
@@ -160,7 +161,7 @@ export async function buildGenerationContext(
       diagnosticCount: compiled.diagnostics.length,
     });
   }
-  const mediaConfig = resolveMediaDimensions(node, generationType);
+  const mediaConfig = resolveMediaDimensions(node, generationType, canvas);
   const { fps, ...mediaRequest } = mediaConfig;
 
   const videoData = node.type === 'video' ? (node.data as VideoNodeData) : undefined;
@@ -189,15 +190,19 @@ export async function buildGenerationContext(
     steps: imageOrVideoData?.steps,
     cfgScale: imageOrVideoData?.cfgScale,
     scheduler: normalizeOptionalString(imageOrVideoData?.scheduler),
-    faceReferenceHashes:
-      imageOrVideoData?.faceReferenceHashes && imageOrVideoData.faceReferenceHashes.length > 0
-        ? imageOrVideoData.faceReferenceHashes
-        : undefined,
     emotionVector:
       generableNodeType === 'audio'
         ? (nodeData as AudioNodeData).emotionVector
         : undefined,
   };
+
+  const resolvedEntityRefs = generableNodeType !== 'audio'
+    ? {
+        characterRefs: entityRefsAndImages.characterRefs,
+        equipmentRefs: entityRefsAndImages.equipmentRefs,
+        locationRefs: entityRefsAndImages.locationRefs,
+      }
+    : {};
 
   return {
     canvas,
@@ -210,6 +215,7 @@ export async function buildGenerationContext(
     variantCount,
     baseSeed,
     compiled,
+    resolvedEntityRefs,
   };
 }
 
@@ -218,7 +224,7 @@ export async function buildGenerationContext(
 // ---------------------------------------------------------------------------
 
 export function determinePromptMode(canvas: Canvas, node: CanvasNode): PromptMode {
-  if (node.type === 'image') {
+  if (node.type === 'image' || node.type === 'backdrop') {
     const data = node.data as ImageNodeData;
     if (normalizeOptionalString(data.sourceImageHash)) {
       return 'image-to-image';
@@ -239,11 +245,12 @@ export function determinePromptMode(canvas: Canvas, node: CanvasNode): PromptMod
     }
     return 'text-to-video';
   }
-  return 'text-to-video';
+  // Audio nodes — mode is not used by audio adapters, but return a sensible value
+  return 'text-to-image';
 }
 
 export function determineGenerationType(node: CanvasNode): GenerationType {
-  if (node.type === 'image') return 'image';
+  if (node.type === 'image' || node.type === 'backdrop') return 'image';
   if (node.type === 'video') return 'video';
   const audio = node.data as AudioNodeData;
   return audio.audioType;
@@ -255,10 +262,7 @@ export function resolveNodeProviderId(
 ): string | undefined {
   if (requestedProviderId) return normalizeOptionalString(requestedProviderId);
   const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
-  return (
-    normalizeOptionalString(data.providerId) ??
-    normalizeOptionalString((data as AudioNodeData).provider)
-  );
+  return normalizeOptionalString(data.providerId);
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +327,8 @@ export async function resolveAdapter(
   if (!supported) {
     throw new Error(`No configured adapter available for ${generationType}`);
   }
+  const fallbackApiKey = await resolveProviderApiKey(keychain, supported.id, providerConfig);
+  supported.configure(fallbackApiKey ?? '', { generationType });
   return supported;
 }
 
@@ -422,19 +428,20 @@ export function resolveBaseSeed(
 export function resolveMediaDimensions(
   node: CanvasNode,
   generationType: GenerationType,
+  canvas?: Canvas,
 ): GenerationMediaConfig {
   if (generationType === 'image') {
     const data = node.data as ImageNodeData;
     return {
-      width: resolvePositiveInteger(data.width, DEFAULT_IMAGE_SIZE.width),
-      height: resolvePositiveInteger(data.height, DEFAULT_IMAGE_SIZE.height),
+      width: resolvePositiveInteger(data.width, canvas?.settings?.publishImageResolution?.width ?? DEFAULT_IMAGE_SIZE.width),
+      height: resolvePositiveInteger(data.height, canvas?.settings?.publishImageResolution?.height ?? DEFAULT_IMAGE_SIZE.height),
     };
   }
   if (generationType === 'video') {
     const data = node.data as VideoNodeData;
     return {
-      width: resolvePositiveInteger(data.width, DEFAULT_VIDEO_SIZE.width),
-      height: resolvePositiveInteger(data.height, DEFAULT_VIDEO_SIZE.height),
+      width: resolvePositiveInteger(data.width, canvas?.settings?.publishVideoResolution?.width ?? DEFAULT_VIDEO_SIZE.width),
+      height: resolvePositiveInteger(data.height, canvas?.settings?.publishVideoResolution?.height ?? DEFAULT_VIDEO_SIZE.height),
       duration: resolvePositiveInteger(data.duration, DEFAULT_VIDEO_DURATION),
       fps: resolvePositiveInteger(data.fps, 24),
     };

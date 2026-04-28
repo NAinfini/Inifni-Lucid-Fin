@@ -7,7 +7,6 @@ import type {
   Character,
   CharacterRef,
   Equipment,
-  EquipmentRef,
   ImageNodeData,
   Location,
   LocationRef,
@@ -885,19 +884,6 @@ describe('resolveReferenceImages', () => {
     expect(result).toContain('loc-b');
   });
 
-  it('handles equipment refs given as plain string IDs (legacy format)', () => {
-    const eq = makeEquipment('eq-legacy', {
-      referenceImages: [{ slot: 'front', assetHash: 'legacy-eq-hash', isStandard: true }],
-    });
-    const db = makeDb({ getEquipment: vi.fn(() => eq) });
-    const imgNode = makeImageNode('img-1', {
-      equipmentRefs: ['eq-legacy'] as unknown as Array<EquipmentRef>,
-    });
-    const canvas = makeCanvas({ nodes: [imgNode] });
-    const result = resolveReferenceImages(db, canvas, imgNode);
-    expect(result).toContain('legacy-eq-hash');
-  });
-
   it('skips equipment ref when equipment not found in db', () => {
     const db = makeDb({ getEquipment: vi.fn(() => undefined) });
     const imgNode = makeImageNode('img-1', {
@@ -1113,14 +1099,6 @@ describe('resolveStandaloneEquipment', () => {
     expect(result).toHaveLength(0);
   });
 
-  it('handles string-format equipment refs (legacy)', () => {
-    const eq = makeEquipment('eq-legacy-str');
-    const db = makeDb({ getEquipment: vi.fn(() => eq) });
-    const result = resolveStandaloneEquipment(db, ['eq-legacy-str'], []);
-    expect(result).toHaveLength(1);
-    expect(result[0]?.id).toBe('eq-legacy-str');
-  });
-
   it('skips equipment not found in db', () => {
     const db = makeDb({ getEquipment: vi.fn(() => undefined) });
     const result = resolveStandaloneEquipment(db, [{ equipmentId: 'missing-eq' }], []);
@@ -1148,22 +1126,22 @@ describe('resolveStandaloneEquipment', () => {
     expect(result).toHaveLength(1);
   });
 
-  it('handles a mix of EquipmentRef objects and string IDs', () => {
-    const eqObj = makeEquipment('eq-obj');
-    const eqStr = makeEquipment('eq-str');
+  it('handles multiple EquipmentRef objects', () => {
+    const eqA = makeEquipment('eq-a');
+    const eqB = makeEquipment('eq-b');
     const db = makeDb({
       getEquipment: vi.fn((id: string) =>
-        id === 'eq-obj' ? eqObj : id === 'eq-str' ? eqStr : undefined,
+        id === 'eq-a' ? eqA : id === 'eq-b' ? eqB : undefined,
       ),
     });
     const result = resolveStandaloneEquipment(
       db,
-      [{ equipmentId: 'eq-obj' }, 'eq-str'],
+      [{ equipmentId: 'eq-a' }, { equipmentId: 'eq-b' }],
       [],
     );
     expect(result).toHaveLength(2);
     const ids = result.map((e) => e.id);
-    expect(ids).toContain('eq-obj');
-    expect(ids).toContain('eq-str');
+    expect(ids).toContain('eq-a');
+    expect(ids).toContain('eq-b');
   });
 });

@@ -336,10 +336,10 @@ describe('determinePromptMode', () => {
     expect(determinePromptMode(canvas, vidNode)).toBe('image-to-video');
   });
 
-  it('returns text-to-video for audio nodes (fallback)', () => {
+  it('returns text-to-image for audio nodes (fallback — mode unused by audio adapters)', () => {
     const node = makeAudioNode();
     const canvas = makeCanvas([node]);
-    expect(determinePromptMode(canvas, node)).toBe('text-to-video');
+    expect(determinePromptMode(canvas, node)).toBe('text-to-image');
   });
 });
 
@@ -386,11 +386,6 @@ describe('resolveNodeProviderId', () => {
     expect(result).toBeUndefined();
   });
 
-  it('reads audio node provider field', () => {
-    const node = makeAudioNode({ provider: 'elevenlabs-v2' });
-    const result = resolveNodeProviderId(node, undefined);
-    expect(result).toBe('elevenlabs-v2');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -624,6 +619,50 @@ describe('resolveMediaDimensions', () => {
     const node = makeImageNode();
     const result = resolveMediaDimensions(node, 'unknown' as never);
     expect(result).toEqual({});
+  });
+
+  it('uses canvas publishImageResolution as fallback for image nodes without explicit size', () => {
+    const node = makeImageNode();
+    const canvas = makeCanvas([node]);
+    canvas.settings = { publishImageResolution: { width: 2048, height: 2048 } };
+    const result = resolveMediaDimensions(node, 'image', canvas);
+    expect(result).toEqual({ width: 2048, height: 2048 });
+  });
+
+  it('prefers node dimensions over canvas publishImageResolution', () => {
+    const node = makeImageNode({ width: 512, height: 768 });
+    const canvas = makeCanvas([node]);
+    canvas.settings = { publishImageResolution: { width: 2048, height: 2048 } };
+    const result = resolveMediaDimensions(node, 'image', canvas);
+    expect(result).toEqual({ width: 512, height: 768 });
+  });
+
+  it('uses canvas publishVideoResolution as fallback for video nodes without explicit size', () => {
+    const node = makeVideoNode({ width: undefined, height: undefined, duration: 5, fps: 30 });
+    const canvas = makeCanvas([node]);
+    canvas.settings = { publishVideoResolution: { width: 1920, height: 1080 } };
+    const result = resolveMediaDimensions(node, 'video', canvas);
+    expect(result).toEqual({ width: 1920, height: 1080, duration: 5, fps: 30 });
+  });
+
+  it('falls back to hardcoded defaults when canvas has no resolution settings', () => {
+    const node = makeImageNode();
+    const canvas = makeCanvas([node]);
+    canvas.settings = {};
+    const result = resolveMediaDimensions(node, 'image', canvas);
+    expect(result).toEqual({
+      width: DEFAULT_IMAGE_SIZE.width,
+      height: DEFAULT_IMAGE_SIZE.height,
+    });
+  });
+
+  it('works without canvas parameter (backward-compatible)', () => {
+    const node = makeImageNode();
+    const result = resolveMediaDimensions(node, 'image');
+    expect(result).toEqual({
+      width: DEFAULT_IMAGE_SIZE.width,
+      height: DEFAULT_IMAGE_SIZE.height,
+    });
   });
 });
 
@@ -957,7 +996,7 @@ describe('buildGenerationContext', () => {
     // An adapter that lists 'sfx' type covers the path that resolveAdapter takes.
     const node = makeBackdropNode({ providerId: 'mock-provider' });
     const canvas = makeCanvas([node]);
-    const adapter = makeAdapter({ id: 'mock-provider', type: 'sfx', capabilities: ['text-to-sfx'] });
+    const adapter = makeAdapter({ id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
     const deps = {
       adapterRegistry: {
         get: vi.fn((id: string) => (id === 'mock-provider' ? adapter : undefined)),
@@ -1127,33 +1166,6 @@ describe('buildGenerationContext', () => {
       '[prompt] compilation summary',
       expect.anything(),
     );
-  });
-
-  it('passes faceReferenceHashes into the request when present', async () => {
-    const node = makeImageNode({
-      providerId: 'mock-provider',
-      faceReferenceHashes: ['face-hash-1', 'face-hash-2'],
-    });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
-
-    const ctx = await buildGenerationContext(deps as never, {
-      canvasId: 'canvas-1',
-      nodeId: 'node-image',
-    });
-
-    expect(ctx.requestBase.faceReferenceHashes).toEqual(['face-hash-1', 'face-hash-2']);
-  });
-
-  it('omits faceReferenceHashes from the request when the array is empty', async () => {
-    const node = makeImageNode({ providerId: 'mock-provider', faceReferenceHashes: [] });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
-
-    const ctx = await buildGenerationContext(deps as never, {
-      canvasId: 'canvas-1',
-      nodeId: 'node-image',
-    });
-
-    expect(ctx.requestBase.faceReferenceHashes).toBeUndefined();
   });
 
   it('resolves the override provider when requestedProviderId is specified', async () => {

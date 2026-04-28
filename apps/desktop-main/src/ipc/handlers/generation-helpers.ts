@@ -11,6 +11,7 @@ import type {
   Canvas,
   CanvasNode,
   Capability,
+  GenerationEntityRef,
   GenerationRequest,
   GenerationType,
   StyleGuide,
@@ -86,6 +87,11 @@ export type BuiltGenerationContext = {
   variantCount: number;
   baseSeed?: number;
   compiled: CompiledPrompt;
+  resolvedEntityRefs: {
+    characterRefs?: GenerationEntityRef[];
+    equipmentRefs?: GenerationEntityRef[];
+    locationRefs?: GenerationEntityRef[];
+  };
 };
 
 export type GenerationMediaConfig = Pick<GenerationRequest, 'width' | 'height' | 'duration'> & {
@@ -107,6 +113,7 @@ export const DEFAULT_VIDEO_SIZE = { width: 1280, height: 720 };
 export const DEFAULT_VIDEO_DURATION = 5;
 export const DEFAULT_AUDIO_DURATION = 5;
 export const MAX_VARIANTS = 9;
+export const MAX_ACCUMULATED_VARIANTS = 20;
 
 export const DEFAULT_STYLE_GUIDE: StyleGuide = {
   global: {
@@ -177,6 +184,27 @@ export function resolvePositiveInteger(value: number | undefined, fallback: numb
 
 export function capitalizeUpdateStatus(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+export function mergeVariants(
+  existing: string[],
+  incoming: string[],
+): { variants: string[]; selectedVariantIndex: number } {
+  const seen = new Set(existing);
+  const newHashes = incoming.filter((h) => {
+    if (seen.has(h)) return false;
+    seen.add(h);
+    return true;
+  });
+  let merged = [...existing, ...newHashes];
+  if (merged.length > MAX_ACCUMULATED_VARIANTS) {
+    merged = merged.slice(merged.length - MAX_ACCUMULATED_VARIANTS);
+  }
+  const firstNewIndex = merged.indexOf(newHashes[0] ?? incoming[0]);
+  return {
+    variants: merged,
+    selectedVariantIndex: firstNewIndex >= 0 ? firstNewIndex : 0,
+  };
 }
 
 export function isRemoteUrl(value: string): boolean {
@@ -548,7 +576,6 @@ export function resolveImg2ImgSourcePath(hash: string, cas: CAS): string | undef
  * Materialize a GenerationRequest for adapter consumption:
  * - Resolves sourceImageHash → sourceImagePath via CAS
  * - Resolves frameReferenceImages → local file paths via CAS
- * - Resolves faceReferenceHashes → referenceImages file paths via CAS
  * - Merges steps / cfgScale / scheduler into params
  */
 export function materializeGenerationRequest(
@@ -597,15 +624,6 @@ export function materializeGenerationRequest(
         total: request.referenceImages.length,
         resolved: resolved.length,
       });
-    }
-  }
-
-  if (request.faceReferenceHashes && request.faceReferenceHashes.length > 0) {
-    const resolvedFaceImages = request.faceReferenceHashes
-      .map((hash) => resolveImg2ImgSourcePath(hash, cas))
-      .filter((p): p is string => p !== undefined);
-    if (resolvedFaceImages.length > 0) {
-      referenceImages = [...(referenceImages ?? []), ...resolvedFaceImages];
     }
   }
 
@@ -871,94 +889,6 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       }
 
       throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
-
-      /*
-      // Build request body based on endpoint type and generation type
-      let body: Record<string, unknown>;
-      if (isChatEndpoint) {
-        body = { messages: [{ role: 'user', content: req.prompt }] };
-      } else if (genType === 'image') {
-        body = { prompt: req.prompt, n: 1, size: '1024x1024', response_format: 'url' };
-      } else if (genType === 'video') {
-        body = { prompt: req.prompt, duration: req.duration ?? 5 };
-        // Resolve first reference image to a data URL for image-to-video
-        const firstRef = req.referenceImages?.[0];
-        if (firstRef) {
-          if (firstRef.startsWith('http')) {
-            body.image = firstRef;
-          } else if (firstRef.startsWith('data:')) {
-            body.image = firstRef;
-          } else if (cas) {
-            // Asset hash — read from CAS and convert to base64 data URL
-            for (const ext of ['png', 'jpg', 'jpeg', 'webp']) {
-              const filePath = cas.getAssetPath(firstRef, 'image', ext);
-              if (fs.existsSync(filePath)) {
-                const buf = fs.readFileSync(filePath);
-                const mime = ext === 'jpg' ? 'jpeg' : ext;
-                body.image = `data:image/${mime};base64,${buf.toString('base64')}`;
-                break;
-              }
-            }
-          }
-        }
-      } else {
-        body = { prompt: req.prompt };
-      }
-      // Only include model if non-empty
-      if (model) body.model = model;
-      body = buildBody(req);
-
-      log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, { model, bodyKeys: Object.keys(body) });
-      const res = await fetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) });
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        // Provide helpful context for common errors
-        const hint = res.status === 404
-          ? ` (endpoint not found -- check your base URL is correct for ${genType} generation)`
-          : res.status === 500
-            ? ` (server error -- the model "${model}" may not support ${genType} generation)`
-            : '';
-        throw new Error(`Provider error ${res.status}${hint}: ${errBody.slice(0, 400)}`);
-      }
-      const json = await res.json() as Record<string, unknown>;
-      log.info(`Ad-hoc adapter response for ${genType}: ${JSON.stringify(json).slice(0, 1000)}`);
-
-      // --- Extract asset from response (supports multiple formats) ---
-
-      // Format: { data: [{ url }] } or { data: [{ b64_json }] } -- OpenAI images
-      const dataArr = json.data as Array<{ url?: string; b64_json?: string }> | undefined;
-      if (dataArr?.[0]?.url) return { assetHash: '', assetPath: dataArr[0].url, provider: id };
-      if (dataArr?.[0]?.b64_json) {
-        const mime = genType === 'video' ? 'video/mp4' : 'image/png';
-        return { assetHash: '', assetPath: `data:${mime};base64,${dataArr[0].b64_json}`, provider: id };
-      }
-
-      // Format: { choices: [{ message: { content, images } }] } -- chat completions
-      const choices = json.choices as Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }> | undefined;
-      const msg = choices?.[0]?.message;
-      if (msg?.images?.[0]?.image_url?.url) return { assetHash: '', assetPath: msg.images[0].image_url.url, provider: id };
-      const content = msg?.content ?? '';
-      if (content.startsWith('data:')) return { assetHash: '', assetPath: content, provider: id };
-      const mediaUrl = extractMediaUrlFromLLMText(content);
-      if (mediaUrl) return { assetHash: '', assetPath: mediaUrl, provider: id };
-      if (content.startsWith('http')) return { assetHash: '', assetPath: content.trim(), provider: id };
-
-      // Format: { id, status } -- async job (Runway, Luma, Pixazo, etc.)
-      const taskId = json.id ?? json.taskId ?? json.task_id ?? json.generation_id;
-      if (taskId) {
-        const immediateOutput = json.output ?? json.video_url ?? json.url ?? json.download_url;
-        if (typeof immediateOutput === 'string' && immediateOutput.startsWith('http')) {
-          return { assetHash: '', assetPath: immediateOutput, provider: id };
-        }
-        throw new Error(`Generation submitted to provider (task: ${taskId}). Video is being generated on the provider's servers -- check your provider dashboard to download the result.`);
-      }
-
-      // Format: { url } or { video_url } or { output } -- direct URL
-      const directUrl = json.url ?? json.video_url ?? json.audio_url ?? json.output;
-      if (typeof directUrl === 'string') return { assetHash: '', assetPath: directUrl, provider: id };
-
-      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
-      */
     },
     async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
       const json = await submit(req);

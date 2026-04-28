@@ -35,15 +35,26 @@ function getLipSyncSettings(): LipSyncSettings | null {
   }
 }
 
-function findAudioAssetForVideoNode(canvas: Canvas, videoNode: CanvasNode): string | undefined {
-  // Look for an audio node connected by an edge targeting the video node
-  const incomingEdge = canvas.edges.find((e) => e.target === videoNode.id);
-  if (!incomingEdge) return undefined;
-  const sourceNode = canvas.nodes.find(
-    (n) => n.id === incomingEdge.source && n.type === 'audio',
-  );
-  if (!sourceNode) return undefined;
-  const audioData = sourceNode.data as AudioNodeData;
+export function findAudioAssetForVideoNode(canvas: Canvas, videoNode: CanvasNode): string | undefined {
+  const audioEdges: { edge: typeof canvas.edges[number]; node: CanvasNode }[] = [];
+  for (const edge of canvas.edges) {
+    if (edge.target !== videoNode.id) continue;
+    const sourceNode = canvas.nodes.find(
+      (n) => n.id === edge.source && n.type === 'audio',
+    );
+    if (sourceNode) {
+      audioEdges.push({ edge, node: sourceNode });
+    }
+  }
+  if (audioEdges.length === 0) return undefined;
+  if (audioEdges.length > 1) {
+    log.warn('[lipsync] multiple audio nodes connected to video node, using the last-connected one', {
+      videoNodeId: videoNode.id,
+      audioNodeIds: audioEdges.map((e) => e.node.id),
+    });
+  }
+  const selected = audioEdges[audioEdges.length - 1];
+  const audioData = selected.node.data as AudioNodeData;
   return audioData.assetHash;
 }
 

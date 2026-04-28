@@ -38,7 +38,7 @@ import type {
   Location,
   Equipment,
 } from '@lucid-fin/contracts';
-import { DEFAULT_PROVIDER_PROFILE, COMMANDER_WIRE_VERSION } from '@lucid-fin/contracts';
+import { DEFAULT_PROVIDER_PROFILE, COMMANDER_WIRE_VERSION, deriveNodeStatus } from '@lucid-fin/contracts';
 import { matchNode } from '@lucid-fin/shared-utils';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
@@ -122,7 +122,7 @@ function summarizeSelectedNode(node: CanvasNode, _db: SqliteIndex): Record<strin
     id: node.id,
     type: node.type,
     title: node.title,
-    status: node.status,
+    status: deriveNodeStatus(node),
   };
 
   return matchNode(node.type, {
@@ -262,7 +262,7 @@ export function buildWorkspaceSnapshot(
   const statusCounts: Record<string, number> = { idle: 0, generating: 0, done: 0, failed: 0 };
   for (const node of canvas.nodes) {
     nodesByType[node.type] = (nodesByType[node.type] ?? 0) + 1;
-    const st = node.status ?? 'idle';
+    const st = deriveNodeStatus(node);
     if (st in statusCounts) {
       statusCounts[st]++;
     } else {
@@ -378,7 +378,7 @@ export function buildWorkspaceSnapshot(
       lines.push('');
       lines.push(`Selected nodes (${selected.length}):`);
       for (const node of selected.slice(0, MAX_CONTEXT_SELECTED_NODES)) {
-        const parts: string[] = [`  ${node.title || node.id} [${node.type}] status:${node.status}`];
+        const parts: string[] = [`  ${node.title || node.id} [${node.type}] status:${deriveNodeStatus(node)}`];
         const data = node.data as Record<string, unknown>;
         if (typeof data.prompt === 'string' && data.prompt.trim().length > 0) {
           parts.push(`    prompt: ${truncSnap(data.prompt.trim(), 200)}`);

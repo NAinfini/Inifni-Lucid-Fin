@@ -56,6 +56,10 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       description:
         typeof args.description === 'string' ? args.description : (existing?.description ?? ''),
       function: typeof args.function === 'string' ? args.function : existing?.function,
+      material: typeof args.material === 'string' ? args.material : existing?.material,
+      color: typeof args.color === 'string' ? args.color : existing?.color,
+      condition: typeof args.condition === 'string' ? args.condition : existing?.condition,
+      visualDetails: typeof args.visualDetails === 'string' ? args.visualDetails : existing?.visualDetails,
       tags: Array.isArray(args.tags)
         ? args.tags.filter((t): t is string => typeof t === 'string')
         : (existing?.tags ?? []),
@@ -73,6 +77,10 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       subtype: equip.subtype,
       description: equip.description,
       functionDesc: equip.function,
+      material: equip.material,
+      color: equip.color,
+      condition: equip.condition,
+      visualDetails: equip.visualDetails,
       tags: equip.tags,
       referenceImages: equip.referenceImages,
       createdAt: equip.createdAt,

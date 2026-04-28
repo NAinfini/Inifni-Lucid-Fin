@@ -28,6 +28,7 @@ import {
   normalizeOptionalString,
   normalizeErrorMessage,
   capitalizeUpdateStatus,
+  mergeVariants,
   materializeAsset,
   materializeGenerationRequest,
   requireGenerateArgs,
@@ -99,13 +100,6 @@ export async function cancelCanvasGeneration(
   running.cancelled = true;
   running.cancelReason = 'Generation cancelled by user';
   sendProgress(sender, parsed.canvasId, parsed.nodeId, 0, 'cancelling');
-
-  // Send failed event so frontend updates node status
-  sender.send('canvas:generation:failed', {
-    canvasId: parsed.canvasId,
-    nodeId: parsed.nodeId,
-    error: 'Cancelled by user',
-  });
 
   const adapter = deps.adapterRegistry.get(running.adapterId);
   if (!adapter) return;
@@ -298,6 +292,25 @@ async function executeGeneration(args: {
             `node:${runningJob.nodeId}`,
             `variant:${index + 1}`,
           ],
+          generationMetadata: {
+            prompt: requestBase.prompt,
+            negativePrompt: requestBase.negativePrompt ?? undefined,
+            provider: adapter.id,
+            seed: variantSeed,
+            width: requestBase.width,
+            height: requestBase.height,
+            sourceImageHash: requestBase.sourceImageHash ?? undefined,
+            characterRefs: context.resolvedEntityRefs.characterRefs,
+            equipmentRefs: context.resolvedEntityRefs.equipmentRefs,
+            locationRefs: context.resolvedEntityRefs.locationRefs,
+            frameReferenceHashes: requestBase.frameReferenceImages ?? undefined,
+            steps: requestBase.steps ?? undefined,
+            cfgScale: requestBase.cfgScale ?? undefined,
+            scheduler: requestBase.scheduler ?? undefined,
+            img2imgStrength: requestBase.img2imgStrength ?? undefined,
+            model: generated.provenance?.model ?? (generated.metadata?.model as string | undefined) ?? undefined,
+            cost: generated.cost ?? undefined,
+          },
         });
 
         variantHashes.push(ref.hash);
@@ -376,6 +389,12 @@ async function executeGeneration(args: {
       primaryAssetHash: variantHashes[0],
       cost: finalCost,
       generationTimeMs,
+      characterRefs: context.resolvedEntityRefs.characterRefs,
+      equipmentRefs: context.resolvedEntityRefs.equipmentRefs,
+      locationRefs: context.resolvedEntityRefs.locationRefs,
+      frameReferenceHashes: requestBase.frameReferenceImages ?? undefined,
+      sourceImageHash: requestBase.sourceImageHash ?? undefined,
+      model: context.compiled?.params?.model as string | undefined,
     });
   } catch (error) {
     const message = normalizeErrorMessage(error);
@@ -515,7 +534,6 @@ function markNodeGenerating(
   if (typeof input.seed === 'number') {
     data.seed = input.seed;
   }
-  node.status = 'generating';
 }
 
 function markNodeCompleted(
@@ -527,10 +545,11 @@ function markNodeCompleted(
   },
 ): void {
   const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
+  const merged = mergeVariants(data.variants ?? [], input.variants);
   data.status = 'done';
-  data.variants = input.variants;
-  data.selectedVariantIndex = 0;
-  data.assetHash = input.variants[0];
+  data.variants = merged.variants;
+  data.selectedVariantIndex = merged.selectedVariantIndex;
+  data.assetHash = merged.variants[merged.selectedVariantIndex];
   data.progress = 100;
   data.error = undefined;
   data.generationTimeMs = input.generationTimeMs;
@@ -538,7 +557,6 @@ function markNodeCompleted(
     data.cost = input.cost;
     data.estimatedCost = input.cost;
   }
-  node.status = 'done';
 }
 
 function markNodeFailed(node: CanvasNode, error: string): void {
@@ -546,7 +564,6 @@ function markNodeFailed(node: CanvasNode, error: string): void {
   data.status = 'failed';
   data.error = error;
   data.progress = undefined;
-  node.status = 'failed';
 }
 
 function touchCanvas(canvas: Canvas, deps: CanvasGenerationDeps): void {

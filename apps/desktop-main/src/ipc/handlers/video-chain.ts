@@ -59,28 +59,17 @@ export async function autoChainVideoFrame(
     const { ref } = await cas.importAsset(tmpOutput, 'image');
     const frameHash = ref.hash;
 
-    // 6. Find the next video node
+    // 6. Find the next video node via outgoing edge only
     let nextNode: CanvasNode | undefined;
 
-    // First: check outgoing edges from completedNode
-    const outgoingEdge = canvas.edges.find((e) => e.source === completedNode.id);
-    if (outgoingEdge) {
+    for (const edge of canvas.edges) {
+      if (edge.source !== completedNode.id) continue;
       const targetNode = canvas.nodes.find(
-        (n) => n.id === outgoingEdge.target && n.type === 'video',
+        (n) => n.id === edge.target && n.type === 'video',
       );
       if (targetNode) {
         nextNode = targetNode;
-      }
-    }
-
-    // Fallback: sort all video nodes by position.x, find the one immediately after completedNode
-    if (!nextNode) {
-      const videoNodes = canvas.nodes
-        .filter((n) => n.type === 'video')
-        .sort((a, b) => a.position.x - b.position.x);
-      const currentIndex = videoNodes.findIndex((n) => n.id === completedNode.id);
-      if (currentIndex !== -1 && currentIndex < videoNodes.length - 1) {
-        nextNode = videoNodes[currentIndex + 1];
+        break;
       }
     }
 

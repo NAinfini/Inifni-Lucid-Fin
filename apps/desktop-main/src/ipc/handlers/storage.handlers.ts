@@ -7,6 +7,7 @@ import type { IpcMain } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
 import log from '../../logger.js';
+import { assertWithinRoot } from '../validation.js';
 
 const APP_ROOT = path.join(os.homedir(), '.lucid-fin');
 
@@ -94,6 +95,7 @@ export function registerStorageHandlers(
   // --- Open folder in OS file manager ---
   ipcMain.handle('storage:openFolder', async (_event, args: { path: string }) => {
     if (!args?.path) return;
+    assertWithinRoot(APP_ROOT, args.path);
     if (!fs.existsSync(args.path)) {
       fs.mkdirSync(args.path, { recursive: true });
     }
@@ -103,6 +105,7 @@ export function registerStorageHandlers(
   // --- Open file in OS (e.g. database) ---
   ipcMain.handle('storage:showInFolder', async (_event, args: { path: string }) => {
     if (!args?.path) return;
+    assertWithinRoot(APP_ROOT, args.path);
     if (fs.existsSync(args.path)) {
       shell.showItemInFolder(args.path);
     }
@@ -158,12 +161,15 @@ export function registerStorageHandlers(
   // --- Database backup ---
   ipcMain.handle('storage:backupDatabase', async (_event, args: { destPath: string }) => {
     const dbPath = path.join(APP_ROOT, 'lucid-fin.db');
+    const resolvedDest = path.resolve(args.destPath);
+    if (!resolvedDest || resolvedDest === dbPath) {
+      return { success: false, error: 'Invalid destination path' };
+    }
     try {
-      await fsp.copyFile(dbPath, args.destPath);
-      // Also backup prompts.db
+      await fsp.copyFile(dbPath, resolvedDest);
       const promptsDb = path.join(APP_ROOT, 'prompts.db');
       if (fs.existsSync(promptsDb)) {
-        const promptsDest = args.destPath.replace(/\.db$/, '-prompts.db');
+        const promptsDest = resolvedDest.replace(/\.db$/, '-prompts.db');
         await fsp.copyFile(promptsDb, promptsDest);
       }
       return { success: true };
@@ -176,11 +182,14 @@ export function registerStorageHandlers(
   // --- Database restore ---
   ipcMain.handle('storage:restoreDatabase', async (_event, args: { sourcePath: string }) => {
     const dbPath = path.join(APP_ROOT, 'lucid-fin.db');
+    const resolvedSource = path.resolve(args.sourcePath);
+    if (!resolvedSource || !fs.existsSync(resolvedSource)) {
+      return { success: false, error: 'Source file not found' };
+    }
     try {
-      // Create backup of current before restoring
       const backupPath = dbPath + '.pre-restore-backup';
       await fsp.copyFile(dbPath, backupPath);
-      await fsp.copyFile(args.sourcePath, dbPath);
+      await fsp.copyFile(resolvedSource, dbPath);
       return { success: true, backupCreated: backupPath };
     } catch (err) {
       log.warn('[storage] restore failed', { error: String(err) });

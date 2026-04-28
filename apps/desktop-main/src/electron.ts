@@ -29,6 +29,7 @@ import {
   appRestartChannel,
   loggerEntryChannel,
   pingChannel,
+  healthPingChannel,
 } from '@lucid-fin/contracts-parse';
 import {
   initAutoUpdater,
@@ -84,6 +85,12 @@ function registerEarlyIpcHandlers(): void {
   // IPC health check — lightweight ping/pong for connection monitoring
   registerInvoke(registrarDeps, pingChannel, async () => 'pong' as const);
 
+  // Contract-based health check for generated preload alignment
+  registerInvoke(registrarDeps, healthPingChannel, async () => ({
+    ok: true as const,
+    uptime: process.uptime(),
+  }));
+
   // App restart — used after DB restore to avoid stale WAL state
   registerInvoke(registrarDeps, appRestartChannel, async () => {
     app.relaunch();
@@ -92,7 +99,7 @@ function registerEarlyIpcHandlers(): void {
 
   log.debug('Registered early IPC handlers', {
     category: 'ipc',
-    channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping', 'app:restart'],
+    channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping', 'health:ping', 'app:restart'],
   });
 }
 

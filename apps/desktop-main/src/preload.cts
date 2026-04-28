@@ -493,16 +493,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     onProgress: (cb: Callback) => subscribe('updater:status', cb),
   },
 
-  // Orchestration
-  orchestration: {
-    list: (sceneId: string) => invoke('orchestration:list', { sceneId }),
-    save: (data: Record<string, unknown>) => invoke('orchestration:save', data),
-    delete: (id: string) => invoke('orchestration:delete', { id }),
-    reorder: (sceneId: string, segmentIds: string[]) =>
-      invoke('orchestration:reorder', { sceneId, segmentIds }),
-    generatePrompt: (segmentId: string) => invoke('orchestration:generatePrompt', { segmentId }),
-  },
-
   // Render
   render: {
     start: (request: Record<string, unknown>) => invoke('render:start', request),
@@ -607,6 +597,12 @@ contextBridge.exposeInMainWorld('lucidAPI', {
         primaryAssetHash: string;
         cost?: number;
         generationTimeMs: number;
+        characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+        equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+        locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+        frameReferenceHashes?: { first?: string; last?: string };
+        sourceImageHash?: string;
+        model?: string;
       }) => void,
     ) => {
       const handler = (_event: IpcRendererEvent, data: {
@@ -616,6 +612,12 @@ contextBridge.exposeInMainWorld('lucidAPI', {
         primaryAssetHash: string;
         cost?: number;
         generationTimeMs: number;
+        characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+        equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+        locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+        frameReferenceHashes?: { first?: string; last?: string };
+        sourceImageHash?: string;
+        model?: string;
       }) => cb(data);
       ipcRenderer.on('canvas:generation:complete', handler);
       return () => ipcRenderer.removeListener('canvas:generation:complete', handler);

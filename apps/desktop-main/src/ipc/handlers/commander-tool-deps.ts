@@ -31,6 +31,7 @@ import {
   jobToolModule,
   colorStyleToolModule,
   seriesToolModule,
+  createTodoTools,
   type JobQueue,
   type WorkflowEngine,
 } from '@lucid-fin/application';
@@ -55,6 +56,7 @@ import {
 } from '@lucid-fin/contracts-parse';
 import {
   BUILT_IN_SHOT_TEMPLATES,
+  NODE_KINDS,
   createEmptyPresetTrackSet,
   type Canvas,
   type CanvasEdge,
@@ -305,7 +307,6 @@ export function registerAllTools(
       node.updatedAt = Date.now();
       touchCanvas(current, deps.canvasStore);
     },
-    getCanvasState: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
     layoutNodes: async () => undefined,
     triggerGeneration: async (
       canvasId: string,
@@ -370,87 +371,6 @@ export function registerAllTools(
     deleteShotTemplate: async (templateId: string): Promise<void> => {
       deps.db.repos.shotTemplates.delete(parseShotTemplateId(templateId));
     },
-    removeCharacterRef: async (canvasId: string, nodeId: string, characterId: string) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
-      if (node.type !== 'image' && node.type !== 'video') {
-        throw new Error(`Node type "${node.type}" does not support character refs`);
-      }
-      const refs = ((node.data as { characterRefs?: Array<{ characterId: string }> }).characterRefs ?? [])
-        .filter((entry) => entry.characterId !== characterId);
-      (node.data as { characterRefs?: Array<{ characterId: string }> }).characterRefs = refs;
-      node.updatedAt = Date.now();
-      touchCanvas(current, deps.canvasStore);
-    },
-    removeEquipmentRef: async (canvasId: string, nodeId: string, equipmentId: string) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
-      if (node.type !== 'image' && node.type !== 'video') {
-        throw new Error(`Node type "${node.type}" does not support equipment refs`);
-      }
-      const refs = ((node.data as { equipmentRefs?: Array<{ equipmentId: string }> }).equipmentRefs ?? [])
-        .filter((entry) => entry.equipmentId !== equipmentId);
-      (node.data as { equipmentRefs?: Array<{ equipmentId: string }> }).equipmentRefs = refs;
-      node.updatedAt = Date.now();
-      touchCanvas(current, deps.canvasStore);
-    },
-    removeLocationRef: async (canvasId: string, nodeId: string, locationId: string) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
-      if (node.type !== 'image' && node.type !== 'video') {
-        throw new Error(`Node type "${node.type}" does not support location refs`);
-      }
-      const refs = ((node.data as { locationRefs?: Array<{ locationId: string }> }).locationRefs ?? [])
-        .filter((entry) => entry.locationId !== locationId);
-      (node.data as { locationRefs?: Array<{ locationId: string }> }).locationRefs = refs;
-      node.updatedAt = Date.now();
-      touchCanvas(current, deps.canvasStore);
-    },
-    listLLMProviders: async () => {
-      const results = [];
-      for (const a of deps.llmRegistry.list()) {
-        const hasKey = await deps.keychain.isConfigured(a.id);
-        results.push({
-          id: a.id,
-          name: a.name,
-          model: (a as unknown as { defaultModel?: string }).defaultModel ?? '',
-          hasKey,
-        });
-      }
-      return results;
-    },
-    setActiveLLMProvider: async (providerId: string) => {
-      const adapter = deps.llmRegistry.list().find((a) => a.id === providerId);
-      if (!adapter) throw new Error(`LLM provider not found: ${providerId}`);
-      const win = getWindow();
-      if (win) {
-        gateway.emit(commanderSettingsDispatchChannel, {
-          action: 'setProviderId',
-          payload: { providerId },
-        });
-      }
-    },
-    setLLMProviderApiKey: async (providerId: string, apiKey: string) => {
-      const mediaAdapter = deps.adapterRegistry.get(providerId);
-      if (mediaAdapter) mediaAdapter.configure(apiKey);
-      const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
-      if (llmProvider) llmProvider.configure(apiKey);
-      await deps.keychain.setKey(providerId, apiKey);
-      gateway.emit(settingsProviderKeyUpdatedChannel, {
-        group: 'provider',
-        providerId,
-        hasKey: true,
-      });
-    },
-    deleteProviderKey: async (providerId: string) => {
-      await deps.keychain.deleteKey(providerId);
-      const mediaAdapter = deps.adapterRegistry.get(providerId);
-      if (mediaAdapter) mediaAdapter.configure('');
-      const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
-      if (llmProvider) llmProvider.configure('');
-      gateway.emit(settingsProviderKeyUpdatedChannel, {
-        group: 'provider',
-        providerId,
-        hasKey: false,
-      });
-    },
     isProviderKeyConfigured: async (providerId: string) => {
       try {
         const key = await deps.keychain.getKey(providerId);
@@ -460,7 +380,6 @@ export function registerAllTools(
       }
     },
     getDefaultProviderId: (group: 'image' | 'video' | 'audio') => defaultProviders?.[group],
-    clearSelection: async (_canvasId: string) => {},
     setNodeColorTag: async (canvasId: string, nodeId: string, color: string | undefined) => {
       const { canvas: cur, node } = requireNode(deps.canvasStore, canvasId, nodeId);
       node.colorTag = color;
@@ -597,9 +516,6 @@ export function registerAllTools(
       gateway.emit(commanderUndoDispatchChannel, { action: 'redo' });
     },
     importWorkflow: async (canvasId: string, json: string): Promise<Canvas> => {
-      // Parses a previously-exported JSON payload and replaces nodes/edges/
-      // viewport/notes on the target canvas. Canvas id/name/timestamps are
-      // preserved so callers can re-import into any canvas container.
       let parsed: unknown;
       try {
         parsed = JSON.parse(json);
@@ -609,15 +525,126 @@ export function registerAllTools(
       if (!parsed || typeof parsed !== 'object') {
         throw new Error('importWorkflow: payload must be a JSON object');
       }
-      const incoming = parsed as Partial<Canvas>;
+      const incoming = parsed as Record<string, unknown>;
       if (!Array.isArray(incoming.nodes) || !Array.isArray(incoming.edges)) {
         throw new Error('importWorkflow: payload must contain nodes and edges arrays');
       }
+
+      const validNodeKinds = new Set<string>(NODE_KINDS);
+      const nodeIds = new Set<string>();
+      const now = Date.now();
+      const validatedNodes: CanvasNode[] = [];
+      for (let i = 0; i < incoming.nodes.length; i++) {
+        const raw = incoming.nodes[i];
+        if (!raw || typeof raw !== 'object') {
+          throw new Error(`importWorkflow: nodes[${i}] is not an object`);
+        }
+        const n = raw as Record<string, unknown>;
+        if (typeof n.id !== 'string' || n.id.length === 0) {
+          throw new Error(`importWorkflow: nodes[${i}] missing id`);
+        }
+        if (nodeIds.has(n.id)) {
+          throw new Error(`importWorkflow: duplicate node id "${n.id}"`);
+        }
+        nodeIds.add(n.id);
+        if (typeof n.type !== 'string' || !validNodeKinds.has(n.type)) {
+          throw new Error(`importWorkflow: nodes[${i}] has invalid type "${String(n.type)}"`);
+        }
+        if (!n.position || typeof n.position !== 'object') {
+          throw new Error(`importWorkflow: nodes[${i}] missing position`);
+        }
+        const pos = n.position as Record<string, unknown>;
+        if (typeof pos.x !== 'number' || typeof pos.y !== 'number') {
+          throw new Error(`importWorkflow: nodes[${i}] position must have numeric x and y`);
+        }
+        if (typeof n.title !== 'string') {
+          throw new Error(`importWorkflow: nodes[${i}] missing title`);
+        }
+        if (!n.data || typeof n.data !== 'object') {
+          throw new Error(`importWorkflow: nodes[${i}] missing data object`);
+        }
+        validatedNodes.push({
+          id: n.id,
+          type: n.type as CanvasNode['type'],
+          position: { x: pos.x, y: pos.y },
+          title: n.title,
+          data: n.data as CanvasNode['data'],
+          bypassed: typeof n.bypassed === 'boolean' ? n.bypassed : false,
+          locked: typeof n.locked === 'boolean' ? n.locked : false,
+          colorTag: typeof n.colorTag === 'string' ? n.colorTag : undefined,
+          tags: Array.isArray(n.tags) ? (n.tags as string[]).filter((t) => typeof t === 'string') : undefined,
+          groupId: typeof n.groupId === 'string' ? n.groupId : undefined,
+          parentId: typeof n.parentId === 'string' ? n.parentId : undefined,
+          width: typeof n.width === 'number' ? n.width : undefined,
+          height: typeof n.height === 'number' ? n.height : undefined,
+          createdAt: typeof n.createdAt === 'number' ? n.createdAt : now,
+          updatedAt: typeof n.updatedAt === 'number' ? n.updatedAt : now,
+        });
+      }
+
+      const validatedEdges: CanvasEdge[] = [];
+      for (let i = 0; i < incoming.edges.length; i++) {
+        const raw = incoming.edges[i];
+        if (!raw || typeof raw !== 'object') {
+          throw new Error(`importWorkflow: edges[${i}] is not an object`);
+        }
+        const e = raw as Record<string, unknown>;
+        if (typeof e.id !== 'string' || e.id.length === 0) {
+          throw new Error(`importWorkflow: edges[${i}] missing id`);
+        }
+        if (typeof e.source !== 'string' || !nodeIds.has(e.source)) {
+          throw new Error(`importWorkflow: edges[${i}] references unknown source "${String(e.source)}"`);
+        }
+        if (typeof e.target !== 'string' || !nodeIds.has(e.target)) {
+          throw new Error(`importWorkflow: edges[${i}] references unknown target "${String(e.target)}"`);
+        }
+        if (e.source === e.target) {
+          throw new Error(`importWorkflow: edges[${i}] self-loop not allowed`);
+        }
+        validatedEdges.push({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: typeof e.sourceHandle === 'string' ? e.sourceHandle : undefined,
+          targetHandle: typeof e.targetHandle === 'string' ? e.targetHandle : undefined,
+          data: {
+            label: typeof (e.data as Record<string, unknown> | undefined)?.label === 'string'
+              ? (e.data as Record<string, unknown>).label as string
+              : undefined,
+            status: 'idle',
+          },
+        });
+      }
+
+      let validatedViewport: Canvas['viewport'] | undefined;
+      if (incoming.viewport && typeof incoming.viewport === 'object') {
+        const v = incoming.viewport as Record<string, unknown>;
+        if (typeof v.x === 'number' && typeof v.y === 'number' && typeof v.zoom === 'number') {
+          validatedViewport = { x: v.x, y: v.y, zoom: v.zoom };
+        }
+      }
+
+      let validatedNotes: CanvasNote[] | undefined;
+      if (Array.isArray(incoming.notes)) {
+        validatedNotes = [];
+        for (const raw of incoming.notes) {
+          if (!raw || typeof raw !== 'object') continue;
+          const note = raw as Record<string, unknown>;
+          if (typeof note.id !== 'string' || typeof note.content !== 'string') continue;
+          validatedNotes.push({
+            id: note.id,
+            content: note.content,
+            createdAt: typeof note.createdAt === 'number' ? note.createdAt : now,
+            updatedAt: typeof note.updatedAt === 'number' ? note.updatedAt : now,
+          });
+        }
+      }
+
       const canvas = requireCanvas(deps.canvasStore, canvasId);
-      canvas.nodes = incoming.nodes as CanvasNode[];
-      canvas.edges = incoming.edges as CanvasEdge[];
-      if (incoming.viewport) canvas.viewport = incoming.viewport;
-      if (Array.isArray(incoming.notes)) canvas.notes = incoming.notes as CanvasNote[];
+      canvas.nodes = validatedNodes;
+      canvas.edges = validatedEdges;
+      if (validatedViewport) canvas.viewport = validatedViewport;
+      if (validatedNotes) canvas.notes = validatedNotes;
       touchCanvas(canvas, deps.canvasStore);
       return canvas;
     },
@@ -1354,5 +1381,10 @@ export function registerAllTools(
     })) {
       registry.register(tool);
     }
+  }
+
+  // ---- Todo tools (orchestrator-intercepted; schemas make them visible to the LLM) ----
+  for (const tool of createTodoTools()) {
+    registry.register(tool);
   }
 }

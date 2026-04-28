@@ -46,12 +46,14 @@ import {
   materializeAsset,
   resolveImg2ImgSourcePath,
   materializeGenerationRequest,
+  mergeVariants,
   buildAdhocAdapter,
   DEFAULT_IMAGE_SIZE,
   DEFAULT_VIDEO_SIZE,
   DEFAULT_VIDEO_DURATION,
   DEFAULT_AUDIO_DURATION,
   MAX_VARIANTS,
+  MAX_ACCUMULATED_VARIANTS,
   DEFAULT_STYLE_GUIDE,
   STYLE_GUIDE_LIGHTING_PRESETS,
 } from './generation-helpers.js';
@@ -867,61 +869,6 @@ describe('materializeGenerationRequest', () => {
     expect(result.referenceImages).toBeUndefined();
   });
 
-  it('appends resolved faceReferenceHashes to referenceImages', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-face-ref-'));
-    const facePath = path.join(tmpDir, 'face.png');
-    fs.writeFileSync(facePath, Buffer.from([1]));
-
-    const cas = {
-      getAssetPath: vi.fn((hash: string, _type: string, ext: string) => {
-        if (hash === 'face-hash' && ext === 'png') return facePath;
-        return `/missing/${hash}.${ext}`;
-      }),
-    };
-
-    try {
-      const req = {
-        type: 'image' as const,
-        providerId: 'mock',
-        prompt: 'test',
-        faceReferenceHashes: ['face-hash'],
-      };
-      const result = materializeGenerationRequest(req, cas as never);
-      expect(result.referenceImages).toContain(facePath);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('merges referenceImages and faceReferenceHashes together', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-merge-refs-'));
-    const refPath = path.join(tmpDir, 'ref.png');
-    const facePath = path.join(tmpDir, 'face.png');
-    fs.writeFileSync(refPath, Buffer.from([1]));
-    fs.writeFileSync(facePath, Buffer.from([2]));
-
-    const cas = {
-      getAssetPath: vi.fn((hash: string, _type: string, ext: string) => {
-        if (hash === 'ref-hash' && ext === 'png') return refPath;
-        if (hash === 'face-hash' && ext === 'png') return facePath;
-        return `/missing/${hash}.${ext}`;
-      }),
-    };
-
-    try {
-      const req = {
-        type: 'image' as const,
-        providerId: 'mock',
-        prompt: 'test',
-        referenceImages: ['ref-hash'],
-        faceReferenceHashes: ['face-hash'],
-      };
-      const result = materializeGenerationRequest(req, cas as never);
-      expect(result.referenceImages).toEqual([refPath, facePath]);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1600,5 +1547,59 @@ describe('buildAdhocAdapter', () => {
         vi.unstubAllGlobals();
       }
     });
+  });
+});
+
+describe('mergeVariants', () => {
+  it('appends new variants to existing ones', () => {
+    const result = mergeVariants(['a', 'b'], ['c', 'd']);
+    expect(result.variants).toEqual(['a', 'b', 'c', 'd']);
+    expect(result.selectedVariantIndex).toBe(2);
+  });
+
+  it('deduplicates incoming variants that already exist', () => {
+    const result = mergeVariants(['a', 'b'], ['b', 'c']);
+    expect(result.variants).toEqual(['a', 'b', 'c']);
+    expect(result.selectedVariantIndex).toBe(2);
+  });
+
+  it('returns existing variants unchanged when all incoming are duplicates', () => {
+    const result = mergeVariants(['a', 'b'], ['a', 'b']);
+    expect(result.variants).toEqual(['a', 'b']);
+    expect(result.selectedVariantIndex).toBe(0);
+  });
+
+  it('handles empty existing array', () => {
+    const result = mergeVariants([], ['x', 'y']);
+    expect(result.variants).toEqual(['x', 'y']);
+    expect(result.selectedVariantIndex).toBe(0);
+  });
+
+  it('handles empty incoming array', () => {
+    const result = mergeVariants(['a', 'b'], []);
+    expect(result.variants).toEqual(['a', 'b']);
+    expect(result.selectedVariantIndex).toBe(0);
+  });
+
+  it('trims oldest when exceeding MAX_ACCUMULATED_VARIANTS', () => {
+    const existing = Array.from({ length: 18 }, (_, i) => `existing-${i}`);
+    const incoming = ['new-0', 'new-1', 'new-2', 'new-3', 'new-4'];
+    const result = mergeVariants(existing, incoming);
+    expect(result.variants.length).toBe(MAX_ACCUMULATED_VARIANTS);
+    expect(result.variants).not.toContain('existing-0');
+    expect(result.variants).not.toContain('existing-1');
+    expect(result.variants).not.toContain('existing-2');
+    expect(result.variants).toContain('existing-3');
+    expect(result.variants).toContain('new-4');
+    expect(result.selectedVariantIndex).toBe(result.variants.indexOf('new-0'));
+  });
+
+  it('selects the first new variant as selectedVariantIndex', () => {
+    const result = mergeVariants(['a'], ['b', 'c', 'd']);
+    expect(result.selectedVariantIndex).toBe(1);
+  });
+
+  it('MAX_ACCUMULATED_VARIANTS is 20', () => {
+    expect(MAX_ACCUMULATED_VARIANTS).toBe(20);
   });
 });
