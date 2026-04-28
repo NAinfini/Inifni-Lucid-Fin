@@ -21,6 +21,7 @@ export const AssetsTable = defineTable('assets', {
   width: col<number | null>('width'),
   height: col<number | null>('height'),
   duration: col<number | null>('duration'),
+  generationMetadata: col<string | null>('generation_metadata'),
 });
 
 export const AssetEmbeddingsTable = defineTable('asset_embeddings', {

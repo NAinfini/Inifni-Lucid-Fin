@@ -36,8 +36,6 @@ describe('sqlite migrations', () => {
   });
 
   it('upgrades legacy versioned databases and records the current version', () => {
-    // Migration v2 is a no-op (columns already present in all live databases since 2026-04-26).
-    // This test only verifies that the runner advances the schema version and creates a backup.
     const dbPath = path.join(base, 'legacy.db');
     const db = new Database(dbPath);
     db.exec(`
@@ -57,6 +55,52 @@ describe('sqlite migrations', () => {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE characters (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT,
+        description TEXT,
+        appearance TEXT,
+        personality TEXT,
+        costumes TEXT,
+        tags TEXT,
+        age INTEGER,
+        gender TEXT,
+        voice TEXT,
+        reference_images TEXT DEFAULT '[]',
+        loadouts TEXT DEFAULT '[]',
+        default_loadout_id TEXT DEFAULT '',
+        folder_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE equipment (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT,
+        subtype TEXT,
+        description TEXT DEFAULT '',
+        function_desc TEXT,
+        tags TEXT DEFAULT '[]',
+        reference_images TEXT DEFAULT '[]',
+        folder_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE assets (
+        hash TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        format TEXT NOT NULL,
+        tags TEXT,
+        prompt TEXT,
+        provider TEXT,
+        folder_id TEXT,
+        created_at INTEGER NOT NULL,
+        file_size INTEGER,
+        width INTEGER,
+        height INTEGER,
+        duration REAL
+      );
     `);
 
     runSqliteMigrations(db, dbPath);
@@ -67,6 +111,13 @@ describe('sqlite migrations', () => {
 
     expect(version.version).toBe(CURRENT_SCHEMA_VERSION);
     expect(fs.existsSync(`${dbPath}.bak.2`)).toBe(true);
+    expect(fs.existsSync(`${dbPath}.bak.3`)).toBe(true);
+
+    const charCols = (db.pragma('table_info(characters)') as Array<{ name: string }>).map(
+      (c) => c.name,
+    );
+    expect(charCols).toContain('face');
+    expect(charCols).toContain('vocal_traits');
     db.close();
   });
 

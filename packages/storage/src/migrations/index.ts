@@ -16,6 +16,44 @@ function addMissingCanvasColumns(_db: BetterSqlite3.Database): void {
   // intentional no-op
 }
 
+function addEntityDetailColumns(db: BetterSqlite3.Database): void {
+  const charCols = db.pragma('table_info(characters)') as Array<{ name: string }>;
+  const charColSet = new Set(charCols.map((c) => c.name));
+  const charNew: Array<[string, string]> = [
+    ['face', 'TEXT'],
+    ['hair', 'TEXT'],
+    ['skin_tone', 'TEXT'],
+    ['body', 'TEXT'],
+    ['distinct_traits', 'TEXT'],
+    ['vocal_traits', 'TEXT'],
+  ];
+  for (const [col, type] of charNew) {
+    if (!charColSet.has(col)) {
+      db.exec(`ALTER TABLE characters ADD COLUMN ${col} ${type}`);
+    }
+  }
+
+  const equipCols = db.pragma('table_info(equipment)') as Array<{ name: string }>;
+  const equipColSet = new Set(equipCols.map((c) => c.name));
+  const equipNew: Array<[string, string]> = [
+    ['material', 'TEXT'],
+    ['color', 'TEXT'],
+    ['condition', 'TEXT'],
+    ['visual_details', 'TEXT'],
+  ];
+  for (const [col, type] of equipNew) {
+    if (!equipColSet.has(col)) {
+      db.exec(`ALTER TABLE equipment ADD COLUMN ${col} ${type}`);
+    }
+  }
+
+  const assetCols = db.pragma('table_info(assets)') as Array<{ name: string }>;
+  const assetColSet = new Set(assetCols.map((c) => c.name));
+  if (!assetColSet.has('generation_metadata')) {
+    db.exec('ALTER TABLE assets ADD COLUMN generation_metadata TEXT');
+  }
+}
+
 export const SQLITE_MIGRATIONS: readonly SqliteMigration[] = [
   {
     version: 1,
@@ -29,6 +67,13 @@ export const SQLITE_MIGRATIONS: readonly SqliteMigration[] = [
     name: 'canvas settings columns',
     up(db) {
       addMissingCanvasColumns(db);
+    },
+  },
+  {
+    version: 3,
+    name: 'entity detail columns',
+    up(db) {
+      addEntityDetailColumns(db);
     },
   },
 ];

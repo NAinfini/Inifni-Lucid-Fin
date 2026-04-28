@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS assets (
   file_size   INTEGER,
   width       INTEGER,
   height      INTEGER,
-  duration    REAL
+  duration    REAL,
+  generation_metadata TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_assets_type_created
@@ -66,6 +67,12 @@ CREATE TABLE IF NOT EXISTS characters (
   age           INTEGER,
   gender        TEXT,
   voice         TEXT,
+  face          TEXT,
+  hair          TEXT,
+  skin_tone     TEXT,
+  body          TEXT,
+  distinct_traits TEXT,
+  vocal_traits  TEXT,
   reference_images TEXT DEFAULT '[]',
   loadouts      TEXT DEFAULT '[]',
   default_loadout_id TEXT DEFAULT '',
@@ -81,6 +88,10 @@ CREATE TABLE IF NOT EXISTS equipment (
   subtype       TEXT,
   description   TEXT DEFAULT '',
   function_desc TEXT,
+  material      TEXT,
+  color         TEXT,
+  condition     TEXT,
+  visual_details TEXT,
   tags          TEXT DEFAULT '[]',
   reference_images TEXT DEFAULT '[]',
   folder_id     TEXT,

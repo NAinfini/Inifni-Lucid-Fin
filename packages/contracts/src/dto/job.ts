@@ -45,8 +45,6 @@ export interface GenerationRequest {
   cfgScale?: number;
   /** Advanced: scheduler/sampler name */
   scheduler?: string;
-  /** Character consistency: face reference asset hashes */
-  faceReferenceHashes?: string[];
   /** Fine-grained TTS emotion control (0-1 per dimension) */
   emotionVector?: {
     happy: number;

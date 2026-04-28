@@ -26,12 +26,24 @@ export type EdgeStatus = 'idle' | 'generating' | 'done' | 'failed';
 export interface GenerationHistoryEntry {
   assetHash: string;
   prompt: string;
+  negativePrompt?: string;
   providerId: string;
   seed?: number;
-  negativePrompt?: string;
   cost?: number;
   generationTimeMs?: number;
   createdAt: number;
+  sourceImageHash?: string;
+  characterRefs?: import('./asset.js').GenerationEntityRef[];
+  equipmentRefs?: import('./asset.js').GenerationEntityRef[];
+  locationRefs?: import('./asset.js').GenerationEntityRef[];
+  frameReferenceHashes?: { first?: string; last?: string };
+  width?: number;
+  height?: number;
+  steps?: number;
+  cfgScale?: number;
+  scheduler?: string;
+  img2imgStrength?: number;
+  model?: string;
 }
 
 // --- Node annotation --------------------------------------------------------
@@ -75,7 +87,7 @@ export interface ImageNodeData {
   cost?: number;
   generationTimeMs?: number;
   characterRefs?: CharacterRef[];
-  equipmentRefs?: Array<EquipmentRef | string>;
+  equipmentRefs?: EquipmentRef[];
   locationRefs?: LocationRef[];
   anchorRole?: 'first-frame' | 'last-frame';
   annotation?: NodeAnnotation;
@@ -86,8 +98,6 @@ export interface ImageNodeData {
   scheduler?: string;
   /** Image-to-image strength (0-1). 0 = ignore source, 1 = max influence */
   img2imgStrength?: number;
-  /** Character consistency: face embedding asset hashes */
-  faceReferenceHashes?: string[];
 }
 
 export interface VideoNodeData {
@@ -117,7 +127,7 @@ export interface VideoNodeData {
   cost?: number;
   generationTimeMs?: number;
   characterRefs?: CharacterRef[];
-  equipmentRefs?: Array<EquipmentRef | string>;
+  equipmentRefs?: EquipmentRef[];
   locationRefs?: LocationRef[];
   firstFrameNodeId?: string;
   lastFrameNodeId?: string;
@@ -132,7 +142,6 @@ export interface VideoNodeData {
   cfgScale?: number;
   scheduler?: string;
   img2imgStrength?: number;
-  faceReferenceHashes?: string[];
   /** Shot duration override for NLE export (seconds) */
   durationOverride?: number;
   /** Scene number for NLE export ordering */
@@ -157,7 +166,6 @@ export interface AudioNodeData {
   status: MediaNodeStatus;
   audioType: 'voice' | 'music' | 'sfx';
   duration?: number;
-  provider?: string;
   prompt?: string;
   negativePrompt?: string;
   seed?: number;
@@ -203,7 +211,6 @@ export interface CanvasNode {
   position: { x: number; y: number };
   data: CanvasNodeData;
   title: string;
-  status: NodeStatus;
   bypassed: boolean;
   locked: boolean;
   colorTag?: string;
@@ -216,6 +223,21 @@ export interface CanvasNode {
   height?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+const MEDIA_STATUS_TO_NODE_STATUS: Record<MediaNodeStatus, NodeStatus> = {
+  empty: 'idle',
+  generating: 'generating',
+  done: 'done',
+  failed: 'failed',
+};
+
+export function deriveNodeStatus(node: CanvasNode): NodeStatus {
+  if (node.bypassed) return 'bypassed';
+  if (node.locked) return 'locked';
+  const data = node.data as { status?: MediaNodeStatus };
+  if (data.status) return MEDIA_STATUS_TO_NODE_STATUS[data.status];
+  return 'idle';
 }
 
 // --- Canvas Edge -----------------------------------------------------------

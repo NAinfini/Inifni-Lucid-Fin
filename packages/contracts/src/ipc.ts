@@ -502,6 +502,12 @@ export interface IpcChannelMap {
       primaryAssetHash: string;
       cost?: number;
       generationTimeMs: number;
+      characterRefs?: import('./dto/asset.js').GenerationEntityRef[];
+      equipmentRefs?: import('./dto/asset.js').GenerationEntityRef[];
+      locationRefs?: import('./dto/asset.js').GenerationEntityRef[];
+      frameReferenceHashes?: { first?: string; last?: string };
+      sourceImageHash?: string;
+      model?: string;
     };
     response: void;
   };
