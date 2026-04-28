@@ -376,19 +376,22 @@ app.whenReady().then(async () => {
     const settingsPath = path.join(app.getPath('userData'), 'settings.json');
     ipcMain.handle('settings:load', async () => {
       try {
-        if (fs.existsSync(settingsPath)) {
-          const loaded = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-          if (loaded && typeof loaded === 'object') {
-            updateSettingsCache(loaded as Record<string, unknown>);
-          }
-          return loaded;
+        const raw = await fs.promises.readFile(settingsPath, 'utf-8').catch((err: NodeJS.ErrnoException) => {
+          if (err.code === 'ENOENT') return null;
+          throw err;
+        });
+        if (raw === null) return null;
+        const loaded = JSON.parse(raw);
+        if (loaded && typeof loaded === 'object') {
+          updateSettingsCache(loaded as Record<string, unknown>);
         }
+        return loaded;
       } catch (err) { log.warn('Settings file corrupt, using defaults', { error: String(err) }); }
       return null;
     });
     ipcMain.handle('settings:save', async (_e, data: unknown) => {
       try {
-        fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+        await fs.promises.writeFile(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
         if (data && typeof data === 'object') {
           updateSettingsCache(data as Record<string, unknown>);
         }

@@ -141,6 +141,18 @@ export type AssetReindexEmbeddingsResponse = z.infer<
   typeof AssetReindexEmbeddingsResponse
 >;
 
+// ─── asset:reindex:progress (push) ──────────────────────────
+const AssetReindexProgressPayload = z.object({
+  indexed: z.number(),
+  failed: z.number(),
+  total: z.number(),
+});
+export const assetReindexProgressChannel = definePushChannel({
+  channel: 'asset:reindex:progress',
+  payload: AssetReindexProgressPayload,
+});
+export type AssetReindexProgressPayload = z.infer<typeof AssetReindexProgressPayload>;
+
 // ─── asset:searchSemantic ────────────────────────────────────
 const AssetSearchSemanticRequest = z.object({
   query: z.string(),
@@ -1054,6 +1066,9 @@ export const assetBatch10Channels = [
   assetSearchSemanticChannel,
 ] as const;
 
+// ─── Per-namespace tuples (push) — asset ─────────────────────
+export const assetPushChannels = [assetReindexProgressChannel] as const;
+
 export const clipboardChannels = [clipboardSetEnabledChannel] as const;
 
 export const exportChannels = [
@@ -1165,6 +1180,7 @@ export const batch10Channels = [
   ...videoChannels,
   ...visionChannels,
   // push
+  ...assetPushChannels,
   ...aiPushChannels,
   ...appPushChannels,
   ...clipboardPushChannels,

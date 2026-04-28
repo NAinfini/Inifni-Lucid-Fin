@@ -31,9 +31,9 @@ export function CanvasSearchPanel({
   onNavigateToNode,
 }: CanvasSearchPanelProps) {
   const dispatch = useDispatch();
-  const { canvasSearchQuery, canvasStatusFilters, canvasTypeFilters } = useSelector(
-    (state: RootState) => state.ui,
-  );
+  const canvasSearchQuery = useSelector((state: RootState) => state.ui.canvasSearchQuery);
+  const canvasStatusFilters = useSelector((state: RootState) => state.ui.canvasStatusFilters);
+  const canvasTypeFilters = useSelector((state: RootState) => state.ui.canvasTypeFilters);
   const [localQuery, setLocalQuery] = useDebouncedDispatch(
     canvasSearchQuery,
     useCallback((v: string) => dispatch(setCanvasSearchQuery(v)), [dispatch]),

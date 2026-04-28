@@ -84,6 +84,13 @@ export interface AssetReindexEmbeddingsResponse {
   failed: number;
 }
 
+// asset:reindex:progress (push) — emitted after each batch during reindex.
+export interface AssetReindexProgressPayload {
+  indexed: number;
+  failed: number;
+  total: number;
+}
+
 export interface AssetSearchSemanticRequest {
   query: string;
   limit?: number;

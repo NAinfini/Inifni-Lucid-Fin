@@ -47,9 +47,11 @@ import {
   listEntityArtifacts as _listEntityArtifacts,
   listReadyWorkflowTasks as _listReadyWorkflowTasks,
   listTaskDependencies as _listTaskDependencies,
+  listTaskDependenciesBatch as _listTaskDependenciesBatch,
   listTaskDependents as _listTaskDependents,
   listWorkflowArtifacts as _listWorkflowArtifacts,
   listWorkflowArtifactsByTaskRun as _listWorkflowArtifactsByTaskRun,
+  listWorkflowArtifactsByTaskRunBatch as _listWorkflowArtifactsByTaskRunBatch,
   listWorkflowRuns as _listWorkflowRuns,
   listWorkflowStageRuns as _listWorkflowStageRuns,
   listWorkflowTaskRuns as _listWorkflowTaskRuns,
@@ -228,6 +230,10 @@ export class WorkflowRepository {
     return _listTaskDependencies(this.db, taskRunId);
   }
 
+  listTaskDependenciesBatch(taskRunIds: WorkflowTaskId[]): Map<string, string[]> {
+    return _listTaskDependenciesBatch(this.db, taskRunIds as string[]);
+  }
+
   listTaskDependents(taskRunId: WorkflowTaskId): string[] {
     return _listTaskDependents(this.db, taskRunId);
   }
@@ -248,6 +254,10 @@ export class WorkflowRepository {
 
   listArtifactsByTaskRun(taskRunId: WorkflowTaskId): WorkflowArtifact[] {
     return _listWorkflowArtifactsByTaskRun(this.db, taskRunId);
+  }
+
+  listArtifactsByTaskRunBatch(taskRunIds: WorkflowTaskId[]): Map<string, WorkflowArtifact[]> {
+    return _listWorkflowArtifactsByTaskRunBatch(this.db, taskRunIds as string[]);
   }
 
   // ── Summaries + aggregates ─────────────────────────────────────

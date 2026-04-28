@@ -55,7 +55,7 @@ import { MessageList } from './commander/MessageList.js';
 import { LiveActivityBar } from './commander/LiveActivityBar.js';
 import { PipelineRail } from './commander/PipelineRail.js';
 import { computeContextUsage } from '../../commander/state/context-usage.js';
-import { selectActiveCanvasNodes } from '../../store/slices/canvas-selectors.js';
+import { selectActiveCanvasNodes, selectNodesById } from '../../store/slices/canvas-selectors.js';
 
 const SAFE_Y = 56;
 
@@ -113,20 +113,18 @@ export function CommanderPanel() {
   const isBackendReady = useSelector((state: RootState) => state.settings.bootstrapped);
   const phase = useSelector((state: RootState) => selectPhase(state));
   const showTextCursor = useTextCursorGate(phase);
-  const {
-    open,
-    minimized,
-    providerId,
-    position,
-    size,
-    permissionMode,
-    consecutiveConfirmCount,
-    messageQueue,
-    pendingInjectedMessages,
-    maxTokens,
-    maxSteps,
-    backendContextUsage,
-  } = useSelector((state: RootState) => state.commander, shallowEqual);
+  const open = useSelector((state: RootState) => state.commander.open);
+  const minimized = useSelector((state: RootState) => state.commander.minimized);
+  const providerId = useSelector((state: RootState) => state.commander.providerId);
+  const position = useSelector((state: RootState) => state.commander.position, shallowEqual);
+  const size = useSelector((state: RootState) => state.commander.size, shallowEqual);
+  const permissionMode = useSelector((state: RootState) => state.commander.permissionMode);
+  const consecutiveConfirmCount = useSelector((state: RootState) => state.commander.consecutiveConfirmCount);
+  const messageQueue = useSelector((state: RootState) => state.commander.messageQueue, shallowEqual);
+  const pendingInjectedMessages = useSelector((state: RootState) => state.commander.pendingInjectedMessages, shallowEqual);
+  const maxTokens = useSelector((state: RootState) => state.commander.maxTokens);
+  const maxSteps = useSelector((state: RootState) => state.commander.maxSteps);
+  const backendContextUsage = useSelector((state: RootState) => state.commander.backendContextUsage, shallowEqual);
   // Phase 4 — read message/segment/pending state from the v2 timeline
   // derivation. Legacy slice still owns provider/settings/session-meta
   // fields above; only the stream-driven view is swapped here.
@@ -152,6 +150,7 @@ export function CommanderPanel() {
   // LLM model selector state
   const llmSettings = useSelector((state: RootState) => state.settings.llm);
   const canvasNodes = useSelector(selectActiveCanvasNodes);
+  const nodesById = useSelector(selectNodesById);
   const nodeTitlesById = useMemo(
     () =>
       Object.fromEntries(
@@ -161,12 +160,12 @@ export function CommanderPanel() {
   );
   const resolveNodeAssetHash = useCallback(
     (nodeId: string): string | undefined => {
-      const node = canvasNodes?.find((n) => n.id === nodeId);
+      const node = nodesById.get(nodeId);
       if (!node) return undefined;
       const data = node.data as Record<string, unknown>;
       return typeof data.assetHash === 'string' ? data.assetHash : undefined;
     },
-    [canvasNodes],
+    [nodesById],
   );
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [permPickerOpen, setPermPickerOpen] = useState(false);

@@ -117,7 +117,7 @@ export const selectCommanderView = createSelector(
         : null;
 
     return {
-      messages: [...legacyMessages],
+      messages: legacyMessages,
       currentSegments: activeSegments,
       currentToolCalls: activeToolCalls,
       currentStreamContent: activeStreamContent,

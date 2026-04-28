@@ -31,6 +31,7 @@ import {
   appChannels,
   aiChannels,
   assetBatch10Channels,
+  assetPushChannels,
   clipboardChannels,
   exportChannels,
   ffmpegChannels,
@@ -131,6 +132,7 @@ export const allChannels = [
   ...videoChannels,
   ...visionChannels,
   // Batch 10 — push
+  ...assetPushChannels,
   ...aiPushChannels,
   ...appPushChannels,
   ...clipboardPushChannels,

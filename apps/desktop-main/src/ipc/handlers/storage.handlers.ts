@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -15,36 +14,45 @@ const APP_ROOT = path.join(os.homedir(), '.lucid-fin');
 // Helpers
 // ---------------------------------------------------------------------------
 
-function dirSize(dirPath: string): number {
-  if (!fs.existsSync(dirPath)) return 0;
+async function dirSize(dirPath: string): Promise<number> {
+  try {
+    await fsp.access(dirPath);
+  } catch {
+    return 0;
+  }
   let total = 0;
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  const entries = await fsp.readdir(dirPath, { withFileTypes: true });
   for (const entry of entries) {
     const full = path.join(dirPath, entry.name);
     if (entry.isFile()) {
-      total += fs.statSync(full).size;
+      const st = await fsp.stat(full).catch(() => null);
+      total += st?.size ?? 0;
     } else if (entry.isDirectory()) {
-      total += dirSize(full);
+      total += await dirSize(full);
     }
   }
   return total;
 }
 
-function fileSize(filePath: string): number {
+async function fileSize(filePath: string): Promise<number> {
   try {
-    return fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
-  } catch { /* stat failed — treat as zero size */
+    return (await fsp.stat(filePath)).size;
+  } catch {
     return 0;
   }
 }
 
-function countFiles(dirPath: string): number {
-  if (!fs.existsSync(dirPath)) return 0;
+async function countFiles(dirPath: string): Promise<number> {
+  try {
+    await fsp.access(dirPath);
+  } catch {
+    return 0;
+  }
   let count = 0;
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  const entries = await fsp.readdir(dirPath, { withFileTypes: true });
   for (const entry of entries) {
     if (entry.isFile()) count++;
-    else if (entry.isDirectory()) count += countFiles(path.join(dirPath, entry.name));
+    else if (entry.isDirectory()) count += await countFiles(path.join(dirPath, entry.name));
   }
   return count;
 }
@@ -71,10 +79,17 @@ export function registerStorageHandlers(
       }
     })();
 
-    const dbSize = fileSize(dbPath) + fileSize(promptsDbPath);
-    const globalAssetsSize = dirSize(globalAssetsPath);
-    const globalAssetCount = countFiles(globalAssetsPath);
-    const logsSize = dirSize(logsPath) + dirSize(userDataLogs);
+    const [dbSize1, dbSize2, globalAssetsSize, globalAssetCount, logsSize1, logsSize2] =
+      await Promise.all([
+        fileSize(dbPath),
+        fileSize(promptsDbPath),
+        dirSize(globalAssetsPath),
+        countFiles(globalAssetsPath),
+        dirSize(logsPath),
+        dirSize(userDataLogs),
+      ]);
+    const dbSize = dbSize1 + dbSize2;
+    const logsSize = logsSize1 + logsSize2;
 
     return {
       appRoot: APP_ROOT,
@@ -96,8 +111,10 @@ export function registerStorageHandlers(
   ipcMain.handle('storage:openFolder', async (_event, args: { path: string }) => {
     if (!args?.path) return;
     assertWithinRoot(APP_ROOT, args.path);
-    if (!fs.existsSync(args.path)) {
-      fs.mkdirSync(args.path, { recursive: true });
+    try {
+      await fsp.access(args.path);
+    } catch {
+      await fsp.mkdir(args.path, { recursive: true });
     }
     shell.openPath(args.path);
   });
@@ -106,9 +123,10 @@ export function registerStorageHandlers(
   ipcMain.handle('storage:showInFolder', async (_event, args: { path: string }) => {
     if (!args?.path) return;
     assertWithinRoot(APP_ROOT, args.path);
-    if (fs.existsSync(args.path)) {
+    try {
+      await fsp.access(args.path);
       shell.showItemInFolder(args.path);
-    }
+    } catch { /* path does not exist — nothing to show */ }
   });
 
   // --- Clear logs ---
@@ -122,11 +140,16 @@ export function registerStorageHandlers(
     } catch { /* no-op */ }
 
     for (const logDir of logDirs) {
-      if (!fs.existsSync(logDir)) continue;
-      for (const entry of fs.readdirSync(logDir)) {
+      let entries: string[];
+      try {
+        entries = await fsp.readdir(logDir);
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
         const filePath = path.join(logDir, entry);
         try {
-          fs.rmSync(filePath, { force: true });
+          await fsp.rm(filePath, { force: true });
           cleared++;
         } catch (err) {
           log.warn('[storage] clearLogs: failed to delete', { filePath, error: String(err) });
@@ -168,10 +191,11 @@ export function registerStorageHandlers(
     try {
       await fsp.copyFile(dbPath, resolvedDest);
       const promptsDb = path.join(APP_ROOT, 'prompts.db');
-      if (fs.existsSync(promptsDb)) {
+      try {
+        await fsp.access(promptsDb);
         const promptsDest = resolvedDest.replace(/\.db$/, '-prompts.db');
         await fsp.copyFile(promptsDb, promptsDest);
-      }
+      } catch { /* prompts.db does not exist — skip */ }
       return { success: true };
     } catch (err) {
       log.warn('[storage] backup failed', { error: String(err) });
@@ -183,7 +207,12 @@ export function registerStorageHandlers(
   ipcMain.handle('storage:restoreDatabase', async (_event, args: { sourcePath: string }) => {
     const dbPath = path.join(APP_ROOT, 'lucid-fin.db');
     const resolvedSource = path.resolve(args.sourcePath);
-    if (!resolvedSource || !fs.existsSync(resolvedSource)) {
+    let sourceExists = false;
+    try {
+      await fsp.access(resolvedSource);
+      sourceExists = true;
+    } catch { /* not accessible */ }
+    if (!resolvedSource || !sourceExists) {
       return { success: false, error: 'Source file not found' };
     }
     try {

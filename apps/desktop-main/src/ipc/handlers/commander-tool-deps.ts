@@ -1127,7 +1127,18 @@ export function registerAllTools(
       ]);
       return { prompt: result };
     },
-    getNodeAssetHash: async (nodeId: string) => {
+    getNodeAssetHash: async (nodeId: string, canvasId?: string) => {
+      if (canvasId) {
+        const canvas = deps.canvasStore.get(canvasId);
+        if (canvas) {
+          const node = canvas.nodes.find((n) => n.id === nodeId);
+          if (node) {
+            const data = node.data as { assetHash?: string };
+            return data.assetHash ?? null;
+          }
+        }
+        return null;
+      }
       const canvasList = deps.canvasStore.list();
       for (const entry of canvasList) {
         const canvas = deps.canvasStore.get(entry.id);
@@ -1140,7 +1151,20 @@ export function registerAllTools(
       }
       return null;
     },
-    writeNodeField: async (nodeId: string, field: string, value: string) => {
+    writeNodeField: async (nodeId: string, field: string, value: string, canvasId?: string) => {
+      if (canvasId) {
+        const canvas = deps.canvasStore.get(canvasId);
+        if (canvas) {
+          const node = canvas.nodes.find((n) => n.id === nodeId);
+          if (node) {
+            const data = node.data as Record<string, unknown>;
+            data[field] = value;
+            node.updatedAt = Date.now();
+            touchCanvas(canvas, deps.canvasStore);
+          }
+        }
+        return;
+      }
       const canvasList = deps.canvasStore.list();
       for (const entry of canvasList) {
         const canvas = deps.canvasStore.get(entry.id);

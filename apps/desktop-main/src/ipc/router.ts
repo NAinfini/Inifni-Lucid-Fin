@@ -115,7 +115,7 @@ export function registerAllHandlers(
   registerVisionHandlers(ipcMain, { cas, keychain });
   registerVideoChainHandlers(ipcMain, canvasStore, cas);
   registerLipSyncHandlers(ipcMain, { cas, canvasStore, db });
-  registerEmbeddingHandlers(ipcMain, { cas, keychain, db });
+  registerEmbeddingHandlers(ipcMain, { cas, keychain, db, getWindow });
   registerVideoCloneHandlers(ipcMain, { cas, canvasStore });
   registerStorageHandlers(ipcMain, { db, cas });
   registerSnapshotHandlers(ipcMain, db);

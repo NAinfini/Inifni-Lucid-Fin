@@ -28,6 +28,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_ROTATED = 3;
 const MAX_BUFFERED_ENTRIES = 1000;
 const REDACTED_VALUE = '[REDACTED]';
+const ROTATION_CHECK_INTERVAL_MS = 1000; // check at most once per second
 const SENSITIVE_KEYS = new Set([
   'apikey',
   'authorization',
@@ -46,6 +47,7 @@ let logFile: string;
 let minLevel: LogLevel = 'info';
 let logForwarder: ((entry: LoggerEntry) => void) | undefined;
 const logBuffer: LoggerEntry[] = [];
+let lastRotationCheck = 0;
 
 export function initLogger(level?: LogLevel): void {
   logDir = join(app.getPath('userData'), 'logs');
@@ -99,6 +101,9 @@ export function log(level: LogLevel, message: string, data?: Record<string, unkn
 }
 
 function rotateIfNeeded(): void {
+  const now = Date.now();
+  if (now - lastRotationCheck < ROTATION_CHECK_INTERVAL_MS) return;
+  lastRotationCheck = now;
   try {
     if (!existsSync(logFile)) return;
     const stat = statSync(logFile);

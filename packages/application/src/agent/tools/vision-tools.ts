@@ -9,8 +9,8 @@ export interface VisionToolDeps {
     style?: string,
     providerId?: string,
   ) => Promise<{ prompt: string }>;
-  getNodeAssetHash?: (nodeId: string) => Promise<string | null>;
-  writeNodeField?: (nodeId: string, field: string, value: string) => Promise<void>;
+  getNodeAssetHash?: (nodeId: string, canvasId?: string) => Promise<string | null>;
+  writeNodeField?: (nodeId: string, field: string, value: string, canvasId?: string) => Promise<void>;
 }
 
 export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
@@ -55,13 +55,14 @@ export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
         const nodeId = typeof args.nodeId === 'string' ? args.nodeId.trim() : '';
         if (!nodeId) throw new Error('nodeId is required');
 
+        const canvasId = typeof args.canvasId === 'string' ? args.canvasId.trim() : undefined;
         const style = typeof args.style === 'string' ? args.style : 'prompt';
         const providerId = tryProviderId(args.providerId);
 
         // Resolve asset hash from node
         let assetHash: string | null = null;
         if (deps.getNodeAssetHash) {
-          assetHash = await deps.getNodeAssetHash(nodeId);
+          assetHash = await deps.getNodeAssetHash(nodeId, canvasId);
         }
         if (!assetHash) {
           throw new Error(`No image asset found on node: ${nodeId}`);
@@ -75,7 +76,7 @@ export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
           args.writeField.trim().length > 0 &&
           deps.writeNodeField
         ) {
-          await deps.writeNodeField(nodeId, args.writeField.trim(), result.prompt);
+          await deps.writeNodeField(nodeId, args.writeField.trim(), result.prompt, canvasId);
         }
 
         return ok({ prompt: result.prompt, nodeId, style, providerId });

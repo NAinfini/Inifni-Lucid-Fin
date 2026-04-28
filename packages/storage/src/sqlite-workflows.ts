@@ -365,7 +365,9 @@ export function listWorkflowTaskRuns(
       'SELECT * FROM workflow_task_runs WHERE workflow_run_id = ? ORDER BY updated_at DESC, id ASC',
     )
     .all(workflowRunId) as Array<Record<string, unknown>>;
-  return rows.map((row) => rowToWorkflowTaskRun(db, row));
+  const ids = rows.map((r) => r.id as string);
+  const depsMap = listTaskDependenciesBatch(db, ids);
+  return rows.map((row) => rowToWorkflowTaskRunWithDeps(row, depsMap));
 }
 
 export function listWorkflowTaskRunsByStage(
@@ -377,7 +379,9 @@ export function listWorkflowTaskRunsByStage(
       'SELECT * FROM workflow_task_runs WHERE stage_run_id = ? ORDER BY updated_at DESC, id ASC',
     )
     .all(stageRunId) as Array<Record<string, unknown>>;
-  return rows.map((row) => rowToWorkflowTaskRun(db, row));
+  const ids = rows.map((r) => r.id as string);
+  const depsMap = listTaskDependenciesBatch(db, ids);
+  return rows.map((row) => rowToWorkflowTaskRunWithDeps(row, depsMap));
 }
 
 export function listReadyWorkflowTasks(
@@ -395,7 +399,9 @@ export function listReadyWorkflowTasks(
   const rows = db
     .prepare(`SELECT * FROM workflow_task_runs WHERE ${where} ORDER BY updated_at ASC, id ASC`)
     .all(...params) as Array<Record<string, unknown>>;
-  return rows.map((row) => rowToWorkflowTaskRun(db, row));
+  const ids = rows.map((r) => r.id as string);
+  const depsMap = listTaskDependenciesBatch(db, ids);
+  return rows.map((row) => rowToWorkflowTaskRunWithDeps(row, depsMap));
 }
 
 export function listAwaitingProviderTasks(
@@ -413,7 +419,9 @@ export function listAwaitingProviderTasks(
   const rows = db
     .prepare(`SELECT * FROM workflow_task_runs WHERE ${where} ORDER BY updated_at ASC, id ASC`)
     .all(...params) as Array<Record<string, unknown>>;
-  return rows.map((row) => rowToWorkflowTaskRun(db, row));
+  const ids = rows.map((r) => r.id as string);
+  const depsMap = listTaskDependenciesBatch(db, ids);
+  return rows.map((row) => rowToWorkflowTaskRunWithDeps(row, depsMap));
 }
 
 export function getWorkflowTaskRun(
@@ -576,6 +584,33 @@ export function listTaskDependencies(db: BetterSqlite3.Database, taskRunId: stri
   return rows.map((row) => row.depends_on_task_run_id);
 }
 
+/**
+ * Batch version of listTaskDependencies — fetches dependencies for all
+ * provided task run IDs in a single query, avoiding N+1 per-row lookups.
+ * Returns a Map<taskRunId, dependsOnTaskRunId[]>.
+ */
+export function listTaskDependenciesBatch(
+  db: BetterSqlite3.Database,
+  taskRunIds: string[],
+): Map<string, string[]> {
+  if (taskRunIds.length === 0) return new Map();
+  const placeholders = taskRunIds.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT task_run_id, depends_on_task_run_id
+       FROM workflow_task_dependencies
+       WHERE task_run_id IN (${placeholders})
+       ORDER BY task_run_id ASC, depends_on_task_run_id ASC`,
+    )
+    .all(...taskRunIds) as Array<{ task_run_id: string; depends_on_task_run_id: string }>;
+  const result = new Map<string, string[]>();
+  for (const id of taskRunIds) result.set(id, []);
+  for (const row of rows) {
+    result.get(row.task_run_id)!.push(row.depends_on_task_run_id);
+  }
+  return result;
+}
+
 export function listTaskDependents(
   db: BetterSqlite3.Database,
   dependsOnTaskRunId: string,
@@ -652,6 +687,33 @@ export function listWorkflowArtifactsByTaskRun(
   return rows.map((row) => rowToWorkflowArtifact(row));
 }
 
+/**
+ * Batch version of listWorkflowArtifactsByTaskRun — fetches artifacts for all
+ * provided task run IDs in a single query, avoiding N+1 per-row lookups.
+ * Returns a Map<taskRunId, WorkflowArtifact[]>.
+ */
+export function listWorkflowArtifactsByTaskRunBatch(
+  db: BetterSqlite3.Database,
+  taskRunIds: string[],
+): Map<string, WorkflowArtifact[]> {
+  if (taskRunIds.length === 0) return new Map();
+  const placeholders = taskRunIds.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_artifacts
+       WHERE task_run_id IN (${placeholders})
+       ORDER BY created_at DESC, id ASC`,
+    )
+    .all(...taskRunIds) as Array<Record<string, unknown>>;
+  const result = new Map<string, WorkflowArtifact[]>();
+  for (const id of taskRunIds) result.set(id, []);
+  for (const row of rows) {
+    const taskRunId = row.task_run_id as string;
+    result.get(taskRunId)?.push(rowToWorkflowArtifact(row));
+  }
+  return result;
+}
+
 // --- Task Summaries ---
 
 export function listWorkflowTaskSummaries(
@@ -707,7 +769,9 @@ export function listWorkflowTaskSummaries(
     )
     .all(...params, limit, offset) as Array<Record<string, unknown>>;
 
-  return rows.map((row) => rowToWorkflowTaskSummary(db, row));
+  const taskRunIds = rows.map((r) => r.id as string);
+  const artifactsMap = listWorkflowArtifactsByTaskRunBatch(db, taskRunIds);
+  return rows.map((row) => rowToWorkflowTaskSummary(row, artifactsMap));
 }
 
 // --- Aggregation ---
@@ -797,13 +861,43 @@ export function recomputeWorkflowAggregate(
   db: BetterSqlite3.Database,
   workflowRunId: string,
 ): void {
-  const workflow = getWorkflowRun(db, workflowRunId);
-  if (!workflow) {
+  const workflowRow = db
+    .prepare('SELECT updated_at FROM workflow_runs WHERE id = ?')
+    .get(workflowRunId) as { updated_at: number } | undefined;
+  if (!workflowRow) {
     return;
   }
 
-  const stages = listWorkflowStageRuns(db, workflowRunId);
-  const tasks = listWorkflowTaskRuns(db, workflowRunId);
+  // Lightweight stage query — only columns needed for aggregate computation.
+  // Avoids loading metadata_json for each stage.
+  const stages = db
+    .prepare(
+      `SELECT id, status, progress, updated_at
+       FROM workflow_stage_runs
+       WHERE workflow_run_id = ?
+       ORDER BY stage_order ASC`,
+    )
+    .all(workflowRunId) as Array<{
+    id: string;
+    status: WorkflowStageRun['status'];
+    progress: number;
+    updated_at: number;
+  }>;
+
+  // Lightweight task query — only columns needed for aggregate computation.
+  // Avoids loading input_json/output_json for each task.
+  const tasks = db
+    .prepare(
+      `SELECT id, status, updated_at
+       FROM workflow_task_runs
+       WHERE workflow_run_id = ?
+       ORDER BY updated_at DESC, id ASC`,
+    )
+    .all(workflowRunId) as Array<{
+    id: string;
+    status: WorkflowTaskRun['status'];
+    updated_at: number;
+  }>;
 
   const totalStages = stages.length;
   const completedStages = stages.filter((stage) => stage.status === 'completed').length;
@@ -893,9 +987,9 @@ export function recomputeWorkflowAggregate(
 
   const summary = `${status} ${completedStages}/${totalStages} stages, ${completedTasks}/${totalTasks} tasks`;
   const updatedAt = Math.max(
-    workflow.updatedAt,
-    ...stages.map((stage) => stage.updatedAt),
-    ...tasks.map((task) => task.updatedAt),
+    workflowRow.updated_at,
+    ...stages.map((stage) => stage.updated_at),
+    ...tasks.map((task) => task.updated_at),
   );
 
   updateWorkflowRun(db, workflowRunId, {
@@ -974,6 +1068,36 @@ function rowToWorkflowTaskRun(
     status: row.status as WorkflowTaskRun['status'],
     provider: row.provider == null ? undefined : String(row.provider),
     dependencyIds: listTaskDependencies(db, row.id as string),
+    attempts: Number(row.attempts ?? 0),
+    maxRetries: Number(row.max_retries ?? 0),
+    input: JSON.parse((row.input_json as string) || '{}'),
+    output: JSON.parse((row.output_json as string) || '{}'),
+    providerTaskId: row.provider_task_id == null ? undefined : String(row.provider_task_id),
+    assetId: row.asset_id == null ? undefined : String(row.asset_id),
+    error: row.error_text == null ? undefined : String(row.error_text),
+    progress: Number(row.progress ?? 0),
+    currentStep: row.current_step == null ? undefined : String(row.current_step),
+    startedAt: row.started_at == null ? undefined : Number(row.started_at),
+    completedAt: row.completed_at == null ? undefined : Number(row.completed_at),
+    updatedAt: row.updated_at as number,
+  };
+}
+
+/** Variant of rowToWorkflowTaskRun that uses a pre-fetched dependencies map to avoid N+1 queries. */
+function rowToWorkflowTaskRunWithDeps(
+  row: Record<string, unknown>,
+  depsMap: Map<string, string[]>,
+): WorkflowTaskRun {
+  return {
+    id: row.id as string,
+    workflowRunId: row.workflow_run_id as string,
+    stageRunId: row.stage_run_id as string,
+    taskId: row.task_id as string,
+    name: row.name as string,
+    kind: row.kind as WorkflowTaskRun['kind'],
+    status: row.status as WorkflowTaskRun['status'],
+    provider: row.provider == null ? undefined : String(row.provider),
+    dependencyIds: depsMap.get(row.id as string) ?? [],
     attempts: Number(row.attempts ?? 0),
     maxRetries: Number(row.max_retries ?? 0),
     input: JSON.parse((row.input_json as string) || '{}'),
@@ -1073,15 +1197,15 @@ function pickProjectionString(
 }
 
 function rowToWorkflowTaskSummary(
-  db: BetterSqlite3.Database,
   row: Record<string, unknown>,
+  artifactsMap: Map<string, WorkflowArtifact[]>,
 ): WorkflowTaskSummary {
   const taskInput = parseJsonRecord(row.input_json);
   const taskOutput = parseJsonRecord(row.output_json);
   const workflowMetadata = parseJsonRecord(row.workflow_metadata_json);
   const taskMetadata = getProjectionSources(taskInput, taskOutput);
   const workflowSources = getProjectionSources(workflowMetadata);
-  const producedArtifacts = listWorkflowArtifactsByTaskRun(db, row.id as string).map(
+  const producedArtifacts = (artifactsMap.get(row.id as string) ?? []).map(
     (artifact) => toWorkflowArtifactSummary(artifact),
   );
 

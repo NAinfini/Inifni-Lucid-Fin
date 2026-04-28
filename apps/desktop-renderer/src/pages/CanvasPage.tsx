@@ -109,12 +109,10 @@ export function CanvasPage() {
   const leftPanelRef = useRef<HTMLDivElement>(null);
   const rightPanelRef = useRef<HTMLDivElement>(null);
   const canvases = useSelector(selectAllCanvases);
-  const { activeCanvasId, loading } = useSelector(
-    (state: RootState) => state.canvas,
-  );
-  const { activePanel, rightPanel } = useSelector(
-    (state: RootState) => state.ui,
-  );
+  const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
+  const loading = useSelector((state: RootState) => state.canvas.loading);
+  const activePanel = useSelector((state: RootState) => state.ui.activePanel);
+  const rightPanel = useSelector((state: RootState) => state.ui.rightPanel);
   const commanderOpen = useSelector((state: RootState) => state.commander.open);
   const bootstrapped = useSelector((state: RootState) => state.settings.bootstrapped);
 

@@ -186,8 +186,9 @@ function detectInitialProcessPrompts(
   selectedNodeIds: string[],
 ): string[] {
   const prompts = new Set<string>();
+  const nodeMap = new Map(canvas.nodes.map((node) => [node.id, node]));
   const selectedNodes = selectedNodeIds
-    .map((nodeId) => canvas.nodes.find((node) => node.id === nodeId))
+    .map((nodeId) => nodeMap.get(nodeId))
     .filter((node): node is CanvasNode => Boolean(node));
 
   for (const node of selectedNodes) {
@@ -412,6 +413,7 @@ export function buildContext(
   processPromptKeys?: Array<{ processKey: string; name: string }>,
 ): AgentContext {
   const limitedSelectedNodeIds = selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES);
+  const nodeMap = new Map(canvas.nodes.map((node) => [node.id, node]));
   const extra: Record<string, unknown> = {
     canvasId: canvas.id,
     nodeCount: canvas.nodes.length,
@@ -419,7 +421,7 @@ export function buildContext(
     selectedNodeIds: limitedSelectedNodeIds,
     selectedNodes: limitedSelectedNodeIds
       .slice(0, MAX_CONTEXT_SELECTED_NODE_SUMMARIES)
-      .map((nodeId) => canvas.nodes.find((node) => node.id === nodeId))
+      .map((nodeId) => nodeMap.get(nodeId))
       .filter((node): node is CanvasNode => Boolean(node))
       .map((node) => summarizeSelectedNode(node, db)),
   };

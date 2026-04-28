@@ -249,12 +249,21 @@ export class AssetRepository {
   searchByTokens(queryTokens: string[], limit: number, tx?: Tx): SemanticSearchResult[] {
     if (queryTokens.length === 0) return [];
     const d = tx ?? this.db;
+    // Pre-filter: only load rows whose JSON tokens column contains at least
+    // one query token as a substring. This avoids a full table scan and
+    // deserialization of every embedding when the table is large.
+    // The LIKE checks are intentionally loose (no word-boundary) — false
+    // positives are acceptable because the exact Jaccard score is computed
+    // in JS and zero-score rows are filtered out below.
+    const likeConditions = queryTokens.map(() => `${EC.tokens.sqlName} LIKE ?`).join(' OR ');
+    const likeParams = queryTokens.map((t) => `%"${t}"%`);
     const rows = d
       .prepare(
         `SELECT ${EC.hash.sqlName}, ${EC.description.sqlName}, ${EC.tokens.sqlName}
-         FROM ${ET}`,
+         FROM ${ET}
+         WHERE ${likeConditions}`,
       )
-      .all() as Array<{ hash: string; description: string; tokens: string }>;
+      .all(...likeParams) as Array<{ hash: string; description: string; tokens: string }>;
 
     const querySet = new Set(queryTokens);
     return rows
