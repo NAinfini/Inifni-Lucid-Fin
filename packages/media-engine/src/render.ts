@@ -37,6 +37,7 @@ export interface RenderOptions {
   videoBitrate?: string;
   /** Optional root directory — all input paths must resolve within it */
   assetRoot?: string;
+  signal?: AbortSignal;
 }
 
 export interface RenderSegment {
@@ -127,7 +128,7 @@ function renderTimelineInternal(
     ])
     .output(outputPath);
 
-  return runCommand(cmd).finally(() => {
+  return runCommand(cmd, options.signal).finally(() => {
     try {
       unlinkSync(listPath);
     } catch { /* temp concat list cleanup failed — non-fatal, file will be cleaned up eventually */
@@ -162,7 +163,7 @@ function renderSingleSegmentInternal(
     ])
     .output(outputPath);
 
-  return runCommand(cmd);
+  return runCommand(cmd, options.signal);
 }
 
 export function renderTimeline(

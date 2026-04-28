@@ -131,7 +131,7 @@ describe('renderTimeline', () => {
       '-b:a 192k',
     ]);
     expect(cmd.output).toHaveBeenCalledWith('C:\\exports\\timeline.mp4');
-    expect(runCommandMock).toHaveBeenCalledWith(cmd);
+    expect(runCommandMock).toHaveBeenCalledWith(cmd, undefined);
     expect(unlinkSyncMock).toHaveBeenCalledWith(listPath);
   });
 
@@ -317,7 +317,7 @@ describe('renderSingleSegment', () => {
       '-preset slow',
     ]);
     expect(cmd.output).toHaveBeenCalledWith('C:\\exports\\shot.mp4');
-    expect(runCommandMock).toHaveBeenCalledWith(cmd);
+    expect(runCommandMock).toHaveBeenCalledWith(cmd, undefined);
   });
 
   it('throws when the input path is outside the assetRoot', async () => {

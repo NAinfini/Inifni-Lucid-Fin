@@ -12,11 +12,31 @@ export function createCommand(input?: string): ffmpeg.FfmpegCommand {
   return cmd;
 }
 
-export function runCommand(cmd: ffmpeg.FfmpegCommand): Promise<void> {
+export function runCommand(cmd: ffmpeg.FfmpegCommand, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('Render aborted'));
+      return;
+    }
+
+    const onAbort = () => {
+      cmd.kill('SIGTERM');
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+
     cmd
-      .on('end', () => resolve())
-      .on('error', (err: Error) => reject(err))
+      .on('end', () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      })
+      .on('error', (err: Error) => {
+        signal?.removeEventListener('abort', onAbort);
+        if (signal?.aborted) {
+          reject(new Error('Render aborted'));
+        } else {
+          reject(err);
+        }
+      })
       .run();
   });
 }

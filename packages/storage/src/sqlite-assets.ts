@@ -103,6 +103,7 @@ export function normalizeAssetMeta(meta: AssetMetaInput): AssetMeta {
     tags: Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === 'string') : [],
     folderId: typeof meta.folderId === 'string' || meta.folderId === null ? meta.folderId : undefined,
     createdAt: normalizeAssetTimestamp(meta.createdAt),
+    generationMetadata: meta.generationMetadata ?? undefined,
   };
 }
 
@@ -110,8 +111,8 @@ export function insertAsset(db: BetterSqlite3.Database, meta: AssetMetaInput): v
   const normalized = normalizeAssetMeta(meta);
   db.prepare(
     `
-    INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, provider, folder_id, created_at, file_size, width, height, duration)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, provider, folder_id, created_at, file_size, width, height, duration, generation_metadata)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     normalized.hash,
@@ -126,6 +127,7 @@ export function insertAsset(db: BetterSqlite3.Database, meta: AssetMetaInput): v
     normalized.width ?? null,
     normalized.height ?? null,
     normalized.duration ?? null,
+    normalized.generationMetadata ? JSON.stringify(normalized.generationMetadata) : null,
   );
 }
 

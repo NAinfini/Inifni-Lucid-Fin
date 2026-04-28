@@ -14,11 +14,21 @@
  * rows surface as degraded-read telemetry + skip, never a crash. List
  * methods return `ListResult<T>` so UI layers can show a degraded-row badge
  * when needed (parity with CanvasRepository / AssetRepository).
+ *
+ * --- Partial UPDATE architecture (2026-04-28) ---
+ * Upsert methods now separate INSERT (new entity with defaults) from UPDATE
+ * (existing entity with only the provided fields). This prevents partial
+ * payloads from resetting omitted fields to defaults — only fields explicitly
+ * present in the input are written.
  */
 
 import type BetterSqlite3 from 'better-sqlite3';
 import type {
   Character,
+  CharacterFace,
+  CharacterHair,
+  CharacterBody,
+  VocalTraits,
   CharacterId,
   Equipment,
   EquipmentId,
@@ -42,7 +52,7 @@ export interface ListResult<T> {
   degradedCount: number;
 }
 
-// --- Character input shape (matches legacy upsertCharacter arg) ---
+// --- Character input shape ---
 export interface CharacterUpsertInput {
   id: string;
   name: string;
@@ -55,6 +65,12 @@ export interface CharacterUpsertInput {
   age?: number;
   gender?: string;
   voice?: string;
+  face?: CharacterFace;
+  hair?: CharacterHair;
+  skinTone?: string;
+  body?: CharacterBody;
+  distinctTraits?: string[];
+  vocalTraits?: VocalTraits;
   referenceImages?: unknown[];
   loadouts?: unknown[];
   defaultLoadoutId?: string;
@@ -70,6 +86,10 @@ export interface EquipmentUpsertInput {
   subtype?: string;
   description?: string;
   functionDesc?: string;
+  material?: string;
+  color?: string;
+  condition?: string;
+  visualDetails?: string;
   tags?: string[];
   referenceImages?: unknown[];
   folderId?: string | null;
@@ -119,6 +139,18 @@ function parseJsonArrayOrEmpty(raw: unknown): unknown[] {
   }
 }
 
+function parseJsonObjectOrUndef(raw: unknown): Record<string, unknown> | undefined {
+  if (typeof raw !== 'string' || raw.length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseStringArrayOrUndef(raw: unknown): string[] | undefined {
   if (typeof raw !== 'string' || raw.length === 0) return undefined;
   try {
@@ -139,6 +171,34 @@ function parseStringArrayOrEmpty(raw: unknown): string[] {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dynamic UPDATE builder — only sets columns present in the field map
+// ---------------------------------------------------------------------------
+
+interface FieldMapping {
+  sqlName: string;
+  value: unknown;
+}
+
+function buildPartialUpdate(
+  tableName: string,
+  idCol: string,
+  id: string,
+  fields: FieldMapping[],
+): { sql: string; params: unknown[] } {
+  const setClauses = fields.map((f) => `${f.sqlName} = ?`);
+  const params = fields.map((f) => f.value);
+  params.push(id);
+  return {
+    sql: `UPDATE ${tableName} SET ${setClauses.join(', ')} WHERE ${idCol} = ?`,
+    params,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Row → domain object mappers
+// ---------------------------------------------------------------------------
+
 function rowToCharacter(row: Record<string, unknown>): Character {
   return {
     id: row.id as string,
@@ -152,6 +212,12 @@ function rowToCharacter(row: Record<string, unknown>): Character {
     age: (row.age as number | null) ?? undefined,
     gender: (row.gender as Character['gender']) ?? undefined,
     voice: (row.voice as string | null) ?? undefined,
+    face: parseJsonObjectOrUndef(row.face) as CharacterFace | undefined,
+    hair: parseJsonObjectOrUndef(row.hair) as CharacterHair | undefined,
+    skinTone: (row.skin_tone as string | null) ?? undefined,
+    body: parseJsonObjectOrUndef(row.body) as CharacterBody | undefined,
+    distinctTraits: parseStringArrayOrUndef(row.distinct_traits),
+    vocalTraits: parseJsonObjectOrUndef(row.vocal_traits) as VocalTraits | undefined,
     referenceImages: parseJsonArrayOrEmpty(
       row.reference_images,
     ) as Character['referenceImages'],
@@ -171,6 +237,10 @@ function rowToEquipment(row: Record<string, unknown>): Equipment {
     subtype: (row.subtype as string | null) ?? undefined,
     description: (row.description as string) ?? '',
     function: (row.function_desc as string | null) ?? undefined,
+    material: (row.material as string | null) ?? undefined,
+    color: (row.color as string | null) ?? undefined,
+    condition: (row.condition as string | null) ?? undefined,
+    visualDetails: (row.visual_details as string | null) ?? undefined,
     tags: parseStringArrayOrEmpty(row.tags),
     referenceImages: parseJsonArrayOrEmpty(
       row.reference_images,
@@ -211,51 +281,84 @@ export class EntityRepository {
 
   // ── Characters ─────────────────────────────────────────────────
 
+  private existsCharacter(id: string, d: BetterSqlite3.Database | Tx): boolean {
+    const row = d
+      .prepare(`SELECT 1 FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row !== undefined;
+  }
+
   upsertCharacter(input: CharacterUpsertInput, tx?: Tx): void {
     const d = tx ?? this.db;
     const now = Date.now();
-    d.prepare(
-      `INSERT INTO ${CHAR_TBL}
-         (${CHAR.id.sqlName}, ${CHAR.name.sqlName}, ${CHAR.role.sqlName},
-          ${CHAR.description.sqlName}, ${CHAR.appearance.sqlName}, ${CHAR.personality.sqlName},
-          ${CHAR.costumes.sqlName}, ${CHAR.tags.sqlName},
-          ${CHAR.age.sqlName}, ${CHAR.gender.sqlName}, ${CHAR.voice.sqlName},
-          ${CHAR.referenceImages.sqlName}, ${CHAR.loadouts.sqlName}, ${CHAR.defaultLoadoutId.sqlName},
-          ${CHAR.folderId.sqlName},
-          ${CHAR.createdAt.sqlName}, ${CHAR.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(${CHAR.id.sqlName}) DO UPDATE SET
-         ${CHAR.name.sqlName}=excluded.${CHAR.name.sqlName}, ${CHAR.role.sqlName}=excluded.${CHAR.role.sqlName},
-         ${CHAR.description.sqlName}=excluded.${CHAR.description.sqlName},
-         ${CHAR.appearance.sqlName}=excluded.${CHAR.appearance.sqlName},
-         ${CHAR.personality.sqlName}=excluded.${CHAR.personality.sqlName},
-         ${CHAR.costumes.sqlName}=excluded.${CHAR.costumes.sqlName}, ${CHAR.tags.sqlName}=excluded.${CHAR.tags.sqlName},
-         ${CHAR.age.sqlName}=excluded.${CHAR.age.sqlName}, ${CHAR.gender.sqlName}=excluded.${CHAR.gender.sqlName},
-         ${CHAR.voice.sqlName}=excluded.${CHAR.voice.sqlName},
-         ${CHAR.referenceImages.sqlName}=excluded.${CHAR.referenceImages.sqlName},
-         ${CHAR.loadouts.sqlName}=excluded.${CHAR.loadouts.sqlName},
-         ${CHAR.defaultLoadoutId.sqlName}=excluded.${CHAR.defaultLoadoutId.sqlName},
-         ${CHAR.folderId.sqlName}=excluded.${CHAR.folderId.sqlName},
-         ${CHAR.updatedAt.sqlName}=excluded.${CHAR.updatedAt.sqlName}`,
-    ).run(
-      input.id,
-      input.name,
-      input.role ?? 'supporting',
-      input.description ?? '',
-      input.appearance ?? '',
-      input.personality ?? '',
-      JSON.stringify(input.costumes ?? []),
-      JSON.stringify(input.tags ?? []),
-      input.age ?? null,
-      input.gender ?? null,
-      input.voice ?? null,
-      JSON.stringify(input.referenceImages ?? []),
-      JSON.stringify(input.loadouts ?? []),
-      input.defaultLoadoutId ?? '',
-      input.folderId ?? null,
-      input.createdAt ?? now,
-      input.updatedAt ?? now,
-    );
+
+    if (this.existsCharacter(input.id, d)) {
+      const fields: FieldMapping[] = [];
+      fields.push({ sqlName: CHAR.name.sqlName, value: input.name });
+      if (input.role !== undefined) fields.push({ sqlName: CHAR.role.sqlName, value: input.role });
+      if (input.description !== undefined) fields.push({ sqlName: CHAR.description.sqlName, value: input.description });
+      if (input.appearance !== undefined) fields.push({ sqlName: CHAR.appearance.sqlName, value: input.appearance });
+      if (input.personality !== undefined) fields.push({ sqlName: CHAR.personality.sqlName, value: input.personality });
+      if (input.costumes !== undefined) fields.push({ sqlName: CHAR.costumes.sqlName, value: JSON.stringify(input.costumes) });
+      if (input.tags !== undefined) fields.push({ sqlName: CHAR.tags.sqlName, value: JSON.stringify(input.tags) });
+      if (input.age !== undefined) fields.push({ sqlName: CHAR.age.sqlName, value: input.age });
+      if (input.gender !== undefined) fields.push({ sqlName: CHAR.gender.sqlName, value: input.gender });
+      if (input.voice !== undefined) fields.push({ sqlName: CHAR.voice.sqlName, value: input.voice });
+      if (input.face !== undefined) fields.push({ sqlName: CHAR.face.sqlName, value: JSON.stringify(input.face) });
+      if (input.hair !== undefined) fields.push({ sqlName: CHAR.hair.sqlName, value: JSON.stringify(input.hair) });
+      if (input.skinTone !== undefined) fields.push({ sqlName: CHAR.skinTone.sqlName, value: input.skinTone });
+      if (input.body !== undefined) fields.push({ sqlName: CHAR.body.sqlName, value: JSON.stringify(input.body) });
+      if (input.distinctTraits !== undefined) fields.push({ sqlName: CHAR.distinctTraits.sqlName, value: JSON.stringify(input.distinctTraits) });
+      if (input.vocalTraits !== undefined) fields.push({ sqlName: CHAR.vocalTraits.sqlName, value: JSON.stringify(input.vocalTraits) });
+      if (input.referenceImages !== undefined) fields.push({ sqlName: CHAR.referenceImages.sqlName, value: JSON.stringify(input.referenceImages) });
+      if (input.loadouts !== undefined) fields.push({ sqlName: CHAR.loadouts.sqlName, value: JSON.stringify(input.loadouts) });
+      if (input.defaultLoadoutId !== undefined) fields.push({ sqlName: CHAR.defaultLoadoutId.sqlName, value: input.defaultLoadoutId });
+      if (input.folderId !== undefined) fields.push({ sqlName: CHAR.folderId.sqlName, value: input.folderId });
+      fields.push({ sqlName: CHAR.updatedAt.sqlName, value: input.updatedAt ?? now });
+
+      if (fields.length > 0) {
+        const { sql, params } = buildPartialUpdate(CHAR_TBL, CHAR.id.sqlName, input.id, fields);
+        d.prepare(sql).run(...params);
+      }
+    } else {
+      d.prepare(
+        `INSERT INTO ${CHAR_TBL}
+           (${CHAR.id.sqlName}, ${CHAR.name.sqlName}, ${CHAR.role.sqlName},
+            ${CHAR.description.sqlName}, ${CHAR.appearance.sqlName}, ${CHAR.personality.sqlName},
+            ${CHAR.costumes.sqlName}, ${CHAR.tags.sqlName},
+            ${CHAR.age.sqlName}, ${CHAR.gender.sqlName}, ${CHAR.voice.sqlName},
+            ${CHAR.face.sqlName}, ${CHAR.hair.sqlName}, ${CHAR.skinTone.sqlName},
+            ${CHAR.body.sqlName}, ${CHAR.distinctTraits.sqlName}, ${CHAR.vocalTraits.sqlName},
+            ${CHAR.referenceImages.sqlName}, ${CHAR.loadouts.sqlName}, ${CHAR.defaultLoadoutId.sqlName},
+            ${CHAR.folderId.sqlName},
+            ${CHAR.createdAt.sqlName}, ${CHAR.updatedAt.sqlName})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.id,
+        input.name,
+        input.role ?? 'supporting',
+        input.description ?? '',
+        input.appearance ?? '',
+        input.personality ?? '',
+        JSON.stringify(input.costumes ?? []),
+        JSON.stringify(input.tags ?? []),
+        input.age ?? null,
+        input.gender ?? null,
+        input.voice ?? null,
+        input.face ? JSON.stringify(input.face) : null,
+        input.hair ? JSON.stringify(input.hair) : null,
+        input.skinTone ?? null,
+        input.body ? JSON.stringify(input.body) : null,
+        input.distinctTraits ? JSON.stringify(input.distinctTraits) : null,
+        input.vocalTraits ? JSON.stringify(input.vocalTraits) : null,
+        JSON.stringify(input.referenceImages ?? []),
+        JSON.stringify(input.loadouts ?? []),
+        input.defaultLoadoutId ?? '',
+        input.folderId ?? null,
+        input.createdAt ?? now,
+        input.updatedAt ?? now,
+      );
+    }
   }
 
   getCharacter(id: CharacterId, tx?: Tx): Character | undefined {
@@ -309,39 +412,65 @@ export class EntityRepository {
 
   // ── Equipment ──────────────────────────────────────────────────
 
+  private existsEquipment(id: string, d: BetterSqlite3.Database | Tx): boolean {
+    const row = d
+      .prepare(`SELECT 1 FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row !== undefined;
+  }
+
   upsertEquipment(input: EquipmentUpsertInput, tx?: Tx): void {
     const d = tx ?? this.db;
     const now = Date.now();
-    d.prepare(
-      `INSERT INTO ${EQUIP_TBL}
-         (${EQUIP.id.sqlName}, ${EQUIP.name.sqlName}, ${EQUIP.type.sqlName},
-          ${EQUIP.subtype.sqlName}, ${EQUIP.description.sqlName}, ${EQUIP.functionDesc.sqlName},
-          ${EQUIP.tags.sqlName}, ${EQUIP.referenceImages.sqlName},
-          ${EQUIP.folderId.sqlName},
-          ${EQUIP.createdAt.sqlName}, ${EQUIP.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(${EQUIP.id.sqlName}) DO UPDATE SET
-         ${EQUIP.name.sqlName}=excluded.${EQUIP.name.sqlName}, ${EQUIP.type.sqlName}=excluded.${EQUIP.type.sqlName},
-         ${EQUIP.subtype.sqlName}=excluded.${EQUIP.subtype.sqlName},
-         ${EQUIP.description.sqlName}=excluded.${EQUIP.description.sqlName},
-         ${EQUIP.functionDesc.sqlName}=excluded.${EQUIP.functionDesc.sqlName},
-         ${EQUIP.tags.sqlName}=excluded.${EQUIP.tags.sqlName},
-         ${EQUIP.referenceImages.sqlName}=excluded.${EQUIP.referenceImages.sqlName},
-         ${EQUIP.folderId.sqlName}=excluded.${EQUIP.folderId.sqlName},
-         ${EQUIP.updatedAt.sqlName}=excluded.${EQUIP.updatedAt.sqlName}`,
-    ).run(
-      input.id,
-      input.name,
-      input.type ?? 'other',
-      input.subtype ?? null,
-      input.description ?? '',
-      input.functionDesc ?? null,
-      JSON.stringify(input.tags ?? []),
-      JSON.stringify(input.referenceImages ?? []),
-      input.folderId ?? null,
-      input.createdAt ?? now,
-      input.updatedAt ?? now,
-    );
+
+    if (this.existsEquipment(input.id, d)) {
+      const fields: FieldMapping[] = [];
+      fields.push({ sqlName: EQUIP.name.sqlName, value: input.name });
+      if (input.type !== undefined) fields.push({ sqlName: EQUIP.type.sqlName, value: input.type });
+      if (input.subtype !== undefined) fields.push({ sqlName: EQUIP.subtype.sqlName, value: input.subtype });
+      if (input.description !== undefined) fields.push({ sqlName: EQUIP.description.sqlName, value: input.description });
+      if (input.functionDesc !== undefined) fields.push({ sqlName: EQUIP.functionDesc.sqlName, value: input.functionDesc });
+      if (input.material !== undefined) fields.push({ sqlName: EQUIP.material.sqlName, value: input.material });
+      if (input.color !== undefined) fields.push({ sqlName: EQUIP.color.sqlName, value: input.color });
+      if (input.condition !== undefined) fields.push({ sqlName: EQUIP.condition.sqlName, value: input.condition });
+      if (input.visualDetails !== undefined) fields.push({ sqlName: EQUIP.visualDetails.sqlName, value: input.visualDetails });
+      if (input.tags !== undefined) fields.push({ sqlName: EQUIP.tags.sqlName, value: JSON.stringify(input.tags) });
+      if (input.referenceImages !== undefined) fields.push({ sqlName: EQUIP.referenceImages.sqlName, value: JSON.stringify(input.referenceImages) });
+      if (input.folderId !== undefined) fields.push({ sqlName: EQUIP.folderId.sqlName, value: input.folderId });
+      fields.push({ sqlName: EQUIP.updatedAt.sqlName, value: input.updatedAt ?? now });
+
+      if (fields.length > 0) {
+        const { sql, params } = buildPartialUpdate(EQUIP_TBL, EQUIP.id.sqlName, input.id, fields);
+        d.prepare(sql).run(...params);
+      }
+    } else {
+      d.prepare(
+        `INSERT INTO ${EQUIP_TBL}
+           (${EQUIP.id.sqlName}, ${EQUIP.name.sqlName}, ${EQUIP.type.sqlName},
+            ${EQUIP.subtype.sqlName}, ${EQUIP.description.sqlName}, ${EQUIP.functionDesc.sqlName},
+            ${EQUIP.material.sqlName}, ${EQUIP.color.sqlName}, ${EQUIP.condition.sqlName}, ${EQUIP.visualDetails.sqlName},
+            ${EQUIP.tags.sqlName}, ${EQUIP.referenceImages.sqlName},
+            ${EQUIP.folderId.sqlName},
+            ${EQUIP.createdAt.sqlName}, ${EQUIP.updatedAt.sqlName})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.id,
+        input.name,
+        input.type ?? 'other',
+        input.subtype ?? null,
+        input.description ?? '',
+        input.functionDesc ?? null,
+        input.material ?? null,
+        input.color ?? null,
+        input.condition ?? null,
+        input.visualDetails ?? null,
+        JSON.stringify(input.tags ?? []),
+        JSON.stringify(input.referenceImages ?? []),
+        input.folderId ?? null,
+        input.createdAt ?? now,
+        input.updatedAt ?? now,
+      );
+    }
   }
 
   getEquipment(id: EquipmentId, tx?: Tx): Equipment | undefined {
@@ -403,56 +532,73 @@ export class EntityRepository {
 
   // ── Locations ──────────────────────────────────────────────────
 
+  private existsLocation(id: string, d: BetterSqlite3.Database | Tx): boolean {
+    const row = d
+      .prepare(`SELECT 1 FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`)
+      .get(id) as Record<string, unknown> | undefined;
+    return row !== undefined;
+  }
+
   upsertLocation(input: LocationUpsertInput, tx?: Tx): void {
     const d = tx ?? this.db;
     const now = Date.now();
-    d.prepare(
-      `INSERT INTO ${LOC_TBL}
-         (${LOC.id.sqlName}, ${LOC.name.sqlName}, ${LOC.type.sqlName},
-          ${LOC.subLocation.sqlName}, ${LOC.description.sqlName},
-          ${LOC.timeOfDay.sqlName}, ${LOC.mood.sqlName}, ${LOC.weather.sqlName},
-          ${LOC.lighting.sqlName}, ${LOC.architectureStyle.sqlName},
-          ${LOC.dominantColors.sqlName}, ${LOC.keyFeatures.sqlName}, ${LOC.atmosphereKeywords.sqlName},
-          ${LOC.tags.sqlName}, ${LOC.referenceImages.sqlName},
-          ${LOC.folderId.sqlName},
-          ${LOC.createdAt.sqlName}, ${LOC.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(${LOC.id.sqlName}) DO UPDATE SET
-         ${LOC.name.sqlName}=excluded.${LOC.name.sqlName}, ${LOC.type.sqlName}=excluded.${LOC.type.sqlName},
-         ${LOC.subLocation.sqlName}=excluded.${LOC.subLocation.sqlName},
-         ${LOC.description.sqlName}=excluded.${LOC.description.sqlName},
-         ${LOC.timeOfDay.sqlName}=excluded.${LOC.timeOfDay.sqlName},
-         ${LOC.mood.sqlName}=excluded.${LOC.mood.sqlName},
-         ${LOC.weather.sqlName}=excluded.${LOC.weather.sqlName},
-         ${LOC.lighting.sqlName}=excluded.${LOC.lighting.sqlName},
-         ${LOC.architectureStyle.sqlName}=excluded.${LOC.architectureStyle.sqlName},
-         ${LOC.dominantColors.sqlName}=excluded.${LOC.dominantColors.sqlName},
-         ${LOC.keyFeatures.sqlName}=excluded.${LOC.keyFeatures.sqlName},
-         ${LOC.atmosphereKeywords.sqlName}=excluded.${LOC.atmosphereKeywords.sqlName},
-         ${LOC.tags.sqlName}=excluded.${LOC.tags.sqlName},
-         ${LOC.referenceImages.sqlName}=excluded.${LOC.referenceImages.sqlName},
-         ${LOC.folderId.sqlName}=excluded.${LOC.folderId.sqlName},
-         ${LOC.updatedAt.sqlName}=excluded.${LOC.updatedAt.sqlName}`,
-    ).run(
-      input.id,
-      input.name,
-      input.type ?? 'interior',
-      input.subLocation ?? null,
-      input.description ?? '',
-      input.timeOfDay ?? null,
-      input.mood ?? null,
-      input.weather ?? null,
-      input.lighting ?? null,
-      input.architectureStyle ?? null,
-      input.dominantColors ? JSON.stringify(input.dominantColors) : null,
-      input.keyFeatures ? JSON.stringify(input.keyFeatures) : null,
-      input.atmosphereKeywords ? JSON.stringify(input.atmosphereKeywords) : null,
-      JSON.stringify(input.tags ?? []),
-      JSON.stringify(input.referenceImages ?? []),
-      input.folderId ?? null,
-      input.createdAt ?? now,
-      input.updatedAt ?? now,
-    );
+
+    if (this.existsLocation(input.id, d)) {
+      const fields: FieldMapping[] = [];
+      fields.push({ sqlName: LOC.name.sqlName, value: input.name });
+      if (input.type !== undefined) fields.push({ sqlName: LOC.type.sqlName, value: input.type });
+      if (input.subLocation !== undefined) fields.push({ sqlName: LOC.subLocation.sqlName, value: input.subLocation });
+      if (input.description !== undefined) fields.push({ sqlName: LOC.description.sqlName, value: input.description });
+      if (input.timeOfDay !== undefined) fields.push({ sqlName: LOC.timeOfDay.sqlName, value: input.timeOfDay });
+      if (input.mood !== undefined) fields.push({ sqlName: LOC.mood.sqlName, value: input.mood });
+      if (input.weather !== undefined) fields.push({ sqlName: LOC.weather.sqlName, value: input.weather });
+      if (input.lighting !== undefined) fields.push({ sqlName: LOC.lighting.sqlName, value: input.lighting });
+      if (input.architectureStyle !== undefined) fields.push({ sqlName: LOC.architectureStyle.sqlName, value: input.architectureStyle });
+      if (input.dominantColors !== undefined) fields.push({ sqlName: LOC.dominantColors.sqlName, value: input.dominantColors ? JSON.stringify(input.dominantColors) : null });
+      if (input.keyFeatures !== undefined) fields.push({ sqlName: LOC.keyFeatures.sqlName, value: input.keyFeatures ? JSON.stringify(input.keyFeatures) : null });
+      if (input.atmosphereKeywords !== undefined) fields.push({ sqlName: LOC.atmosphereKeywords.sqlName, value: input.atmosphereKeywords ? JSON.stringify(input.atmosphereKeywords) : null });
+      if (input.tags !== undefined) fields.push({ sqlName: LOC.tags.sqlName, value: JSON.stringify(input.tags) });
+      if (input.referenceImages !== undefined) fields.push({ sqlName: LOC.referenceImages.sqlName, value: JSON.stringify(input.referenceImages) });
+      if (input.folderId !== undefined) fields.push({ sqlName: LOC.folderId.sqlName, value: input.folderId });
+      fields.push({ sqlName: LOC.updatedAt.sqlName, value: input.updatedAt ?? now });
+
+      if (fields.length > 0) {
+        const { sql, params } = buildPartialUpdate(LOC_TBL, LOC.id.sqlName, input.id, fields);
+        d.prepare(sql).run(...params);
+      }
+    } else {
+      d.prepare(
+        `INSERT INTO ${LOC_TBL}
+           (${LOC.id.sqlName}, ${LOC.name.sqlName}, ${LOC.type.sqlName},
+            ${LOC.subLocation.sqlName}, ${LOC.description.sqlName},
+            ${LOC.timeOfDay.sqlName}, ${LOC.mood.sqlName}, ${LOC.weather.sqlName},
+            ${LOC.lighting.sqlName}, ${LOC.architectureStyle.sqlName},
+            ${LOC.dominantColors.sqlName}, ${LOC.keyFeatures.sqlName}, ${LOC.atmosphereKeywords.sqlName},
+            ${LOC.tags.sqlName}, ${LOC.referenceImages.sqlName},
+            ${LOC.folderId.sqlName},
+            ${LOC.createdAt.sqlName}, ${LOC.updatedAt.sqlName})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.id,
+        input.name,
+        input.type ?? 'interior',
+        input.subLocation ?? null,
+        input.description ?? '',
+        input.timeOfDay ?? null,
+        input.mood ?? null,
+        input.weather ?? null,
+        input.lighting ?? null,
+        input.architectureStyle ?? null,
+        input.dominantColors ? JSON.stringify(input.dominantColors) : null,
+        input.keyFeatures ? JSON.stringify(input.keyFeatures) : null,
+        input.atmosphereKeywords ? JSON.stringify(input.atmosphereKeywords) : null,
+        JSON.stringify(input.tags ?? []),
+        JSON.stringify(input.referenceImages ?? []),
+        input.folderId ?? null,
+        input.createdAt ?? now,
+        input.updatedAt ?? now,
+      );
+    }
   }
 
   getLocation(id: LocationId, tx?: Tx): Location | undefined {

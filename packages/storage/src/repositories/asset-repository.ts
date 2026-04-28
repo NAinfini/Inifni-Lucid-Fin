@@ -55,6 +55,7 @@ type RawAssetRow = {
   width: number | null;
   height: number | null;
   duration: number | null;
+  generation_metadata: string | null;
 };
 
 type RawEmbeddingRow = {
@@ -83,6 +84,7 @@ const ASSET_SELECT_COLS = [
   AC.width.sqlName,
   AC.height.sqlName,
   AC.duration.sqlName,
+  AC.generationMetadata.sqlName,
 ].join(', ');
 
 const ASSET_SELECT_COLS_PREFIXED_A = [
@@ -98,6 +100,7 @@ const ASSET_SELECT_COLS_PREFIXED_A = [
   AC.width.sqlName,
   AC.height.sqlName,
   AC.duration.sqlName,
+  AC.generationMetadata.sqlName,
 ]
   .map((c) => `a.${c}`)
   .join(', ');
@@ -114,8 +117,9 @@ export class AssetRepository {
           ${AC.tags.sqlName}, ${AC.prompt.sqlName}, ${AC.provider.sqlName},
           ${AC.folderId.sqlName},
           ${AC.createdAt.sqlName}, ${AC.fileSize.sqlName},
-          ${AC.width.sqlName}, ${AC.height.sqlName}, ${AC.duration.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ${AC.width.sqlName}, ${AC.height.sqlName}, ${AC.duration.sqlName},
+          ${AC.generationMetadata.sqlName})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       normalized.hash,
       normalized.type,
@@ -129,6 +133,7 @@ export class AssetRepository {
       normalized.width ?? null,
       normalized.height ?? null,
       normalized.duration ?? null,
+      normalized.generationMetadata ? JSON.stringify(normalized.generationMetadata) : null,
     );
   }
 
@@ -289,10 +294,15 @@ export class AssetRepository {
 }
 
 function rowToAssetMeta(row: RawAssetRow): AssetMeta {
-  // Tags: treat null + empty string as `[]`. Legacy rows written before the
-  // DEFAULT '[]' migration can carry `tags = ''`; JSON.parse('') would throw
-  // and skip degraded-row recovery, so normalize before parsing.
   const rawTags = typeof row.tags === 'string' && row.tags.length > 0 ? row.tags : '[]';
+  let generationMetadata: AssetMeta['generationMetadata'];
+  if (typeof row.generation_metadata === 'string' && row.generation_metadata.length > 0) {
+    try {
+      generationMetadata = JSON.parse(row.generation_metadata);
+    } catch {
+      generationMetadata = undefined;
+    }
+  }
   return {
     hash: row.hash,
     type: row.type as AssetMeta['type'],
@@ -307,6 +317,7 @@ function rowToAssetMeta(row: RawAssetRow): AssetMeta {
     provider: row.provider ?? undefined,
     folderId: row.folder_id ?? null,
     createdAt: row.created_at,
+    generationMetadata,
   };
 }
 

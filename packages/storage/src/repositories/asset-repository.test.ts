@@ -20,7 +20,8 @@ CREATE TABLE assets (
   file_size   INTEGER,
   width       INTEGER,
   height      INTEGER,
-  duration    REAL
+  duration    REAL,
+  generation_metadata TEXT
 );
 
 CREATE VIRTUAL TABLE assets_fts USING fts5(hash, prompt, content='');
