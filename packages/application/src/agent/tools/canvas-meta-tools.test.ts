@@ -14,9 +14,6 @@ function createDeps(): CanvasToolDeps {
     renameCanvas: vi.fn(async () => undefined),
     connectNodes: vi.fn(async () => undefined),
     setNodePresets: vi.fn(async () => undefined),
-    getCanvasState: vi.fn(async () => {
-      throw new Error('unused');
-    }),
     layoutNodes: vi.fn(async () => undefined),
     triggerGeneration: vi.fn(async () => undefined),
     cancelGeneration: vi.fn(async () => undefined),
@@ -28,10 +25,6 @@ function createDeps(): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    removeCharacterRef: vi.fn(async () => undefined),
-    removeEquipmentRef: vi.fn(async () => undefined),
-    removeLocationRef: vi.fn(async () => undefined),
-    clearSelection: vi.fn(async () => undefined),
     importWorkflow: vi.fn(async () => {
       throw new Error('unused');
     }),

@@ -21,7 +21,6 @@ function createCanvas(): Canvas {
         title: 'Text 1',
         position: { x: 10, y: 20 },
         data: { content: 'hello' },
-        status: 'idle',
         bypassed: false,
         locked: false,
         createdAt: 1,
@@ -38,7 +37,6 @@ function createCanvas(): Canvas {
           selectedVariantIndex: 0,
           presetTracks: createEmptyPresetTrackSet(),
         },
-        status: 'idle',
         bypassed: false,
         locked: false,
         createdAt: 1,
@@ -57,7 +55,6 @@ function createCanvas(): Canvas {
           titleSize: 'md',
           lockChildren: false,
         },
-        status: 'idle',
         bypassed: false,
         locked: false,
         createdAt: 1,
@@ -124,11 +121,6 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
       current.name = name;
       current.updatedAt = Date.now();
     }),
-    getCanvasState: vi.fn(async (canvasId: string) => {
-      const item = store.get(canvasId);
-      if (!item) throw new Error(`Canvas not found: ${canvasId}`);
-      return item;
-    }),
     layoutNodes: vi.fn(async () => undefined),
     triggerGeneration: vi.fn(async () => undefined),
     cancelGeneration: vi.fn(async () => undefined),
@@ -153,10 +145,6 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    removeCharacterRef: vi.fn(async () => undefined),
-    removeEquipmentRef: vi.fn(async () => undefined),
-    removeLocationRef: vi.fn(async () => undefined),
-    clearSelection: vi.fn(async () => undefined),
     importWorkflow: vi.fn(async () => canvas),
     exportWorkflow: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
@@ -178,7 +166,6 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
     deleteNote: vi.fn(async () => undefined),
     undo: vi.fn(async () => undefined),
     redo: vi.fn(async () => undefined),
-    deleteProviderKey: vi.fn(async () => undefined),
   };
 }
 
@@ -206,7 +193,6 @@ describe('createCanvasTools', () => {
       expect.objectContaining({
         type: 'image',
         title: 'Generated Image',
-        status: 'idle',
         bypassed: false,
         locked: false,
         position: { x: 100, y: 200 },
@@ -548,7 +534,6 @@ describe('createCanvasTools', () => {
             title: 'Sunset Shot',
             position: { x: 0, y: 0 },
             data: { prompt: 'golden hour sunset', status: 'empty', variants: [], selectedVariantIndex: 0 },
-            status: 'idle',
             bypassed: false,
             locked: false,
             createdAt: 1,
@@ -560,7 +545,6 @@ describe('createCanvasTools', () => {
             title: 'Action Clip',
             position: { x: 300, y: 0 },
             data: { prompt: 'fast car chase', status: 'empty', variants: [], selectedVariantIndex: 0 },
-            status: 'idle',
             bypassed: false,
             locked: false,
             createdAt: 1,
@@ -572,7 +556,6 @@ describe('createCanvasTools', () => {
             title: 'Scene Notes',
             position: { x: 600, y: 0 },
             data: { content: 'notes about sunset' },
-            status: 'idle',
             bypassed: false,
             locked: false,
             createdAt: 1,

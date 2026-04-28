@@ -107,6 +107,11 @@ export class TodoRunStore {
     return this.snapshot;
   }
 
+  toStreamPayload(): { todoSnapshot: TodoSnapshot } | null {
+    if (!this.snapshot) return null;
+    return { todoSnapshot: this.snapshot };
+  }
+
   update(input: TodoUpdateInput): {
     snapshot: TodoSnapshot;
     applied: ReadonlyArray<{ id: string; status: TodoStatus }>;

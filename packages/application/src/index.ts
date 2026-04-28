@@ -138,6 +138,17 @@ export { createCopywritingTools, type CopywritingToolDeps } from './agent/tools/
 export { createVisionTools, type VisionToolDeps } from './agent/tools/vision-tools.js';
 export { createSnapshotTools, type SnapshotToolDeps } from './agent/tools/snapshot-tools.js';
 export { snapshotToolModule } from './agent/tools/snapshot-tools.js';
+export { createTodoTools } from './agent/tools/todo-tools.js';
+export {
+  TodoRunStore,
+  TodoRunStoreError,
+  type TodoSnapshot,
+  type TodoItem,
+  type TodoStatus,
+  type TodoRunStoreOptions,
+  type TodoSetInput,
+  type TodoUpdateInput,
+} from './agent/tools/todo-run-store.js';
 export { ok, fail, requireString, requireNumber, requireStringArray, requireText, requireBoolean } from './agent/tools/tool-result-helpers.js';
 export {
   getToolCompactionCategory,

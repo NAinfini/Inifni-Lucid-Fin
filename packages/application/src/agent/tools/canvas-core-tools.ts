@@ -1,4 +1,4 @@
-import type { CanvasNode, CanvasEdge, CanvasSettings } from '@lucid-fin/contracts';
+import { deriveNodeStatus, type CanvasNode, type CanvasEdge, type CanvasSettings } from '@lucid-fin/contracts';
 import { tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
 import {
@@ -87,7 +87,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           position,
           title,
           data: buildDefaultNodeData(type),
-          status: 'idle',
           bypassed: false,
           locked: false,
           width: dims?.width,
@@ -435,7 +434,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
                 position: node.position,
                 width: node.width,
                 height: node.height,
-                status: typeof data.status === 'string' ? data.status : node.status,
+                status: typeof data.status === 'string' ? data.status : deriveNodeStatus(node),
               };
             });
         return ok({ total: filtered.length, offset, limit, nodes: page });
@@ -715,7 +714,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
             position,
             title,
             data,
-            status: 'idle',
             bypassed: false,
             locked: false,
             width: type === 'text' ? 300 : type === 'image' ? 280 : type === 'video' ? 280 : 260,

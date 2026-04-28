@@ -24,6 +24,8 @@ import type { LLMAdapter, ProviderProfile } from '@lucid-fin/contracts';
 import { AgentOrchestrator, type AgentOptions } from './agent-orchestrator.js';
 import type { ProcessCategory } from './process-detection.js';
 import type { AgentToolRegistry } from './tool-registry.js';
+import { TodoRunStore } from './tools/todo-run-store.js';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Minimal canvas-store surface the factory needs. Both production's
@@ -102,10 +104,15 @@ export function createAgentOrchestratorForRun(
     : undefined;
 
   const canvasStore = input.canvasStore;
+  const todoStore = new TodoRunStore({
+    generateId: (kind) => `${kind}-${randomUUID().slice(0, 8)}`,
+  });
+
   const agentOptions: AgentOptions = {
     ...(input.options ?? {}),
     profile: profile as ProviderProfile | undefined,
     resolveProcessPrompt: resolveProcessPromptTyped,
+    todoStore,
     resolveCanvasNodeType: canvasStore
       ? (canvasId: string, nodeId: string) => {
           const canvas = canvasStore.get(canvasId);

@@ -31,7 +31,6 @@ function createCanvas(): Canvas {
           equipmentRefs: [{ equipmentId: 'eq-1' }],
           locationRefs: [{ locationId: 'loc-1' }],
         },
-        status: 'idle',
         bypassed: false,
         locked: false,
         createdAt: 1,
@@ -55,7 +54,6 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     renameNode: vi.fn(async () => undefined),
     connectNodes: vi.fn(async () => undefined),
     setNodePresets: vi.fn(async () => undefined),
-    getCanvasState: vi.fn(async () => canvas),
     layoutNodes: vi.fn(async () => undefined),
     triggerGeneration: vi.fn(async () => undefined),
     renameCanvas: vi.fn(async (_canvasId: string, name: string) => {
@@ -74,25 +72,6 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    removeCharacterRef: vi.fn(async (_canvasId: string, _nodeId: string, characterId: string) => {
-      const node = canvas.nodes[0];
-      const current = (node.data as { characterRefs?: Array<{ characterId: string }> }).characterRefs ?? [];
-      (node.data as { characterRefs?: Array<{ characterId: string }> }).characterRefs = current.filter((entry) => entry.characterId !== characterId);
-    }),
-    removeEquipmentRef: vi.fn(async (_canvasId: string, _nodeId: string, equipmentId: string) => {
-      const node = canvas.nodes[0];
-      const current = (node.data as { equipmentRefs?: Array<{ equipmentId: string }> }).equipmentRefs ?? [];
-      (node.data as { equipmentRefs?: Array<{ equipmentId: string }> }).equipmentRefs = current.filter((entry) => entry.equipmentId !== equipmentId);
-    }),
-    removeLocationRef: vi.fn(async (_canvasId: string, _nodeId: string, locationId: string) => {
-      const node = canvas.nodes[0];
-      const current = (node.data as { locationRefs?: Array<{ locationId: string }> }).locationRefs ?? [];
-      (node.data as { locationRefs?: Array<{ locationId: string }> }).locationRefs = current.filter((entry) => entry.locationId !== locationId);
-    }),
-    listLLMProviders: vi.fn(async () => []),
-    setActiveLLMProvider: vi.fn(async () => undefined),
-    setLLMProviderApiKey: vi.fn(async () => undefined),
-    clearSelection: vi.fn(async () => undefined),
     importWorkflow: vi.fn(async () => canvas),
     exportWorkflow: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
@@ -114,7 +93,6 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     deleteNote: vi.fn(async () => undefined),
     undo: vi.fn(async () => undefined),
     redo: vi.fn(async () => undefined),
-    deleteProviderKey: vi.fn(async () => undefined),
   };
 }
 

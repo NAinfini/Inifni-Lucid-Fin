@@ -374,7 +374,6 @@ describe('createRefImageTools', () => {
               selectedVariantIndex: 1,
             },
             title: 'Node',
-            status: 'idle',
             bypassed: false,
             locked: false,
             createdAt: 0,

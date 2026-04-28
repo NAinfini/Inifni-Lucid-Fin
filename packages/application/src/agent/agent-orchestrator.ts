@@ -46,6 +46,7 @@ import {
   makeStampedEmit,
 } from './stream-emit.js';
 import { freshRunId } from './agent-run-id.js';
+import type { TodoRunStore } from './tools/todo-run-store.js';
 import {
   EvidenceLedger,
   classifyIntent,
@@ -121,6 +122,7 @@ export interface AgentOptions {
   resolveCanvasSettings?: (
     canvasId: string,
   ) => { stylePlate?: string | null } | null;
+  todoStore?: TodoRunStore;
 }
 
 export interface AgentExecutionOptions {
@@ -308,6 +310,7 @@ export class AgentOrchestrator {
   private readonly resolveCanvasSettings?: (
     canvasId: string,
   ) => { stylePlate?: string | null } | null;
+  private readonly todoStore?: TodoRunStore;
   private activeProcessPromptSteps = new Map<ProcessPromptKey, number>();
   /**
    * Declarative process-prompt specs evaluated each turn. Seeded in the
@@ -377,6 +380,7 @@ export class AgentOrchestrator {
     this.resolveProcessPrompt = opts?.resolveProcessPrompt;
     this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
     this.resolveCanvasSettings = opts?.resolveCanvasSettings;
+    this.todoStore = opts?.todoStore;
 
     // Phase C: declarative process-prompt specs. Style-plate-lock is the
     // only standalone spec so far; adding new specs here (or — Phase F —
@@ -1103,10 +1107,55 @@ export class AgentOrchestrator {
           });
         }
 
+        // Intercept todo.set / todo.update — run them locally via TodoRunStore
+        // and emit structured snapshots. These never reach the ToolExecutor.
+        const todoStore = this.todoStore;
+        const todoCallIds = new Set<string>();
+        if (todoStore) {
+          for (const tc of callsToExecute) {
+            if (tc.name !== 'todo.set' && tc.name !== 'todo.update') continue;
+            todoCallIds.add(tc.id);
+            const args = (tc.arguments ?? {}) as Record<string, unknown>;
+            const startedAt = Date.now();
+            wrappedEmit({
+              kind: 'tool_call',
+              toolCallId: tc.id,
+              toolRef: parseCanonicalToolName(tc.name),
+              args,
+            });
+            try {
+              let result: unknown;
+              if (tc.name === 'todo.set') {
+                const snapshot = todoStore.set({
+                  items: (Array.isArray(args.items) ? args.items : []) as Array<{ label: string }>,
+                });
+                result = { success: true, data: { ...todoStore.toStreamPayload(), items: snapshot.items } };
+              } else {
+                const { snapshot, applied } = todoStore.update({
+                  todoId: typeof args.todoId === 'string' ? args.todoId : '',
+                  updates: (Array.isArray(args.updates) ? args.updates : []) as Array<{ id: string; status: 'pending' | 'in_progress' | 'done' }>,
+                });
+                result = { success: true, data: { ...todoStore.toStreamPayload(), applied, items: snapshot.items } };
+              }
+              const durationMs = Math.max(0, Date.now() - startedAt);
+              const serialized = JSON.stringify(result);
+              wrappedEmit({ kind: 'tool_result', toolCallId: tc.id, result: result as import('./tool-registry.js').ToolResult, durationMs });
+              messages.push({ role: 'tool', content: serialized, toolCallId: tc.id });
+            } catch (err) {
+              const durationMs = Math.max(0, Date.now() - startedAt);
+              const errMsg = err instanceof Error ? err.message : String(err);
+              const errorResult = { success: false, error: errMsg, _recovery: 'Check the error and retry with corrected arguments.' };
+              wrappedEmit({ kind: 'tool_result', toolCallId: tc.id, error: { code: 'TOOL_RUNTIME', params: { message: errMsg } }, durationMs });
+              messages.push({ role: 'tool', content: JSON.stringify(errorResult), toolCallId: tc.id });
+            }
+          }
+        }
+        const nonTodoCalls = callsToExecute.filter((tc) => !todoCallIds.has(tc.id));
+
         // Delegate tool execution to ToolExecutor
         this.toolExecutor.opts.currentStep = steps;
         const { cancelled, dupMap } = await this.toolExecutor.executeToolCalls(
-          callsToExecute,
+          nonTodoCalls,
           activeToolNames,
           discoveredToolNames,
           wrappedEmit,

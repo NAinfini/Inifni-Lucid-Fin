@@ -53,7 +53,7 @@ export interface PromptCompilerInput {
   negativePrompt?: string;
   presetTracks?: PresetTrackSet;
   characterRefs?: CharacterRef[];
-  equipmentRefs?: Array<EquipmentRef | string>;
+  equipmentRefs?: EquipmentRef[];
   locationRefs?: LocationRef[];
   /** Resolved character entities with loadout + equipment */
   characters?: ResolvedCharacter[];

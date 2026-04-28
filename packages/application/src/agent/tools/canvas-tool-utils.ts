@@ -24,7 +24,6 @@ export interface CanvasToolDeps {
   renameCanvas: (canvasId: string, name: string) => Promise<void>;
   connectNodes: (canvasId: string, edge: CanvasEdge) => Promise<void>;
   setNodePresets: (canvasId: string, nodeId: string, presetTracks: PresetTrackSet) => Promise<void>;
-  getCanvasState: (canvasId: string) => Promise<Canvas>;
   layoutNodes: (canvasId: string, direction: 'horizontal' | 'vertical' | 'auto') => Promise<void>;
   triggerGeneration: (
     canvasId: string,
@@ -41,10 +40,6 @@ export interface CanvasToolDeps {
   listShotTemplates: () => Promise<import('@lucid-fin/contracts').ShotTemplate[]>;
   saveShotTemplate: (template: import('@lucid-fin/contracts').ShotTemplate) => Promise<import('@lucid-fin/contracts').ShotTemplate>;
   deleteShotTemplate: (templateId: string) => Promise<void>;
-  removeCharacterRef: (canvasId: string, nodeId: string, characterId: string) => Promise<void>;
-  removeEquipmentRef: (canvasId: string, nodeId: string, equipmentId: string) => Promise<void>;
-  removeLocationRef: (canvasId: string, nodeId: string, locationId: string) => Promise<void>;
-  clearSelection: (canvasId: string) => Promise<void>;
   importWorkflow: (canvasId: string, json: string) => Promise<Canvas>;
   exportWorkflow: (canvasId: string) => Promise<string>;
   setNodeColorTag: (canvasId: string, nodeId: string, color: string) => Promise<void>;
@@ -81,10 +76,6 @@ export interface CanvasToolDeps {
   deleteNote: (canvasId: string, noteId: string) => Promise<void>;
   undo: (canvasId: string) => Promise<void>;
   redo: (canvasId: string) => Promise<void>;
-  listLLMProviders?: () => Promise<Array<{ id: string; name: string; model: string; hasKey: boolean }>>;
-  setActiveLLMProvider?: (providerId: string) => Promise<void>;
-  setLLMProviderApiKey?: (providerId: string, apiKey: string) => Promise<void>;
-  deleteProviderKey?: (providerId: string) => Promise<void>;
   /** Check whether a media provider has an API key stored. */
   isProviderKeyConfigured?: (providerId: string) => Promise<boolean>;
   /** Get the user's default provider for a media group (image/video/audio). */
