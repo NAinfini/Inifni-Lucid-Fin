@@ -31,33 +31,27 @@ describe('auto-updater status pushes', () => {
     autoUpdaterMock.autoInstallOnAppQuit = false;
   });
 
-  it('sends updater:status via webContents.send on checking-for-update', async () => {
-    const send = vi.fn();
+  it('pushes updater:progress via typed gateway on checking-for-update', async () => {
     const emit = vi.fn();
 
     await initAutoUpdater(
-      {
-        webContents: { send },
-      } as never,
+      { webContents: { send: vi.fn() } } as never,
       { emit } as never,
     );
 
     updaterListeners.get('checking-for-update')?.();
 
-    // notifyRenderer() pushes via raw webContents.send, not the typed gateway
-    expect(send).toHaveBeenCalledWith('updater:status', { state: 'checking' });
-    // The typed gateway is NOT used for status — only for the toast
-    expect(emit).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'updater:progress' }),
+      { state: 'checking' },
+    );
   });
 
-  it('sends updater:status and emits toast via typed gateway on update-available', async () => {
-    const send = vi.fn();
+  it('pushes updater:progress and updater:toast via typed gateway on update-available', async () => {
     const emit = vi.fn();
 
     await initAutoUpdater(
-      {
-        webContents: { send },
-      } as never,
+      { webContents: { send: vi.fn() } } as never,
       { emit } as never,
     );
 
@@ -70,20 +64,21 @@ describe('auto-updater status pushes', () => {
       ],
     });
 
-    // notifyRenderer() sends the full status via webContents.send
-    expect(send).toHaveBeenCalledWith('updater:status', {
-      state: 'available',
-      info: {
-        version: '2.0.0',
-        releaseDate: '2026-04-26T00:00:00.000Z',
-        releaseNotes: [
-          { version: '2.0.0', note: 'Added typed updater push.' },
-          { version: '1.9.0', note: 'Previous maintenance release.' },
-        ],
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: 'updater:progress' }),
+      {
+        state: 'available',
+        info: {
+          version: '2.0.0',
+          releaseDate: '2026-04-26T00:00:00.000Z',
+          releaseNotes: [
+            { version: '2.0.0', note: 'Added typed updater push.' },
+            { version: '1.9.0', note: 'Previous maintenance release.' },
+          ],
+        },
       },
-    });
+    );
 
-    // pushGateway.emit sends the toast with just the version
     expect(emit).toHaveBeenCalledWith(
       expect.objectContaining({ channel: 'updater:toast' }),
       { version: '2.0.0' },

@@ -1,5 +1,4 @@
 export { seriesSlice, setSeries } from './series.js';
-export { scriptSlice, setScript, updateContent, setParsedScenes, clearScript } from './script.js';
 export {
   charactersSlice,
   setCharacters,

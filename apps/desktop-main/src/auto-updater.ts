@@ -7,15 +7,11 @@
  * dropping `version`) becomes a loud main-process throw instead of a
  * silent renderer-side parse failure.
  *
- * The `updater:status` send intentionally stays on raw `webContents.send`
- * for now — it's defined as an **invoke** channel in
- * `@lucid-fin/contracts-parse` (request/response), not a push, even
- * though main is pushing on it. That mismatch is a pre-existing contract
- * drift that belongs to a dedicated cleanup, not to the Phase F gateway
- * migration.
+ * Status pushes go through `updater:progress` (a dedicated push channel),
+ * separate from the invoke-only `updater:status` polling endpoint.
  */
 import { BrowserWindow } from 'electron';
-import { updaterToastChannel } from '@lucid-fin/contracts-parse';
+import { updaterToastChannel, updaterProgressChannel } from '@lucid-fin/contracts-parse';
 import { log } from './logger.js';
 import {
   createRendererPushGateway,
@@ -48,20 +44,16 @@ export interface UpdateStatus {
 }
 
 let currentStatus: UpdateStatus = { state: 'idle' };
-let mainWindow: BrowserWindow | null = null;
 let pushGateway: RendererPushGateway | null = null;
 
 function notifyRenderer(): void {
-  // See module docstring — `updater:status` is defined as an invoke
-  // channel, so the typed gateway isn't the right tool for it yet.
-  mainWindow?.webContents.send('updater:status', currentStatus);
+  pushGateway?.emit(updaterProgressChannel, currentStatus);
 }
 
 export async function initAutoUpdater(
   win: BrowserWindow,
   gateway?: RendererPushGateway,
 ): Promise<void> {
-  mainWindow = win;
   pushGateway = gateway ?? createRendererPushGateway({ getWindow: () => win });
 
   try {

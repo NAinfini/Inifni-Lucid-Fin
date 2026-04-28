@@ -194,6 +194,7 @@ export function createEmitHandler(
       if (toolName && entityMutatingToolNames.has(toolName)) {
         gateway.emit(commanderEntitiesUpdatedChannel, { toolName });
       }
+      toolNameByCallId.delete(event.toolCallId);
     }
   };
 }

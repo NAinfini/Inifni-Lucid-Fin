@@ -1,5 +1,5 @@
 import { createSelector } from '@reduxjs/toolkit';
-import type { Canvas, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
+import type { ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
 import type { RootState } from '../index.js';
 import { canvasAdapter } from './canvas.js';
 
@@ -40,23 +40,10 @@ export const selectActiveCanvas = createSelector(
   },
 );
 
-/**
- * Select a canvas by ID. O(1) lookup.
- */
-export function selectCanvasById(state: RootState, id: string): Canvas | undefined {
-  return state.canvas.canvases.entities[id];
-}
-
 /** Memoized selector for the active canvas's nodes array. */
 export const selectActiveCanvasNodes = createSelector(
   [selectActiveCanvas],
   (canvas) => canvas?.nodes,
-);
-
-/** Memoized selector for the active canvas's edges array. */
-export const selectActiveCanvasEdges = createSelector(
-  [selectActiveCanvas],
-  (canvas) => canvas?.edges,
 );
 
 /**

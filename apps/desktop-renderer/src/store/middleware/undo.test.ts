@@ -67,11 +67,11 @@ function createCanvasState(): CanvasSliceState {
 
 describe('undoMiddleware', () => {
   it('tracks actions with recognized prefixes', () => {
-    const store = createMockStore({ script: { content: 'hello' } });
+    const store = createMockStore({ characters: { ids: [], entities: {} } });
     const next = (action: unknown) => action;
     const middleware = undoMiddleware(store as never)(next);
 
-    middleware({ type: 'script/updateContent', payload: 'world' });
+    middleware({ type: 'characters/updateCharacter', payload: { id: 'c1', name: 'Bob' } });
 
     expect(canUndo()).toBe(true);
     expect(getUndoLabel()).toBeTruthy();
@@ -89,12 +89,12 @@ describe('undoMiddleware', () => {
   });
 
   it('limits stack to MAX_STACK (100)', () => {
-    const store = createMockStore({ script: { content: '' } });
+    const store = createMockStore({ characters: { ids: [], entities: {} } });
     const next = (action: unknown) => action;
     const middleware = undoMiddleware(store as never)(next);
 
     for (let i = 0; i < 120; i++) {
-      middleware({ type: 'script/updateContent', payload: `v${i}` });
+      middleware({ type: 'characters/updateCharacter', payload: { id: 'c1', name: `v${i}` } });
       // Add delay to prevent grouping
     }
 
@@ -102,15 +102,15 @@ describe('undoMiddleware', () => {
   });
 
   it('clears redo stack on new action', () => {
-    const store = createMockStore({ script: { content: 'a' } });
+    const store = createMockStore({ characters: { ids: [], entities: {} } });
     const next = (action: unknown) => action;
     const middleware = undoMiddleware(store as never)(next);
 
-    middleware({ type: 'script/updateContent', payload: 'b' });
+    middleware({ type: 'characters/updateCharacter', payload: { id: 'c1', name: 'b' } });
     middleware({ type: 'undo/undo' });
     expect(canRedo()).toBe(true);
 
-    middleware({ type: 'script/updateContent', payload: 'c' });
+    middleware({ type: 'characters/updateCharacter', payload: { id: 'c1', name: 'c' } });
     expect(canRedo()).toBe(false);
   });
 

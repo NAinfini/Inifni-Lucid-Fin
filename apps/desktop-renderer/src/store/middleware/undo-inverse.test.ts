@@ -152,7 +152,7 @@ describe('computeInverseAction', () => {
 
   it('returns null for unsupported or invalid actions', () => {
     expect(
-      computeInverseAction('script/updateContent', { type: 'script/updateContent' }, {}),
+      computeInverseAction('characters/unknownOp', { type: 'characters/unknownOp' }, {}),
     ).toBeNull();
     expect(
       computeInverseAction('canvas/moveNode', { type: 'canvas/moveNode', payload: { id: 'missing' } }, {}),

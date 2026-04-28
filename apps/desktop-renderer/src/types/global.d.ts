@@ -26,10 +26,7 @@ import type {
   ReferenceImage,
   WorkflowActivitySummary,
   WorkflowStageRun,
-  WorkflowStageUpdatedEvent,
   WorkflowTaskSummary,
-  WorkflowTaskUpdatedEvent,
-  WorkflowUpdatedEvent,
 } from '@lucid-fin/contracts';
 
 /** Parsed script structure */
@@ -231,6 +228,7 @@ declare global {
       settings: {
         load: () => Promise<unknown>;
         save: (data: unknown) => Promise<void>;
+        onProviderKeyUpdated: (cb: (data: { providerId: string; hasKey: boolean }) => void) => () => void;
       };
       script: {
         parse: (content: string, format?: string) => Promise<unknown>;
@@ -356,9 +354,6 @@ declare global {
         retryTask: (taskRunId: string) => Promise<void>;
         retryStage: (stageRunId: string) => Promise<void>;
         retryWorkflow: (id: string) => Promise<void>;
-        onUpdated: (cb: (event: WorkflowUpdatedEvent) => void) => () => void;
-        onTaskUpdated: (cb: (event: WorkflowTaskUpdatedEvent) => void) => () => void;
-        onStageUpdated: (cb: (event: WorkflowStageUpdatedEvent) => void) => () => void;
       };
       keychain: {
         isConfigured: (provider: string) => Promise<boolean>;
@@ -483,9 +478,11 @@ declare global {
         install: () => Promise<void>;
         status: () => Promise<UpdaterStatus>;
         onProgress: (cb: (status: UpdaterStatus) => void) => () => void;
+        onToast: (cb: (data: { version: string }) => void) => () => void;
       };
       app: {
         version: () => Promise<string>;
+        restart: () => Promise<void>;
       };
       logger: {
         getRecent: () => Promise<MainLoggerEntry[]>;

@@ -25,10 +25,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 
 /** Channels that need longer timeouts (generation, AI, export, etc.) */
 const LONG_TIMEOUT_CHANNELS = new Set([
-  'ai:complete', 'ai:stream', 'ai:completeWithTools',
   'ai:chat',
-  'commander:sendStreaming',
-  'canvas:generate', 'canvasGeneration:start',
+  'canvas:generate',
   'video:clone', 'lipsync:process',
   'render:start', 'render:segment',
   'export:render', 'export:nle', 'export:assetBundle',
@@ -49,9 +47,6 @@ const NO_TIMEOUT_CHANNELS = new Set([
 
 const RATE_LIMITED_CHANNELS: Record<string, { maxPerSecond: number }> = {
   'canvas:generate': { maxPerSecond: 2 },
-  'canvasGeneration:start': { maxPerSecond: 2 },
-  'ai:complete': { maxPerSecond: 5 },
-  'ai:completeWithTools': { maxPerSecond: 5 },
   'entity:generateReferenceImage': { maxPerSecond: 2 },
 };
 
@@ -142,9 +137,12 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   settings: {
     load: () => typedInvoke('settings:load', undefined as IpcRequest<'settings:load'>),
     save: (data: Record<string, unknown>) => typedInvoke('settings:save', data),
+    onProviderKeyUpdated: (cb: (data: { providerId: string; hasKey: boolean }) => void) =>
+      subscribe('settings:providerKeyUpdated', cb as Callback),
   },
   app: {
     version: () => invoke<string>('app:version'),
+    restart: () => invoke<void>('app:restart', {}),
   },
   logger: {
     getRecent: () => invoke<Array<{
@@ -287,9 +285,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     retryTask: (taskRunId: string) => invoke('workflow:retryTask', { taskRunId }),
     retryStage: (stageRunId: string) => invoke('workflow:retryStage', { stageRunId }),
     retryWorkflow: (id: string) => invoke('workflow:retryWorkflow', { id }),
-    onUpdated: (cb: Callback) => subscribe('workflow:updated', cb),
-    onTaskUpdated: (cb: Callback) => subscribe('workflow:task-updated', cb),
-    onStageUpdated: (cb: Callback) => subscribe('workflow:stage-updated', cb),
   },
 
   // Keychain
@@ -490,7 +485,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     download: () => invoke('updater:download'),
     install: () => invoke('updater:install'),
     status: () => invoke('updater:status'),
-    onProgress: (cb: Callback) => subscribe('updater:status', cb),
+    onProgress: (cb: Callback) => subscribe('updater:progress', cb),
+    onToast: (cb: Callback) => subscribe('updater:toast', cb),
   },
 
   // Render

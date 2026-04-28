@@ -12,7 +12,6 @@ export interface UndoCommand {
 }
 
 const TRACKED_PREFIXES = [
-  'script/',
   'characters/',
   'equipment/',
   'storyboard/',
@@ -48,7 +47,6 @@ function shouldTrack(type: string): boolean {
 function actionLabel(type: string): string {
   const parts = type.split('/');
   const labels: Record<string, string> = {
-    updateContent: 'undo.action.updateContent',
     addKeyframe: 'undo.action.addKeyframe',
     updateKeyframe: 'undo.action.updateKeyframe',
     removeKeyframe: 'undo.action.removeKeyframe',

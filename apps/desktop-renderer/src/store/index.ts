@@ -1,6 +1,5 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { seriesSlice } from './slices/series.js';
-import { scriptSlice } from './slices/script.js';
 import { charactersSlice } from './slices/characters.js';
 import { equipmentSlice } from './slices/equipment.js';
 import { storyboardSlice } from './slices/storyboard.js';
@@ -29,7 +28,6 @@ import { undoMiddleware } from './middleware/undo.js';
 export const store = configureStore({
   reducer: {
     series: seriesSlice.reducer,
-    script: scriptSlice.reducer,
     characters: charactersSlice.reducer,
     equipment: equipmentSlice.reducer,
     storyboard: storyboardSlice.reducer,

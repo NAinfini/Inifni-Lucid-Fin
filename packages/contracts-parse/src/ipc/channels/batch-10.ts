@@ -1029,6 +1029,14 @@ export const updaterToastChannel = definePushChannel({
 });
 export type UpdaterToastPayload = z.infer<typeof UpdaterToastPayload>;
 
+// updater:progress (push) — separated from the invoke-only updater:status
+const UpdaterProgressPayload = UpdaterStatusShape;
+export const updaterProgressChannel = definePushChannel({
+  channel: 'updater:progress',
+  payload: UpdaterProgressPayload,
+});
+export type UpdaterProgressPayload = z.infer<typeof UpdaterProgressPayload>;
+
 // ─── Per-namespace tuples (invoke) ───────────────────────────
 export const appChannels = [appVersionChannel, appRestartChannel] as const;
 
@@ -1134,7 +1142,7 @@ export const refimagePushChannels = [
 
 export const settingsPushChannels = [settingsProviderKeyUpdatedChannel] as const;
 
-export const updaterPushChannels = [updaterToastChannel] as const;
+export const updaterPushChannels = [updaterToastChannel, updaterProgressChannel] as const;
 
 // ─── Flat tuple (all of batch 10) ────────────────────────────
 export const batch10Channels = [

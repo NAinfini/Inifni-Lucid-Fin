@@ -74,6 +74,17 @@ export function registerJobHandlers(
   });
 
   const notifiedJobs = new Set<string>();
+  const NOTIFIED_JOBS_MAX = 500;
+
+  function markNotified(id: string): void {
+    notifiedJobs.add(id);
+    if (notifiedJobs.size > NOTIFIED_JOBS_MAX) {
+      const iter = notifiedJobs.values();
+      for (let i = 0; i < NOTIFIED_JOBS_MAX / 2; i++) iter.next();
+      const half = [...notifiedJobs].slice(0, NOTIFIED_JOBS_MAX / 2);
+      for (const old of half) notifiedJobs.delete(old);
+    }
+  }
 
   // Event-driven IPC notifications — replaces 2s poll loop
   queue.on('job:submitted', (data: { id: string; status: string }) => {
@@ -86,7 +97,7 @@ export function registerJobHandlers(
 
   queue.on('job:completed', (data: { id: string; status: string }) => {
     if (notifiedJobs.has(data.id)) return;
-    notifiedJobs.add(data.id);
+    markNotified(data.id);
     const job = db.repos.jobs.list({ status: 'completed' }).rows.find((j) => j.id === data.id);
     gateway.emit(jobCompleteChannel, {
       jobId: data.id,
@@ -97,7 +108,7 @@ export function registerJobHandlers(
 
   queue.on('job:failed', (data: { id: string; status: string; error?: string }) => {
     if (notifiedJobs.has(data.id)) return;
-    notifiedJobs.add(data.id);
+    markNotified(data.id);
     gateway.emit(jobCompleteChannel, {
       jobId: data.id,
       success: false,
