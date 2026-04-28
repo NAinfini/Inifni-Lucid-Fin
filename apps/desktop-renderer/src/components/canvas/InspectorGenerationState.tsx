@@ -453,10 +453,9 @@ export function InspectorGenerationState({
     }
     dispatch(setNodeGenerating({ id: selectedNode.id, jobId: `pending-${Date.now()}` }));
     try {
-      const result = await api.canvasGeneration.generate(
+      await api.canvasGeneration.generate(
         activeCanvasId, selectedNode.id, activeProviderId, activeVariantCount, seedRequest.requestSeed, activeProviderConfig,
       );
-      dispatch(setNodeGenerating({ id: selectedNode.id, jobId: result.jobId }));
     } catch (error) {
       delete pendingRandomSeedByNodeId.current[selectedNode.id];
       const msg = error instanceof Error ? error.message : String(error);

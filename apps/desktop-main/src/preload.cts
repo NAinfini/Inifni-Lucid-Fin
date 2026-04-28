@@ -28,8 +28,8 @@ const LONG_TIMEOUT_CHANNELS = new Set([
   'ai:chat',
   'canvas:generate',
   'video:clone', 'lipsync:process',
-  'render:start', 'render:segment',
-  'export:render', 'export:nle', 'export:assetBundle',
+  'render:start',
+  'export:nle', 'export:assetBundle',
   'export:storyboard', 'export:metadata', 'export:capcut',
   'asset:reindexEmbeddings',
   'entity:generateReferenceImage',
@@ -264,6 +264,11 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     resume: (jobId: string) => invoke('job:resume', { jobId }),
     onProgress: (cb: Callback) => subscribe('job:progress', cb),
     onComplete: (cb: Callback) => subscribe('job:complete', cb),
+    onSubmitted: (cb: Callback) => subscribe('job:submitted', cb),
+    onFailed: (cb: Callback) => subscribe('job:failed', cb),
+    onCancelled: (cb: Callback) => subscribe('job:cancelled', cb),
+    onPaused: (cb: Callback) => subscribe('job:paused', cb),
+    onResumed: (cb: Callback) => subscribe('job:resumed', cb),
   },
 
   refimage: {

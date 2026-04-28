@@ -15,13 +15,21 @@ import type {
   VideoNodeData,
 } from '@lucid-fin/contracts';
 import { matchNode } from '@lucid-fin/shared-utils';
+import {
+  canvasGenerationProgressChannel,
+  canvasGenerationCompleteChannel,
+  canvasGenerationFailedChannel,
+} from '@lucid-fin/contracts-parse';
+import {
+  createRendererPushGateway,
+  type RendererPushGateway,
+} from '../../features/ipc/push-gateway.js';
 
 import type {
   CanvasGenerationDeps,
   GenerateArgs,
   EstimateArgs,
   CancelArgs,
-  SendTarget,
   RunningCanvasJob,
 } from './generation-helpers.js';
 import {
@@ -53,12 +61,14 @@ const runningJobs = new Map<string, RunningCanvasJob>();
 // ---------------------------------------------------------------------------
 
 export function registerCanvasGenerationHandlers(ipcMain: IpcMain, deps: CanvasGenerationDeps): void {
-  ipcMain.handle('canvas:generate', async (event, args: GenerateArgs) => {
-    return startCanvasGeneration(event.sender, args, deps);
+  const gateway = createRendererPushGateway({ getWindow: deps.getWindow });
+
+  ipcMain.handle('canvas:generate', async (_event, args: GenerateArgs) => {
+    return startCanvasGeneration(gateway, args, deps);
   });
 
-  ipcMain.handle('canvas:cancelGeneration', async (event, args: CancelArgs) => {
-    await cancelCanvasGeneration(event.sender, args, deps);
+  ipcMain.handle('canvas:cancelGeneration', async (_event, args: CancelArgs) => {
+    await cancelCanvasGeneration(gateway, args, deps);
   });
 
   ipcMain.handle('canvas:estimateCost', async (_event, args: EstimateArgs) => {
@@ -88,7 +98,7 @@ export function registerCanvasGenerationHandlers(ipcMain: IpcMain, deps: CanvasG
 // ---------------------------------------------------------------------------
 
 export async function cancelCanvasGeneration(
-  sender: SendTarget,
+  gateway: RendererPushGateway,
   args: CancelArgs,
   deps: CanvasGenerationDeps,
 ): Promise<void> {
@@ -99,7 +109,7 @@ export async function cancelCanvasGeneration(
 
   running.cancelled = true;
   running.cancelReason = 'Generation cancelled by user';
-  sendProgress(sender, parsed.canvasId, parsed.nodeId, 0, 'cancelling');
+  sendProgress(gateway, parsed.canvasId, parsed.nodeId, 0, 'cancelling');
 
   const adapter = deps.adapterRegistry.get(running.adapterId);
   if (!adapter) return;
@@ -122,7 +132,7 @@ export async function cancelCanvasGeneration(
 // ---------------------------------------------------------------------------
 
 export async function startCanvasGeneration(
-  sender: SendTarget,
+  gateway: RendererPushGateway,
   args: GenerateArgs,
   deps: CanvasGenerationDeps,
 ): Promise<{ jobId: string }> {
@@ -176,10 +186,10 @@ export async function startCanvasGeneration(
   });
   touchCanvas(context.canvas, deps);
 
-  sendProgress(sender, canvasId, nodeId, 1, 'queued');
+  sendProgress(gateway, canvasId, nodeId, 1, 'queued');
 
   void executeGeneration({
-    sender,
+    gateway,
     deps,
     context,
     runningJob,
@@ -194,13 +204,13 @@ export async function startCanvasGeneration(
 // ---------------------------------------------------------------------------
 
 async function executeGeneration(args: {
-  sender: SendTarget;
+  gateway: RendererPushGateway;
   deps: CanvasGenerationDeps;
   context: import('./generation-helpers.js').BuiltGenerationContext;
   runningJob: RunningCanvasJob;
   initialEstimatedCost: number;
 }): Promise<void> {
-  const { sender, deps, context, runningJob, initialEstimatedCost } = args;
+  const { gateway, deps, context, runningJob, initialEstimatedCost } = args;
   const { canvas, node, adapter, requestBase, generationType, variantCount, baseSeed } = context;
   const key = runningKey(runningJob.canvasId, runningJob.nodeId);
   const startedAt = Date.now();
@@ -211,7 +221,7 @@ async function executeGeneration(args: {
     for (let index = 0; index < variantCount; index += 1) {
       throwIfCancelled(runningJob);
       const progress = Math.round((index / variantCount) * 100);
-      sendProgress(sender, runningJob.canvasId, runningJob.nodeId, progress, `Generating variant ${index + 1}`);
+      sendProgress(gateway, runningJob.canvasId, runningJob.nodeId, progress, `Generating variant ${index + 1}`);
 
       const variantSeed = typeof baseSeed === 'number' ? baseSeed + index : undefined;
       const variantRequest = materializeGenerationRequest(
@@ -221,7 +231,7 @@ async function executeGeneration(args: {
       const generated = await runAdapterGeneration({
         adapter,
         request: variantRequest,
-        sender,
+        gateway,
         runningJob,
         variantIndex: index,
         variantCount,
@@ -370,7 +380,7 @@ async function executeGeneration(args: {
       backdrop: () => {},
     });
 
-    sendProgress(sender, runningJob.canvasId, runningJob.nodeId, 100, 'completed');
+    sendProgress(gateway, runningJob.canvasId, runningJob.nodeId, 100, 'completed');
     log.info('Canvas generation completed', {
       category: 'canvas-generation',
       canvasId: runningJob.canvasId,
@@ -382,7 +392,7 @@ async function executeGeneration(args: {
       generationTimeMs,
       cost: finalCost,
     });
-    sender.send('canvas:generation:complete', {
+    gateway.emit(canvasGenerationCompleteChannel, {
       canvasId: runningJob.canvasId,
       nodeId: runningJob.nodeId,
       variants: variantHashes,
@@ -409,7 +419,7 @@ async function executeGeneration(args: {
     });
     markNodeFailed(node, message);
     touchCanvas(canvas, deps);
-    sender.send('canvas:generation:failed', {
+    gateway.emit(canvasGenerationFailedChannel, {
       canvasId: runningJob.canvasId,
       nodeId: runningJob.nodeId,
       error: message,
@@ -426,18 +436,18 @@ async function executeGeneration(args: {
 async function runAdapterGeneration(input: {
   adapter: import('@lucid-fin/contracts').AIProviderAdapter;
   request: import('@lucid-fin/contracts').GenerationRequest;
-  sender: SendTarget;
+  gateway: RendererPushGateway;
   runningJob: RunningCanvasJob;
   variantIndex: number;
   variantCount: number;
 }): Promise<import('@lucid-fin/contracts').GenerationResult> {
-  const { adapter, request, sender, runningJob, variantIndex, variantCount } = input;
+  const { adapter, request, gateway, runningJob, variantIndex, variantCount } = input;
   if (!adapter.subscribe) {
     return adapter.generate(request);
   }
 
   return adapter.subscribe(request, createVariantCallbacks({
-    sender,
+    gateway,
     runningJob,
     variantIndex,
     variantCount,
@@ -445,18 +455,18 @@ async function runAdapterGeneration(input: {
 }
 
 function createVariantCallbacks(input: {
-  sender: SendTarget;
+  gateway: RendererPushGateway;
   runningJob: RunningCanvasJob;
   variantIndex: number;
   variantCount: number;
 }): SubscribeCallbacks {
-  const { sender, runningJob, variantIndex, variantCount } = input;
+  const { gateway, runningJob, variantIndex, variantCount } = input;
 
   return {
     onQueueUpdate: (update) => {
       collectProviderJobIdFromUpdate(runningJob, update);
       sendProgress(
-        sender,
+        gateway,
         runningJob.canvasId,
         runningJob.nodeId,
         progressForVariantUpdate(variantIndex, variantCount),
@@ -466,7 +476,7 @@ function createVariantCallbacks(input: {
     onProgress: (update) => {
       collectProviderJobIdFromUpdate(runningJob, update);
       sendProgress(
-        sender,
+        gateway,
         runningJob.canvasId,
         runningJob.nodeId,
         progressForVariantUpdate(variantIndex, variantCount, update.percentage),
@@ -475,7 +485,7 @@ function createVariantCallbacks(input: {
     },
     onLog: (logLine) => {
       sendProgress(
-        sender,
+        gateway,
         runningJob.canvasId,
         runningJob.nodeId,
         progressForVariantUpdate(variantIndex, variantCount),
@@ -608,13 +618,13 @@ function collectProviderJobIdFromUpdate(
 }
 
 function sendProgress(
-  sender: SendTarget,
+  gateway: RendererPushGateway,
   canvasId: string,
   nodeId: string,
   progress: number,
   currentStep?: string,
 ): void {
-  sender.send('canvas:generation:progress', {
+  gateway.emit(canvasGenerationProgressChannel, {
     canvasId,
     nodeId,
     progress: Math.max(0, Math.min(100, Math.round(progress))),

@@ -1138,6 +1138,19 @@ export const videoChannels = [
   videoCloneChannel,
 ] as const;
 
+// ── video:clone:progress (push) ─────────────────────────────
+const VideoCloneProgressPayload = z.object({
+  step: z.enum(['detect', 'extract', 'describe', 'build']),
+  current: z.number(),
+  total: z.number(),
+  message: z.string(),
+});
+export const videoCloneProgressChannel = definePushChannel({
+  channel: 'video:clone:progress',
+  payload: VideoCloneProgressPayload,
+});
+export type VideoCloneProgressPayload = z.infer<typeof VideoCloneProgressPayload>;
+
 export const visionChannels = [visionDescribeImageChannel] as const;
 
 // ─── Per-namespace tuples (push) ─────────────────────────────
@@ -1158,6 +1171,8 @@ export const refimagePushChannels = [
 export const settingsPushChannels = [settingsProviderKeyUpdatedChannel] as const;
 
 export const updaterPushChannels = [updaterToastChannel, updaterProgressChannel] as const;
+
+export const videoPushChannels = [videoCloneProgressChannel] as const;
 
 // ─── Flat tuple (all of batch 10) ────────────────────────────
 export const batch10Channels = [
@@ -1188,4 +1203,5 @@ export const batch10Channels = [
   ...refimagePushChannels,
   ...settingsPushChannels,
   ...updaterPushChannels,
+  ...videoPushChannels,
 ] as const;

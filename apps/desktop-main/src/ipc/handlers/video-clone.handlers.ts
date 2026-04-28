@@ -2,11 +2,16 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { IpcMain, WebContents } from 'electron';
+import type { BrowserWindow, IpcMain } from 'electron';
 import { dialog } from 'electron';
 import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
 import type { CAS } from '@lucid-fin/storage';
 import { detectScenes, extractFrameAtTime } from '@lucid-fin/media-engine';
+import { videoCloneProgressChannel } from '@lucid-fin/contracts-parse';
+import {
+  createRendererPushGateway,
+  type RendererPushGateway,
+} from '../../features/ipc/push-gateway.js';
 import type { CanvasStore } from './canvas.handlers.js';
 import log from '../../logger.js';
 
@@ -17,8 +22,8 @@ interface VideoCloneProgress {
   message: string;
 }
 
-function sendProgress(sender: WebContents, progress: VideoCloneProgress): void {
-  sender.send('video:clone:progress', progress);
+function sendProgress(gateway: RendererPushGateway, progress: VideoCloneProgress): void {
+  gateway.emit(videoCloneProgressChannel, progress);
 }
 
 export function registerVideoCloneHandlers(
@@ -26,13 +31,16 @@ export function registerVideoCloneHandlers(
   deps: {
     cas: CAS;
     canvasStore: CanvasStore;
+    getWindow: () => BrowserWindow | null;
     describeImageAsset?: (assetHash: string, style?: string) => Promise<{ prompt: string }>;
   },
 ): void {
+  const gateway = createRendererPushGateway({ getWindow: deps.getWindow });
+
   ipcMain.handle(
     'video:clone',
     async (
-      event,
+      _event,
       args: { filePath: string; threshold?: number },
     ) => {
       if (!args?.filePath || typeof args.filePath !== 'string') {
@@ -40,12 +48,11 @@ export function registerVideoCloneHandlers(
       }
 
       const { filePath, threshold } = args;
-      const sender = event.sender;
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-video-clone-'));
 
       try {
         // Step 1: Detect scenes
-        sendProgress(sender, {
+        sendProgress(gateway, {
           step: 'detect',
           current: 0,
           total: 1,
@@ -64,7 +71,7 @@ export function registerVideoCloneHandlers(
         const keyframeHashes: string[] = [];
         for (let i = 0; i < scenes.length; i++) {
           const scene = scenes[i];
-          sendProgress(sender, {
+          sendProgress(gateway, {
             step: 'extract',
             current: i,
             total: scenes.length,
@@ -93,7 +100,7 @@ export function registerVideoCloneHandlers(
           for (let i = 0; i < keyframeHashes.length; i++) {
             const hash = keyframeHashes[i];
             if (!hash) continue;
-            sendProgress(sender, {
+            sendProgress(gateway, {
               step: 'describe',
               current: i,
               total: scenes.length,
@@ -113,7 +120,7 @@ export function registerVideoCloneHandlers(
         }
 
         // Step 4: Build canvas
-        sendProgress(sender, {
+        sendProgress(gateway, {
           step: 'build',
           current: 0,
           total: 1,

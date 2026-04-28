@@ -329,13 +329,18 @@ declare global {
         setFolder: (hash: string, folderId: string | null) => Promise<void>;
       };
       job: {
-        submit: (request: JobRequest) => Promise<JobSummary>;
+        submit: (request: JobRequest) => Promise<{ jobId: string }>;
         list: (filter?: Record<string, unknown>) => Promise<JobSummary[]>;
         cancel: (jobId: string) => Promise<void>;
         pause: (jobId: string) => Promise<void>;
         resume: (jobId: string) => Promise<void>;
         onProgress: (cb: (job: JobSummary) => void) => () => void;
         onComplete: (cb: (job: JobSummary) => void) => () => void;
+        onSubmitted: (cb: (data: { id: string; status: string }) => void) => () => void;
+        onFailed: (cb: (data: { id: string; status: string; error?: string }) => void) => () => void;
+        onCancelled: (cb: (data: { id: string; status: string }) => void) => () => void;
+        onPaused: (cb: (data: { id: string; status: string }) => void) => () => void;
+        onResumed: (cb: (data: { id: string; status: string }) => void) => () => void;
       };
       refimage: {
         onStart: (cb: (data: { jobId: string; provider: string; width: number; height: number }) => void) => () => void;
@@ -449,13 +454,7 @@ declare global {
           sessionId: string,
           label: string,
           trigger?: 'auto' | 'manual',
-        ) => Promise<{
-          id: string;
-          sessionId: string;
-          label: string;
-          trigger: string;
-          createdAt: number;
-        }>;
+        ) => Promise<Record<string, unknown>>;
         list: (sessionId: string) => Promise<Array<{
           id: string;
           sessionId: string;
@@ -496,7 +495,7 @@ declare global {
       export: {
         nle: (preset: ExportPreset) => Promise<ExportResult>;
         assetBundle: (assetHashes: string[], outputPath?: string) => Promise<ExportResult | null>;
-        subtitles: (format: 'srt' | 'vtt', outputPath: string) => Promise<void>;
+        subtitles: (format: 'srt' | 'ass', outputPath: string) => Promise<void>;
         storyboard: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) => Promise<ExportResult | null>;
         metadata: (format: 'csv' | 'json', nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) => Promise<ExportResult | null>;
         importSrt: (canvasId: string, filePath: string, alignToNodes?: boolean) => Promise<{ importedCount: number; alignedCount: number; noVideoNodes?: boolean }>;
@@ -539,7 +538,7 @@ declare global {
           variantCount?: number,
           seed?: number,
           providerConfig?: { baseUrl: string; model: string; apiKey?: string },
-        ) => Promise<{ jobId: string }>;
+        ) => Promise<void>;
         cancel: (canvasId: string, nodeId: string) => Promise<void>;
         estimateCost: (
           canvasId: string,

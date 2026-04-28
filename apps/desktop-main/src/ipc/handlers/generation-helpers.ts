@@ -37,6 +37,7 @@ export type CanvasGenerationDeps = {
   db: SqliteIndex;
   canvasStore: CanvasStore;
   keychain: Keychain;
+  getWindow: () => import('electron').BrowserWindow | null;
 };
 
 export type SendTarget = {

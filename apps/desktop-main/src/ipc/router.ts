@@ -93,6 +93,7 @@ export function registerAllHandlers(
     db,
     canvasStore,
     keychain,
+    getWindow,
   });
   registerPresetHandlers(ipcMain, db);
   registerCommanderHandlers(ipcMain, getWindow, {
@@ -116,7 +117,7 @@ export function registerAllHandlers(
   registerVideoChainHandlers(ipcMain, canvasStore, cas);
   registerLipSyncHandlers(ipcMain, { cas, canvasStore, db });
   registerEmbeddingHandlers(ipcMain, { cas, keychain, db, getWindow });
-  registerVideoCloneHandlers(ipcMain, { cas, canvasStore });
+  registerVideoCloneHandlers(ipcMain, { cas, canvasStore, getWindow });
   registerStorageHandlers(ipcMain, { db, cas });
   registerSnapshotHandlers(ipcMain, db);
   registerFolderHandlers(ipcMain, db);

@@ -254,6 +254,7 @@ export function registerAllTools(
     db: deps.db,
     canvasStore: deps.canvasStore,
     keychain: deps.keychain,
+    getWindow,
   };
 
   // ---- Canvas tool deps ----
@@ -314,23 +315,15 @@ export function registerAllTools(
       providerId?: string,
       variantCount?: number,
     ) => {
-      const win = getWindow();
-      if (!win || win.isDestroyed()) {
-        throw new Error('Main window is not available');
-      }
       await startCanvasGeneration(
-        win.webContents,
+        gateway,
         { canvasId, nodeId, providerId, variantCount },
         canvasGenerationDeps,
       );
     },
     cancelGeneration: async (canvasId: string, nodeId: string) => {
-      const win = getWindow();
-      if (!win || win.isDestroyed()) {
-        throw new Error('Main window is not available');
-      }
       await cancelCanvasGeneration(
-        win.webContents,
+        gateway,
         { canvasId, nodeId },
         canvasGenerationDeps,
       );
@@ -417,6 +410,7 @@ export function registerAllTools(
         db: deps.db,
         canvasStore: deps.canvasStore,
         keychain: deps.keychain,
+        getWindow,
       };
       for (const node of targets) {
         try {
@@ -448,6 +442,7 @@ export function registerAllTools(
         db: deps.db,
         canvasStore: deps.canvasStore,
         keychain: deps.keychain,
+        getWindow,
       }, {
         canvasId,
         nodeId,

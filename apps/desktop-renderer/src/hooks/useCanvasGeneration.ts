@@ -204,7 +204,7 @@ export function useCanvasGeneration(): {
       );
       dispatch(setNodeGenerating({ id: nodeId, jobId: `pending-${Date.now()}` }));
       try {
-        const result = await api.canvasGeneration.generate(
+        await api.canvasGeneration.generate(
           activeCanvasId,
           nodeId,
           providerId,
@@ -212,7 +212,6 @@ export function useCanvasGeneration(): {
           seed,
           providerConfig,
         );
-        dispatch(setNodeGenerating({ id: nodeId, jobId: result.jobId }));
         dispatch(
           addLog({
             level: 'info',
@@ -221,7 +220,6 @@ export function useCanvasGeneration(): {
             detail: serializeGenerationDetail({
               canvasId: activeCanvasId,
               nodeId,
-              jobId: result.jobId,
               providerId,
               providerConfig,
             }),

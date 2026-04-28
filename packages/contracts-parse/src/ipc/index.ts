@@ -21,12 +21,19 @@ import { workflowChannels } from './channels/batch-06.js';
 import { canvasChannels } from './channels/batch-07.js';
 import {
   canvasGenerationChannels,
+  canvasGenerationPushChannels,
   presetChannels,
 } from './channels/batch-08.js';
 import {
   commanderChannels,
   commanderPushChannels,
 } from './channels/batch-09.js';
+import { seriesChannels } from './channels/batch-11.js';
+import {
+  folderChannels,
+  setFolderChannels,
+  processPromptChannels,
+} from './channels/batch-12.js';
 import {
   appChannels,
   aiChannels,
@@ -53,6 +60,7 @@ import {
   refimagePushChannels,
   settingsPushChannels,
   updaterPushChannels,
+  videoPushChannels,
 } from './channels/batch-10.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
@@ -93,6 +101,12 @@ export * from './channels/batch-09.js';
 // vision + refimage + settings push)
 export * from './channels/batch-10.js';
 
+// Batch 11 — series
+export * from './channels/batch-11.js';
+
+// Batch 12 — folder + setFolder + processPrompt
+export * from './channels/batch-12.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
@@ -110,6 +124,7 @@ export const allChannels = [
   ...workflowChannels,
   ...canvasChannels,
   ...canvasGenerationChannels,
+  ...canvasGenerationPushChannels,
   ...presetChannels,
   ...commanderChannels,
   ...commanderPushChannels,
@@ -140,4 +155,11 @@ export const allChannels = [
   ...refimagePushChannels,
   ...settingsPushChannels,
   ...updaterPushChannels,
+  ...videoPushChannels,
+  // Batch 11 — series
+  ...seriesChannels,
+  // Batch 12 — folder + setFolder + processPrompt
+  ...folderChannels,
+  ...setFolderChannels,
+  ...processPromptChannels,
 ] as const;

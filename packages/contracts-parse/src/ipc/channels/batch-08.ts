@@ -4,6 +4,8 @@
  * Covers:
  *  - `canvas:generate`, `canvas:cancelGeneration` from
  *    `apps/desktop-main/src/ipc/handlers/canvas-generation.handlers.ts`
+ *  - `canvas:generation:progress`, `canvas:generation:complete`,
+ *    `canvas:generation:failed` push channels
  *  - `preset:list`, `preset:save`, `preset:delete`, `preset:reset`,
  *    `preset:import`, `preset:export` from
  *    `apps/desktop-main/src/ipc/handlers/preset.handlers.ts`
@@ -13,14 +15,9 @@
  * only the outer envelope — deep shape validation (e.g. `PresetParamDefinition`
  * subtypes) stays loose via `z.unknown()` / `z.record(...)`, mirroring how
  * Batch 4 treated storage responses.
- *
- * `canvas:generation:*` push events are emitted via `sender.send(...)` from
- * the generation handler but are not wired as dedicated push channels — the
- * progress/complete/failed stream flows through `job:*` push channels from
- * Batch 5. No `webContents.send('canvas:generation:')` calls exist.
  */
 import { z } from 'zod';
-import { defineInvokeChannel } from '../../channels.js';
+import { defineInvokeChannel, definePushChannel } from '../../channels.js';
 
 // ── Shared preset primitives ─────────────────────────────────
 // Keep field-level shapes loose — compile-time DTOs in @lucid-fin/contracts
@@ -192,10 +189,62 @@ export const presetExportChannel = defineInvokeChannel({
 export type PresetExportRequest = z.infer<typeof PresetExportRequest>;
 export type PresetExportResponse = z.infer<typeof PresetExportResponse>;
 
+// ── canvas:generation:progress (push) ──────────────────────
+const CanvasGenerationProgressPayload = z.object({
+  canvasId: z.string(),
+  nodeId: z.string(),
+  progress: z.number(),
+  currentStep: z.string().optional(),
+});
+export const canvasGenerationProgressChannel = definePushChannel({
+  channel: 'canvas:generation:progress',
+  payload: CanvasGenerationProgressPayload,
+});
+export type CanvasGenerationProgressPayload = z.infer<typeof CanvasGenerationProgressPayload>;
+
+// ── canvas:generation:complete (push) ──────────────────────
+const CanvasGenerationCompletePayload = z.object({
+  canvasId: z.string(),
+  nodeId: z.string(),
+  variants: z.array(z.string()),
+  primaryAssetHash: z.string(),
+  cost: z.number().optional(),
+  generationTimeMs: z.number(),
+  characterRefs: z.array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) })).optional(),
+  equipmentRefs: z.array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) })).optional(),
+  locationRefs: z.array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) })).optional(),
+  frameReferenceHashes: z.object({ first: z.string().optional(), last: z.string().optional() }).optional(),
+  sourceImageHash: z.string().optional(),
+  model: z.string().optional(),
+});
+export const canvasGenerationCompleteChannel = definePushChannel({
+  channel: 'canvas:generation:complete',
+  payload: CanvasGenerationCompletePayload,
+});
+export type CanvasGenerationCompletePayload = z.infer<typeof CanvasGenerationCompletePayload>;
+
+// ── canvas:generation:failed (push) ────────────────────────
+const CanvasGenerationFailedPayload = z.object({
+  canvasId: z.string(),
+  nodeId: z.string(),
+  error: z.string(),
+});
+export const canvasGenerationFailedChannel = definePushChannel({
+  channel: 'canvas:generation:failed',
+  payload: CanvasGenerationFailedPayload,
+});
+export type CanvasGenerationFailedPayload = z.infer<typeof CanvasGenerationFailedPayload>;
+
 // ── Channel tuples ──────────────────────────────────────────
 export const canvasGenerationChannels = [
   canvasGenerateChannel,
   canvasCancelGenerationChannel,
+] as const;
+
+export const canvasGenerationPushChannels = [
+  canvasGenerationProgressChannel,
+  canvasGenerationCompleteChannel,
+  canvasGenerationFailedChannel,
 ] as const;
 
 export const presetChannels = [
