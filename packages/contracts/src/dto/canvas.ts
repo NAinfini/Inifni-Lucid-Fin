@@ -151,14 +151,14 @@ export interface VideoNodeData {
 }
 
 export interface EmotionVector {
-  happy: number;        // 0-1
-  sad: number;          // 0-1
-  angry: number;        // 0-1
-  fearful: number;      // 0-1
-  surprised: number;    // 0-1
-  disgusted: number;    // 0-1
+  happy: number; // 0-1
+  sad: number; // 0-1
+  angry: number; // 0-1
+  fearful: number; // 0-1
+  surprised: number; // 0-1
+  disgusted: number; // 0-1
   contemptuous: number; // 0-1
-  neutral: number;      // 0-1
+  neutral: number; // 0-1
 }
 
 export interface AudioNodeData {
@@ -235,8 +235,14 @@ const MEDIA_STATUS_TO_NODE_STATUS: Record<MediaNodeStatus, NodeStatus> = {
 export function deriveNodeStatus(node: CanvasNode): NodeStatus {
   if (node.bypassed) return 'bypassed';
   if (node.locked) return 'locked';
-  const data = node.data as { status?: MediaNodeStatus };
-  if (data.status) return MEDIA_STATUS_TO_NODE_STATUS[data.status];
+  const data = node.data as { status?: string };
+  if (data.status) {
+    const mapped = MEDIA_STATUS_TO_NODE_STATUS[data.status as MediaNodeStatus];
+    if (mapped) return mapped;
+    if (typeof console !== 'undefined') {
+      console.warn(`[deriveNodeStatus] unknown status "${data.status}" on node ${node.id}`);
+    }
+  }
   return 'idle';
 }
 

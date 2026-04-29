@@ -134,10 +134,13 @@ describe('autoChainVideoFrame', () => {
   it('ignores non-video edge targets', async () => {
     const v1 = makeVideoNode('v1');
     const textNode = {
-      id: 't1', type: 'text', title: 't1',
+      id: 't1',
+      type: 'text',
+      title: 't1',
       position: { x: 100, y: 0 },
       data: { content: 'text' },
-      createdAt: Date.now(), updatedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     } as CanvasNode;
     const canvas = makeCanvas([v1, textNode], [makeEdge('e1', 'v1', 't1')]);
     const cas = makeCas();

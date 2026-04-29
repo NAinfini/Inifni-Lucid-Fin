@@ -42,7 +42,11 @@ function toSRTTime(seconds: number): string {
 export function parseSRT(content: string): SubtitleCue[] {
   const cues: SubtitleCue[] = [];
   // Normalise line endings and split into blocks separated by blank lines
-  const blocks = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split(/\n{2,}/);
+  const blocks = content
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim()
+    .split(/\n{2,}/);
 
   for (const block of blocks) {
     const lines = block.trim().split('\n');

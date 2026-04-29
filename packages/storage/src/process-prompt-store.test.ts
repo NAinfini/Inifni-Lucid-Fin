@@ -135,9 +135,7 @@ describe('ProcessPromptStore', () => {
     const store = new ProcessPromptStore(createTempDbPath());
 
     expect(() => store.setCustom('unknown-process', 'bad')).toThrow('Process prompt not found');
-    expect(() => store.resetToDefault('unknown-process')).toThrow(
-      'Process prompt not found',
-    );
+    expect(() => store.resetToDefault('unknown-process')).toThrow('Process prompt not found');
     expect(store.get('unknown-process')).toBeNull();
     expect(store.getEffectiveValue('unknown-process')).toBeNull();
     store.close();

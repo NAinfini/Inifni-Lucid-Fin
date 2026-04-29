@@ -18,8 +18,7 @@ export const storyToVideoContract: CompletionContract = {
   requiredCommits: [
     {
       toolName: 'canvas.batchCreate',
-      description:
-        'Atomic create of scene nodes and edges — the workflow output.',
+      description: 'Atomic create of scene nodes and edges — the workflow output.',
       argPredicate: (args) => nodesArray(args).length >= 1,
     },
   ],

@@ -22,9 +22,7 @@ const WorkflowStageShape = z.unknown();
 const WorkflowTaskShape = z.unknown();
 
 // ── workflow:list (invoke) ───────────────────────────────────
-const WorkflowListRequest = z
-  .object({ status: z.string().optional() })
-  .strict();
+const WorkflowListRequest = z.object({ status: z.string().optional() }).strict();
 const WorkflowListResponse = z.array(WorkflowSummaryShape);
 export const workflowListChannel = defineInvokeChannel({
   channel: 'workflow:list',

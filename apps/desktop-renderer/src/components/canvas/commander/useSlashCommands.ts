@@ -7,7 +7,10 @@ import {
   addSystemNotice,
   compactLocalContext,
 } from '../../../store/slices/commander.js';
-import { readCommanderTelemetry, resetCommanderTelemetry } from '../../../commander/service/telemetry.js';
+import {
+  readCommanderTelemetry,
+  resetCommanderTelemetry,
+} from '../../../commander/service/telemetry.js';
 import { getAPI } from '../../../utils/api.js';
 
 export interface SlashCommand {
@@ -76,18 +79,20 @@ export function useSlashCommands({
     dispatch(addSystemNotice(t('commander.slashCommand.compacting')));
 
     // Measure chars before Phase 1
-    const measureChars = (msgs: typeof msgsBefore) => msgs.reduce((sum, m) => {
-      let c = m.content.length;
-      if (m.toolCalls) {
-        for (const tc of m.toolCalls) {
-          c += JSON.stringify(tc.arguments).length;
-          if (tc.result != null) {
-            c += typeof tc.result === 'string' ? tc.result.length : JSON.stringify(tc.result).length;
+    const measureChars = (msgs: typeof msgsBefore) =>
+      msgs.reduce((sum, m) => {
+        let c = m.content.length;
+        if (m.toolCalls) {
+          for (const tc of m.toolCalls) {
+            c += JSON.stringify(tc.arguments).length;
+            if (tc.result != null) {
+              c +=
+                typeof tc.result === 'string' ? tc.result.length : JSON.stringify(tc.result).length;
+            }
           }
         }
-      }
-      return sum + c;
-    }, 0);
+        return sum + c;
+      }, 0);
     const msgsBefore = store.getState().commander.messages;
     const charsBefore = measureChars(msgsBefore);
 
@@ -106,38 +111,61 @@ export function useSlashCommands({
     const canvasId = store.getState().canvas.activeCanvasId;
     if (api?.commander && canvasId) {
       try {
-        const result = await api.commander.compact(canvasId) as { freedChars: number; messageCount: number; toolCount: number };
+        const result = (await api.commander.compact(canvasId)) as {
+          freedChars: number;
+          messageCount: number;
+          toolCount: number;
+        };
         backendFreed = result.freedChars;
         backendMsgCount = result.messageCount;
         backendToolCount = result.toolCount;
-      } catch { /* IPC call failed — use local results only */ }
+      } catch {
+        /* IPC call failed — use local results only */
+      }
     }
 
     const totalFreed = localFreed + backendFreed;
     if (totalFreed > 0) {
       // Persist compacted session to SQLite so restart preserves the savings
-      const freshState = store.getState() as { commander: { activeSessionId: string | null; sessions: Array<{ id: string; title: string; messages: unknown[]; createdAt: number; updatedAt: number }>; messages: unknown[] }; canvas: { activeCanvasId: string | null } };
+      const freshState = store.getState() as {
+        commander: {
+          activeSessionId: string | null;
+          sessions: Array<{
+            id: string;
+            title: string;
+            messages: unknown[];
+            createdAt: number;
+            updatedAt: number;
+          }>;
+          messages: unknown[];
+        };
+        canvas: { activeCanvasId: string | null };
+      };
       const sid = freshState.commander.activeSessionId;
       if (sid && api?.session) {
         const sess = freshState.commander.sessions.find((s) => s.id === sid);
         if (sess) {
-          api.session.upsert({
-            id: sess.id,
-            canvasId: freshState.canvas.activeCanvasId ?? null,
-            title: sess.title,
-            messages: JSON.stringify(sess.messages),
-            createdAt: sess.createdAt,
-            updatedAt: sess.updatedAt,
-          }).catch(() => {});
+          api.session
+            .upsert({
+              id: sess.id,
+              canvasId: freshState.canvas.activeCanvasId ?? null,
+              title: sess.title,
+              messages: JSON.stringify(sess.messages),
+              createdAt: sess.createdAt,
+              updatedAt: sess.updatedAt,
+            })
+            .catch(() => {});
         }
       }
 
-      dispatch(addSystemNotice(
-        t('commander.slashCommand.compactResult')
-          .replace('{chars}', totalFreed.toLocaleString())
-          .replace('{messages}', String(backendMsgCount || msgsAfter.length))
-          .replace('{tools}', String(backendToolCount)),
-      ));
+      dispatch(
+        addSystemNotice(
+          t('commander.slashCommand.compactResult')
+            .replace('{chars}', totalFreed.toLocaleString())
+            .replace('{messages}', String(backendMsgCount || msgsAfter.length))
+            .replace('{tools}', String(backendToolCount)),
+        ),
+      );
     } else {
       dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
     }
@@ -157,24 +185,36 @@ export function useSlashCommands({
         case 'status': {
           const msgs = store.getState().commander.messages;
           const totalChars = msgs.reduce((sum, m) => sum + m.content.length, 0);
-          dispatch(addSystemNotice(
-            t('commander.slashCommand.statusResult')
-              .replace('{messages}', String(msgs.length))
-              .replace('{chars}', totalChars.toLocaleString()),
-          ));
+          dispatch(
+            addSystemNotice(
+              t('commander.slashCommand.statusResult')
+                .replace('{messages}', String(msgs.length))
+                .replace('{chars}', totalChars.toLocaleString()),
+            ),
+          );
           break;
         }
         case 'context': {
           const msgs = store.getState().commander.messages;
-          let uChars = 0, aChars = 0, tcChars = 0, trChars = 0;
-          let uCount = 0, aCount = 0, tcCount = 0;
+          let uChars = 0,
+            aChars = 0,
+            tcChars = 0,
+            trChars = 0;
+          let uCount = 0,
+            aCount = 0,
+            tcCount = 0;
           const toolFreq: Record<string, number> = {};
           const toolArgChars: Record<string, number> = {};
           const toolResultChars: Record<string, number> = {};
           for (const m of msgs) {
             const cl = m.content?.length ?? 0;
-            if (m.role === 'user') { uChars += cl; uCount++; }
-            else { aChars += cl; aCount++; }
+            if (m.role === 'user') {
+              uChars += cl;
+              uCount++;
+            } else {
+              aChars += cl;
+              aCount++;
+            }
             if (m.toolCalls) {
               for (const tc of m.toolCalls) {
                 const argLen = JSON.stringify(tc.arguments).length;
@@ -194,18 +234,37 @@ export function useSlashCommands({
           const budget = store.getState().commander.maxTokens;
           const pctVal = Math.min(100, Math.round((totalTok / budget) * 100));
           const fK = (n: number) => {
-            if (n >= 1000) { const v = n / 1000; return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`; }
+            if (n >= 1000) {
+              const v = n / 1000;
+              return `${v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)}K`;
+            }
             return String(n);
           };
-          const pctOf = (part: number) => totalCharsAll > 0 ? Math.round(part / totalCharsAll * 100) : 0;
+          const pctOf = (part: number) =>
+            totalCharsAll > 0 ? Math.round((part / totalCharsAll) * 100) : 0;
 
           const cb = (key: string) => t(`commander.contextBreakdown.${key}`);
 
           // === Category breakdown rows ===
           const catRows = [
-            { label: cb('user'), tok: tok(uChars), detail: `${uCount} ${cb('msgs')}`, pct: pctOf(uChars) },
-            { label: cb('assistant'), tok: tok(aChars), detail: `${aCount} ${cb('msgs')}`, pct: pctOf(aChars) },
-            { label: cb('toolCalls'), tok: tok(tcChars), detail: `${tcCount} ${cb('calls')}`, pct: pctOf(tcChars) },
+            {
+              label: cb('user'),
+              tok: tok(uChars),
+              detail: `${uCount} ${cb('msgs')}`,
+              pct: pctOf(uChars),
+            },
+            {
+              label: cb('assistant'),
+              tok: tok(aChars),
+              detail: `${aCount} ${cb('msgs')}`,
+              pct: pctOf(aChars),
+            },
+            {
+              label: cb('toolCalls'),
+              tok: tok(tcChars),
+              detail: `${tcCount} ${cb('calls')}`,
+              pct: pctOf(tcChars),
+            },
             { label: cb('toolResults'), tok: tok(trChars), detail: '', pct: pctOf(trChars) },
           ];
           const maxCatLabel = Math.max(...catRows.map((r) => r.label.length));
@@ -231,14 +290,16 @@ export function useSlashCommands({
             toolSection = `(${cb('none')})`;
           } else {
             const maxName = Math.max(...topTools.map(([n]) => n.length));
-            toolSection = topTools.map(([name, chars]) => {
-              const calls = toolFreq[name];
-              const argTok = fK(tok(toolArgChars[name] ?? 0));
-              const resTok = fK(tok(toolResultChars[name] ?? 0));
-              const totalStr = fK(tok(chars)).padStart(6);
-              const pctStr = `${pctOf(chars)}%`.padStart(4);
-              return `${name.padEnd(maxName)}  ${totalStr}  ${pctStr}  ×${calls}  ${cb('args')} ${argTok} / ${cb('resultsLabel')} ${resTok}`;
-            }).join('\n');
+            toolSection = topTools
+              .map(([name, chars]) => {
+                const calls = toolFreq[name];
+                const argTok = fK(tok(toolArgChars[name] ?? 0));
+                const resTok = fK(tok(toolResultChars[name] ?? 0));
+                const totalStr = fK(tok(chars)).padStart(6);
+                const pctStr = `${pctOf(chars)}%`.padStart(4);
+                return `${name.padEnd(maxName)}  ${totalStr}  ${pctStr}  ×${calls}  ${cb('args')} ${argTok} / ${cb('resultsLabel')} ${resTok}`;
+              })
+              .join('\n');
           }
 
           const detail = [

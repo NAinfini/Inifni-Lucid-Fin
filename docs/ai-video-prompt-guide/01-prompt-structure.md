@@ -379,21 +379,21 @@ AI defaults to perfect studio photography: centered subjects, ideal lighting, fl
 
 ### Device Simulation Keywords
 
-| Keyword | Effect |
-| --- | --- |
-| `iPhone-style` | Mobile phone naturalism instead of DSLR bokeh |
-| `candid shot` / `secretly photographed` | Reduces subject "posing" behavior |
-| `slightly shaky` / `softly blurred due to motion` | Adds handheld imperfection |
-| `shot through wire fence` / `partially obscured` | Foreground obstruction = observation authenticity |
+| Keyword                                           | Effect                                            |
+| ------------------------------------------------- | ------------------------------------------------- |
+| `iPhone-style`                                    | Mobile phone naturalism instead of DSLR bokeh     |
+| `candid shot` / `secretly photographed`           | Reduces subject "posing" behavior                 |
+| `slightly shaky` / `softly blurred due to motion` | Adds handheld imperfection                        |
+| `shot through wire fence` / `partially obscured`  | Foreground obstruction = observation authenticity |
 
 ### Film Stock Simulation
 
-| Film Stock | Character | Use Case |
-| --- | --- | --- |
-| `Kodak Portra 400` | Warm, natural skin tones | Portraits, life |
-| `Fujifilm Pro 400H` | Cool-toned, blue-green emphasis | Japanese aesthetic, landscapes |
-| `Kodak Gold 200` | Warm, saturated, retro | Nostalgia, summer, street |
-| `Cinestill 800T` | Night halation, dreamy highlights | Cinema, night scenes |
+| Film Stock          | Character                         | Use Case                       |
+| ------------------- | --------------------------------- | ------------------------------ |
+| `Kodak Portra 400`  | Warm, natural skin tones          | Portraits, life                |
+| `Fujifilm Pro 400H` | Cool-toned, blue-green emphasis   | Japanese aesthetic, landscapes |
+| `Kodak Gold 200`    | Warm, saturated, retro            | Nostalgia, summer, street      |
+| `Cinestill 800T`    | Night halation, dreamy highlights | Cinema, night scenes           |
 
 ### Rendering vs. Film
 
@@ -409,12 +409,12 @@ AI defaults to perfect studio photography: centered subjects, ideal lighting, fl
 
 ### Aesthetic Modifier Keywords
 
-| Keyword | Effect |
-| --- | --- |
-| `minimalist` | Clean, high-end, whitespace |
-| `brutalist` | Concrete, geometric, cold |
-| `ethereal` | Soft light, dreamlike |
-| `gritty` | High contrast, raw, dark realism |
+| Keyword      | Effect                           |
+| ------------ | -------------------------------- |
+| `minimalist` | Clean, high-end, whitespace      |
+| `brutalist`  | Concrete, geometric, cold        |
+| `ethereal`   | Soft light, dreamlike            |
+| `gritty`     | High contrast, raw, dark realism |
 
 ---
 
@@ -500,10 +500,10 @@ Extract three keyframes from the reference:
 
 Convert visual observations into actionable specifications:
 
-| Observation | Vague prompt | Parametric prompt |
-| --- | --- | --- |
-| Fast-moving shot | `dramatic, fast-paced` | `Dolly Forward: Fast, Motion Blur: High, Speed: 2.0x` |
-| Soft camera drift | `gentle movement` | `Slow truck right, 0.5x speed, minimal parallax shift` |
-| Subject pivoting | `person turns around` | `180-degree rotation over 3s, weight shifts to rear foot, hair follows with 0.3s delay` |
+| Observation       | Vague prompt           | Parametric prompt                                                                       |
+| ----------------- | ---------------------- | --------------------------------------------------------------------------------------- |
+| Fast-moving shot  | `dramatic, fast-paced` | `Dolly Forward: Fast, Motion Blur: High, Speed: 2.0x`                                   |
+| Soft camera drift | `gentle movement`      | `Slow truck right, 0.5x speed, minimal parallax shift`                                  |
+| Subject pivoting  | `person turns around`  | `180-degree rotation over 3s, weight shifts to rear foot, hair follows with 0.3s delay` |
 
 **Core shift**: from "wish-making" (hoping AI understands sentiment) to "programming" (providing actionable parameters).

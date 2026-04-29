@@ -111,9 +111,7 @@ export class CommanderEventRepository {
   /** Cascade-delete all events for a session. Used on session delete. */
   deleteBySession(sessionId: SessionId, tx?: Tx): void {
     const d = tx ?? this.db;
-    d.prepare(
-      `DELETE FROM ${TBL} WHERE ${C.sessionId.sqlName} = ?`,
-    ).run(sessionId);
+    d.prepare(`DELETE FROM ${TBL} WHERE ${C.sessionId.sqlName} = ?`).run(sessionId);
   }
 }
 

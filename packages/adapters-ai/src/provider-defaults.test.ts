@@ -47,12 +47,16 @@ describe('adapter defaults', () => {
   });
 
   it('sends the approved ideogram and veo model values', async () => {
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: [{ url: 'https://example.com/image.png', seed: 1 }] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ data: [{ url: 'https://example.com/image.png', seed: 1 }] }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ name: 'operations/test', done: false }), {

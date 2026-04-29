@@ -8,6 +8,7 @@ import type {
   JobStatus,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class FluxAdapter implements AIProviderAdapter {
   readonly id = 'flux';
@@ -22,7 +23,10 @@ export class FluxAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.model) this.model = options.model as string;
   }
 
@@ -32,7 +36,8 @@ export class FluxAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

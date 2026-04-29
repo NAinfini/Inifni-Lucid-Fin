@@ -347,10 +347,12 @@ describe('canvas-utils', () => {
         presetTracks: {
           camera: {
             category: 'camera',
-            entries: [{
-              presetId: 'p1',
-              blend: { presetIdB: 'p2', weight: 0.5 },
-            }],
+            entries: [
+              {
+                presetId: 'p1',
+                blend: { presetIdB: 'p2', weight: 0.5 },
+              },
+            ],
           },
         },
       } as unknown as PresetTrackNodeData;

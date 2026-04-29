@@ -43,10 +43,13 @@ export function Settings() {
     return onLocaleChange(() => setLocaleState(getLocale()));
   }, []);
 
-  const handleTabChange = useCallback((tab: SettingsTab) => {
-    setActiveTab(tab);
-    dispatch(recordFeatureUsed({ feature: `settings.${tab}` }));
-  }, [dispatch]);
+  const handleTabChange = useCallback(
+    (tab: SettingsTab) => {
+      setActiveTab(tab);
+      dispatch(recordFeatureUsed({ feature: `settings.${tab}` }));
+    },
+    [dispatch],
+  );
 
   const handleThemeChange = useCallback(
     (nextTheme: Theme) => {
@@ -69,15 +72,15 @@ export function Settings() {
           ? t('settings.processGuides.title')
           : activeTab === 'storage'
             ? translateOrFallback('settings.storage.title', 'Storage & Data')
-          : activeTab === 'commander'
-            ? translateOrFallback('settings.commander.title', 'Commander AI')
-            : activeTab === 'usage'
-              ? translateOrFallback('settings.usage.title', 'Usage Statistics')
-              : activeTab === 'about'
-                ? t('settings.update.title')
-                : activeTab === 'canvas'
-                  ? translateOrFallback('settings.canvas.title', 'Canvas Settings')
-                  : translateOrFallback('settings.nav.providers', 'Providers');
+            : activeTab === 'commander'
+              ? translateOrFallback('settings.commander.title', 'Commander AI')
+              : activeTab === 'usage'
+                ? translateOrFallback('settings.usage.title', 'Usage Statistics')
+                : activeTab === 'about'
+                  ? t('settings.update.title')
+                  : activeTab === 'canvas'
+                    ? translateOrFallback('settings.canvas.title', 'Canvas Settings')
+                    : translateOrFallback('settings.nav.providers', 'Providers');
 
   const activeTabDescription =
     activeTab === 'guides'
@@ -90,12 +93,12 @@ export function Settings() {
             'settings.processGuides.subtitle',
             'Edit the process-specific rules that Commander injects on demand.',
           )
-      : activeTab === 'canvas'
-        ? translateOrFallback(
-            'settings.canvas.subtitle',
-            'Overrides that apply only to the currently active canvas.',
-          )
-      : undefined;
+        : activeTab === 'canvas'
+          ? translateOrFallback(
+              'settings.canvas.subtitle',
+              'Overrides that apply only to the currently active canvas.',
+            )
+          : undefined;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

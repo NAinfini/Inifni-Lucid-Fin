@@ -21,9 +21,6 @@ const ProviderIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'providerId must be non-empty after trim' });
 
-export const parseProviderId = makeBrandParser<ProviderId, string>(
-  ProviderIdSchema,
-  'ProviderId',
-);
+export const parseProviderId = makeBrandParser<ProviderId, string>(ProviderIdSchema, 'ProviderId');
 
 export const tryProviderId = makeTryBrand<ProviderId, string>(ProviderIdSchema);

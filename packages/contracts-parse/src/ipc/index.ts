@@ -24,16 +24,9 @@ import {
   canvasGenerationPushChannels,
   presetChannels,
 } from './channels/batch-08.js';
-import {
-  commanderChannels,
-  commanderPushChannels,
-} from './channels/batch-09.js';
+import { commanderChannels, commanderPushChannels } from './channels/batch-09.js';
 import { seriesChannels } from './channels/batch-11.js';
-import {
-  folderChannels,
-  setFolderChannels,
-  processPromptChannels,
-} from './channels/batch-12.js';
+import { folderChannels, setFolderChannels, processPromptChannels } from './channels/batch-12.js';
 import {
   appChannels,
   aiChannels,
@@ -64,10 +57,7 @@ import {
 } from './channels/batch-10.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
-export type {
-  HealthPingRequest,
-  HealthPingResponse,
-} from './channels/health.js';
+export type { HealthPingRequest, HealthPingResponse } from './channels/health.js';
 
 // Batch 1 — settings + script
 export * from './channels/batch-01.js';

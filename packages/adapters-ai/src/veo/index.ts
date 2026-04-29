@@ -7,8 +7,9 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { toVeoRequest, parseVeoResponse } from './mapper.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class VeoAdapter implements AIProviderAdapter {
   readonly id = 'google-veo-2';
@@ -23,7 +24,10 @@ export class VeoAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.model) this.model = options.model as string;
   }
 
@@ -33,21 +37,19 @@ export class VeoAdapter implements AIProviderAdapter {
         headers: { 'x-goog-api-key': this.apiKey },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
 
   async generate(req: GenerationRequest): Promise<GenerationResult> {
     const body = toVeoRequest(req);
-    const res = await fetchWithTimeout(
-      `${this.baseUrl}/models/${this.model}:predictLongRunning`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
-        body: JSON.stringify(body),
-      },
-    );
+    const res = await fetchWithTimeout(`${this.baseUrl}/models/${this.model}:predictLongRunning`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+      body: JSON.stringify(body),
+    });
 
     if (!res.ok) {
       if (res.status === 401 || res.status === 403)

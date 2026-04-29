@@ -28,4 +28,3 @@ export function logStartupMetrics(): void {
     log('warn', 'Full startup exceeded 5s target', metrics);
   }
 }
-

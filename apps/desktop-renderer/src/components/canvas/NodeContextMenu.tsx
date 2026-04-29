@@ -136,7 +136,10 @@ function NodeContextMenuComponent({
                   </ContextMenu.Item>
                 ))}
                 <ContextMenu.Separator className="h-px my-1 bg-border" />
-                <ContextMenu.Item className={ITEM} onSelect={() => cb.onColorTag(nodeId, undefined)}>
+                <ContextMenu.Item
+                  className={ITEM}
+                  onSelect={() => cb.onColorTag(nodeId, undefined)}
+                >
                   <span className="h-3 w-3 rounded-full border border-dashed border-muted-foreground/60" />
                   {t('contextMenu.clear')}
                   {colorTag == null && <Check className="ml-auto w-3.5 h-3.5" />}

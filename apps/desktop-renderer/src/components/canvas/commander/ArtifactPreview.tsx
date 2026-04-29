@@ -54,7 +54,13 @@ export function extractChanges(
   }
 
   if (r.success && typeof r.nodeId === 'string') {
-    return [{ type: 'updated', label: nodeTitlesById[r.nodeId as string] ?? (r.nodeId as string), id: r.nodeId as string }];
+    return [
+      {
+        type: 'updated',
+        label: nodeTitlesById[r.nodeId as string] ?? (r.nodeId as string),
+        id: r.nodeId as string,
+      },
+    ];
   }
 
   return [];

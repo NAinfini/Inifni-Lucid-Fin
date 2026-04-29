@@ -27,7 +27,11 @@ describe('Semaphore', () => {
 
   it('releases on error', async () => {
     const sem = new Semaphore(1);
-    await expect(sem.run(async () => { throw new Error('fail'); })).rejects.toThrow('fail');
+    await expect(
+      sem.run(async () => {
+        throw new Error('fail');
+      }),
+    ).rejects.toThrow('fail');
     const result = await sem.run(async () => 'ok');
     expect(result).toBe('ok');
   });

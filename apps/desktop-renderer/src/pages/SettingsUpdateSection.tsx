@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch } from 'react-redux';
-import { AlertCircle, Check, ChevronDown, ChevronUp, Download, Loader2, RotateCcw } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Loader2,
+  RotateCcw,
+} from 'lucide-react';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import { Progress } from '../components/ui/Progress.js';
@@ -25,9 +33,21 @@ type UpdateState =
   | { phase: 'idle'; availableVersion?: string; releaseNotes?: string; releaseDate?: string }
   | { phase: 'checking'; availableVersion?: string; releaseNotes?: string; releaseDate?: string }
   | { phase: 'available'; availableVersion: string; releaseNotes?: string; releaseDate?: string }
-  | { phase: 'downloading'; progress: number; availableVersion?: string; releaseNotes?: string; releaseDate?: string }
+  | {
+      phase: 'downloading';
+      progress: number;
+      availableVersion?: string;
+      releaseNotes?: string;
+      releaseDate?: string;
+    }
   | { phase: 'ready'; availableVersion: string; releaseNotes?: string; releaseDate?: string }
-  | { phase: 'error'; message: string; availableVersion?: string; releaseNotes?: string; releaseDate?: string }
+  | {
+      phase: 'error';
+      message: string;
+      availableVersion?: string;
+      releaseNotes?: string;
+      releaseDate?: string;
+    }
   | { phase: 'upToDate'; availableVersion?: string; releaseNotes?: string; releaseDate?: string };
 
 function clampProgress(value?: number): number {
@@ -152,7 +172,7 @@ export function SettingsUpdateSection() {
           level: 'error',
           category: 'updater',
           message: t('settings.update.log.checkFailed'),
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         }),
       );
       setState((current) => ({
@@ -179,7 +199,7 @@ export function SettingsUpdateSection() {
           level: 'error',
           category: 'updater',
           message: t('settings.update.log.downloadFailed'),
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         }),
       );
       setState((current) => ({
@@ -201,7 +221,7 @@ export function SettingsUpdateSection() {
           level: 'error',
           category: 'updater',
           message: t('settings.update.log.installFailed'),
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         }),
       );
       setState((current) => ({
@@ -340,28 +360,35 @@ export function SettingsUpdateSection() {
         )}
 
         {/* Changelog / release notes */}
-        {state.releaseNotes && (state.phase === 'available' || state.phase === 'downloading' || state.phase === 'ready') && (
-          <div className="mt-2 border-t border-border/40 pt-2">
-            <button
-              type="button"
-              onClick={() => setChangelogOpen(!changelogOpen)}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {changelogOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              {t('settings.update.changelog')}
-              {state.releaseDate && (
-                <span className="ml-1 text-muted-foreground/60">
-                  · {new Date(state.releaseDate).toLocaleDateString()}
-                </span>
+        {state.releaseNotes &&
+          (state.phase === 'available' ||
+            state.phase === 'downloading' ||
+            state.phase === 'ready') && (
+            <div className="mt-2 border-t border-border/40 pt-2">
+              <button
+                type="button"
+                onClick={() => setChangelogOpen(!changelogOpen)}
+                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {changelogOpen ? (
+                  <ChevronUp className="h-3 w-3" />
+                ) : (
+                  <ChevronDown className="h-3 w-3" />
+                )}
+                {t('settings.update.changelog')}
+                {state.releaseDate && (
+                  <span className="ml-1 text-muted-foreground/60">
+                    · {new Date(state.releaseDate).toLocaleDateString()}
+                  </span>
+                )}
+              </button>
+              {changelogOpen && (
+                <div className="mt-2 max-h-48 overflow-y-auto rounded-md bg-muted/30 p-2.5 text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                  {state.releaseNotes}
+                </div>
               )}
-            </button>
-            {changelogOpen && (
-              <div className="mt-2 max-h-48 overflow-y-auto rounded-md bg-muted/30 p-2.5 text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                {state.releaseNotes}
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
       </div>
     </section>
   );

@@ -43,7 +43,12 @@ export function ExportRenderPanel() {
       };
 
       // Backend handles save dialog
-      const result = await (api.export.nle as unknown as (args: { format: ExportFormat; project: unknown }) => Promise<{ outputPath: string } | null>)({ format, project });
+      const result = await (
+        api.export.nle as unknown as (args: {
+          format: ExportFormat;
+          project: unknown;
+        }) => Promise<{ outputPath: string } | null>
+      )({ format, project });
       if (result) setLastResult(result.outputPath);
       dispatch(recordExport({ format }));
     } catch (err) {
@@ -53,7 +58,11 @@ export function ExportRenderPanel() {
     }
   }
 
-  const FORMAT_OPTIONS: { value: ExportFormat; labelKey: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  const FORMAT_OPTIONS: {
+    value: ExportFormat;
+    labelKey: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }[] = [
     { value: 'fcpxml', labelKey: 'exportRender.fcpxml', icon: Film },
     { value: 'edl', labelKey: 'exportRender.edl', icon: FileText },
   ];
@@ -68,7 +77,9 @@ export function ExportRenderPanel() {
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
         {/* Format */}
         <div>
-          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">{t('exportRender.format')}</div>
+          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+            {t('exportRender.format')}
+          </div>
           <div className="space-y-1">
             {FORMAT_OPTIONS.map(({ value, labelKey, icon: Icon }) => (
               <button
@@ -92,7 +103,8 @@ export function ExportRenderPanel() {
         {activeCanvas && (
           <div className="text-[11px] text-muted-foreground px-0.5">
             {t('exportRender.canvas')} <span className="text-foreground">{activeCanvas.name}</span>{' '}
-            ({activeCanvas.nodes.filter((n) => n.type !== 'backdrop').length} {t('exportRender.clips')})
+            ({activeCanvas.nodes.filter((n) => n.type !== 'backdrop').length}{' '}
+            {t('exportRender.clips')})
           </div>
         )}
 

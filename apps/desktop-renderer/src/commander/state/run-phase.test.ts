@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { idlePhase, phaseFromEvent, isActivePhase, type RunPhase } from './run-phase.js';
 import type { TimelineEvent } from '@lucid-fin/contracts';
 
-function stampedEvent<K extends string>(body: Record<string, unknown> & { kind: K }): TimelineEvent {
+function stampedEvent<K extends string>(
+  body: Record<string, unknown> & { kind: K },
+): TimelineEvent {
   return {
     runId: 'run-1',
     step: 0,
@@ -16,7 +18,13 @@ describe('phaseFromEvent', () => {
   it('transitions idle → model_streaming on an assistant_text event', () => {
     const next = phaseFromEvent(
       idlePhase,
-      stampedEvent({ kind: 'assistant_text', content: 'hello', isDelta: true, step: 1, emittedAt: 100 }),
+      stampedEvent({
+        kind: 'assistant_text',
+        content: 'hello',
+        isDelta: true,
+        step: 1,
+        emittedAt: 100,
+      }),
     );
     expect(next.kind).toBe('model_streaming');
     if (next.kind === 'model_streaming') {
@@ -29,11 +37,23 @@ describe('phaseFromEvent', () => {
   it('updates lastTextDeltaAt on subsequent assistant_text deltas without resetting since', () => {
     const first = phaseFromEvent(
       idlePhase,
-      stampedEvent({ kind: 'assistant_text', content: 'a', isDelta: true, step: 1, emittedAt: 100 }),
+      stampedEvent({
+        kind: 'assistant_text',
+        content: 'a',
+        isDelta: true,
+        step: 1,
+        emittedAt: 100,
+      }),
     );
     const second = phaseFromEvent(
       first,
-      stampedEvent({ kind: 'assistant_text', content: 'b', isDelta: true, step: 1, emittedAt: 250 }),
+      stampedEvent({
+        kind: 'assistant_text',
+        content: 'b',
+        isDelta: true,
+        step: 1,
+        emittedAt: 250,
+      }),
     );
     expect(second.kind).toBe('model_streaming');
     if (second.kind === 'model_streaming' && first.kind === 'model_streaming') {
@@ -114,16 +134,10 @@ describe('phaseFromEvent', () => {
   });
 
   it('enters failed on run_end{status:failed} and done on run_end{status:completed}', () => {
-    const failed = phaseFromEvent(
-      idlePhase,
-      stampedEvent({ kind: 'run_end', status: 'failed' }),
-    );
+    const failed = phaseFromEvent(idlePhase, stampedEvent({ kind: 'run_end', status: 'failed' }));
     expect(failed.kind).toBe('failed');
 
-    const done = phaseFromEvent(
-      idlePhase,
-      stampedEvent({ kind: 'run_end', status: 'completed' }),
-    );
+    const done = phaseFromEvent(idlePhase, stampedEvent({ kind: 'run_end', status: 'completed' }));
     expect(done.kind).toBe('done');
   });
 

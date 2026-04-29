@@ -16,6 +16,15 @@ export class CloudLipSyncAdapter implements LipSyncAdapter {
     const videoBuffer = await fsp.readFile(videoPath);
     const audioBuffer = await fsp.readFile(audioPath);
 
+    const url = new URL(this.endpoint);
+    if (url.protocol !== 'https:') throw new Error('Cloud lipsync endpoint must use HTTPS');
+    if (
+      ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(url.hostname) ||
+      /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(url.hostname)
+    ) {
+      throw new Error('Cloud lipsync endpoint must not be a private/local address');
+    }
+
     const formData = new FormData();
     formData.append('video', new Blob([videoBuffer]), 'video.mp4');
     formData.append('audio', new Blob([audioBuffer]), 'audio.wav');
@@ -26,9 +35,7 @@ export class CloudLipSyncAdapter implements LipSyncAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(
-        `Cloud lip-sync request failed: ${response.status} ${response.statusText}`,
-      );
+      throw new Error(`Cloud lip-sync request failed: ${response.status} ${response.statusText}`);
     }
 
     const resultBuffer = await response.arrayBuffer();

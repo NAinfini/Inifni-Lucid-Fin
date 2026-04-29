@@ -13,11 +13,7 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3';
-import type {
-  EpisodeId,
-  Series,
-  SeriesId,
-} from '@lucid-fin/contracts';
+import type { EpisodeId, Series, SeriesId } from '@lucid-fin/contracts';
 import {
   EpisodesTable,
   EpisodeSchema,
@@ -124,9 +120,9 @@ export class SeriesRepository {
 
   getSeries(id: SeriesId, tx?: Tx): Series | undefined {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(`SELECT * FROM ${S_TBL} WHERE ${S.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT * FROM ${S_TBL} WHERE ${S.id.sqlName} = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     if (!row) return undefined;
     let candidate: Series | Record<string, unknown>;
     try {
@@ -134,12 +130,9 @@ export class SeriesRepository {
     } catch {
       candidate = row;
     }
-    const parsed = parseOrDegrade(
-      SeriesSchema,
-      candidate,
-      SERIES_SENTINEL as unknown as Series,
-      { ctx: { name: 'Series' } },
-    );
+    const parsed = parseOrDegrade(SeriesSchema, candidate, SERIES_SENTINEL as unknown as Series, {
+      ctx: { name: 'Series' },
+    });
     return (parsed as unknown) === SERIES_SENTINEL ? undefined : (parsed as Series);
   }
 
@@ -156,7 +149,9 @@ export class SeriesRepository {
     if (tx) {
       run(tx);
     } else {
-      this.db.transaction(() => { run(this.db); })();
+      this.db.transaction(() => {
+        run(this.db);
+      })();
     }
   }
 

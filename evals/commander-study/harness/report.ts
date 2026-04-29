@@ -40,7 +40,8 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
     outcome[r.outcome] = (outcome[r.outcome] ?? 0) + 1;
     archetypeOutcome[r.archetype] ??= {};
     archetypeOutcome[r.archetype][r.outcome] = (archetypeOutcome[r.archetype][r.outcome] ?? 0) + 1;
-    for (const [k, v] of Object.entries(r.toolCallCounts)) allToolCounts[k] = (allToolCounts[k] ?? 0) + v;
+    for (const [k, v] of Object.entries(r.toolCallCounts))
+      allToolCounts[k] = (allToolCounts[k] ?? 0) + v;
     for (const k of r.promptGuidesLoadedViaGuideGet) guideGetAll[k] = (guideGetAll[k] ?? 0) + 1;
     for (const k of r.processPromptsInjected) processAll[k] = (processAll[k] ?? 0) + 1;
     // Contract outcomes — one verdict per session, bucketed by outcome kind.
@@ -84,7 +85,8 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   const mockedSet = new Set<string>(MOCKED_TOOL_NAMES);
 
   const lines: string[] = [];
-  const pct = (k: number, total: number) => total > 0 ? `${((k / total) * 100).toFixed(1)}%` : '0%';
+  const pct = (k: number, total: number) =>
+    total > 0 ? `${((k / total) * 100).toFixed(1)}%` : '0%';
 
   lines.push(`# Commander Study — ${n} sessions`);
   lines.push('');
@@ -104,32 +106,46 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('| archetype | completed | budget | aborted | error |');
   lines.push('|---|---|---|---|---|');
   for (const [arch, counts] of Object.entries(archetypeOutcome)) {
-    lines.push(`| ${arch} | ${counts.completed ?? 0} | ${counts['budget-exceeded'] ?? 0} | ${counts.aborted ?? 0} | ${counts.error ?? 0} |`);
+    lines.push(
+      `| ${arch} | ${counts.completed ?? 0} | ${counts['budget-exceeded'] ?? 0} | ${counts.aborted ?? 0} | ${counts.error ?? 0} |`,
+    );
   }
   lines.push('');
   lines.push('## Headline stats');
   lines.push('');
   lines.push('| metric | value |');
   lines.push('|---|---|');
-  lines.push(`| **product satisfied %** (Phase E target: ≥70%) | **${productSatisfiedTotal} / ${n} (${pct(productSatisfiedTotal, n)})** |`);
+  lines.push(
+    `| **product satisfied %** (Phase E target: ≥70%) | **${productSatisfiedTotal} / ${n} (${pct(productSatisfiedTotal, n)})** |`,
+  );
   lines.push(`| avg steps per session | ${(totalSteps / Math.max(1, n)).toFixed(1)} |`);
   lines.push(`| avg canvas nodes at end | ${(totalNodes / Math.max(1, n)).toFixed(1)} |`);
-  lines.push(`| sessions with stylePlate locked | ${plateLocked} / ${n} (${pct(plateLocked, n)}) |`);
+  lines.push(
+    `| sessions with stylePlate locked | ${plateLocked} / ${n} (${pct(plateLocked, n)}) |`,
+  );
   lines.push(`| total askUser invocations | ${totalAskUser} |`);
-  lines.push(`| askUser fallback rate (no scripted reply left) | ${pct(totalAskUserFallbacks, Math.max(1, totalAskUser))} |`);
-  lines.push(`| avg estimated prompt tokens peak | ${Math.round(totalPromptTokens / Math.max(1, n))} |`);
+  lines.push(
+    `| askUser fallback rate (no scripted reply left) | ${pct(totalAskUserFallbacks, Math.max(1, totalAskUser))} |`,
+  );
+  lines.push(
+    `| avg estimated prompt tokens peak | ${Math.round(totalPromptTokens / Math.max(1, n))} |`,
+  );
   lines.push('');
   // Phase E — product satisfaction (headline breakdown).
   lines.push('## Product satisfaction (Phase E)');
   lines.push('');
-  lines.push('`contractSatisfied` is true when `exitDecision.outcome ∈ {satisfied, informational_answered}`.');
+  lines.push(
+    '`contractSatisfied` is true when `exitDecision.outcome ∈ {satisfied, informational_answered}`.',
+  );
   lines.push('');
   lines.push('| archetype | satisfied | total | rate |');
   lines.push('|---|---|---|---|');
   for (const [arch, counts] of Object.entries(productSatisfiedByArchetype).sort(
     (a, b) => b[1].total - a[1].total,
   )) {
-    lines.push(`| ${arch} | ${counts.satisfied} | ${counts.total} | ${pct(counts.satisfied, counts.total)} |`);
+    lines.push(
+      `| ${arch} | ${counts.satisfied} | ${counts.total} | ${pct(counts.satisfied, counts.total)} |`,
+    );
   }
   lines.push('');
   if (Object.keys(blockerHistogram).length > 0) {
@@ -153,7 +169,9 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('## Guides loaded via guide.get');
   lines.push('');
   if (Object.keys(guideGetAll).length === 0) {
-    lines.push('_(No guide.get calls recorded across all sessions. Commander never pulled a guide on demand — check the MASTER INDEX is actually injected.)_');
+    lines.push(
+      '_(No guide.get calls recorded across all sessions. Commander never pulled a guide on demand — check the MASTER INDEX is actually injected.)_',
+    );
   } else {
     lines.push('| guide id | sessions fetched |');
     lines.push('|---|---|');
@@ -165,7 +183,9 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('## Process prompts injected');
   lines.push('');
   if (Object.keys(processAll).length === 0) {
-    lines.push('_(No process-prompt injections observed. Either no tool triggered one, or the stream event name differs from what the harness listens for.)_');
+    lines.push(
+      '_(No process-prompt injections observed. Either no tool triggered one, or the stream event name differs from what the harness listens for.)_',
+    );
   } else {
     lines.push('| processKey | injections |');
     lines.push('|---|---|');
@@ -178,7 +198,9 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('## Contract outcomes');
   lines.push('');
   if (Object.keys(contractOutcomeAll).length === 0) {
-    lines.push('_(No `exit_decision` events captured. Either the harness ran on a pre-Phase-B build, or every session aborted before a terminal `done` could fire.)_');
+    lines.push(
+      '_(No `exit_decision` events captured. Either the harness ran on a pre-Phase-B build, or every session aborted before a terminal `done` could fire.)_',
+    );
   } else {
     lines.push('| outcome | sessions | % |');
     lines.push('|---|---|---|');
@@ -192,9 +214,7 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
     lines.push(`| archetype | ${outcomeKeys.join(' | ')} |`);
     lines.push(`|---|${outcomeKeys.map(() => '---').join('|')}|`);
     for (const [arch, counts] of Object.entries(contractOutcomeByArchetype)) {
-      lines.push(
-        `| ${arch} | ${outcomeKeys.map((k) => counts[k] ?? 0).join(' | ')} |`,
-      );
+      lines.push(`| ${arch} | ${outcomeKeys.map((k) => counts[k] ?? 0).join(' | ')} |`);
     }
   }
   lines.push('');
@@ -202,7 +222,9 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('## Process-prompt activations (spec preflight histogram)');
   lines.push('');
   if (Object.keys(preflightByKey).length === 0) {
-    lines.push('_(No `preflight_decision` events captured. Either the orchestrator did not evaluate any spec this run, or the harness is missing the listener.)_');
+    lines.push(
+      '_(No `preflight_decision` events captured. Either the orchestrator did not evaluate any spec this run, or the harness is missing the listener.)_',
+    );
   } else {
     lines.push('| specKey | activated | skipped | activation rate |');
     lines.push('|---|---|---|---|');
@@ -223,7 +245,9 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   } else {
     lines.push('| error (first line) | count |');
     lines.push('|---|---|');
-    for (const [k, v] of Object.entries(errorsByType).sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+    for (const [k, v] of Object.entries(errorsByType)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)) {
       lines.push(`| \`${k.replace(/\|/g, '\\|')}\` | ${v} |`);
     }
   }

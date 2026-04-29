@@ -80,10 +80,7 @@ describe('equipment slice', () => {
   it('sets a reference image on equipment', () => {
     let state = equipmentSlice.reducer(undefined, addEquipment(makeEquipment()));
     const refImage: ReferenceImage = { slot: 'front', assetHash: 'abc123', isStandard: true };
-    state = equipmentSlice.reducer(
-      state,
-      setEquipmentRefImage({ equipmentId: 'eq-1', refImage }),
-    );
+    state = equipmentSlice.reducer(state, setEquipmentRefImage({ equipmentId: 'eq-1', refImage }));
     expect(state.items[0].referenceImages).toHaveLength(1);
     expect(state.items[0].referenceImages[0].slot).toBe('front');
     expect(state.items[0].referenceImages[0].assetHash).toBe('abc123');

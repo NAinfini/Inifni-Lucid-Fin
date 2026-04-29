@@ -3,7 +3,11 @@
 import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BUILT_IN_SHOT_TEMPLATES, createEmptyPresetTrackSet, type ImageNodeData } from '@lucid-fin/contracts';
+import {
+  BUILT_IN_SHOT_TEMPLATES,
+  createEmptyPresetTrackSet,
+  type ImageNodeData,
+} from '@lucid-fin/contracts';
 import { InspectorCreativeTab } from './InspectorCreativeTab.js';
 
 const t = (key: string) =>
@@ -24,7 +28,9 @@ afterEach(() => {
 
 describe('InspectorCreativeTab', () => {
   it('shows the applied shot template name instead of the empty placeholder', () => {
-    const template = BUILT_IN_SHOT_TEMPLATES.find((entry) => entry.id === 'builtin-tmpl-horror-suspense');
+    const template = BUILT_IN_SHOT_TEMPLATES.find(
+      (entry) => entry.id === 'builtin-tmpl-horror-suspense',
+    );
     if (!template) {
       throw new Error('Expected built-in shot template to exist');
     }
@@ -62,7 +68,9 @@ describe('InspectorCreativeTab', () => {
   });
 
   it('falls back to matching the current preset tracks when template metadata is missing', () => {
-    const template = BUILT_IN_SHOT_TEMPLATES.find((entry) => entry.id === 'builtin-tmpl-horror-suspense');
+    const template = BUILT_IN_SHOT_TEMPLATES.find(
+      (entry) => entry.id === 'builtin-tmpl-horror-suspense',
+    );
     if (!template) {
       throw new Error('Expected built-in shot template to exist');
     }

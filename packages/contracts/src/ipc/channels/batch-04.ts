@@ -75,9 +75,7 @@ export interface AssetExportBatchItem {
 export interface AssetExportBatchRequest {
   items: AssetExportBatchItem[];
 }
-export type AssetExportBatchResponse =
-  | { success: true; count: number; directory: string }
-  | null;
+export type AssetExportBatchResponse = { success: true; count: number; directory: string } | null;
 
 // ── storage:getOverview ──────────────────────────────────────
 export type StorageGetOverviewRequest = Record<string, never>;

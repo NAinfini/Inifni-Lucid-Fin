@@ -50,10 +50,7 @@ export function inspectBufferMedia(buffer: Buffer): MediaInspection | undefined 
   if (hasAscii(buffer, 0, 'BM')) {
     return IMAGE_INSPECTIONS.bmp;
   }
-  if (
-    hasPrefix(buffer, [0x49, 0x49, 0x2a, 0x00]) ||
-    hasPrefix(buffer, [0x4d, 0x4d, 0x00, 0x2a])
-  ) {
+  if (hasPrefix(buffer, [0x49, 0x49, 0x2a, 0x00]) || hasPrefix(buffer, [0x4d, 0x4d, 0x00, 0x2a])) {
     return IMAGE_INSPECTIONS.tiff;
   }
   if (hasAscii(buffer, 0, 'RIFF') && hasAscii(buffer, 8, 'WEBP')) {
@@ -114,7 +111,9 @@ export function ensureExpectedMediaType(
     throw new Error(`Unsupported or unrecognized asset media for ${sourceLabel}`);
   }
   if (inspection.type !== expectedType) {
-    throw new Error(`Expected ${expectedType} asset but detected ${inspection.type}/${inspection.format}`);
+    throw new Error(
+      `Expected ${expectedType} asset but detected ${inspection.type}/${inspection.format}`,
+    );
   }
   return inspection;
 }

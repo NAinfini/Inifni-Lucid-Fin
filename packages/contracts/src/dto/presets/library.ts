@@ -42,8 +42,10 @@ const PRESET_TEMPLATE_LIBRARY: Record<string, PresetTemplateEntry> = {
 };
 
 function buildPresetPrompt(category: PresetCategory, name: string): string {
-  return PRESET_PROMPT_LIBRARY[`${category}:${name}`]
-    ?? `${toTitleCase(name)}, ${CATEGORY_PROMPT_HINT[category]}`;
+  return (
+    PRESET_PROMPT_LIBRARY[`${category}:${name}`] ??
+    `${toTitleCase(name)}, ${CATEGORY_PROMPT_HINT[category]}`
+  );
 }
 
 function buildDefaults(category: PresetCategory, name: string): PresetParamMap {
@@ -95,7 +97,9 @@ const builtInPresetLibrary = PRESET_CATEGORIES.flatMap((category) => {
 });
 
 if (builtInPresetLibrary.length !== 186) {
-  throw new Error(`BUILT_IN_PRESET_LIBRARY must contain 186 presets, got ${builtInPresetLibrary.length}`);
+  throw new Error(
+    `BUILT_IN_PRESET_LIBRARY must contain 186 presets, got ${builtInPresetLibrary.length}`,
+  );
 }
 
 export const BUILT_IN_PRESET_LIBRARY: PresetDefinition[] = builtInPresetLibrary;

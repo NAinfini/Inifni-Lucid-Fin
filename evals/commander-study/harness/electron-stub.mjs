@@ -26,27 +26,52 @@ class StubApp extends EventEmitter {
     if (name === 'home') return os.homedir();
     return USER_DATA_DIR;
   }
-  getName() { return 'lucid-fin-harness'; }
-  getVersion() { return '0.0.0-harness'; }
-  isReady() { return true; }
-  whenReady() { return Promise.resolve(); }
-  quit() { /* no-op */ }
+  getName() {
+    return 'lucid-fin-harness';
+  }
+  getVersion() {
+    return '0.0.0-harness';
+  }
+  isReady() {
+    return true;
+  }
+  whenReady() {
+    return Promise.resolve();
+  }
+  quit() {
+    /* no-op */
+  }
   isPackaged = false;
 }
 
 class StubIpcMain extends EventEmitter {
-  handle(_channel, _listener) { /* no-op — nothing calls into these during harness runs */ }
-  handleOnce(_channel, _listener) { /* no-op */ }
-  removeHandler(_channel) { /* no-op */ }
-  on(channel, listener) { super.on(channel, listener); return this; }
+  handle(_channel, _listener) {
+    /* no-op — nothing calls into these during harness runs */
+  }
+  handleOnce(_channel, _listener) {
+    /* no-op */
+  }
+  removeHandler(_channel) {
+    /* no-op */
+  }
+  on(channel, listener) {
+    super.on(channel, listener);
+    return this;
+  }
 }
 
 class StubBrowserWindow extends EventEmitter {
   webContents = { send: () => {}, id: -1 };
-  isDestroyed() { return true; }
+  isDestroyed() {
+    return true;
+  }
   close() {}
-  static getAllWindows() { return []; }
-  static getFocusedWindow() { return null; }
+  static getAllWindows() {
+    return [];
+  }
+  static getFocusedWindow() {
+    return null;
+  }
 }
 
 const stubSession = {
@@ -74,7 +99,9 @@ export const protocol = stubProtocol;
 export const net = stubNet;
 export const shell = { openExternal: async () => {}, openPath: async () => '' };
 export const dialog = { showMessageBox: async () => ({ response: 0 }) };
-export const screen = { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) };
+export const screen = {
+  getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }),
+};
 export const nativeTheme = { shouldUseDarkColors: false };
 export const powerMonitor = new EventEmitter();
 export const systemPreferences = {};

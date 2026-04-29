@@ -58,7 +58,11 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
           description: 'Optional asset type filter.',
           enum: ['image', 'video', 'audio'],
         },
-        query: { type: 'string', description: 'Optional search query. Matches against asset file name or hash (case-insensitive).' },
+        query: {
+          type: 'string',
+          description:
+            'Optional search query. Matches against asset file name or hash (case-insensitive).',
+        },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
@@ -67,12 +71,15 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const type = parseAssetType(args.type);
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
         const assets = await deps.listAssets(type);
-        const query = typeof args.query === 'string' && args.query.length > 0
-          ? args.query.toLowerCase()
-          : undefined;
+        const query =
+          typeof args.query === 'string' && args.query.length > 0
+            ? args.query.toLowerCase()
+            : undefined;
         let filtered = assets;
         if (query) {
           filtered = assets.filter((a) => {
@@ -82,7 +89,12 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
             return name.includes(query) || hash.includes(query);
           });
         }
-        return ok({ total: filtered.length, offset, limit, assets: filtered.slice(offset, offset + limit) });
+        return ok({
+          total: filtered.length,
+          offset,
+          limit,
+          assets: filtered.slice(offset, offset + limit),
+        });
       } catch (error) {
         return fail(error);
       }

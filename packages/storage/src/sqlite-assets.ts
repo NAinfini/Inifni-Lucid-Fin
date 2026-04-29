@@ -95,13 +95,19 @@ export function normalizeAssetMeta(meta: AssetMetaInput): AssetMeta {
         : `${hash}.${format}`,
     fileSize: normalizeAssetFileSize(meta),
     width: typeof meta.width === 'number' && Number.isFinite(meta.width) ? meta.width : undefined,
-    height: typeof meta.height === 'number' && Number.isFinite(meta.height) ? meta.height : undefined,
+    height:
+      typeof meta.height === 'number' && Number.isFinite(meta.height) ? meta.height : undefined,
     duration:
-      typeof meta.duration === 'number' && Number.isFinite(meta.duration) ? meta.duration : undefined,
+      typeof meta.duration === 'number' && Number.isFinite(meta.duration)
+        ? meta.duration
+        : undefined,
     prompt: typeof meta.prompt === 'string' ? meta.prompt : undefined,
     provider: typeof meta.provider === 'string' ? meta.provider : undefined,
-    tags: Array.isArray(meta.tags) ? meta.tags.filter((tag): tag is string => typeof tag === 'string') : [],
-    folderId: typeof meta.folderId === 'string' || meta.folderId === null ? meta.folderId : undefined,
+    tags: Array.isArray(meta.tags)
+      ? meta.tags.filter((tag): tag is string => typeof tag === 'string')
+      : [],
+    folderId:
+      typeof meta.folderId === 'string' || meta.folderId === null ? meta.folderId : undefined,
     createdAt: normalizeAssetTimestamp(meta.createdAt),
     generationMetadata: meta.generationMetadata ?? undefined,
   };
@@ -252,9 +258,9 @@ export function queryEmbeddingByHash(
   db: BetterSqlite3.Database,
   hash: string,
 ): EmbeddingRecord | undefined {
-  const row = db
-    .prepare('SELECT * FROM asset_embeddings WHERE hash = ?')
-    .get(hash) as Record<string, unknown> | undefined;
+  const row = db.prepare('SELECT * FROM asset_embeddings WHERE hash = ?').get(hash) as
+    | Record<string, unknown>
+    | undefined;
   if (!row) return undefined;
   return {
     hash: row.hash as string,
@@ -272,9 +278,11 @@ export function searchByTokens(
 ): SemanticSearchResult[] {
   if (queryTokens.length === 0) return [];
 
-  const rows = db
-    .prepare('SELECT hash, description, tokens FROM asset_embeddings')
-    .all() as Array<{ hash: string; description: string; tokens: string }>;
+  const rows = db.prepare('SELECT hash, description, tokens FROM asset_embeddings').all() as Array<{
+    hash: string;
+    description: string;
+    tokens: string;
+  }>;
 
   const querySet = new Set(queryTokens);
 
@@ -299,17 +307,11 @@ export function searchByTokens(
 }
 
 export function getAllEmbeddedHashes(db: BetterSqlite3.Database): string[] {
-  const rows = db
-    .prepare('SELECT hash FROM asset_embeddings')
-    .all() as Array<{ hash: string }>;
+  const rows = db.prepare('SELECT hash FROM asset_embeddings').all() as Array<{ hash: string }>;
   return rows.map((r) => r.hash);
 }
 
-export function searchAssets(
-  db: BetterSqlite3.Database,
-  query: string,
-  limit = 50,
-): AssetMeta[] {
+export function searchAssets(db: BetterSqlite3.Database, query: string, limit = 50): AssetMeta[] {
   const rows = db
     .prepare(
       `

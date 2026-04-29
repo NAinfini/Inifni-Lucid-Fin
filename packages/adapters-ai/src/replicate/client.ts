@@ -1,5 +1,5 @@
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 
 const REPLICATE_BASE = 'https://api.replicate.com/v1';
 
@@ -123,13 +123,9 @@ export async function createPrediction(
   const version = parts[1]; // e.g. "latest" or a sha256 hash
 
   const isOfficialModel = !version || version === 'latest';
-  const url = isOfficialModel
-    ? `${baseUrl}/models/${slug}/predictions`
-    : `${baseUrl}/predictions`;
+  const url = isOfficialModel ? `${baseUrl}/models/${slug}/predictions` : `${baseUrl}/predictions`;
 
-  const body = isOfficialModel
-    ? { input }
-    : { version, input };
+  const body = isOfficialModel ? { input } : { version, input };
 
   const res = await fetchWithTimeout(url, {
     method: 'POST',

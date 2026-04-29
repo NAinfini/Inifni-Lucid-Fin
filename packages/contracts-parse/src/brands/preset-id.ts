@@ -12,9 +12,6 @@ const PresetIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'presetId must be non-empty after trim' });
 
-export const parsePresetId = makeBrandParser<PresetId, string>(
-  PresetIdSchema,
-  'PresetId',
-);
+export const parsePresetId = makeBrandParser<PresetId, string>(PresetIdSchema, 'PresetId');
 
 export const tryPresetId = makeTryBrand<PresetId, string>(PresetIdSchema);

@@ -23,10 +23,7 @@ import {
 } from '../../store/slices/locations.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import type {
-  Location,
-  ReferenceImage,
-} from '@lucid-fin/contracts';
+import type { Location, ReferenceImage } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { Image, ImageOff, Link2, MapPin, Upload, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -36,7 +33,13 @@ import { useEntityClipboard } from '../../hooks/useEntityClipboard.js';
 import { EntityFileExplorer } from './EntityFileExplorer.js';
 import { EntityDetailDrawer } from './EntityDetailDrawer.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/Dialog.js';
 
 const TIME_OF_DAY_OPTIONS = ['day', 'night', 'dawn', 'dusk', 'continuous'];
 
@@ -70,10 +73,13 @@ export function LocationManagerPanel() {
   const { items, selectedId, loading } = useSelector((s: RootState) => s.locations);
 
   const {
-    draft, setDraft,
+    draft,
+    setDraft,
     setOriginalDraft,
-    error, setError,
-    assetPickerOpen, setAssetPickerOpen,
+    error,
+    setError,
+    assetPickerOpen,
+    setAssetPickerOpen,
     isDirty,
     reportError,
     confirmDiscardIfDirty,
@@ -195,7 +201,10 @@ export function LocationManagerPanel() {
     (payload: { mode: 'copy' | 'cut'; items: Location[] }) => {
       const folderId = folderApi.currentFolderId;
       if (payload.mode === 'cut') {
-        void handleMoveIdsToFolder(payload.items.map((it) => it.id), folderId);
+        void handleMoveIdsToFolder(
+          payload.items.map((it) => it.id),
+          folderId,
+        );
       } else {
         const api = getAPI();
         if (!api?.location) return;
@@ -250,9 +259,7 @@ export function LocationManagerPanel() {
   const handleDeleteIds = useCallback(
     async (ids: string[]) => {
       if (ids.length === 0) return;
-      const names = ids
-        .map((id) => items.find((l) => l.id === id)?.name || id)
-        .join(', ');
+      const names = ids.map((id) => items.find((l) => l.id === id)?.name || id).join(', ');
       const ok = await confirm({
         title: t('locationManager.deleteConfirm').replace('{name}', names),
         destructive: true,
@@ -361,9 +368,7 @@ export function LocationManagerPanel() {
 
         const newVariants = mainRef.variants.filter((v) => v !== variantHash);
         const newAssetHash =
-          mainRef.assetHash === variantHash
-            ? (newVariants[0] ?? '')
-            : mainRef.assetHash;
+          mainRef.assetHash === variantHash ? (newVariants[0] ?? '') : mainRef.assetHash;
 
         const updatedRef: ReferenceImage = {
           ...mainRef,
@@ -414,7 +419,9 @@ export function LocationManagerPanel() {
   const drawerShown = drawerOpen && draft !== null;
   return (
     <div className="flex h-full min-h-0">
-      <div className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}>
+      <div
+        className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}
+      >
         <EntityFileExplorer<Location>
           items={items}
           folders={folderApi.folders}
@@ -450,7 +457,10 @@ export function LocationManagerPanel() {
               {(usageCountById[l.id] ?? 0) > 0 && (
                 <span
                   className="inline-flex items-center gap-0.5"
-                  title={t('locationManager.usedInNodes').replace('{count}', String(usageCountById[l.id]))}
+                  title={t('locationManager.usedInNodes').replace(
+                    '{count}',
+                    String(usageCountById[l.id]),
+                  )}
                 >
                   <Link2 className="h-3 w-3" />
                   {usageCountById[l.id]}
@@ -467,12 +477,12 @@ export function LocationManagerPanel() {
             cutIds,
           }}
           onPaste={handlePaste}
-          header={(
+          header={
             <div className="flex items-center gap-2">
               <MapPin className="h-3.5 w-3.5 text-primary" />
               <h2 className="text-xs font-semibold">{t('locationManager.title')}</h2>
             </div>
-          )}
+          }
           newItemLabel={t('locationManager.newLocation')}
           activeItemId={drawerOpen ? (selectedId ?? null) : null}
           loading={loading}
@@ -629,7 +639,6 @@ export function LocationManagerPanel() {
     </div>
   );
 }
-
 
 function SingleReferenceImage({
   referenceImages,
@@ -831,17 +840,24 @@ function SingleReferenceImage({
           </span>
           <div className="flex gap-1 overflow-x-auto">
             {mainRef.assetHash && (
-              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive onDelete={onDeleteVariant ? () => onDeleteVariant(mainRef.assetHash!) : undefined} />
-            )}
-            {mainRef.variants.filter((v) => v !== mainRef.assetHash).map((variantHash) => (
               <VariantThumb
-                key={variantHash}
-                hash={variantHash}
-                isActive={false}
-                onClick={() => onSelectVariant?.(variantHash)}
-                onDelete={onDeleteVariant ? () => onDeleteVariant(variantHash) : undefined}
+                key={mainRef.assetHash}
+                hash={mainRef.assetHash}
+                isActive
+                onDelete={onDeleteVariant ? () => onDeleteVariant(mainRef.assetHash!) : undefined}
               />
-            ))}
+            )}
+            {mainRef.variants
+              .filter((v) => v !== mainRef.assetHash)
+              .map((variantHash) => (
+                <VariantThumb
+                  key={variantHash}
+                  hash={variantHash}
+                  isActive={false}
+                  onClick={() => onSelectVariant?.(variantHash)}
+                  onDelete={onDeleteVariant ? () => onDeleteVariant(variantHash) : undefined}
+                />
+              ))}
           </div>
         </div>
       )}
@@ -879,7 +895,10 @@ function VariantThumb({
       {onDelete && (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
           className="absolute top-1 right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Delete variant"
         >
@@ -893,9 +912,7 @@ function VariantThumb({
 function ListThumb({ hash }: { hash?: string }) {
   const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return <div className="h-full w-full bg-muted/50" />;
-  return (
-    <img src={url} alt="" className="h-full w-full object-contain" onError={markFailed} />
-  );
+  return <img src={url} alt="" className="h-full w-full object-contain" onError={markFailed} />;
 }
 
 function AssetPickerDialog({

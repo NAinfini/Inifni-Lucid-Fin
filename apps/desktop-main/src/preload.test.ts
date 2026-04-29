@@ -128,7 +128,9 @@ describe('preload IPC rate limiting', () => {
     await api.canvasGeneration.generate('c1', 'n2');
 
     // Third call within the same second should throw
-    expect(() => api.canvasGeneration.generate('c1', 'n3')).toThrow(/IPC rate limited.*canvas:generate/);
+    expect(() => api.canvasGeneration.generate('c1', 'n3')).toThrow(
+      /IPC rate limited.*canvas:generate/,
+    );
   });
 
   it('does not rate limit non-limited channels', async () => {

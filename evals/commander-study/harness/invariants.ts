@@ -113,7 +113,8 @@ function checkAskUserAnsweredButNoToolResult(events: readonly unknown[]): Invari
     if (results.has(toolCallId)) continue;
     violations.push({
       invariant: 'askUser_answered_but_no_tool_result',
-      description: 'askUser question was answered by harness/user but no matching tool_result was emitted.',
+      description:
+        'askUser question was answered by harness/user but no matching tool_result was emitted.',
       severity: 'error',
       evidence: {
         toolCallId,
@@ -150,11 +151,11 @@ function checkDuplicateToolCallIdWithoutResult(events: readonly unknown[]): Inva
     // v2 stream emits `tool_call` twice for one logical call (start + args complete).
     // If both are same step and same kind, treat the second as args update, not duplicate.
     const sameStepUpdate =
-      kind === 'tool_call'
-      && prev.sourceKind === 'tool_call'
-      && prev.step !== null
-      && step !== null
-      && prev.step === step;
+      kind === 'tool_call' &&
+      prev.sourceKind === 'tool_call' &&
+      prev.step !== null &&
+      step !== null &&
+      prev.step === step;
     if (sameStepUpdate) continue;
 
     violations.push({
@@ -206,7 +207,8 @@ function checkOrphanToolCalls(events: readonly unknown[]): InvariantViolation[] 
   for (const [toolCallId, startedEvent] of openCalls) {
     violations.push({
       invariant: 'orphan_tool_call',
-      description: 'A tool call started but did not emit tool_result/tool_question/tool_confirm before run end.',
+      description:
+        'A tool call started but did not emit tool_result/tool_question/tool_confirm before run end.',
       severity: 'error',
       evidence: { toolCallId, startedEvent },
     });
@@ -293,16 +295,19 @@ function checkBlockedWaitingUserAfterAnswer(
   const hasPreRunEndAnswer = answeredAts.some((at) => at < runEndAt);
   if (!hasPreRunEndAnswer) return [];
 
-  return [{
-    invariant: 'exit_contract_blocked_waiting_user_after_answer',
-    description: 'Exit decision is blocked_waiting_user even though ask_user_answered evidence existed before run end.',
-    severity: 'error',
-    evidence: {
-      runEndAt,
-      answeredAts,
-      exitDecision: result.exitDecision,
+  return [
+    {
+      invariant: 'exit_contract_blocked_waiting_user_after_answer',
+      description:
+        'Exit decision is blocked_waiting_user even though ask_user_answered evidence existed before run end.',
+      severity: 'error',
+      evidence: {
+        runEndAt,
+        answeredAts,
+        exitDecision: result.exitDecision,
+      },
     },
-  }];
+  ];
 }
 
 function checkStalledModelStreaming(events: readonly unknown[]): InvariantViolation[] {
@@ -331,12 +336,15 @@ function checkStalledModelStreaming(events: readonly unknown[]): InvariantViolat
     if (kind === 'model_streaming') {
       const rec = asRecord(event);
       const state =
-        (typeof rec.phase === 'string' ? rec.phase : '')
-        || (typeof rec.state === 'string' ? rec.state : '')
-        || (typeof rec.status === 'string' ? rec.status : '');
+        (typeof rec.phase === 'string' ? rec.phase : '') ||
+        (typeof rec.state === 'string' ? rec.state : '') ||
+        (typeof rec.status === 'string' ? rec.status : '');
       if (rec.active === true || ['start', 'started', 'active', 'begin', 'enter'].includes(state)) {
         markActive(ts);
-      } else if (rec.active === false || ['stop', 'stopped', 'inactive', 'end', 'done', 'exit'].includes(state)) {
+      } else if (
+        rec.active === false ||
+        ['stop', 'stopped', 'inactive', 'end', 'done', 'exit'].includes(state)
+      ) {
         markInactive();
       }
     }
@@ -345,11 +353,18 @@ function checkStalledModelStreaming(events: readonly unknown[]): InvariantViolat
       if (ts !== null) lastProgressAt = ts;
     }
 
-    if (activeSince !== null && ts !== null && lastProgressAt !== null && !segmentWarned && ts - lastProgressAt > 90_000) {
+    if (
+      activeSince !== null &&
+      ts !== null &&
+      lastProgressAt !== null &&
+      !segmentWarned &&
+      ts - lastProgressAt > 90_000
+    ) {
       segmentWarned = true;
       violations.push({
         invariant: 'stalled_model_streaming',
-        description: 'Model streaming stayed active for more than 90s without tool_call/tool_result progress.',
+        description:
+          'Model streaming stayed active for more than 90s without tool_call/tool_result progress.',
         severity: 'warning',
         evidence: {
           activeSince,

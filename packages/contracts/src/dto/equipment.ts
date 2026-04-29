@@ -26,9 +26,7 @@ export type EquipmentStandardSlot = (typeof EQUIPMENT_STANDARD_SLOTS)[number];
 // front/back/left/right profiles + detail close-up on one 2x2+1 composite.
 // `extra-angle` supports rare custom views while keeping storage flat.
 
-export type EquipmentRefImageView =
-  | { kind: 'ortho-grid' }
-  | { kind: 'extra-angle'; angle: string };
+export type EquipmentRefImageView = { kind: 'ortho-grid' } | { kind: 'extra-angle'; angle: string };
 
 export function equipmentViewToSlot(view: EquipmentRefImageView): string {
   if (view.kind === 'ortho-grid') return 'ortho-grid';

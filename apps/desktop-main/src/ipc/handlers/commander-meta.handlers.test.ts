@@ -67,9 +67,9 @@ describe('registerCommanderMetaHandlers', () => {
 
     const inject = handlers.get('commander:inject-message');
 
-    await expect(
-      inject?.({}, { canvasId: 'canvas-1', message: 'continue' }),
-    ).rejects.toThrow('Commander has no active session');
+    await expect(inject?.({}, { canvasId: 'canvas-1', message: 'continue' })).rejects.toThrow(
+      'Commander has no active session',
+    );
 
     expect(scopedLogger.warn).toHaveBeenCalledWith(
       'Commander message injection requested with no active session',

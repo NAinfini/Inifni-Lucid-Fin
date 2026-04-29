@@ -24,9 +24,7 @@ import { defineInvokeChannel, definePushChannel } from '../../channels.js';
 const JobShape = z.unknown();
 
 // ── job:list (invoke) ────────────────────────────────────────
-const JobListRequest = z
-  .object({ status: z.string().optional() })
-  .strict();
+const JobListRequest = z.object({ status: z.string().optional() }).strict();
 const JobListResponse = z.array(JobShape);
 export const jobListChannel = defineInvokeChannel({
   channel: 'job:list',
@@ -37,9 +35,30 @@ export type JobListRequest = z.infer<typeof JobListRequest>;
 export type JobListResponse = z.infer<typeof JobListResponse>;
 
 // ── job:submit (invoke) ──────────────────────────────────────
-// Handler receives `GenerationRequest & { segmentId?: string }` — the DTO
-// stays unknown for now, so the request schema allows any record shape.
-const JobSubmitRequest = z.unknown();
+const JobSubmitRequest = z.object({
+  type: z.enum(['text', 'image', 'video', 'voice', 'music', 'sfx']),
+  providerId: z.string().min(1),
+  prompt: z.string(),
+  negativePrompt: z.string().optional(),
+  referenceImages: z.array(z.string()).optional(),
+  frameReferenceImages: z
+    .object({ first: z.string().optional(), last: z.string().optional() })
+    .optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  duration: z.number().positive().optional(),
+  seed: z.number().int().optional(),
+  audio: z.boolean().optional(),
+  quality: z.string().optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
+  sourceImageHash: z.string().optional(),
+  sourceImagePath: z.string().optional(),
+  img2imgStrength: z.number().min(0).max(1).optional(),
+  steps: z.number().int().positive().optional(),
+  cfgScale: z.number().positive().optional(),
+  scheduler: z.string().optional(),
+  segmentId: z.string().optional(),
+});
 const JobSubmitResponse = z.object({ jobId: z.string() });
 export const jobSubmitChannel = defineInvokeChannel({
   channel: 'job:submit',
@@ -84,7 +103,7 @@ export type JobResumeResponse = z.infer<typeof JobResumeResponse>;
 
 // ── job:submitted (push) ─────────────────────────────────────
 const JobSubmittedPayload = z.object({
-  id: z.string(),
+  jobId: z.string(),
   status: z.string(),
 });
 export const jobSubmittedChannel = definePushChannel({
@@ -125,7 +144,7 @@ export type JobCompletePayload = z.infer<typeof JobCompletePayload>;
 
 // ── job:failed (push) ────────────────────────────────────────
 const JobFailedPayload = z.object({
-  id: z.string(),
+  jobId: z.string(),
   status: z.string(),
   error: z.string().optional(),
 });
@@ -137,7 +156,7 @@ export type JobFailedPayload = z.infer<typeof JobFailedPayload>;
 
 // ── job:cancelled (push) ─────────────────────────────────────
 const JobCancelledPayload = z.object({
-  id: z.string(),
+  jobId: z.string(),
   status: z.string(),
 });
 export const jobCancelledChannel = definePushChannel({
@@ -148,7 +167,7 @@ export type JobCancelledPayload = z.infer<typeof JobCancelledPayload>;
 
 // ── job:paused (push) ────────────────────────────────────────
 const JobPausedPayload = z.object({
-  id: z.string(),
+  jobId: z.string(),
   status: z.string(),
 });
 export const jobPausedChannel = definePushChannel({
@@ -159,7 +178,7 @@ export type JobPausedPayload = z.infer<typeof JobPausedPayload>;
 
 // ── job:resumed (push) ───────────────────────────────────────
 const JobResumedPayload = z.object({
-  id: z.string(),
+  jobId: z.string(),
   status: z.string(),
 });
 export const jobResumedChannel = definePushChannel({

@@ -141,9 +141,9 @@ export function useInspectorEntityRefs({
       const character = characters.find((c) => c.id === characterId);
       const referenceImageHash = angleSlot
         ? character?.referenceImages?.find(
-          (r: ReferenceImage) =>
-            normalizeCharacterRefSlot(r.slot) === normalizeCharacterRefSlot(angleSlot),
-        )?.assetHash
+            (r: ReferenceImage) =>
+              normalizeCharacterRefSlot(r.slot) === normalizeCharacterRefSlot(angleSlot),
+          )?.assetHash
         : undefined;
       dispatch(
         updateNodeCharacterRef({

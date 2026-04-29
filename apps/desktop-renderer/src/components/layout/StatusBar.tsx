@@ -14,10 +14,16 @@ export function StatusBar() {
   });
   const { activeCount } = useSelector((s: RootState) => s.jobs);
   const [version, setVersion] = useState('');
-  const [saveStatus, setSaveStatus] = useState<{ lastSavedAt: number; pending: boolean }>({ lastSavedAt: 0, pending: false });
+  const [saveStatus, setSaveStatus] = useState<{ lastSavedAt: number; pending: boolean }>({
+    lastSavedAt: 0,
+    pending: false,
+  });
 
   useEffect(() => {
-    getAPI()?.app.version().then(setVersion).catch(() => setVersion('dev'));
+    getAPI()
+      ?.app.version()
+      .then(setVersion)
+      .catch(() => setVersion('dev'));
   }, []);
 
   useEffect(() => {

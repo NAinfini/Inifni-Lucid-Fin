@@ -43,16 +43,13 @@ export function runCommand(cmd: ffmpeg.FfmpegCommand, signal?: AbortSignal): Pro
 
 export function extractLastFrame(videoPath: string, outputPath: string): Promise<void> {
   const cmd = createCommand(videoPath);
-  cmd
-    .inputOptions(['-sseof -0.1'])
-    .outputOptions(['-frames:v 1', '-update 1'])
-    .output(outputPath);
+  cmd.inputOptions(['-sseof -0.1']).outputOptions(['-frames:v 1', '-update 1']).output(outputPath);
   return runCommand(cmd);
 }
 
 export interface SceneCut {
-  time: number;   // seconds
-  score: number;  // scene change score (0-1)
+  time: number; // seconds
+  score: number; // scene change score (0-1)
 }
 
 export function detectScenes(videoPath: string, threshold?: number): Promise<SceneCut[]> {
@@ -76,7 +73,8 @@ export function detectScenes(videoPath: string, threshold?: number): Promise<Sce
             score: parseFloat(scoreMatch[1]),
           });
         }
-      } catch { /* malformed ffmpeg output line — skip and continue parsing scene cuts */
+      } catch {
+        /* malformed ffmpeg output line — skip and continue parsing scene cuts */
         // Ignore parse errors on individual lines
       }
     });
@@ -89,7 +87,11 @@ export function detectScenes(videoPath: string, threshold?: number): Promise<Sce
   });
 }
 
-export function extractFrameAtTime(videoPath: string, timeSeconds: number, outputPath: string): Promise<void> {
+export function extractFrameAtTime(
+  videoPath: string,
+  timeSeconds: number,
+  outputPath: string,
+): Promise<void> {
   const cmd = createCommand(videoPath);
   cmd
     .inputOptions([`-ss ${timeSeconds}`])

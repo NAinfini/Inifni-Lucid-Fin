@@ -12,7 +12,10 @@ export function isNodeReferenceListKey(key: string): boolean {
   return key === 'nodeIds' || key.endsWith('NodeIds');
 }
 
-export function formatNodeReference(nodeId: string, nodeTitlesById: Record<string, string>): string {
+export function formatNodeReference(
+  nodeId: string,
+  nodeTitlesById: Record<string, string>,
+): string {
   const title = nodeTitlesById[nodeId]?.trim();
   if (!title || title === nodeId) {
     return nodeId;

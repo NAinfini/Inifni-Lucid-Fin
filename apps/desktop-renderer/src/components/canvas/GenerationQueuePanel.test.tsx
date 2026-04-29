@@ -8,7 +8,7 @@ import { deriveNodeStatus } from '@lucid-fin/contracts';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale, t } from '../../i18n.js';
-import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas.js';
+import { canvasSlice, setActiveCanvas, addCanvas } from '../../store/slices/canvas.js';
 import { uiSlice } from '../../store/slices/ui.js';
 import { addCustomProvider, settingsSlice } from '../../store/slices/settings.js';
 import { getAPI } from '../../utils/api.js';
@@ -107,20 +107,33 @@ describe('GenerationQueuePanel', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    renderPanel({
-      canvases: [
-        createCanvas([
-          createCanvasNode({
-            data: {
-              status: 'generating',
-              progress: 33,
-              variants: [],
-              selectedVariantIndex: 0,
-            },
-          }),
-        ]),
-      ],
+    // Use addCanvas (bypasses sanitizeTransientNodeStatus) so the generating
+    // status is preserved and the cancel button is visible.
+    const store = configureStore({
+      reducer: {
+        canvas: canvasSlice.reducer,
+        ui: uiSlice.reducer,
+        settings: settingsSlice.reducer,
+      },
     });
+    const generatingCanvas = createCanvas([
+      createCanvasNode({
+        data: {
+          status: 'generating',
+          progress: 33,
+          variants: [],
+          selectedVariantIndex: 0,
+        },
+      }),
+    ]);
+    store.dispatch(addCanvas(generatingCanvas));
+    store.dispatch(setActiveCanvas('canvas-1'));
+
+    render(
+      <Provider store={store}>
+        <GenerationQueuePanel />
+      </Provider>,
+    );
 
     fireEvent.click(screen.getByLabelText(t('generation.cancel')));
 

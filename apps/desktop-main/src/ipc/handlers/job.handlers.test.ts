@@ -70,10 +70,11 @@ describe('registerJobHandlers', () => {
           handlers.set(channel, handler);
         },
       } as never,
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       db as never,
       queue as never,
     );
@@ -86,11 +87,14 @@ describe('registerJobHandlers', () => {
 
     // Execute IPC calls
     await expect(
-      submit?.({}, {
-        providerId: 'mock-provider',
-        type: 'image',
-        prompt: 'hero shot',
-      }),
+      submit?.(
+        {},
+        {
+          providerId: 'mock-provider',
+          type: 'image',
+          prompt: 'hero shot',
+        },
+      ),
     ).resolves.toEqual({ jobId: 'job-1' });
     await cancel?.({}, { jobId: 'job-1' });
     await pause?.({}, { jobId: 'job-1' });
@@ -151,9 +155,7 @@ describe('registerJobHandlers', () => {
 
     // Verify completion dedup: calling again should NOT send another event
     completedHandler({ id: 'job-2', status: 'completed' });
-    const completeCalls = send.mock.calls.filter(
-      (call: unknown[]) => call[0] === 'job:complete',
-    );
+    const completeCalls = send.mock.calls.filter((call: unknown[]) => call[0] === 'job:complete');
     expect(completeCalls).toHaveLength(1);
   });
 });

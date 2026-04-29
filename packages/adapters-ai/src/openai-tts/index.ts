@@ -7,12 +7,13 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { toOpenAITTSRequest } from './mapper.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class OpenAITTSAdapter implements AIProviderAdapter {
   readonly id = 'openai-tts-1-hd';
@@ -26,7 +27,10 @@ export class OpenAITTSAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   async validate(): Promise<boolean> {
@@ -35,7 +39,8 @@ export class OpenAITTSAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -62,7 +67,13 @@ export class OpenAITTSAdapter implements AIProviderAdapter {
     // OpenAI TTS returns audio bytes directly (synchronous)
     const buffer = Buffer.from(await res.arrayBuffer());
     const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
-    const outPath = (req.params?.savePath as string) ?? join(tmpdir(), `tts-openai-${hash}.mp3`);
+    const defaultPath = join(tmpdir(), `tts-openai-${hash}.mp3`);
+    const requestedPath = req.params?.savePath as string | undefined;
+    const tmpBase = resolve(tmpdir());
+    const outPath =
+      requestedPath && resolve(requestedPath).startsWith(tmpBase + sep)
+        ? requestedPath
+        : defaultPath;
     writeFileSync(outPath, buffer);
 
     return {

@@ -3,7 +3,11 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import type { AssetRef, AssetMeta, AssetType } from '@lucid-fin/contracts';
-import { ensureExpectedMediaType, inspectBufferMedia, inspectFileMedia } from './media-inspector.js';
+import {
+  ensureExpectedMediaType,
+  inspectBufferMedia,
+  inspectFileMedia,
+} from './media-inspector.js';
 import { ensureDir, atomicWrite } from './utils.js';
 
 const WORKER_THRESHOLD = 10 * 1024 * 1024; // 10MB

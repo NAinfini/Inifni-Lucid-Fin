@@ -58,12 +58,17 @@ describe('registerWorkflowHandlers', () => {
     const resume = handlers.get('workflow:resume');
     const cancel = handlers.get('workflow:cancel');
 
-    await expect(start?.({}, {
-      workflowType: 'storyboard.generate',
-      entityType: 'scene',
-      entityId: 'scene-1',
-      triggerSource: 'user',
-    })).resolves.toEqual({ workflowRunId: 'wf-1' });
+    await expect(
+      start?.(
+        {},
+        {
+          workflowType: 'storyboard.generate',
+          entityType: 'scene',
+          entityId: 'scene-1',
+          triggerSource: 'user',
+        },
+      ),
+    ).resolves.toEqual({ workflowRunId: 'wf-1' });
 
     await expect(get?.({}, { id: 'wf-1' })).resolves.toEqual({ id: 'wf-1', status: 'ready' });
     await expect(getStages?.({}, { workflowRunId: 'wf-1' })).resolves.toEqual([{ id: 'stage-1' }]);
@@ -135,7 +140,9 @@ describe('registerWorkflowHandlers', () => {
     );
 
     const get = handlers.get('workflow:get');
-    await expect(get?.({}, { id: 'missing-run' })).rejects.toThrow('Workflow "missing-run" not found');
+    await expect(get?.({}, { id: 'missing-run' })).rejects.toThrow(
+      'Workflow "missing-run" not found',
+    );
 
     expect(logger.error).toHaveBeenCalledWith(
       'Workflow not found',

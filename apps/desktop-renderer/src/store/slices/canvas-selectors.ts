@@ -19,13 +19,14 @@ export const selectAllCanvases = createSelector(
 /** Light-weight metadata for the canvas navigator — avoids pulling full nodes/edges arrays. */
 export const selectCanvasMetadataList = createSelector(
   [(s: RootState) => s.canvas.canvases],
-  (canvasEntity) => adapterSelectors.selectAll(canvasEntity).map((c) => ({
-    id: c.id,
-    name: c.name,
-    updatedAt: c.updatedAt,
-    nodeCount: c.nodes.length,
-    edgeCount: c.edges.length,
-  })),
+  (canvasEntity) =>
+    adapterSelectors.selectAll(canvasEntity).map((c) => ({
+      id: c.id,
+      name: c.name,
+      updatedAt: c.updatedAt,
+      nodeCount: c.nodes.length,
+      edgeCount: c.edges.length,
+    })),
 );
 
 /**
@@ -108,7 +109,8 @@ export const selectEntityUsageCounts = createSelector(
         }
         if (data.equipmentRefs) {
           for (const ref of data.equipmentRefs) {
-            const eqId = typeof ref === 'string' ? ref : (ref as { equipmentId: string }).equipmentId;
+            const eqId =
+              typeof ref === 'string' ? ref : (ref as { equipmentId: string }).equipmentId;
             equipment[eqId] = (equipment[eqId] ?? 0) + 1;
           }
         }

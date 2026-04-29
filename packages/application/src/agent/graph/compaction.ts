@@ -71,7 +71,10 @@ export function evaluate(graph: ContextGraph, policy: CompactionPolicy): Compact
   // newest (last in insertion order). Earlier ones are superseded — but ONLY
   // for read-only/idempotent tool categories. Mutations and logs must not
   // dedup: distinct calls represent distinct state changes.
-  const toolResultByKey = new Map<ToolResultIdentityKey, Extract<ContextItem, { kind: 'tool-result' }>[]>();
+  const toolResultByKey = new Map<
+    ToolResultIdentityKey,
+    Extract<ContextItem, { kind: 'tool-result' }>[]
+  >();
   for (const item of items) {
     if (item.kind !== 'tool-result') continue;
     const category = getToolCompactionCategory(String(item.toolKey));
@@ -105,7 +108,10 @@ export function evaluate(graph: ContextGraph, policy: CompactionPolicy): Compact
   const surviving = items.filter((item) => !dedupDropped.has(item.itemId));
 
   // Compute total tokens
-  const totalTokens = surviving.reduce((sum, item) => sum + estimateItemTokens(item, charsPerToken), 0);
+  const totalTokens = surviving.reduce(
+    (sum, item) => sum + estimateItemTokens(item, charsPerToken),
+    0,
+  );
 
   if (totalTokens <= policy.tokenBudget) {
     // Under budget — no further compaction needed

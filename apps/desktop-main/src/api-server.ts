@@ -3,9 +3,12 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { parseCanvasId } from '@lucid-fin/contracts-parse';
 import log from './logger.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface ApiServerDeps {
   db: SqliteIndex;
@@ -16,11 +19,7 @@ let apiToken: string | null = null;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function send(
-  res: http.ServerResponse,
-  status: number,
-  body: unknown,
-): void {
+function send(res: http.ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     'Content-Type': 'application/json',
@@ -43,12 +42,23 @@ function authenticate(req: http.IncomingMessage, res: http.ServerResponse): bool
 function readBody(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const MAX_BODY = 10 * 1024 * 1024;
+    let total = 0;
+    req.on('data', (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > MAX_BODY) {
+        reject(new Error('Body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
       try {
         const raw = Buffer.concat(chunks).toString('utf-8');
         resolve(raw ? JSON.parse(raw) : {});
-      } catch { /* JSON.parse failed — reject with descriptive error */
+      } catch {
+        /* JSON.parse failed — reject with descriptive error */
         reject(new Error('Invalid JSON body'));
       }
     });
@@ -64,7 +74,9 @@ function handleHealth(res: http.ServerResponse): void {
     const pkgPath = path.join(__dirname, '..', 'package.json');
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     version = pkg.version ?? version;
-  } catch { /* fallback */ }
+  } catch {
+    /* fallback */
+  }
   send(res, 200, { status: 'ok', version });
 }
 
@@ -99,7 +111,8 @@ async function handleExportMetadata(
   let body: unknown;
   try {
     body = await readBody(req);
-  } catch { /* readBody rejected (invalid JSON) — return 400 */
+  } catch {
+    /* readBody rejected (invalid JSON) — return 400 */
     sendError(res, 400, 'Invalid JSON body');
     return;
   }
@@ -181,7 +194,10 @@ export function startApiServer(deps: ApiServerDeps): void {
   server = http.createServer(createRequestHandler(deps));
 
   server.listen(port, '127.0.0.1', () => {
-    log.info('[api-server] Listening', { port, token: apiToken });
+    log.info('[api-server] Listening', {
+      port,
+      token: apiToken ? `***${apiToken.slice(-4)}` : null,
+    });
   });
 
   server.on('error', (err) => {

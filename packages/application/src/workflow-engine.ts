@@ -121,11 +121,7 @@ export class WorkflowEngine {
     return planned.workflowRun.id;
   }
 
-  list(filter?: {
-    status?: string;
-    workflowType?: string;
-    entityType?: string;
-  }): WorkflowRun[] {
+  list(filter?: { status?: string; workflowType?: string; entityType?: string }): WorkflowRun[] {
     return this.wf.listRuns(filter).rows;
   }
 
@@ -157,6 +153,16 @@ export class WorkflowEngine {
   }
 
   async cancel(workflowRunId: string): Promise<void> {
+    // Discard any in-flight autoPump before mutating state, so the pump loop
+    // cannot race ahead and start new tasks after we mark everything cancelled.
+    if (this.autoPump) {
+      const pending = this.autoPump;
+      this.autoPump = undefined;
+      await pending.catch(() => {
+        /* ignore — we are cancelling */
+      });
+    }
+
     const tasks = this.wf.listTaskRuns(this.runId(workflowRunId) as WorkflowRunId).rows;
     const stages = this.wf.listStageRuns(this.runId(workflowRunId) as WorkflowRunId).rows;
 
@@ -230,21 +236,26 @@ export class WorkflowEngine {
     let executed = 0;
     await this.refreshAvailability(workflowRunId);
 
+    const MAX_PUMP_ITERATIONS = 1000;
+    let iterations = 0;
     for (;;) {
-      if (this.activeTasks >= this.maxConcurrentTasks) return executed;
+      if (++iterations > MAX_PUMP_ITERATIONS) {
+        throw new Error('pump: max iterations exceeded — possible runaway workflow');
+      }
+      if (workflowRunId) {
+        const run = this.wf.getRun(this.runId(workflowRunId) as WorkflowRunId);
+        if (run && (run.status === 'paused' || run.status === 'cancelled')) return executed;
+      }
+      const slots = this.maxConcurrentTasks - this.activeTasks;
+      if (slots <= 0) return executed;
       const readyTasks = this.wf.listReadyTasks(this.runId(workflowRunId)).rows;
-      const task = readyTasks[0];
-      if (!task) {
-        return executed;
-      }
+      if (readyTasks.length === 0) return executed;
 
-      this.activeTasks++;
-      try {
-        await this.executeTask(task.id);
-      } finally {
-        this.activeTasks--;
-      }
-      executed += 1;
+      const batch = readyTasks.slice(0, slots);
+      this.activeTasks += batch.length;
+      const results = await Promise.allSettled(batch.map((task) => this.executeTask(task.id)));
+      this.activeTasks -= batch.length;
+      executed += results.length;
     }
   }
 
@@ -482,7 +493,9 @@ export class WorkflowEngine {
       ? this.wf.listTaskRuns(this.runId(workflowRunId) as WorkflowRunId).rows
       : this.wf
           .listRuns()
-          .rows.flatMap((workflow) => this.wf.listTaskRuns(this.runId(workflow.id) as WorkflowRunId).rows);
+          .rows.flatMap(
+            (workflow) => this.wf.listTaskRuns(this.runId(workflow.id) as WorkflowRunId).rows,
+          );
 
     return tasks
       .filter(

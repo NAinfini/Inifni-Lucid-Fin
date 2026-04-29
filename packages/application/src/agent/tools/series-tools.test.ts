@@ -32,15 +32,17 @@ function createDeps(): SeriesToolDeps {
     ]),
     addEpisode: vi.fn(async () => ({ id: 'episode-3' })),
     removeEpisode: vi.fn(async () => undefined),
-    reorderEpisodes: vi.fn(async (episodeIds: string[]) => episodeIds.map((id, index) => ({
-      id,
-      seriesId: 'series-1',
-      title: id,
-      order: index,
-      status: 'draft',
-      createdAt: 1,
-      updatedAt: 1,
-    }))),
+    reorderEpisodes: vi.fn(async (episodeIds: string[]) =>
+      episodeIds.map((id, index) => ({
+        id,
+        seriesId: 'series-1',
+        title: id,
+        order: index,
+        status: 'draft',
+        createdAt: 1,
+        updatedAt: 1,
+      })),
+    ),
   };
 }
 
@@ -66,14 +68,21 @@ describe('createSeriesTools', () => {
   it('gets, partially saves, lists, adds, removes, and reorders episodes', async () => {
     const deps = createDeps();
 
-    await expect(getTool('series.get', deps).execute({})).resolves.toEqual({ success: true, data: series });
-    await expect(getTool('series.update', deps).execute({
-      set: { title: 'Updated', description: 'Updated desc' },
-    })).resolves.toEqual({
+    await expect(getTool('series.get', deps).execute({})).resolves.toEqual({
+      success: true,
+      data: series,
+    });
+    await expect(
+      getTool('series.update', deps).execute({
+        set: { title: 'Updated', description: 'Updated desc' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { ...series, title: 'Updated', description: 'Updated desc' },
     });
-    await expect(getTool('series.listEpisodes', deps).execute({ offset: 1, limit: 1 })).resolves.toEqual({
+    await expect(
+      getTool('series.listEpisodes', deps).execute({ offset: 1, limit: 1 }),
+    ).resolves.toEqual({
       success: true,
       data: {
         total: 2,
@@ -82,19 +91,25 @@ describe('createSeriesTools', () => {
         episodes: [{ id: 'episode-2', title: 'Finale', canvasId: 'canvas-2' }],
       },
     });
-    await expect(getTool('series.addEpisode', deps).execute({
-      title: ' Chapter 3 ',
-      canvasId: ' canvas-3 ',
-    })).resolves.toEqual({ success: true, data: { id: 'episode-3' } });
+    await expect(
+      getTool('series.addEpisode', deps).execute({
+        title: ' Chapter 3 ',
+        canvasId: ' canvas-3 ',
+      }),
+    ).resolves.toEqual({ success: true, data: { id: 'episode-3' } });
     expect(deps.addEpisode).toHaveBeenCalledWith('Chapter 3', 'canvas-3');
 
-    await expect(getTool('series.removeEpisode', deps).execute({ episodeId: 'episode-1' })).resolves.toEqual({
+    await expect(
+      getTool('series.removeEpisode', deps).execute({ episodeId: 'episode-1' }),
+    ).resolves.toEqual({
       success: true,
       data: { episodeId: 'episode-1' },
     });
-    await expect(getTool('series.reorderEpisodes', deps).execute({
-      episodeIds: ['episode-2', 'episode-1'],
-    })).resolves.toEqual({
+    await expect(
+      getTool('series.reorderEpisodes', deps).execute({
+        episodeIds: ['episode-2', 'episode-1'],
+      }),
+    ).resolves.toEqual({
       success: true,
       data: [
         expect.objectContaining({ id: 'episode-2', order: 0 }),
@@ -113,10 +128,12 @@ describe('createSeriesTools', () => {
     });
 
     // Extra keys placed outside set are warned
-    await expect(getTool('series.update', deps).execute({
-      set: { title: 'Warned' },
-      title: 'Stray',
-    })).resolves.toEqual({
+    await expect(
+      getTool('series.update', deps).execute({
+        set: { title: 'Warned' },
+        title: 'Stray',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { ...series, title: 'Warned' },
       warnings: ['Fields outside "set" were ignored: title'],
@@ -127,7 +144,9 @@ describe('createSeriesTools', () => {
       error: 'title is required',
       errorClass: 'validation',
     });
-    await expect(getTool('series.reorderEpisodes', deps).execute({ episodeIds: ['episode-1', ''] })).resolves.toEqual({
+    await expect(
+      getTool('series.reorderEpisodes', deps).execute({ episodeIds: ['episode-1', ''] }),
+    ).resolves.toEqual({
       success: false,
       error: 'episodeIds[1] must be a non-empty string',
       errorClass: 'validation',
@@ -146,7 +165,9 @@ describe('createSeriesTools', () => {
     });
 
     vi.mocked(deps.removeEpisode).mockRejectedValueOnce(new Error('remove failed'));
-    await expect(getTool('series.removeEpisode', deps).execute({ episodeId: 'episode-2' })).resolves.toEqual({
+    await expect(
+      getTool('series.removeEpisode', deps).execute({ episodeId: 'episode-2' }),
+    ).resolves.toEqual({
       success: false,
       error: 'remove failed',
     });

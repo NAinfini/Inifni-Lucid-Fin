@@ -19,6 +19,7 @@ Panel #  | Shot Type | Duration | Action Description (1 line) | Dialogue/SFX (op
 ```
 
 **Example:**
+
 ```
 Panel 3 | ECU | 3s | Hands grip katana hilt, knuckles whitening | SFX: rain on wood
 ```
@@ -28,6 +29,7 @@ Panel 3 | ECU | 3s | Hands grip katana hilt, knuckles whitening | SFX: rain on w
 ## Story Order Resolution
 
 Commander determines panel order by:
+
 1. Node position on canvas (left-to-right, top-to-bottom by default)
 2. Edge connections — follow directed edges as sequence order
 3. Node title numbering if present (e.g., "Shot 01", "Shot 02")
@@ -37,11 +39,11 @@ Commander determines panel order by:
 
 ## Export Formats
 
-| Format | Use |
-|---|---|
-| PDF grid | Standard storyboard review document |
-| Markdown table | Quick text-based review in Commander |
-| JSON | Machine-readable for further processing |
+| Format         | Use                                     |
+| -------------- | --------------------------------------- |
+| PDF grid       | Standard storyboard review document     |
+| Markdown table | Quick text-based review in Commander    |
+| JSON           | Machine-readable for further processing |
 
 ---
 
@@ -50,11 +52,11 @@ Commander determines panel order by:
 ```markdown
 ## Scene: [Scene Name]
 
-| # | Thumbnail | Shot | Duration | Action |
-|---|---|---|---|---|
-| 1 | [node-id] | ECU | 3s | Hands grip katana |
-| 2 | [node-id] | MS | 5s | Samurai turns to face enemy |
-| 3 | [node-id] | LS | 4s | Wide reveal of dojo interior |
+| #   | Thumbnail | Shot | Duration | Action                       |
+| --- | --------- | ---- | -------- | ---------------------------- |
+| 1   | [node-id] | ECU  | 3s       | Hands grip katana            |
+| 2   | [node-id] | MS   | 5s       | Samurai turns to face enemy  |
+| 3   | [node-id] | LS   | 4s       | Wide reveal of dojo interior |
 ```
 
 ---

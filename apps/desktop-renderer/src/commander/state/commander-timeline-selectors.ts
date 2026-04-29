@@ -28,10 +28,7 @@ export const selectTimelineEvents = (state: RootState): readonly TimelineEvent[]
 export const selectCurrentRunId = (state: RootState): string | null =>
   state.commanderTimeline.currentRunId;
 
-export function selectEventsForRun(
-  state: RootState,
-  runId: string,
-): readonly TimelineEvent[] {
+export function selectEventsForRun(state: RootState, runId: string): readonly TimelineEvent[] {
   const indices = state.commanderTimeline.byRunId[runId];
   if (!indices || indices.length === 0) return [];
   return indices.map((i) => state.commanderTimeline.events[i]);
@@ -146,7 +143,10 @@ export const selectActiveTodoSnapshot = createSelector(
       const ev = events[i];
       if (ev.kind !== 'tool_result') continue;
       const toolCall = events.find(
-        (e) => e.kind === 'tool_call' && 'toolCallId' in e && e.toolCallId === (ev as { toolCallId?: string }).toolCallId,
+        (e) =>
+          e.kind === 'tool_call' &&
+          'toolCallId' in e &&
+          e.toolCallId === (ev as { toolCallId?: string }).toolCallId,
       );
       if (!toolCall || toolCall.kind !== 'tool_call') continue;
       const ref = (toolCall as { toolRef?: { domain?: string } }).toolRef;

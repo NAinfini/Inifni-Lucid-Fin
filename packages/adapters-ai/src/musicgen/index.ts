@@ -7,7 +7,8 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class MusicGenAdapter implements AIProviderAdapter {
   readonly id = 'musicgen-local';
@@ -19,14 +20,18 @@ export class MusicGenAdapter implements AIProviderAdapter {
   private baseUrl = 'http://127.0.0.1:7861';
 
   configure(_apiKey: string, options?: Record<string, unknown>): void {
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string, { allowLocalhost: true });
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   async validate(): Promise<boolean> {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/api/health`, { timeoutMs: 5000 });
       return res.ok;
-    } catch { /* network error — local MusicGen server unreachable, report as invalid */
+    } catch {
+      /* network error — local MusicGen server unreachable, report as invalid */
       return false;
     }
   }

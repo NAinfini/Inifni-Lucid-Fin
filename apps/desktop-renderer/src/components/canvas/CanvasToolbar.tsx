@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Download, Grid2X2, Map, Maximize, Palette, Redo2, Search, Undo2, Upload, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  Download,
+  Grid2X2,
+  Map,
+  Maximize,
+  Palette,
+  Redo2,
+  Search,
+  Undo2,
+  Upload,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../ui/Tooltip.js';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip.js';
 
 /* -------------------------------------------------------------------------- */
 /*  Toolbar button rendered as a plain TooltipTrigger (no asChild).           */
@@ -74,7 +81,12 @@ interface StyleGuideIndicatorProps {
   onOpenSettings?: () => void;
 }
 
-function StyleGuideIndicator({ artStyle, lighting, freeformDescription, onOpenSettings }: StyleGuideIndicatorProps) {
+function StyleGuideIndicator({
+  artStyle,
+  lighting,
+  freeformDescription,
+  onOpenSettings,
+}: StyleGuideIndicatorProps) {
   const [expanded, setExpanded] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const hasContent = Boolean(artStyle || freeformDescription);
@@ -115,26 +127,35 @@ function StyleGuideIndicator({ artStyle, lighting, freeformDescription, onOpenSe
           <div className="space-y-2">
             {artStyle && (
               <div>
-                <span className="text-[10px] font-medium text-muted-foreground uppercase">{t('canvas.styleGuideArt')}</span>
+                <span className="text-[10px] font-medium text-muted-foreground uppercase">
+                  {t('canvas.styleGuideArt')}
+                </span>
                 <p className="text-[11px] text-foreground">{artStyle}</p>
               </div>
             )}
             {lighting && (
               <div>
-                <span className="text-[10px] font-medium text-muted-foreground uppercase">{t('canvas.styleGuideLighting')}</span>
+                <span className="text-[10px] font-medium text-muted-foreground uppercase">
+                  {t('canvas.styleGuideLighting')}
+                </span>
                 <p className="text-[11px] text-foreground capitalize">{lighting}</p>
               </div>
             )}
             {freeformDescription && (
               <div>
-                <span className="text-[10px] font-medium text-muted-foreground uppercase">{t('canvas.styleGuideDesc')}</span>
+                <span className="text-[10px] font-medium text-muted-foreground uppercase">
+                  {t('canvas.styleGuideDesc')}
+                </span>
                 <p className="text-[11px] text-foreground line-clamp-4">{freeformDescription}</p>
               </div>
             )}
             {onOpenSettings && (
               <button
                 type="button"
-                onClick={() => { setExpanded(false); onOpenSettings(); }}
+                onClick={() => {
+                  setExpanded(false);
+                  onOpenSettings();
+                }}
                 className="mt-1 w-full rounded-md border border-border/60 py-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               >
                 {t('canvas.editStyleGuide')}
@@ -223,7 +244,11 @@ export function CanvasToolbar({
   return (
     <TooltipProvider delayDuration={120}>
       <div className="absolute right-3 top-3 z-30 flex items-center gap-1.5">
-        <div role="toolbar" aria-label={t('canvas.toolbar.undoRedo')} className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
+        <div
+          role="toolbar"
+          aria-label={t('canvas.toolbar.undoRedo')}
+          className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm"
+        >
           <ToolbarTriggerButton
             disabled={!undoEnabled}
             ariaLabel={t('canvas.undo')}
@@ -240,39 +265,47 @@ export function CanvasToolbar({
           />
         </div>
         {onZoomIn && onZoomOut && onFitView && (
-        <div role="toolbar" aria-label={t('canvas.toolbar.zoom')} className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
-          <ToolbarTriggerButton
-            ariaLabel={t('canvas.zoomIn')}
-            icon={<ZoomIn className="h-3.5 w-3.5" />}
-            onClick={onZoomIn}
-            tooltip={t('canvas.zoomIn')}
-          />
-          <ToolbarTriggerButton
-            ariaLabel={t('canvas.zoomOut')}
-            icon={<ZoomOut className="h-3.5 w-3.5" />}
-            onClick={onZoomOut}
-            tooltip={t('canvas.zoomOut')}
-          />
-          <ToolbarTriggerButton
-            ariaLabel={t('canvas.fitView')}
-            icon={<Maximize className="h-3.5 w-3.5" />}
-            onClick={onFitView}
-            tooltip={t('canvas.fitView')}
-          />
-        </div>
+          <div
+            role="toolbar"
+            aria-label={t('canvas.toolbar.zoom')}
+            className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm"
+          >
+            <ToolbarTriggerButton
+              ariaLabel={t('canvas.zoomIn')}
+              icon={<ZoomIn className="h-3.5 w-3.5" />}
+              onClick={onZoomIn}
+              tooltip={t('canvas.zoomIn')}
+            />
+            <ToolbarTriggerButton
+              ariaLabel={t('canvas.zoomOut')}
+              icon={<ZoomOut className="h-3.5 w-3.5" />}
+              onClick={onZoomOut}
+              tooltip={t('canvas.zoomOut')}
+            />
+            <ToolbarTriggerButton
+              ariaLabel={t('canvas.fitView')}
+              icon={<Maximize className="h-3.5 w-3.5" />}
+              onClick={onFitView}
+              tooltip={t('canvas.fitView')}
+            />
+          </div>
         )}
-        <div role="toolbar" aria-label={t('canvas.toolbar.canvasTools')} className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm">
-        {styleGuide && <StyleGuideIndicator {...styleGuide} />}
-        {buttons.map((button) => (
-          <ToolbarTriggerButton
-            key={button.id}
-            active={button.active}
-            ariaLabel={button.label}
-            icon={button.icon}
-            onClick={button.onClick}
-            tooltip={button.label}
-          />
-        ))}
+        <div
+          role="toolbar"
+          aria-label={t('canvas.toolbar.canvasTools')}
+          className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm"
+        >
+          {styleGuide && <StyleGuideIndicator {...styleGuide} />}
+          {buttons.map((button) => (
+            <ToolbarTriggerButton
+              key={button.id}
+              active={button.active}
+              ariaLabel={button.label}
+              icon={button.icon}
+              onClick={button.onClick}
+              tooltip={button.label}
+            />
+          ))}
         </div>
       </div>
     </TooltipProvider>

@@ -67,7 +67,11 @@ function runStart(at = 500): TimelineEvent {
   return ev({ kind: 'run_start', runId: RUN, step: 0, seq: 0, emittedAt: at, intent: 'test' });
 }
 
-function runEnd(status: 'completed' | 'failed' | 'cancelled' | 'max_steps', at = 9000, seq = 99): TimelineEvent {
+function runEnd(
+  status: 'completed' | 'failed' | 'cancelled' | 'max_steps',
+  at = 9000,
+  seq = 99,
+): TimelineEvent {
   return ev({ kind: 'run_end', runId: RUN, step: 0, seq, emittedAt: at, status });
 }
 
@@ -190,7 +194,13 @@ describe('deriveActiveRunView', () => {
 
 describe('buildFinalizedAssistantMessage', () => {
   it('returns null for an empty run', () => {
-    const msg = buildFinalizedAssistantMessage(RUN, 'completed', [runStart(), runEnd('completed')], [], []);
+    const msg = buildFinalizedAssistantMessage(
+      RUN,
+      'completed',
+      [runStart(), runEnd('completed')],
+      [],
+      [],
+    );
     expect(msg).toBeNull();
   });
 
@@ -249,11 +259,7 @@ describe('buildFinalizedAssistantMessage', () => {
   });
 
   it('leaves runMeta.cancelled undefined on a normal completed run', () => {
-    const events = [
-      runStart(),
-      textDelta(1, 1, 'ok'),
-      runEnd('completed'),
-    ];
+    const events = [runStart(), textDelta(1, 1, 'ok'), runEnd('completed')];
     const msg = buildFinalizedAssistantMessage(RUN, 'completed', events, [], []);
     expect(msg?.runMeta?.cancelled).toBeUndefined();
   });

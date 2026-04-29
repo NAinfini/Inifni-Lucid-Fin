@@ -15,7 +15,14 @@ import {
 import type { RootState } from '../../store/index.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { getLocale } from '../../i18n.js';
-import { newSession, loadSession, deleteSession, renameSession, selectIsStreaming, type CommanderMessage } from '../../store/slices/commander.js';
+import {
+  newSession,
+  loadSession,
+  deleteSession,
+  renameSession,
+  selectIsStreaming,
+  type CommanderMessage,
+} from '../../store/slices/commander.js';
 import { hydrateEvents as hydrateTimelineEvents } from '../../commander/state/commander-timeline-slice.js';
 import type { TimelineEvent } from '@lucid-fin/contracts';
 import { setCharacters } from '../../store/slices/characters.js';
@@ -233,9 +240,7 @@ export function HistoryPanel() {
         try {
           const listed = await api?.canvas?.list();
           if (Array.isArray(listed) && listed.length > 0) {
-            const loaded = await Promise.all(
-              listed.map((item) => api!.canvas.load(item.id)),
-            );
+            const loaded = await Promise.all(listed.map((item) => api!.canvas.load(item.id)));
             dispatch(setCanvases(loaded));
           }
         } catch {
@@ -369,7 +374,12 @@ export function HistoryPanel() {
                     activeSessionId === session.id && 'bg-primary/10 border border-primary/20',
                   )}
                   onClick={() => void handleSessionClick(session.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void handleSessionClick(session.id); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      void handleSessionClick(session.id);
+                    }
+                  }}
                 >
                   {/* Expand/collapse chevron — only toggles expand */}
                   <button
@@ -452,7 +462,9 @@ export function HistoryPanel() {
                       if (!ok) return;
                       dispatch(deleteSession(session.id));
                       // Also delete from SQLite so it doesn't reappear on restart
-                      getAPI()?.session?.delete(session.id).catch(() => {});
+                      getAPI()
+                        ?.session?.delete(session.id)
+                        .catch(() => {});
                     }}
                     className="hidden group-hover:flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground hover:text-destructive"
                     title={t('history.delete')}
@@ -465,62 +477,62 @@ export function HistoryPanel() {
                 {isExpanded && (
                   <div className="ml-5 mt-1 max-h-32 overflow-y-auto rounded border border-border/40 bg-muted/20">
                     <div className="space-y-0.5 p-1">
-                    {isLoadingSnaps && (
-                      <div className="text-[10px] text-muted-foreground px-1 py-0.5">
-                        {t('history.loadingSnapshots')}
-                      </div>
-                    )}
-                    {!isLoadingSnaps && (snaps ?? []).length === 0 && (
-                      <div className="text-[10px] text-muted-foreground px-1 py-0.5">
-                        {t('history.noSnapshots')}
-                      </div>
-                    )}
-                    {(snaps ?? []).map((snap) => (
-                      <div
-                        key={snap.id}
-                        className="group/snap flex items-center gap-1.5 rounded px-2 py-1 hover:bg-muted/40"
-                      >
-                        <Clock className="w-3 h-3 shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[10px] truncate">
-                            {snap.label === 'Before Commander session'
-                              ? t('history.beforeSession')
-                              : snap.label || t('history.autoSnapshot')}
-                          </div>
-                          <div className="text-[9px] text-muted-foreground">
-                            {formatDate(snap.createdAt)}
-                            {snap.trigger === 'auto' && (
-                              <span className="ml-1 text-[8px] rounded bg-muted px-1 py-px">
-                                {t('history.triggerAuto')}
-                              </span>
-                            )}
-                            {snap.trigger === 'manual' && (
-                              <span className="ml-1 text-[8px] rounded bg-primary/20 text-primary px-1 py-px">
-                                {t('history.triggerManual')}
-                              </span>
-                            )}
-                          </div>
+                      {isLoadingSnaps && (
+                        <div className="text-[10px] text-muted-foreground px-1 py-0.5">
+                          {t('history.loadingSnapshots')}
                         </div>
-                        <button
-                          type="button"
-                          title={t('history.restoreSnapshot')}
-                          disabled={restoringSnap === snap.id || isStreaming}
-                          onClick={(e) => void handleRestore(snap.id, e)}
-                          className="hidden group-hover/snap:flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-primary disabled:opacity-40"
+                      )}
+                      {!isLoadingSnaps && (snaps ?? []).length === 0 && (
+                        <div className="text-[10px] text-muted-foreground px-1 py-0.5">
+                          {t('history.noSnapshots')}
+                        </div>
+                      )}
+                      {(snaps ?? []).map((snap) => (
+                        <div
+                          key={snap.id}
+                          className="group/snap flex items-center gap-1.5 rounded px-2 py-1 hover:bg-muted/40"
                         >
-                          <RotateCcw className="w-3 h-3" />
-                        </button>
-                        <button
-                          type="button"
-                          title={t('history.deleteSnapshot')}
-                          disabled={deletingSnapId === snap.id}
-                          onClick={(e) => void handleDeleteSnapshot(session.id, snap.id, e)}
-                          className="hidden group-hover/snap:flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
+                          <Clock className="w-3 h-3 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[10px] truncate">
+                              {snap.label === 'Before Commander session'
+                                ? t('history.beforeSession')
+                                : snap.label || t('history.autoSnapshot')}
+                            </div>
+                            <div className="text-[9px] text-muted-foreground">
+                              {formatDate(snap.createdAt)}
+                              {snap.trigger === 'auto' && (
+                                <span className="ml-1 text-[8px] rounded bg-muted px-1 py-px">
+                                  {t('history.triggerAuto')}
+                                </span>
+                              )}
+                              {snap.trigger === 'manual' && (
+                                <span className="ml-1 text-[8px] rounded bg-primary/20 text-primary px-1 py-px">
+                                  {t('history.triggerManual')}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            title={t('history.restoreSnapshot')}
+                            disabled={restoringSnap === snap.id || isStreaming}
+                            onClick={(e) => void handleRestore(snap.id, e)}
+                            className="hidden group-hover/snap:flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-primary disabled:opacity-40"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            title={t('history.deleteSnapshot')}
+                            disabled={deletingSnapId === snap.id}
+                            onClick={(e) => void handleDeleteSnapshot(session.id, snap.id, e)}
+                            className="hidden group-hover/snap:flex items-center justify-center rounded p-0.5 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

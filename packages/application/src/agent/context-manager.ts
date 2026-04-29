@@ -25,10 +25,17 @@ const COMPACT_KEEP_RECENT_GROUPS = 3;
 
 /** Tools always loaded regardless of discovery or context. */
 export const ALWAYS_LOADED_TOOLS = [
-  'tool.get', 'tool.compact', 'commander.askUser',
-  'canvas.getState', 'canvas.listNodes', 'canvas.getNode',
-  'canvas.getSettings', 'guide.get', 'logger.list',
-  'todo.set', 'todo.update',
+  'tool.get',
+  'tool.compact',
+  'commander.askUser',
+  'canvas.getState',
+  'canvas.listNodes',
+  'canvas.getNode',
+  'canvas.getSettings',
+  'guide.get',
+  'logger.list',
+  'todo.set',
+  'todo.update',
 ] as const;
 
 export { ESTIMATED_CHARS_PER_TOKEN, DEFAULT_IN_LOOP_CHAR_BUDGET };
@@ -42,11 +49,12 @@ let _tikEncoder: { encode(text: string): { length: number } } | null | undefined
 void (async () => {
   try {
     const modPath = 'js-tiktoken';
-    const mod = await import(/* webpackIgnore: true */ modPath) as {
+    const mod = (await import(/* webpackIgnore: true */ modPath)) as {
       encodingForModel: (m: string) => { encode(t: string): { length: number } };
     };
     _tikEncoder = mod.encodingForModel('gpt-4o');
-  } catch { /* js-tiktoken not available */
+  } catch {
+    /* js-tiktoken not available */
     _tikEncoder = null;
   }
 })();
@@ -106,7 +114,11 @@ export function trimObjectStrings(value: unknown, limit = 300, depth = 0): unkno
 // ---------------------------------------------------------------------------
 
 export type HistoryEntry =
-  | { role: 'user' | 'assistant'; content: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }
+  | {
+      role: 'user' | 'assistant';
+      content: string;
+      toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    }
   | { role: 'tool'; content: string; toolCallId: string };
 
 export function pruneHistory(
@@ -149,7 +161,9 @@ export function pruneHistory(
       const requiredIds = new Set(first.toolCalls.map((tc) => tc.id));
       const presentIds = new Set(
         pruned
-          .filter((e): e is { role: 'tool'; content: string; toolCallId: string } => e.role === 'tool')
+          .filter(
+            (e): e is { role: 'tool'; content: string; toolCallId: string } => e.role === 'tool',
+          )
           .map((e) => e.toolCallId),
       );
       const allPresent = [...requiredIds].every((id) => presentIds.has(id));
@@ -157,7 +171,10 @@ export function pruneHistory(
         while (pruned.length > 0 && (pruned[0].role === 'assistant' || pruned[0].role === 'tool')) {
           const dropped = pruned.shift()!;
           if (dropped.role !== 'tool' && dropped.role !== 'assistant') break;
-          if (dropped.role === 'assistant' && !(dropped as { toolCalls?: unknown[] }).toolCalls?.length) {
+          if (
+            dropped.role === 'assistant' &&
+            !(dropped as { toolCalls?: unknown[] }).toolCalls?.length
+          ) {
             pruned.unshift(dropped);
             break;
           }
@@ -310,9 +327,8 @@ export function truncateOldToolResults(messages: LLMMessage[]): number {
               kept[key] = tc.arguments[key];
             }
           }
-          tc.arguments = Object.keys(kept).length > 0
-            ? { ...kept, _compacted: true }
-            : { _compacted: true };
+          tc.arguments =
+            Object.keys(kept).length > 0 ? { ...kept, _compacted: true } : { _compacted: true };
           truncatedCount++;
         }
       }
@@ -407,7 +423,10 @@ function compactToolParameter(parameter: LLMToolParameter): LLMToolParameter {
   if (parameter.enum?.length) compacted.enum = [...parameter.enum];
   if (parameter.properties) {
     compacted.properties = Object.fromEntries(
-      Object.entries(parameter.properties).map(([key, value]) => [key, compactToolParameter(value)]),
+      Object.entries(parameter.properties).map(([key, value]) => [
+        key,
+        compactToolParameter(value),
+      ]),
     );
   }
   if (parameter.items) compacted.items = compactToolParameter(parameter.items);
@@ -429,7 +448,10 @@ export function compactNamedToolDefinitions(
         type: 'object' as const,
         required: tool.parameters.required,
         properties: Object.fromEntries(
-          Object.entries(tool.parameters.properties).map(([key, value]) => [key, compactToolParameter(value)]),
+          Object.entries(tool.parameters.properties).map(([key, value]) => [
+            key,
+            compactToolParameter(value),
+          ]),
         ),
       },
     }));
@@ -464,7 +486,11 @@ export function adaptiveToolCompaction(
         return {
           name: tool.name,
           description: '',
-          parameters: { type: 'object' as const, required: tool.parameters.required, properties: {} },
+          parameters: {
+            type: 'object' as const,
+            required: tool.parameters.required,
+            properties: {},
+          },
         };
       }
     }
@@ -562,16 +588,11 @@ function addToolNames(set: Set<string>, names: readonly string[]): void {
 // ── Keyword regexes ──────────────────────────────────────────────────────
 // Compiled once at module load. Language-neutral where practical — CJK
 // workflow triggers come from intent classification, not message scanning.
-const RE_GENERATION_VERBS =
-  /generat|render|creat.*image|creat.*video|produce|make.*shot/i;
-const RE_SCRIPT_KEYWORDS =
-  /script|novel|story|screenplay|fountain|import.*script/i;
-const RE_RENDER_KEYWORDS =
-  /render|export|publish|output|deliver/i;
-const RE_PROVIDER_KEYWORDS =
-  /provider|api.?key|model|switch.*provider|change.*model/i;
-const RE_PRESET_KEYWORDS =
-  /preset|style|color.?style/i;
+const RE_GENERATION_VERBS = /generat|render|creat.*image|creat.*video|produce|make.*shot/i;
+const RE_SCRIPT_KEYWORDS = /script|novel|story|screenplay|fountain|import.*script/i;
+const RE_RENDER_KEYWORDS = /render|export|publish|output|deliver/i;
+const RE_PROVIDER_KEYWORDS = /provider|api.?key|model|switch.*provider|change.*model/i;
+const RE_PRESET_KEYWORDS = /preset|style|color.?style/i;
 
 /**
  * Return a set of tool names that should be fully loaded (schema + description)
@@ -589,10 +610,17 @@ export function selectContextualToolSet(input: ToolSelectionInput): Set<string> 
   if (input.intentKind === 'informational' || input.intentKind === 'browse') {
     addToolNames(tools, [
       'canvas.listEdges',
-      'character.list', 'location.list', 'equipment.list',
-      'snapshot.list', 'preset.list', 'preset.get',
-      'series.get', 'series.listEpisodes',
-      'provider.list', 'provider.getActive', 'provider.getCapabilities',
+      'character.list',
+      'location.list',
+      'equipment.list',
+      'snapshot.list',
+      'preset.list',
+      'preset.get',
+      'series.get',
+      'series.listEpisodes',
+      'provider.list',
+      'provider.getActive',
+      'provider.getCapabilities',
       'prompt.get',
       'vision.describeImage',
     ]);
@@ -602,13 +630,23 @@ export function selectContextualToolSet(input: ToolSelectionInput): Set<string> 
   // ── Canvas empty → creation-focused ────────────────────────────────
   if (input.nodeCount === 0) {
     addToolNames(tools, [
-      'canvas.addNode', 'canvas.batchCreate', 'canvas.importWorkflow',
-      'canvas.renameCanvas', 'canvas.layout', 'canvas.setSettings',
-      'character.create', 'character.list',
-      'location.create', 'location.list',
-      'equipment.create', 'equipment.list',
-      'script.read', 'script.write', 'script.import',
-      'workflow.control', 'workflow.expandIdea',
+      'canvas.addNode',
+      'canvas.batchCreate',
+      'canvas.importWorkflow',
+      'canvas.renameCanvas',
+      'canvas.layout',
+      'canvas.setSettings',
+      'character.create',
+      'character.list',
+      'location.create',
+      'location.list',
+      'equipment.create',
+      'equipment.list',
+      'script.read',
+      'script.write',
+      'script.import',
+      'workflow.control',
+      'workflow.expandIdea',
       'snapshot.create',
     ]);
   }
@@ -616,21 +654,34 @@ export function selectContextualToolSet(input: ToolSelectionInput): Set<string> 
   // ── Canvas has nodes → editing + graph tools ───────────────────────
   if (input.nodeCount > 0) {
     addToolNames(tools, [
-      'canvas.addNode', 'canvas.batchCreate', 'canvas.updateNodes',
-      'canvas.deleteNode', 'canvas.connectNodes', 'canvas.deleteEdge',
-      'canvas.swapEdgeDirection', 'canvas.disconnectNode',
-      'canvas.setNodeLayout', 'canvas.layout', 'canvas.duplicateNodes',
-      'canvas.undo', 'canvas.redo', 'canvas.listEdges',
-      'canvas.renameCanvas', 'canvas.addNote', 'canvas.updateNote',
-      'character.list', 'location.list', 'equipment.list',
-      'snapshot.create', 'snapshot.list', 'snapshot.restore',
+      'canvas.addNode',
+      'canvas.batchCreate',
+      'canvas.updateNodes',
+      'canvas.deleteNode',
+      'canvas.connectNodes',
+      'canvas.deleteEdge',
+      'canvas.swapEdgeDirection',
+      'canvas.disconnectNode',
+      'canvas.setNodeLayout',
+      'canvas.layout',
+      'canvas.duplicateNodes',
+      'canvas.undo',
+      'canvas.redo',
+      'canvas.listEdges',
+      'canvas.renameCanvas',
+      'canvas.addNote',
+      'canvas.updateNote',
+      'character.list',
+      'location.list',
+      'equipment.list',
+      'snapshot.create',
+      'snapshot.list',
+      'snapshot.restore',
     ]);
 
     // Entities needed if canvas has nodes but no entities yet
     if (input.entityCount === 0) {
-      addToolNames(tools, [
-        'character.create', 'location.create', 'equipment.create',
-      ]);
+      addToolNames(tools, ['character.create', 'location.create', 'equipment.create']);
     }
   }
 
@@ -638,14 +689,20 @@ export function selectContextualToolSet(input: ToolSelectionInput): Set<string> 
   if (input.entityCount > 0) {
     addToolNames(tools, [
       'canvas.setNodeRefs',
-      'character.update', 'character.list',
-      'character.generateRefImage', 'character.setRefImage',
+      'character.update',
+      'character.list',
+      'character.generateRefImage',
+      'character.setRefImage',
       'character.setRefImageFromNode',
-      'location.update', 'location.list',
-      'location.generateRefImage', 'location.setRefImage',
+      'location.update',
+      'location.list',
+      'location.generateRefImage',
+      'location.setRefImage',
       'location.setRefImageFromNode',
-      'equipment.update', 'equipment.list',
-      'equipment.generateRefImage', 'equipment.setRefImage',
+      'equipment.update',
+      'equipment.list',
+      'equipment.generateRefImage',
+      'equipment.setRefImage',
       'equipment.setRefImageFromNode',
     ]);
   }
@@ -658,29 +715,36 @@ export function selectContextualToolSet(input: ToolSelectionInput): Set<string> 
   // ── Generation verbs in message ────────────────────────────────────
   if (RE_GENERATION_VERBS.test(msg)) {
     addToolNames(tools, [
-      'canvas.generate', 'canvas.cancelGeneration', 'canvas.selectVariant',
-      'canvas.estimateCost', 'canvas.previewPrompt',
-      'canvas.setImageParams', 'canvas.setVideoParams', 'canvas.setAudioParams',
+      'canvas.generate',
+      'canvas.cancelGeneration',
+      'canvas.selectVariant',
+      'canvas.estimateCost',
+      'canvas.previewPrompt',
+      'canvas.setImageParams',
+      'canvas.setVideoParams',
+      'canvas.setAudioParams',
       'canvas.setNodeProvider',
-      'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks',
-      'canvas.writePresetTracksBatch', 'canvas.applyShotTemplate',
+      'canvas.readNodePresetTracks',
+      'canvas.writeNodePresetTracks',
+      'canvas.writePresetTracksBatch',
+      'canvas.applyShotTemplate',
       'canvas.setVideoFrames',
     ]);
   }
 
   // ── Script / novel keywords ────────────────────────────────────────
   if (RE_SCRIPT_KEYWORDS.test(msg)) {
-    addToolNames(tools, [
-      'script.read', 'script.write', 'script.import',
-      'text.transform',
-    ]);
+    addToolNames(tools, ['script.read', 'script.write', 'script.import', 'text.transform']);
   }
 
   // ── Render / export keywords ───────────────────────────────────────
   if (RE_RENDER_KEYWORDS.test(msg)) {
     addToolNames(tools, [
-      'render.start', 'render.cancel', 'render.exportBundle',
-      'job.list', 'job.control',
+      'render.start',
+      'render.cancel',
+      'render.exportBundle',
+      'job.list',
+      'job.control',
       'canvas.exportWorkflow',
     ]);
   }
@@ -688,31 +752,49 @@ export function selectContextualToolSet(input: ToolSelectionInput): Set<string> 
   // ── Provider keywords ──────────────────────────────────────────────
   if (RE_PROVIDER_KEYWORDS.test(msg)) {
     addToolNames(tools, [
-      'provider.list', 'provider.getActive', 'provider.getCapabilities',
-      'provider.setActive', 'provider.setKey',
-      'provider.update', 'provider.addCustom', 'provider.removeCustom',
+      'provider.list',
+      'provider.getActive',
+      'provider.getCapabilities',
+      'provider.setActive',
+      'provider.setKey',
+      'provider.update',
+      'provider.addCustom',
+      'provider.removeCustom',
     ]);
   }
 
   // ── Preset / style keywords ────────────────────────────────────────
   if (RE_PRESET_KEYWORDS.test(msg)) {
     addToolNames(tools, [
-      'preset.list', 'preset.get', 'preset.create', 'preset.update',
-      'preset.delete', 'preset.reset',
-      'colorStyle.list', 'colorStyle.save', 'colorStyle.delete',
-      'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks',
+      'preset.list',
+      'preset.get',
+      'preset.create',
+      'preset.update',
+      'preset.delete',
+      'preset.reset',
+      'colorStyle.list',
+      'colorStyle.save',
+      'colorStyle.delete',
+      'canvas.readNodePresetTracks',
+      'canvas.writeNodePresetTracks',
     ]);
   }
 
   // ── Selected nodes → likely editing or generating those ────────────
   if (input.hasSelectedNodes) {
     addToolNames(tools, [
-      'canvas.generate', 'canvas.updateNodes',
-      'canvas.setImageParams', 'canvas.setVideoParams',
-      'canvas.setNodeRefs', 'canvas.setNodeLayout',
-      'canvas.readNodePresetTracks', 'canvas.writeNodePresetTracks',
-      'canvas.applyShotTemplate', 'canvas.deleteNode',
-      'canvas.previewPrompt', 'canvas.selectVariant',
+      'canvas.generate',
+      'canvas.updateNodes',
+      'canvas.setImageParams',
+      'canvas.setVideoParams',
+      'canvas.setNodeRefs',
+      'canvas.setNodeLayout',
+      'canvas.readNodePresetTracks',
+      'canvas.writeNodePresetTracks',
+      'canvas.applyShotTemplate',
+      'canvas.deleteNode',
+      'canvas.previewPrompt',
+      'canvas.selectVariant',
     ]);
   }
 
@@ -721,32 +803,49 @@ export function selectContextualToolSet(input: ToolSelectionInput): Set<string> 
     const wf = input.intentWorkflow.toLowerCase();
     if (wf.includes('character') || wf.includes('ref-image')) {
       addToolNames(tools, [
-        'character.create', 'character.update', 'character.list',
-        'character.generateRefImage', 'character.setRefImage',
-        'character.setRefImageFromNode', 'character.deleteRefImage',
+        'character.create',
+        'character.update',
+        'character.list',
+        'character.generateRefImage',
+        'character.setRefImage',
+        'character.setRefImageFromNode',
+        'character.deleteRefImage',
       ]);
     }
     if (wf.includes('location')) {
       addToolNames(tools, [
-        'location.create', 'location.update', 'location.list',
-        'location.generateRefImage', 'location.setRefImage',
+        'location.create',
+        'location.update',
+        'location.list',
+        'location.generateRefImage',
+        'location.setRefImage',
         'location.setRefImageFromNode',
       ]);
     }
     if (wf.includes('equipment')) {
       addToolNames(tools, [
-        'equipment.create', 'equipment.update', 'equipment.list',
-        'equipment.generateRefImage', 'equipment.setRefImage',
+        'equipment.create',
+        'equipment.update',
+        'equipment.list',
+        'equipment.generateRefImage',
+        'equipment.setRefImage',
         'equipment.setRefImageFromNode',
       ]);
     }
     if (wf.includes('story') || wf.includes('video')) {
       addToolNames(tools, [
-        'canvas.addNode', 'canvas.batchCreate', 'canvas.generate',
-        'canvas.connectNodes', 'canvas.layout',
-        'canvas.setImageParams', 'canvas.setVideoParams',
-        'script.read', 'script.write', 'script.import',
-        'workflow.control', 'workflow.expandIdea',
+        'canvas.addNode',
+        'canvas.batchCreate',
+        'canvas.generate',
+        'canvas.connectNodes',
+        'canvas.layout',
+        'canvas.setImageParams',
+        'canvas.setVideoParams',
+        'script.read',
+        'script.write',
+        'script.import',
+        'workflow.control',
+        'workflow.expandIdea',
       ]);
     }
   }
@@ -822,9 +921,10 @@ export class ContextManager {
       const guideIdx = prompt.indexOf(guideMarker);
       if (guideIdx !== -1) {
         const nextSection = prompt.indexOf('\n## ', guideIdx + guideMarker.length);
-        prompt = nextSection !== -1
-          ? prompt.slice(0, guideIdx) + prompt.slice(nextSection)
-          : prompt.slice(0, guideIdx);
+        prompt =
+          nextSection !== -1
+            ? prompt.slice(0, guideIdx) + prompt.slice(nextSection)
+            : prompt.slice(0, guideIdx);
       }
     }
 
@@ -960,7 +1060,11 @@ export class ContextManager {
     const minKeepGroups = 3;
     let groupCount = 0;
     for (let i = messages.length - 1; i > 0; i--) {
-      if (messages[i].role === 'assistant' && messages[i].toolCalls && messages[i].toolCalls!.length > 0) {
+      if (
+        messages[i].role === 'assistant' &&
+        messages[i].toolCalls &&
+        messages[i].toolCalls!.length > 0
+      ) {
         groupCount++;
         if (groupCount >= minKeepGroups && i < keepFromIndex) {
           keepFromIndex = i;
@@ -981,40 +1085,43 @@ export class ContextManager {
     if (oldMessages.length === 0) return false;
 
     try {
-      const compactionInput = oldMessages.map((m) => {
-        const role = m.role === 'tool' ? 'tool_result' : m.role;
-        const content = m.content.length > 600 ? m.content.slice(0, 600) + '...' : m.content;
-        return `[${role}] ${content}`;
-      }).join('\n');
+      const compactionInput = oldMessages
+        .map((m) => {
+          const role = m.role === 'tool' ? 'tool_result' : m.role;
+          const content = m.content.length > 600 ? m.content.slice(0, 600) + '...' : m.content;
+          return `[${role}] ${content}`;
+        })
+        .join('\n');
 
       const compactionPrompt =
-        'You are performing a CONTEXT CHECKPOINT COMPACTION. Create a structured handoff summary for the AI that will continue this task.\n\n'
-        + 'Use EXACTLY these section tags:\n'
-        + '[done] What was accomplished successfully (include entity IDs, node IDs, canvas IDs, file paths, key results)\n'
-        + '[failed] What was attempted and why it failed (include error reasons, tool names, error messages)\n'
-        + '[skipped] What the user declined or the agent decided to skip (include reasons)\n'
-        + '[pending] What remains to be done (clear next steps)\n'
-        + '[decisions] Key creative decisions confirmed by the user\n\n'
-        + 'Rules:\n'
-        + '- Preserve ALL entity IDs, file paths, and confirmed creative choices\n'
-        + '- For failures, include the tool name and error reason so the next AI can avoid repeating the same mistake\n'
-        + '- Be concise and actionable — the next AI should be able to continue without re-reading the full transcript\n'
-        + '- Output ONLY the tagged sections, no extra headings or markdown formatting\n\n'
-        + (this._compactInstructions ? `FOCUS: ${this._compactInstructions}\n\n` : '')
-        + (this._scratchpad ? `SCRATCHPAD (preserve this context):\n${this._scratchpad}\n\n` : '')
-        + compactionInput;
+        'You are performing a CONTEXT CHECKPOINT COMPACTION. Create a structured handoff summary for the AI that will continue this task.\n\n' +
+        'Use EXACTLY these section tags:\n' +
+        '[done] What was accomplished successfully (include entity IDs, node IDs, canvas IDs, file paths, key results)\n' +
+        '[failed] What was attempted and why it failed (include error reasons, tool names, error messages)\n' +
+        '[skipped] What the user declined or the agent decided to skip (include reasons)\n' +
+        '[pending] What remains to be done (clear next steps)\n' +
+        '[decisions] Key creative decisions confirmed by the user\n\n' +
+        'Rules:\n' +
+        '- Preserve ALL entity IDs, file paths, and confirmed creative choices\n' +
+        '- For failures, include the tool name and error reason so the next AI can avoid repeating the same mistake\n' +
+        '- Be concise and actionable — the next AI should be able to continue without re-reading the full transcript\n' +
+        '- Output ONLY the tagged sections, no extra headings or markdown formatting\n\n' +
+        (this._compactInstructions ? `FOCUS: ${this._compactInstructions}\n\n` : '') +
+        (this._scratchpad ? `SCRATCHPAD (preserve this context):\n${this._scratchpad}\n\n` : '') +
+        compactionInput;
 
-      const summary = await this.llm.complete(
-        [{ role: 'user', content: compactionPrompt }],
-        { temperature: 0, maxTokens: 800 },
-      );
+      const summary = await this.llm.complete([{ role: 'user', content: compactionPrompt }], {
+        temperature: 0,
+        maxTokens: 800,
+      });
 
       messages.splice(1, keepFromIndex - 1, {
         role: 'user',
-        content: `[Context compacted — ${oldMessages.length} messages summarized by AI]\n`
-          + 'The AI assistant previously worked on this task and produced the following summary. '
-          + 'Use this to build on the work already done and avoid duplicating effort.\n\n'
-          + summary,
+        content:
+          `[Context compacted — ${oldMessages.length} messages summarized by AI]\n` +
+          'The AI assistant previously worked on this task and produced the following summary. ' +
+          'Use this to build on the work already done and avoid duplicating effort.\n\n' +
+          summary,
       });
 
       return true;

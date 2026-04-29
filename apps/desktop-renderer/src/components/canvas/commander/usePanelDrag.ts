@@ -58,7 +58,8 @@ export function usePanelDrag({ panelRef, open, size }: UsePanelDragOptions): voi
           pending = {
             x: Math.max(8, ev.clientX - offsetX),
             y: Math.max(SAFE_Y, ev.clientY - offsetY),
-            w: 0, h: 0,
+            w: 0,
+            h: 0,
           };
         } else if (resizeOrigin) {
           const startX = Number(resizeOrigin.dataset.resizeStartX ?? '0');
@@ -66,7 +67,8 @@ export function usePanelDrag({ panelRef, open, size }: UsePanelDragOptions): voi
           const startWidth = Number(resizeOrigin.dataset.resizeStartWidth ?? String(size.width));
           const startHeight = Number(resizeOrigin.dataset.resizeStartHeight ?? String(size.height));
           pending = {
-            x: 0, y: 0,
+            x: 0,
+            y: 0,
             w: Math.max(MIN_WIDTH, startWidth + (ev.clientX - startX)),
             h: Math.max(MIN_HEIGHT, startHeight + (ev.clientY - startY)),
           };
@@ -89,7 +91,9 @@ export function usePanelDrag({ panelRef, open, size }: UsePanelDragOptions): voi
           delete dragOrigin.dataset.dragOffsetY;
         } else if (resizeOrigin) {
           if (el) {
-            dispatch(setSize({ width: parseInt(el.style.width), height: parseInt(el.style.height) }));
+            dispatch(
+              setSize({ width: parseInt(el.style.width), height: parseInt(el.style.height) }),
+            );
           }
           delete resizeOrigin.dataset.resizeOrigin;
           delete resizeOrigin.dataset.resizeStartX;

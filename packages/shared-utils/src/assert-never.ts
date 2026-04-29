@@ -8,7 +8,5 @@
  */
 export function assertNever(value: never, context?: string): never {
   const location = context !== undefined ? ` in ${context}` : '';
-  throw new Error(
-    `assertNever: unexpected value${location}: ${JSON.stringify(value)}`,
-  );
+  throw new Error(`assertNever: unexpected value${location}: ${JSON.stringify(value)}`);
 }

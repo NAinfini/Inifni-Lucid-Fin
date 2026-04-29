@@ -153,5 +153,4 @@ describe('PromptStore', () => {
 
     expect(count2).toBe(count1);
   });
-
 });

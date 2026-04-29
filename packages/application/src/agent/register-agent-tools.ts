@@ -16,7 +16,8 @@ import { createWorkflowTools, type WorkflowToolDeps } from './tools/workflow-too
 import { createMetaTools, type MetaToolDeps } from './tools/meta-tools.js';
 
 export interface AllToolDeps
-  extends ScriptToolDeps,
+  extends
+    ScriptToolDeps,
     Omit<CharacterToolDeps, 'getCanvas'>,
     CanvasToolDeps,
     Omit<LocationToolDeps, 'getCanvas'>,
@@ -51,6 +52,7 @@ export function registerAgentTools(
   for (const tool of createRenderTools(deps)) registry.register(tool);
   for (const tool of createPresetTools(deps)) registry.register(tool);
   for (const tool of createWorkflowTools(deps)) registry.register(tool);
-  for (const tool of createMetaTools(registry, { promptGuides: deps.promptGuides ?? [] })) registry.register(tool);
+  for (const tool of createMetaTools(registry, { promptGuides: deps.promptGuides ?? [] }))
+    registry.register(tool);
   return registry;
 }

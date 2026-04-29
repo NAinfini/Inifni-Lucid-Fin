@@ -135,11 +135,7 @@ describe('evaluateProcessPromptSpecs', () => {
       pendingToolCalls: [{ name: 'canvas.generate', arguments: {} }],
       canvasSettings: { stylePlate: '' },
     });
-    const result = evaluateProcessPromptSpecs(
-      [spec],
-      a,
-      new Set(['style-plate-lock']),
-    );
+    const result = evaluateProcessPromptSpecs([spec], a, new Set(['style-plate-lock']));
     expect(result.activated).toHaveLength(0);
   });
 

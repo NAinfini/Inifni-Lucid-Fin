@@ -7,7 +7,8 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class OllamaAdapter implements AIProviderAdapter {
   readonly id = 'ollama-local';
@@ -20,7 +21,10 @@ export class OllamaAdapter implements AIProviderAdapter {
   private model = 'llama3';
 
   configure(_apiKey: string, options?: Record<string, unknown>): void {
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string, { allowLocalhost: true });
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.model) this.model = options.model as string;
   }
 
@@ -28,7 +32,8 @@ export class OllamaAdapter implements AIProviderAdapter {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/api/tags`, { timeoutMs: 5000 });
       return res.ok;
-    } catch { /* network error — Ollama server unreachable, report as invalid */
+    } catch {
+      /* network error — Ollama server unreachable, report as invalid */
       return false;
     }
   }

@@ -16,9 +16,7 @@ describe('argsHash', () => {
   });
 
   it('treats undefined values as absent (mirrors LLM adapter behavior)', () => {
-    expect(argsHash({ a: 1, b: undefined } as Record<string, unknown>)).toBe(
-      argsHash({ a: 1 }),
-    );
+    expect(argsHash({ a: 1, b: undefined } as Record<string, unknown>)).toBe(argsHash({ a: 1 }));
   });
 
   it('differs when values change', () => {

@@ -103,16 +103,17 @@ function ensurePresetDefinition(input: unknown, opName: string): PresetDefinitio
   if (!Array.isArray(candidate.params)) {
     throw new Error(`${opName}: preset params must be an array`);
   }
-  if (!candidate.defaults || typeof candidate.defaults !== 'object' || Array.isArray(candidate.defaults)) {
+  if (
+    !candidate.defaults ||
+    typeof candidate.defaults !== 'object' ||
+    Array.isArray(candidate.defaults)
+  ) {
     throw new Error(`${opName}: preset defaults must be an object`);
   }
   return clonePreset(candidate as PresetDefinition);
 }
 
-function resolvePreset(
-  state: ProjectPresetState,
-  id: string,
-): PresetDefinition | undefined {
+function resolvePreset(state: ProjectPresetState, id: string): PresetDefinition | undefined {
   const builtIn = builtInMap.get(id);
   if (builtIn) {
     const override = state.builtInOverrides.get(id);
@@ -220,10 +221,7 @@ function ensureResetRequest(input: unknown): PresetResetRequest {
   return { id: request.id.trim(), scope: request.scope };
 }
 
-function resetPreset(
-  state: ProjectPresetState,
-  request: PresetResetRequest,
-): PresetDefinition {
+function resetPreset(state: ProjectPresetState, request: PresetResetRequest): PresetDefinition {
   const base = builtInMap.get(request.id);
   if (!base) {
     throw new Error('preset:reset supports built-in presets only');

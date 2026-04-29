@@ -65,14 +65,16 @@ function findCustomLLMByName(name: string): CodexProviderSpec {
   if (!p) {
     throw new Error(
       `Provider "${name}" not found in settings.json. ` +
-      `Configure it in Settings → Providers first so the keychain key lands.`,
+        `Configure it in Settings → Providers first so the keychain key lands.`,
     );
   }
   if (!p.baseUrl || !p.model) {
     throw new Error(`Provider "${name}" is missing baseUrl or model in settings.json.`);
   }
   if (p.protocol && p.protocol !== 'openai-compatible') {
-    throw new Error(`Provider "${name}" uses protocol=${p.protocol}, harness expects openai-compatible.`);
+    throw new Error(
+      `Provider "${name}" uses protocol=${p.protocol}, harness expects openai-compatible.`,
+    );
   }
   return {
     id: p.id,

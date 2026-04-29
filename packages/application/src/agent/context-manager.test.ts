@@ -224,7 +224,10 @@ describe('selectContextualToolSet', () => {
   describe('workflow-specific loading', () => {
     it('loads character tools for character workflow', () => {
       const result = selectContextualToolSet(
-        makeInput({ intentWorkflow: 'character-ref-image', userMessage: 'generate character refs' }),
+        makeInput({
+          intentWorkflow: 'character-ref-image',
+          userMessage: 'generate character refs',
+        }),
       );
       expect(result.has('character.create')).toBe(true);
       expect(result.has('character.generateRefImage')).toBe(true);

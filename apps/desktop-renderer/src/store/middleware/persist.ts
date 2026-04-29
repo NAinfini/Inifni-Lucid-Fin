@@ -25,6 +25,7 @@ const CANVAS_NO_PERSIST = new Set([
   'canvas/setClipboard',
   'canvas/setNodeGenerating',
   'canvas/setNodeProgress',
+  'canvas/setNodeGenerationFailed',
   'canvas/clearNodeGenerationStatus',
   'canvas/restore',
 ]);
@@ -52,19 +53,42 @@ let settingsRestoredFromDisk = false;
 let isInteracting = false;
 let pendingSave = false;
 let flushPendingSave: (() => void) | null = null;
+let interactionTimeout: ReturnType<typeof setTimeout> | null = null;
+const INTERACTION_SAFETY_MS = 10_000;
 
 /** Timestamp of the last successful canvas save. StatusBar reads this. */
 let lastCanvasSavedAt = 0;
 /** Whether there are unsaved canvas changes pending. */
 let hasPendingChanges = false;
+/** Mutex: when a save IPC is in-flight, further flushes queue behind it. */
+let saveInFlight: Promise<void> | null = null;
+let saveQueuedAfterFlight = false;
 
 export function getCanvasSaveStatus(): { lastSavedAt: number; pending: boolean } {
-  return { lastSavedAt: lastCanvasSavedAt, pending: hasPendingChanges || pendingSave || canvasTimer !== null };
+  return {
+    lastSavedAt: lastCanvasSavedAt,
+    pending: hasPendingChanges || pendingSave || canvasTimer !== null,
+  };
 }
 
 export function setCanvasInteracting(value: boolean): void {
   isInteracting = value;
-  if (!value && pendingSave && flushPendingSave) {
+  if (interactionTimeout) {
+    clearTimeout(interactionTimeout);
+    interactionTimeout = null;
+  }
+  if (value) {
+    interactionTimeout = setTimeout(() => {
+      interactionTimeout = null;
+      if (isInteracting) {
+        isInteracting = false;
+        if (pendingSave && flushPendingSave) {
+          pendingSave = false;
+          flushPendingSave();
+        }
+      }
+    }, INTERACTION_SAFETY_MS);
+  } else if (pendingSave && flushPendingSave) {
     pendingSave = false;
     flushPendingSave();
   }
@@ -113,19 +137,23 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
 
     // Canvas-level save: persist the active canvas on any canvas/ action
     // that isn't in the no-persist blocklist (selection, viewport, loading, etc.)
-    if (sliceName === 'canvas' && !CANVAS_NO_PERSIST.has(actionType) && state.settings.bootstrapped) {
+    if (
+      sliceName === 'canvas' &&
+      !CANVAS_NO_PERSIST.has(actionType) &&
+      state.settings.bootstrapped
+    ) {
       const runSave = (): void => {
+        if (saveInFlight) {
+          saveQueuedAfterFlight = true;
+          return;
+        }
+
         const currentState = store.getState() as RootState;
         const { activeCanvasId, canvases, viewport } = currentState.canvas;
         const canvas = activeCanvasId ? canvases.entities[activeCanvasId] : undefined;
         if (!canvas) return;
 
-        // Snapshot current viewport into canvas for persistence.
-        // updateViewport no longer writes canvas.viewport (to avoid Immer
-        // invalidation), so we merge it here right before save.
-        const canvasToSave = canvas.viewport === viewport
-          ? canvas
-          : { ...canvas, viewport };
+        const canvasToSave = canvas.viewport === viewport ? canvas : { ...canvas, viewport };
 
         const api = getAPI();
         if (!api) return;
@@ -133,48 +161,55 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
         const prevSnapshot = savedCanvasSnapshots.get(canvas.id);
         const patch = diffCanvas(prevSnapshot, canvasToSave);
 
-        const doFullSave = (): void => {
-          api.canvas
-            .save(canvasToSave)
-            .then(() => {
-              savedCanvasSnapshots.set(canvas.id, canvasToSave);
-              lastCanvasSavedAt = Date.now();
-              hasPendingChanges = false;
-            })
-            .catch((error: unknown) => {
-              store.dispatch(
-                addLog({
-                  level: 'error',
-                  category: 'persistence',
-                  message: 'Canvas save failed',
-                  detail: error instanceof Error ? error.stack ?? error.message : String(error),
-                }),
-              );
-            });
+        const onSuccess = (): void => {
+          savedCanvasSnapshots.set(canvas.id, canvasToSave);
+          lastCanvasSavedAt = Date.now();
+          hasPendingChanges = false;
         };
 
-        if (patch && shouldUsePatch(patch, canvasToSave)) {
+        const onError = (error: unknown, context: string): void => {
+          store.dispatch(
+            addLog({
+              level: 'error',
+              category: 'persistence',
+              message: context,
+              detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
+            }),
+          );
+        };
+
+        const onFinally = (): void => {
+          saveInFlight = null;
+          if (saveQueuedAfterFlight) {
+            saveQueuedAfterFlight = false;
+            runSave();
+          }
+        };
+
+        const doFullSave = (): Promise<void> =>
           api.canvas
+            .save(canvasToSave)
+            .then(onSuccess)
+            .catch((error: unknown) => onError(error, 'Canvas save failed'));
+
+        if (patch && shouldUsePatch(patch, canvasToSave)) {
+          saveInFlight = api.canvas
             .patch({ canvasId: canvas.id, patch })
-            .then(() => {
-              savedCanvasSnapshots.set(canvas.id, canvasToSave);
-              lastCanvasSavedAt = Date.now();
-              hasPendingChanges = false;
-            })
+            .then(onSuccess)
             .catch((error: unknown) => {
-              // Patch failed — fall back to full save
               store.dispatch(
                 addLog({
                   level: 'warn',
                   category: 'persistence',
                   message: 'Canvas patch failed, falling back to full save',
-                  detail: error instanceof Error ? error.stack ?? error.message : String(error),
+                  detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
                 }),
               );
-              doFullSave();
-            });
+              return doFullSave();
+            })
+            .finally(onFinally);
         } else {
-          doFullSave();
+          saveInFlight = doFullSave().finally(onFinally);
         }
       };
 
@@ -218,7 +253,7 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
                   level: 'error',
                   category: 'persistence',
                   message: 'Settings save failed',
-                  detail: error instanceof Error ? error.stack ?? error.message : String(error),
+                  detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
                 }),
               );
             });

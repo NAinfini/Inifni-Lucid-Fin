@@ -64,7 +64,8 @@ export async function initAutoUpdater(
       log('info', 'electron-updater loaded but autoUpdater is undefined, skipping');
       return;
     }
-  } catch { /* electron-updater not available in dev or unsupported environment — skip */
+  } catch {
+    /* electron-updater not available in dev or unsupported environment — skip */
     log('info', 'electron-updater not available, skipping auto-update init');
     return;
   }

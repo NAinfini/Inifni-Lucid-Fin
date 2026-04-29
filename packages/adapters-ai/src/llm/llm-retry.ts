@@ -25,10 +25,7 @@ export interface RetryOptions {
  * - Exponential backoff: `baseDelay * 2^attempt`, capped at `maxDelay`.
  * - If `signal` is aborted, retries stop and the abort reason is thrown.
  */
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  options?: RetryOptions,
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, options?: RetryOptions): Promise<T> {
   const maxRetries = options?.maxRetries ?? 3;
   const baseDelay = options?.baseDelayMs ?? 1000;
   const maxDelay = options?.maxDelayMs ?? 30000;
@@ -48,9 +45,8 @@ export async function withRetry<T>(
         if (details?.retryable === false) break;
 
         // Use retryAfter if provided (value is in seconds, convert to ms)
-        const retryAfter = typeof details?.retryAfter === 'number'
-          ? details.retryAfter * 1000
-          : undefined;
+        const retryAfter =
+          typeof details?.retryAfter === 'number' ? details.retryAfter * 1000 : undefined;
         const delay = retryAfter ?? Math.min(baseDelay * Math.pow(2, attempt), maxDelay);
         await sleep(delay, options?.signal);
       } else {

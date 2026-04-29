@@ -84,9 +84,7 @@ export function isCharacterReferenceSlotStandard(slot: string | undefined | null
 // product requirement. `extra-angle` carries a free-form angle string for
 // rare custom views that the full-sheet does not cover.
 
-export type CharacterRefImageView =
-  | { kind: 'full-sheet' }
-  | { kind: 'extra-angle'; angle: string };
+export type CharacterRefImageView = { kind: 'full-sheet' } | { kind: 'extra-angle'; angle: string };
 
 /** Stringify a view into a canonical storage slot (kept as a string column). */
 export function characterViewToSlot(view: CharacterRefImageView): string {

@@ -7,11 +7,12 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class PlayHTAdapter implements AIProviderAdapter {
   readonly id = 'playht-3';
@@ -27,7 +28,10 @@ export class PlayHTAdapter implements AIProviderAdapter {
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
     if (options?.userId) this.userId = options.userId as string;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   async validate(): Promise<boolean> {
@@ -39,13 +43,15 @@ export class PlayHTAdapter implements AIProviderAdapter {
         },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
 
   async generate(req: GenerationRequest): Promise<GenerationResult> {
-    const voiceId = (req.params?.voiceId as string) ??
+    const voiceId =
+      (req.params?.voiceId as string) ??
       's3://voice-cloning-zero-shot/775ae416-49bb-4fb6-bd45-740f205d20a1/original/manifest.json';
 
     const res = await fetchWithTimeout(`${this.baseUrl}/tts/stream`, {
@@ -67,8 +73,7 @@ export class PlayHTAdapter implements AIProviderAdapter {
     if (!res.ok) {
       if (res.status === 401)
         throw new LucidError(ErrorCode.AuthFailed, 'Invalid PlayHT credentials');
-      if (res.status === 429)
-        throw new LucidError(ErrorCode.RateLimited, 'PlayHT rate limited');
+      if (res.status === 429) throw new LucidError(ErrorCode.RateLimited, 'PlayHT rate limited');
       throw new LucidError(ErrorCode.ServiceUnavailable, `PlayHT error: ${res.status}`);
     }
 

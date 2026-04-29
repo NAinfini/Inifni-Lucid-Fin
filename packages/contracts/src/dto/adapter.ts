@@ -1,4 +1,10 @@
-import type { GenerationRequest, GenerationResult, CostEstimate, JobStatus, GenerationType } from './job.js';
+import type {
+  GenerationRequest,
+  GenerationResult,
+  CostEstimate,
+  JobStatus,
+  GenerationType,
+} from './job.js';
 import type { AdapterError } from '../errors/index.js';
 import type { ProviderProfile } from './provider-profile.js';
 

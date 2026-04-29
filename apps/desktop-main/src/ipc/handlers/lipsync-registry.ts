@@ -11,7 +11,12 @@ export interface LipSyncOptions {
 export interface LipSyncAdapter {
   id: string;
   name: string;
-  process(videoPath: string, audioPath: string, outputPath: string, options?: LipSyncOptions): Promise<void>;
+  process(
+    videoPath: string,
+    audioPath: string,
+    outputPath: string,
+    options?: LipSyncOptions,
+  ): Promise<void>;
 }
 
 export interface LipSyncSettings {

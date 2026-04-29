@@ -62,9 +62,7 @@ describe('contract-registry', () => {
   });
 
   it('rejects re-setting the fallback to a different id', () => {
-    expect(() => contractRegistry.setFallback('story-to-video')).toThrow(
-      /fallback already set/i,
-    );
+    expect(() => contractRegistry.setFallback('story-to-video')).toThrow(/fallback already set/i);
   });
 
   it('accepts re-setting the fallback to the same id (idempotent)', () => {
@@ -72,9 +70,7 @@ describe('contract-registry', () => {
   });
 
   it('refuses to register a fallback for an unregistered id', () => {
-    expect(() => contractRegistry.setFallback('does-not-exist')).toThrow(
-      /not registered/i,
-    );
+    expect(() => contractRegistry.setFallback('does-not-exist')).toThrow(/not registered/i);
   });
 
   it('selects workflow contract for execution intent with known workflow', () => {

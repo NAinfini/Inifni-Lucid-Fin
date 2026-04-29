@@ -97,7 +97,12 @@ describe('createAdapterRegistry', () => {
   it('registers every built-in media adapter used by settings', () => {
     const registry = createAdapterRegistry();
 
-    expect(registry.list().map((adapter) => adapter.id).sort()).toEqual([
+    expect(
+      registry
+        .list()
+        .map((adapter) => adapter.id)
+        .sort(),
+    ).toEqual([
       'cartesia-sonic',
       'comfyui-local',
       'elevenlabs-sfx',
@@ -135,7 +140,12 @@ describe('createLLMRegistry', () => {
   it('registers every supported hosted and local llm adapter', () => {
     const llmRegistry = createLLMRegistry();
 
-    expect(llmRegistry.list().map((adapter) => adapter.id).sort()).toEqual(
+    expect(
+      llmRegistry
+        .list()
+        .map((adapter) => adapter.id)
+        .sort(),
+    ).toEqual(
       listBuiltinLLMProviderPresets()
         .map((preset) => preset.id)
         .sort(),

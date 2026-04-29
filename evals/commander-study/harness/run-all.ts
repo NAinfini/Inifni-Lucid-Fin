@@ -17,7 +17,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { buildPersonas } from './personas.js';
-import { getCodexPlus, getCodexTeam, getHiCode, type CodexProviderSpec } from './provider-config.js';
+import {
+  getCodexPlus,
+  getCodexTeam,
+  getHiCode,
+  type CodexProviderSpec,
+} from './provider-config.js';
 import type { SessionResult } from './run-single.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,20 +44,46 @@ function parseArgs(): Args {
   const args: Args = {
     count: 50,
     concurrency: 1,
-    outDir: path.resolve(__dirname, '..', 'reports', new Date().toISOString().replace(/[:.]/g, '-')),
+    outDir: path.resolve(
+      __dirname,
+      '..',
+      'reports',
+      new Date().toISOString().replace(/[:.]/g, '-'),
+    ),
     maxSteps: 200,
     maxPromptTokens: 400_000,
     teamIfWorking: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--count' && argv[i + 1]) { args.count = Number(argv[++i]); continue; }
-    if (a === '--persona' && argv[i + 1]) { args.persona = Number(argv[++i]); continue; }
-    if (a === '--concurrency' && argv[i + 1]) { args.concurrency = Number(argv[++i]); continue; }
-    if (a === '--out' && argv[i + 1]) { args.outDir = path.resolve(argv[++i]); continue; }
-    if (a === '--max-steps' && argv[i + 1]) { args.maxSteps = Number(argv[++i]); continue; }
-    if (a === '--max-prompt-tokens' && argv[i + 1]) { args.maxPromptTokens = Number(argv[++i]); continue; }
-    if (a === '--team-if-working') { args.teamIfWorking = true; continue; }
+    if (a === '--count' && argv[i + 1]) {
+      args.count = Number(argv[++i]);
+      continue;
+    }
+    if (a === '--persona' && argv[i + 1]) {
+      args.persona = Number(argv[++i]);
+      continue;
+    }
+    if (a === '--concurrency' && argv[i + 1]) {
+      args.concurrency = Number(argv[++i]);
+      continue;
+    }
+    if (a === '--out' && argv[i + 1]) {
+      args.outDir = path.resolve(argv[++i]);
+      continue;
+    }
+    if (a === '--max-steps' && argv[i + 1]) {
+      args.maxSteps = Number(argv[++i]);
+      continue;
+    }
+    if (a === '--max-prompt-tokens' && argv[i + 1]) {
+      args.maxPromptTokens = Number(argv[++i]);
+      continue;
+    }
+    if (a === '--team-if-working') {
+      args.teamIfWorking = true;
+      continue;
+    }
     if (a === '--provider' && argv[i + 1]) {
       const val = argv[++i];
       if (val !== 'plus' && val !== 'team' && val !== 'hi-code' && val !== 'all') {
@@ -88,9 +119,10 @@ async function main() {
   console.log(`Report dir: ${args.outDir}`);
 
   const allPersonas = buildPersonas();
-  const personas = args.persona !== undefined
-    ? [allPersonas[args.persona]].filter(Boolean)
-    : allPersonas.slice(0, args.count);
+  const personas =
+    args.persona !== undefined
+      ? [allPersonas[args.persona]].filter(Boolean)
+      : allPersonas.slice(0, args.count);
 
   const specs = getActiveSpecs(args);
   console.log(`Providers in rotation: ${specs.map((s) => s.name).join(', ')}`);
@@ -120,7 +152,9 @@ async function main() {
       const next = queue.shift();
       if (!next) break;
       const t0 = Date.now();
-      console.log(`[${new Date().toISOString()}] [${next.persona.index}] ${next.persona.archetype.padEnd(12)} ${next.persona.slug}  via=${next.spec.name}  starting...`);
+      console.log(
+        `[${new Date().toISOString()}] [${next.persona.index}] ${next.persona.archetype.padEnd(12)} ${next.persona.slug}  via=${next.spec.name}  starting...`,
+      );
       let result: SessionResult;
       try {
         result = await runSingle({
@@ -166,7 +200,10 @@ async function main() {
       );
       // Persist per-user json (full log is in the ndjson written by runSingle).
       fs.writeFileSync(
-        path.join(perUserDir, `${String(result.personaIndex).padStart(2, '0')}-${result.personaSlug}.json`),
+        path.join(
+          perUserDir,
+          `${String(result.personaIndex).padStart(2, '0')}-${result.personaSlug}.json`,
+        ),
         JSON.stringify(result, null, 2),
       );
     }

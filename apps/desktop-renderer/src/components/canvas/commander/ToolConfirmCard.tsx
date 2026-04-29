@@ -12,7 +12,14 @@ export interface ToolConfirmCardProps {
   t: (key: string) => string;
 }
 
-export function ToolConfirmCard({ toolName, args, tier, onExecute, onSkip, t }: ToolConfirmCardProps) {
+export function ToolConfirmCard({
+  toolName,
+  args,
+  tier,
+  onExecute,
+  onSkip,
+  t,
+}: ToolConfirmCardProps) {
   const tierLabels: Record<number, string> = {
     1: t('commander.tierLabels.safe'),
     2: t('commander.tierLabels.mutation'),
@@ -44,9 +51,7 @@ export function ToolConfirmCard({ toolName, args, tier, onExecute, onSkip, t }: 
         </span>
       </div>
       <div className="mt-2 text-xs font-medium">{action}</div>
-      {detail && (
-        <div className="mt-0.5 text-[11px] text-muted-foreground">{detail}</div>
-      )}
+      {detail && <div className="mt-0.5 text-[11px] text-muted-foreground">{detail}</div>}
       <button
         type="button"
         className="mt-1.5 text-[9px] text-muted-foreground/60 hover:text-muted-foreground underline"

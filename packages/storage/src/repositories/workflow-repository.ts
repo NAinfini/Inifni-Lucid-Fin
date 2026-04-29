@@ -82,12 +82,9 @@ function filterDegraded<T>(
   const out: T[] = [];
   let degradedCount = 0;
   for (const item of items) {
-    const parsed = parseOrDegrade(
-      schema,
-      item,
-      sentinel as unknown as T,
-      { ctx: { name: ctxName } },
-    );
+    const parsed = parseOrDegrade(schema, item, sentinel as unknown as T, {
+      ctx: { name: ctxName },
+    });
     if ((parsed as unknown) === sentinel) {
       degradedCount += 1;
       continue;
@@ -158,7 +155,10 @@ export class WorkflowRepository {
     return (parsed as unknown) === STAGE_SENTINEL ? undefined : (parsed as WorkflowStageRun);
   }
 
-  updateStageRun(id: WorkflowStageId, updates: Parameters<typeof _updateWorkflowStageRun>[2]): void {
+  updateStageRun(
+    id: WorkflowStageId,
+    updates: Parameters<typeof _updateWorkflowStageRun>[2],
+  ): void {
     _updateWorkflowStageRun(this.db, id, updates);
   }
 
@@ -262,7 +262,9 @@ export class WorkflowRepository {
 
   // ── Summaries + aggregates ─────────────────────────────────────
 
-  listTaskSummaries(filter?: Parameters<typeof _listWorkflowTaskSummaries>[1]): WorkflowTaskSummary[] {
+  listTaskSummaries(
+    filter?: Parameters<typeof _listWorkflowTaskSummaries>[1],
+  ): WorkflowTaskSummary[] {
     return _listWorkflowTaskSummaries(this.db, filter);
   }
 

@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { LipSyncAdapter, LipSyncAdapterConfig, LipSyncOptions } from './lipsync-registry.js';
+
+const ALLOWED_PYTHON_NAMES = new Set(['python', 'python3', 'python3.exe', 'python.exe']);
 
 function resolvePython(configured?: string): string {
   if (configured && configured.length > 0) return configured;
@@ -34,13 +36,13 @@ export class LocalLipSyncAdapter implements LipSyncAdapter {
     if (!existsSync(this.inferenceScript)) {
       throw new Error(
         `inference.py not found at: ${this.inferenceScript}. ` +
-        `Ensure the Wav2Lip project directory is correctly configured.`,
+          `Ensure the Wav2Lip project directory is correctly configured.`,
       );
     }
     if (!existsSync(this.checkpointPath)) {
       throw new Error(
         `Model checkpoint not found at: ${this.checkpointPath}. ` +
-        `Download the Wav2Lip checkpoint and configure the path in Settings.`,
+          `Download the Wav2Lip checkpoint and configure the path in Settings.`,
       );
     }
     if (!existsSync(videoPath)) {
@@ -50,17 +52,30 @@ export class LocalLipSyncAdapter implements LipSyncAdapter {
       throw new Error(`Audio file not found: ${audioPath}`);
     }
 
+    const baseName = basename(this.pythonPath).toLowerCase();
+    if (!ALLOWED_PYTHON_NAMES.has(baseName)) {
+      throw new Error(`Disallowed Python executable: ${baseName}`);
+    }
+
     return new Promise<void>((resolvePromise, reject) => {
-      const child = spawn(this.pythonPath, [
-        this.inferenceScript,
-        '--video', resolve(videoPath),
-        '--audio', resolve(audioPath),
-        '--output', resolve(outputPath),
-        '--checkpoint_path', this.checkpointPath,
-      ], {
-        cwd: this.projectDir,
-        env: { ...process.env },
-      });
+      const child = spawn(
+        this.pythonPath,
+        [
+          this.inferenceScript,
+          '--video',
+          resolve(videoPath),
+          '--audio',
+          resolve(audioPath),
+          '--output',
+          resolve(outputPath),
+          '--checkpoint_path',
+          this.checkpointPath,
+        ],
+        {
+          cwd: this.projectDir,
+          env: { ...process.env },
+        },
+      );
 
       const stderrChunks: Buffer[] = [];
 
@@ -76,20 +91,22 @@ export class LocalLipSyncAdapter implements LipSyncAdapter {
           reject(
             new Error(
               `Local lip-sync process exited with code ${String(code)}` +
-              `${stderr ? `:\n${stderr}` : ''}` +
-              `\n\nPython: ${this.pythonPath}\nScript: ${this.inferenceScript}` +
-              `\nCheckpoint: ${this.checkpointPath}`,
+                `${stderr ? `:\n${stderr}` : ''}` +
+                `\n\nPython: ${this.pythonPath}\nScript: ${this.inferenceScript}` +
+                `\nCheckpoint: ${this.checkpointPath}`,
             ),
           );
         }
       });
 
       child.on('error', (err) => {
-        reject(new Error(
-          `Failed to start local lip-sync process: ${err.message}\n` +
-          `Python path: ${this.pythonPath}\n` +
-          `Ensure Python is installed and accessible.`,
-        ));
+        reject(
+          new Error(
+            `Failed to start local lip-sync process: ${err.message}\n` +
+              `Python path: ${this.pythonPath}\n` +
+              `Ensure Python is installed and accessible.`,
+          ),
+        );
       });
     });
   }

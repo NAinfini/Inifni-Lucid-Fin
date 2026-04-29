@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { BUILT_IN_PRESET_LIBRARY } from "@lucid-fin/contracts";
+import { describe, expect, it, vi } from 'vitest';
+import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -9,7 +9,7 @@ const logger = vi.hoisted(() => ({
   fatal: vi.fn(),
 }));
 
-vi.mock("../../logger.js", () => ({
+vi.mock('../../logger.js', () => ({
   default: logger,
   debug: logger.debug,
   info: logger.info,
@@ -18,10 +18,10 @@ vi.mock("../../logger.js", () => ({
   fatal: logger.fatal,
 }));
 
-import { registerPresetHandlers } from "./preset.handlers.js";
+import { registerPresetHandlers } from './preset.handlers.js';
 
 const builtInPreset =
-  BUILT_IN_PRESET_LIBRARY.find((preset) => preset.category === "look") ??
+  BUILT_IN_PRESET_LIBRARY.find((preset) => preset.category === 'look') ??
   BUILT_IN_PRESET_LIBRARY[0];
 const alternateBuiltInPreset =
   BUILT_IN_PRESET_LIBRARY.find((preset) => preset.category !== builtInPreset.category) ??
@@ -31,7 +31,7 @@ function resetCommon() {
   vi.clearAllMocks();
 }
 
-function makeUserPreset(id: string, category = "look") {
+function makeUserPreset(id: string, category = 'look') {
   return {
     id,
     category,
@@ -81,42 +81,45 @@ function registerHandlers(db: Record<string, unknown>) {
   return handlers;
 }
 
-describe("registerPresetHandlers", () => {
-  it("registers all preset IPC handlers", () => {
+describe('registerPresetHandlers', () => {
+  it('registers all preset IPC handlers', () => {
     resetCommon();
     const handlers = registerHandlers(makeDb());
 
     expect([...handlers.keys()].sort()).toEqual([
-      "preset:delete",
-      "preset:export",
-      "preset:import",
-      "preset:list",
-      "preset:reset",
-      "preset:save",
+      'preset:delete',
+      'preset:export',
+      'preset:import',
+      'preset:list',
+      'preset:reset',
+      'preset:save',
     ]);
   });
 
-  it("lists presets without requiring a project", async () => {
+  it('lists presets without requiring a project', async () => {
     resetCommon();
     const handlers = registerHandlers(makeDb());
 
-    const presets = await handlers.get("preset:list")?.({});
+    const presets = await handlers.get('preset:list')?.({});
     expect(Array.isArray(presets)).toBe(true);
   });
 
-  it("saves a built-in preset override, persists it as a non-user override, and logs the save", async () => {
+  it('saves a built-in preset override, persists it as a non-user override, and logs the save', async () => {
     resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
-    const save = handlers.get("preset:save");
+    const save = handlers.get('preset:save');
 
-    const result = await save?.({}, {
-      ...builtInPreset,
-      name: `${builtInPreset.name} Custom`,
-      prompt: `${builtInPreset.prompt} plus custom detail`,
-      defaults: { ...builtInPreset.defaults, intensity: 0.5 },
-      params: [...builtInPreset.params],
-    });
+    const result = await save?.(
+      {},
+      {
+        ...builtInPreset,
+        name: `${builtInPreset.name} Custom`,
+        prompt: `${builtInPreset.prompt} plus custom detail`,
+        defaults: { ...builtInPreset.defaults, intensity: 0.5 },
+        params: [...builtInPreset.params],
+      },
+    );
 
     expect(result).toEqual(
       expect.objectContaining({
@@ -135,7 +138,7 @@ describe("registerPresetHandlers", () => {
       }),
     );
     expect(logger.info).toHaveBeenCalledWith(
-      "[preset] saved",
+      '[preset] saved',
       expect.objectContaining({
         id: builtInPreset.id,
         category: builtInPreset.category,
@@ -144,49 +147,52 @@ describe("registerPresetHandlers", () => {
     );
   });
 
-  it("saves and deletes a user preset via sqlite user override records", async () => {
+  it('saves and deletes a user preset via sqlite user override records', async () => {
     resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
-    const save = handlers.get("preset:save");
-    const remove = handlers.get("preset:delete");
-    const payload = makeUserPreset("user-preset-1");
+    const save = handlers.get('preset:save');
+    const remove = handlers.get('preset:delete');
+    const payload = makeUserPreset('user-preset-1');
 
     const saved = await save?.({}, payload);
-    await expect(remove?.({}, { id: "user-preset-1" })).resolves.toBeUndefined();
+    await expect(remove?.({}, { id: 'user-preset-1' })).resolves.toBeUndefined();
 
     expect(saved).toEqual(
       expect.objectContaining({
-        id: "user-preset-1",
+        id: 'user-preset-1',
         builtIn: false,
         modified: false,
       }),
     );
     expect(db.upsertOverride).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: "user-preset-1",
-        presetId: "user-preset-1",
+        id: 'user-preset-1',
+        presetId: 'user-preset-1',
         isUser: true,
       }),
     );
-    expect(db.deleteOverride).toHaveBeenCalledWith("user-preset-1");
+    expect(db.deleteOverride).toHaveBeenCalledWith('user-preset-1');
   });
 
-  it("resets prompt-only built-in overrides without deleting the whole override", async () => {
+  it('resets prompt-only built-in overrides without deleting the whole override', async () => {
     resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
-    const save = handlers.get("preset:save");
-    const reset = handlers.get("preset:reset");
+    const save = handlers.get('preset:save');
+    const reset = handlers.get('preset:reset');
 
-    await save?.({}, {
-      ...builtInPreset,
-      prompt: "custom prompt",
-      defaults: { ...builtInPreset.defaults, custom: "yes" },
-      params: [...builtInPreset.params],
-    });
+    await save?.(
+      {},
+      {
+        ...builtInPreset,
+        prompt: 'custom prompt',
+        defaults: { ...builtInPreset.defaults, custom: 'yes' },
+        params: [...builtInPreset.params],
+      },
+    );
 
-    const result = await reset?.({}, { id: builtInPreset.id, scope: "prompt" });
+    const result = await reset?.({}, { id: builtInPreset.id, scope: 'prompt' });
 
     expect(result).toEqual(
       expect.objectContaining({
@@ -198,15 +204,15 @@ describe("registerPresetHandlers", () => {
     expect(db.deleteOverride).not.toHaveBeenCalled();
     expect(db.upsertOverride).toHaveBeenCalledTimes(2);
     expect(logger.info).toHaveBeenCalledWith(
-      "[preset] reset",
+      '[preset] reset',
       expect.objectContaining({
         id: builtInPreset.id,
-        scope: "prompt",
+        scope: 'prompt',
       }),
     );
   });
 
-  it("hydrates existing built-in overrides and user presets from sqlite and filters preset lists", async () => {
+  it('hydrates existing built-in overrides and user presets from sqlite and filters preset lists', async () => {
     resetCommon();
     const db = makeDb([
       {
@@ -215,106 +221,120 @@ describe("registerPresetHandlers", () => {
         category: builtInPreset.category,
         name: `${builtInPreset.name} Override`,
         description: builtInPreset.description,
-        prompt: "override prompt",
+        prompt: 'override prompt',
         params: builtInPreset.params,
         defaults: builtInPreset.defaults,
         isUser: false,
       },
       {
-        id: "user-hydrated-1",
-        presetId: "user-hydrated-1",
+        id: 'user-hydrated-1',
+        presetId: 'user-hydrated-1',
         category: alternateBuiltInPreset.category,
-        name: "Hydrated User",
-        description: "hydrated",
-        prompt: "hydrated prompt",
+        name: 'Hydrated User',
+        description: 'hydrated',
+        prompt: 'hydrated prompt',
         params: [],
         defaults: {},
         isUser: true,
       },
     ]);
     const handlers = registerHandlers(db);
-    const list = handlers.get("preset:list");
+    const list = handlers.get('preset:list');
 
-    const lookPresets = await list?.({}, {
-      category: builtInPreset.category,
-      includeBuiltIn: true,
-    });
-    const userOnly = await list?.({}, {
-      includeBuiltIn: false,
-      category: alternateBuiltInPreset.category,
-    });
+    const lookPresets = await list?.(
+      {},
+      {
+        category: builtInPreset.category,
+        includeBuiltIn: true,
+      },
+    );
+    const userOnly = await list?.(
+      {},
+      {
+        includeBuiltIn: false,
+        category: alternateBuiltInPreset.category,
+      },
+    );
 
     expect(lookPresets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: builtInPreset.id,
           modified: true,
-          prompt: "override prompt",
+          prompt: 'override prompt',
         }),
       ]),
     );
     expect(userOnly).toEqual([
       expect.objectContaining({
-        id: "user-hydrated-1",
+        id: 'user-hydrated-1',
         builtIn: false,
       }),
     ]);
   });
 
-  it("imports preset payloads and exports filtered libraries", async () => {
+  it('imports preset payloads and exports filtered libraries', async () => {
     resetCommon();
     const db = makeDb();
     const handlers = registerHandlers(db);
-    const importPresets = handlers.get("preset:import");
-    const exportPresets = handlers.get("preset:export");
+    const importPresets = handlers.get('preset:import');
+    const exportPresets = handlers.get('preset:export');
 
-    const imported = await importPresets?.({}, {
-      presets: [
-        makeUserPreset("user-imported-1", builtInPreset.category),
-        makeUserPreset("user-imported-2", alternateBuiltInPreset.category),
-      ],
-      includeBuiltIn: false,
-      source: "file",
-    });
+    const imported = await importPresets?.(
+      {},
+      {
+        presets: [
+          makeUserPreset('user-imported-1', builtInPreset.category),
+          makeUserPreset('user-imported-2', alternateBuiltInPreset.category),
+        ],
+        includeBuiltIn: false,
+        source: 'file',
+      },
+    );
 
-    const exported = await exportPresets?.({}, {
-      includeBuiltIn: false,
-      categories: [builtInPreset.category],
-    });
+    const exported = await exportPresets?.(
+      {},
+      {
+        includeBuiltIn: false,
+        categories: [builtInPreset.category],
+      },
+    );
 
     expect(imported).toEqual(
       expect.objectContaining({
         version: 1,
         presets: expect.arrayContaining([
-          expect.objectContaining({ id: "user-imported-1" }),
-          expect.objectContaining({ id: "user-imported-2" }),
+          expect.objectContaining({ id: 'user-imported-1' }),
+          expect.objectContaining({ id: 'user-imported-2' }),
         ]),
       }),
     );
     expect(exported).toEqual(
       expect.objectContaining({
         version: 1,
-        presets: [expect.objectContaining({ id: "user-imported-1", category: builtInPreset.category })],
+        presets: [
+          expect.objectContaining({ id: 'user-imported-1', category: builtInPreset.category }),
+        ],
       }),
     );
     expect(db.upsertOverride).toHaveBeenCalledTimes(2);
   });
 
-  it("rejects invalid delete, reset, import, and export payloads", async () => {
+  it('rejects invalid delete, reset, import, and export payloads', async () => {
     resetCommon();
     const handlers = registerHandlers(makeDb());
 
-    await expect(handlers.get("preset:delete")?.({}, { id: "" })).rejects.toThrow(
-      "preset:delete id is required",
+    await expect(handlers.get('preset:delete')?.({}, { id: '' })).rejects.toThrow(
+      'preset:delete id is required',
     );
     await expect(
-      handlers.get("preset:reset")?.({}, { id: builtInPreset.id, scope: "wrong" }),
-    ).rejects.toThrow("preset:reset scope must be one of: all, prompt, params");
-    await expect(handlers.get("preset:import")?.({}, { presets: {} })).rejects.toThrow(
-      "preset:import presets array is required",
+      handlers.get('preset:reset')?.({}, { id: builtInPreset.id, scope: 'wrong' }),
+    ).rejects.toThrow('preset:reset scope must be one of: all, prompt, params');
+    await expect(handlers.get('preset:import')?.({}, { presets: {} })).rejects.toThrow(
+      'preset:import presets array is required',
     );
-    await expect(handlers.get("preset:export")?.({}, "bad-request")).rejects.toThrow(
-      "preset:export request must be an object",
+    await expect(handlers.get('preset:export')?.({}, 'bad-request')).rejects.toThrow(
+      'preset:export request must be an object',
     );
   });
 });

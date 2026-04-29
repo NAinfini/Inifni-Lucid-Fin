@@ -10,15 +10,23 @@ class Semaphore {
   constructor(private readonly limit: number) {}
   async run<T>(fn: () => Promise<T>): Promise<T> {
     await this.acquire();
-    try { return await fn(); } finally { this.release(); }
+    try {
+      return await fn();
+    } finally {
+      this.release();
+    }
   }
   private acquire(): Promise<void> {
-    if (this.current < this.limit) { this.current++; return Promise.resolve(); }
+    if (this.current < this.limit) {
+      this.current++;
+      return Promise.resolve();
+    }
     return new Promise<void>((r) => this.queue.push(r));
   }
   private release(): void {
     const next = this.queue.shift();
-    if (next) next(); else this.current--;
+    if (next) next();
+    else this.current--;
   }
 }
 
@@ -131,7 +139,8 @@ function renderTimelineInternal(
   return runCommand(cmd, options.signal).finally(() => {
     try {
       unlinkSync(listPath);
-    } catch { /* temp concat list cleanup failed — non-fatal, file will be cleaned up eventually */
+    } catch {
+      /* temp concat list cleanup failed — non-fatal, file will be cleaned up eventually */
       /* ignore */
     }
   });

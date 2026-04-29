@@ -1,11 +1,6 @@
 import type { LLMToolDefinition, LLMToolParameter } from '@lucid-fin/contracts';
 
-export type ToolErrorClass =
-  | 'transient'
-  | 'not_found'
-  | 'validation'
-  | 'permission'
-  | 'fatal';
+export type ToolErrorClass = 'transient' | 'not_found' | 'validation' | 'permission' | 'fatal';
 
 export interface ToolResult {
   success: boolean;
@@ -67,13 +62,11 @@ export class AgentToolRegistry {
    * regressions.
    */
   register(tool: AgentTool): void {
-    if (
-      tool.tier !== 1 && tool.tier !== 2 && tool.tier !== 3 && tool.tier !== 4
-    ) {
+    if (tool.tier !== 1 && tool.tier !== 2 && tool.tier !== 3 && tool.tier !== 4) {
       throw new Error(
-        `Tool '${tool.name}' is missing a valid tier (must be 1|2|3|4). `
-        + 'Every tool must declare its permission tier so the confirmation '
-        + 'gate never silently falls back to the most permissive bucket.',
+        `Tool '${tool.name}' is missing a valid tier (must be 1|2|3|4). ` +
+          'Every tool must declare its permission tier so the confirmation ' +
+          'gate never silently falls back to the most permissive bucket.',
       );
     }
     this.tools.set(tool.name, tool);
@@ -92,11 +85,7 @@ export class AgentToolRegistry {
     return this.list().filter((t) => !t.context || t.context.includes(context));
   }
 
-  search(filters?: {
-    context?: string;
-    tags?: string[];
-    query?: string;
-  }): AgentTool[] {
+  search(filters?: { context?: string; tags?: string[]; query?: string }): AgentTool[] {
     const tools = filters?.context ? this.forContext(filters.context) : this.list();
     const requestedTags = (filters?.tags ?? [])
       .map((tag) => tag.trim().toLowerCase())
@@ -105,8 +94,8 @@ export class AgentToolRegistry {
 
     return tools.filter((tool) => {
       if (
-        requestedTags.length > 0
-        && !requestedTags.every((tag) => tool.tags?.some((toolTag) => toolTag.toLowerCase() === tag))
+        requestedTags.length > 0 &&
+        !requestedTags.every((tag) => tool.tags?.some((toolTag) => toolTag.toLowerCase() === tag))
       ) {
         return false;
       }

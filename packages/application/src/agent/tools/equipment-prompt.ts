@@ -45,17 +45,15 @@ function buildOrthoGridPrompt(entity: Equipment, stylePlate?: string): string {
   segments.push('Solid white background, even studio lighting, no characters, no environment');
 
   segments.push('Layout: five panels on one sheet');
-  segments.push('Top-left front view, top-right back view, middle-left left profile, middle-right right profile, bottom-center macro detail close-up');
+  segments.push(
+    'Top-left front view, top-right back view, middle-left left profile, middle-right right profile, bottom-center macro detail close-up',
+  );
   segments.push('All panels share identical scale, identical lighting, centered composition');
 
   return segments.join('. ') + '.';
 }
 
-function buildExtraAnglePrompt(
-  entity: Equipment,
-  angle: string,
-  stylePlate?: string,
-): string {
+function buildExtraAnglePrompt(entity: Equipment, angle: string, stylePlate?: string): string {
   const desc = buildEquipmentDescription(entity);
   const segments: string[] = [];
 

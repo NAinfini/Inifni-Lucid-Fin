@@ -5,17 +5,18 @@ export {
   inspectFileMedia,
 } from './media-inspector.js';
 export { SqliteIndex } from './sqlite-index.js';
-export type {
-  IStorageLayer,
-  RepoBundle,
-} from './storage-interfaces.js';
+export type { IStorageLayer, RepoBundle } from './storage-interfaces.js';
 export { Keychain } from './keychain.js';
 export type { KeychainOptions } from './keychain.js';
 export { PromptStore } from './prompt-store.js';
 export type { PromptRecord } from './prompt-store.js';
 export { ProcessPromptStore, PROCESS_PROMPT_DEFAULTS } from './process-prompt-store.js';
 export type { ProcessPromptRecord, ProcessPromptDefault } from './process-prompt-store.js';
-export type { StoredSession, StoredSnapshot, SnapshotData } from './repositories/snapshot-repository.js';
+export type {
+  StoredSession,
+  StoredSnapshot,
+  SnapshotData,
+} from './repositories/snapshot-repository.js';
 export { withTx } from './transactions.js';
 export type { Tx } from './transactions.js';
 
@@ -32,9 +33,7 @@ export type { StoredCommanderEvent } from './repositories/commander-event-reposi
 
 // ── Phase G1-2.2: ProcessPromptRepository ──────────────────────
 export { ProcessPromptRepository } from './repositories/process-prompt-repository.js';
-export type {
-  ProcessPromptRecord as RepoProcessPromptRecord,
-} from './repositories/process-prompt-repository.js';
+export type { ProcessPromptRecord as RepoProcessPromptRecord } from './repositories/process-prompt-repository.js';
 
 // ── Phase G1-2.3: JobRepository ────────────────────────────────
 export { JobRepository } from './repositories/job-repository.js';
@@ -64,10 +63,7 @@ export {
 
 // ── Phase G1-2.7: SeriesRepository ─────────────────────────────
 export { SeriesRepository } from './repositories/series-repository.js';
-export type {
-  EpisodeRecord,
-  EpisodeUpsertInput,
-} from './repositories/series-repository.js';
+export type { EpisodeRecord, EpisodeUpsertInput } from './repositories/series-repository.js';
 
 // ── Phase G1-2.8: PresetRepository ─────────────────────────────
 export { PresetRepository } from './repositories/preset-repository.js';

@@ -1,8 +1,4 @@
-import {
-  locationViewToSlot,
-  type Location,
-  type LocationRefImageView,
-} from '@lucid-fin/contracts';
+import { locationViewToSlot, type Location, type LocationRefImageView } from '@lucid-fin/contracts';
 
 /**
  * Phase 2 overhaul — location ref-image prompts.
@@ -62,7 +58,9 @@ function buildBiblePrompt(entity: Location, stylePlate?: string): string {
   // paragraph of composition direction. Five frames, consistent light.
   segments.push('Layout: five frames on one sheet');
   segments.push('Frame 1 (large, left): wide establishing shot — full environment, layered depth');
-  segments.push('Frame 2 (top right): interior detail study — architectural close-ups, material wear');
+  segments.push(
+    'Frame 2 (top right): interior detail study — architectural close-ups, material wear',
+  );
   segments.push('Frame 3 (middle right): atmosphere study — lighting and weather in the space');
   segments.push('Frame 4 (bottom right A): primary key camera angle, eye-level staging shot');
   segments.push('Frame 5 (bottom right B): alternate key angle revealing circulation paths');
@@ -85,16 +83,14 @@ function buildFake360Prompt(entity: Location, stylePlate?: string): string {
 
   segments.push('Layout: eight panels in a 4x2 grid, camera rotated 45° per panel');
   segments.push('Reading order: 0°, 45°, 90°, 135° (top row); 180°, 225°, 270°, 315° (bottom row)');
-  segments.push('Same camera height, same focal length, same lighting, same time of day across every panel');
+  segments.push(
+    'Same camera height, same focal length, same lighting, same time of day across every panel',
+  );
 
   return segments.join('. ') + '.';
 }
 
-function buildExtraAnglePrompt(
-  entity: Location,
-  angle: string,
-  stylePlate?: string,
-): string {
+function buildExtraAnglePrompt(entity: Location, angle: string, stylePlate?: string): string {
   const desc = buildLocationDescription(entity);
   const segments: string[] = [];
 

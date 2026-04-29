@@ -23,17 +23,10 @@
  *     retained window) are dropped.
  */
 
-import type {
-  LLMMessage,
-  LLMToolDefinition,
-  ProviderProfile,
-} from '@lucid-fin/contracts';
+import type { LLMMessage, LLMToolDefinition, ProviderProfile } from '@lucid-fin/contracts';
 import { DEFAULT_PROVIDER_PROFILE } from '@lucid-fin/contracts';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
-import type {
-  ContextItem,
-  ContextItemId,
-} from '@lucid-fin/contracts';
+import type { ContextItem, ContextItemId } from '@lucid-fin/contracts';
 import type { ContextGraph } from '../context-graph.js';
 
 const STUB_CONTENT = '{"_cached":true}';
@@ -239,9 +232,7 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
     keptProcessPromptIds.add(item.itemId);
     processPromptChars += chars;
   }
-  const processPromptTokens = processPromptChars > 0
-    ? estimateTokens(processPromptChars, cpt)
-    : 0;
+  const processPromptTokens = processPromptChars > 0 ? estimateTokens(processPromptChars, cpt) : 0;
 
   // ── 5. Identify fully-stubbed + fully-cached assistant groups ─
   // Build a list of (assistant-turn, [tool-result]) groups over bodyItems
@@ -262,7 +253,8 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
       // system-message / guide are ignored (they sit alongside without
       // breaking the trailing property)
       if (after.kind === 'system-message' || after.kind === 'guide') continue;
-      if (after.kind === 'tool-result' && after.toolCallId && ownIds.has(after.toolCallId)) continue;
+      if (after.kind === 'tool-result' && after.toolCallId && ownIds.has(after.toolCallId))
+        continue;
       return false;
     }
     return true;
@@ -335,8 +327,11 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
   const bodySerialized: Array<{ msgs: LLMMessage[]; chars: number; item: ContextItem }> = [];
   for (const item of bodyItems) {
     // Skip fully-stubbed/cached assistant turns and their tool-result followers
-    if (item.kind === 'assistant-turn' && item.toolCalls?.length
-        && item.toolCalls.every((tc) => skippedToolCallIds.has(tc.id))) {
+    if (
+      item.kind === 'assistant-turn' &&
+      item.toolCalls?.length &&
+      item.toolCalls.every((tc) => skippedToolCallIds.has(tc.id))
+    ) {
       continue;
     }
     if (item.kind === 'tool-result' && item.toolCallId && skippedToolCallIds.has(item.toolCallId)) {
@@ -479,8 +474,12 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
     wireMessages.push(m);
   }
 
-  const estimatedTokensUsed = primarySystemTokens + processPromptTokens + toolSchemaTokens +
-    cacheTokens + estimateTokens(historyChars, cpt);
+  const estimatedTokensUsed =
+    primarySystemTokens +
+    processPromptTokens +
+    toolSchemaTokens +
+    cacheTokens +
+    estimateTokens(historyChars, cpt);
 
   return {
     wireMessages,

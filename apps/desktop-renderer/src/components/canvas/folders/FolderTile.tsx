@@ -86,8 +86,14 @@ export function FolderTile({
       onContextMenu={handleContextMenu}
       onKeyDown={(e) => {
         if (renaming) return;
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); }
-        else if (e.key === 'F2' && onRename) { e.preventDefault(); setRenaming(true); setDraft(label); }
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        } else if (e.key === 'F2' && onRename) {
+          e.preventDefault();
+          setRenaming(true);
+          setDraft(label);
+        }
       }}
       onDragOver={(e) => {
         if (!onDropItems) return;
@@ -104,7 +110,10 @@ export function FolderTile({
         const raw = e.dataTransfer.getData(dndMime);
         if (!raw) return;
         e.preventDefault();
-        const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
+        const ids = raw
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
         if (ids.length > 0) onDropItems(ids);
       }}
       className={cn(
@@ -128,8 +137,12 @@ export function FolderTile({
             onBlur={() => void commitRename()}
             onKeyDown={async (e) => {
               e.stopPropagation();
-              if (e.key === 'Enter') { await commitRename(); }
-              else if (e.key === 'Escape') { setRenaming(false); setDraft(label); }
+              if (e.key === 'Enter') {
+                await commitRename();
+              } else if (e.key === 'Escape') {
+                setRenaming(false);
+                setDraft(label);
+              }
             }}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
@@ -158,15 +171,28 @@ export function FolderTile({
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            ...(onRename ? [{
-              label: t('action.rename') as string,
-              onSelect: () => { setRenaming(true); setDraft(label); },
-            }] : []),
-            ...(onDelete ? [{
-              label: t('action.delete') as string,
-              onSelect: () => { void onDelete(); },
-              destructive: true,
-            }] : []),
+            ...(onRename
+              ? [
+                  {
+                    label: t('action.rename') as string,
+                    onSelect: () => {
+                      setRenaming(true);
+                      setDraft(label);
+                    },
+                  },
+                ]
+              : []),
+            ...(onDelete
+              ? [
+                  {
+                    label: t('action.delete') as string,
+                    onSelect: () => {
+                      void onDelete();
+                    },
+                    destructive: true,
+                  },
+                ]
+              : []),
           ]}
         />
       )}

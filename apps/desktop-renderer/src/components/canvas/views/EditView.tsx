@@ -19,7 +19,9 @@ export function EditView({ focusedNodeId }: EditViewProps) {
   return (
     <div className={cn('flex h-full flex-col items-center justify-center p-6')}>
       <div className="w-full max-w-2xl rounded-lg border border-border/60 bg-card/95 p-6 shadow-lg">
-        <p className="text-xs text-muted-foreground">{t('view.editLabel')}: {focusedNodeId}</p>
+        <p className="text-xs text-muted-foreground">
+          {t('view.editLabel')}: {focusedNodeId}
+        </p>
       </div>
     </div>
   );

@@ -25,15 +25,21 @@ function applyPatch(canvas: Canvas, patch: CanvasPatch): void {
 
   if (patch.removedNodeIds && patch.removedNodeIds.length > 0) {
     const removedSet = new Set(patch.removedNodeIds);
-    canvas.nodes = canvas.nodes.filter(n => !removedSet.has(n.id));
+    canvas.nodes = canvas.nodes.filter((n) => !removedSet.has(n.id));
   }
 
   if (patch.updatedNodes && patch.updatedNodes.length > 0) {
-    const nodeMap = new Map(canvas.nodes.map(n => [n.id, n]));
+    const nodeMap = new Map(canvas.nodes.map((n) => [n.id, n]));
     for (const { id, changes } of patch.updatedNodes) {
       const node = nodeMap.get(id);
       if (node) {
-        Object.assign(node, changes);
+        const {
+          __proto__: _p,
+          constructor: _c,
+          prototype: _pr,
+          ...safeChanges
+        } = changes as Record<string, unknown>;
+        Object.assign(node, safeChanges);
       }
     }
   }
@@ -44,12 +50,12 @@ function applyPatch(canvas: Canvas, patch: CanvasPatch): void {
 
   if (patch.removedEdgeIds && patch.removedEdgeIds.length > 0) {
     const removedSet = new Set(patch.removedEdgeIds);
-    canvas.edges = canvas.edges.filter(e => !removedSet.has(e.id));
+    canvas.edges = canvas.edges.filter((e) => !removedSet.has(e.id));
   }
 
   if (patch.updatedEdges && patch.updatedEdges.length > 0) {
-    const updateMap = new Map(patch.updatedEdges.map(u => [u.id, u.edge]));
-    canvas.edges = canvas.edges.map(e => updateMap.get(e.id) ?? e);
+    const updateMap = new Map(patch.updatedEdges.map((u) => [u.id, u.edge]));
+    canvas.edges = canvas.edges.map((e) => updateMap.get(e.id) ?? e);
   }
 
   if (patch.addedEdges && patch.addedEdges.length > 0) {

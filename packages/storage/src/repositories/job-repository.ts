@@ -17,11 +17,7 @@
 
 import type BetterSqlite3 from 'better-sqlite3';
 import type { Job, JobId } from '@lucid-fin/contracts';
-import {
-  JobsTable,
-  JobSchema,
-  parseOrDegrade,
-} from '@lucid-fin/contracts-parse';
+import { JobsTable, JobSchema, parseOrDegrade } from '@lucid-fin/contracts-parse';
 import type { Tx } from '../transactions.js';
 
 /** Partial update type — mirrors the legacy `sqlite-jobs.updateJob` shape. */
@@ -170,18 +166,14 @@ export class JobRepository {
 
     if (sets.length === 0) return;
     params.push(id);
-    d.prepare(`UPDATE ${TBL} SET ${sets.join(', ')} WHERE ${C.id.sqlName} = ?`).run(
-      ...params,
-    );
+    d.prepare(`UPDATE ${TBL} SET ${sets.join(', ')} WHERE ${C.id.sqlName} = ?`).run(...params);
   }
 
   get(id: JobId, tx?: Tx): Job | undefined {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(
-        `SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`,
-      )
-      .get(id) as RawRow | undefined;
+    const row = d.prepare(`SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`).get(id) as
+      | RawRow
+      | undefined;
     if (!row) return undefined;
     const { rows } = parseRows([row]);
     return rows[0];
@@ -219,8 +211,8 @@ function rowToJob(row: RawRow): Job {
     status: row.status as Job['status'],
     priority: row.priority as number,
     prompt: row.prompt as string,
-    params: row.params ? (JSON.parse(row.params as string) as unknown) as Job['params'] : undefined,
-    result: row.result ? (JSON.parse(row.result as string) as unknown) as Job['result'] : undefined,
+    params: row.params ? (JSON.parse(row.params as string) as unknown as Job['params']) : undefined,
+    result: row.result ? (JSON.parse(row.result as string) as unknown as Job['result']) : undefined,
     cost: (row.cost as number | null) ?? undefined,
     attempts: row.attempts as number,
     maxRetries: row.max_retries as number,
@@ -243,12 +235,9 @@ function parseRows(rows: RawRow[]): ListResult<Job> {
   const SENTINEL = Symbol('degraded');
   for (const row of rows) {
     const candidate = rowToJob(row);
-    const parsed = parseOrDegrade(
-      JobSchema,
-      candidate,
-      SENTINEL as unknown as Job,
-      { ctx: { name: 'Job' } },
-    );
+    const parsed = parseOrDegrade(JobSchema, candidate, SENTINEL as unknown as Job, {
+      ctx: { name: 'Job' },
+    });
     if ((parsed as unknown) === SENTINEL) {
       degradedCount += 1;
       continue;

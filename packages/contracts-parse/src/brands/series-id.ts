@@ -12,9 +12,6 @@ const SeriesIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'seriesId must be non-empty after trim' });
 
-export const parseSeriesId = makeBrandParser<SeriesId, string>(
-  SeriesIdSchema,
-  'SeriesId',
-);
+export const parseSeriesId = makeBrandParser<SeriesId, string>(SeriesIdSchema, 'SeriesId');
 
 export const trySeriesId = makeTryBrand<SeriesId, string>(SeriesIdSchema);

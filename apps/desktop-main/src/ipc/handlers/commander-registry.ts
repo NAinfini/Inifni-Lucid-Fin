@@ -25,7 +25,9 @@ export function startSessionCleanup(): void {
       if (!session.aborted && now - session.lastActivity > SESSION_TIMEOUT_MS) {
         session.aborted = true;
         runningSessions.delete(id);
-        console.warn(`Commander session ${id} timed out after ${SESSION_TIMEOUT_MS / 1000}s inactivity`);
+        console.warn(
+          `Commander session ${id} timed out after ${SESSION_TIMEOUT_MS / 1000}s inactivity`,
+        );
       }
     }
   }, 60_000); // Check every minute

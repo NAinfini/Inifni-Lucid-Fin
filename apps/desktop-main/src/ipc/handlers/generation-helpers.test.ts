@@ -6,12 +6,8 @@ import path from 'node:path';
 const ONE_PIXEL_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9pZ+j9QAAAAASUVORK5CYII=';
 const MINIMAL_MP4_BASE64 = Buffer.from([
-  0x00, 0x00, 0x00, 0x18,
-  0x66, 0x74, 0x79, 0x70,
-  0x69, 0x73, 0x6f, 0x6d,
-  0x00, 0x00, 0x02, 0x00,
-  0x69, 0x73, 0x6f, 0x6d,
-  0x69, 0x73, 0x6f, 0x32,
+  0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00,
+  0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
 ]).toString('base64');
 
 const logger = vi.hoisted(() => ({
@@ -269,14 +265,20 @@ describe('inferRemoteExtension', () => {
   });
 
   it('falls back to "bin" for unknown content types', () => {
-    expect(inferRemoteExtension('https://cdn.example.com/asset', 'application/octet-stream')).toBe('bin');
+    expect(inferRemoteExtension('https://cdn.example.com/asset', 'application/octet-stream')).toBe(
+      'bin',
+    );
     expect(inferRemoteExtension('https://cdn.example.com/asset', null)).toBe('bin');
     expect(inferRemoteExtension('https://cdn.example.com/asset', '')).toBe('bin');
   });
 
   it('strips charset and parameters from content-type before matching', () => {
-    expect(inferRemoteExtension('https://cdn.example.com/asset', 'image/png; charset=utf-8')).toBe('png');
-    expect(inferRemoteExtension('https://cdn.example.com/asset', 'video/mp4; codecs=avc1')).toBe('mp4');
+    expect(inferRemoteExtension('https://cdn.example.com/asset', 'image/png; charset=utf-8')).toBe(
+      'png',
+    );
+    expect(inferRemoteExtension('https://cdn.example.com/asset', 'video/mp4; codecs=avc1')).toBe(
+      'mp4',
+    );
   });
 });
 
@@ -378,7 +380,9 @@ describe('requireCancelArgs', () => {
   });
 
   it('throws when args are undefined', () => {
-    expect(() => requireCancelArgs(undefined)).toThrow('canvas:cancelGeneration request is required');
+    expect(() => requireCancelArgs(undefined)).toThrow(
+      'canvas:cancelGeneration request is required',
+    );
   });
 
   it('throws when canvasId or nodeId is blank', () => {
@@ -410,9 +414,9 @@ describe('materializeAsset', () => {
   });
 
   it('throws for non-existent local paths', async () => {
-    await expect(
-      materializeAsset({ assetPath: '/does/not/exist/file.png' }),
-    ).rejects.toThrow('Generated asset path not found');
+    await expect(materializeAsset({ assetPath: '/does/not/exist/file.png' })).rejects.toThrow(
+      'Generated asset path not found',
+    );
   });
 
   it('decodes base64 PNG data URLs to a temp file', async () => {
@@ -598,9 +602,9 @@ describe('materializeAsset', () => {
     await expect(materializeAsset({ metadata: {} })).rejects.toThrow(
       'Generated asset did not include a usable file path or URL',
     );
-    await expect(
-      materializeAsset({ assetPath: '', metadata: {} }),
-    ).rejects.toThrow('Generated asset did not include a usable file path or URL');
+    await expect(materializeAsset({ assetPath: '', metadata: {} })).rejects.toThrow(
+      'Generated asset did not include a usable file path or URL',
+    );
   });
 });
 
@@ -868,7 +872,6 @@ describe('materializeGenerationRequest', () => {
     const result = materializeGenerationRequest(req, cas as never);
     expect(result.referenceImages).toBeUndefined();
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -935,7 +938,12 @@ describe('buildAdhocAdapter', () => {
       providerId: 'my-provider',
       prompt: 'test',
     });
-    expect(estimate).toEqual({ estimatedCost: 0, currency: 'USD', provider: 'my-provider', unit: 'image' });
+    expect(estimate).toEqual({
+      estimatedCost: 0,
+      currency: 'USD',
+      provider: 'my-provider',
+      unit: 'image',
+    });
   });
 
   it('checkStatus() resolves to Completed', async () => {
@@ -1043,7 +1051,11 @@ describe('buildAdhocAdapter', () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          choices: [{ message: { images: [{ image_url: { url: 'https://cdn.example.com/chat-img.png' } }] } }],
+          choices: [
+            {
+              message: { images: [{ image_url: { url: 'https://cdn.example.com/chat-img.png' } }] },
+            },
+          ],
         }),
       });
       vi.stubGlobal('fetch', fetchMock);
@@ -1061,7 +1073,11 @@ describe('buildAdhocAdapter', () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          choices: [{ message: { images: [{ image_url: { url: 'https://cdn.example.com/chat-img.png' } }] } }],
+          choices: [
+            {
+              message: { images: [{ image_url: { url: 'https://cdn.example.com/chat-img.png' } }] },
+            },
+          ],
         }),
       });
       vi.stubGlobal('fetch', fetchMock);
@@ -1098,7 +1114,11 @@ describe('buildAdhocAdapter', () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
-          choices: [{ message: { content: 'Here is your image: https://cdn.example.com/result.png enjoy!' } }],
+          choices: [
+            {
+              message: { content: 'Here is your image: https://cdn.example.com/result.png enjoy!' },
+            },
+          ],
         }),
       });
       vi.stubGlobal('fetch', fetchMock);
@@ -1391,7 +1411,8 @@ describe('buildAdhocAdapter', () => {
     it('polls status URL for async jobs and returns final result', async () => {
       vi.useFakeTimers();
 
-      const fetchMock = vi.fn()
+      const fetchMock = vi
+        .fn()
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
@@ -1427,9 +1448,7 @@ describe('buildAdhocAdapter', () => {
         expect(onQueueUpdate).toHaveBeenCalledWith(
           expect.objectContaining({ status: 'queued', jobId: 'task-poll-1' }),
         );
-        expect(onProgress).toHaveBeenCalledWith(
-          expect.objectContaining({ percentage: 50 }),
-        );
+        expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ percentage: 50 }));
         expect(onQueueUpdate).toHaveBeenCalledWith(
           expect.objectContaining({ status: 'completed' }),
         );
@@ -1476,7 +1495,8 @@ describe('buildAdhocAdapter', () => {
     it('throws when poll status request fails', async () => {
       vi.useFakeTimers();
 
-      const fetchMock = vi.fn()
+      const fetchMock = vi
+        .fn()
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
@@ -1498,7 +1518,9 @@ describe('buildAdhocAdapter', () => {
         const subscribePromise = adapter.subscribe!(
           { type: 'image', providerId: 'p1', prompt: 'test' },
           {},
-        ).catch((e: unknown) => { caughtError = e; });
+        ).catch((e: unknown) => {
+          caughtError = e;
+        });
 
         await vi.advanceTimersByTimeAsync(6_000);
         await subscribePromise;
@@ -1514,7 +1536,8 @@ describe('buildAdhocAdapter', () => {
     it('throws when poll task reports failed status', async () => {
       vi.useFakeTimers();
 
-      const fetchMock = vi.fn()
+      const fetchMock = vi
+        .fn()
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
@@ -1535,7 +1558,9 @@ describe('buildAdhocAdapter', () => {
         const subscribePromise = adapter.subscribe!(
           { type: 'image', providerId: 'p1', prompt: 'test' },
           {},
-        ).catch((e: unknown) => { caughtError = e; });
+        ).catch((e: unknown) => {
+          caughtError = e;
+        });
 
         await vi.advanceTimersByTimeAsync(6_000);
         await subscribePromise;

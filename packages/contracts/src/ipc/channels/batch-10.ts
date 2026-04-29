@@ -113,25 +113,21 @@ export interface ExportNleRequest {
   project: unknown;
   outputPath?: string;
 }
-export type ExportNleResponse =
-  | null
-  | {
-      outputPath: string;
-      format: 'fcpxml' | 'edl';
-      fileSize: number;
-    };
+export type ExportNleResponse = null | {
+  outputPath: string;
+  format: 'fcpxml' | 'edl';
+  fileSize: number;
+};
 
 export interface ExportAssetBundleRequest {
   assetHashes: string[];
   outputPath?: string;
 }
-export type ExportAssetBundleResponse =
-  | null
-  | {
-      outputPath: string;
-      fileCount: number;
-      fileSize: number;
-    };
+export type ExportAssetBundleResponse = null | {
+  outputPath: string;
+  fileCount: number;
+  fileSize: number;
+};
 
 export interface ExportSubtitlesRequest {
   format: 'srt' | 'ass';
@@ -161,9 +157,11 @@ export interface ExportStoryboardRequest {
   projectTitle?: string;
   outputPath?: string;
 }
-export type ExportStoryboardResponse =
-  | null
-  | { outputPath: string; nodeCount: number; fileSize: number };
+export type ExportStoryboardResponse = null | {
+  outputPath: string;
+  nodeCount: number;
+  fileSize: number;
+};
 
 export interface ExportMetadataNode {
   id: string;
@@ -189,14 +187,12 @@ export interface ExportMetadataRequest {
   projectTitle?: string;
   outputPath?: string;
 }
-export type ExportMetadataResponse =
-  | null
-  | {
-      outputPath: string;
-      format: 'csv' | 'json';
-      nodeCount: number;
-      fileSize: number;
-    };
+export type ExportMetadataResponse = null | {
+  outputPath: string;
+  format: 'csv' | 'json';
+  nodeCount: number;
+  fileSize: number;
+};
 
 export interface ExportCapcutNode {
   title: string;
@@ -340,13 +336,7 @@ export interface RenderStatusRequest {
 }
 export interface RenderStatusResponse {
   progress: number;
-  stage:
-    | 'queued'
-    | 'rendering'
-    | 'completed'
-    | 'failed'
-    | 'cancelled'
-    | 'unknown';
+  stage: 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled' | 'unknown';
   outputPath?: string;
   error?: string;
 }
@@ -438,13 +428,7 @@ export interface UpdaterUpdateInfo {
   releaseDate?: string;
 }
 export interface UpdaterStatus {
-  state:
-    | 'idle'
-    | 'checking'
-    | 'available'
-    | 'downloading'
-    | 'downloaded'
-    | 'error';
+  state: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error';
   progress?: number;
   info?: UpdaterUpdateInfo;
   error?: string;

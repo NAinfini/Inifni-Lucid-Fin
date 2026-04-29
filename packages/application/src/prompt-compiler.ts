@@ -22,17 +22,30 @@ import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 // Public types
 // ---------------------------------------------------------------------------
 
-export type PromptMode = 'text-to-image' | 'image-to-image' | 'image-to-video' | 'text-to-video' | 'character-sheet' | 'voice' | 'music' | 'sfx';
+export type PromptMode =
+  | 'text-to-image'
+  | 'image-to-image'
+  | 'image-to-video'
+  | 'text-to-video'
+  | 'character-sheet'
+  | 'voice'
+  | 'music'
+  | 'sfx';
 
 export interface StyleGuideDefaults {
-  artStyle?: string;          // e.g. 'cinematic-realism', maps to look preset
-  lighting?: string;          // e.g. 'dramatic', maps to scene preset
-  colorPalette?: string;      // e.g. 'teal-orange', maps to look preset
-  defaultPresets?: Partial<Record<PresetCategory, {
-    presetId: string;
-    intensity?: number;
-    params?: Record<string, unknown>;
-  }>>;
+  artStyle?: string; // e.g. 'cinematic-realism', maps to look preset
+  lighting?: string; // e.g. 'dramatic', maps to scene preset
+  colorPalette?: string; // e.g. 'teal-orange', maps to look preset
+  defaultPresets?: Partial<
+    Record<
+      PresetCategory,
+      {
+        presetId: string;
+        intensity?: number;
+        params?: Record<string, unknown>;
+      }
+    >
+  >;
 }
 
 export type CameraShot = 'close-up' | 'medium' | 'wide' | 'default';
@@ -79,10 +92,10 @@ export interface PromptCompilerInput {
   /** For music mode: genre, tempo, key, instrumentation */
   musicConfig?: {
     genre?: string;
-    tempo?: string;       // 'slow', 'moderate', 'fast', '120bpm'
-    key?: string;         // 'C minor', 'A major'
-    instrumentation?: string[];  // ['piano', 'strings', 'drums']
-    timeSignature?: string;       // '4/4', '3/4'
+    tempo?: string; // 'slow', 'moderate', 'fast', '120bpm'
+    key?: string; // 'C minor', 'A major'
+    instrumentation?: string[]; // ['piano', 'strings', 'drums']
+    timeSignature?: string; // '4/4', '3/4'
   };
   /** For sfx mode: spatial placement */
   sfxPlacement?: 'close' | 'mid' | 'far';
@@ -98,7 +111,7 @@ export interface PromptDiagnostic {
 }
 
 export interface PromptSegment {
-  source: string;  // 'user-text', 'character:id', 'location:id', 'preset:id', 'connected-text', 'equipment', 'ref-anchor'
+  source: string; // 'user-text', 'character:id', 'location:id', 'preset:id', 'connected-text', 'equipment', 'ref-anchor'
   text: string;
   trimmed: boolean;
 }
@@ -165,9 +178,30 @@ const PRESET_STACK_ORDER: PresetCategory[] = [
 
 const CONFLICT_GROUPS: Record<string, string[]> = {
   'scene:key-lighting': ['scene:high-key', 'scene:low-key', 'scene:chiaroscuro'],
-  'lens:focal-length': ['lens:ultra-wide-14mm', 'lens:wide-24mm', 'lens:telephoto-135mm', 'lens:long-telephoto-200mm', 'lens:macro'],
-  'camera:primary': ['camera:static-hold', 'camera:dolly-in', 'camera:dolly-out', 'camera:orbit-cw', 'camera:orbit-ccw', 'camera:pan-left', 'camera:pan-right'],
-  'look:base-style': ['look:cinematic-realism', 'look:anime-cel', 'look:comic-book', 'look:watercolor-ink', 'look:oil-paint', 'look:pixel-art'],
+  'lens:focal-length': [
+    'lens:ultra-wide-14mm',
+    'lens:wide-24mm',
+    'lens:telephoto-135mm',
+    'lens:long-telephoto-200mm',
+    'lens:macro',
+  ],
+  'camera:primary': [
+    'camera:static-hold',
+    'camera:dolly-in',
+    'camera:dolly-out',
+    'camera:orbit-cw',
+    'camera:orbit-ccw',
+    'camera:pan-left',
+    'camera:pan-right',
+  ],
+  'look:base-style': [
+    'look:cinematic-realism',
+    'look:anime-cel',
+    'look:comic-book',
+    'look:watercolor-ink',
+    'look:oil-paint',
+    'look:pixel-art',
+  ],
 };
 
 const I2V_ALLOWED_CATEGORIES: ReadonlySet<PresetCategory> = new Set<PresetCategory>([
@@ -297,15 +331,18 @@ const DIRECTION_PHRASES: Record<CameraDirection, string> = {
   'dutch-angle': 'at a dutch angle',
   pov: 'point of view',
   'tracking-behind': 'tracking from behind',
-  'worms-eye': 'from worm\'s eye view',
+  'worms-eye': "from worm's eye view",
   'high-angle': 'from a high angle',
   profile: 'from profile angle',
 };
 
-function computeEffectiveIntensity(trackIntensity: number | undefined, entryIntensity: number | undefined): number {
+function computeEffectiveIntensity(
+  trackIntensity: number | undefined,
+  entryIntensity: number | undefined,
+): number {
   const t = trackIntensity ?? 100;
   const e = entryIntensity ?? 100;
-  return Math.round(t * e / 100);
+  return Math.round((t * e) / 100);
 }
 
 // ---------------------------------------------------------------------------
@@ -420,11 +457,7 @@ function trimToWordBudget(text: string, maxWords: number): string {
  * For blend entries, interpolate two prompt fragments by factor.
  * factor 0 = 100% A, factor 100 = 100% B.
  */
-function blendPromptFragments(
-  promptA: string,
-  promptB: string,
-  factor: number,
-): string {
+function blendPromptFragments(promptA: string, promptB: string, factor: number): string {
   const normalizedFactor = factor > 0 && factor <= 1 ? factor * 100 : factor;
   if (normalizedFactor <= 0) return promptA;
   if (normalizedFactor >= 100) return promptB;
@@ -488,13 +521,21 @@ function resolveEntryPrompt(
   // v2: try promptTemplate + promptParamDefs first
   if (presetA?.promptTemplate && presetA.promptParamDefs?.length) {
     const paramValues = { ...presetA.defaults, ...entry.params } as Record<string, unknown>;
-    const promptA = resolvePromptTemplate(presetA.promptTemplate, presetA.promptParamDefs, paramValues);
+    const promptA = resolvePromptTemplate(
+      presetA.promptTemplate,
+      presetA.promptParamDefs,
+      paramValues,
+    );
 
     if (entry.blend) {
       const presetB = presetMap[entry.blend.presetIdB];
-      const promptB = presetB?.promptTemplate && presetB.promptParamDefs?.length
-        ? resolvePromptTemplate(presetB.promptTemplate, presetB.promptParamDefs, { ...presetB.defaults, ...entry.blend.paramsB } as Record<string, unknown>)
-        : readPromptFragment(presetB);
+      const promptB =
+        presetB?.promptTemplate && presetB.promptParamDefs?.length
+          ? resolvePromptTemplate(presetB.promptTemplate, presetB.promptParamDefs, {
+              ...presetB.defaults,
+              ...entry.blend.paramsB,
+            } as Record<string, unknown>)
+          : readPromptFragment(presetB);
       return blendPromptFragments(promptA, promptB, entry.blend.factor);
     }
 
@@ -653,7 +694,8 @@ function collectReferenceImages(input: PromptCompilerInput): string[] {
 
   // Collect reference images from resolved location entities
   for (const location of input.locations ?? []) {
-    for (const img of (location as { referenceImages?: Array<{ assetHash: string }> }).referenceImages ?? []) {
+    for (const img of (location as { referenceImages?: Array<{ assetHash: string }> })
+      .referenceImages ?? []) {
       if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
         hashes.add(img.assetHash.trim());
       }
@@ -662,7 +704,8 @@ function collectReferenceImages(input: PromptCompilerInput): string[] {
 
   // Collect reference images from standalone equipment entities
   for (const item of input.equipmentItems ?? []) {
-    for (const img of (item as { referenceImages?: Array<{ assetHash: string }> }).referenceImages ?? []) {
+    for (const img of (item as { referenceImages?: Array<{ assetHash: string }> })
+      .referenceImages ?? []) {
       if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
         hashes.add(img.assetHash.trim());
       }
@@ -679,10 +722,7 @@ function pushVisualPart(target: string[], value: string | undefined): void {
   }
 }
 
-function describeCharacterIdentity(
-  resolved: ResolvedCharacter,
-  mode: PromptMode,
-): string {
+function describeCharacterIdentity(resolved: ResolvedCharacter, mode: PromptMode): string {
   const { character } = resolved;
   const fragments: string[] = [];
 
@@ -691,14 +731,24 @@ function describeCharacterIdentity(
 
   if (character.face) {
     const faceParts: string[] = [];
-    if (character.face.eyeShape && character.face.eyeColor) faceParts.push(`${character.face.eyeShape} ${character.face.eyeColor} eyes`);
+    if (character.face.eyeShape && character.face.eyeColor)
+      faceParts.push(`${character.face.eyeShape} ${character.face.eyeColor} eyes`);
     else {
       pushVisualPart(faceParts, character.face.eyeColor);
       pushVisualPart(faceParts, character.face.eyeShape);
     }
-    pushVisualPart(faceParts, character.face.noseType ? `${character.face.noseType} nose` : undefined);
-    pushVisualPart(faceParts, character.face.lipShape ? `${character.face.lipShape} lips` : undefined);
-    pushVisualPart(faceParts, character.face.jawline ? `${character.face.jawline} jawline` : undefined);
+    pushVisualPart(
+      faceParts,
+      character.face.noseType ? `${character.face.noseType} nose` : undefined,
+    );
+    pushVisualPart(
+      faceParts,
+      character.face.lipShape ? `${character.face.lipShape} lips` : undefined,
+    );
+    pushVisualPart(
+      faceParts,
+      character.face.jawline ? `${character.face.jawline} jawline` : undefined,
+    );
     pushVisualPart(faceParts, character.face.definingFeatures);
     if (faceParts.length > 0) fragments.push(faceParts.join(', '));
   }
@@ -709,18 +759,18 @@ function describeCharacterIdentity(
       character.hair.style,
       character.hair.length,
       character.hair.texture,
-    ].map((part) => normalizeTextSegment(part ?? '')).filter(Boolean);
+    ]
+      .map((part) => normalizeTextSegment(part ?? ''))
+      .filter(Boolean);
     if (hairParts.length > 0) fragments.push(`${hairParts.join(', ')} hair`);
   }
 
   pushVisualPart(fragments, character.skinTone ? `${character.skinTone} skin tone` : undefined);
 
   if (character.body) {
-    const bodyParts = [
-      character.body.height,
-      character.body.build,
-      character.body.proportions,
-    ].map((part) => normalizeTextSegment(part ?? '')).filter(Boolean);
+    const bodyParts = [character.body.height, character.body.build, character.body.proportions]
+      .map((part) => normalizeTextSegment(part ?? ''))
+      .filter(Boolean);
     if (bodyParts.length > 0) fragments.push(bodyParts.join(', '));
   }
 
@@ -729,7 +779,9 @@ function describeCharacterIdentity(
   }
 
   if (resolved.costume) {
-    const costume = character.costumes.find((item) => item.id === resolved.costume || item.name === resolved.costume);
+    const costume = character.costumes.find(
+      (item) => item.id === resolved.costume || item.name === resolved.costume,
+    );
     pushVisualPart(fragments, costume?.description ?? resolved.costume);
   }
 
@@ -825,7 +877,8 @@ function detectConflicts(
 
   // Check built-in conflict groups
   for (const [groupName, memberIds] of Object.entries(CONFLICT_GROUPS)) {
-    const activeMembers: Array<{ presetId: string; intensity: number; category: PresetCategory }> = [];
+    const activeMembers: Array<{ presetId: string; intensity: number; category: PresetCategory }> =
+      [];
     for (const category of PRESET_STACK_ORDER) {
       const track = presetTracks[category];
       if (!track?.entries) continue;
@@ -844,7 +897,7 @@ function detectConflicts(
       diagnostics.push({
         type: 'conflict',
         severity: 'warning',
-        message: `Conflicting presets in group "${groupName}": using ${winner.presetId} (${winner.intensity}%), skipping ${losers.map(l => l.presetId).join(', ')}`,
+        message: `Conflicting presets in group "${groupName}": using ${winner.presetId} (${winner.intensity}%), skipping ${losers.map((l) => l.presetId).join(', ')}`,
         source: groupName,
       });
     }
@@ -871,7 +924,10 @@ function detectConflicts(
       diagnostics.push({
         type: 'conflict',
         severity: 'warning',
-        message: `Conflicting presets in group "${group}": using ${members[0].presetId} (${members[0].intensity}%), skipping ${members.slice(1).map(m => m.presetId).join(', ')}`,
+        message: `Conflicting presets in group "${group}": using ${members[0].presetId} (${members[0].intensity}%), skipping ${members
+          .slice(1)
+          .map((m) => m.presetId)
+          .join(', ')}`,
         source: group,
       });
     }
@@ -917,7 +973,10 @@ const CLOSE_UP_TOKENS = new Set(['close', 'closeup', 'close-up', 'face', 'macro'
 const WIDE_TOKENS = new Set(['wide', 'establishing', 'aerial', 'panorama', 'panoramic']);
 
 function tokenizePresetId(presetId: string): string[] {
-  return presetId.toLowerCase().split(/[-_\s]+/).filter((token) => token.length > 0);
+  return presetId
+    .toLowerCase()
+    .split(/[-_\s]+/)
+    .filter((token) => token.length > 0);
 }
 
 export function getCameraShot(presetTracks: PresetTrackSet | undefined): CameraShot {
@@ -944,7 +1003,12 @@ function firstSentence(text: string): string {
 export function buildCharacterDescription(resolved: ResolvedCharacter, shot: CameraShot): string {
   const { character, equipment, emotion, costume } = resolved;
 
-  const hasStructured = !!(character.face || character.hair || character.body || character.skinTone);
+  const hasStructured = !!(
+    character.face ||
+    character.hair ||
+    character.body ||
+    character.skinTone
+  );
 
   if (hasStructured) {
     const parts: string[] = [];
@@ -1115,11 +1179,13 @@ function _buildLocationDescription(location: Location): string {
   parts.push(firstPart);
 
   if (location.keyFeatures?.length) parts.push(location.keyFeatures.join(', '));
-  if (location.dominantColors?.length) parts.push(`dominated by ${location.dominantColors.join(' and ')} tones`);
+  if (location.dominantColors?.length)
+    parts.push(`dominated by ${location.dominantColors.join(' and ')} tones`);
   if (location.description) parts.push(location.description);
   if (location.lighting) parts.push(`${location.lighting} lighting`);
   if (location.mood) parts.push(`${location.mood} atmosphere`);
-  if (location.atmosphereKeywords?.length) parts.push(`${location.atmosphereKeywords.join(', ')} atmosphere`);
+  if (location.atmosphereKeywords?.length)
+    parts.push(`${location.atmosphereKeywords.join(', ')} atmosphere`);
   if (location.weather) parts.push(location.weather);
 
   return parts.filter(Boolean).join('. ');
@@ -1160,19 +1226,23 @@ function applyStyleGuideDefaults(
 
   // Apply explicit defaultPresets for categories with no entries
   if (styleGuide.defaultPresets) {
-    for (const [category, def] of Object.entries(styleGuide.defaultPresets) as Array<[PresetCategory, { presetId: string; intensity?: number; params?: Record<string, unknown> }]>) {
+    for (const [category, def] of Object.entries(styleGuide.defaultPresets) as Array<
+      [PresetCategory, { presetId: string; intensity?: number; params?: Record<string, unknown> }]
+    >) {
       const track = result[category];
       if (!track.entries.length && presetMap[def.presetId]) {
         (result as Record<PresetCategory, PresetTrack>)[category] = {
           ...track,
           intensity: def.intensity ?? 100,
-          entries: [{
-            id: `sg-${category}-0`,
-            category,
-            presetId: def.presetId,
-            params: (def.params ?? {}) as PresetParamMap,
-            order: 0,
-          }],
+          entries: [
+            {
+              id: `sg-${category}-0`,
+              category,
+              presetId: def.presetId,
+              params: (def.params ?? {}) as PresetParamMap,
+              order: 0,
+            },
+          ],
         };
       }
     }
@@ -1184,13 +1254,15 @@ function applyStyleGuideDefaults(
     if (presetMap[lookId]) {
       result.look = {
         ...result.look,
-        entries: [{
-          id: 'sg-look-art',
-          category: 'look' as const,
-          presetId: lookId,
-          params: {} as PresetParamMap,
-          order: 0,
-        }],
+        entries: [
+          {
+            id: 'sg-look-art',
+            category: 'look' as const,
+            presetId: lookId,
+            params: {} as PresetParamMap,
+            order: 0,
+          },
+        ],
       };
     }
   }
@@ -1198,25 +1270,27 @@ function applyStyleGuideDefaults(
   // Map lighting → scene preset (if scene track is empty)
   if (styleGuide.lighting && !result.scene.entries.length) {
     const lightingMap: Record<string, string> = {
-      'natural': '',
-      'studio': 'scene:high-key',
-      'dramatic': 'scene:low-key',
-      'neon': 'scene:neon-noir',
-      'rim': 'scene:rim-light',
+      natural: '',
+      studio: 'scene:high-key',
+      dramatic: 'scene:low-key',
+      neon: 'scene:neon-noir',
+      rim: 'scene:rim-light',
       'golden-hour': 'scene:golden-hour',
-      'moonlit': 'scene:moonlit-night',
+      moonlit: 'scene:moonlit-night',
     };
     const sceneId = lightingMap[styleGuide.lighting];
     if (sceneId && presetMap[sceneId]) {
       result.scene = {
         ...result.scene,
-        entries: [{
-          id: 'sg-scene-light',
-          category: 'scene' as const,
-          presetId: sceneId,
-          params: {} as PresetParamMap,
-          order: 0,
-        }],
+        entries: [
+          {
+            id: 'sg-scene-light',
+            category: 'scene' as const,
+            presetId: sceneId,
+            params: {} as PresetParamMap,
+            order: 0,
+          },
+        ],
       };
     }
   }
@@ -1224,7 +1298,7 @@ function applyStyleGuideDefaults(
   // Map colorPalette → look preset (append if look track exists, else set)
   if (styleGuide.colorPalette) {
     const colorId = `look:${styleGuide.colorPalette}`;
-    if (presetMap[colorId] && !result.look.entries.some(e => e.presetId === colorId)) {
+    if (presetMap[colorId] && !result.look.entries.some((e) => e.presetId === colorId)) {
       result.look = {
         ...result.look,
         entries: [
@@ -1277,7 +1351,10 @@ function compileVoice(input: PromptCompilerInput): CompiledPrompt {
     segments.push({ source: 'user-text', text: input.prompt.trim(), trimmed: false });
   }
 
-  const prompt = segments.map(s => s.text).filter(Boolean).join('. ');
+  const prompt = segments
+    .map((s) => s.text)
+    .filter(Boolean)
+    .join('. ');
 
   return {
     prompt,
@@ -1303,7 +1380,11 @@ function compileMusic(input: PromptCompilerInput): CompiledPrompt {
 
   // Tempo
   if (input.musicConfig?.tempo) {
-    segments.push({ source: 'music:tempo', text: `${input.musicConfig.tempo} tempo`, trimmed: false });
+    segments.push({
+      source: 'music:tempo',
+      text: `${input.musicConfig.tempo} tempo`,
+      trimmed: false,
+    });
   }
 
   // Key
@@ -1313,17 +1394,29 @@ function compileMusic(input: PromptCompilerInput): CompiledPrompt {
 
   // Time signature
   if (input.musicConfig?.timeSignature) {
-    segments.push({ source: 'music:time', text: `${input.musicConfig.timeSignature} time`, trimmed: false });
+    segments.push({
+      source: 'music:time',
+      text: `${input.musicConfig.timeSignature} time`,
+      trimmed: false,
+    });
   }
 
   // Instrumentation
   if (input.musicConfig?.instrumentation?.length) {
-    segments.push({ source: 'music:instruments', text: `featuring ${input.musicConfig.instrumentation.join(', ')}`, trimmed: false });
+    segments.push({
+      source: 'music:instruments',
+      text: `featuring ${input.musicConfig.instrumentation.join(', ')}`,
+      trimmed: false,
+    });
   }
 
   // Scene mood from location or emotion presets
   if (input.locations?.[0]?.mood) {
-    segments.push({ source: 'location:mood', text: `${input.locations[0].mood} mood`, trimmed: false });
+    segments.push({
+      source: 'location:mood',
+      text: `${input.locations[0].mood} mood`,
+      trimmed: false,
+    });
   }
 
   // Duration
@@ -1331,7 +1424,10 @@ function compileMusic(input: PromptCompilerInput): CompiledPrompt {
     segments.push({ source: 'duration', text: `${input.durationSeconds} seconds`, trimmed: false });
   }
 
-  const prompt = segments.map(s => s.text).filter(Boolean).join(', ');
+  const prompt = segments
+    .map((s) => s.text)
+    .filter(Boolean)
+    .join(', ');
 
   return {
     prompt,
@@ -1364,8 +1460,8 @@ function compileSfx(input: PromptCompilerInput): CompiledPrompt {
   // Material from equipment
   if (input.equipmentItems?.length) {
     const materials = input.equipmentItems
-      .filter(eq => eq.material)
-      .map(eq => `${eq.material} ${eq.name}`);
+      .filter((eq) => eq.material)
+      .map((eq) => `${eq.material} ${eq.name}`);
     if (materials.length) {
       segments.push({ source: 'equipment:material', text: materials.join(', '), trimmed: false });
     }
@@ -1378,7 +1474,11 @@ function compileSfx(input: PromptCompilerInput): CompiledPrompt {
       mid: 'medium distance',
       far: 'distant, ambient',
     };
-    segments.push({ source: 'sfx:placement', text: placementMap[input.sfxPlacement] ?? input.sfxPlacement, trimmed: false });
+    segments.push({
+      source: 'sfx:placement',
+      text: placementMap[input.sfxPlacement] ?? input.sfxPlacement,
+      trimmed: false,
+    });
   }
 
   // Duration
@@ -1386,7 +1486,10 @@ function compileSfx(input: PromptCompilerInput): CompiledPrompt {
     segments.push({ source: 'duration', text: `${input.durationSeconds} seconds`, trimmed: false });
   }
 
-  const prompt = segments.map(s => s.text).filter(Boolean).join(', ');
+  const prompt = segments
+    .map((s) => s.text)
+    .filter(Boolean)
+    .join(', ');
 
   return {
     prompt,
@@ -1420,11 +1523,14 @@ function compileCharacterSheet(
   const subjectParts: string[] = [];
   const genderLabel = character.gender ?? 'person';
   const ageLabel = character.age ? `${character.age}` : '';
-  subjectParts.push(`A consistent original character named ${character.name}, a ${ageLabel} ${genderLabel}, with:`);
+  subjectParts.push(
+    `A consistent original character named ${character.name}, a ${ageLabel} ${genderLabel}, with:`,
+  );
 
   if (character.face) {
     const faceParts: string[] = [];
-    if (character.face.eyeShape && character.face.eyeColor) faceParts.push(`${character.face.eyeShape} ${character.face.eyeColor} eyes`);
+    if (character.face.eyeShape && character.face.eyeColor)
+      faceParts.push(`${character.face.eyeShape} ${character.face.eyeColor} eyes`);
     else if (character.face.eyeColor) faceParts.push(`${character.face.eyeColor} eyes`);
     if (character.face.noseType) faceParts.push(`${character.face.noseType} nose`);
     if (character.face.lipShape) faceParts.push(`${character.face.lipShape} lips`);
@@ -1478,13 +1584,17 @@ function compileCharacterSheet(
   }
   // Also check costumes
   if (resolved.costume) {
-    const costumeObj = character.costumes.find(c => c.id === resolved.costume || c.name === resolved.costume);
+    const costumeObj = character.costumes.find(
+      (c) => c.id === resolved.costume || c.name === resolved.costume,
+    );
     if (costumeObj?.description) {
       outfitParts.unshift(costumeObj.description);
     }
   }
   if (outfitParts.length) {
-    sections.push(`\nOUTFIT (locked for consistency):\nCharacter wears:\n${outfitParts.join('\n')}\nRepeat exact outfit details to maintain consistency across all views.`);
+    sections.push(
+      `\nOUTFIT (locked for consistency):\nCharacter wears:\n${outfitParts.join('\n')}\nRepeat exact outfit details to maintain consistency across all views.`,
+    );
   }
 
   // 4. POSE & TURNAROUND
@@ -1542,7 +1652,8 @@ Sharp focus, ultra-detailed textures, consistent color grading
 Production-ready, animation/model sheet quality`);
 
   // 10. NEGATIVE
-  const negativePrompt = 'No style variation, no redesign, no extra limbs, no distorted anatomy, no inconsistent face, no changing outfit, no blur, no noise, no text, no watermark';
+  const negativePrompt =
+    'No style variation, no redesign, no extra limbs, no distorted anatomy, no inconsistent face, no changing outfit, no blur, no noise, no text, no watermark';
 
   // 11. TECHNICAL
   sections.push(`\nTECHNICAL:
@@ -1585,7 +1696,11 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   }
 
   // Apply style guide defaults to empty preset tracks
-  const effectivePresetTracks = applyStyleGuideDefaults(input.presetTracks, input.styleGuide, presetMap);
+  const effectivePresetTracks = applyStyleGuideDefaults(
+    input.presetTracks,
+    input.styleGuide,
+    presetMap,
+  );
 
   const trackedSegments: PromptSegment[] = [];
   const negativeSegments: string[] = [];
@@ -1595,7 +1710,9 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   // 1. User text (scene prompt)
   if (input.prompt?.trim()) {
     const normalized =
-      input.mode === 'image-to-video' ? stripForImageToVideo(input.prompt) : normalizeTextSegment(input.prompt);
+      input.mode === 'image-to-video'
+        ? stripForImageToVideo(input.prompt)
+        : normalizeTextSegment(input.prompt);
     if (normalized) {
       trackedSegments.push({ source: 'user-text', text: normalized, trimmed: false });
     }
@@ -1606,7 +1723,8 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     for (const text of input.connectedTextContent) {
       const trimmed =
         input.mode === 'image-to-video' ? stripForImageToVideo(text) : normalizeTextSegment(text);
-      if (trimmed) trackedSegments.push({ source: 'connected-text', text: trimmed, trimmed: false });
+      if (trimmed)
+        trackedSegments.push({ source: 'connected-text', text: trimmed, trimmed: false });
     }
   }
 
@@ -1668,7 +1786,11 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
       for (const { entry, effective } of withIntensity) {
         const fragment = resolveEntryPrompt(entry, presetMap);
         if (fragment) {
-          trackedSegments.push({ source: 'preset:' + entry.presetId, text: applyIntensityAndDirection(fragment, effective, entry.direction), trimmed: false });
+          trackedSegments.push({
+            source: 'preset:' + entry.presetId,
+            text: applyIntensityAndDirection(fragment, effective, entry.direction),
+            trimmed: false,
+          });
         }
 
         const preset = presetMap[entry.presetId];
@@ -1702,12 +1824,13 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     const styleParts: string[] = [];
     const artStyleApplied =
       input.styleGuide.artStyle &&
-      effectivePresetTracks?.look.entries.some(e => e.id === 'sg-look-art');
+      effectivePresetTracks?.look.entries.some((e) => e.id === 'sg-look-art');
     const colorPaletteApplied =
       input.styleGuide.colorPalette &&
-      effectivePresetTracks?.look.entries.some(e => e.id === 'sg-look-color');
+      effectivePresetTracks?.look.entries.some((e) => e.id === 'sg-look-color');
     if (artStyleApplied) styleParts.push(input.styleGuide.artStyle!.replace(/-/g, ' '));
-    if (colorPaletteApplied) styleParts.push(`${input.styleGuide.colorPalette!.replace(/-/g, ' ')} color palette`);
+    if (colorPaletteApplied)
+      styleParts.push(`${input.styleGuide.colorPalette!.replace(/-/g, ' ')} color palette`);
     if (styleParts.length) {
       trackedSegments.push({
         source: 'style-guide',
@@ -1727,7 +1850,11 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   diagnostics.push(...detectDuplicatePhrases(trackedSegments));
 
   // Budget pre-check
-  const rawPrompt = trackedSegments.map(s => normalizeTextSegment(s.text)).filter(Boolean).join('. ').replace(/\.\s*\./g, '. ');
+  const rawPrompt = trackedSegments
+    .map((s) => normalizeTextSegment(s.text))
+    .filter(Boolean)
+    .join('. ')
+    .replace(/\.\s*\./g, '. ');
   const wordCount = tokenizeForWordCount(rawPrompt).length;
   if (wordCount > budget.positive) {
     diagnostics.push({
@@ -1748,9 +1875,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   }
 
   const rawNegative = Array.from(new Set(negativeSegments)).join(', ');
-  const negativePrompt = rawNegative
-    ? trimToWordBudget(rawNegative, budget.negative)
-    : undefined;
+  const negativePrompt = rawNegative ? trimToWordBudget(rawNegative, budget.negative) : undefined;
 
   const params = Object.keys(adapterParams).length > 0 ? adapterParams : undefined;
 

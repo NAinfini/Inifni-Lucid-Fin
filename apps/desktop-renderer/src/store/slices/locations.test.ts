@@ -109,10 +109,7 @@ describe('locations slice', () => {
   it('sets, adds, updates, selects, and removes locations', () => {
     let state = locationsSlice.reducer(
       undefined,
-      setLocations([
-        makeLocation(),
-        makeLocation({ id: 'location-2', name: 'Alley' }),
-      ]),
+      setLocations([makeLocation(), makeLocation({ id: 'location-2', name: 'Alley' })]),
     );
     state = locationsSlice.reducer(
       state,

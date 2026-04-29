@@ -215,7 +215,11 @@ export function SingleReferenceImage({
                 key={variantHash}
                 hash={variantHash}
                 isActive={variantHash === mainRef.assetHash}
-                onClick={variantHash === mainRef.assetHash ? undefined : () => onSelectVariant?.(variantHash)}
+                onClick={
+                  variantHash === mainRef.assetHash
+                    ? undefined
+                    : () => onSelectVariant?.(variantHash)
+                }
                 onDelete={onDeleteVariant ? () => onDeleteVariant(variantHash) : undefined}
               />
             ))}

@@ -53,10 +53,7 @@ export const equipmentSlice = createSlice({
       refs.push(action.payload.refImage);
       item.referenceImages = refs;
     },
-    removeEquipmentRefImage(
-      state,
-      action: PayloadAction<{ equipmentId: string; slot: string }>,
-    ) {
+    removeEquipmentRefImage(state, action: PayloadAction<{ equipmentId: string; slot: string }>) {
       const item = state.items.find((e) => e.id === action.payload.equipmentId);
       if (!item) return;
       item.referenceImages = item.referenceImages.filter((r) => r.slot !== action.payload.slot);
@@ -87,10 +84,7 @@ export const equipmentSlice = createSlice({
     setFoldersLoading(state, action: PayloadAction<boolean>) {
       state.foldersLoading = action.payload;
     },
-    moveItemToFolder(
-      state,
-      action: PayloadAction<{ id: string; folderId: string | null }>,
-    ) {
+    moveItemToFolder(state, action: PayloadAction<{ id: string; folderId: string | null }>) {
       const item = state.items.find((e) => e.id === action.payload.id);
       if (item) item.folderId = action.payload.folderId;
     },

@@ -11,7 +11,8 @@ function loadLocale(): Locale {
     const sys = navigator.language;
     if (sys.startsWith('zh')) return 'zh-CN';
     return 'en-US';
-  } catch { /* localStorage unavailable (e.g. SSR or restricted context) — use default locale */
+  } catch {
+    /* localStorage unavailable (e.g. SSR or restricted context) — use default locale */
     return 'zh-CN';
   }
 }
@@ -26,7 +27,8 @@ export function setLocale(locale: Locale): void {
 
   try {
     localStorage.setItem('lucid-fin:locale', locale);
-  } catch { /* localStorage unavailable — locale preference will not persist */
+  } catch {
+    /* localStorage unavailable — locale preference will not persist */
     // localStorage unavailable
   }
 
@@ -63,7 +65,11 @@ export function localizePresetName(name: string): string {
   return localizeWithFallback('presetNames.' + name, name);
 }
 
-export function localizePresetDescription(category: string, name: string, fallbackDesc: string): string {
+export function localizePresetDescription(
+  category: string,
+  name: string,
+  fallbackDesc: string,
+): string {
   const localizedName = localizePresetName(name);
   const localizedCategory = localizeWithFallback('presetCategory.' + category, category);
   const template = t('presetDescriptionTemplate');

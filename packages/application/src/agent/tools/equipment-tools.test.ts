@@ -13,9 +13,20 @@ describe('createEquipmentTools', () => {
   it('assigns expected tags to equipment tools', () => {
     const tools = createEquipmentTools(createDeps());
 
-    expect(tools.find((tool) => tool.name === 'equipment.list')?.tags).toEqual(['equipment', 'read', 'search']);
-    expect(tools.find((tool) => tool.name === 'equipment.create')?.tags).toEqual(['equipment', 'mutate']);
-    expect(tools.find((tool) => tool.name === 'equipment.setRefImage')?.tags).toEqual(['equipment', 'generation', 'mutate']);
+    expect(tools.find((tool) => tool.name === 'equipment.list')?.tags).toEqual([
+      'equipment',
+      'read',
+      'search',
+    ]);
+    expect(tools.find((tool) => tool.name === 'equipment.create')?.tags).toEqual([
+      'equipment',
+      'mutate',
+    ]);
+    expect(tools.find((tool) => tool.name === 'equipment.setRefImage')?.tags).toEqual([
+      'equipment',
+      'generation',
+      'mutate',
+    ]);
     expect(tools.find((tool) => tool.name === 'equipment.setRefImage')?.tier).toBe(3);
   });
 
@@ -34,9 +45,36 @@ describe('createEquipmentTools', () => {
 
   describe('equipment.list query filter', () => {
     const items = [
-      { id: '1', name: 'Sword', type: 'weapon', description: 'sharp blade', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '2', name: 'Shield', type: 'armor', description: 'defensive plate', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '3', name: 'Lantern', type: 'tool', description: 'a glowing light source', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      {
+        id: '1',
+        name: 'Sword',
+        type: 'weapon',
+        description: 'sharp blade',
+        tags: [],
+        referenceImages: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '2',
+        name: 'Shield',
+        type: 'armor',
+        description: 'defensive plate',
+        tags: [],
+        referenceImages: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '3',
+        name: 'Lantern',
+        type: 'tool',
+        description: 'a glowing light source',
+        tags: [],
+        referenceImages: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
     ];
 
     function createDepsWithData() {
@@ -56,21 +94,30 @@ describe('createEquipmentTools', () => {
       const deps = createDepsWithData();
       const tool = createEquipmentTools(deps).find((t) => t.name === 'equipment.list')!;
       const result = await tool.execute({ query: 'sword' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, equipment: [expect.objectContaining({ id: '1' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, equipment: [expect.objectContaining({ id: '1' })] },
+      });
     });
 
     it('filters by type (OR logic)', async () => {
       const deps = createDepsWithData();
       const tool = createEquipmentTools(deps).find((t) => t.name === 'equipment.list')!;
       const result = await tool.execute({ query: 'armor' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, equipment: [expect.objectContaining({ id: '2' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, equipment: [expect.objectContaining({ id: '2' })] },
+      });
     });
 
     it('filters by description (OR logic)', async () => {
       const deps = createDepsWithData();
       const tool = createEquipmentTools(deps).find((t) => t.name === 'equipment.list')!;
       const result = await tool.execute({ query: 'glowing' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, equipment: [expect.objectContaining({ id: '3' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, equipment: [expect.objectContaining({ id: '3' })] },
+      });
     });
 
     it('returns empty when query matches nothing', async () => {
@@ -110,7 +157,9 @@ describe('createEquipmentTools', () => {
 
     it('ortho-grid default view builds a five-panel composite prompt', async () => {
       const deps = createDepsWithEquipment();
-      const tool = createEquipmentTools(deps).find((entry) => entry.name === 'equipment.generateRefImage');
+      const tool = createEquipmentTools(deps).find(
+        (entry) => entry.name === 'equipment.generateRefImage',
+      );
       if (!tool) throw new Error('Missing equipment.generateRefImage');
 
       await tool.execute({ id: 'eq-1' });
@@ -131,7 +180,9 @@ describe('createEquipmentTools', () => {
 
     it('extra-angle view includes the angle label in the prompt', async () => {
       const deps = createDepsWithEquipment();
-      const tool = createEquipmentTools(deps).find((entry) => entry.name === 'equipment.generateRefImage');
+      const tool = createEquipmentTools(deps).find(
+        (entry) => entry.name === 'equipment.generateRefImage',
+      );
       if (!tool) throw new Error('Missing equipment.generateRefImage');
 
       await tool.execute({
@@ -147,7 +198,9 @@ describe('createEquipmentTools', () => {
 
     it('rejects unrecognized view.kind with a descriptive error', async () => {
       const deps = createDepsWithEquipment();
-      const tool = createEquipmentTools(deps).find((entry) => entry.name === 'equipment.generateRefImage');
+      const tool = createEquipmentTools(deps).find(
+        (entry) => entry.name === 'equipment.generateRefImage',
+      );
       if (!tool) throw new Error('Missing equipment.generateRefImage');
 
       const result = await tool.execute({ id: 'eq-1', view: { kind: 'bogus' } });

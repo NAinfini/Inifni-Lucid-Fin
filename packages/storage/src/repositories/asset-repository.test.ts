@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import type { AssetHash } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { AssetRepository } from './asset-repository.js';
 
 const SCHEMA = `
@@ -91,7 +88,7 @@ describe('AssetRepository', () => {
   });
 
   it('query orders by createdAt DESC', () => {
-    repo.insert({ hash: 'first',  type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
+    repo.insert({ hash: 'first', type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
     repo.insert({ hash: 'middle', type: 'image', format: 'png', fileSize: 1, createdAt: 5 });
     repo.insert({ hash: 'newest', type: 'image', format: 'png', fileSize: 1, createdAt: 9 });
     const { rows } = repo.query({});
@@ -154,9 +151,9 @@ describe('AssetRepository', () => {
   });
 
   it('searchByTokens returns jaccard-sorted results; 0 when no overlap', () => {
-    repo.insertEmbedding('full',    'full match',    ['x', 'y', 'z'], 'm');
-    repo.insertEmbedding('partial', 'partial match', ['x', 'y'],      'm');
-    repo.insertEmbedding('none',    'no match',      ['p', 'q'],      'm');
+    repo.insertEmbedding('full', 'full match', ['x', 'y', 'z'], 'm');
+    repo.insertEmbedding('partial', 'partial match', ['x', 'y'], 'm');
+    repo.insertEmbedding('none', 'no match', ['p', 'q'], 'm');
     const results = repo.searchByTokens(['x', 'y', 'z'], 10);
     expect(results.length).toBe(2);
     expect(results[0].hash).toBe('full');
@@ -178,10 +175,7 @@ describe('AssetRepository', () => {
 
   it('methods accept a Tx argument', () => {
     const tx = db.transaction(() => {
-      repo.insert(
-        { hash: 'tx', type: 'image', format: 'png', fileSize: 1, createdAt: 1 },
-        db,
-      );
+      repo.insert({ hash: 'tx', type: 'image', format: 'png', fileSize: 1, createdAt: 1 }, db);
     });
     tx();
     expect(repo.query({}).rows.map((r) => r.hash)).toEqual(['tx']);

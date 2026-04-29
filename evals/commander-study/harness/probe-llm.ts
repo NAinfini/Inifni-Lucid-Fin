@@ -7,10 +7,11 @@ async function pingOne(spec: ReturnType<typeof getCodexPlus>, model?: string) {
   console.log(`[${label}] complete...`);
   const t0 = Date.now();
   try {
-    const out = await adapter.complete(
-      [{ role: 'user', content: 'Reply with one word: pong' }],
-      { maxTokens: 16, temperature: 0, ...(model ? { model } : {}) },
-    );
+    const out = await adapter.complete([{ role: 'user', content: 'Reply with one word: pong' }], {
+      maxTokens: 16,
+      temperature: 0,
+      ...(model ? { model } : {}),
+    });
     console.log(`  -> ${JSON.stringify(out)}  (${Date.now() - t0}ms)`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

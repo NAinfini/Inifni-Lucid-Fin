@@ -16,11 +16,14 @@ export function SettingsAppearanceSection({
   theme,
 }: SettingsAppearanceSectionProps) {
   const effective = resolveEffectiveTheme(theme);
-  const themeIcon = theme === 'auto'
-    ? <Monitor className="h-3.5 w-3.5" />
-    : effective === 'dark'
-      ? <Moon className="h-3.5 w-3.5" />
-      : <Sun className="h-3.5 w-3.5" />;
+  const themeIcon =
+    theme === 'auto' ? (
+      <Monitor className="h-3.5 w-3.5" />
+    ) : effective === 'dark' ? (
+      <Moon className="h-3.5 w-3.5" />
+    ) : (
+      <Sun className="h-3.5 w-3.5" />
+    );
 
   const themeButton = (value: Theme, label: string, icon: React.ReactNode) => (
     <button

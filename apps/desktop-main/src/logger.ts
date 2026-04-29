@@ -88,7 +88,8 @@ export function log(level: LogLevel, message: string, data?: Record<string, unkn
     try {
       rotateIfNeeded();
       appendFileSync(logFile, line, 'utf8');
-    } catch { /* log write failed (disk full, permissions) — don't crash on log failure */
+    } catch {
+      /* log write failed (disk full, permissions) — don't crash on log failure */
       /* don't crash on log failure */
     }
   }
@@ -116,7 +117,8 @@ function rotateIfNeeded(): void {
       if (existsSync(from)) renameSync(from, to);
     }
     renameSync(logFile, `${logFile}.1`);
-  } catch { /* log rotation failed (permissions, race condition) — leave current log file as-is */
+  } catch {
+    /* log rotation failed (permissions, race condition) — leave current log file as-is */
     /* ignore rotation errors */
   }
 }
@@ -137,9 +139,10 @@ function createBufferedEntry(
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: Date.now(),
     level,
-    category: typeof data?.category === 'string' && data.category.trim().length > 0
-      ? data.category
-      : 'main',
+    category:
+      typeof data?.category === 'string' && data.category.trim().length > 0
+        ? data.category
+        : 'main',
     message,
     detail: buildDetail(data),
   };
@@ -165,7 +168,8 @@ function buildDetail(data?: Record<string, unknown>): string | undefined {
 function safeStringify(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
-  } catch { /* circular reference or non-serializable value — fall back to String() */
+  } catch {
+    /* circular reference or non-serializable value — fall back to String() */
     return String(value);
   }
 }

@@ -20,6 +20,7 @@ import { ColorStyleRepository } from './repositories/color-style-repository.js';
 import { DependencyRepository } from './repositories/dependency-repository.js';
 import { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
 import { SCHEMA_SQL } from './schema-sql.js';
+import { runSqliteMigrations } from './migrations/index.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -39,19 +40,25 @@ const Database = require('better-sqlite3') as typeof BetterSqlite3;
  * handled by deleting the DB file; this list only covers additive drift.
  */
 const CANVAS_SETTINGS_COLUMNS: ReadonlyArray<{ name: string; ddl: string }> = [
-  { name: 'style_plate',        ddl: 'ALTER TABLE canvases ADD COLUMN style_plate TEXT' },
-  { name: 'negative_prompt',    ddl: 'ALTER TABLE canvases ADD COLUMN negative_prompt TEXT' },
-  { name: 'default_width',      ddl: 'ALTER TABLE canvases ADD COLUMN default_width INTEGER' },
-  { name: 'default_height',     ddl: 'ALTER TABLE canvases ADD COLUMN default_height INTEGER' },
-  { name: 'publish_width',      ddl: 'ALTER TABLE canvases ADD COLUMN publish_width INTEGER' },
-  { name: 'publish_height',     ddl: 'ALTER TABLE canvases ADD COLUMN publish_height INTEGER' },
-  { name: 'publish_video_width',  ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_width INTEGER' },
-  { name: 'publish_video_height', ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_height INTEGER' },
-  { name: 'aspect_ratio',       ddl: 'ALTER TABLE canvases ADD COLUMN aspect_ratio TEXT' },
-  { name: 'llm_provider_id',    ddl: 'ALTER TABLE canvases ADD COLUMN llm_provider_id TEXT' },
-  { name: 'image_provider_id',  ddl: 'ALTER TABLE canvases ADD COLUMN image_provider_id TEXT' },
-  { name: 'video_provider_id',  ddl: 'ALTER TABLE canvases ADD COLUMN video_provider_id TEXT' },
-  { name: 'audio_provider_id',  ddl: 'ALTER TABLE canvases ADD COLUMN audio_provider_id TEXT' },
+  { name: 'style_plate', ddl: 'ALTER TABLE canvases ADD COLUMN style_plate TEXT' },
+  { name: 'negative_prompt', ddl: 'ALTER TABLE canvases ADD COLUMN negative_prompt TEXT' },
+  { name: 'default_width', ddl: 'ALTER TABLE canvases ADD COLUMN default_width INTEGER' },
+  { name: 'default_height', ddl: 'ALTER TABLE canvases ADD COLUMN default_height INTEGER' },
+  { name: 'publish_width', ddl: 'ALTER TABLE canvases ADD COLUMN publish_width INTEGER' },
+  { name: 'publish_height', ddl: 'ALTER TABLE canvases ADD COLUMN publish_height INTEGER' },
+  {
+    name: 'publish_video_width',
+    ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_width INTEGER',
+  },
+  {
+    name: 'publish_video_height',
+    ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_height INTEGER',
+  },
+  { name: 'aspect_ratio', ddl: 'ALTER TABLE canvases ADD COLUMN aspect_ratio TEXT' },
+  { name: 'llm_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN llm_provider_id TEXT' },
+  { name: 'image_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN image_provider_id TEXT' },
+  { name: 'video_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN video_provider_id TEXT' },
+  { name: 'audio_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN audio_provider_id TEXT' },
 ];
 
 function addMissingCanvasColumns(db: BetterSqlite3.Database): void {
@@ -63,7 +70,6 @@ function addMissingCanvasColumns(db: BetterSqlite3.Database): void {
     }
   }
 }
-
 
 export interface RepairResult {
   recoveredTables: string[];
@@ -149,7 +155,17 @@ export class SqliteIndex implements IStorageLayer {
   }
 
   close(): void {
+    try {
+      this.db.pragma('wal_checkpoint(TRUNCATE)');
+    } catch {
+      /* best-effort */
+    }
     this.db.close();
+  }
+
+  /** Run pending versioned schema migrations (ALTER TABLE, new columns, etc.) */
+  migrate(): void {
+    runSqliteMigrations(this.db, this.db.name);
   }
 
   /** Run integrity check -- throws if DB is corrupted */
@@ -160,17 +176,63 @@ export class SqliteIndex implements IStorageLayer {
     }
   }
 
+  private rebuildRepos(): void {
+    this.sessions = new SessionRepository(this.db);
+    this.commanderEvents = new CommanderEventRepository(this.db);
+    this.jobs = new JobRepository(this.db);
+    this.assets = new AssetRepository(this.db);
+    this.canvases = new CanvasRepository(this.db);
+    this.entities = new EntityRepository(this.db);
+    this.folders = new FolderRepository(this.db);
+    this.seriesRepo = new SeriesRepository(this.db);
+    this.presets = new PresetRepository(this.db);
+    this.shotTemplates = new ShotTemplateRepository(this.db);
+    this.snapshots = new SnapshotRepository(this.db);
+    this.workflows = new WorkflowRepository(this.db);
+    this.scripts = new ScriptRepository(this.db);
+    this.colorStyles = new ColorStyleRepository(this.db);
+    this.dependencies = new DependencyRepository(this.db);
+    this.projectSettings = new ProjectSettingsRepository(this.db);
+  }
+
   /** Attempt to repair by exporting to SQL and reimporting into a fresh DB */
   repair(): RepairResult {
     const result: RepairResult = { recoveredTables: [], failedTables: [], backupReadable: true };
     const dbPath = this.db.name;
     const backupPath = `${dbPath}.corrupt.${Date.now()}`;
+
+    // Flush WAL to main file before closing to avoid data loss.
+    try {
+      this.db.pragma('wal_checkpoint(TRUNCATE)');
+    } catch {
+      /* best-effort */
+    }
     this.db.close();
     fs.renameSync(dbPath, backupPath);
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.db.exec(SCHEMA_SQL);
+
+    // Create the new DB in a temp path; only move it into place on success.
+    const tempPath = `${dbPath}.repair.${Date.now()}`;
+    let newDb: BetterSqlite3.Database;
+    try {
+      newDb = new Database(tempPath);
+      newDb.pragma('journal_mode = WAL');
+      newDb.pragma('foreign_keys = ON');
+      newDb.exec(SCHEMA_SQL);
+    } catch (err) {
+      // New DB creation failed — restore the backup and re-open it.
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {
+        /* may not exist */
+      }
+      fs.renameSync(backupPath, dbPath);
+      this.db = new Database(dbPath);
+      this.db.pragma('journal_mode = WAL');
+      this.db.pragma('foreign_keys = ON');
+      this.rebuildRepos();
+      throw err;
+    }
+
     try {
       const old = new Database(backupPath, { readonly: true });
       const tables = old
@@ -180,14 +242,21 @@ export class SqliteIndex implements IStorageLayer {
         .all() as Array<{ name: string }>;
       for (const { name } of tables) {
         try {
-          const rows = old.prepare(`SELECT * FROM ${name}`).all() as Array<Record<string, unknown>>;
-          if (!rows.length) { result.recoveredTables.push(name); continue; }
+          const safeName = `"${name.replace(/"/g, '""')}"`;
+          const rows = old.prepare(`SELECT * FROM ${safeName}`).all() as Array<
+            Record<string, unknown>
+          >;
+          if (!rows.length) {
+            result.recoveredTables.push(name);
+            continue;
+          }
           const cols = Object.keys(rows[0]);
+          const safeCols = cols.map((c) => `"${c.replace(/"/g, '""')}"`);
           const placeholders = cols.map(() => '?').join(', ');
-          const insert = this.db.prepare(
-            `INSERT OR IGNORE INTO ${name} (${cols.join(', ')}) VALUES (${placeholders})`,
+          const insert = newDb.prepare(
+            `INSERT OR IGNORE INTO ${safeName} (${safeCols.join(', ')}) VALUES (${placeholders})`,
           );
-          const tx = this.db.transaction(() => {
+          const tx = newDb.transaction(() => {
             for (const row of rows) insert.run(...cols.map((c) => row[c]));
           });
           tx();
@@ -205,23 +274,33 @@ export class SqliteIndex implements IStorageLayer {
       console.warn(`[repair] Backup database unreadable: ${msg}`);
     }
 
-    // Repo handles pin to the live db — rebuild after the swap above.
-    this.sessions = new SessionRepository(this.db);
-    this.commanderEvents = new CommanderEventRepository(this.db);
-    this.jobs = new JobRepository(this.db);
-    this.assets = new AssetRepository(this.db);
-    this.canvases = new CanvasRepository(this.db);
-    this.entities = new EntityRepository(this.db);
-    this.folders = new FolderRepository(this.db);
-    this.seriesRepo = new SeriesRepository(this.db);
-    this.presets = new PresetRepository(this.db);
-    this.shotTemplates = new ShotTemplateRepository(this.db);
-    this.snapshots = new SnapshotRepository(this.db);
-    this.workflows = new WorkflowRepository(this.db);
-    this.scripts = new ScriptRepository(this.db);
-    this.colorStyles = new ColorStyleRepository(this.db);
-    this.dependencies = new DependencyRepository(this.db);
-    this.projectSettings = new ProjectSettingsRepository(this.db);
+    // Checkpoint the new DB's WAL before moving into final position.
+    try {
+      newDb.pragma('wal_checkpoint(TRUNCATE)');
+    } catch {
+      /* best-effort */
+    }
+    newDb.close();
+
+    // Atomic rename: temp → final path.
+    fs.renameSync(tempPath, dbPath);
+    // Clean up any WAL/SHM left from the temp path.
+    try {
+      fs.unlinkSync(`${tempPath}-wal`);
+    } catch {
+      /* may not exist */
+    }
+    try {
+      fs.unlinkSync(`${tempPath}-shm`);
+    } catch {
+      /* may not exist */
+    }
+
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
+
+    this.rebuildRepos();
     return result;
   }
 

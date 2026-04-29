@@ -38,7 +38,18 @@ export {
   retryWorkflow,
 } from './workflows.js';
 export { assetsSlice, setAssets } from './assets.js';
-export { uiSlice, setActivePanel, togglePanel, setPanelWidth, setRightPanel, toggleRightPanel, setRightPanelWidth, setTheme, type Theme, type RightPanelId } from './ui.js';
+export {
+  uiSlice,
+  setActivePanel,
+  togglePanel,
+  setPanelWidth,
+  setRightPanel,
+  toggleRightPanel,
+  setRightPanelWidth,
+  setTheme,
+  type Theme,
+  type RightPanelId,
+} from './ui.js';
 export {
   settingsSlice,
   setRenderPreset,

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { IpcProcessPrompt } from '@lucid-fin/contracts';
 import { RotateCcw, Save, SquarePen } from 'lucide-react';
-import { localizeProcessPromptDescription, localizeProcessPromptName, localizeToolName, t } from '../../i18n.js';
+import {
+  localizeProcessPromptDescription,
+  localizeProcessPromptName,
+  localizeToolName,
+  t,
+} from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
 import { getAPI, type LucidAPI } from '../../utils/api.js';
 import {
@@ -89,7 +94,8 @@ export function SettingsProcessPromptsSection({
 
   const handleSave = useCallback(async () => {
     if (!api || !editingPrompt) return;
-    const nextValue = drafts[editingPrompt.processKey] ?? editingPrompt.customValue ?? editingPrompt.defaultValue;
+    const nextValue =
+      drafts[editingPrompt.processKey] ?? editingPrompt.customValue ?? editingPrompt.defaultValue;
     setSavingKey(editingPrompt.processKey);
     setError(null);
     try {
@@ -103,41 +109,52 @@ export function SettingsProcessPromptsSection({
       );
       setEditingKey(null);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : t('settings.processGuides.saveFailed'));
+      setError(
+        saveError instanceof Error ? saveError.message : t('settings.processGuides.saveFailed'),
+      );
     } finally {
       setSavingKey(null);
     }
   }, [api, drafts, editingPrompt]);
 
-  const handleReset = useCallback(async (processKey: string) => {
-    if (!api) return;
-    setSavingKey(processKey);
-    setError(null);
-    try {
-      await api.reset(processKey);
-      setPrompts((current) =>
-        current.map((prompt) =>
-          prompt.processKey === processKey ? { ...prompt, customValue: null } : prompt,
-        ),
-      );
-      setDrafts((current) => {
-        if (!current[processKey]) return current;
-        const next = { ...current };
-        delete next[processKey];
-        return next;
-      });
-      if (editingKey === processKey) {
-        setEditingKey(null);
+  const handleReset = useCallback(
+    async (processKey: string) => {
+      if (!api) return;
+      setSavingKey(processKey);
+      setError(null);
+      try {
+        await api.reset(processKey);
+        setPrompts((current) =>
+          current.map((prompt) =>
+            prompt.processKey === processKey ? { ...prompt, customValue: null } : prompt,
+          ),
+        );
+        setDrafts((current) => {
+          if (!current[processKey]) return current;
+          const next = { ...current };
+          delete next[processKey];
+          return next;
+        });
+        if (editingKey === processKey) {
+          setEditingKey(null);
+        }
+      } catch (resetError) {
+        setError(
+          resetError instanceof Error
+            ? resetError.message
+            : t('settings.processGuides.resetFailed'),
+        );
+      } finally {
+        setSavingKey(null);
       }
-    } catch (resetError) {
-      setError(resetError instanceof Error ? resetError.message : t('settings.processGuides.resetFailed'));
-    } finally {
-      setSavingKey(null);
-    }
-  }, [api, editingKey]);
+    },
+    [api, editingKey],
+  );
 
   if (loading) {
-    return <div className="text-sm text-muted-foreground">{t('settings.processGuides.loading')}</div>;
+    return (
+      <div className="text-sm text-muted-foreground">{t('settings.processGuides.loading')}</div>
+    );
   }
 
   return (
@@ -152,7 +169,8 @@ export function SettingsProcessPromptsSection({
         {prompts.map((prompt) => {
           const isEditing = editingKey === prompt.processKey;
           const isSaving = savingKey === prompt.processKey;
-          const currentValue = drafts[prompt.processKey] ?? prompt.customValue ?? prompt.defaultValue;
+          const currentValue =
+            drafts[prompt.processKey] ?? prompt.customValue ?? prompt.defaultValue;
           const localizedName = localizeProcessPromptName(prompt.processKey, prompt.name);
           const localizedDescription = localizeProcessPromptDescription(
             prompt.processKey,
@@ -179,7 +197,9 @@ export function SettingsProcessPromptsSection({
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] leading-snug text-muted-foreground">{localizedDescription}</p>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    {localizedDescription}
+                  </p>
                   {triggerTools.length > 0 && (
                     <div className="flex flex-wrap items-center gap-1 pt-0.5">
                       <span className="text-[10px] font-medium text-muted-foreground">

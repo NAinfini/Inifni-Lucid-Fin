@@ -59,7 +59,9 @@ describe('character prompt builders', () => {
     const prompt = buildCharacterAppearancePrompt(createCharacter());
 
     expect(prompt).toContain('Face: almond eyes, hazel irises');
-    expect(prompt).toContain('Hair: black hair, shoulder-length length, braided style, wavy texture');
+    expect(prompt).toContain(
+      'Hair: black hair, shoulder-length length, braided style, wavy texture',
+    );
     expect(prompt).toContain('Costume materials and textures:');
     expect(prompt).toContain('Field Coat');
     expect(prompt).toContain('waxed canvas coat with matte brass buckles');

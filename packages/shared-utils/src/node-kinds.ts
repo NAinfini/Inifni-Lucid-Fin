@@ -16,15 +16,8 @@
  *     backdrop: () => 'Backdrop',
  *   });
  */
-import type {
-  NodeKind,
-  GeneratableNodeKind,
-  VisualNodeKind,
-} from '@lucid-fin/contracts';
-import {
-  GENERATABLE_NODE_KINDS,
-  VISUAL_NODE_KINDS,
-} from '@lucid-fin/contracts';
+import type { NodeKind, GeneratableNodeKind, VisualNodeKind } from '@lucid-fin/contracts';
+import { GENERATABLE_NODE_KINDS, VISUAL_NODE_KINDS } from '@lucid-fin/contracts';
 import { assertNever } from './assert-never.js';
 
 type NodeHandlers<R> = {
@@ -38,12 +31,18 @@ type NodeHandlers<R> = {
  */
 export function matchNode<R>(kind: NodeKind, handlers: NodeHandlers<R>): R {
   switch (kind) {
-    case 'image':    return handlers.image(kind);
-    case 'video':    return handlers.video(kind);
-    case 'audio':    return handlers.audio(kind);
-    case 'text':     return handlers.text(kind);
-    case 'backdrop': return handlers.backdrop(kind);
-    default:         return assertNever(kind, 'matchNode');
+    case 'image':
+      return handlers.image(kind);
+    case 'video':
+      return handlers.video(kind);
+    case 'audio':
+      return handlers.audio(kind);
+    case 'text':
+      return handlers.text(kind);
+    case 'backdrop':
+      return handlers.backdrop(kind);
+    default:
+      return assertNever(kind, 'matchNode');
   }
 }
 

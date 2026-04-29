@@ -101,7 +101,8 @@ export function registerColorStyleHandlers(
     db.repos.colorStyles.delete(args.id);
   });
 
-  safeHandle(ipcMain,
+  safeHandle(
+    ipcMain,
     'colorStyle:extract',
     async (_e, args: { assetHash: string; assetType: 'image' | 'video' }) => {
       if (!args?.assetHash) throw new Error('assetHash is required');

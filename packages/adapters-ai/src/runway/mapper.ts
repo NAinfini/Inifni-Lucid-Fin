@@ -41,7 +41,9 @@ export function parseRunwayTask(data: Record<string, unknown>): {
   return {
     taskId: String(data['id'] ?? ''),
     status: String(data['status'] ?? ''),
-    percentage: normalizePercentage(data['progress'] ?? data['percentage'] ?? data['progress_percentage']),
+    percentage: normalizePercentage(
+      data['progress'] ?? data['percentage'] ?? data['progress_percentage'],
+    ),
     currentStep: firstString(data['progress_text'], data['stage'], data['status_text']),
     queuePosition: firstNumber(data['queue_position'], data['queuePosition']),
     estimatedWaitTime: firstNumber(

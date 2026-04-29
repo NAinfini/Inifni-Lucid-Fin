@@ -40,11 +40,7 @@ import { ContextGraph } from './graph/context-graph.js';
 import { serializeForOpenAI } from './graph/serializers/openai.js';
 import { freshContextItemId } from '@lucid-fin/contracts-parse';
 import type { ContextItem, ToolKey, LLMToolDefinition } from '@lucid-fin/contracts';
-import {
-  type StampedStreamEvent,
-  type StreamEmit,
-  makeStampedEmit,
-} from './stream-emit.js';
+import { type StampedStreamEvent, type StreamEmit, makeStampedEmit } from './stream-emit.js';
 import { freshRunId } from './agent-run-id.js';
 import type { TodoRunStore } from './tools/todo-run-store.js';
 import {
@@ -107,10 +103,7 @@ export interface AgentOptions {
    * image-node-generation. Return `null` if the node cannot be resolved;
    * detection falls back to the LLM-provided arg.
    */
-  resolveCanvasNodeType?: (
-    canvasId: string,
-    nodeId: string,
-  ) => 'image' | 'video' | 'audio' | null;
+  resolveCanvasNodeType?: (canvasId: string, nodeId: string) => 'image' | 'video' | 'audio' | null;
   /**
    * Optional canvas settings lookup used to pre-flight `style-plate-lock`
    * when the model is about to invoke a generation tool on a canvas whose
@@ -119,9 +112,7 @@ export interface AgentOptions {
    * when the plate isn't locked yet. When omitted, the pre-flight path is
    * simply skipped — existing consumers keep their current behaviour.
    */
-  resolveCanvasSettings?: (
-    canvasId: string,
-  ) => { stylePlate?: string | null } | null;
+  resolveCanvasSettings?: (canvasId: string) => { stylePlate?: string | null } | null;
   todoStore?: TodoRunStore;
 }
 
@@ -158,10 +149,7 @@ const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOK
  * fill them — saves tokens and eliminates a class of "required field missing"
  * errors.
  */
-function stripInjectedParamsFromTool(
-  tool: LLMToolDefinition,
-  params: string[],
-): LLMToolDefinition {
+function stripInjectedParamsFromTool(tool: LLMToolDefinition, params: string[]): LLMToolDefinition {
   const props = tool.parameters.properties;
   const hasAny = params.some((p) => p in props);
   if (!hasAny) return tool;
@@ -216,10 +204,21 @@ function isProcessCategory(value: unknown): value is ProcessCategory {
  * standalone spec (`style-plate-lock`); new specs can be added to the spec
  * list without touching this constant.
  */
-type ProcessPromptKey = ProcessCategory | 'style-plate-lock' | 'entities-before-generation' | 'batch-create-guidance' | 'prompt-quality-gate' | 'story-workflow-phase';
+type ProcessPromptKey =
+  | ProcessCategory
+  | 'style-plate-lock'
+  | 'entities-before-generation'
+  | 'batch-create-guidance'
+  | 'prompt-quality-gate'
+  | 'story-workflow-phase';
 
-const STANDALONE_SPEC_KEYS: ReadonlySet<Exclude<ProcessPromptKey, ProcessCategory>> =
-  new Set(['style-plate-lock', 'entities-before-generation', 'batch-create-guidance', 'prompt-quality-gate', 'story-workflow-phase']);
+const STANDALONE_SPEC_KEYS: ReadonlySet<Exclude<ProcessPromptKey, ProcessCategory>> = new Set([
+  'style-plate-lock',
+  'entities-before-generation',
+  'batch-create-guidance',
+  'prompt-quality-gate',
+  'story-workflow-phase',
+]);
 
 function isProcessPromptKey(value: unknown): value is ProcessPromptKey {
   if (typeof value !== 'string') return false;
@@ -511,7 +510,9 @@ export class AgentOrchestrator {
   /**
    * Trigger context compaction from outside (e.g. tool.compact, UI button).
    */
-  async compactNow(instructions?: string): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
+  async compactNow(
+    instructions?: string,
+  ): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
     return this.contextManager.compactNow(this.activeMessages, instructions);
   }
 
@@ -556,8 +557,16 @@ export class AgentOrchestrator {
           return { role: 'tool', content: entry.content, toolCallId: entry.toolCallId };
         }
         const msg: LLMMessage = { role: entry.role, content: entry.content };
-        if (entry.role === 'assistant' && Array.isArray(entry.toolCalls) && entry.toolCalls.length > 0) {
-          msg.toolCalls = entry.toolCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.arguments }));
+        if (
+          entry.role === 'assistant' &&
+          Array.isArray(entry.toolCalls) &&
+          entry.toolCalls.length > 0
+        ) {
+          msg.toolCalls = entry.toolCalls.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            arguments: tc.arguments,
+          }));
         }
         return msg;
       }),
@@ -614,15 +623,18 @@ export class AgentOrchestrator {
     this.evidenceLedger = new EvidenceLedger();
     this.currentIntent = classifyIntent({
       userMessage,
-      canvasHasNodes: Array.isArray((context.extra as { canvasNodes?: unknown[] } | undefined)?.canvasNodes)
-        ? ((context.extra as { canvasNodes?: unknown[] }).canvasNodes!.length > 0)
+      canvasHasNodes: Array.isArray(
+        (context.extra as { canvasNodes?: unknown[] } | undefined)?.canvasNodes,
+      )
+        ? (context.extra as { canvasNodes?: unknown[] }).canvasNodes!.length > 0
         : undefined,
     });
     this.lastAssistantText = '';
 
     // 1H: Surface classified intent to the LLM via the system prompt's
     // dynamic context section so the model can calibrate its behavior.
-    const intentWorkflow = 'workflow' in this.currentIntent ? this.currentIntent.workflow : undefined;
+    const intentWorkflow =
+      'workflow' in this.currentIntent ? this.currentIntent.workflow : undefined;
     const intentStr = intentWorkflow
       ? `${this.currentIntent.kind} (workflow: ${intentWorkflow})`
       : this.currentIntent.kind;
@@ -653,9 +665,7 @@ export class AgentOrchestrator {
           (equipMatch ? Number(equipMatch[2]) : 0);
       }
 
-      const selectedNodeIds = Array.isArray(extra.selectedNodeIds)
-        ? extra.selectedNodeIds
-        : [];
+      const selectedNodeIds = Array.isArray(extra.selectedNodeIds) ? extra.selectedNodeIds : [];
 
       // Style plate — check the snapshot text. A line "Style plate: NOT SET"
       // means no plate; anything else means one exists.
@@ -700,7 +710,8 @@ export class AgentOrchestrator {
 
     this.transcriptIndex = new TranscriptIndex();
 
-    const canvasId = typeof context.extra?.canvasId === 'string' ? context.extra.canvasId : undefined;
+    const canvasId =
+      typeof context.extra?.canvasId === 'string' ? context.extra.canvasId : undefined;
 
     // Pre-populate transcript index from history messages
     for (let i = 0; i < messages.length; i++) {
@@ -777,7 +788,11 @@ export class AgentOrchestrator {
         // Rebuild system prompt with step-aware abbreviation (saves tokens after step 5)
         // and consolidated process prompts as a structured section.
         if (steps > 1) {
-          systemPrompt = this.contextManager.buildSystemPrompt(context, steps, activeProcessPromptData);
+          systemPrompt = this.contextManager.buildSystemPrompt(
+            context,
+            steps,
+            activeProcessPromptData,
+          );
           if (messages.length > 0 && messages[0].role === 'system') {
             messages[0] = { ...messages[0], content: systemPrompt };
           }
@@ -785,7 +800,11 @@ export class AgentOrchestrator {
           // Step 1: initial system prompt was already built, but process
           // prompts may have been injected by activateInitialProcessPrompts.
           // Rebuild to include them as a section.
-          systemPrompt = this.contextManager.buildSystemPrompt(context, steps, activeProcessPromptData);
+          systemPrompt = this.contextManager.buildSystemPrompt(
+            context,
+            steps,
+            activeProcessPromptData,
+          );
           if (messages.length > 0 && messages[0].role === 'system') {
             messages[0] = { ...messages[0], content: systemPrompt };
           }
@@ -801,12 +820,20 @@ export class AgentOrchestrator {
         const activeToolNames = new Set(loadedToolNames);
         for (const name of discoveredToolNames) activeToolNames.add(name);
 
-        let availableTools = compactNamedToolDefinitions(this.tools, Array.from(activeToolNames), context.page);
+        let availableTools = compactNamedToolDefinitions(
+          this.tools,
+          Array.from(activeToolNames),
+          context.page,
+        );
 
         // Adaptive tool compaction
         const messageChars = measureMessageChars(messages);
         const { tools: compactedTools, evictedNames } = adaptiveToolCompaction(
-          availableTools, toolLastUsedStep, steps, messageChars, inLoopCharBudget,
+          availableTools,
+          toolLastUsedStep,
+          steps,
+          messageChars,
+          inLoopCharBudget,
         );
         availableTools = compactedTools;
         for (const evicted of evictedNames) discoveredToolNames.delete(evicted);
@@ -828,9 +855,10 @@ export class AgentOrchestrator {
         if (this.contextGraph) {
           this.toolExecutor.opts.contextGraph = this.contextGraph;
         }
-        const graphToolsInput = injectedParams.length > 0
-          ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
-          : availableTools;
+        const graphToolsInput =
+          injectedParams.length > 0
+            ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
+            : availableTools;
         if (!this.contextGraph) {
           throw new Error('ContextGraph missing — execute() was not initialized correctly.');
         }
@@ -872,7 +900,8 @@ export class AgentOrchestrator {
           messageCount: wireMessages.length,
           messageChars: measureMessageChars(messages),
           systemPromptChars: systemPrompt.length,
-          promptGuideChars: typeof context.extra?.promptGuides === 'string' ? context.extra.promptGuides.length : 0,
+          promptGuideChars:
+            typeof context.extra?.promptGuides === 'string' ? context.extra.promptGuides.length : 0,
           estimatedTokensUsed: estimatedTokensUsed,
           contextWindowTokens: ctxWindow,
           cacheChars: entityCacheBlock.length,
@@ -890,11 +919,12 @@ export class AgentOrchestrator {
           wireMessages,
           {
             tools: wireTools.length > 0 ? wireTools : undefined,
-            toolChoice: wireTools.length > 0
-              ? (forceAskUserNextTurn
+            toolChoice:
+              wireTools.length > 0
+                ? forceAskUserNextTurn
                   ? { name: 'commander.askUser' }
-                  : 'auto')
-              : undefined,
+                  : 'auto'
+                : undefined,
             temperature: this.temperature,
             maxTokens: this.maxTokens,
             signal: this._abortController?.signal,
@@ -922,10 +952,7 @@ export class AgentOrchestrator {
             parseCanonicalToolName(tc.name).domain === 'commander' &&
             parseCanonicalToolName(tc.name).action === 'askUser',
         );
-        if (
-          !hasAskUserCall &&
-          detectOptionListMarkdown(lastResult.content ?? '')
-        ) {
+        if (!hasAskUserCall && detectOptionListMarkdown(lastResult.content ?? '')) {
           forceAskUserNextTurn = true;
           wrappedEmit({
             kind: 'phase_note',
@@ -952,7 +979,9 @@ export class AgentOrchestrator {
           // with no mutation naturally surfaces as `unsatisfied` with a
           // `missing_commit` blocker, and execution-intent runs cannot
           // return `done` silently.
-          const finalContent = lastResult.content || (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
+          const finalContent =
+            lastResult.content ||
+            (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
           this.lastAssistantText = finalContent;
 
           // Phase E — compute the exit decision and carry it on both the
@@ -1009,9 +1038,7 @@ export class AgentOrchestrator {
           steps,
         );
         const deferredLabels: string[] = [
-          ...primedSpecKeys.map((key) =>
-            getStandaloneDisplayName(key, this.processPromptSpecs),
-          ),
+          ...primedSpecKeys.map((key) => getStandaloneDisplayName(key, this.processPromptSpecs)),
           ...deferredCategories.map((key) => getProcessCategoryName(key)),
         ];
         if (deferredLabels.length > 0) {
@@ -1129,24 +1156,51 @@ export class AgentOrchestrator {
                 const snapshot = todoStore.set({
                   items: (Array.isArray(args.items) ? args.items : []) as Array<{ label: string }>,
                 });
-                result = { success: true, data: { ...todoStore.toStreamPayload(), items: snapshot.items } };
+                result = {
+                  success: true,
+                  data: { ...todoStore.toStreamPayload(), items: snapshot.items },
+                };
               } else {
                 const { snapshot, applied } = todoStore.update({
                   todoId: typeof args.todoId === 'string' ? args.todoId : '',
-                  updates: (Array.isArray(args.updates) ? args.updates : []) as Array<{ id: string; status: 'pending' | 'in_progress' | 'done' }>,
+                  updates: (Array.isArray(args.updates) ? args.updates : []) as Array<{
+                    id: string;
+                    status: 'pending' | 'in_progress' | 'done';
+                  }>,
                 });
-                result = { success: true, data: { ...todoStore.toStreamPayload(), applied, items: snapshot.items } };
+                result = {
+                  success: true,
+                  data: { ...todoStore.toStreamPayload(), applied, items: snapshot.items },
+                };
               }
               const durationMs = Math.max(0, Date.now() - startedAt);
               const serialized = JSON.stringify(result);
-              wrappedEmit({ kind: 'tool_result', toolCallId: tc.id, result: result as import('./tool-registry.js').ToolResult, durationMs });
+              wrappedEmit({
+                kind: 'tool_result',
+                toolCallId: tc.id,
+                result: result as import('./tool-registry.js').ToolResult,
+                durationMs,
+              });
               messages.push({ role: 'tool', content: serialized, toolCallId: tc.id });
             } catch (err) {
               const durationMs = Math.max(0, Date.now() - startedAt);
               const errMsg = err instanceof Error ? err.message : String(err);
-              const errorResult = { success: false, error: errMsg, _recovery: 'Check the error and retry with corrected arguments.' };
-              wrappedEmit({ kind: 'tool_result', toolCallId: tc.id, error: { code: 'TOOL_RUNTIME', params: { message: errMsg } }, durationMs });
-              messages.push({ role: 'tool', content: JSON.stringify(errorResult), toolCallId: tc.id });
+              const errorResult = {
+                success: false,
+                error: errMsg,
+                _recovery: 'Check the error and retry with corrected arguments.',
+              };
+              wrappedEmit({
+                kind: 'tool_result',
+                toolCallId: tc.id,
+                error: { code: 'TOOL_RUNTIME', params: { message: errMsg } },
+                durationMs,
+              });
+              messages.push({
+                role: 'tool',
+                content: JSON.stringify(errorResult),
+                toolCallId: tc.id,
+              });
             }
           }
         }
@@ -1184,12 +1238,9 @@ export class AgentOrchestrator {
         for (const tc of callsToExecute) {
           const toolRef = parseCanonicalToolName(tc.name);
           const args = (tc.arguments as Record<string, unknown>) ?? {};
-          const resultMsg = messages.find(
-            (m) => m.role === 'tool' && m.toolCallId === tc.id,
-          );
+          const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === tc.id);
           const content = resultMsg?.content ?? '';
-          const wasError =
-            content.includes('"success":false') || /"error"\s*:/.test(content);
+          const wasError = content.includes('"success":false') || /"error"\s*:/.test(content);
           toolCallDeduplicator.register(toolRef, args, {
             toolCallId: tc.id,
             step: steps,
@@ -1290,23 +1341,31 @@ export class AgentOrchestrator {
         for (const [name, count] of toolCallCounts) {
           if (count >= 3) {
             if (name === 'canvas.updateNodeData') {
-              batchHints.push(`[Efficiency: You called ${name} ${count} times. Use canvas.updateNodes with an array for batch updates.]`);
+              batchHints.push(
+                `[Efficiency: You called ${name} ${count} times. Use canvas.updateNodes with an array for batch updates.]`,
+              );
             } else if (name === 'canvas.addNode') {
-              batchHints.push(`[Efficiency: You called ${name} ${count} times. Use canvas.batchCreate for bulk node creation.]`);
+              batchHints.push(
+                `[Efficiency: You called ${name} ${count} times. Use canvas.batchCreate for bulk node creation.]`,
+              );
             } else if (name === 'canvas.getNode') {
-              batchHints.push(`[Efficiency: You called ${name} ${count} times. Results are cached — avoid re-fetching nodes you already have.]`);
+              batchHints.push(
+                `[Efficiency: You called ${name} ${count} times. Results are cached — avoid re-fetching nodes you already have.]`,
+              );
             }
           }
         }
 
         // Step failure rate warning
         const failedToolCount = messages
-          .slice(-(lastResult.toolCalls.length))
-          .filter((m) => m.role === 'tool' && m.content.includes('"success":false'))
-          .length;
-        const failRate = lastResult.toolCalls.length > 0 ? failedToolCount / lastResult.toolCalls.length : 0;
+          .slice(-lastResult.toolCalls.length)
+          .filter((m) => m.role === 'tool' && m.content.includes('"success":false')).length;
+        const failRate =
+          lastResult.toolCalls.length > 0 ? failedToolCount / lastResult.toolCalls.length : 0;
         if (failRate > 0.3 && lastResult.toolCalls.length >= 3) {
-          batchHints.push(`[Warning: ${failedToolCount}/${lastResult.toolCalls.length} tool calls failed this step. Consider re-planning your approach.]`);
+          batchHints.push(
+            `[Warning: ${failedToolCount}/${lastResult.toolCalls.length} tool calls failed this step. Consider re-planning your approach.]`,
+          );
         }
 
         if (batchHints.length > 0) {
@@ -1316,10 +1375,10 @@ export class AgentOrchestrator {
         // Predictive pre-compaction: trigger BEFORE next LLM call based on utilization
         const ctxTokens = effectiveCtx ?? 200000;
         const utilizationRatio = estimatedTokensUsed / ctxTokens;
-        if (utilizationRatio > 0.90) {
+        if (utilizationRatio > 0.9) {
           // Critical: full compaction (Phase 1 + Phase 2 LLM summarization)
           await this.contextManager.compactWithLLM(messages, inLoopCharBudget);
-        } else if (utilizationRatio > 0.80) {
+        } else if (utilizationRatio > 0.8) {
           // Proactive: fast rule-based compaction only
           this.contextManager.compactPhase1(messages);
         }
@@ -1337,12 +1396,11 @@ export class AgentOrchestrator {
 
       // Reached maxSteps
       const pendingToolCalls = lastResult.toolCalls.length;
-      const limitMsg = pendingToolCalls > 0
-        ? `⚠️ Reached the step limit (${this.maxSteps} steps). ${pendingToolCalls} pending tool call(s) were not executed. You can increase "Max Steps" in Settings → Commander, or send a follow-up message to continue.`
-        : `Reached the step limit (${this.maxSteps} steps). You can increase "Max Steps" in Settings → Commander if needed.`;
-      const finalContent = lastResult.content
-        ? `${lastResult.content}\n\n${limitMsg}`
-        : limitMsg;
+      const limitMsg =
+        pendingToolCalls > 0
+          ? `⚠️ Reached the step limit (${this.maxSteps} steps). ${pendingToolCalls} pending tool call(s) were not executed. You can increase "Max Steps" in Settings → Commander, or send a follow-up message to continue.`
+          : `Reached the step limit (${this.maxSteps} steps). You can increase "Max Steps" in Settings → Commander if needed.`;
+      const finalContent = lastResult.content ? `${lastResult.content}\n\n${limitMsg}` : limitMsg;
       this.lastAssistantText = finalContent;
       // Phase F — hard enforcement: append a `budget_exhausted` evidence
       // so `decide()` returns the `budget_exhausted` outcome with full
@@ -1413,9 +1471,7 @@ export class AgentOrchestrator {
         // LucidError(CANCELLED). Treat it like a retryable transient so
         // the loop gets another shot with a fresh step controller.
         const isStepCancel =
-          err instanceof LucidError &&
-          err.code === 'CANCELLED' &&
-          !this._cancelled;
+          err instanceof LucidError && err.code === 'CANCELLED' && !this._cancelled;
         const isRetryable =
           isStepCancel ||
           (err instanceof LucidError &&
@@ -1538,7 +1594,11 @@ export class AgentOrchestrator {
               existing.arguments = event.arguments;
             } else {
               toolOrder.push(event.id);
-              toolCallsById.set(event.id, { id: event.id, name: resolvedName, arguments: event.arguments });
+              toolCallsById.set(event.id, {
+                id: event.id,
+                name: resolvedName,
+                arguments: event.arguments,
+              });
             }
             wrappedEmit({
               kind: 'tool_call',
@@ -1587,12 +1647,12 @@ export class AgentOrchestrator {
     args?: Record<string, unknown>,
   ): ProcessCategory | null {
     if (
-      name === 'canvas.generate'
-      && this.resolveCanvasNodeType
-      && args
-      && typeof args.nodeType !== 'string'
-      && typeof args.canvasId === 'string'
-      && typeof args.nodeId === 'string'
+      name === 'canvas.generate' &&
+      this.resolveCanvasNodeType &&
+      args &&
+      typeof args.nodeType !== 'string' &&
+      typeof args.canvasId === 'string' &&
+      typeof args.nodeId === 'string'
     ) {
       const resolved = this.resolveCanvasNodeType(args.canvasId, args.nodeId);
       if (resolved) {
@@ -1687,9 +1747,10 @@ export class AgentOrchestrator {
           name: tc.name,
           arguments: tc.arguments,
         })),
-        canvasSettings: canvasId && this.resolveCanvasSettings
-          ? this.resolveCanvasSettings(canvasId) ?? undefined
-          : undefined,
+        canvasSettings:
+          canvasId && this.resolveCanvasSettings
+            ? (this.resolveCanvasSettings(canvasId) ?? undefined)
+            : undefined,
         ledger: this.evidenceLedger.entries(),
         step,
       },
@@ -1752,7 +1813,8 @@ export class AgentOrchestrator {
   private activateInitialProcessPrompts(messages: LLMMessage[], context: AgentContext): void {
     if (!this.resolveProcessPrompt) return;
 
-    const requested = (context.extra as { initialProcessPrompts?: unknown } | undefined)?.initialProcessPrompts;
+    const requested = (context.extra as { initialProcessPrompts?: unknown } | undefined)
+      ?.initialProcessPrompts;
     if (!Array.isArray(requested) || requested.length === 0) return;
 
     for (const entry of requested) {
@@ -1778,25 +1840,26 @@ export class AgentOrchestrator {
    * the session — stripping them mid-phase caused the LLM to forget the
    * phase contract and re-plan from scratch on every third step.
    */
-  private static readonly PHASE_CRITICAL_PROCESS_KEYS: ReadonlySet<ProcessPromptKey> = new Set<ProcessPromptKey>([
-    'workflow-orchestration',
-    'character-ref-image-generation',
-    'location-ref-image-generation',
-    'equipment-ref-image-generation',
-    'image-node-generation',
-    'video-node-generation',
-    'render-and-export',
-    // Style-plate lock is a gate that must remain in context until the plate
-    // is actually locked. Stripping it mid-session would regress the very
-    // behaviour this prompt enforces (no ref-image before plate).
-    'style-plate-lock',
-    // Entities-before-generation is a sticky early-session gate reminding
-    // the LLM to verify ref-image status. Must not be stripped while active.
-    'entities-before-generation',
-    // Story workflow phase is a sticky guide that reinforces phase gates
-    // once workflow-orchestration is active. Must not be stripped mid-phase.
-    'story-workflow-phase',
-  ]);
+  private static readonly PHASE_CRITICAL_PROCESS_KEYS: ReadonlySet<ProcessPromptKey> =
+    new Set<ProcessPromptKey>([
+      'workflow-orchestration',
+      'character-ref-image-generation',
+      'location-ref-image-generation',
+      'equipment-ref-image-generation',
+      'image-node-generation',
+      'video-node-generation',
+      'render-and-export',
+      // Style-plate lock is a gate that must remain in context until the plate
+      // is actually locked. Stripping it mid-session would regress the very
+      // behaviour this prompt enforces (no ref-image before plate).
+      'style-plate-lock',
+      // Entities-before-generation is a sticky early-session gate reminding
+      // the LLM to verify ref-image status. Must not be stripped while active.
+      'entities-before-generation',
+      // Story workflow phase is a sticky guide that reinforces phase gates
+      // once workflow-orchestration is active. Must not be stripped mid-phase.
+      'story-workflow-phase',
+    ]);
 
   private stripInactiveProcessPrompts(messages: LLMMessage[], step: number): void {
     if (this.activeProcessPromptSteps.size === 0) return;
@@ -1832,7 +1895,9 @@ export class AgentOrchestrator {
   }
 
   private isProcessPromptMessage(message: LLMMessage, processKey: ProcessPromptKey): boolean {
-    return message.role === 'system' && message.content.startsWith(`[[process-prompt:${processKey}]]`);
+    return (
+      message.role === 'system' && message.content.startsWith(`[[process-prompt:${processKey}]]`)
+    );
   }
 
   /**
@@ -1910,7 +1975,11 @@ export class AgentOrchestrator {
     // Guide, user, assistant, tool-result, system-message, and reference
     // items are all re-derived from messages so they stay authoritative.
     for (const seed of this.pendingGraphSeed) {
-      if (seed.kind === 'entity-snapshot' || seed.kind === 'session-summary' || seed.kind === 'scratchpad') {
+      if (
+        seed.kind === 'entity-snapshot' ||
+        seed.kind === 'session-summary' ||
+        seed.kind === 'scratchpad'
+      ) {
         this.contextGraph.add(seed);
       }
     }
@@ -2049,7 +2118,11 @@ export class AgentOrchestrator {
         const prev = messages[j]!;
         if (prev.role !== 'assistant' || !prev.toolCalls) continue;
         const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
-        if (call) { callName = call.name; callArgs = call.arguments; break; }
+        if (call) {
+          callName = call.name;
+          callArgs = call.arguments;
+          break;
+        }
       }
       if (!callName) continue;
       const itemDomain = callName.split('.')[0];
@@ -2094,15 +2167,19 @@ export class AgentOrchestrator {
         const prev = messages[j]!;
         if (prev.role !== 'assistant' || !prev.toolCalls) continue;
         const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
-        if (call) { callName = call.name; callArgs = call.arguments; break; }
+        if (call) {
+          callName = call.name;
+          callArgs = call.arguments;
+          break;
+        }
       }
       if (!callName) continue;
       const paramsHash = safeStringify(callArgs);
       const compositeKey = this.composeToolCallKey(messages, i);
-      const isInvalidated = compositeKey !== undefined && (
-        this.snapshotPreRestoreToolCallKeys.has(compositeKey) ||
-        this.invalidatedToolCallKeys.has(compositeKey)
-      );
+      const isInvalidated =
+        compositeKey !== undefined &&
+        (this.snapshotPreRestoreToolCallKeys.has(compositeKey) ||
+          this.invalidatedToolCallKeys.has(compositeKey));
       const cat = getToolCompactionCategory(callName);
       if (cat !== 'get' && cat !== 'list') {
         if (isInvalidated) messages[i] = { ...m, content: STUB };
@@ -2156,7 +2233,11 @@ export class AgentOrchestrator {
         const prev = messages[j]!;
         if (prev.role !== 'assistant' || !prev.toolCalls) continue;
         const call = prev.toolCalls.find((tc) => tc.id === mk.toolCallId);
-        if (call) { kCallName = call.name; kParamsHash = safeStringify(call.arguments); break; }
+        if (call) {
+          kCallName = call.name;
+          kParamsHash = safeStringify(call.arguments);
+          break;
+        }
       }
       if (`${mk.toolCallId}|${kCallName}|${kParamsHash}` === base) n++;
     }
@@ -2226,9 +2307,7 @@ export class AgentOrchestrator {
     toolCalls: readonly LLMToolCall[],
   ): void {
     for (const tc of toolCalls) {
-      const resultMsg = messages.find(
-        (m) => m.role === 'tool' && m.toolCallId === tc.id,
-      );
+      const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === tc.id);
       const content = resultMsg?.content ?? '';
 
       // Extract todo state from todo.set / todo.update.
@@ -2236,14 +2315,18 @@ export class AgentOrchestrator {
         try {
           const parsed = JSON.parse(content) as { success?: boolean; data?: unknown };
           if (parsed.success !== false) {
-            const args = tc.arguments as { items?: Array<{ text?: string; status?: string }> } | null;
+            const args = tc.arguments as {
+              items?: Array<{ text?: string; status?: string }>;
+            } | null;
             if (Array.isArray(args?.items)) {
               this.scratchpadTodos = args!.items
                 .filter((item) => item.text)
                 .map((item) => `${item.text}: ${item.status ?? 'pending'}`);
             }
           }
-        } catch { /* ignore parse errors */ }
+        } catch {
+          /* ignore parse errors */
+        }
         continue;
       }
 
@@ -2251,15 +2334,15 @@ export class AgentOrchestrator {
       if (tc.name === 'commander.askUser') {
         if (content && !content.includes('"success":false')) {
           const args = tc.arguments as { question?: string } | null;
-          const question = typeof args?.question === 'string'
-            ? args.question.slice(0, 40)
-            : 'choice';
+          const question =
+            typeof args?.question === 'string' ? args.question.slice(0, 40) : 'choice';
           let answer: string;
           try {
             const parsed = JSON.parse(content) as { data?: { answer?: string } };
-            answer = typeof parsed.data?.answer === 'string'
-              ? parsed.data.answer.slice(0, 60)
-              : content.slice(0, 60);
+            answer =
+              typeof parsed.data?.answer === 'string'
+                ? parsed.data.answer.slice(0, 60)
+                : content.slice(0, 60);
           } catch {
             answer = content.slice(0, 60);
           }
@@ -2273,9 +2356,8 @@ export class AgentOrchestrator {
         let errorText: string;
         try {
           const parsed = JSON.parse(content) as { error?: string };
-          errorText = typeof parsed.error === 'string'
-            ? parsed.error.slice(0, 60)
-            : 'unknown error';
+          errorText =
+            typeof parsed.error === 'string' ? parsed.error.slice(0, 60) : 'unknown error';
         } catch {
           errorText = 'parse error';
         }
@@ -2318,9 +2400,7 @@ export class AgentOrchestrator {
     const askCall = toolCalls.find((tc) => tc.name === 'commander.askUser');
     if (!askCall) return;
 
-    const resultMsg = messages.find(
-      (m) => m.role === 'tool' && m.toolCallId === askCall.id,
-    );
+    const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === askCall.id);
     if (!resultMsg) return;
 
     // Extract the user's answer text from the tool result.
@@ -2330,7 +2410,9 @@ export class AgentOrchestrator {
       if (typeof parsed.data?.answer === 'string') {
         userAnswer = parsed.data.answer;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     if (!userAnswer) {
       // Fallback: use the raw content if it's short enough to be an answer.
       userAnswer = resultMsg.content.length < 200 ? resultMsg.content : '';
@@ -2415,7 +2497,11 @@ export class AgentOrchestrator {
 
       const rawResult = resultById.get(tc.id) ?? '';
       let parsed: unknown;
-      try { parsed = JSON.parse(rawResult); } catch { parsed = null; }
+      try {
+        parsed = JSON.parse(rawResult);
+      } catch {
+        parsed = null;
+      }
       const ok = this.isToolResultOk(parsed);
       const errorText = this.extractToolResultError(parsed);
 
@@ -2428,7 +2514,13 @@ export class AgentOrchestrator {
       // pure reads (tool.*, guide.*, canvas.getState, canvas.listNodes,
       // canvas.getNode, *.list) since those can't satisfy a contract.
       if (ok && !this.isReadOnlyTool(tc.name)) {
-        this.appendEvidence({ kind: 'mutation_commit', toolName: tc.name, args: tc.arguments, resultOk: true, at: now });
+        this.appendEvidence({
+          kind: 'mutation_commit',
+          toolName: tc.name,
+          args: tc.arguments,
+          resultOk: true,
+          at: now,
+        });
       }
 
       // Side-effects for specific tools — surface them as their own
@@ -2443,9 +2535,10 @@ export class AgentOrchestrator {
       if (ok && tc.name === 'canvas.setSettings') {
         const rawArgs = tc.arguments as { canvasId?: unknown; settings?: unknown } | null;
         const canvasId = typeof rawArgs?.canvasId === 'string' ? rawArgs.canvasId : '';
-        const keys = rawArgs?.settings && typeof rawArgs.settings === 'object'
-          ? Object.keys(rawArgs.settings as Record<string, unknown>)
-          : [];
+        const keys =
+          rawArgs?.settings && typeof rawArgs.settings === 'object'
+            ? Object.keys(rawArgs.settings as Record<string, unknown>)
+            : [];
         this.appendEvidence({ kind: 'settings_write', canvasId, keys, at: now });
       }
       if (ok && (tc.name === 'canvas.generate' || /\.generateRefImage$/.test(tc.name))) {
@@ -2473,9 +2566,7 @@ export class AgentOrchestrator {
     }
   }
 
-  private appendEvidence(
-    evidence: Parameters<EvidenceLedger['record']>[0],
-  ): void {
+  private appendEvidence(evidence: Parameters<EvidenceLedger['record']>[0]): void {
     this.evidenceLedger.record(evidence);
   }
 
@@ -2493,17 +2584,11 @@ export class AgentOrchestrator {
     return { decision, intent: this.currentIntent };
   }
 
-  private toTimelineExitDecisionMeta(
-    decision: ExitDecision,
-  ): TimelineExitDecisionMeta {
+  private toTimelineExitDecisionMeta(decision: ExitDecision): TimelineExitDecisionMeta {
     return {
       outcome: decision.outcome,
-      contractId:
-        'contractId' in decision ? decision.contractId : undefined,
-      blocker:
-        'blocker' in decision && decision.blocker
-          ? decision.blocker.kind
-          : undefined,
+      contractId: 'contractId' in decision ? decision.contractId : undefined,
+      blocker: 'blocker' in decision && decision.blocker ? decision.blocker.kind : undefined,
     };
   }
 
@@ -2544,7 +2629,14 @@ export class AgentOrchestrator {
     if (name === 'tool.get' || name === 'tool.compact') return true;
     if (name === 'guide.get') return true;
     if (name === 'logger.list') return true;
-    if (name.endsWith('.list') || name.endsWith('.get') || name.endsWith('.getNode') || name.endsWith('.getState') || name.endsWith('.listNodes') || name.endsWith('.listEdges')) {
+    if (
+      name.endsWith('.list') ||
+      name.endsWith('.get') ||
+      name.endsWith('.getNode') ||
+      name.endsWith('.getState') ||
+      name.endsWith('.listNodes') ||
+      name.endsWith('.listEdges')
+    ) {
       return true;
     }
     return false;
@@ -2567,8 +2659,13 @@ export class AgentOrchestrator {
  * rebuild-watermark scoping matches the in-memory graph's invalidation. */
 function extractEntityIdFromArgs(args: Record<string, unknown>): string | undefined {
   for (const field of [
-    'id', 'nodeId', 'characterId', 'equipmentId', 'locationId',
-    'presetId', 'templateId',
+    'id',
+    'nodeId',
+    'characterId',
+    'equipmentId',
+    'locationId',
+    'presetId',
+    'templateId',
   ] as const) {
     const value = args[field];
     if (typeof value === 'string' && value) return value;

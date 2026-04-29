@@ -23,7 +23,14 @@ function makeCharacter(overrides: Partial<Character> = {}): Character {
 
 describe('createDraft', () => {
   it('maps core fields directly', () => {
-    const char = makeCharacter({ id: 'c2', name: 'Bob', role: 'antagonist', description: 'A villain', appearance: 'Short', personality: 'Cunning' });
+    const char = makeCharacter({
+      id: 'c2',
+      name: 'Bob',
+      role: 'antagonist',
+      description: 'A villain',
+      appearance: 'Short',
+      personality: 'Cunning',
+    });
     const draft = createDraft(char);
     expect(draft.id).toBe('c2');
     expect(draft.name).toBe('Bob');

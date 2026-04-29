@@ -24,8 +24,7 @@ import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
 import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
 
 const AUDIO_CAPABLE_VIDEO_PROVIDER_IDS = listBuiltinVideoProvidersWithAudio().join(', ');
-const KLING_QUALITY_TIERS =
-  getBuiltinProviderCapabilityProfile('kling-v1')?.qualityTiers ?? [];
+const KLING_QUALITY_TIERS = getBuiltinProviderCapabilityProfile('kling-v1')?.qualityTiers ?? [];
 const KLING_QUALITY_DESCRIPTION =
   KLING_QUALITY_TIERS.length > 0
     ? `kling-v1: ${KLING_QUALITY_TIERS.map((tier) => `"${tier}"`).join(' or ')}`
@@ -42,7 +41,8 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const generate: AgentTool = {
     name: 'canvas.generate',
-    description: 'Trigger media generation for an image, video, or audio node. Returns immediately (fire-and-forget) — check status later via canvas.getNode. Set wait=true to block until completion (up to 5 min). Before calling, verify the node has a detailed prompt (use canvas.previewPrompt to check) and proper entity refs (use canvas.setNodeRefs).',
+    description:
+      'Trigger media generation for an image, video, or audio node. Returns immediately (fire-and-forget) — check status later via canvas.getNode. Set wait=true to block until completion (up to 5 min). Before calling, verify the node has a detailed prompt (use canvas.previewPrompt to check) and proper entity refs (use canvas.setNodeRefs).',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -52,17 +52,23 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
         nodeId: { type: 'string', description: 'The node ID to generate.' },
         nodeType: {
           type: 'string',
-          description: 'Optional node type hint for orchestration context: "image", "video", or "audio".',
+          description:
+            'Optional node type hint for orchestration context: "image", "video", or "audio".',
           enum: ['image', 'video', 'audio'],
         },
         audioType: {
           type: 'string',
-          description: 'Optional audio subtype hint (only used when nodeType is "audio"): "voice", "music", or "sfx". Routes the process-bound prompt. Defaults to "voice" when nodeType is "audio" and audioType is omitted.',
+          description:
+            'Optional audio subtype hint (only used when nodeType is "audio"): "voice", "music", or "sfx". Routes the process-bound prompt. Defaults to "voice" when nodeType is "audio" and audioType is omitted.',
           enum: ['voice', 'music', 'sfx'],
         },
         providerId: { type: 'string', description: 'Optional provider override.' },
         variantCount: { type: 'number', description: 'Optional number of variants to generate.' },
-        wait: { type: 'boolean', description: 'If true, block until generation completes (up to 5 min). Default: false (fire-and-forget).' },
+        wait: {
+          type: 'boolean',
+          description:
+            'If true, block until generation completes (up to 5 min). Default: false (fire-and-forget).',
+        },
       },
       required: ['canvasId', 'nodeId'],
     },
@@ -107,7 +113,11 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           }
           // still generating — continue polling
         }
-        return ok({ nodeId, status: 'timeout', error: 'Generation did not complete within 5 minutes' });
+        return ok({
+          nodeId,
+          status: 'timeout',
+          error: 'Generation did not complete within 5 minutes',
+        });
       } catch (error) {
         return fail(error);
       }
@@ -116,7 +126,8 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
 
   const cancelGeneration: AgentTool = {
     name: 'canvas.cancelGeneration',
-    description: 'Cancel active generation jobs for one or more image, video, or audio nodes. Supports batch: pass nodeIds array.',
+    description:
+      'Cancel active generation jobs for one or more image, video, or audio nodes. Supports batch: pass nodeIds array.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -124,7 +135,11 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to cancel.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to cancel generation.' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Batch: array of node IDs to cancel generation.',
+        },
       },
       required: ['canvasId'],
     },
@@ -140,11 +155,20 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
             await deps.cancelGeneration(canvasId, nodeId);
             results.push({ nodeId, success: true });
           } catch (error) {
-            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              nodeId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
-        if (ids.length === 1) return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
-        return ok({ cancelled: results.filter((r) => r.success).length, total: ids.length, results });
+        if (ids.length === 1)
+          return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
+        return ok({
+          cancelled: results.filter((r) => r.success).length,
+          total: ids.length,
+          results,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -168,10 +192,15 @@ For image generation params (width/height/steps/cfgScale), use canvas.setImagePa
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to update.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs to update (same set for all).' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Array of node IDs to update (same set for all).',
+        },
         set: {
           type: 'object',
-          description: 'Fields to update (used with nodeId/nodeIds). ONLY include the fields you want to change.',
+          description:
+            'Fields to update (used with nodeId/nodeIds). ONLY include the fields you want to change.',
           properties: {
             title: { type: 'string', description: 'New display title (all node types).' },
             content: { type: 'string', description: 'Text content (text nodes only).' },
@@ -235,12 +264,24 @@ For image generation params (width/height/steps/cfgScale), use canvas.setImagePa
           }
           if (node.type === 'text' && typeof set.content === 'string') data.content = set.content;
           if (isMedia && typeof set.prompt === 'string') data.prompt = set.prompt;
-          if (isMedia && typeof set.negativePrompt === 'string') data.negativePrompt = set.negativePrompt;
+          if (isMedia && typeof set.negativePrompt === 'string')
+            data.negativePrompt = set.negativePrompt;
 
           if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
-          results.push({ nodeId, updated: { ...data, ...(typeof set.title === 'string' ? { title: (set.title as string).trim() } : {}) } });
+          results.push({
+            nodeId,
+            updated: {
+              ...data,
+              ...(typeof set.title === 'string' ? { title: (set.title as string).trim() } : {}),
+            },
+          });
         }
-        if (results.length === 1) return ok({ nodeId: results[0].nodeId, updated: results[0].updated, ...(warnings.length > 0 && { warnings }) });
+        if (results.length === 1)
+          return ok({
+            nodeId: results[0].nodeId,
+            updated: results[0].updated,
+            ...(warnings.length > 0 && { warnings }),
+          });
         return ok({ nodes: results, ...(warnings.length > 0 && { warnings }) });
       } catch (error) {
         return fail(error);
@@ -261,12 +302,23 @@ For image generation params (width/height/steps/cfgScale), use canvas.setImagePa
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs (batch).' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Array of node IDs (batch).',
+        },
         set: {
           type: 'object',
           description: 'Layout fields to change.',
           properties: {
-            position: { type: 'object', description: 'New position.', properties: { x: { type: 'number', description: 'Horizontal coordinate.' }, y: { type: 'number', description: 'Vertical coordinate.' } } },
+            position: {
+              type: 'object',
+              description: 'New position.',
+              properties: {
+                x: { type: 'number', description: 'Horizontal coordinate.' },
+                y: { type: 'number', description: 'Vertical coordinate.' },
+              },
+            },
             colorTag: { type: 'string', description: 'Color tag string.' },
             bypassed: { type: 'boolean', description: 'Set bypass state.' },
             locked: { type: 'boolean', description: 'Set lock state.' },
@@ -327,15 +379,25 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs (batch).' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Array of node IDs (batch).',
+        },
         set: {
           type: 'object',
           description: 'Fields to change. ONLY include the ones you want to set.',
           properties: {
-            providerId: { type: 'string', description: 'AI provider ID. Verify hasKey=true via provider.list first.' },
+            providerId: {
+              type: 'string',
+              description: 'AI provider ID. Verify hasKey=true via provider.list first.',
+            },
             seed: { type: 'number', description: 'Seed value.' },
             seedLock: { type: 'boolean', description: 'Pass true to toggle seed lock state.' },
-            variantCount: { type: 'number', description: 'Variant count: 1, 2, 4, 9, or 25 (image/video only).' },
+            variantCount: {
+              type: 'number',
+              description: 'Variant count: 1, 2, 4, 9, or 25 (image/video only).',
+            },
           },
         },
       },
@@ -349,7 +411,8 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
 
         if (typeof set.variantCount === 'number') {
           const count = Math.round(set.variantCount as number);
-          if (![1, 2, 4, 9, 25].includes(count)) throw new Error('variantCount must be one of 1, 2, 4, 9, or 25');
+          if (![1, 2, 4, 9, 25].includes(count))
+            throw new Error('variantCount must be one of 1, 2, 4, 9, or 25');
         }
 
         let keyWarning: string | undefined;
@@ -367,13 +430,18 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
           const isMedia = isGeneratableMedia(node.type);
           const isVisual = isVisualMedia(node.type);
 
-          if (isMedia && typeof set.providerId === 'string') data.providerId = (set.providerId as string).trim();
+          if (isMedia && typeof set.providerId === 'string')
+            data.providerId = (set.providerId as string).trim();
           if (isMedia && typeof set.seed === 'number') data.seed = Math.round(set.seed as number);
           if (isMedia && set.seedLock === true) await deps.toggleSeedLock(canvasId, nodeId);
-          if (isVisual && typeof set.variantCount === 'number') data.variantCount = Math.round(set.variantCount as number);
+          if (isVisual && typeof set.variantCount === 'number')
+            data.variantCount = Math.round(set.variantCount as number);
 
           if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
-          results.push({ nodeId, updated: { ...data, ...(set.seedLock === true ? { seedLockToggled: true } : {}) } });
+          results.push({
+            nodeId,
+            updated: { ...data, ...(set.seedLock === true ? { seedLockToggled: true } : {}) },
+          });
         }
         const warningObj = keyWarning ? { _warning: keyWarning } : {};
         const payload = results.length === 1 ? results[0] : results;
@@ -389,7 +457,8 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
   // ---------------------------------------------------------------------------
   const setImageParams: AgentTool = {
     name: 'canvas.setImageParams',
-    description: 'Set image generation parameters (width/height/steps/cfgScale/scheduler) on image or video nodes. Wrap fields in "set": { ... }. For prompt text or title changes, use canvas.updateNodes. For video-specific params (duration/audio/quality), use canvas.setVideoParams.',
+    description:
+      'Set image generation parameters (width/height/steps/cfgScale/scheduler) on image or video nodes. Wrap fields in "set": { ... }. For prompt text or title changes, use canvas.updateNodes. For video-specific params (duration/audio/quality), use canvas.setVideoParams.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -397,7 +466,11 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs (batch).' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Array of node IDs (batch).',
+        },
         set: {
           type: 'object',
           description: 'Parameters to change. ONLY include the ones you want to set.',
@@ -406,7 +479,10 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
             height: { type: 'number', description: 'Height in pixels.' },
             steps: { type: 'number', description: 'Inference steps, typically 20-50.' },
             cfgScale: { type: 'number', description: 'CFG scale / guidance, typically 3-15.' },
-            scheduler: { type: 'string', description: 'Sampling scheduler (e.g. "euler_a", "dpm++_2m").' },
+            scheduler: {
+              type: 'string',
+              description: 'Sampling scheduler (e.g. "euler_a", "dpm++_2m").',
+            },
             img2imgStrength: { type: 'number', description: 'Image-to-image strength 0-1.' },
           },
         },
@@ -431,7 +507,8 @@ IMPORTANT: Before assigning providerId, verify the provider has an API key (hasK
           if (typeof set.steps === 'number') data.steps = Math.round(set.steps as number);
           if (typeof set.cfgScale === 'number') data.cfgScale = set.cfgScale;
           if (typeof set.scheduler === 'string') data.scheduler = set.scheduler;
-          if (typeof set.img2imgStrength === 'number') data.img2imgStrength = Math.max(0, Math.min(1, set.img2imgStrength as number));
+          if (typeof set.img2imgStrength === 'number')
+            data.img2imgStrength = Math.max(0, Math.min(1, set.img2imgStrength as number));
 
           if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
           results.push({ nodeId, updated: data });
@@ -458,7 +535,11 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single video node ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of video node IDs (batch).' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Array of video node IDs (batch).',
+        },
         set: {
           type: 'object',
           description: 'Parameters to change. ONLY include the ones you want to set.',
@@ -505,7 +586,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
   // ---------------------------------------------------------------------------
   const setAudioParams: AgentTool = {
     name: 'canvas.setAudioParams',
-    description: 'Set audio-specific generation parameters (audioType/emotionVector/sampleRate) on audio nodes. Wrap fields in "set": { ... }. For prompt text or title, use canvas.updateNodes. For image/video params, use canvas.setImageParams or canvas.setVideoParams.',
+    description:
+      'Set audio-specific generation parameters (audioType/emotionVector/sampleRate) on audio nodes. Wrap fields in "set": { ... }. For prompt text or title, use canvas.updateNodes. For image/video params, use canvas.setImageParams or canvas.setVideoParams.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -513,19 +595,32 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single audio node ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of audio node IDs (batch).' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Array of audio node IDs (batch).',
+        },
         set: {
           type: 'object',
           description: 'Parameters to change. ONLY include the ones you want to set.',
           properties: {
-            audioType: { type: 'string', enum: ['voice', 'sfx', 'music'], description: 'Audio type.' },
+            audioType: {
+              type: 'string',
+              enum: ['voice', 'sfx', 'music'],
+              description: 'Audio type.',
+            },
             emotionVector: {
               type: 'object',
               description: 'Emotion vector for TTS. Each key 0-1.',
               properties: {
-                happy: { type: 'number', description: '0-1.' }, sad: { type: 'number', description: '0-1.' }, angry: { type: 'number', description: '0-1.' },
-                fearful: { type: 'number', description: '0-1.' }, surprised: { type: 'number', description: '0-1.' }, disgusted: { type: 'number', description: '0-1.' },
-                contemptuous: { type: 'number', description: '0-1.' }, neutral: { type: 'number', description: '0-1.' },
+                happy: { type: 'number', description: '0-1.' },
+                sad: { type: 'number', description: '0-1.' },
+                angry: { type: 'number', description: '0-1.' },
+                fearful: { type: 'number', description: '0-1.' },
+                surprised: { type: 'number', description: '0-1.' },
+                disgusted: { type: 'number', description: '0-1.' },
+                contemptuous: { type: 'number', description: '0-1.' },
+                neutral: { type: 'number', description: '0-1.' },
               },
             },
           },
@@ -548,10 +643,12 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
           const data: Record<string, unknown> = {};
           if (typeof set.audioType === 'string') {
             const validAudioTypes = ['voice', 'sfx', 'music'];
-            if (!validAudioTypes.includes(set.audioType as string)) throw new Error(`audioType must be one of: ${validAudioTypes.join(', ')}`);
+            if (!validAudioTypes.includes(set.audioType as string))
+              throw new Error(`audioType must be one of: ${validAudioTypes.join(', ')}`);
             data.audioType = set.audioType;
           }
-          if (set.emotionVector !== undefined && set.emotionVector !== null) data.emotionVector = set.emotionVector;
+          if (set.emotionVector !== undefined && set.emotionVector !== null)
+            data.emotionVector = set.emotionVector;
 
           if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
           results.push({ nodeId, updated: data });
@@ -594,7 +691,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
 
   const estimateCost: AgentTool = {
     name: 'canvas.estimateCost',
-    description: 'Estimate total generation cost for specific nodes or for all media nodes on the canvas.',
+    description:
+      'Estimate total generation cost for specific nodes or for all media nodes on the canvas.',
     context: CANVAS_CONTEXT,
     tier: 1,
     parameters: {
@@ -626,7 +724,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
 
   const previewPrompt: AgentTool = {
     name: 'canvas.previewPrompt',
-    description: 'Preview the fully compiled prompt that would be sent to the generation provider, including all preset fragments, entity descriptions, word budget trimming, and diagnostics. Does NOT trigger generation.',
+    description:
+      'Preview the fully compiled prompt that would be sent to the generation provider, including all preset fragments, entity descriptions, word budget trimming, and diagnostics. Does NOT trigger generation.',
     context: CANVAS_CONTEXT,
     tier: 1,
     parameters: {
@@ -778,7 +877,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
 
   const deleteNode: AgentTool = {
     name: 'canvas.deleteNode',
-    description: 'Delete one or more nodes from the canvas (also removes connected edges). Supports batch: pass nodeIds array.',
+    description:
+      'Delete one or more nodes from the canvas (also removes connected edges). Supports batch: pass nodeIds array.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -786,7 +886,11 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to delete.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to delete.' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Batch: array of node IDs to delete.',
+        },
       },
       required: ['canvasId'],
     },
@@ -801,10 +905,15 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
             await deps.deleteNode(canvasId, nodeId);
             results.push({ nodeId, success: true });
           } catch (error) {
-            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              nodeId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
-        if (ids.length === 1) return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
+        if (ids.length === 1)
+          return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
         return ok({ deleted: results.filter((r) => r.success).length, total: ids.length, results });
       } catch (error) {
         return fail(error);
@@ -814,7 +923,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
 
   const deleteEdge: AgentTool = {
     name: 'canvas.deleteEdge',
-    description: 'Delete one or more edges (connections) from the canvas. Supports batch: pass edgeIds array.',
+    description:
+      'Delete one or more edges (connections) from the canvas. Supports batch: pass edgeIds array.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -822,7 +932,11 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         edgeId: { type: 'string', description: 'Single edge ID to delete.' },
-        edgeIds: { type: 'array', items: { type: 'string', description: 'Edge ID.' }, description: 'Batch: array of edge IDs to delete.' },
+        edgeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Edge ID.' },
+          description: 'Batch: array of edge IDs to delete.',
+        },
       },
       required: ['canvasId'],
     },
@@ -838,10 +952,15 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
             await deps.deleteEdge(canvasId, edgeId);
             results.push({ edgeId, success: true });
           } catch (error) {
-            results.push({ edgeId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              edgeId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
-        if (ids.length === 1) return results[0].success ? ok({ edgeId: ids[0] }) : fail(results[0].error!);
+        if (ids.length === 1)
+          return results[0].success ? ok({ edgeId: ids[0] }) : fail(results[0].error!);
         return ok({ deleted: results.filter((r) => r.success).length, total: ids.length, results });
       } catch (error) {
         return fail(error);
@@ -872,8 +991,13 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
           ...(structuredClone(edge) as CanvasEdge),
           source: edge.target,
           target: edge.source,
-          sourceHandle: edge.targetHandle?.startsWith('tgt-') ? edge.targetHandle.slice(4) : edge.targetHandle,
-          targetHandle: edge.sourceHandle && !edge.sourceHandle.startsWith('tgt-') ? `tgt-${edge.sourceHandle}` : edge.sourceHandle,
+          sourceHandle: edge.targetHandle?.startsWith('tgt-')
+            ? edge.targetHandle.slice(4)
+            : edge.targetHandle,
+          targetHandle:
+            edge.sourceHandle && !edge.sourceHandle.startsWith('tgt-')
+              ? `tgt-${edge.sourceHandle}`
+              : edge.sourceHandle,
         };
 
         await deps.deleteEdge(canvasId, edgeId);
@@ -887,7 +1011,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
 
   const disconnectNode: AgentTool = {
     name: 'canvas.disconnectNode',
-    description: 'Remove all edges connected to one or more nodes. Supports batch: pass nodeIds array.',
+    description:
+      'Remove all edges connected to one or more nodes. Supports batch: pass nodeIds array.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -895,7 +1020,11 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to disconnect.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to disconnect.' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Batch: array of node IDs to disconnect.',
+        },
       },
       required: ['canvasId'],
     },
@@ -903,7 +1032,13 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
       try {
         const canvasId = requireString(args, 'canvasId');
         const ids = resolveNodeIds(args);
-        const results: Array<{ nodeId: string; success: boolean; edgeIds?: string[]; count?: number; error?: string }> = [];
+        const results: Array<{
+          nodeId: string;
+          success: boolean;
+          edgeIds?: string[];
+          count?: number;
+          error?: string;
+        }> = [];
         for (const nodeId of ids) {
           try {
             const { canvas } = await requireNode(deps, canvasId, nodeId);
@@ -915,14 +1050,24 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
             }
             results.push({ nodeId, success: true, edgeIds, count: edgeIds.length });
           } catch (error) {
-            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              nodeId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
         if (ids.length === 1) {
           const r = results[0];
-          return r.success ? ok({ nodeId: ids[0], edgeIds: r.edgeIds, count: r.count }) : fail(r.error!);
+          return r.success
+            ? ok({ nodeId: ids[0], edgeIds: r.edgeIds, count: r.count })
+            : fail(r.error!);
         }
-        return ok({ disconnected: results.filter((r) => r.success).length, total: ids.length, results });
+        return ok({
+          disconnected: results.filter((r) => r.success).length,
+          total: ids.length,
+          results,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -931,7 +1076,8 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
 
   const updateBackdrop: AgentTool = {
     name: 'canvas.updateBackdrop',
-    description: 'Update one or more properties of a backdrop node in a single call. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. Supported fields: opacity (number), color (string), borderStyle ("dashed"|"solid"|"dotted"), titleSize ("sm"|"md"|"lg"), lockChildren (boolean), toggleCollapse (pass true to toggle).',
+    description:
+      'Update one or more properties of a backdrop node in a single call. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. Supported fields: opacity (number), color (string), borderStyle ("dashed"|"solid"|"dotted"), titleSize ("sm"|"md"|"lg"), lockChildren (boolean), toggleCollapse (pass true to toggle).',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -941,14 +1087,25 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
         nodeId: { type: 'string', description: 'The backdrop node ID to update.' },
         set: {
           type: 'object',
-          description: 'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
+          description:
+            'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
           properties: {
             opacity: { type: 'number', description: 'Backdrop opacity value.' },
             color: { type: 'string', description: 'Backdrop background color.' },
-            borderStyle: { type: 'string', description: 'Border style.', enum: ['dashed', 'solid', 'dotted'] },
+            borderStyle: {
+              type: 'string',
+              description: 'Border style.',
+              enum: ['dashed', 'solid', 'dotted'],
+            },
             titleSize: { type: 'string', description: 'Title size.', enum: ['sm', 'md', 'lg'] },
-            lockChildren: { type: 'boolean', description: 'Whether child nodes are locked inside the backdrop.' },
-            toggleCollapse: { type: 'boolean', description: 'Pass true to toggle the collapsed state.' },
+            lockChildren: {
+              type: 'boolean',
+              description: 'Whether child nodes are locked inside the backdrop.',
+            },
+            toggleCollapse: {
+              type: 'boolean',
+              description: 'Pass true to toggle the collapsed state.',
+            },
           },
         },
       },
@@ -966,12 +1123,17 @@ Quality tiers: ${KLING_QUALITY_DESCRIPTION}.`,
 
         const data: Record<string, unknown> = {};
         if (typeof set.opacity === 'number') {
-          if (!Number.isFinite(set.opacity as number)) throw new Error('opacity must be a finite number');
+          if (!Number.isFinite(set.opacity as number))
+            throw new Error('opacity must be a finite number');
           data.opacity = set.opacity;
         }
         if (typeof set.color === 'string') data.color = set.color;
         if (typeof set.borderStyle === 'string') {
-          if (set.borderStyle !== 'dashed' && set.borderStyle !== 'solid' && set.borderStyle !== 'dotted') {
+          if (
+            set.borderStyle !== 'dashed' &&
+            set.borderStyle !== 'solid' &&
+            set.borderStyle !== 'dotted'
+          ) {
             throw new Error('borderStyle must be one of dashed, solid, or dotted');
           }
           data.borderStyle = set.borderStyle;
@@ -1011,21 +1173,40 @@ Use this for entity refs (character/location/equipment). For prompt text changes
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to update.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to update (same refs for all).' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Batch: array of node IDs to update (same refs for all).',
+        },
         characterRefs: {
           type: 'array',
           description: 'Array of character references (used with nodeId/nodeIds).',
-          items: { type: 'object', description: 'A character reference.', properties: { characterId: { type: 'string', description: 'Character ID.' }, loadoutId: { type: 'string', description: 'Optional loadout ID.' } } },
+          items: {
+            type: 'object',
+            description: 'A character reference.',
+            properties: {
+              characterId: { type: 'string', description: 'Character ID.' },
+              loadoutId: { type: 'string', description: 'Optional loadout ID.' },
+            },
+          },
         },
         equipmentRefs: {
           type: 'array',
           description: 'Array of equipment references (used with nodeId/nodeIds).',
-          items: { type: 'object', description: 'An equipment reference.', properties: { equipmentId: { type: 'string', description: 'Equipment ID.' } } },
+          items: {
+            type: 'object',
+            description: 'An equipment reference.',
+            properties: { equipmentId: { type: 'string', description: 'Equipment ID.' } },
+          },
         },
         locationRefs: {
           type: 'array',
           description: 'Array of location references (used with nodeId/nodeIds).',
-          items: { type: 'object', description: 'A location reference.', properties: { locationId: { type: 'string', description: 'Location ID.' } } },
+          items: {
+            type: 'object',
+            description: 'A location reference.',
+            properties: { locationId: { type: 'string', description: 'Location ID.' } },
+          },
         },
         nodes: {
           type: 'array',
@@ -1038,17 +1219,32 @@ Use this for entity refs (character/location/equipment). For prompt text changes
               characterRefs: {
                 type: 'array',
                 description: 'Character references for this node.',
-                items: { type: 'object', description: 'Character ref.', properties: { characterId: { type: 'string', description: 'Character ID.' }, loadoutId: { type: 'string', description: 'Loadout ID.' } } },
+                items: {
+                  type: 'object',
+                  description: 'Character ref.',
+                  properties: {
+                    characterId: { type: 'string', description: 'Character ID.' },
+                    loadoutId: { type: 'string', description: 'Loadout ID.' },
+                  },
+                },
               },
               equipmentRefs: {
                 type: 'array',
                 description: 'Equipment references for this node.',
-                items: { type: 'object', description: 'Equipment ref.', properties: { equipmentId: { type: 'string', description: 'Equipment ID.' } } },
+                items: {
+                  type: 'object',
+                  description: 'Equipment ref.',
+                  properties: { equipmentId: { type: 'string', description: 'Equipment ID.' } },
+                },
               },
               locationRefs: {
                 type: 'array',
                 description: 'Location references for this node.',
-                items: { type: 'object', description: 'Location ref.', properties: { locationId: { type: 'string', description: 'Location ID.' } } },
+                items: {
+                  type: 'object',
+                  description: 'Location ref.',
+                  properties: { locationId: { type: 'string', description: 'Location ID.' } },
+                },
               },
             },
           },
@@ -1069,20 +1265,26 @@ Use this for entity refs (character/location/equipment). For prompt text changes
         function parseRefs(source: Record<string, unknown>): ParsedRefs {
           const parsed: ParsedRefs = {};
           if (Array.isArray(source.characterRefs)) {
-            parsed.characterRefs = (source.characterRefs as Array<Record<string, unknown>>).map((r) => ({
-              characterId: String(r.characterId ?? ''),
-              loadoutId: typeof r.loadoutId === 'string' ? r.loadoutId : '',
-            }));
+            parsed.characterRefs = (source.characterRefs as Array<Record<string, unknown>>).map(
+              (r) => ({
+                characterId: String(r.characterId ?? ''),
+                loadoutId: typeof r.loadoutId === 'string' ? r.loadoutId : '',
+              }),
+            );
           }
           if (Array.isArray(source.equipmentRefs)) {
-            parsed.equipmentRefs = (source.equipmentRefs as Array<Record<string, unknown>>).map((r) => ({
-              equipmentId: String(r.equipmentId ?? ''),
-            }));
+            parsed.equipmentRefs = (source.equipmentRefs as Array<Record<string, unknown>>).map(
+              (r) => ({
+                equipmentId: String(r.equipmentId ?? ''),
+              }),
+            );
           }
           if (Array.isArray(source.locationRefs)) {
-            parsed.locationRefs = (source.locationRefs as Array<Record<string, unknown>>).map((r) => ({
-              locationId: String(r.locationId ?? ''),
-            }));
+            parsed.locationRefs = (source.locationRefs as Array<Record<string, unknown>>).map(
+              (r) => ({
+                locationId: String(r.locationId ?? ''),
+              }),
+            );
           }
           return parsed;
         }
@@ -1100,7 +1302,9 @@ Use this for entity refs (character/location/equipment). For prompt text changes
           const nodeIds = resolveNodeIds(args);
           const sharedRefs = parseRefs(args);
           if (!sharedRefs.characterRefs && !sharedRefs.equipmentRefs && !sharedRefs.locationRefs) {
-            throw new Error('At least one of characterRefs, equipmentRefs, or locationRefs is required');
+            throw new Error(
+              'At least one of characterRefs, equipmentRefs, or locationRefs is required',
+            );
           }
           workItems = nodeIds.map((id) => ({ nodeId: id, refs: sharedRefs }));
         }
@@ -1109,12 +1313,20 @@ Use this for entity refs (character/location/equipment). For prompt text changes
         for (const { nodeId, refs } of workItems) {
           try {
             if (!refs.characterRefs && !refs.equipmentRefs && !refs.locationRefs) {
-              results.push({ nodeId, success: false, error: 'No ref arrays provided for this node' });
+              results.push({
+                nodeId,
+                success: false,
+                error: 'No ref arrays provided for this node',
+              });
               continue;
             }
             const { node } = await requireNode(deps, canvasId, nodeId);
             if (node.type !== 'image' && node.type !== 'video') {
-              results.push({ nodeId, success: false, error: `Node type "${node.type}" does not support entity refs` });
+              results.push({
+                nodeId,
+                success: false,
+                error: `Node type "${node.type}" does not support entity refs`,
+              });
               continue;
             }
             const data: Record<string, unknown> = {};
@@ -1124,7 +1336,11 @@ Use this for entity refs (character/location/equipment). For prompt text changes
             await deps.updateNodeData(canvasId, nodeId, data);
             results.push({ nodeId, success: true });
           } catch (error) {
-            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              nodeId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
         if (workItems.length === 1) {
@@ -1137,7 +1353,11 @@ Use this for entity refs (character/location/equipment). For prompt text changes
           if (refs.locationRefs !== undefined) responseData.locationRefs = refs.locationRefs;
           return ok(responseData);
         }
-        return ok({ updated: results.filter((r) => r.success).length, total: workItems.length, results });
+        return ok({
+          updated: results.filter((r) => r.success).length,
+          total: workItems.length,
+          results,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -1146,7 +1366,8 @@ Use this for entity refs (character/location/equipment). For prompt text changes
 
   const setVideoFrames: AgentTool = {
     name: 'canvas.setVideoFrames',
-    description: 'Set first and/or last frame reference for video nodes. Accepts a single nodeId or nodeIds array for batch. IMPORTANT: First frame requires an INCOMING edge (image→video), last frame requires an OUTGOING edge (video→image). Connect edges with correct direction BEFORE calling this tool.',
+    description:
+      'Set first and/or last frame reference for video nodes. Accepts a single nodeId or nodeIds array for batch. IMPORTANT: First frame requires an INCOMING edge (image→video), last frame requires an OUTGOING edge (video→image). Connect edges with correct direction BEFORE calling this tool.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -1154,11 +1375,27 @@ Use this for entity refs (character/location/equipment). For prompt text changes
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single video node ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of video node IDs (batch).' },
-        firstFrameNodeId: { type: 'string', description: 'ID of a connected image node to use as first frame.' },
-        lastFrameNodeId: { type: 'string', description: 'ID of a connected image node to use as last frame.' },
-        firstFrameAssetHash: { type: 'string', description: 'Direct asset hash for first frame image.' },
-        lastFrameAssetHash: { type: 'string', description: 'Direct asset hash for last frame image.' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Array of video node IDs (batch).',
+        },
+        firstFrameNodeId: {
+          type: 'string',
+          description: 'ID of a connected image node to use as first frame.',
+        },
+        lastFrameNodeId: {
+          type: 'string',
+          description: 'ID of a connected image node to use as last frame.',
+        },
+        firstFrameAssetHash: {
+          type: 'string',
+          description: 'Direct asset hash for first frame image.',
+        },
+        lastFrameAssetHash: {
+          type: 'string',
+          description: 'Direct asset hash for last frame image.',
+        },
       },
       required: ['canvasId'],
     },
@@ -1198,11 +1435,28 @@ Use this for entity refs (character/location/equipment). For prompt text changes
   };
 
   return [
-    generate, cancelGeneration, updateNodes, setNodeLayout,
-    setNodeProvider, setImageParams, setVideoParams, setAudioParams,
-    selectVariant, estimateCost, previewPrompt,
-    addNote, updateNote, deleteNote, undo, redo,
-    deleteNode, deleteEdge, swapEdgeDirection, disconnectNode, setVideoFrames,
-    updateBackdrop, setNodeRefs,
+    generate,
+    cancelGeneration,
+    updateNodes,
+    setNodeLayout,
+    setNodeProvider,
+    setImageParams,
+    setVideoParams,
+    setAudioParams,
+    selectVariant,
+    estimateCost,
+    previewPrompt,
+    addNote,
+    updateNote,
+    deleteNote,
+    undo,
+    redo,
+    deleteNode,
+    deleteEdge,
+    swapEdgeDirection,
+    disconnectNode,
+    setVideoFrames,
+    updateBackdrop,
+    setNodeRefs,
   ];
 }

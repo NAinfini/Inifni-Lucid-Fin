@@ -152,7 +152,8 @@ Motion descriptions should be specific:
     },
     description: {
       'zh-CN': '将长篇小说或书籍改编为视频，包括角色提取、场景分割和镜头规划',
-      'en-US': 'Adapt a novel or book into video, including character extraction, scene segmentation, and shot planning',
+      'en-US':
+        'Adapt a novel or book into video, including character extraction, scene segmentation, and shot planning',
     },
     builtIn: true,
     steps: [

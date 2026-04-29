@@ -25,7 +25,7 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function getErrorDetail(error: unknown): string | undefined {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
+  return error instanceof Error ? (error.stack ?? error.message) : String(error);
 }
 
 export function formatFailureSummary(summary: string, extraCount: number): string {
@@ -51,7 +51,9 @@ export function getFormatLabel(asset: { format?: string; path?: string; type: st
   return fallback[asset.type] ?? '';
 }
 
-export function getExportConfig(type: Asset['type']): { type: 'image' | 'video' | 'audio'; format: string } | null {
+export function getExportConfig(
+  type: Asset['type'],
+): { type: 'image' | 'video' | 'audio'; format: string } | null {
   switch (type) {
     case 'image':
       return { type: 'image', format: 'png' };

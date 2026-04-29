@@ -15,6 +15,7 @@ import {
   resolveVideoReferenceImageField,
 } from '@lucid-fin/contracts';
 import { createPrediction, getPrediction, cancelPrediction, toJobStatus } from './client.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class ReplicateAdapter implements AIProviderAdapter {
   readonly id = 'replicate';
@@ -30,7 +31,10 @@ export class ReplicateAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: AdapterConfigureOptions): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.model) {
       if (options.generationType === 'video') {
         this.videoModel = options.model as string;
@@ -46,7 +50,8 @@ export class ReplicateAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -125,7 +130,8 @@ export class ReplicateAdapter implements AIProviderAdapter {
     try {
       const prediction = await getPrediction(this.apiKey, jobId, this.name, this.baseUrl);
       return toJobStatus(prediction.status);
-    } catch { /* network error — assume job status is unknown, report as failed */
+    } catch {
+      /* network error — assume job status is unknown, report as failed */
       return JobStatus.Failed;
     }
   }

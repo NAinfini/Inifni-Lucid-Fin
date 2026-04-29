@@ -30,9 +30,7 @@ describe('CancelledBanner', () => {
   afterEach(() => cleanup());
 
   it('renders reason and renderer-derived counts', () => {
-    render(
-      <CancelledBanner event={baseEvent} stats={{ completed: 3, pending: 2 }} t={mockT} />,
-    );
+    render(<CancelledBanner event={baseEvent} stats={{ completed: 3, pending: 2 }} t={mockT} />);
     expect(screen.getByText('Cancelled by user')).toBeTruthy();
     expect(screen.getByText('3 tools completed, 2 pending')).toBeTruthy();
   });
@@ -61,9 +59,7 @@ describe('CancelledBanner', () => {
   });
 
   it('omits the details block when no partial content', () => {
-    render(
-      <CancelledBanner event={baseEvent} stats={{ completed: 0, pending: 0 }} t={mockT} />,
-    );
+    render(<CancelledBanner event={baseEvent} stats={{ completed: 0, pending: 0 }} t={mockT} />);
     expect(screen.queryByText('Partial content')).toBeNull();
   });
 });

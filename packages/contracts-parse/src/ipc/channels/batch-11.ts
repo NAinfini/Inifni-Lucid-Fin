@@ -44,9 +44,7 @@ export type SeriesDeleteRequest = z.infer<typeof SeriesDeleteRequest>;
 export type SeriesDeleteResponse = z.infer<typeof SeriesDeleteResponse>;
 
 // -- series:episodes:list (invoke) ----------------------------------------
-const SeriesEpisodesListRequest = z
-  .object({ seriesId: z.string().optional() })
-  .strict();
+const SeriesEpisodesListRequest = z.object({ seriesId: z.string().optional() }).strict();
 const SeriesEpisodesListResponse = z.array(z.unknown());
 export const seriesEpisodesListChannel = defineInvokeChannel({
   channel: 'series:episodes:list',

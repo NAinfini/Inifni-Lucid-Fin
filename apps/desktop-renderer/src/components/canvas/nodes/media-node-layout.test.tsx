@@ -17,13 +17,9 @@ afterEach(() => {
 });
 
 vi.mock('@xyflow/react', () => ({
-  Handle: ({
-    id,
-    position,
-  }: {
-    id: string;
-    position: string;
-  }) => <div data-testid={`handle-${position}-${id}`} />,
+  Handle: ({ id, position }: { id: string; position: string }) => (
+    <div data-testid={`handle-${position}-${id}`} />
+  ),
   NodeResizeControl: (props: {
     position?: string;
     keepAspectRatio?: boolean;
@@ -79,7 +75,9 @@ vi.mock('../../../hooks/useAssetUrl.js', () => ({
 
 vi.mock('../../ui/Dialog.js', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div data-testid="dialog-content">{children}</div>,
+  DialogContent: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="dialog-content">{children}</div>
+  ),
   DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -269,7 +267,9 @@ describe('media node layout', () => {
     const lastFrame = screen.getByAltText('Last');
     const secondVariantButton = screen.getByRole('button', { name: 'Select variant 2' });
 
-    expect(lastFrame.compareDocumentPosition(secondVariantButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      lastFrame.compareDocumentPosition(secondVariantButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it('renders audio variants with the same square thumbnail pattern as image and video nodes', () => {
@@ -346,8 +346,14 @@ describe('media node layout', () => {
     }
 
     expect(resizeControlSpy).not.toHaveBeenCalledWith(expect.objectContaining({ position: 'top' }));
-    expect(resizeControlSpy).not.toHaveBeenCalledWith(expect.objectContaining({ position: 'right' }));
-    expect(resizeControlSpy).not.toHaveBeenCalledWith(expect.objectContaining({ position: 'bottom' }));
-    expect(resizeControlSpy).not.toHaveBeenCalledWith(expect.objectContaining({ position: 'left' }));
+    expect(resizeControlSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ position: 'right' }),
+    );
+    expect(resizeControlSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ position: 'bottom' }),
+    );
+    expect(resizeControlSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ position: 'left' }),
+    );
   });
 });

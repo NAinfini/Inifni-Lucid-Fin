@@ -12,9 +12,6 @@ const CanvasIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'canvasId must be non-empty after trim' });
 
-export const parseCanvasId = makeBrandParser<CanvasId, string>(
-  CanvasIdSchema,
-  'CanvasId',
-);
+export const parseCanvasId = makeBrandParser<CanvasId, string>(CanvasIdSchema, 'CanvasId');
 
 export const tryCanvasId = makeTryBrand<CanvasId, string>(CanvasIdSchema);

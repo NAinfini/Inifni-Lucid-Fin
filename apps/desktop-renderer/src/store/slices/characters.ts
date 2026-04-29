@@ -1,10 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type {
-  Character,
-  Folder,
-  ReferenceImage,
-  EquipmentLoadout,
-} from '@lucid-fin/contracts';
+import type { Character, Folder, ReferenceImage, EquipmentLoadout } from '@lucid-fin/contracts';
 
 export type CharacterState = Character;
 
@@ -60,10 +55,7 @@ export const charactersSlice = createSlice({
       refs.push(action.payload.refImage);
       ch.referenceImages = refs;
     },
-    removeCharacterRefImage(
-      state,
-      action: PayloadAction<{ characterId: string; slot: string }>,
-    ) {
+    removeCharacterRefImage(state, action: PayloadAction<{ characterId: string; slot: string }>) {
       const ch = state.items.find((c) => c.id === action.payload.characterId);
       if (!ch) return;
       ch.referenceImages = ch.referenceImages.filter((r) => r.slot !== action.payload.slot);
@@ -121,10 +113,7 @@ export const charactersSlice = createSlice({
     setFoldersLoading(state, action: PayloadAction<boolean>) {
       state.foldersLoading = action.payload;
     },
-    moveItemToFolder(
-      state,
-      action: PayloadAction<{ id: string; folderId: string | null }>,
-    ) {
+    moveItemToFolder(state, action: PayloadAction<{ id: string; folderId: string | null }>) {
       const ch = state.items.find((c) => c.id === action.payload.id);
       if (ch) ch.folderId = action.payload.folderId;
     },

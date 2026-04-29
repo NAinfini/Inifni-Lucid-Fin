@@ -8,6 +8,7 @@ import type {
   JobStatus,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class IdeogramAdapter implements AIProviderAdapter {
   readonly id = 'ideogram';
@@ -21,7 +22,10 @@ export class IdeogramAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   async validate(): Promise<boolean> {
@@ -32,7 +36,8 @@ export class IdeogramAdapter implements AIProviderAdapter {
         body: JSON.stringify({ image_request: { image_url: 'https://example.com/test.png' } }),
       });
       return res.status !== 401;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

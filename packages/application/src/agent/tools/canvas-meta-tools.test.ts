@@ -60,11 +60,13 @@ describe('createCanvasMetaTools', () => {
   it('reads logs with normalized filters', async () => {
     const deps = createDeps();
 
-    await expect(getTool('logger.list', deps).execute({
-      level: ' error ',
-      category: ' generation ',
-      limit: 3.8,
-    })).resolves.toEqual({
+    await expect(
+      getTool('logger.list', deps).execute({
+        level: ' error ',
+        category: ' generation ',
+        limit: 3.8,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: [{ id: 'log-1', category: 'test', level: 'info' }],
     });
@@ -75,10 +77,12 @@ describe('createCanvasMetaTools', () => {
     const deps = createDeps();
     vi.mocked(deps.getRecentLogs).mockRejectedValueOnce(new Error('log read failed'));
 
-    await expect(getTool('commander.askUser', deps).execute({
-      question: 'Proceed?',
-      options: [{ label: 'Yes' }],
-    })).resolves.toEqual({
+    await expect(
+      getTool('commander.askUser', deps).execute({
+        question: 'Proceed?',
+        options: [{ label: 'Yes' }],
+      }),
+    ).resolves.toEqual({
       success: true,
       data: 'Waiting for user response...',
     });

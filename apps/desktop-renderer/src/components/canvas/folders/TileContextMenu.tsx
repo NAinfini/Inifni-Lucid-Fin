@@ -27,7 +27,9 @@ export function TileContextMenu({ x, y, items, onClose }: TileContextMenuProps) 
     const onDown = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     const onScroll = () => onClose();
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
@@ -52,7 +54,11 @@ export function TileContextMenu({ x, y, items, onClose }: TileContextMenuProps) 
           key={i}
           type="button"
           disabled={it.disabled}
-          onClick={() => { if (it.disabled) return; it.onSelect(); onClose(); }}
+          onClick={() => {
+            if (it.disabled) return;
+            it.onSelect();
+            onClose();
+          }}
           className={cn(
             'block w-full px-3 py-1.5 text-left hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed',
             it.destructive && 'text-destructive hover:bg-destructive/10',

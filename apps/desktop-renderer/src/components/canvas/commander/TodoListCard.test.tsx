@@ -4,8 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { TodoListCard } from './TodoListCard.js';
 
-const t = (key: string) =>
-  ({ 'commander.todo.title': 'Plan' }[key] ?? key);
+const t = (key: string) => ({ 'commander.todo.title': 'Plan' })[key] ?? key;
 
 afterEach(() => cleanup());
 

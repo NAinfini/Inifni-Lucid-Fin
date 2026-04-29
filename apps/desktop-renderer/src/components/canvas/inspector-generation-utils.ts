@@ -34,19 +34,49 @@ export const FPS_PRESETS = [24, 30, 60] as const;
 // omitted at user's request. 512 dropped (SD1.5 relic — modern providers
 // reject it).
 export const IMAGE_RESOLUTION_PRESETS: readonly ResolutionPreset[] = [
-  { value: 'square-1024',       groupLabel: 'Square',    label: '1024 × 1024',     width: 1024, height: 1024 },
-  { value: 'landscape-1344-768', groupLabel: 'Landscape', label: '1344 × 768 (16:9)', width: 1344, height: 768 },
-  { value: 'portrait-768-1344',  groupLabel: 'Portrait',  label: '768 × 1344 (9:16)', width: 768,  height: 1344 },
-  { value: 'square-2048',       groupLabel: 'Square',    label: '2048 × 2048',     width: 2048, height: 2048 },
+  { value: 'square-1024', groupLabel: 'Square', label: '1024 × 1024', width: 1024, height: 1024 },
+  {
+    value: 'landscape-1344-768',
+    groupLabel: 'Landscape',
+    label: '1344 × 768 (16:9)',
+    width: 1344,
+    height: 768,
+  },
+  {
+    value: 'portrait-768-1344',
+    groupLabel: 'Portrait',
+    label: '768 × 1344 (9:16)',
+    width: 768,
+    height: 1344,
+  },
+  { value: 'square-2048', groupLabel: 'Square', label: '2048 × 2048', width: 2048, height: 2048 },
 ] as const;
 
 // Video node presets — 4K omitted because only Veo supports it (everywhere
 // else it would force a clamp-down). Covers 720p/1080p landscape + vertical.
 export const VIDEO_RESOLUTION_PRESETS: readonly ResolutionPreset[] = [
-  { value: 'landscape-720',  groupLabel: 'Landscape', label: '1280 × 720 (HD)',   width: 1280, height: 720  },
-  { value: 'landscape-1080', groupLabel: 'Landscape', label: '1920 × 1080 (FHD)', width: 1920, height: 1080 },
-  { value: 'portrait-720',   groupLabel: 'Portrait',  label: '720 × 1280',        width: 720,  height: 1280 },
-  { value: 'portrait-1080',  groupLabel: 'Portrait',  label: '1080 × 1920',       width: 1080, height: 1920 },
+  {
+    value: 'landscape-720',
+    groupLabel: 'Landscape',
+    label: '1280 × 720 (HD)',
+    width: 1280,
+    height: 720,
+  },
+  {
+    value: 'landscape-1080',
+    groupLabel: 'Landscape',
+    label: '1920 × 1080 (FHD)',
+    width: 1920,
+    height: 1080,
+  },
+  { value: 'portrait-720', groupLabel: 'Portrait', label: '720 × 1280', width: 720, height: 1280 },
+  {
+    value: 'portrait-1080',
+    groupLabel: 'Portrait',
+    label: '1080 × 1920',
+    width: 1080,
+    height: 1920,
+  },
 ] as const;
 
 /**
@@ -133,4 +163,3 @@ export function resolveSeedRequest(input: SeedRequestInput): SeedRequestResult {
     persistAfterCompletion: input.randomSeed,
   };
 }
-

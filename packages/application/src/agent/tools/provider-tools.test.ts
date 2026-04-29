@@ -57,11 +57,13 @@ describe('createProviderTools', () => {
   it('lists providers and delegates provider mutations', async () => {
     const deps = createDeps();
 
-    await expect(getTool('provider.list', deps).execute({
-      group: 'llm',
-      offset: 1,
-      limit: 1,
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.list', deps).execute({
+        group: 'llm',
+        offset: 1,
+        limit: 1,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         total: 2,
@@ -81,49 +83,66 @@ describe('createProviderTools', () => {
       success: true,
       data: { activeProvider: 'provider-1' },
     });
-    await expect(getTool('provider.setActive', deps).execute({
-      group: 'llm',
-      providerId: 'provider-2',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.setActive', deps).execute({
+        group: 'llm',
+        providerId: 'provider-2',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { activated: 'provider-2' },
     });
-    await expect(getTool('provider.update', deps).execute({
-      group: 'llm',
-      providerId: 'provider-2',
-      set: { baseUrl: 'https://override.example.com' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.update', deps).execute({
+        group: 'llm',
+        providerId: 'provider-2',
+        set: { baseUrl: 'https://override.example.com' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { providerId: 'provider-2', baseUrl: 'https://override.example.com' },
     });
-    await expect(getTool('provider.update', deps).execute({
-      group: 'llm',
-      providerId: 'provider-2',
-      set: { model: 'model-3' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.update', deps).execute({
+        group: 'llm',
+        providerId: 'provider-2',
+        set: { model: 'model-3' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { providerId: 'provider-2', model: 'model-3' },
     });
-    await expect(getTool('provider.update', deps).execute({
-      group: 'llm',
-      providerId: 'provider-2',
-      set: { name: 'Renamed' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.update', deps).execute({
+        group: 'llm',
+        providerId: 'provider-2',
+        set: { name: 'Renamed' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { providerId: 'provider-2', name: 'Renamed' },
     });
-    await expect(getTool('provider.update', deps).execute({
-      group: 'llm',
-      providerId: 'provider-2',
-      set: { baseUrl: 'https://override.example.com', model: 'model-3', name: 'Renamed' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.update', deps).execute({
+        group: 'llm',
+        providerId: 'provider-2',
+        set: { baseUrl: 'https://override.example.com', model: 'model-3', name: 'Renamed' },
+      }),
+    ).resolves.toEqual({
       success: true,
-      data: { providerId: 'provider-2', baseUrl: 'https://override.example.com', model: 'model-3', name: 'Renamed' },
+      data: {
+        providerId: 'provider-2',
+        baseUrl: 'https://override.example.com',
+        model: 'model-3',
+        name: 'Renamed',
+      },
     });
-    await expect(getTool('provider.removeCustom', deps).execute({
-      group: 'llm',
-      providerId: 'provider-2',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.removeCustom', deps).execute({
+        group: 'llm',
+        providerId: 'provider-2',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { removed: 'provider-2' },
     });
@@ -132,11 +151,13 @@ describe('createProviderTools', () => {
   it('provider.update rejects when set is empty', async () => {
     const deps = createDeps();
 
-    await expect(getTool('provider.update', deps).execute({
-      group: 'llm',
-      providerId: 'provider-1',
-      set: {},
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.update', deps).execute({
+        group: 'llm',
+        providerId: 'provider-1',
+        set: {},
+      }),
+    ).resolves.toEqual({
       success: false,
       error: '"set" must contain at least one field to update',
     });
@@ -145,10 +166,12 @@ describe('createProviderTools', () => {
   it('provider.setKey stores API key via dep', async () => {
     const deps = createDeps();
 
-    await expect(getTool('provider.setKey', deps).execute({
-      providerId: ' openai ',
-      apiKey: ' sk-test ',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.setKey', deps).execute({
+        providerId: ' openai ',
+        apiKey: ' sk-test ',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { providerId: 'openai', message: 'API key set for openai' },
     });
@@ -159,10 +182,12 @@ describe('createProviderTools', () => {
     const deps = createDeps();
     deps.setProviderApiKey = undefined;
 
-    await expect(getTool('provider.setKey', deps).execute({
-      providerId: 'openai',
-      apiKey: 'sk-test',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.setKey', deps).execute({
+        providerId: 'openai',
+        apiKey: 'sk-test',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'API key management not available',
     });
@@ -171,17 +196,21 @@ describe('createProviderTools', () => {
   it('provider.setKey validates required fields', async () => {
     const deps = createDeps();
 
-    await expect(getTool('provider.setKey', deps).execute({
-      providerId: '',
-      apiKey: 'sk-test',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.setKey', deps).execute({
+        providerId: '',
+        apiKey: 'sk-test',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'providerId is required',
     });
-    await expect(getTool('provider.setKey', deps).execute({
-      providerId: 'openai',
-      apiKey: '',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.setKey', deps).execute({
+        providerId: 'openai',
+        apiKey: '',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'apiKey is required',
     });
@@ -191,12 +220,14 @@ describe('createProviderTools', () => {
     const deps = createDeps();
     vi.spyOn(Date, 'now').mockReturnValue(12345);
 
-    await expect(getTool('provider.addCustom', deps).execute({
-      group: 'llm',
-      name: 'Custom LLM',
-      baseUrl: 'https://custom.example.com',
-      model: 'custom-model',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.addCustom', deps).execute({
+        group: 'llm',
+        name: 'Custom LLM',
+        baseUrl: 'https://custom.example.com',
+        model: 'custom-model',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         id: 'custom-llm-12345',
@@ -213,14 +244,18 @@ describe('createProviderTools', () => {
       'custom-model',
     );
 
-    await expect(getTool('provider.getCapabilities', deps).execute({ providerId: 'kling-v1' })).resolves.toEqual({
+    await expect(
+      getTool('provider.getCapabilities', deps).execute({ providerId: 'kling-v1' }),
+    ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         providerId: 'kling-v1',
         known: true,
       }),
     });
-    await expect(getTool('provider.getCapabilities', deps).execute({ providerId: 'unknown-provider' })).resolves.toEqual({
+    await expect(
+      getTool('provider.getCapabilities', deps).execute({ providerId: 'unknown-provider' }),
+    ).resolves.toEqual({
       success: true,
       data: {
         providerId: 'unknown-provider',
@@ -234,13 +269,14 @@ describe('createProviderTools', () => {
     const deps = createDeps();
     vi.mocked(deps.setActiveProvider).mockRejectedValueOnce(new Error('activate failed'));
 
-    await expect(getTool('provider.setActive', deps).execute({
-      group: 'llm',
-      providerId: 'provider-2',
-    })).resolves.toEqual({
+    await expect(
+      getTool('provider.setActive', deps).execute({
+        group: 'llm',
+        providerId: 'provider-2',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'activate failed',
     });
   });
 });
-

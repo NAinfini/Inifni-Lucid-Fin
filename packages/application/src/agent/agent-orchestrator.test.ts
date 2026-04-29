@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentOrchestrator } from './agent-orchestrator.js';
 import { AgentToolRegistry } from './tool-registry.js';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
-import type { LLMAdapter, LLMStreamEvent, LLMToolCall, LLMFinishReason } from '@lucid-fin/contracts';
+import type {
+  LLMAdapter,
+  LLMStreamEvent,
+  LLMToolCall,
+  LLMFinishReason,
+} from '@lucid-fin/contracts';
 
 /**
  * Test-only shape — mirrors the pre-streaming `LLMCompletionResult` so the
@@ -65,7 +70,9 @@ describe('AgentOrchestrator', () => {
 
     expect(result.content).toBe('Hello!');
     expect(result.toolCalls).toHaveLength(0);
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(
+      true,
+    );
     expect(
       events.some(
         (e: unknown) =>
@@ -106,8 +113,12 @@ describe('AgentOrchestrator', () => {
 
     expect(mockTool).toHaveBeenCalled();
     expect(result.content).toBe('Found 5 characters.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_call')).toBe(true);
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_result')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_call')).toBe(
+      true,
+    );
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_result')).toBe(
+      true,
+    );
   });
 
   it('handles tool execution errors gracefully', async () => {
@@ -222,14 +233,16 @@ describe('AgentOrchestrator', () => {
   it('compacts tool definitions before sending them to the LLM', async () => {
     toolRegistry.register({
       name: 'canvas.addNode',
-      description: 'Add a new node to the current canvas at a specific position with very verbose explanation text.',
+      description:
+        'Add a new node to the current canvas at a specific position with very verbose explanation text.',
       tier: 1,
       parameters: {
         type: 'object',
         properties: {
           canvasId: {
             type: 'string',
-            description: 'The target canvas identifier with extra explanatory prose that should not be forwarded verbatim.',
+            description:
+              'The target canvas identifier with extra explanatory prose that should not be forwarded verbatim.',
           },
           position: {
             type: 'object',
@@ -267,30 +280,34 @@ describe('AgentOrchestrator', () => {
       };
     };
 
-    expect(tool.description).toBe('Add a new node to the current canvas at a specific position with very verbose explanation text.');
+    expect(tool.description).toBe(
+      'Add a new node to the current canvas at a specific position with very verbose explanation text.',
+    );
     expect(tool.parameters.properties.canvasId?.description).toBe('');
     expect(tool.parameters.properties.position?.description).toBe('');
-    expect((tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).x?.description).toBe('');
-    expect((tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).y?.description).toBe('');
+    expect(
+      (tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).x
+        ?.description,
+    ).toBe('');
+    expect(
+      (tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).y
+        ?.description,
+    ).toBe('');
   });
 
   it('injects history into the LLM message list', async () => {
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute(
-      'latest',
-      { page: 'canvas' },
-      () => {},
-      {
-        history: [
-          { role: 'user', content: 'older user message' },
-          { role: 'assistant', content: 'older assistant message' },
-        ],
-      },
-    );
+    await agent.execute('latest', { page: 'canvas' }, () => {}, {
+      history: [
+        { role: 'user', content: 'older user message' },
+        { role: 'assistant', content: 'older assistant message' },
+      ],
+    });
 
-    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -310,21 +327,17 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute(
-      'latest',
-      { page: 'canvas' },
-      () => {},
-      {
-        history: [
-          { role: 'user', content: 'A'.repeat(10000) },
-          { role: 'assistant', content: 'B'.repeat(10000) },
-          { role: 'user', content: 'C'.repeat(10000) },
-          { role: 'assistant', content: 'D'.repeat(10000) },
-        ],
-      },
-    );
+    await agent.execute('latest', { page: 'canvas' }, () => {}, {
+      history: [
+        { role: 'user', content: 'A'.repeat(10000) },
+        { role: 'assistant', content: 'B'.repeat(10000) },
+        { role: 'user', content: 'C'.repeat(10000) },
+        { role: 'assistant', content: 'D'.repeat(10000) },
+      ],
+    });
 
-    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -344,12 +357,9 @@ describe('AgentOrchestrator', () => {
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: unknown[] = [];
 
-    const result = await agent.execute(
-      'stop',
-      {},
-      (event) => events.push(event),
-      { isAborted: () => true },
-    );
+    const result = await agent.execute('stop', {}, (event) => events.push(event), {
+      isAborted: () => true,
+    });
 
     expect(result.content).toBe('Cancelled.');
     expect((adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
@@ -407,7 +417,9 @@ describe('AgentOrchestrator', () => {
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => {
-        (agent as unknown as { injectMessage?: (content: string) => void }).injectMessage?.('Focus on node n-2');
+        (agent as unknown as { injectMessage?: (content: string) => void }).injectMessage?.(
+          'Focus on node n-2',
+        );
         return {
           success: true,
           data: [{ id: 'n-1', title: 'Opening Shot' }],
@@ -433,7 +445,8 @@ describe('AgentOrchestrator', () => {
       discoveredTools: ['canvas.listNodes'],
     });
 
-    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[1][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -481,7 +494,8 @@ describe('AgentOrchestrator', () => {
       discoveredTools: ['character.list'],
     });
 
-    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[1][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -530,7 +544,8 @@ describe('AgentOrchestrator', () => {
       discoveredTools: ['canvas.setNodeProvider'],
     });
 
-    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[1][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -559,13 +574,18 @@ describe('AgentOrchestrator', () => {
       () => {},
     );
 
-    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+    const messages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Array<{
       role: string;
       content: string;
     }>;
     const systemMsg = messages.find((message) => message.role === 'system');
-    const largeStringLine = systemMsg?.content.split('\n').find((line) => line.startsWith('largeString: '));
-    const largeObjectLine = systemMsg?.content.split('\n').find((line) => line.startsWith('largeObject: '));
+    const largeStringLine = systemMsg?.content
+      .split('\n')
+      .find((line) => line.startsWith('largeString: '));
+    const largeObjectLine = systemMsg?.content
+      .split('\n')
+      .find((line) => line.startsWith('largeObject: '));
 
     expect(largeStringLine).toBeDefined();
     expect(largeObjectLine).toBeDefined();
@@ -612,7 +632,8 @@ describe('AgentOrchestrator', () => {
       discoveredTools: ['character.list'],
     });
 
-    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[1][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -648,7 +669,11 @@ describe('AgentOrchestrator', () => {
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({
         success: true,
-        data: { name: 'series.addEpisode', description: 'Add an episode to a series', parameters: { type: 'object', properties: {}, required: [] } },
+        data: {
+          name: 'series.addEpisode',
+          description: 'Add an episode to a series',
+          parameters: { type: 'object', properties: {}, required: [] },
+        },
       })),
     });
     toolRegistry.register({
@@ -778,7 +803,9 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: Array<Record<string, unknown>> = [];
-    await agent.execute('add an episode', {}, (e) => events.push(e as unknown as Record<string, unknown>));
+    await agent.execute('add an episode', {}, (e) =>
+      events.push(e as unknown as Record<string, unknown>),
+    );
 
     // Tool should NOT have been executed
     expect(toolRegistry.get('series.addEpisode')!.execute).not.toHaveBeenCalled();
@@ -834,7 +861,8 @@ describe('AgentOrchestrator', () => {
       discoveredTools: ['character.generateRefImage'],
     });
 
-    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[1][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -860,7 +888,8 @@ describe('AgentOrchestrator', () => {
       () => {},
     );
 
-    const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+    const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -898,12 +927,16 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-1', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'a' } }],
+        toolCalls: [
+          { id: 'tc-1', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'a' } },
+        ],
         finishReason: 'tool_calls',
       },
       {
         content: '',
-        toolCalls: [{ id: 'tc-2', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'b' } }],
+        toolCalls: [
+          { id: 'tc-2', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'b' } },
+        ],
         finishReason: 'tool_calls',
       },
       {
@@ -937,7 +970,8 @@ describe('AgentOrchestrator', () => {
       discoveredTools: ['canvas.renameCanvas', 'noop.tool'],
     });
 
-    const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[2][0] as Array<{
+    const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[2][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -946,7 +980,8 @@ describe('AgentOrchestrator', () => {
     expect(thirdSystemPrompt).toContain('canvas-structure');
     expect(thirdSystemPrompt).toContain('Canvas structure rules.');
 
-    const sixthCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[5][0] as Array<{
+    const sixthCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[5][0] as Array<{
       role: string;
       content: string;
     }>;
@@ -966,7 +1001,9 @@ describe('AgentOrchestrator', () => {
       configure: vi.fn(),
       validate: vi.fn(async () => true),
       complete: vi.fn(async () => ''),
-      stream: vi.fn(async function* () { yield ''; }),
+      stream: vi.fn(async function* () {
+        yield '';
+      }),
       completeWithTools: vi.fn(async (messages: unknown[]) => {
         capturedRequests.push(messages);
         return responseToStream({
@@ -982,7 +1019,9 @@ describe('AgentOrchestrator', () => {
     const result = await agent.execute('Hello from graph path', {}, (e) => events.push(e));
 
     expect(result.content).toBe('Graph path response.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(
+      true,
+    );
 
     // Verify the LLM adapter was invoked with a non-empty messages array
     // and that the first kept message is a system prompt.
@@ -1002,7 +1041,9 @@ describe('AgentOrchestrator', () => {
       configure: vi.fn(),
       validate: vi.fn(async () => true),
       complete: vi.fn(async () => ''),
-      stream: vi.fn(async function* () { yield ''; }),
+      stream: vi.fn(async function* () {
+        yield '';
+      }),
       completeWithTools: vi.fn(async (messages: unknown[]) => {
         capturedRequests.push(messages);
         return responseToStream({
@@ -1015,7 +1056,7 @@ describe('AgentOrchestrator', () => {
         providerId: 'claude',
         charsPerToken: 3.5,
         sanitizeToolNames: true,
-        maxUtilization: 0.90,
+        maxUtilization: 0.9,
         outputReserveTokens: 4096,
       },
     };
@@ -1025,7 +1066,9 @@ describe('AgentOrchestrator', () => {
     const result = await agent.execute('Hello Claude', {}, (e) => events.push(e));
 
     expect(result.content).toBe('Claude graph response.');
-    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(true);
+    expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'run_end')).toBe(
+      true,
+    );
     expect(capturedRequests.length).toBeGreaterThan(0);
     const firstRequest = capturedRequests[0] as Array<Record<string, unknown>>;
     expect(firstRequest[0]!.role).toBe('system');
@@ -1081,9 +1124,7 @@ describe('AgentOrchestrator', () => {
 
     it('preserves session-summary items across execute()', async () => {
       const { freshContextItemId } = await import('@lucid-fin/contracts-parse');
-      const adapter = createMockAdapter([
-        { content: 'ok', toolCalls: [], finishReason: 'stop' },
-      ]);
+      const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
       const summary = {
@@ -1137,17 +1178,13 @@ describe('AgentOrchestrator', () => {
     });
 
     it('getSerializedContextGraph returns empty array before first execute()', () => {
-      const adapter = createMockAdapter([
-        { content: '', toolCalls: [], finishReason: 'stop' },
-      ]);
+      const adapter = createMockAdapter([{ content: '', toolCalls: [], finishReason: 'stop' }]);
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
       expect(agent.getSerializedContextGraph()).toEqual([]);
     });
 
     it('seedContextGraph accepts empty array as a no-op', async () => {
-      const adapter = createMockAdapter([
-        { content: 'ok', toolCalls: [], finishReason: 'stop' },
-      ]);
+      const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
       agent.seedContextGraph([]);
       await agent.execute('hi', {}, () => {});
@@ -1224,7 +1261,9 @@ describe('AgentOrchestrator', () => {
       responses.push({ content: 'done', toolCalls: [], finishReason: 'stop' });
 
       const adapter = createMockAdapter(responses);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, { maxSteps: rounds + 5 });
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+        maxSteps: rounds + 5,
+      });
       await agent.execute('run many list calls', {}, () => {}, {
         discoveredTools: ['character.list'],
       });
@@ -1266,9 +1305,7 @@ describe('AgentOrchestrator', () => {
       for (let i = 0; i < rounds; i++) {
         responses.push({
           content: '',
-          toolCalls: [
-            { id: `tc-${i}`, name: 'character.list', arguments: { page: i % 2 } },
-          ],
+          toolCalls: [{ id: `tc-${i}`, name: 'character.list', arguments: { page: i % 2 } }],
           finishReason: 'tool_calls',
         });
       }
@@ -1302,7 +1339,9 @@ describe('AgentOrchestrator', () => {
       // First call throws, second succeeds. The retry path should emit a
       // phase_note and resolve the run.
       vi.spyOn(Math, 'random').mockReturnValue(0); // delay = 0 → test runs fast
-      const adapter = createMockAdapter([{ content: 'hello', toolCalls: [], finishReason: 'stop' }]);
+      const adapter = createMockAdapter([
+        { content: 'hello', toolCalls: [], finishReason: 'stop' },
+      ]);
       let callCount = 0;
       adapter.completeWithTools = vi.fn(async () => {
         callCount++;
@@ -1313,15 +1352,15 @@ describe('AgentOrchestrator', () => {
       });
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
       const emits: Array<{ kind: string; [k: string]: unknown }> = [];
-      await agent.execute(
-        'hi',
-        { canvasId: 'c1', extra: {} } as never,
-        (event) => emits.push(event as never),
+      await agent.execute('hi', { canvasId: 'c1', extra: {} } as never, (event) =>
+        emits.push(event as never),
       );
       expect(callCount).toBe(2);
       const retryNotes = emits.filter((e) => e.kind === 'phase_note' && e.note === 'llm_retry');
       expect(retryNotes).toHaveLength(1);
-      expect(String((retryNotes[0].params as Record<string, unknown>).detail)).toMatch(/attempt 2 of 3 after \d+ms/);
+      expect(String((retryNotes[0].params as Record<string, unknown>).detail)).toMatch(
+        /attempt 2 of 3 after \d+ms/,
+      );
       vi.restoreAllMocks();
     });
 
@@ -1360,10 +1399,8 @@ describe('AgentOrchestrator', () => {
       };
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
       const emits: Array<{ kind: string; [k: string]: unknown }> = [];
-      const exec = agent.execute(
-        'hi',
-        { canvasId: 'c1', extra: {} } as never,
-        (event) => emits.push(event as never),
+      const exec = agent.execute('hi', { canvasId: 'c1', extra: {} } as never, (event) =>
+        emits.push(event as never),
       );
       // Give the first call a chance to install the signal listener.
       await new Promise((r) => setTimeout(r, 20));
@@ -1374,7 +1411,9 @@ describe('AgentOrchestrator', () => {
       expect(sawSignal).toBeDefined();
       const retryNotes = emits.filter((e) => e.kind === 'phase_note' && e.note === 'llm_retry');
       expect(retryNotes).toHaveLength(1);
-      expect(String((retryNotes[0].params as Record<string, unknown>).detail)).toContain('step_cancel');
+      expect(String((retryNotes[0].params as Record<string, unknown>).detail)).toContain(
+        'step_cancel',
+      );
       vi.restoreAllMocks();
     });
 
@@ -1414,7 +1453,8 @@ describe('AgentOrchestrator', () => {
         () => {},
       );
 
-      const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][0] as Array<{
+      const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as Array<{
         role: string;
         content: string;
       }>;
@@ -1431,11 +1471,13 @@ describe('AgentOrchestrator', () => {
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [{
-            id: 'tc-create',
-            name: 'canvas.batchCreate',
-            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-          }],
+          toolCalls: [
+            {
+              id: 'tc-create',
+              name: 'canvas.batchCreate',
+              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+            },
+          ],
           finishReason: 'tool_calls',
         },
         {
@@ -1455,7 +1497,8 @@ describe('AgentOrchestrator', () => {
 
       // Pre-flight defers the assistant turn, so the SECOND LLM call is where
       // the system message should appear.
-      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][0] as Array<{
+      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as Array<{
         role: string;
         content: string;
       }>;
@@ -1471,11 +1514,13 @@ describe('AgentOrchestrator', () => {
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [{
-            id: 'tc-text',
-            name: 'canvas.batchCreate',
-            arguments: { canvasId: 'c1', nodes: [{ type: 'text', label: 'note' }] },
-          }],
+          toolCalls: [
+            {
+              id: 'tc-text',
+              name: 'canvas.batchCreate',
+              arguments: { canvasId: 'c1', nodes: [{ type: 'text', label: 'note' }] },
+            },
+          ],
           finishReason: 'tool_calls',
         },
         {
@@ -1509,11 +1554,13 @@ describe('AgentOrchestrator', () => {
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [{
-            id: 'tc-img',
-            name: 'canvas.batchCreate',
-            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-          }],
+          toolCalls: [
+            {
+              id: 'tc-img',
+              name: 'canvas.batchCreate',
+              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+            },
+          ],
           finishReason: 'tool_calls',
         },
         {
@@ -1544,20 +1591,24 @@ describe('AgentOrchestrator', () => {
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [{
-            id: 'tc-img-1',
-            name: 'canvas.batchCreate',
-            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-          }],
+          toolCalls: [
+            {
+              id: 'tc-img-1',
+              name: 'canvas.batchCreate',
+              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+            },
+          ],
           finishReason: 'tool_calls',
         },
         {
           content: '',
-          toolCalls: [{
-            id: 'tc-img-2',
-            name: 'canvas.batchCreate',
-            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'villain' }] },
-          }],
+          toolCalls: [
+            {
+              id: 'tc-img-2',
+              name: 'canvas.batchCreate',
+              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'villain' }] },
+            },
+          ],
           finishReason: 'tool_calls',
         },
         {
@@ -1592,11 +1643,13 @@ describe('AgentOrchestrator', () => {
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [{
-            id: 'tc-img',
-            name: 'canvas.batchCreate',
-            arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-          }],
+          toolCalls: [
+            {
+              id: 'tc-img',
+              name: 'canvas.batchCreate',
+              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+            },
+          ],
           finishReason: 'tool_calls',
         },
         {
@@ -1785,5 +1838,4 @@ describe('AgentOrchestrator', () => {
       expect(forceNotes).toHaveLength(0);
     });
   });
-
 });

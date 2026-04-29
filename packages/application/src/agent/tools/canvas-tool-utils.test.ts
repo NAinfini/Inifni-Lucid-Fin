@@ -130,7 +130,9 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     cancelGeneration: vi.fn(async () => undefined),
     deleteNode: vi.fn(async (_canvasId, nodeId) => {
       canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
-      canvas.edges = canvas.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+      canvas.edges = canvas.edges.filter(
+        (edge) => edge.source !== nodeId && edge.target !== nodeId,
+      );
     }),
     deleteEdge: vi.fn(async () => undefined),
     updateNodeData: vi.fn(async () => undefined),
@@ -175,25 +177,35 @@ describe('canvas-tool-utils', () => {
 
     expect(requireStringArray({ ids: [' a ', 'b', 'a'] }, 'ids')).toEqual(['a', 'b']);
     expect(() => requireStringArray({ ids: [] }, 'ids')).toThrow('ids must be a non-empty array');
-    expect(() => requireStringArray({ ids: ['a', ''] }, 'ids')).toThrow('ids[1] must be a non-empty string');
+    expect(() => requireStringArray({ ids: ['a', ''] }, 'ids')).toThrow(
+      'ids[1] must be a non-empty string',
+    );
 
     expect(requireBoolean({ flag: true }, 'flag')).toBe(true);
     expect(() => requireBoolean({ flag: 'true' }, 'flag')).toThrow('flag must be a boolean');
 
     expect(requireNumber({ value: 3.2 }, 'value')).toBe(3.2);
-    expect(() => requireNumber({ value: Infinity }, 'value')).toThrow('value must be a finite number');
+    expect(() => requireNumber({ value: Infinity }, 'value')).toThrow(
+      'value must be a finite number',
+    );
   });
 
   it('validates direction, position, node type, and preset categories', () => {
     expect(requireDirection({ direction: 'horizontal' })).toBe('horizontal');
-    expect(() => requireDirection({ direction: 'diagonal' })).toThrow('direction must be "horizontal", "vertical", or "auto"');
+    expect(() => requireDirection({ direction: 'diagonal' })).toThrow(
+      'direction must be "horizontal", "vertical", or "auto"',
+    );
 
     expect(requirePosition({ position: { x: 1, y: 2 } })).toEqual({ x: 1, y: 2 });
-    expect(() => requirePosition({ position: { x: 1 } })).toThrow('position with numeric x and y is required');
+    expect(() => requirePosition({ position: { x: 1 } })).toThrow(
+      'position with numeric x and y is required',
+    );
 
     expect(requireCanvasNodeType({ type: 'audio' })).toBe('audio');
     expect(requireCanvasNodeType({ type: 'backdrop' })).toBe('backdrop');
-    expect(() => requireCanvasNodeType({ type: 'invalid' })).toThrow('type must be one of text, image, video, audio, or backdrop');
+    expect(() => requireCanvasNodeType({ type: 'invalid' })).toThrow(
+      'type must be one of text, image, video, audio, or backdrop',
+    );
 
     expect(requirePresetCategory({ category: 'camera' })).toBe('camera');
     expect(() => requirePresetCategory({ category: 'bad' })).toThrow(
@@ -210,7 +222,9 @@ describe('canvas-tool-utils', () => {
     expect(parseOptionalCameraDirection('left')).toBe('left');
     expect(parseOptionalCameraDirection('bad')).toBeUndefined();
     expect(requireCameraDirection('pov', 'direction')).toBe('pov');
-    expect(() => requireCameraDirection('bad', 'direction')).toThrow('direction must be a valid camera direction');
+    expect(() => requireCameraDirection('bad', 'direction')).toThrow(
+      'direction must be a valid camera direction',
+    );
   });
 
   it('validates backdrop and move enums', () => {
@@ -220,10 +234,14 @@ describe('canvas-tool-utils', () => {
     );
 
     expect(requireBackdropTitleSize({ titleSize: 'md' })).toBe('md');
-    expect(() => requireBackdropTitleSize({ titleSize: 'xl' })).toThrow('titleSize must be one of sm, md, or lg');
+    expect(() => requireBackdropTitleSize({ titleSize: 'xl' })).toThrow(
+      'titleSize must be one of sm, md, or lg',
+    );
 
     expect(requireMoveDirection({ direction: 'up' })).toBe('up');
-    expect(() => requireMoveDirection({ direction: 'left' })).toThrow('direction must be "up" or "down"');
+    expect(() => requireMoveDirection({ direction: 'left' })).toThrow(
+      'direction must be "up" or "down"',
+    );
   });
 
   it('loads canvases, nodes, edges, and node categories', async () => {
@@ -240,11 +258,19 @@ describe('canvas-tool-utils', () => {
 
     expect(() => requireCanvasEdge(canvas, 'missing')).toThrow('Edge not found: missing');
     expect(() => requireCanvasNodeById(canvas, 'missing')).toThrow('Node not found: missing');
-    await expect(requireNode(deps, 'canvas-1', 'missing')).rejects.toThrow('Node not found: missing');
+    await expect(requireNode(deps, 'canvas-1', 'missing')).rejects.toThrow(
+      'Node not found: missing',
+    );
 
-    expect(() => requireMediaNode(canvas.nodes[0])).toThrow('Node type "text" does not support this operation');
-    expect(() => requireVisualGenerationNode(canvas.nodes[0])).toThrow('Node type "text" does not support this operation');
-    expect(() => requireBackdropNode(canvas.nodes[0])).toThrow('Node type "text" does not support backdrop styling');
+    expect(() => requireMediaNode(canvas.nodes[0])).toThrow(
+      'Node type "text" does not support this operation',
+    );
+    expect(() => requireVisualGenerationNode(canvas.nodes[0])).toThrow(
+      'Node type "text" does not support this operation',
+    );
+    expect(() => requireBackdropNode(canvas.nodes[0])).toThrow(
+      'Node type "text" does not support backdrop styling',
+    );
   });
 
   it('selects edge handles based on relative node positions', () => {
@@ -278,19 +304,25 @@ describe('canvas-tool-utils', () => {
     });
     const track = tracks.camera as PresetTrack;
 
-    expect(requirePresetTrackEntry(track, 'entry-1')).toEqual(expect.objectContaining({ presetId: 'camera-push' }));
-    expect(() => requirePresetTrackEntry(track, 'missing')).toThrow('Preset track entry not found: missing');
+    expect(requirePresetTrackEntry(track, 'entry-1')).toEqual(
+      expect.objectContaining({ presetId: 'camera-push' }),
+    );
+    expect(() => requirePresetTrackEntry(track, 'missing')).toThrow(
+      'Preset track entry not found: missing',
+    );
 
     normalizeTrackOrders(track);
     expect(track.entries[0]?.order).toBe(0);
 
-    expect(requirePresetTrackEntryChanges({
-      changes: {
-        intensity: 45.6,
-        presetId: ' preset-2 ',
-        direction: 'front',
-      },
-    })).toEqual({
+    expect(
+      requirePresetTrackEntryChanges({
+        changes: {
+          intensity: 45.6,
+          presetId: ' preset-2 ',
+          direction: 'front',
+        },
+      }),
+    ).toEqual({
       intensity: 46,
       presetId: 'preset-2',
       direction: 'front',
@@ -306,39 +338,58 @@ describe('canvas-tool-utils', () => {
     const deps = createDeps(canvas);
     vi.spyOn(Date, 'now').mockReturnValue(999);
 
-    const nextNode = await replaceNodePreservingEdges(deps, 'canvas-1', canvas.nodes[0] as CanvasNode, {
-      bypassed: true,
-      locked: true,
-    });
+    const nextNode = await replaceNodePreservingEdges(
+      deps,
+      'canvas-1',
+      canvas.nodes[0] as CanvasNode,
+      {
+        bypassed: true,
+        locked: true,
+      },
+    );
 
-    expect(nextNode).toEqual(expect.objectContaining({
-      id: 'text-1',
-      bypassed: true,
-      locked: true,
-      updatedAt: 999,
-    }));
+    expect(nextNode).toEqual(
+      expect.objectContaining({
+        id: 'text-1',
+        bypassed: true,
+        locked: true,
+        updatedAt: 999,
+      }),
+    );
     expect(deps.deleteNode).toHaveBeenCalledWith('canvas-1', 'text-1');
-    expect(deps.addNode).toHaveBeenCalledWith('canvas-1', expect.objectContaining({ id: 'text-1' }));
-    expect(deps.connectNodes).toHaveBeenCalledWith('canvas-1', expect.objectContaining({ id: 'edge-1' }));
+    expect(deps.addNode).toHaveBeenCalledWith(
+      'canvas-1',
+      expect.objectContaining({ id: 'text-1' }),
+    );
+    expect(deps.connectNodes).toHaveBeenCalledWith(
+      'canvas-1',
+      expect.objectContaining({ id: 'edge-1' }),
+    );
   });
 
   it('builds default node data and preset track sets', () => {
     expect(buildDefaultNodeData('text')).toEqual({ content: '' });
-    expect(buildDefaultNodeData('image')).toEqual(expect.objectContaining({
-      status: 'empty',
-      variantCount: 1,
-      seedLocked: false,
-    }));
-    expect(buildDefaultNodeData('video')).toEqual(expect.objectContaining({
-      status: 'empty',
-      variantCount: 1,
-      seedLocked: false,
-    }));
-    expect(buildDefaultNodeData('audio')).toEqual(expect.objectContaining({
-      status: 'empty',
-      audioType: 'voice',
-      variantCount: 1,
-    }));
+    expect(buildDefaultNodeData('image')).toEqual(
+      expect.objectContaining({
+        status: 'empty',
+        variantCount: 1,
+        seedLocked: false,
+      }),
+    );
+    expect(buildDefaultNodeData('video')).toEqual(
+      expect.objectContaining({
+        status: 'empty',
+        variantCount: 1,
+        seedLocked: false,
+      }),
+    );
+    expect(buildDefaultNodeData('audio')).toEqual(
+      expect.objectContaining({
+        status: 'empty',
+        audioType: 'voice',
+        variantCount: 1,
+      }),
+    );
 
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('preset-entry-1');
     const trackSet = createTrackSetWithPreset(undefined, 'camera', 'camera-push') as PresetTrackSet;

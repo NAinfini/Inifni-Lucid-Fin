@@ -2,7 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { ArrowDownAZ, Check, Clock, Layers, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { addCanvas, removeCanvas, renameCanvas, setActiveCanvas } from '../../store/slices/canvas.js';
+import {
+  addCanvas,
+  removeCanvas,
+  renameCanvas,
+  setActiveCanvas,
+} from '../../store/slices/canvas.js';
 import { selectCanvasMetadataList } from '../../store/slices/canvas-selectors.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
@@ -28,9 +33,7 @@ export function CanvasNavigatorPanel() {
       filtered = canvases.filter((c) => c.name.toLowerCase().includes(q));
     }
     return [...filtered].sort((left, right) =>
-      sortMode === 'name'
-        ? left.name.localeCompare(right.name)
-        : right.updatedAt - left.updatedAt,
+      sortMode === 'name' ? left.name.localeCompare(right.name) : right.updatedAt - left.updatedAt,
     );
   }, [canvases, searchQuery, sortMode]);
 
@@ -63,7 +66,9 @@ export function CanvasNavigatorPanel() {
           <Layers className="h-3.5 w-3.5 text-primary" />
           <h2 className="text-xs font-semibold">{t('panels.canvasNavigator')}</h2>
         </div>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">{t('panels.canvasNavigatorHint')}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          {t('panels.canvasNavigatorHint')}
+        </p>
       </div>
 
       {/* Search & Sort */}
@@ -85,9 +90,11 @@ export function CanvasNavigatorPanel() {
             className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
             title={sortMode === 'recent' ? t('panels.sortByName') : t('panels.sortByRecent')}
           >
-            {sortMode === 'recent'
-              ? <Clock className="h-3.5 w-3.5" />
-              : <ArrowDownAZ className="h-3.5 w-3.5" />}
+            {sortMode === 'recent' ? (
+              <Clock className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowDownAZ className="h-3.5 w-3.5" />
+            )}
           </button>
         </div>
       )}
@@ -159,7 +166,8 @@ export function CanvasNavigatorPanel() {
                         <>
                           <span className="block truncate text-xs font-medium">{canvas.name}</span>
                           <span className="block text-[10px] text-muted-foreground">
-                            {canvas.nodeCount} {t('panels.nodes')} · {canvas.edgeCount} {t('panels.edges')}
+                            {canvas.nodeCount} {t('panels.nodes')} · {canvas.edgeCount}{' '}
+                            {t('panels.edges')}
                           </span>
                           <span className="block text-[11px] text-muted-foreground">
                             {new Date(canvas.updatedAt).toLocaleString(getLocale())}

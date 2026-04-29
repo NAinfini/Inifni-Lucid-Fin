@@ -14,7 +14,7 @@ export function toHunyuanInput(req: GenerationRequest): Record<string, unknown> 
     ...(req.width ? { width: req.width } : {}),
     ...(req.height ? { height: req.height } : {}),
     ...(req.seed != null ? { seed: req.seed } : {}),
-    ...(req.duration ? { num_frames: Math.round(req.duration * 24 / 4) * 4 + 1 } : {}),
+    ...(req.duration ? { num_frames: Math.round((req.duration * 24) / 4) * 4 + 1 } : {}),
   };
 }
 

@@ -104,14 +104,25 @@ describe('shouldUsePatch', () => {
 
     expect(
       shouldUsePatch(
-        { canvasId: canvas.id, timestamp: 1, operations: ['removeNode'], removedNodeIds: ['node-1'] },
+        {
+          canvasId: canvas.id,
+          timestamp: 1,
+          operations: ['removeNode'],
+          removedNodeIds: ['node-1'],
+        },
         canvas,
       ),
     ).toBe(true);
 
     expect(
       shouldUsePatch(
-        { canvasId: canvas.id, timestamp: 1, operations: ['addNode', 'addEdge'], addedNodes: canvas.nodes, addedEdges: canvas.edges },
+        {
+          canvasId: canvas.id,
+          timestamp: 1,
+          operations: ['addNode', 'addEdge'],
+          addedNodes: canvas.nodes,
+          addedEdges: canvas.edges,
+        },
         canvas,
       ),
     ).toBe(false);

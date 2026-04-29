@@ -10,7 +10,12 @@ import {
   setCanvases,
 } from '../slices/canvas.js';
 import { loggerSlice } from '../slices/logger.js';
-import { settingsSlice, setRenderPreset, restore as restoreSettings, setBootstrapped } from '../slices/settings.js';
+import {
+  settingsSlice,
+  setRenderPreset,
+  restore as restoreSettings,
+  setBootstrapped,
+} from '../slices/settings.js';
 import { toastSlice } from '../slices/toast.js';
 
 function createCanvas() {
@@ -68,9 +73,7 @@ async function flushPromises(): Promise<void> {
   await Promise.resolve();
 }
 
-async function loadPersistModule(
-  _options: Record<string, never> = {},
-) {
+async function loadPersistModule(_options: Record<string, never> = {}) {
   vi.resetModules();
   return import('./persist.js');
 }

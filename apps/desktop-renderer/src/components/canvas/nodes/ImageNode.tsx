@@ -41,16 +41,15 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
   const activeHash = d.assetHash ?? d.variants[d.selectedVariantIndex];
   const hasThumbnail = Boolean(activeHash);
   const isGenerating = d.generationStatus === 'generating';
-  const { url: activeUrl } = useAssetUrl(lod !== 'minimal' ? activeHash : undefined, 'image', 'png');
+  const { url: activeUrl } = useAssetUrl(
+    lod !== 'minimal' ? activeHash : undefined,
+    'image',
+    'png',
+  );
   const [imgError, setImgError] = useState(false);
 
   return (
-    <NodeContextMenu
-      nodeId={d.nodeId}
-      nodeType="image"
-      locked={d.locked}
-      colorTag={d.colorTag}
-    >
+    <NodeContextMenu nodeId={d.nodeId} nodeType="image" locked={d.locked} colorTag={d.colorTag}>
       <div className="relative h-full min-h-[140px] min-w-[200px] w-full">
         <NodeBorderHandles colorClassName="!bg-blue-500" />
         {lod === 'full' && (
@@ -77,7 +76,11 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
             <span className="flex-1 truncate text-xs font-medium">
               {d.title || t('node.imageNode')}
             </span>
-            {lod === 'full' && d.providerId && <span className="text-[9px] text-muted-foreground/70">{getProviderDisplayName(d.providerId)}</span>}
+            {lod === 'full' && d.providerId && (
+              <span className="text-[9px] text-muted-foreground/70">
+                {getProviderDisplayName(d.providerId)}
+              </span>
+            )}
           </div>
 
           {/* LOD: minimal = colored rectangle only, no media content */}
@@ -88,22 +91,33 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
           ) : (
             <>
               {isGenerating && (
-                <div className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-blue-500 bg-blue-500/5" style={{
-                  animation: 'border-glow 2s ease-in-out infinite',
-                }} />
+                <div
+                  className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-blue-500 bg-blue-500/5"
+                  style={{
+                    animation: 'border-glow 2s ease-in-out infinite',
+                  }}
+                />
               )}
 
               <div
                 data-testid="image-media-viewport"
                 className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-2"
                 draggable={hasThumbnail && Boolean(activeHash)}
-                onDragStart={hasThumbnail && activeHash ? (e) => {
-                  e.dataTransfer.setData(
-                    'application/x-lucid-node-asset',
-                    JSON.stringify({ hash: activeHash, name: d.title || 'image', type: 'image' }),
-                  );
-                  e.dataTransfer.effectAllowed = 'copy';
-                } : undefined}
+                onDragStart={
+                  hasThumbnail && activeHash
+                    ? (e) => {
+                        e.dataTransfer.setData(
+                          'application/x-lucid-node-asset',
+                          JSON.stringify({
+                            hash: activeHash,
+                            name: d.title || 'image',
+                            type: 'image',
+                          }),
+                        );
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }
+                    : undefined
+                }
               >
                 {hasThumbnail && !imgError ? (
                   activeUrl ? (
@@ -138,7 +152,10 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
                   {isGenerating && typeof d.progress === 'number' && (
                     <div className="px-3 pb-1">
                       <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full bg-blue-500 transition-[width] duration-200" style={{ width: `${d.progress}%` }} />
+                        <div
+                          className="h-full bg-blue-500 transition-[width] duration-200"
+                          style={{ width: `${d.progress}%` }}
+                        />
                       </div>
                       <span className="text-[10px] text-muted-foreground">{d.progress}%</span>
                     </div>
@@ -146,14 +163,18 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
 
                   {d.generationStatus === 'failed' && d.error && (
                     <div className="px-3 pb-1 overflow-hidden">
-                      <span className="block text-[10px] text-destructive line-clamp-2">{d.error}</span>
+                      <span className="block text-[10px] text-destructive line-clamp-2">
+                        {d.error}
+                      </span>
                     </div>
                   )}
 
                   {d.variants.length > 1 && (
                     <div className="border-t border-blue-500/10 px-3 py-1.5">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
+                        <span className="text-[9px] text-muted-foreground">
+                          {d.selectedVariantIndex + 1}/{d.variants.length}
+                        </span>
                       </div>
                       <div className="overflow-x-auto">
                         <div className="flex min-w-max items-center gap-1">
@@ -204,7 +225,11 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
                         onContextMenu={(e) => e.preventDefault()}
                         aria-label={d.seedLocked ? 'Unlock seed' : 'Lock seed'}
                       >
-                        {d.seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                        {d.seedLocked ? (
+                          <Lock className="h-3 w-3" />
+                        ) : (
+                          <Unlock className="h-3 w-3" />
+                        )}
                       </button>
                     </span>
                   </div>
@@ -241,14 +266,21 @@ const VariantThumb = memo(function VariantThumb({
     <button
       className={cn(
         'h-10 w-10 shrink-0 overflow-hidden rounded border-2',
-        selected ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-transparent hover:border-blue-400/50',
+        selected
+          ? 'border-blue-500 ring-1 ring-blue-500/40'
+          : 'border-transparent hover:border-blue-400/50',
       )}
       onClick={onClick}
       onContextMenu={(e) => e.preventDefault()}
       aria-label={`Select variant ${index + 1}`}
     >
       {url ? (
-        <img src={url} alt={`V${index + 1}`} className="h-full w-full object-cover" draggable={false} />
+        <img
+          src={url}
+          alt={`V${index + 1}`}
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
       ) : (
         <span className="flex h-full w-full items-center justify-center bg-muted text-[9px] text-muted-foreground">
           V{index + 1}

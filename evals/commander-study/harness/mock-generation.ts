@@ -49,63 +49,82 @@ function stubTool(
   };
 }
 
-export function installMockGeneration(
-  registry: AgentToolRegistry,
-): MockStats {
+export function installMockGeneration(registry: AgentToolRegistry): MockStats {
   const stats: MockStats = { calls: {} };
 
   const register = (t: AgentTool) => registry.register(t);
 
   // canvas.generate — returns immediately with a fake jobId.
-  register(stubTool('canvas.generate', 'Trigger media generation for a node.', 3, (args) => {
-    const nodeId = typeof args.nodeId === 'string' ? args.nodeId : 'unknown';
-    return {
-      jobId: `mock-job-${randomUUID().slice(0, 8)}`,
-      nodeId,
-      status: 'queued',
-      message: 'MOCK: generation accepted (no real render performed)',
-    };
-  }, stats));
+  register(
+    stubTool(
+      'canvas.generate',
+      'Trigger media generation for a node.',
+      3,
+      (args) => {
+        const nodeId = typeof args.nodeId === 'string' ? args.nodeId : 'unknown';
+        return {
+          jobId: `mock-job-${randomUUID().slice(0, 8)}`,
+          nodeId,
+          status: 'queued',
+          message: 'MOCK: generation accepted (no real render performed)',
+        };
+      },
+      stats,
+    ),
+  );
 
   // Reference-image tools (character/location/equipment).
   for (const entity of ['character', 'location', 'equipment']) {
     const name = `${entity}.generateRefImage`;
-    register(stubTool(name, `Generate reference image for a ${entity}.`, 3, (args) => {
-      const entityId = typeof args.id === 'string' ? args.id
-        : typeof args[`${entity}Id`] === 'string' ? (args[`${entity}Id`] as string)
-        : 'unknown';
-      return {
-        jobId: `mock-ref-${randomUUID().slice(0, 8)}`,
-        entity,
-        entityId,
-        assetHash: `sha256:mock${randomUUID().replace(/-/g, '').slice(0, 40)}`,
-        message: 'MOCK: reference image generation accepted (no render performed)',
-      };
-    }, stats));
+    register(
+      stubTool(
+        name,
+        `Generate reference image for a ${entity}.`,
+        3,
+        (args) => {
+          const entityId =
+            typeof args.id === 'string'
+              ? args.id
+              : typeof args[`${entity}Id`] === 'string'
+                ? (args[`${entity}Id`] as string)
+                : 'unknown';
+          return {
+            jobId: `mock-ref-${randomUUID().slice(0, 8)}`,
+            entity,
+            entityId,
+            assetHash: `sha256:mock${randomUUID().replace(/-/g, '').slice(0, 40)}`,
+            message: 'MOCK: reference image generation accepted (no render performed)',
+          };
+        },
+        stats,
+      ),
+    );
   }
 
   // canvas.previewPrompt — real impl hits the generation pipeline (adapter
   // required). Stub returns a plausible preview so Commander can still
   // inspect prompts without adapter keys.
-  register(stubTool(
-    'canvas.previewPrompt',
-    'Preview the compiled prompt for a node.',
-    1,
-    (args) => {
-      const nodeId = typeof args.nodeId === 'string' ? args.nodeId : 'unknown';
-      return {
-        nodeId,
-        prompt: '[MOCK preview prompt — generation pipeline not exercised]',
-        wordCount: 8,
-        budget: 400,
-        segments: [],
-        diagnostics: [],
-        providerId: 'mock',
-        mode: 'mock',
-      };
-    },
-    stats,
-  ));
+  register(
+    stubTool(
+      'canvas.previewPrompt',
+      'Preview the compiled prompt for a node.',
+      1,
+      (args) => {
+        const nodeId = typeof args.nodeId === 'string' ? args.nodeId : 'unknown';
+        return {
+          nodeId,
+          prompt: '[MOCK preview prompt — generation pipeline not exercised]',
+          wordCount: 8,
+          budget: 400,
+          segments: [],
+          diagnostics: [],
+          providerId: 'mock',
+          mode: 'mock',
+        };
+      },
+      stats,
+    ),
+  );
 
   return stats;
 }

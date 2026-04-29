@@ -69,36 +69,23 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
   const selectedEdgeIds = useSelector((s: RootState) => s.canvas.selectedEdgeIds);
   const presetById = useSelector((s: RootState) => s.presets.byId);
   const canvasSearchQuery = useSelector((s: RootState) => s.ui.canvasSearchQuery);
-  const canvasStatusFilters = useSelector(
-    (s: RootState) => s.ui.canvasStatusFilters,
-    shallowEqual,
-  );
-  const canvasTypeFilters = useSelector(
-    (s: RootState) => s.ui.canvasTypeFilters,
-    shallowEqual,
-  );
-  const hoveredDependencyNodeId = useSelector(
-    (s: RootState) => s.ui.hoveredDependencyNodeId,
-  );
+  const canvasStatusFilters = useSelector((s: RootState) => s.ui.canvasStatusFilters, shallowEqual);
+  const canvasTypeFilters = useSelector((s: RootState) => s.ui.canvasTypeFilters, shallowEqual);
+  const hoveredDependencyNodeId = useSelector((s: RootState) => s.ui.hoveredDependencyNodeId);
 
   // ---- Search / filter ----
   const searchQuery = canvasSearchQuery.trim().toLowerCase();
   const searchActive =
-    searchQuery.length > 0 ||
-    canvasStatusFilters.length > 0 ||
-    canvasTypeFilters.length > 0;
+    searchQuery.length > 0 || canvasStatusFilters.length > 0 || canvasTypeFilters.length > 0;
 
   const matchingNodeIds = useMemo(() => {
     const matches = new Set<string>();
     for (const node of canvas?.nodes ?? []) {
       const matchesQuery =
-        searchQuery.length === 0 ||
-        collectNodeSearchText(node).includes(searchQuery);
-      const matchesType =
-        canvasTypeFilters.length === 0 || canvasTypeFilters.includes(node.type);
+        searchQuery.length === 0 || collectNodeSearchText(node).includes(searchQuery);
+      const matchesType = canvasTypeFilters.length === 0 || canvasTypeFilters.includes(node.type);
       const matchesStatus =
-        canvasStatusFilters.length === 0 ||
-        canvasStatusFilters.includes(deriveNodeStatus(node));
+        canvasStatusFilters.length === 0 || canvasStatusFilters.includes(deriveNodeStatus(node));
       if (matchesQuery && matchesType && matchesStatus) {
         matches.add(node.id);
       }
@@ -106,10 +93,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
     return matches;
   }, [canvas?.nodes, canvasStatusFilters, canvasTypeFilters, searchQuery]);
 
-  const matchedNodeIdsArray = useMemo(
-    () => Array.from(matchingNodeIds),
-    [matchingNodeIds],
-  );
+  const matchedNodeIdsArray = useMemo(() => Array.from(matchingNodeIds), [matchingNodeIds]);
 
   // ---- Dependency graph ----
   const dependencyState = useMemo(() => {
@@ -137,9 +121,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
     const hiddenIds = new Set<string>();
     if (backdrops.length > 0) {
       const collapsedIds = new Set(
-        backdrops
-          .filter((b) => (b.data as BackdropNodeData).collapsed)
-          .map((b) => b.id),
+        backdrops.filter((b) => (b.data as BackdropNodeData).collapsed).map((b) => b.id),
       );
       for (const bd of backdrops) {
         backdropChildCounts.set(bd.id, 0);
@@ -154,10 +136,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
           const bw = bd.width ?? 420;
           const bh = bd.height ?? 240;
           if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
-            backdropChildCounts.set(
-              bd.id,
-              (backdropChildCounts.get(bd.id) ?? 0) + 1,
-            );
+            backdropChildCounts.set(bd.id, (backdropChildCounts.get(bd.id) ?? 0) + 1);
             if (collapsedIds.has(bd.id)) hiddenIds.add(other.id);
           }
         }
@@ -181,9 +160,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
                 : null;
       const dimmed =
         (searchActive && !matchingNodeIds.has(node.id)) ||
-        (!!dependencyFocusNodeId &&
-          dependencyRole === null &&
-          node.id !== dependencyFocusNodeId);
+        (!!dependencyFocusNodeId && dependencyRole === null && node.id !== dependencyFocusNodeId);
       const rfNode = toFlowNode(
         node,
         presetById,
@@ -297,10 +274,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
     const prev = prevTargetSummaryRef.current;
     const keys = Object.keys(summary);
     const prevKeys = Object.keys(prev);
-    if (
-      keys.length === prevKeys.length &&
-      keys.every((k) => prev[k] === summary[k])
-    ) {
+    if (keys.length === prevKeys.length && keys.every((k) => prev[k] === summary[k])) {
       return prev;
     }
     prevTargetSummaryRef.current = summary;
@@ -308,9 +282,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
   }, [flowNodes]);
 
   // ---- Flow edges ----
-  const flowEdgeDataCacheRef = useRef(
-    new Map<string, Record<string, unknown>>(),
-  );
+  const flowEdgeDataCacheRef = useRef(new Map<string, Record<string, unknown>>());
 
   const flowEdges = useMemo<Edge[]>(() => {
     const seen = new Set<string>();
@@ -325,8 +297,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
       })
       .map((edge) => {
         const dependencyRole =
-          edge.source === dependencyFocusNodeId ||
-          edge.target === dependencyFocusNodeId
+          edge.source === dependencyFocusNodeId || edge.target === dependencyFocusNodeId
             ? 'focus'
             : dependencyState.upstreamEdges.has(edge.id)
               ? 'upstream'
@@ -338,8 +309,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
             !matchingNodeIds.has(edge.source) &&
             !matchingNodeIds.has(edge.target)) ||
           (!!dependencyFocusNodeId && dependencyRole === null);
-        const connectedToSelection =
-          selectedSet.has(edge.source) || selectedSet.has(edge.target);
+        const connectedToSelection = selectedSet.has(edge.source) || selectedSet.has(edge.target);
         const rfEdge = toFlowEdge(edge, targetSummaryByNodeId, {
           dependencyRole,
           dimmed,
@@ -376,9 +346,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
     setAppliedEdges(
       flowEdges.map((e) => {
         const wantSelected = selectedSet.has(e.id);
-        return e.selected === wantSelected
-          ? e
-          : { ...e, selected: wantSelected };
+        return e.selected === wantSelected ? e : { ...e, selected: wantSelected };
       }),
     );
   }, [flowEdges, selectedEdgeIds]);

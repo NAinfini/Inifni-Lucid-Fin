@@ -265,14 +265,23 @@ describe('serializeForOpenAI', () => {
     });
 
     const tools: LLMToolDefinition[] = [
-      { name: 'canvas.getNode', description: 'Get a node', parameters: { type: 'object', properties: {} } },
+      {
+        name: 'canvas.getNode',
+        description: 'Get a node',
+        parameters: { type: 'object', properties: {} },
+      },
     ];
 
     const result = serializeForOpenAI({
       graph,
       contextWindowTokens: 100000,
       tools,
-      profile: { providerId: 'openai', charsPerToken: 4, sanitizeToolNames: true, outputReserveTokens: 4096 },
+      profile: {
+        providerId: 'openai',
+        charsPerToken: 4,
+        sanitizeToolNames: true,
+        outputReserveTokens: 4096,
+      },
     });
 
     const assistantMsg = result.wireMessages.find((m) => m.role === 'assistant');

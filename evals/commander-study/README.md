@@ -29,6 +29,7 @@ npx tsx evals/commander-study/harness/run-all.ts --count 50 --team-if-working
 ```
 
 Reports land in `evals/commander-study/reports/<timestamp>/`:
+
 - `summary.md` — aggregate markdown report (the one you actually read).
 - `summary.json` — same data, machine-readable.
 - `per-user/<n>-<slug>.json` — per-session summary.
@@ -59,7 +60,7 @@ Reports land in `evals/commander-study/reports/<timestamp>/`:
 - **No Electron runtime required.** The harness runs in plain Node and uses an
   ESM loader hook (`electron-shim.js` → `electron-shim-loader.mjs` →
   `electron-stub.mjs`) to stub out `import { app, ipcMain, BrowserWindow } from
-  'electron'` inside the `apps/desktop-main/src/*` modules. Lets us re-use the
+'electron'` inside the `apps/desktop-main/src/*` modules. Lets us re-use the
   real `registerAllTools` + `buildContext` wiring so the harness behaves 1:1
   with the production handler — no drift between studied-code and
   studied-via-harness.

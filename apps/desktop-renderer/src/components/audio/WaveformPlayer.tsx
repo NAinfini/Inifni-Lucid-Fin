@@ -54,7 +54,9 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
       play: () => {
         const result = wsRef.current?.play();
         if (result && typeof (result as { catch?: unknown }).catch === 'function') {
-          (result as Promise<unknown>).catch(() => { /* 404/missing asset: silent */ });
+          (result as Promise<unknown>).catch(() => {
+            /* 404/missing asset: silent */
+          });
         }
       },
       pause: () => wsRef.current?.pause(),
@@ -117,7 +119,9 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
     const togglePlay = useCallback(() => {
       const result = wsRef.current?.playPause();
       if (result && typeof (result as { catch?: unknown }).catch === 'function') {
-        (result as Promise<unknown>).catch(() => { /* 404/missing asset: silent */ });
+        (result as Promise<unknown>).catch(() => {
+          /* 404/missing asset: silent */
+        });
       }
     }, []);
 
@@ -125,7 +129,9 @@ export const WaveformPlayer = forwardRef<WaveformPlayerRef, WaveformPlayerProps>
       wsRef.current?.seekTo(0);
       const result = wsRef.current?.play();
       if (result && typeof (result as { catch?: unknown }).catch === 'function') {
-        (result as Promise<unknown>).catch(() => { /* 404/missing asset: silent */ });
+        (result as Promise<unknown>).catch(() => {
+          /* 404/missing asset: silent */
+        });
       }
     }, []);
 

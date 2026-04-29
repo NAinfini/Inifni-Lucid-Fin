@@ -30,11 +30,7 @@ function StepIndicator({ current }: { current: number }) {
           key={i}
           className={[
             'h-1.5 rounded-full transition-[width,background-color] duration-200',
-            i === current
-              ? 'w-6 bg-primary'
-              : i < current
-                ? 'w-3 bg-primary/50'
-                : 'w-3 bg-border',
+            i === current ? 'w-6 bg-primary' : i < current ? 'w-3 bg-primary/50' : 'w-3 bg-border',
           ].join(' ')}
         />
       ))}
@@ -49,9 +45,7 @@ function WelcomeStep() {
       <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-3xl select-none">
         🎬
       </div>
-      <h1 className="text-xl font-semibold text-foreground">
-        {t('onboarding.welcome.title')}
-      </h1>
+      <h1 className="text-xl font-semibold text-foreground">{t('onboarding.welcome.title')}</h1>
       <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
         {t('onboarding.welcome.description')}
       </p>
@@ -123,9 +117,27 @@ function ThemeStep() {
 // Step 2 — AI Provider
 function ProviderStep() {
   const [providers, setProviders] = useState<ProviderSetup[]>([
-    { id: 'openai', labelKey: 'onboarding.provider.openai', apiKey: '', status: 'idle', errorMsg: '' },
-    { id: 'google', labelKey: 'onboarding.provider.google', apiKey: '', status: 'idle', errorMsg: '' },
-    { id: 'stability', labelKey: 'onboarding.provider.stability', apiKey: '', status: 'idle', errorMsg: '' },
+    {
+      id: 'openai',
+      labelKey: 'onboarding.provider.openai',
+      apiKey: '',
+      status: 'idle',
+      errorMsg: '',
+    },
+    {
+      id: 'google',
+      labelKey: 'onboarding.provider.google',
+      apiKey: '',
+      status: 'idle',
+      errorMsg: '',
+    },
+    {
+      id: 'stability',
+      labelKey: 'onboarding.provider.stability',
+      apiKey: '',
+      status: 'idle',
+      errorMsg: '',
+    },
   ]);
 
   function updateKey(id: string, value: string) {
@@ -138,9 +150,7 @@ function ProviderStep() {
     const provider = providers.find((p) => p.id === id);
     if (!provider || !provider.apiKey.trim()) return;
 
-    setProviders((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status: 'testing' } : p)),
-    );
+    setProviders((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'testing' } : p)));
 
     try {
       const api = getAPI();
@@ -156,11 +166,7 @@ function ProviderStep() {
       );
     } catch (err) {
       setProviders((prev) =>
-        prev.map((p) =>
-          p.id === id
-            ? { ...p, status: 'error', errorMsg: String(err) }
-            : p,
-        ),
+        prev.map((p) => (p.id === id ? { ...p, status: 'error', errorMsg: String(err) } : p)),
       );
     }
   }
@@ -168,11 +174,16 @@ function ProviderStep() {
   return (
     <div className="flex flex-col gap-3">
       <div className="text-center mb-1">
-        <h2 className="text-base font-semibold text-foreground">{t('onboarding.provider.title')}</h2>
+        <h2 className="text-base font-semibold text-foreground">
+          {t('onboarding.provider.title')}
+        </h2>
         <p className="text-xs text-muted-foreground mt-1">{t('onboarding.provider.hint')}</p>
       </div>
       {providers.map((provider) => (
-        <div key={provider.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
+        <div
+          key={provider.id}
+          className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2"
+        >
           <span className="text-xs font-medium text-foreground">{t(provider.labelKey)}</span>
           <div className="flex gap-2">
             <input
@@ -245,7 +256,9 @@ function CanvasStep({ onCreated }: { onCreated: (id: string) => void }) {
       {!created ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">{t('onboarding.canvas.nameLabel')}</label>
+            <label className="text-xs text-muted-foreground">
+              {t('onboarding.canvas.nameLabel')}
+            </label>
             <input
               type="text"
               value={name}
@@ -268,7 +281,9 @@ function CanvasStep({ onCreated }: { onCreated: (id: string) => void }) {
       ) : (
         <div className="flex flex-col items-center gap-2 py-4">
           <div className="text-2xl select-none">✓</div>
-          <span className="text-sm text-green-500 font-medium">{t('onboarding.canvas.created')}</span>
+          <span className="text-sm text-green-500 font-medium">
+            {t('onboarding.canvas.created')}
+          </span>
         </div>
       )}
     </div>
@@ -293,7 +308,10 @@ function TipsStep() {
       </div>
       <div className="flex flex-col gap-2">
         {TIPS.map(({ icon, key }) => (
-          <div key={key} className="flex items-start gap-3 rounded-lg border border-border bg-card p-3">
+          <div
+            key={key}
+            className="flex items-start gap-3 rounded-lg border border-border bg-card p-3"
+          >
             <span className="text-base select-none shrink-0">{icon}</span>
             <div className="flex flex-col gap-0.5">
               <span className="text-xs font-medium text-foreground">
@@ -382,9 +400,7 @@ export function OnboardingWizard() {
           {currentStep === 'welcome' && <WelcomeStep />}
           {currentStep === 'theme' && <ThemeStep />}
           {currentStep === 'provider' && <ProviderStep />}
-          {currentStep === 'canvas' && (
-            <CanvasStep onCreated={(id) => setCreatedCanvasId(id)} />
-          )}
+          {currentStep === 'canvas' && <CanvasStep onCreated={(id) => setCreatedCanvasId(id)} />}
           {currentStep === 'tips' && <TipsStep />}
         </div>
 

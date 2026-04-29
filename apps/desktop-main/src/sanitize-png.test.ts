@@ -7,7 +7,7 @@ const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
     let c = n;
-    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
     t[n] = c >>> 0;
   }
   return t;
@@ -31,9 +31,9 @@ function makeChunk(type: string, data: Buffer): Buffer {
 
 function makeIHDR(colorType: number): Buffer {
   const data = Buffer.alloc(13);
-  data.writeUInt32BE(1, 0);        // width
-  data.writeUInt32BE(1, 4);        // height
-  data.writeUInt8(8, 8);           // bit depth
+  data.writeUInt32BE(1, 0); // width
+  data.writeUInt32BE(1, 4); // height
+  data.writeUInt8(8, 8); // bit depth
   data.writeUInt8(colorType, 9);
   return makeChunk('IHDR', data);
 }

@@ -24,11 +24,7 @@ interface ProgressData {
   message: string;
 }
 
-export function VideoCloneDialog({
-  open,
-  onClose,
-  onCanvasCreated,
-}: VideoCloneDialogProps) {
+export function VideoCloneDialog({ open, onClose, onCanvasCreated }: VideoCloneDialogProps) {
   const [filePath, setFilePath] = useState('');
   const [threshold, setThreshold] = useState(0.4);
   const [state, setState] = useState<CloneState>('idle');
@@ -102,9 +98,7 @@ export function VideoCloneDialog({
               disabled={state === 'cloning'}
               className="w-full rounded-md border border-dashed border-border/60 p-4 text-center text-sm text-muted-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
             >
-              {filePath
-                ? filePath.split(/[\\/]/).pop()
-                : t('videoClone.selectFile')}
+              {filePath ? filePath.split(/[\\/]/).pop() : t('videoClone.selectFile')}
             </button>
           </div>
 

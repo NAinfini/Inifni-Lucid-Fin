@@ -73,7 +73,12 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'snapshot-and-rollback': ['snapshot.create', 'snapshot.list', 'snapshot.restore'],
   'render-and-export': ['render.start', 'render.cancel', 'render.exportBundle'],
   'workflow-orchestration': ['workflow.control', 'workflow.expandIdea'],
-  'series-management': ['series.get', 'series.update', 'series.addEpisode', 'series.reorderEpisodes'],
+  'series-management': [
+    'series.get',
+    'series.update',
+    'series.addEpisode',
+    'series.reorderEpisodes',
+  ],
   'prompt-template-management': ['prompt.get', 'prompt.setCustom'],
   'asset-library-management': ['asset.import', 'asset.list'],
   'job-control': ['job.list', 'job.control'],

@@ -27,6 +27,7 @@ describe('initDb', () => {
   it('runs the health check and logs successful initialization', () => {
     const db = {
       healthCheck: vi.fn(),
+      migrate: vi.fn(),
       repair: vi.fn(),
     };
 

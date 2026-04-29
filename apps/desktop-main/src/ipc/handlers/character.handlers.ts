@@ -14,15 +14,14 @@ const VALID_ROLES: Character['role'][] = ['protagonist', 'antagonist', 'supporti
 const VALID_GENDERS: CharacterGender[] = ['male', 'female', 'non-binary', 'other'];
 
 export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
-  const normalizeReferenceImages = (referenceImages: ReferenceImage[] | undefined): ReferenceImage[] => {
+  const normalizeReferenceImages = (
+    referenceImages: ReferenceImage[] | undefined,
+  ): ReferenceImage[] => {
     const bySlot = new Map<string, ReferenceImage>();
     for (const image of referenceImages ?? []) {
       const slot = normalizeCharacterRefSlot(image.slot);
       const existing = bySlot.get(slot);
-      const variants = new Set<string>([
-        ...(existing?.variants ?? []),
-        ...(image.variants ?? []),
-      ]);
+      const variants = new Set<string>([...(existing?.variants ?? []), ...(image.variants ?? [])]);
       if (existing?.assetHash) variants.add(existing.assetHash);
       if (image.assetHash) variants.add(image.assetHash);
       bySlot.set(slot, {
@@ -71,7 +70,9 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
         : existing?.gender;
 
     const char: Character = {
-      id: existing?.id ?? (typeof args.id === 'string' && args.id ? parseCharacterId(args.id) : randomUUID()),
+      id:
+        existing?.id ??
+        (typeof args.id === 'string' && args.id ? parseCharacterId(args.id) : randomUUID()),
       name,
       role,
       description:
@@ -91,7 +92,9 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       hair: args.hair !== undefined ? args.hair : existing?.hair,
       skinTone: typeof args.skinTone === 'string' ? args.skinTone : existing?.skinTone,
       body: args.body !== undefined ? args.body : existing?.body,
-      distinctTraits: Array.isArray(args.distinctTraits) ? args.distinctTraits : existing?.distinctTraits,
+      distinctTraits: Array.isArray(args.distinctTraits)
+        ? args.distinctTraits
+        : existing?.distinctTraits,
       vocalTraits: args.vocalTraits !== undefined ? args.vocalTraits : existing?.vocalTraits,
       referenceImages: Array.isArray(args.referenceImages)
         ? normalizeReferenceImages(args.referenceImages)
@@ -237,9 +240,7 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
 
       const loadouts = char.loadouts.filter((l) => l.id !== args.loadoutId);
       const defaultLoadoutId =
-        char.defaultLoadoutId === args.loadoutId
-          ? (loadouts[0]?.id ?? '')
-          : char.defaultLoadoutId;
+        char.defaultLoadoutId === args.loadoutId ? (loadouts[0]?.id ?? '') : char.defaultLoadoutId;
 
       db.repos.entities.upsertCharacter({
         id: char.id,

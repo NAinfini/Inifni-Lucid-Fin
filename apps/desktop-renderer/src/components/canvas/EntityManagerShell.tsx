@@ -128,7 +128,9 @@ export function EntityManagerShell({
           {error && (
             <div className="text-xs text-destructive bg-destructive/10 rounded p-2">{error}</div>
           )}
-          {hasSelection ? detailContent : (
+          {hasSelection ? (
+            detailContent
+          ) : (
             <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
               {emptyDetailMessage ?? 'Select an item to edit'}
             </div>

@@ -24,8 +24,7 @@ export function useClipboardWatcher() {
     const unsub = api.clipboard.onAIDetected((data: { text: string }) => {
       if (!activeCanvasId) return;
 
-      const preview =
-        data.text.length > 80 ? data.text.slice(0, 80) + '...' : data.text;
+      const preview = data.text.length > 80 ? data.text.slice(0, 80) + '...' : data.text;
 
       dispatch(
         enqueueToast({

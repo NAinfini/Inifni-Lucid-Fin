@@ -24,10 +24,10 @@ export function parseMiniMaxResponse(data: Record<string, unknown>): {
   taskId: string;
   status: string;
 } {
-  const baseStatus = (data['base_resp'] as Record<string, unknown> | undefined);
+  const baseStatus = data['base_resp'] as Record<string, unknown> | undefined;
   return {
     taskId: (data['task_id'] ?? '') as string,
-    status: (baseStatus?.['status_code'] === 0 ? 'submitted' : data['status'] ?? '') as string,
+    status: (baseStatus?.['status_code'] === 0 ? 'submitted' : (data['status'] ?? '')) as string,
   };
 }
 

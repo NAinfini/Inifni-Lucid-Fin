@@ -28,7 +28,7 @@ function logIpcError(store: Parameters<Middleware>[0], message: string, error: u
       level: 'error',
       category: 'ipc',
       message,
-      detail: error instanceof Error ? error.stack ?? error.message : String(error),
+      detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
     }),
   );
 }

@@ -87,14 +87,16 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
       current.nodes.push(node);
       current.updatedAt = Date.now();
     }),
-    moveNode: vi.fn(async (canvasId: string, nodeId: string, position: { x: number; y: number }) => {
-      const current = store.get(canvasId);
-      if (!current) throw new Error(`Canvas not found: ${canvasId}`);
-      const node = current.nodes.find((entry) => entry.id === nodeId);
-      if (!node) throw new Error(`Node not found: ${nodeId}`);
-      node.position = position;
-      node.updatedAt = Date.now();
-    }),
+    moveNode: vi.fn(
+      async (canvasId: string, nodeId: string, position: { x: number; y: number }) => {
+        const current = store.get(canvasId);
+        if (!current) throw new Error(`Canvas not found: ${canvasId}`);
+        const node = current.nodes.find((entry) => entry.id === nodeId);
+        if (!node) throw new Error(`Node not found: ${nodeId}`);
+        node.position = position;
+        node.updatedAt = Date.now();
+      },
+    ),
     renameNode: vi.fn(async (canvasId: string, nodeId: string, title: string) => {
       const current = store.get(canvasId);
       if (!current) throw new Error(`Canvas not found: ${canvasId}`);
@@ -108,13 +110,15 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
       if (!current) throw new Error(`Canvas not found: ${canvasId}`);
       current.edges.push(edge);
     }),
-    setNodePresets: vi.fn(async (canvasId: string, nodeId: string, presetTracks: PresetTrackSet) => {
-      const current = store.get(canvasId);
-      if (!current) throw new Error(`Canvas not found: ${canvasId}`);
-      const node = current.nodes.find((entry) => entry.id === nodeId);
-      if (!node) throw new Error(`Node not found: ${nodeId}`);
-      (node.data as { presetTracks?: PresetTrackSet }).presetTracks = presetTracks;
-    }),
+    setNodePresets: vi.fn(
+      async (canvasId: string, nodeId: string, presetTracks: PresetTrackSet) => {
+        const current = store.get(canvasId);
+        if (!current) throw new Error(`Canvas not found: ${canvasId}`);
+        const node = current.nodes.find((entry) => entry.id === nodeId);
+        if (!node) throw new Error(`Node not found: ${nodeId}`);
+        (node.data as { presetTracks?: PresetTrackSet }).presetTracks = presetTracks;
+      },
+    ),
     renameCanvas: vi.fn(async (canvasId: string, name: string) => {
       const current = store.get(canvasId);
       if (!current) throw new Error(`Canvas not found: ${canvasId}`);
@@ -128,18 +132,22 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
       const current = store.get(canvasId);
       if (!current) throw new Error(`Canvas not found: ${canvasId}`);
       current.nodes = current.nodes.filter((entry) => entry.id !== nodeId);
-      current.edges = current.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+      current.edges = current.edges.filter(
+        (edge) => edge.source !== nodeId && edge.target !== nodeId,
+      );
       current.updatedAt = Date.now();
     }),
     deleteEdge: vi.fn(async () => undefined),
-    updateNodeData: vi.fn(async (canvasId: string, nodeId: string, data: Record<string, unknown>) => {
-      const current = store.get(canvasId);
-      if (!current) throw new Error(`Canvas not found: ${canvasId}`);
-      const node = current.nodes.find((entry) => entry.id === nodeId);
-      if (!node) throw new Error(`Node not found: ${nodeId}`);
-      Object.assign(node.data as Record<string, unknown>, data);
-      node.updatedAt = Date.now();
-    }),
+    updateNodeData: vi.fn(
+      async (canvasId: string, nodeId: string, data: Record<string, unknown>) => {
+        const current = store.get(canvasId);
+        if (!current) throw new Error(`Canvas not found: ${canvasId}`);
+        const node = current.nodes.find((entry) => entry.id === nodeId);
+        if (!node) throw new Error(`Node not found: ${nodeId}`);
+        Object.assign(node.data as Record<string, unknown>, data);
+        node.updatedAt = Date.now();
+      },
+    ),
     listPresets: vi.fn(async () => []),
     savePreset: vi.fn(async (preset: PresetDefinition) => preset),
     listShotTemplates: vi.fn(async () => []),
@@ -217,7 +225,10 @@ describe('createCanvasTools', () => {
       set: { position: { x: 220, y: 330 } },
     });
 
-    expect(result).toEqual({ success: true, data: { nodeId: 'text-1', updated: { position: { x: 220, y: 330 } } } });
+    expect(result).toEqual({
+      success: true,
+      data: { nodeId: 'text-1', updated: { position: { x: 220, y: 330 } } },
+    });
     expect(deps.moveNode).toHaveBeenCalledWith('canvas-1', 'text-1', { x: 220, y: 330 });
   });
 
@@ -231,7 +242,10 @@ describe('createCanvasTools', () => {
       set: { title: 'Narration' },
     });
 
-    expect(result).toEqual({ success: true, data: { nodeId: 'text-1', updated: { title: 'Narration' } } });
+    expect(result).toEqual({
+      success: true,
+      data: { nodeId: 'text-1', updated: { title: 'Narration' } },
+    });
     expect(deps.renameNode).toHaveBeenCalledWith('canvas-1', 'text-1', 'Narration');
   });
 
@@ -358,18 +372,20 @@ describe('createCanvasTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.updateBackdrop', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'backdrop-1',
-      set: {
-        opacity: 72,
-        color: '#ff00aa',
-        borderStyle: 'dotted',
-        titleSize: 'lg',
-        lockChildren: true,
-        toggleCollapse: true,
-      },
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.updateBackdrop', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'backdrop-1',
+        set: {
+          opacity: 72,
+          color: '#ff00aa',
+          borderStyle: 'dotted',
+          titleSize: 'lg',
+          lockChildren: true,
+          toggleCollapse: true,
+        },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         nodeId: 'backdrop-1',
@@ -411,13 +427,15 @@ describe('createCanvasTools', () => {
     expect(tracksAfterAdd.camera.entries).toHaveLength(1);
     const entryId = tracksAfterAdd.camera.entries[0].id;
 
-    await expect(getTool('canvas.updatePresetEntry', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entryId,
-      changes: { intensity: 60, direction: 'left' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.updatePresetEntry', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        category: 'camera',
+        entryId,
+        changes: { intensity: 60, direction: 'left' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         nodeId: 'image-1',
@@ -432,15 +450,18 @@ describe('createCanvasTools', () => {
       category: 'camera',
       presetId: 'builtin-camera-crane-up',
     });
-    const tracksAfterSecondAdd = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
+    const tracksAfterSecondAdd = (canvas.nodes[1].data as { presetTracks: PresetTrackSet })
+      .presetTracks;
     const secondEntryId = tracksAfterSecondAdd.camera.entries[1].id;
 
-    await expect(getTool('canvas.removePresetEntry', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entryId,
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.removePresetEntry', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        category: 'camera',
+        entryId,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         nodeId: 'image-1',
@@ -449,7 +470,8 @@ describe('createCanvasTools', () => {
       },
     });
 
-    const tracksAfterRemove = (canvas.nodes[1].data as { presetTracks: PresetTrackSet }).presetTracks;
+    const tracksAfterRemove = (canvas.nodes[1].data as { presetTracks: PresetTrackSet })
+      .presetTracks;
     expect(tracksAfterRemove.camera.entries).toHaveLength(1);
     expect(tracksAfterRemove.camera.entries[0].id).toBe(secondEntryId);
     expect(tracksAfterRemove.camera.entries[0].order).toBe(0);
@@ -479,12 +501,20 @@ describe('createCanvasTools', () => {
       appliedShotTemplateName: 'Horror Suspense',
     });
     expect(
-      (canvas.nodes[1]?.data as { appliedShotTemplateId?: string; appliedShotTemplateName?: string })
-        .appliedShotTemplateId,
+      (
+        canvas.nodes[1]?.data as {
+          appliedShotTemplateId?: string;
+          appliedShotTemplateName?: string;
+        }
+      ).appliedShotTemplateId,
     ).toBe('builtin-tmpl-horror-suspense');
     expect(
-      (canvas.nodes[1]?.data as { appliedShotTemplateId?: string; appliedShotTemplateName?: string })
-        .appliedShotTemplateName,
+      (
+        canvas.nodes[1]?.data as {
+          appliedShotTemplateId?: string;
+          appliedShotTemplateName?: string;
+        }
+      ).appliedShotTemplateName,
     ).toBe('Horror Suspense');
   });
 
@@ -533,7 +563,12 @@ describe('createCanvasTools', () => {
             type: 'image',
             title: 'Sunset Shot',
             position: { x: 0, y: 0 },
-            data: { prompt: 'golden hour sunset', status: 'empty', variants: [], selectedVariantIndex: 0 },
+            data: {
+              prompt: 'golden hour sunset',
+              status: 'empty',
+              variants: [],
+              selectedVariantIndex: 0,
+            },
             bypassed: false,
             locked: false,
             createdAt: 1,
@@ -544,7 +579,12 @@ describe('createCanvasTools', () => {
             type: 'video',
             title: 'Action Clip',
             position: { x: 300, y: 0 },
-            data: { prompt: 'fast car chase', status: 'empty', variants: [], selectedVariantIndex: 0 },
+            data: {
+              prompt: 'fast car chase',
+              status: 'empty',
+              variants: [],
+              selectedVariantIndex: 0,
+            },
             bypassed: false,
             locked: false,
             createdAt: 1,
@@ -580,7 +620,10 @@ describe('createCanvasTools', () => {
     it('filters by types array (OR-matched)', async () => {
       const canvas = createCanvasWithNodes();
       const deps = createDeps(canvas);
-      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', types: ['image', 'video'] });
+      const result = await getTool('canvas.listNodes', deps).execute({
+        canvasId: 'canvas-1',
+        types: ['image', 'video'],
+      });
       expect(result).toMatchObject({ success: true, data: { total: 2 } });
       const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
       expect(data.nodes.map((n) => n.id)).toEqual(expect.arrayContaining(['img-1', 'vid-1']));
@@ -589,7 +632,10 @@ describe('createCanvasTools', () => {
     it('filters by query against title', async () => {
       const canvas = createCanvasWithNodes();
       const deps = createDeps(canvas);
-      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', query: 'action' });
+      const result = await getTool('canvas.listNodes', deps).execute({
+        canvasId: 'canvas-1',
+        query: 'action',
+      });
       expect(result).toMatchObject({ success: true, data: { total: 1 } });
       const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
       expect(data.nodes[0].id).toBe('vid-1');
@@ -598,7 +644,10 @@ describe('createCanvasTools', () => {
     it('filters by query against prompt (OR logic)', async () => {
       const canvas = createCanvasWithNodes();
       const deps = createDeps(canvas);
-      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', query: 'sunset' });
+      const result = await getTool('canvas.listNodes', deps).execute({
+        canvasId: 'canvas-1',
+        query: 'sunset',
+      });
       expect(result).toMatchObject({ success: true, data: { total: 1 } });
       const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
       expect(data.nodes[0].id).toBe('img-1');
@@ -608,7 +657,11 @@ describe('createCanvasTools', () => {
       const canvas = createCanvasWithNodes();
       const deps = createDeps(canvas);
       // types=['image','video'] AND query='sunset' → only img-1 (video has 'fast car' prompt, not 'sunset')
-      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', types: ['image', 'video'], query: 'sunset' });
+      const result = await getTool('canvas.listNodes', deps).execute({
+        canvasId: 'canvas-1',
+        types: ['image', 'video'],
+        query: 'sunset',
+      });
       expect(result).toMatchObject({ success: true, data: { total: 1 } });
       const data = (result as { success: true; data: { nodes: { id: string }[] } }).data;
       expect(data.nodes[0].id).toBe('img-1');
@@ -617,7 +670,10 @@ describe('createCanvasTools', () => {
     it('returns empty when query matches nothing', async () => {
       const canvas = createCanvasWithNodes();
       const deps = createDeps(canvas);
-      const result = await getTool('canvas.listNodes', deps).execute({ canvasId: 'canvas-1', query: 'xyz123' });
+      const result = await getTool('canvas.listNodes', deps).execute({
+        canvasId: 'canvas-1',
+        query: 'xyz123',
+      });
       expect(result).toMatchObject({ success: true, data: { total: 0, nodes: [] } });
     });
   });
@@ -626,7 +682,10 @@ describe('createCanvasTools', () => {
     it('single string ID returns single node (backward compat)', async () => {
       const canvas = createCanvas();
       const deps = createDeps(canvas);
-      const result = await getTool('canvas.getNode', deps).execute({ canvasId: 'canvas-1', nodeIds: 'text-1' });
+      const result = await getTool('canvas.getNode', deps).execute({
+        canvasId: 'canvas-1',
+        nodeIds: 'text-1',
+      });
       expect(result.success).toBe(true);
       expect((result.data as { id: string }).id).toBe('text-1');
     });
@@ -634,7 +693,10 @@ describe('createCanvasTools', () => {
     it('array of IDs returns array of nodes', async () => {
       const canvas = createCanvas();
       const deps = createDeps(canvas);
-      const result = await getTool('canvas.getNode', deps).execute({ canvasId: 'canvas-1', nodeIds: ['text-1', 'image-1'] });
+      const result = await getTool('canvas.getNode', deps).execute({
+        canvasId: 'canvas-1',
+        nodeIds: ['text-1', 'image-1'],
+      });
       expect(result.success).toBe(true);
       const nodes = result.data as { id: string }[];
       expect(nodes).toHaveLength(2);
@@ -644,7 +706,10 @@ describe('createCanvasTools', () => {
     it('missing ID in batch returns error for first missing', async () => {
       const canvas = createCanvas();
       const deps = createDeps(canvas);
-      const result = await getTool('canvas.getNode', deps).execute({ canvasId: 'canvas-1', nodeIds: ['text-1', 'missing-node'] });
+      const result = await getTool('canvas.getNode', deps).execute({
+        canvasId: 'canvas-1',
+        nodeIds: ['text-1', 'missing-node'],
+      });
       expect(result).toEqual({ success: false, error: 'Node not found: missing-node' });
     });
   });

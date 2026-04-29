@@ -22,7 +22,7 @@ export type { AdapterError } from './errors/index.js';
  */
 export function parseAdapterError(
   error: unknown,
-  defaultCategory: ErrorCategory = ErrorCategory.ServiceError
+  defaultCategory: ErrorCategory = ErrorCategory.ServiceError,
 ): AdapterError {
   if (isAdapterError(error)) {
     return error;

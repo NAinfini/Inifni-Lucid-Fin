@@ -7,11 +7,12 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class CartesiaSonicAdapter implements AIProviderAdapter {
   readonly id = 'cartesia-sonic';
@@ -26,7 +27,10 @@ export class CartesiaSonicAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.apiVersion) this.apiVersion = options.apiVersion as string;
   }
 
@@ -39,7 +43,8 @@ export class CartesiaSonicAdapter implements AIProviderAdapter {
         },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -67,8 +72,7 @@ export class CartesiaSonicAdapter implements AIProviderAdapter {
     if (!res.ok) {
       if (res.status === 401)
         throw new LucidError(ErrorCode.AuthFailed, 'Invalid Cartesia API key');
-      if (res.status === 429)
-        throw new LucidError(ErrorCode.RateLimited, 'Cartesia rate limited');
+      if (res.status === 429) throw new LucidError(ErrorCode.RateLimited, 'Cartesia rate limited');
       throw new LucidError(ErrorCode.ServiceUnavailable, `Cartesia error: ${res.status}`);
     }
 

@@ -60,7 +60,12 @@ export function formatErrorDetail(error: unknown): string {
     }
     if (extended.details !== undefined) {
       const details = extended.details as Record<string, unknown>;
-      const { responseText: _responseText, requestBody: _requestBody, responseBody: _responseBody, ...compactDetails } = details;
+      const {
+        responseText: _responseText,
+        requestBody: _requestBody,
+        responseBody: _responseBody,
+        ...compactDetails
+      } = details;
       extra.details = compactDetails;
     }
     if (extended.cause !== undefined) {

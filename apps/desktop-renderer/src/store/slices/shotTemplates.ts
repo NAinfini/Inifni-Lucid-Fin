@@ -27,7 +27,10 @@ export const shotTemplatesSlice = createSlice({
     },
     updateCustomTemplate(
       state,
-      action: PayloadAction<{ id: string; changes: Partial<Pick<ShotTemplate, 'name' | 'description'>> }>,
+      action: PayloadAction<{
+        id: string;
+        changes: Partial<Pick<ShotTemplate, 'name' | 'description'>>;
+      }>,
     ) {
       const template = state.custom.find((item) => item.id === action.payload.id);
       if (!template) return;
@@ -36,7 +39,10 @@ export const shotTemplatesSlice = createSlice({
     removeCustomTemplate(state, action: PayloadAction<string>) {
       state.custom = state.custom.filter((t) => t.id !== action.payload);
     },
-    updateCustomTemplateTracks(state, action: PayloadAction<{ id: string; tracks: ShotTemplate['tracks'] }>) {
+    updateCustomTemplateTracks(
+      state,
+      action: PayloadAction<{ id: string; tracks: ShotTemplate['tracks'] }>,
+    ) {
       const template = state.custom.find((t) => t.id === action.payload.id);
       if (template) template.tracks = action.payload.tracks;
     },

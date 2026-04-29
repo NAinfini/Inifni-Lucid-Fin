@@ -36,7 +36,10 @@ import {
   clearQueue,
   selectPhase,
 } from '../../store/slices/commander.js';
-import { selectCommanderView, selectActiveTodoSnapshot } from '../../commander/state/commander-timeline-selectors.js';
+import {
+  selectCommanderView,
+  selectActiveTodoSnapshot,
+} from '../../commander/state/commander-timeline-selectors.js';
 import {
   markConfirmationResolvedLocally,
   markQuestionResolvedLocally,
@@ -119,12 +122,23 @@ export function CommanderPanel() {
   const position = useSelector((state: RootState) => state.commander.position, shallowEqual);
   const size = useSelector((state: RootState) => state.commander.size, shallowEqual);
   const permissionMode = useSelector((state: RootState) => state.commander.permissionMode);
-  const consecutiveConfirmCount = useSelector((state: RootState) => state.commander.consecutiveConfirmCount);
-  const messageQueue = useSelector((state: RootState) => state.commander.messageQueue, shallowEqual);
-  const pendingInjectedMessages = useSelector((state: RootState) => state.commander.pendingInjectedMessages, shallowEqual);
+  const consecutiveConfirmCount = useSelector(
+    (state: RootState) => state.commander.consecutiveConfirmCount,
+  );
+  const messageQueue = useSelector(
+    (state: RootState) => state.commander.messageQueue,
+    shallowEqual,
+  );
+  const pendingInjectedMessages = useSelector(
+    (state: RootState) => state.commander.pendingInjectedMessages,
+    shallowEqual,
+  );
   const maxTokens = useSelector((state: RootState) => state.commander.maxTokens);
   const maxSteps = useSelector((state: RootState) => state.commander.maxSteps);
-  const backendContextUsage = useSelector((state: RootState) => state.commander.backendContextUsage, shallowEqual);
+  const backendContextUsage = useSelector(
+    (state: RootState) => state.commander.backendContextUsage,
+    shallowEqual,
+  );
   // Phase 4 — read message/segment/pending state from the v2 timeline
   // derivation. Legacy slice still owns provider/settings/session-meta
   // fields above; only the stream-driven view is swapped here.
@@ -248,7 +262,7 @@ export function CommanderPanel() {
     if (wasStreaming && !isStreaming && messageQueue.length > 0) {
       const next = messageQueue[0];
       dispatch(dequeueMessage());
-      void sendMessage(next);
+      void sendMessage(next.content);
     }
   }, [isStreaming, messageQueue, dispatch, sendMessage]);
 
@@ -416,7 +430,7 @@ export function CommanderPanel() {
     const msg = messageQueue[index];
     if (!msg || !isStreaming) return;
     dispatch(removeQueuedMessage(index));
-    await sendMessage(msg);
+    await sendMessage(msg.content);
   };
 
   const handleAddToQueue = () => {
@@ -448,7 +462,7 @@ export function CommanderPanel() {
     } else if (messageQueue.length > 0) {
       const next = messageQueue[0];
       dispatch(dequeueMessage());
-      await sendMessage(next);
+      await sendMessage(next.content);
     }
   };
 
@@ -709,7 +723,7 @@ export function CommanderPanel() {
             </div>
             {messageQueue.map((msg, i) => (
               <div
-                key={i}
+                key={msg.id}
                 className="flex items-center gap-1 px-2 py-1 border-b border-border/20 last:border-0"
               >
                 {editingQueueIndex === i ? (
@@ -742,7 +756,7 @@ export function CommanderPanel() {
                 ) : (
                   <>
                     <span className="flex-1 truncate text-muted-foreground">
-                      {i + 1}. {msg}
+                      {i + 1}. {msg.content}
                     </span>
                     {isStreaming && (
                       <button
@@ -758,7 +772,7 @@ export function CommanderPanel() {
                       type="button"
                       onClick={() => {
                         setEditingQueueIndex(i);
-                        setEditingQueueText(msg);
+                        setEditingQueueText(msg.content);
                       }}
                       className="text-muted-foreground hover:text-foreground"
                     >
@@ -890,7 +904,9 @@ export function CommanderPanel() {
                   </div>
                   <div className="max-h-40 overflow-auto p-1">
                     {!canvasNodes || canvasNodes.length === 0 ? (
-                      <div className="px-2 py-1 text-[10px] text-muted-foreground">{t('commander.noNodes')}</div>
+                      <div className="px-2 py-1 text-[10px] text-muted-foreground">
+                        {t('commander.noNodes')}
+                      </div>
                     ) : (
                       canvasNodes.map((node) => (
                         <button
@@ -1275,7 +1291,8 @@ function ComposerChips({ t, onTemplate }: ComposerChipsProps) {
       {
         key: 'breakIntoShots',
         label: t('commander.composerChip.breakIntoShots'),
-        message: 'Break the selected content into individual shots with camera and lighting presets',
+        message:
+          'Break the selected content into individual shots with camera and lighting presets',
         show: true,
       },
       {
@@ -1325,7 +1342,11 @@ const LS_KEY_FIRST_SESSION = 'lucid-commander-first-session-seen';
 
 function FirstSessionHint({ show, t }: { show: boolean; t: (key: string) => string }) {
   const [dismissed, setDismissed] = useState(() => {
-    try { return localStorage.getItem(LS_KEY_FIRST_SESSION) === '1'; } catch { return false; }
+    try {
+      return localStorage.getItem(LS_KEY_FIRST_SESSION) === '1';
+    } catch {
+      return false;
+    }
   });
   if (!show || dismissed) return null;
   return (
@@ -1337,7 +1358,11 @@ function FirstSessionHint({ show, t }: { show: boolean; t: (key: string) => stri
         className="shrink-0 text-muted-foreground hover:text-foreground"
         onClick={() => {
           setDismissed(true);
-          try { localStorage.setItem(LS_KEY_FIRST_SESSION, '1'); } catch { /* noop */ }
+          try {
+            localStorage.setItem(LS_KEY_FIRST_SESSION, '1');
+          } catch {
+            /* noop */
+          }
         }}
       >
         <X className="h-3 w-3" />

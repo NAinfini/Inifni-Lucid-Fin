@@ -16,7 +16,12 @@ function mkUserMessage(step: number, content = 'hi'.repeat(100)): ContextItem {
   return { kind: 'user-message', itemId: mkId(), producedAtStep: step, content };
 }
 
-function mkToolResult(toolKey: string, paramsHash: string, step: number, contentSize = 100): ContextItem {
+function mkToolResult(
+  toolKey: string,
+  paramsHash: string,
+  step: number,
+  contentSize = 100,
+): ContextItem {
   return {
     kind: 'tool-result',
     itemId: mkId(),
@@ -40,7 +45,13 @@ function mkSessionSummary(step: number, content = 'summary'): ContextItem {
 }
 
 function mkGuide(step = 0): ContextItem {
-  return { kind: 'guide', itemId: mkId(), producedAtStep: step, guideKey: 'wf', content: 'do this' };
+  return {
+    kind: 'guide',
+    itemId: mkId(),
+    producedAtStep: step,
+    guideKey: 'wf',
+    content: 'do this',
+  };
 }
 
 const defaultPolicy: CompactionPolicy = {

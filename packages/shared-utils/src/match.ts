@@ -18,17 +18,11 @@ import { assertNever } from './assert-never.js';
  * legacy data predating a new variant), we throw via `assertNever` so the
  * failure is loud instead of silently wrong.
  */
-export function match<
-  T extends Record<string, unknown>,
-  K extends keyof T,
-  R,
->(
+export function match<T extends Record<string, unknown>, K extends keyof T, R>(
   value: T,
   tag: K,
   handlers: {
-    [V in Extract<T[K], string | number | symbol>]: (
-      v: Extract<T, Record<K, V>>,
-    ) => R;
+    [V in Extract<T[K], string | number | symbol>]: (v: Extract<T, Record<K, V>>) => R;
   },
 ): R {
   const key = value[tag] as Extract<T[K], string | number | symbol>;

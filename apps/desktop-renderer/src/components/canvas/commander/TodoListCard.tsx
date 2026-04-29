@@ -40,10 +40,7 @@ function StatusIcon({ status, prevStatus }: StatusIconProps) {
     return (
       <span
         aria-label="in progress"
-        className={cn(
-          base,
-          'border-amber-500/60 bg-amber-500/15 text-amber-400 animate-pulse',
-        )}
+        className={cn(base, 'border-amber-500/60 bg-amber-500/15 text-amber-400 animate-pulse')}
       >
         {'·'}
       </span>
@@ -52,10 +49,7 @@ function StatusIcon({ status, prevStatus }: StatusIconProps) {
   return (
     <span
       aria-label="pending"
-      className={cn(
-        base,
-        'border-border/60 bg-transparent text-muted-foreground/60',
-      )}
+      className={cn(base, 'border-border/60 bg-transparent text-muted-foreground/60')}
     >
       {'☐'}
     </span>
@@ -71,9 +65,7 @@ function StatusIcon({ status, prevStatus }: StatusIconProps) {
  */
 export function TodoListCard({ snapshot, t }: TodoListCardProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const prevById = useRef<Map<string, ActiveTodoSnapshot['items'][number]['status']>>(
-    new Map(),
-  );
+  const prevById = useRef<Map<string, ActiveTodoSnapshot['items'][number]['status']>>(new Map());
   useEffect(() => {
     prevById.current = new Map(snapshot.items.map((i) => [i.id, i.status]));
   }, [snapshot.todoId, snapshot.items]);
@@ -99,14 +91,9 @@ export function TodoListCard({ snapshot, t }: TodoListCardProps) {
           <span>
             {done}/{total}
           </span>
-          <span>
-            ({pct}%)
-          </span>
+          <span>({pct}%)</span>
           <ChevronDown
-            className={cn(
-              'h-3 w-3 transition-transform duration-200',
-              collapsed && '-rotate-90',
-            )}
+            className={cn('h-3 w-3 transition-transform duration-200', collapsed && '-rotate-90')}
           />
         </span>
       </button>

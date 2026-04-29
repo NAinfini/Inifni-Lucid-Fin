@@ -1,12 +1,14 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
-import { ArrowUpDown, ClipboardPaste, Copy, FolderPlus, Plus, Scissors, Search, Trash2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  ArrowUpDown,
+  ClipboardPaste,
+  Copy,
+  FolderPlus,
+  Plus,
+  Scissors,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import type { Folder } from '@lucid-fin/contracts';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
@@ -98,9 +100,9 @@ const DEFAULT_SORT_ORDER: SortOrder = 'asc';
  * breadcrumb-to-jump-back. The caller owns data + folder state — this
  * component only owns selection + rubber-band + sort + search UI.
  */
-export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdAt?: number; updatedAt?: number }>(
-  props: EntityFileExplorerProps<T>,
-) {
+export function EntityFileExplorer<
+  T extends EntityFileExplorerItem & { createdAt?: number; updatedAt?: number },
+>(props: EntityFileExplorerProps<T>) {
   const {
     items,
     folders,
@@ -139,7 +141,9 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
   const [autoRenameFolderId, setAutoRenameFolderId] = useState<string | null>(null);
   const [itemMenu, setItemMenu] = useState<{ x: number; y: number; item: T } | null>(null);
   const [bgMenu, setBgMenu] = useState<{ x: number; y: number } | null>(null);
-  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(
+    null,
+  );
   const panelRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
   const tilesRef = useRef<HTMLDivElement>(null);
@@ -219,28 +223,35 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
     setSelectedFolderIds(new Set(childFolders.map((f) => f.id)));
   }, [visibleItems, childFolders]);
 
-  const handleTileClick = useCallback((item: T, e: React.MouseEvent) => {
-    if (e.shiftKey && lastClickedId) {
-      const start = visibleItems.findIndex((it) => it.id === lastClickedId);
-      const end = visibleItems.findIndex((it) => it.id === item.id);
-      if (start !== -1 && end !== -1) {
-        const [lo, hi] = start < end ? [start, end] : [end, start];
-        const range = visibleItems.slice(lo, hi + 1).map((it) => it.id);
-        setSelectedIds((prev) => { const next = new Set(prev); for (const id of range) next.add(id); return next; });
+  const handleTileClick = useCallback(
+    (item: T, e: React.MouseEvent) => {
+      if (e.shiftKey && lastClickedId) {
+        const start = visibleItems.findIndex((it) => it.id === lastClickedId);
+        const end = visibleItems.findIndex((it) => it.id === item.id);
+        if (start !== -1 && end !== -1) {
+          const [lo, hi] = start < end ? [start, end] : [end, start];
+          const range = visibleItems.slice(lo, hi + 1).map((it) => it.id);
+          setSelectedIds((prev) => {
+            const next = new Set(prev);
+            for (const id of range) next.add(id);
+            return next;
+          });
+        }
+      } else if (e.ctrlKey || e.metaKey) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(item.id)) next.delete(item.id);
+          else next.add(item.id);
+          return next;
+        });
+      } else {
+        setSelectedIds(new Set([item.id]));
+        setSelectedFolderIds(new Set());
       }
-    } else if (e.ctrlKey || e.metaKey) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(item.id)) next.delete(item.id);
-        else next.add(item.id);
-        return next;
-      });
-    } else {
-      setSelectedIds(new Set([item.id]));
-      setSelectedFolderIds(new Set());
-    }
-    setLastClickedId(item.id);
-  }, [visibleItems, lastClickedId]);
+      setLastClickedId(item.id);
+    },
+    [visibleItems, lastClickedId],
+  );
 
   // Folder-tile click selection: Ctrl/Cmd toggles folder into selection set,
   // plain click (non-renaming, non-up) selects only that folder. Navigation
@@ -268,7 +279,12 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
     const handler = (e: KeyboardEvent) => {
       if (!panelRef.current?.contains(document.activeElement)) return;
       const tgt = document.activeElement;
-      if (tgt instanceof HTMLInputElement || tgt instanceof HTMLTextAreaElement || (tgt as HTMLElement)?.isContentEditable) return;
+      if (
+        tgt instanceof HTMLInputElement ||
+        tgt instanceof HTMLTextAreaElement ||
+        (tgt as HTMLElement)?.isContentEditable
+      )
+        return;
       const meta = e.ctrlKey || e.metaKey;
       if (meta && e.key.toLowerCase() === 'a') {
         e.preventDefault();
@@ -301,8 +317,19 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [
-    clearSelection, clipboard, currentFolderId, getSelectedItems, onDeleteFolder, onDeleteItems,
-    onDuplicateItems, onNavigateFolder, onPaste, parentFolderId, selectAllVisible, selectedFolderIds, selectedIds,
+    clearSelection,
+    clipboard,
+    currentFolderId,
+    getSelectedItems,
+    onDeleteFolder,
+    onDeleteItems,
+    onDuplicateItems,
+    onNavigateFolder,
+    onPaste,
+    parentFolderId,
+    selectAllVisible,
+    selectedFolderIds,
+    selectedIds,
   ]);
 
   // --- New folder: create immediately with a default name, then auto-rename ---
@@ -332,97 +359,120 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
   // of the marquee rect and every tile's bounding box. The base set (existing
   // selection) is preserved when the user holds Ctrl/Cmd, so additive selection
   // works like Windows Explorer.
-  const beginMarquee = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    // Keyboard handler requires focus to be inside panelRef — claim it on any
-    // mousedown inside the grid so shortcuts work without an extra click.
-    panelRef.current?.focus();
-    const target = e.target as HTMLElement | null;
-    if (!target) return;
-    // Skip when pressing on a tile / folder tile / explicit no-marquee element.
-    if (target.closest('[data-tile-id],[data-folder-id],[data-no-marquee]')) return;
-    const scroller = gridRef.current;
-    if (!scroller) return;
-    const rect = scroller.getBoundingClientRect();
-    // Content-space start point (accounts for scroll offset so tile rects
-    // computed against the same origin remain correct as the user scrolls).
-    const startX = e.clientX - rect.left + scroller.scrollLeft;
-    const startY = e.clientY - rect.top + scroller.scrollTop;
-    const additive = e.ctrlKey || e.metaKey;
-    const baseItems = additive ? new Set(selectedIds) : new Set<string>();
-    const baseFolders = additive ? new Set(selectedFolderIds) : new Set<string>();
+  const beginMarquee = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      // Keyboard handler requires focus to be inside panelRef — claim it on any
+      // mousedown inside the grid so shortcuts work without an extra click.
+      panelRef.current?.focus();
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      // Skip when pressing on a tile / folder tile / explicit no-marquee element.
+      if (target.closest('[data-tile-id],[data-folder-id],[data-no-marquee]')) return;
+      const scroller = gridRef.current;
+      if (!scroller) return;
+      const rect = scroller.getBoundingClientRect();
+      // Content-space start point (accounts for scroll offset so tile rects
+      // computed against the same origin remain correct as the user scrolls).
+      const startX = e.clientX - rect.left + scroller.scrollLeft;
+      const startY = e.clientY - rect.top + scroller.scrollTop;
+      const additive = e.ctrlKey || e.metaKey;
+      const baseItems = additive ? new Set(selectedIds) : new Set<string>();
+      const baseFolders = additive ? new Set(selectedFolderIds) : new Set<string>();
 
-    // Pre-cache all tile bounding rects once at drag-start to avoid
-    // querySelectorAll on every mousemove event.
-    const tileRoot = tilesRef.current;
-    if (tileRoot) {
-      const items = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-tile-id]'));
-      const folders = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-folder-id]'));
-      tileBoundsRef.current = [
-        ...items.map((el) => ({ id: el.dataset.tileId!, rect: el.getBoundingClientRect(), isFolder: false })),
-        ...folders.map((el) => ({ id: el.dataset.folderId!, rect: el.getBoundingClientRect(), isFolder: true })),
-      ];
-    }
-
-    const onMove = (ev: MouseEvent) => {
-      const sc = gridRef.current;
-      if (!sc) return;
-      const r = sc.getBoundingClientRect();
-      const curX = ev.clientX - r.left + sc.scrollLeft;
-      const curY = ev.clientY - r.top + sc.scrollTop;
-      const x = Math.min(startX, curX);
-      const y = Math.min(startY, curY);
-      const w = Math.abs(curX - startX);
-      const h = Math.abs(curY - startY);
-      // Only commit a marquee once the pointer has travelled a few pixels —
-      // a plain click should still fall through to handleBackgroundClick.
-      if (w < 3 && h < 3) return;
-      marqueeCommittedRef.current = true;
-      setMarquee({ x, y, w, h });
-
-      const nextItems = new Set(baseItems);
-      const nextFolders = new Set(baseFolders);
-      for (const cached of tileBoundsRef.current) {
-        const tr = cached.rect;
-        const tx = tr.left - r.left + sc.scrollLeft;
-        const ty = tr.top - r.top + sc.scrollTop;
-        const overlaps = tx + tr.width >= x && tx <= x + w && ty + tr.height >= y && ty <= y + h;
-        if (overlaps) {
-          if (cached.isFolder) nextFolders.add(cached.id);
-          else nextItems.add(cached.id);
-        }
+      // Pre-cache all tile bounding rects once at drag-start to avoid
+      // querySelectorAll on every mousemove event.
+      const tileRoot = tilesRef.current;
+      if (tileRoot) {
+        const items = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-tile-id]'));
+        const folders = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-folder-id]'));
+        tileBoundsRef.current = [
+          ...items.map((el) => ({
+            id: el.dataset.tileId!,
+            rect: el.getBoundingClientRect(),
+            isFolder: false,
+          })),
+          ...folders.map((el) => ({
+            id: el.dataset.folderId!,
+            rect: el.getBoundingClientRect(),
+            isFolder: true,
+          })),
+        ];
       }
-      setSelectedIds(nextItems);
-      setSelectedFolderIds(nextFolders);
-    };
 
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      setMarquee(null);
-    };
+      const onMove = (ev: MouseEvent) => {
+        const sc = gridRef.current;
+        if (!sc) return;
+        const r = sc.getBoundingClientRect();
+        const curX = ev.clientX - r.left + sc.scrollLeft;
+        const curY = ev.clientY - r.top + sc.scrollTop;
+        const x = Math.min(startX, curX);
+        const y = Math.min(startY, curY);
+        const w = Math.abs(curX - startX);
+        const h = Math.abs(curY - startY);
+        // Only commit a marquee once the pointer has travelled a few pixels —
+        // a plain click should still fall through to handleBackgroundClick.
+        if (w < 3 && h < 3) return;
+        marqueeCommittedRef.current = true;
+        setMarquee({ x, y, w, h });
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [selectedFolderIds, selectedIds]);
+        const nextItems = new Set(baseItems);
+        const nextFolders = new Set(baseFolders);
+        for (const cached of tileBoundsRef.current) {
+          const tr = cached.rect;
+          const tx = tr.left - r.left + sc.scrollLeft;
+          const ty = tr.top - r.top + sc.scrollTop;
+          const overlaps = tx + tr.width >= x && tx <= x + w && ty + tr.height >= y && ty <= y + h;
+          if (overlaps) {
+            if (cached.isFolder) nextFolders.add(cached.id);
+            else nextItems.add(cached.id);
+          }
+        }
+        setSelectedIds(nextItems);
+        setSelectedFolderIds(nextFolders);
+      };
+
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        setMarquee(null);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [selectedFolderIds, selectedIds],
+  );
 
   // --- Ensure single-click selection is cleared when clicking empty area ---
   // Placed AFTER beginMarquee so a zero-distance marquee mousedown/mouseup
   // (i.e. a plain click on background) still clears selection via the
   // existing click handler — we only add rubber-band, not replace click.
-  const handleBackgroundClick = useCallback((e: React.MouseEvent) => {
-    if (marqueeCommittedRef.current) {
-      marqueeCommittedRef.current = false;
-      return;
-    }
-    if (e.target === e.currentTarget) clearSelection();
-  }, [clearSelection]);
+  const handleBackgroundClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (marqueeCommittedRef.current) {
+        marqueeCommittedRef.current = false;
+        return;
+      }
+      if (e.target === e.currentTarget) clearSelection();
+    },
+    [clearSelection],
+  );
 
   return (
     <div ref={panelRef} tabIndex={-1} className="flex h-full flex-col bg-card focus:outline-none">
-      {header && <div className={cn('border-b border-border/60', compact ? 'px-2 py-1.5' : 'px-3 py-2')}>{header}</div>}
+      {header && (
+        <div className={cn('border-b border-border/60', compact ? 'px-2 py-1.5' : 'px-3 py-2')}>
+          {header}
+        </div>
+      )}
 
-      <div className={cn('border-b border-border/60', compact ? 'px-2 py-1.5 space-y-1' : 'px-3 py-2 space-y-2')}>
+      <div
+        className={cn(
+          'border-b border-border/60',
+          compact ? 'px-2 py-1.5 space-y-1' : 'px-3 py-2 space-y-2',
+        )}
+      >
         {showSearchControls && (
           <div className="flex items-center gap-1">
             <div className="relative flex-1 min-w-0">
@@ -582,12 +632,7 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
       >
         <div
           ref={tilesRef}
-          className={cn(
-            'grid',
-            compact
-              ? 'grid-cols-1 gap-1'
-              : 'grid-cols-3 gap-2',
-          )}
+          className={cn('grid', compact ? 'grid-cols-1 gap-1' : 'grid-cols-3 gap-2')}
         >
           {currentFolderId !== null && (
             <FolderTile
@@ -617,7 +662,9 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
             />
           ))}
           {loading ? (
-            <div className="col-span-full"><SkeletonList count={5} /></div>
+            <div className="col-span-full">
+              <SkeletonList count={5} />
+            </div>
           ) : visibleItems.length === 0 && childFolders.length === 0 ? (
             <div className="col-span-full py-6 text-center text-[11px] text-muted-foreground">
               {emptyLabel}
@@ -655,7 +702,8 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
                     if (ids.length > 1) {
                       const ghost = document.createElement('div');
                       ghost.textContent = `${ids.length} ${t('fileExplorer.itemsSelected')}`;
-                      ghost.style.cssText = 'position:fixed;left:-1000px;top:-1000px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;background:hsl(var(--primary));color:hsl(var(--primary-foreground));white-space:nowrap;pointer-events:none;';
+                      ghost.style.cssText =
+                        'position:fixed;left:-1000px;top:-1000px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;background:hsl(var(--primary));color:hsl(var(--primary-foreground));white-space:nowrap;pointer-events:none;';
                       document.body.appendChild(ghost);
                       e.dataTransfer.setDragImage(ghost, 0, 0);
                       requestAnimationFrame(() => ghost.remove());
@@ -677,11 +725,11 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
                   <div className="mt-1 min-w-0">
                     <div className="truncate text-[11px] font-medium">{item.name}</div>
                     {renderSubtitle && (
-                      <div className="truncate text-[10px] text-muted-foreground">{renderSubtitle(item)}</div>
+                      <div className="truncate text-[10px] text-muted-foreground">
+                        {renderSubtitle(item)}
+                      </div>
                     )}
-                    {renderBadge && !compact && (
-                      <div className="mt-0.5">{renderBadge(item)}</div>
-                    )}
+                    {renderBadge && !compact && <div className="mt-0.5">{renderBadge(item)}</div>}
                   </div>
                 </div>
               );
@@ -707,20 +755,26 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
               label: t('fileExplorer.openAction') as string,
               onSelect: () => onOpenItem(itemMenu.item),
             },
-            ...(clipboard ? [
-              {
-                label: t('contextMenu.copy') as string,
-                onSelect: () => clipboard.copy(getSelectedItems()),
-              },
-              {
-                label: t('contextMenu.cut') as string,
-                onSelect: () => clipboard.cut(getSelectedItems()),
-              },
-            ] : []),
-            ...(onDuplicateItems ? [{
-              label: t('action.duplicate') as string,
-              onSelect: () => onDuplicateItems([...selectedIds]),
-            }] : []),
+            ...(clipboard
+              ? [
+                  {
+                    label: t('contextMenu.copy') as string,
+                    onSelect: () => clipboard.copy(getSelectedItems()),
+                  },
+                  {
+                    label: t('contextMenu.cut') as string,
+                    onSelect: () => clipboard.cut(getSelectedItems()),
+                  },
+                ]
+              : []),
+            ...(onDuplicateItems
+              ? [
+                  {
+                    label: t('action.duplicate') as string,
+                    onSelect: () => onDuplicateItems([...selectedIds]),
+                  },
+                ]
+              : []),
             {
               label: t('action.delete') as string,
               onSelect: () => onDeleteItems([...selectedIds]),
@@ -744,10 +798,14 @@ export function EntityFileExplorer<T extends EntityFileExplorerItem & { createdA
               label: t('folders.createFolder') as string,
               onSelect: () => void handleCreateFolder(),
             },
-            ...(clipboard && clipboard.hasClipboard && onPaste ? [{
-              label: t('contextMenu.paste') as string,
-              onSelect: doPaste,
-            }] : []),
+            ...(clipboard && clipboard.hasClipboard && onPaste
+              ? [
+                  {
+                    label: t('contextMenu.paste') as string,
+                    onSelect: doPaste,
+                  },
+                ]
+              : []),
           ]}
         />
       )}

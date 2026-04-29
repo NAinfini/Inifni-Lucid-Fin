@@ -1,7 +1,14 @@
 import type { Series } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
 import { defineToolModule } from '../tool-module.js';
-import { ok, fail, requireString, requireStringArray, extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import {
+  ok,
+  fail,
+  requireString,
+  requireStringArray,
+  extractSet,
+  warnExtraKeys,
+} from './tool-result-helpers.js';
 
 export interface SeriesEpisode {
   id: string;
@@ -39,7 +46,8 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
 
   const update: AgentTool = {
     name: 'series.update',
-    description: 'Update the current project series definition. Wrap fields to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
+    description:
+      'Update the current project series definition. Wrap fields to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
     tier: 2,
     parameters: {
       type: 'object',
@@ -93,9 +101,16 @@ export function createSeriesTools(deps: SeriesToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const episodes = await deps.listEpisodes();
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        return ok({ total: episodes.length, offset, limit, episodes: episodes.slice(offset, offset + limit) });
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({
+          total: episodes.length,
+          offset,
+          limit,
+          episodes: episodes.slice(offset, offset + limit),
+        });
       } catch (error) {
         return fail(error);
       }

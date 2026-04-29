@@ -64,9 +64,7 @@ export const LiveActivityBar = memo(function LiveActivityBar({
         colorClass,
       )}
     >
-      {phase.kind === 'failed' ? null : (
-        <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-      )}
+      {phase.kind === 'failed' ? null : <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}
       <span className="font-medium">{label}</span>
       {step !== null ? (
         <span className="tabular-nums opacity-80">

@@ -438,11 +438,13 @@ export function setNodeAdvancedParams(
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node || (node.type !== 'image' && node.type !== 'video')) return;
   const data = node.data as ImageNodeData | VideoNodeData;
-  if (action.payload.negativePrompt !== undefined) data.negativePrompt = action.payload.negativePrompt;
+  if (action.payload.negativePrompt !== undefined)
+    data.negativePrompt = action.payload.negativePrompt;
   if (action.payload.steps !== undefined) data.steps = action.payload.steps;
   if (action.payload.cfgScale !== undefined) data.cfgScale = action.payload.cfgScale;
   if (action.payload.scheduler !== undefined) data.scheduler = action.payload.scheduler;
-  if (action.payload.img2imgStrength !== undefined) data.img2imgStrength = action.payload.img2imgStrength;
+  if (action.payload.img2imgStrength !== undefined)
+    data.img2imgStrength = action.payload.img2imgStrength;
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }

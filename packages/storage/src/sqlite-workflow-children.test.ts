@@ -51,9 +51,11 @@ describe('workflow child storage helpers', () => {
   });
 
   it('gets single stage rows, keeps dependency reads aligned, and lists artifacts by task run', () => {
-    const insertStageRun = (stageRun: WorkflowStageRun) => db.repos.workflows.insertStageRun(stageRun);
+    const insertStageRun = (stageRun: WorkflowStageRun) =>
+      db.repos.workflows.insertStageRun(stageRun);
     const insertTaskRun = (taskRun: WorkflowTaskRun) => db.repos.workflows.insertTaskRun(taskRun);
-    const insertArtifact = (artifact: WorkflowArtifact) => db.repos.workflows.insertArtifact(artifact);
+    const insertArtifact = (artifact: WorkflowArtifact) =>
+      db.repos.workflows.insertArtifact(artifact);
 
     insertStageRun({
       id: 'stage-1',
@@ -161,7 +163,9 @@ describe('workflow child storage helpers', () => {
     expect(db.repos.workflows.listTaskDependencies('task-awaiting')).toEqual(['task-ready']);
     expect(db.repos.workflows.listTaskDependents('task-ready')).toEqual(['task-awaiting']);
     expect(db.repos.workflows.listReadyTasks().rows.map((task) => task.id)).toEqual(['task-ready']);
-    expect(db.repos.workflows.listAwaitingProviderTasks().rows.map((task) => task.id)).toEqual(['task-awaiting']);
+    expect(db.repos.workflows.listAwaitingProviderTasks().rows.map((task) => task.id)).toEqual([
+      'task-awaiting',
+    ]);
     expect(db.repos.workflows.listArtifactsByTaskRun('task-awaiting')).toEqual([
       {
         id: 'artifact-2',

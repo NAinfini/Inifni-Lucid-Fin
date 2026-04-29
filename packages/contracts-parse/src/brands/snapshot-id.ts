@@ -12,9 +12,6 @@ const SnapshotIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'snapshotId must be non-empty after trim' });
 
-export const parseSnapshotId = makeBrandParser<SnapshotId, string>(
-  SnapshotIdSchema,
-  'SnapshotId',
-);
+export const parseSnapshotId = makeBrandParser<SnapshotId, string>(SnapshotIdSchema, 'SnapshotId');
 
 export const trySnapshotId = makeTryBrand<SnapshotId, string>(SnapshotIdSchema);

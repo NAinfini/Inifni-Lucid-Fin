@@ -18,16 +18,12 @@ export function DependenciesPanel() {
     const selected = selectedNodeIds[0];
     if (!selected) return { upstream: [], downstream: [] };
 
-    const upstream = [...new Set(
-      activeCanvas.edges
-        .filter((e) => e.target === selected)
-        .map((e) => e.source)
-    )].filter((id) => id !== selected);
-    const downstream = [...new Set(
-      activeCanvas.edges
-        .filter((e) => e.source === selected)
-        .map((e) => e.target)
-    )].filter((id) => id !== selected);
+    const upstream = [
+      ...new Set(activeCanvas.edges.filter((e) => e.target === selected).map((e) => e.source)),
+    ].filter((id) => id !== selected);
+    const downstream = [
+      ...new Set(activeCanvas.edges.filter((e) => e.source === selected).map((e) => e.target)),
+    ].filter((id) => id !== selected);
 
     return { upstream, downstream };
   };
@@ -75,7 +71,9 @@ export function DependenciesPanel() {
               {t('dependencies.upstream')} ({upstream.length})
             </div>
             {upstream.length === 0 ? (
-              <div className="text-[11px] text-muted-foreground">{t('dependencies.noUpstream')}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {t('dependencies.noUpstream')}
+              </div>
             ) : (
               <div className="space-y-1">
                 {upstream.map((id) => (
@@ -89,7 +87,9 @@ export function DependenciesPanel() {
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                     <span className="truncate">{nodeLabel(id)}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">{nodeTypeLabel(id)}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {nodeTypeLabel(id)}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -101,7 +101,9 @@ export function DependenciesPanel() {
               {t('dependencies.downstream')} ({downstream.length})
             </div>
             {downstream.length === 0 ? (
-              <div className="text-[11px] text-muted-foreground">{t('dependencies.noDownstream')}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {t('dependencies.noDownstream')}
+              </div>
             ) : (
               <div className="space-y-1">
                 {downstream.map((id) => (
@@ -115,7 +117,9 @@ export function DependenciesPanel() {
                   >
                     <div className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
                     <span className="truncate">{nodeLabel(id)}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">{nodeTypeLabel(id)}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {nodeTypeLabel(id)}
+                    </span>
                   </button>
                 ))}
               </div>

@@ -21,10 +21,29 @@ const SMALL_RESULT_LIMIT = 500;
 /** Hard ceiling for any single tool result. */
 export const RESULT_HARD_LIMIT = 20000;
 const MUTATION_ACTION_PREFIXES = [
-  'add', 'cancel', 'clear', 'connect', 'create', 'cut', 'delete',
-  'disconnect', 'generate', 'import', 'move', 'pause', 'remove',
-  'rename', 'reorder', 'restore', 'resume', 'retry', 'save',
-  'select', 'set', 'toggle', 'update',
+  'add',
+  'cancel',
+  'clear',
+  'connect',
+  'create',
+  'cut',
+  'delete',
+  'disconnect',
+  'generate',
+  'import',
+  'move',
+  'pause',
+  'remove',
+  'rename',
+  'reorder',
+  'restore',
+  'resume',
+  'retry',
+  'save',
+  'select',
+  'set',
+  'toggle',
+  'update',
 ];
 
 // ---------------------------------------------------------------------------
@@ -47,10 +66,7 @@ export interface ArgValidationError {
  * the most common LLM mistakes: missing required fields, wrong types, and
  * invalid enum values.
  */
-export function validateArgs(
-  tool: AgentTool,
-  args: Record<string, unknown>,
-): ArgValidationError[] {
+export function validateArgs(tool: AgentTool, args: Record<string, unknown>): ArgValidationError[] {
   const errors: ArgValidationError[] = [];
   const schema = tool.parameters;
 
@@ -78,9 +94,9 @@ export function validateArgs(
     } else if (prop.type === 'object' && (typeof value !== 'object' || Array.isArray(value))) {
       errors.push({ field, expected: 'object', actual: actualType });
     } else if (
-      prop.type === 'string' && typeof value !== 'string' ||
-      prop.type === 'number' && typeof value !== 'number' ||
-      prop.type === 'boolean' && typeof value !== 'boolean'
+      (prop.type === 'string' && typeof value !== 'string') ||
+      (prop.type === 'number' && typeof value !== 'number') ||
+      (prop.type === 'boolean' && typeof value !== 'boolean')
     ) {
       errors.push({ field, expected: prop.type, actual: actualType });
     }
@@ -101,13 +117,8 @@ export function validateArgs(
 /**
  * Format validation errors into a structured error message for the LLM.
  */
-function formatArgValidationErrors(
-  toolName: string,
-  errors: ArgValidationError[],
-): string {
-  const lines = errors.map(
-    (e) => `  - ${e.field}: expected ${e.expected}, got ${e.actual}`,
-  );
+function formatArgValidationErrors(toolName: string, errors: ArgValidationError[]): string {
+  const lines = errors.map((e) => `  - ${e.field}: expected ${e.expected}, got ${e.actual}`);
   return `Argument validation failed for ${toolName}:\n${lines.join('\n')}\nFix the arguments and retry. Use tool.get('${toolName}') to check the schema.`;
 }
 
@@ -198,8 +209,8 @@ function classifyByCodeOrStatus(source: unknown): ErrorClass | null {
     typeof source.status === 'number'
       ? source.status
       : typeof source.statusCode === 'number'
-      ? source.statusCode
-      : null;
+        ? source.statusCode
+        : null;
   if (rawStatus !== null) {
     if (TRANSIENT_HTTP_STATUS.has(rawStatus)) return 'transient';
     if (NOT_FOUND_HTTP_STATUS.has(rawStatus)) return 'not_found';
@@ -217,10 +228,7 @@ function classifyError(err: unknown, toolResult?: ToolResult): ErrorClass {
   if (toolResult?.errorClass) return toolResult.errorClass;
   // A TypedToolError thrown from a validator helper carries the class
   // directly — accept it without running through the code/status probes.
-  if (
-    isRecord(err) &&
-    typeof (err as { errorClass?: unknown }).errorClass === 'string'
-  ) {
+  if (isRecord(err) && typeof (err as { errorClass?: unknown }).errorClass === 'string') {
     const tagged = (err as { errorClass: string }).errorClass;
     if (
       tagged === 'transient' ||
@@ -248,21 +256,40 @@ function classifyError(err: unknown, toolResult?: ToolResult): ErrorClass {
   const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
   const lower = msg.toLowerCase();
 
-  if (lower.includes('timeout') || lower.includes('rate limit') || lower.includes('service unavailable')
-    || lower.includes('econnrefused') || lower.includes('econnreset') || lower.includes('503')
-    || lower.includes('429')) {
+  if (
+    lower.includes('timeout') ||
+    lower.includes('rate limit') ||
+    lower.includes('service unavailable') ||
+    lower.includes('econnrefused') ||
+    lower.includes('econnreset') ||
+    lower.includes('503') ||
+    lower.includes('429')
+  ) {
     return 'transient';
   }
-  if (lower.includes('not found') || lower.includes('does not exist') || lower.includes('no such')
-    || (toolResult && !toolResult.success && toolResult.error?.toLowerCase().includes('not found'))) {
+  if (
+    lower.includes('not found') ||
+    lower.includes('does not exist') ||
+    lower.includes('no such') ||
+    (toolResult && !toolResult.success && toolResult.error?.toLowerCase().includes('not found'))
+  ) {
     return 'not_found';
   }
-  if (lower.includes('invalid') || lower.includes('required') || lower.includes('must be')
-    || lower.includes('type error') || lower.includes('expected')) {
+  if (
+    lower.includes('invalid') ||
+    lower.includes('required') ||
+    lower.includes('must be') ||
+    lower.includes('type error') ||
+    lower.includes('expected')
+  ) {
     return 'validation';
   }
-  if (lower.includes('permission') || lower.includes('denied') || lower.includes('unauthorized')
-    || lower.includes('forbidden')) {
+  if (
+    lower.includes('permission') ||
+    lower.includes('denied') ||
+    lower.includes('unauthorized') ||
+    lower.includes('forbidden')
+  ) {
     return 'permission';
   }
   return 'fatal';
@@ -297,7 +324,18 @@ function summarizeMutationResult(value: unknown): unknown {
   if (!isRecord(value)) return trimObjectStrings(value, 160);
 
   const summary: Record<string, unknown> = {};
-  for (const key of ['id', 'title', 'name', 'nodeTitle', 'nodeId', 'canvasId', 'characterId', 'equipmentId', 'locationId', 'status']) {
+  for (const key of [
+    'id',
+    'title',
+    'name',
+    'nodeTitle',
+    'nodeId',
+    'canvasId',
+    'characterId',
+    'equipmentId',
+    'locationId',
+    'status',
+  ]) {
     if (key in value && value[key] != null) {
       summary[key] = summarizeScalar(value[key]);
     }
@@ -306,7 +344,11 @@ function summarizeMutationResult(value: unknown): unknown {
   return Object.keys(summary).length > 0 ? summary : trimObjectStrings(value, 160);
 }
 
-export function summarizeToolResult(toolName: string, result: ToolResult, maxResultChars?: number): string {
+export function summarizeToolResult(
+  toolName: string,
+  result: ToolResult,
+  maxResultChars?: number,
+): string {
   const serialized = safeStringify(result);
   if (serialized.length <= SMALL_RESULT_LIMIT) return serialized;
 
@@ -331,7 +373,8 @@ export function summarizeToolResult(toolName: string, result: ToolResult, maxRes
     return safeStringify({
       success: result.success,
       data: trimmed,
-      _hint: 'Result was trimmed. Use offset/limit parameters for pagination, or narrow your query.',
+      _hint:
+        'Result was trimmed. Use offset/limit parameters for pagination, or narrow your query.',
     });
   }
 
@@ -493,12 +536,17 @@ export class ToolExecutor {
       if (category === 'get' || category === 'list') {
         const paramsHash = safeStringify(tc.arguments);
         const entry = graph.findLatestToolResultEntry(tc.name, paramsHash);
-        const maxAge = CACHE_MAX_AGE[tc.name]
-          ?? (category === 'get' ? CACHE_MAX_AGE_DEFAULT_GET : CACHE_MAX_AGE_DEFAULT_LIST);
-        if (entry && (currentStep - entry.producedAtStep) <= maxAge) {
+        const maxAge =
+          CACHE_MAX_AGE[tc.name] ??
+          (category === 'get' ? CACHE_MAX_AGE_DEFAULT_GET : CACHE_MAX_AGE_DEFAULT_LIST);
+        if (entry && currentStep - entry.producedAtStep <= maxAge) {
           const completedAt = Date.now();
           let parsed: unknown = entry.content;
-          try { parsed = JSON.parse(entry.content); } catch { /* keep raw string */ }
+          try {
+            parsed = JSON.parse(entry.content);
+          } catch {
+            /* keep raw string */
+          }
           const cachedResult: ToolResult =
             typeof parsed === 'object' && parsed !== null && 'success' in (parsed as object)
               ? (parsed as ToolResult)
@@ -677,7 +725,7 @@ export class ToolExecutor {
 
     // Deduplicate identical tool calls
     const deduped = new Map<string, string>(); // signature -> first tc.id
-    const dupMap = new Map<string, string>();   // duplicate tc.id -> first tc.id
+    const dupMap = new Map<string, string>(); // duplicate tc.id -> first tc.id
     const uniqueToolCalls: LLMToolCall[] = [];
     // Track dupes keyed on the winning id so we can mirror its tool_result
     // back out to their cards after execution.
@@ -791,7 +839,11 @@ export class ToolExecutor {
               durationMs: 0,
               skipped: true,
             });
-            messages.push({ role: 'tool', content: safeStringify(skippedPayload), toolCallId: tc.id });
+            messages.push({
+              role: 'tool',
+              content: safeStringify(skippedPayload),
+              toolCallId: tc.id,
+            });
           } else {
             const res = await this.executeSingle(tc, activeToolNames, discoveredToolNames, emit);
             messages.push({ role: 'tool', content: res.resultContent, toolCallId: tc.id });

@@ -139,7 +139,9 @@ export function createStyleWorkflowHandlers(
             ]);
           } catch (error) {
             log.error('Color extraction LLM call failed:', error);
-            throw new Error('AI color extraction failed. Check your LLM provider configuration.', { cause: error });
+            throw new Error('AI color extraction failed. Check your LLM provider configuration.', {
+              cause: error,
+            });
           }
 
           const extracted = parseExtractionJson(jsonText);
@@ -319,7 +321,9 @@ function parseExtractionJson(jsonText: string): Record<string, unknown> {
       lastErr = err;
     }
   }
-  throw new Error(`AI returned malformed JSON${lastErr instanceof Error ? `: ${lastErr.message}` : ''}`);
+  throw new Error(
+    `AI returned malformed JSON${lastErr instanceof Error ? `: ${lastErr.message}` : ''}`,
+  );
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {

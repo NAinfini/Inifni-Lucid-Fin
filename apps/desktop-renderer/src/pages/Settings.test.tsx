@@ -17,7 +17,10 @@ vi.mock('../utils/api.js', () => ({ getAPI: vi.fn(() => null) }));
 
 /** onReady fires callback immediately (simulates app already initialized) */
 function mockOnReady() {
-  return vi.fn((cb: () => void) => { cb(); return () => {}; });
+  return vi.fn((cb: () => void) => {
+    cb();
+    return () => {};
+  });
 }
 
 type UpdateStatus =
@@ -310,7 +313,9 @@ describe('Settings updater UI', () => {
       expect(screen.getAllByText('内置').length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByText(t('workflowDefinitionNames.wf-video-clone')).closest('button')!);
+    fireEvent.click(
+      screen.getByText(t('workflowDefinitionNames.wf-video-clone')).closest('button')!,
+    );
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: t('action.close') })).toBeTruthy();
@@ -678,9 +683,9 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(openAiCard).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(
-        store.getState().settings.llm.providers.find((p) => p.id === 'openai')?.baseUrl,
-      ).toBe('https://proxy.example.com/v1');
+      expect(store.getState().settings.llm.providers.find((p) => p.id === 'openai')?.baseUrl).toBe(
+        'https://proxy.example.com/v1',
+      );
     });
 
     // Now committed state differs from defaults → Reset to Defaults appears

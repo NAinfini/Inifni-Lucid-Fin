@@ -345,7 +345,8 @@ export class ContextGraph {
       const domain = this._domainFromToolName(toolKey);
       if (!domain) continue;
 
-      const serialized = typeof item.content === 'string' ? item.content : JSON.stringify(item.content);
+      const serialized =
+        typeof item.content === 'string' ? item.content : JSON.stringify(item.content);
       const displayKey = `${toolKey}:${item.paramsHash}`;
       rows.push({
         key: displayKey,
@@ -364,7 +365,10 @@ export class ContextGraph {
     const byDomain = new Map<string, { entities: EntityRow[]; lists: EntityRow[] }>();
     for (const row of rows) {
       let bucket = byDomain.get(row.domain);
-      if (!bucket) { bucket = { entities: [], lists: [] }; byDomain.set(row.domain, bucket); }
+      if (!bucket) {
+        bucket = { entities: [], lists: [] };
+        byDomain.set(row.domain, bucket);
+      }
       (row.isList ? bucket.lists : bucket.entities).push(row);
     }
 
@@ -374,12 +378,18 @@ export class ContextGraph {
     let truncated = false;
     outer: for (const [domain, bucket] of byDomain) {
       const domainHeader = `\n### ${domain}`;
-      if (total + domainHeader.length > maxChars) { truncated = true; break; }
+      if (total + domainHeader.length > maxChars) {
+        truncated = true;
+        break;
+      }
       sections.push(domainHeader);
       total += domainHeader.length;
       for (const row of [...bucket.entities, ...bucket.lists]) {
         const delta = row.line.length + 1; // + newline
-        if (total + delta > maxChars) { truncated = true; break outer; }
+        if (total + delta > maxChars) {
+          truncated = true;
+          break outer;
+        }
         sections.push(row.line);
         coveredKeys.add(row.dedupKey);
         total += delta;
@@ -454,7 +464,11 @@ export class ContextGraph {
     if (typeof raw === 'string') {
       const trimmed = raw.trim();
       if (!trimmed.startsWith('{')) return true;
-      try { parsed = JSON.parse(trimmed); } catch { return true; }
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        return true;
+      }
     }
     if (typeof parsed !== 'object' || parsed === null) return true;
     const rec = parsed as Record<string, unknown>;
@@ -493,8 +507,13 @@ export class ContextGraph {
 
   private _extractEntityIdFromArgs(args: Record<string, unknown>): string | undefined {
     const ENTITY_ID_FIELDS = [
-      'id', 'nodeId', 'characterId', 'equipmentId', 'locationId',
-      'presetId', 'templateId',
+      'id',
+      'nodeId',
+      'characterId',
+      'equipmentId',
+      'locationId',
+      'presetId',
+      'templateId',
     ] as const;
     for (const field of ENTITY_ID_FIELDS) {
       const value = args[field];
@@ -511,7 +530,9 @@ export class ContextGraph {
     const order = this._order;
     let i = 0;
     return {
-      [Symbol.iterator]() { return this; },
+      [Symbol.iterator]() {
+        return this;
+      },
       next(): IteratorResult<ContextItem> {
         while (i < order.length) {
           const id = order[i++]!;

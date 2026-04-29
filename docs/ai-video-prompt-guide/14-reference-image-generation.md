@@ -148,19 +148,23 @@ Every entity supports `extra-angle` with a free-form angle string for rare custo
 ## Advanced Tips
 
 ### Character Consistency
+
 - Fill the character record (face, hair, body, skinTone, distinctTraits, costume) before generating. `buildCharacterAppearancePrompt` assembles those fields automatically.
 - Generate 3–5 variants and promote the cleanest via `character.setRefImage` / `character.setRefImageFromNode`.
 - If variants keep missing, describe the failure in one line ("top row collapsed, only expressions returned") and regenerate with corrective language — do not retry blindly.
 
 ### Equipment Consistency
+
 - Durable identity lives in the equipment record (`material`, `color`, `condition`, `visualDetails`, `subtype`). The custom prompt is only for anti-collapse language, scale indicators, or a specific camera tweak.
 - Regenerate the ortho-grid when silhouette breaks; do not add adjective piles to fix material reads — generate an `extra-angle` close-up instead.
 
 ### Location Consistency
+
 - Lock `timeOfDay`, `weather`, `lighting`, `architectureStyle`, and `dominantColors` on the record before generating. The bible sheet inherits them.
 - Every tile is empty scene — no people. If a figure appears, delete the sheet and regenerate with "no characters, no people, no figures" echoed.
 
 ### Quality Control
+
 - Always specify the exact grid ("two rows, three columns, six panels") rather than vague "model sheet".
 - Use "head-to-toe", "feet grounded", "shoulders included", "orthographic projection" — process vocabulary, not adjective piles.
 - Avoid `cinematic`, `dramatic`, `epic`, `masterpiece`, `8k`, `hyperdetailed` — they destroy identity stability in ref images.

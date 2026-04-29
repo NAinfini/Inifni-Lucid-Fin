@@ -1,7 +1,16 @@
 import { memo, useState, useCallback } from 'react';
 import { getSmoothStepPath, BaseEdge, EdgeLabelRenderer, type EdgeProps } from '@xyflow/react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
-import { ArrowLeftRight, FileText, Image, LayoutTemplate, Trash2, Video, Volume2, X } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  FileText,
+  Image,
+  LayoutTemplate,
+  Trash2,
+  Video,
+  Volume2,
+  X,
+} from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
 import type { NodeKind, EdgeStatus } from '@lucid-fin/contracts';
@@ -16,10 +25,10 @@ export interface LinkEdgeData {
 }
 
 const EDGE_COLORS: Record<EdgeStatus, string> = {
-  idle: '#4b5563',     // gray-600 — subtler
+  idle: '#4b5563', // gray-600 — subtler
   generating: '#d97706', // amber-600
-  done: '#16a34a',     // green-600
-  failed: '#dc2626',   // red-600
+  done: '#16a34a', // green-600
+  failed: '#dc2626', // red-600
 };
 
 const DEFAULT_EDGE_DATA: LinkEdgeData = { status: 'idle' };
@@ -67,7 +76,7 @@ function LinkEdgeComponent({
         ? '#38bdf8'
         : edgeData.dependencyRole === 'focus'
           ? '#a855f7'
-          : EDGE_COLORS[edgeData.status] ?? EDGE_COLORS.idle;
+          : (EDGE_COLORS[edgeData.status] ?? EDGE_COLORS.idle);
 
   const handleDelete = useCallback(() => {
     cb.onDelete(id);
@@ -154,7 +163,7 @@ function LinkEdgeComponent({
           ...style,
           stroke: strokeColor,
           strokeWidth: selected ? 2.5 : edgeData.connectedToSelection ? 2 : 1.5,
-          opacity: edgeData.dimmed ? 0.18 : (selected || edgeData.connectedToSelection) ? 1 : 0.72,
+          opacity: edgeData.dimmed ? 0.18 : selected || edgeData.connectedToSelection ? 1 : 0.72,
         }}
       />
 

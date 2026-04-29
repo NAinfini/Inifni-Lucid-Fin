@@ -10,6 +10,7 @@ import {
   type RenderCodec,
   type RenderPreset,
 } from '@lucid-fin/media-engine';
+import { assertSafePath, getSafeRoots } from '../path-safety.js';
 
 type RenderStartArgs = {
   sceneId: string;
@@ -57,7 +58,9 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
     const height = args.resolution?.height ?? 1080;
     const fps = args.fps ?? 24;
     const ext = getOutputExtension(codec);
-    const outputPath = args.outputPath ?? path.join(os.tmpdir(), `lucid-render-${Date.now()}.${ext}`);
+    const outputPath = args.outputPath
+      ? assertSafePath(args.outputPath, getSafeRoots())
+      : path.join(os.tmpdir(), `lucid-render-${Date.now()}.${ext}`);
 
     const jobId = randomUUID();
     const job: RenderJob = {
@@ -69,13 +72,26 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
     };
     runningJobs.set(jobId, job);
 
-    log.info('render:start', { jobId, codec, quality, outputPath, segmentCount: args.segments.length });
+    log.info('render:start', {
+      jobId,
+      codec,
+      quality,
+      outputPath,
+      segmentCount: args.segments.length,
+    });
 
     void (async () => {
       try {
         job.stage = 'rendering';
         job.progress = 10;
-        await renderTimeline(args.segments, outputPath, { codec, preset: quality, width, height, fps, signal: job.abortController.signal });
+        await renderTimeline(args.segments, outputPath, {
+          codec,
+          preset: quality,
+          width,
+          height,
+          fps,
+          signal: job.abortController.signal,
+        });
         job.stage = 'completed';
         job.progress = 100;
         job.completedAt = Date.now();

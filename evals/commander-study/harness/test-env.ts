@@ -30,7 +30,10 @@ import {
 } from '@lucid-fin/application';
 import type { Canvas } from '@lucid-fin/contracts';
 
-import { createCanvasStore, type CanvasStore } from '../../../apps/desktop-main/src/ipc/handlers/canvas.handlers.js';
+import {
+  createCanvasStore,
+  type CanvasStore,
+} from '../../../apps/desktop-main/src/ipc/handlers/canvas.handlers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,7 +64,9 @@ export interface TestEnvWithCanvas {
   canvasId: string;
 }
 
-export async function createTestEnv(options: CreateTestEnvOptions = {}): Promise<TestEnvWithCanvas> {
+export async function createTestEnv(
+  options: CreateTestEnvOptions = {},
+): Promise<TestEnvWithCanvas> {
   const dir = options.dir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-fin-fake-'));
   fs.mkdirSync(dir, { recursive: true });
 
@@ -129,8 +134,16 @@ export async function createTestEnv(options: CreateTestEnvOptions = {}): Promise
     workflowEngine,
     toolRegistry,
     close: async () => {
-      try { jobQueue.stop?.(); } catch { /* noop */ }
-      try { db.close?.(); } catch { /* noop */ }
+      try {
+        jobQueue.stop?.();
+      } catch {
+        /* noop */
+      }
+      try {
+        db.close?.();
+      } catch {
+        /* noop */
+      }
     },
   };
 

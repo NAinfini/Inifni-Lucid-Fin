@@ -16,10 +16,7 @@ describe('CanvasContextMenu', () => {
 
   it('accepts a native DOM element trigger', () => {
     render(
-      <CanvasContextMenu
-        onAddNode={() => {}}
-        hasClipboard={false}
-      >
+      <CanvasContextMenu onAddNode={() => {}} hasClipboard={false}>
         <div data-testid="canvas-trigger" />
       </CanvasContextMenu>,
     );
@@ -30,10 +27,7 @@ describe('CanvasContextMenu', () => {
   it('rejects non-native trigger components before Radix can enter a ref loop', () => {
     expect(() =>
       render(
-        <CanvasContextMenu
-          onAddNode={() => {}}
-          hasClipboard={false}
-        >
+        <CanvasContextMenu onAddNode={() => {}} hasClipboard={false}>
           <CustomTrigger />
         </CanvasContextMenu>,
       ),

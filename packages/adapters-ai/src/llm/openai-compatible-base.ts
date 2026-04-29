@@ -11,7 +11,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { ErrorCategory, ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { parseSseStream } from './sse-parser.js';
 import { withStallTimeout } from './utils/stall-timeout.js';
 import {
@@ -21,6 +21,7 @@ import {
   truncateForDiagnostics,
   resolveErrorCode,
 } from './llm-error-builder.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export interface OpenAICompatibleConfig {
   id: string;
@@ -98,7 +99,10 @@ function extractReasoningContent(value: unknown): string | undefined {
   if (Array.isArray(value)) {
     const parts: string[] = [];
     for (const entry of value) {
-      if (typeof entry === 'string') { parts.push(entry); continue; }
+      if (typeof entry === 'string') {
+        parts.push(entry);
+        continue;
+      }
       if (isRecord(entry)) {
         const text = readTextValue(entry.text);
         if (text) parts.push(text);
@@ -124,7 +128,8 @@ export function normalizeOpenAICompatibleBaseUrl(baseUrl: string): string {
   let parsed: URL;
   try {
     parsed = new URL(trimmed);
-  } catch { /* malformed URL — return stripped string as-is */
+  } catch {
+    /* malformed URL — return stripped string as-is */
     return trimmed.replace(/\/+$/, '');
   }
 
@@ -151,7 +156,8 @@ function buildOpenAICompatibleBaseUrlCandidates(baseUrl: string): string[] {
       parsed.pathname = '/v1';
       candidates.add(stringifyUrl(parsed));
     }
-  } catch { /* malformed URL — return the single non-parsed candidate */
+  } catch {
+    /* malformed URL — return the single non-parsed candidate */
     return [normalized];
   }
 
@@ -196,7 +202,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       providerId: cfg.id,
       charsPerToken: 4.0,
       sanitizeToolNames: true,
-      maxUtilization: isReasoning ? 0.80 : 0.95,
+      maxUtilization: isReasoning ? 0.8 : 0.95,
       outputReserveTokens: isReasoning ? 8192 : 4096,
       reasoningModel: isReasoning,
     };
@@ -211,7 +217,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = normalizeOpenAICompatibleBaseUrl(options.baseUrl as string);
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = normalizeOpenAICompatibleBaseUrl(options.baseUrl as string);
+    }
     if (options?.model) this.model = options.model as string;
     if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
       this.userContextWindow = options.contextWindow as number;
@@ -229,11 +238,13 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         });
         if (res.ok) {
           this.baseUrl = candidate;
-          this.tryExtractContextWindow(res).catch(() => { /* best-effort context window detection */ });
+          this.tryExtractContextWindow(res).catch(() => {
+            /* best-effort context window detection */
+          });
           return true;
         }
 
-      const fallback = await fetchWithTimeout(`${candidate}/chat/completions`, {
+        const fallback = await fetchWithTimeout(`${candidate}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -258,7 +269,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           this.baseUrl = candidate;
           return true;
         }
-      } catch { /* network error — continue to the next candidate base URL before declaring failure */
+      } catch {
+        /* network error — continue to the next candidate base URL before declaring failure */
         // Continue to the next candidate base URL before declaring failure.
       }
     }
@@ -273,7 +285,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
    */
   private async tryExtractContextWindow(modelsResponse: Response): Promise<void> {
     try {
-      const body = await modelsResponse.json() as Record<string, unknown>;
+      const body = (await modelsResponse.json()) as Record<string, unknown>;
       const models = Array.isArray(body.data) ? body.data : Array.isArray(body) ? body : [];
       const modelId = this.model.toLowerCase();
 
@@ -288,7 +300,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         }
         break;
       }
-    } catch { /* models response unreadable — context window discovery is best-effort */
+    } catch {
+      /* models response unreadable — context window discovery is best-effort */
       // Non-critical — context window discovery is best-effort
     }
   }
@@ -296,15 +309,17 @@ export class OpenAICompatibleLLM implements LLMAdapter {
   async complete(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<string> {
     const result = await this.request(messages, opts, false);
     const data = await this.parseJsonResponse<Record<string, unknown>>(result);
-    const choice = Array.isArray(data.choices) ? (data.choices[0] as Record<string, unknown> | undefined) : undefined;
+    const choice = Array.isArray(data.choices)
+      ? (data.choices[0] as Record<string, unknown> | undefined)
+      : undefined;
     return this.extractAssistantText(data, choice);
   }
 
   async *stream(messages: LLMMessage[], opts?: LLMRequestOptions): AsyncIterable<string> {
     const result = await this.request(messages, opts, true);
     for await (const json of parseSseStream(result.response)) {
-      const chunk = (json as { choices: Array<{ delta: { content?: string } }> })
-        .choices?.[0]?.delta?.content;
+      const chunk = (json as { choices: Array<{ delta: { content?: string } }> }).choices?.[0]
+        ?.delta?.content;
       if (chunk) yield chunk;
     }
   }
@@ -343,7 +358,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
   ): AsyncIterable<LLMStreamEvent> {
     const data = await this.parseJsonResponse<Record<string, unknown>>(result);
     const raw = isRecord(data) ? data : {};
-    const choice = Array.isArray(raw.choices) && isRecord(raw.choices[0]) ? raw.choices[0] : undefined;
+    const choice =
+      Array.isArray(raw.choices) && isRecord(raw.choices[0]) ? raw.choices[0] : undefined;
     const extractedContent = this.extractAssistantText(raw, choice);
 
     const message = isRecord(choice?.message) ? choice.message : undefined;
@@ -375,11 +391,14 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       });
 
     const reasoning =
-      extractReasoningContent(message ? (message as Record<string, unknown>).reasoning : undefined) ??
+      extractReasoningContent(
+        message ? (message as Record<string, unknown>).reasoning : undefined,
+      ) ??
       extractReasoningContent(message?.reasoning_content) ??
       extractReasoningContent(choice?.reasoning_content);
 
-    const finishReasonRaw = typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined;
+    const finishReasonRaw =
+      typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined;
 
     if (!extractedContent && toolCalls.length === 0 && !reasoning) {
       throw this.buildEmptyAssistantResponseError(result, raw, finishReasonRaw, toolCalls.length);
@@ -395,12 +414,16 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
     const usage = isRecord(raw.usage) ? raw.usage : undefined;
     if (usage) {
-      const details = isRecord(usage.completion_tokens_details) ? usage.completion_tokens_details : undefined;
+      const details = isRecord(usage.completion_tokens_details)
+        ? usage.completion_tokens_details
+        : undefined;
       yield {
         kind: 'usage',
         promptTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : undefined,
-        completionTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : undefined,
-        reasoningTokens: typeof details?.reasoning_tokens === 'number' ? details.reasoning_tokens : undefined,
+        completionTokens:
+          typeof usage.completion_tokens === 'number' ? usage.completion_tokens : undefined,
+        reasoningTokens:
+          typeof details?.reasoning_tokens === 'number' ? details.reasoning_tokens : undefined,
       };
     }
 
@@ -521,19 +544,18 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         if (choice && typeof choice.finish_reason === 'string') {
           const reason = choice.finish_reason;
           finishReason =
-            reason === 'tool_calls'
-              ? 'tool_calls'
-              : reason === 'length'
-                ? 'length'
-                : 'stop';
+            reason === 'tool_calls' ? 'tool_calls' : reason === 'length' ? 'length' : 'stop';
           sawFinish = true;
         }
 
         const usage = isRecord(json.usage) ? json.usage : undefined;
         if (usage) {
           if (typeof usage.prompt_tokens === 'number') usagePromptTokens = usage.prompt_tokens;
-          if (typeof usage.completion_tokens === 'number') usageCompletionTokens = usage.completion_tokens;
-          const details = isRecord(usage.completion_tokens_details) ? usage.completion_tokens_details : undefined;
+          if (typeof usage.completion_tokens === 'number')
+            usageCompletionTokens = usage.completion_tokens;
+          const details = isRecord(usage.completion_tokens_details)
+            ? usage.completion_tokens_details
+            : undefined;
           if (details && typeof details.reasoning_tokens === 'number') {
             usageReasoningTokens = details.reasoning_tokens;
           }
@@ -571,7 +593,11 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       };
     }
 
-    if (usagePromptTokens !== undefined || usageCompletionTokens !== undefined || usageReasoningTokens !== undefined) {
+    if (
+      usagePromptTokens !== undefined ||
+      usageCompletionTokens !== undefined ||
+      usageReasoningTokens !== undefined
+    ) {
       yield {
         kind: 'usage',
         promptTokens: usagePromptTokens,
@@ -582,10 +608,20 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
     // If the stream produced nothing at all AND we asked for tools, retry
     // without tools (mirrors the legacy non-streaming salvage path).
-    if (!anyTextEmitted && !anyReasoningEmitted && collectedToolCalls.length === 0 && finishReason === 'stop' && opts?.tools?.length) {
+    if (
+      !anyTextEmitted &&
+      !anyReasoningEmitted &&
+      collectedToolCalls.length === 0 &&
+      finishReason === 'stop' &&
+      opts?.tools?.length
+    ) {
       let salvageContent = '';
       try {
-        for await (const chunk of this.stream(messages, { ...opts, tools: undefined, toolChoice: undefined })) {
+        for await (const chunk of this.stream(messages, {
+          ...opts,
+          tools: undefined,
+          toolChoice: undefined,
+        })) {
           if (chunk) {
             anyTextEmitted = true;
             salvageContent += chunk;
@@ -612,7 +648,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
             hasTools: true,
             finishReason,
             toolCallCount: 0,
-            requestBody: { stream: true, tools: opts.tools },
+            requestSummary: { messageCount: undefined, toolCount: opts.tools?.length },
           },
         );
       }
@@ -620,7 +656,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
 
     const effectiveFinish: LLMStreamEvent & { kind: 'finished' } = {
       kind: 'finished',
-      finishReason: collectedToolCalls.length > 0 ? 'tool_calls' : sawFinish ? finishReason : 'stop',
+      finishReason:
+        collectedToolCalls.length > 0 ? 'tool_calls' : sawFinish ? finishReason : 'stop',
     };
     yield effectiveFinish;
   }
@@ -641,7 +678,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
           msg.tool_calls = m.toolCalls.map((tc) => ({
             id: tc.id,
             type: 'function',
-            function: { name: tc.name.replace(/\./g, '_'), arguments: JSON.stringify(tc.arguments) },
+            function: {
+              name: tc.name.replace(/\./g, '_'),
+              arguments: JSON.stringify(tc.arguments),
+            },
           }));
         }
         return msg;
@@ -665,7 +705,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       body.tools = opts.tools.map((t) => {
         const sanitized = t.name.replace(/\./g, '_');
         toolNameMap.set(sanitized, t.name);
-        return { type: 'function', function: { name: sanitized, description: t.description, parameters: t.parameters } };
+        return {
+          type: 'function',
+          function: { name: sanitized, description: t.description, parameters: t.parameters },
+        };
       });
       if (opts.toolChoice) {
         body.tool_choice =
@@ -749,7 +792,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       streaming,
       hasTools,
       ...measureRequestDiagnostics(body),
-      requestBody: body,
+      requestSummary: {
+        messageCount: (body.messages as unknown[] | undefined)?.length,
+        toolCount: (body.tools as unknown[] | undefined)?.length,
+      },
     });
   }
 
@@ -783,7 +829,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     // When the response is HTML (e.g. Cloudflare error pages), don't use it as the
     // error message -- it produces unreadable log spam and broken UI. Fall through to
     // the defaultStatusMessage instead.
-    const isHtml = responseText.trimStart().startsWith('<!') || responseText.trimStart().startsWith('<html');
+    const isHtml =
+      responseText.trimStart().startsWith('<!') || responseText.trimStart().startsWith('<html');
     const errorInput = isHtml ? undefined : (responseBody ?? responseText);
     const normalized = parseAdapterError({
       provider: this.name,
@@ -792,28 +839,34 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     });
     const lucid = adapterErrorToLucidError(normalized);
 
-    return new LucidError(resolveErrorCode(res.status, lucid.code), this.resolveErrorMessage(normalized.message, res.status), {
-      retryable: normalized.retryable,
-      retryAfter: normalized.retryAfter,
-      providerCode: normalized.providerCode,
-      status: res.status,
-      statusText: res.statusText,
-      endpoint,
-      requestId,
-      upstreamRequestId: res.headers.get('x-request-id') ?? undefined,
-      upstreamTraceId: res.headers.get('x-trace-id') ?? res.headers.get('trace-id') ?? undefined,
-      provider: this.name,
-      providerId: this.id,
-      baseUrl: this.baseUrl,
-      model: this.model,
-      authStyle: this.authStyle,
-      streaming,
-      hasTools,
-      ...requestDiagnostics,
-      // Never store raw HTML in error details -- truncate to a short snippet for diagnostics
-      responseText: isHtml ? responseText.slice(0, 200) + '... (HTML truncated)' : (responseText || undefined),
-      responseBody,
-    });
+    return new LucidError(
+      resolveErrorCode(res.status, lucid.code),
+      this.resolveErrorMessage(normalized.message, res.status),
+      {
+        retryable: normalized.retryable,
+        retryAfter: normalized.retryAfter,
+        providerCode: normalized.providerCode,
+        status: res.status,
+        statusText: res.statusText,
+        endpoint,
+        requestId,
+        upstreamRequestId: res.headers.get('x-request-id') ?? undefined,
+        upstreamTraceId: res.headers.get('x-trace-id') ?? res.headers.get('trace-id') ?? undefined,
+        provider: this.name,
+        providerId: this.id,
+        baseUrl: this.baseUrl,
+        model: this.model,
+        authStyle: this.authStyle,
+        streaming,
+        hasTools,
+        ...requestDiagnostics,
+        // Never store raw HTML in error details -- truncate to a short snippet for diagnostics
+        responseText: isHtml
+          ? responseText.slice(0, 200) + '... (HTML truncated)'
+          : responseText || undefined,
+        responseBody,
+      },
+    );
   }
 
   private async parseJsonResponse<T>(result: OpenAIRequestResult): Promise<T> {
@@ -837,7 +890,9 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     const normalized = parseAdapterError({
       provider: this.name,
       error,
-      fallbackCategory: this.isAbortError(error) ? ErrorCategory.Timeout : ErrorCategory.ServiceError,
+      fallbackCategory: this.isAbortError(error)
+        ? ErrorCategory.Timeout
+        : ErrorCategory.ServiceError,
     });
     const lucid = adapterErrorToLucidError(normalized);
     const transportError = serializeError(error);
@@ -857,7 +912,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       streaming,
       hasTools,
       ...requestDiagnostics,
-      requestBody,
+      requestSummary: {
+        messageCount: (requestBody.messages as unknown[] | undefined)?.length,
+        toolCount: (requestBody.tools as unknown[] | undefined)?.length,
+      },
       transportError,
     });
   }
@@ -869,28 +927,37 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     const contentType = result.response.headers.get('content-type') ?? undefined;
     const requestDiagnostics = measureRequestDiagnostics(result.requestBody);
 
-    return new LucidError(ErrorCode.ServiceUnavailable, `${this.name} returned a non-JSON response`, {
-      status: result.response.status,
-      statusText: result.response.statusText,
-      endpoint: result.endpoint,
-      requestId: result.requestId,
-      upstreamRequestId: result.response.headers.get('x-request-id') ?? undefined,
-      upstreamTraceId:
-        result.response.headers.get('x-trace-id') ?? result.response.headers.get('trace-id') ?? undefined,
-      provider: this.name,
-      providerId: this.id,
-      baseUrl: this.baseUrl,
-      model: this.model,
-      authStyle: this.authStyle,
-      streaming: result.streaming,
-      hasTools: result.hasTools,
-      contentType,
-      responseBytes: Buffer.byteLength(responseText, 'utf8'),
-      ...requestDiagnostics,
-      requestBody: result.requestBody,
-      responseText: responseText || undefined,
-      responseTextSnippet: truncateForDiagnostics(responseText),
-    });
+    return new LucidError(
+      ErrorCode.ServiceUnavailable,
+      `${this.name} returned a non-JSON response`,
+      {
+        status: result.response.status,
+        statusText: result.response.statusText,
+        endpoint: result.endpoint,
+        requestId: result.requestId,
+        upstreamRequestId: result.response.headers.get('x-request-id') ?? undefined,
+        upstreamTraceId:
+          result.response.headers.get('x-trace-id') ??
+          result.response.headers.get('trace-id') ??
+          undefined,
+        provider: this.name,
+        providerId: this.id,
+        baseUrl: this.baseUrl,
+        model: this.model,
+        authStyle: this.authStyle,
+        streaming: result.streaming,
+        hasTools: result.hasTools,
+        contentType,
+        responseBytes: Buffer.byteLength(responseText, 'utf8'),
+        ...requestDiagnostics,
+        requestSummary: {
+          messageCount: (result.requestBody.messages as unknown[] | undefined)?.length,
+          toolCount: (result.requestBody.tools as unknown[] | undefined)?.length,
+        },
+        responseText: responseText || undefined,
+        responseTextSnippet: truncateForDiagnostics(responseText),
+      },
+    );
   }
 
   private extractAssistantText(
@@ -926,13 +993,16 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     finishReason: unknown,
     toolCallCount: number,
   ): LucidError {
-    const choice = Array.isArray(responseBody.choices) && isRecord(responseBody.choices[0])
-      ? responseBody.choices[0]
-      : undefined;
+    const choice =
+      Array.isArray(responseBody.choices) && isRecord(responseBody.choices[0])
+        ? responseBody.choices[0]
+        : undefined;
     const message = isRecord(choice?.message) ? choice.message : undefined;
     const messageContentTypes = Array.isArray(message?.content)
       ? message.content
-          .map((entry) => (isRecord(entry) && typeof entry.type === 'string' ? entry.type : typeof entry))
+          .map((entry) =>
+            isRecord(entry) && typeof entry.type === 'string' ? entry.type : typeof entry,
+          )
           .filter((entry): entry is string => Boolean(entry))
       : [];
 
@@ -946,7 +1016,9 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         requestId: result.requestId,
         upstreamRequestId: result.response.headers.get('x-request-id') ?? undefined,
         upstreamTraceId:
-          result.response.headers.get('x-trace-id') ?? result.response.headers.get('trace-id') ?? undefined,
+          result.response.headers.get('x-trace-id') ??
+          result.response.headers.get('trace-id') ??
+          undefined,
         provider: this.name,
         providerId: this.id,
         baseUrl: this.baseUrl,
@@ -963,7 +1035,10 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         messageContentTypes,
         responseBody,
         ...measureRequestDiagnostics(result.requestBody),
-        requestBody: result.requestBody,
+        requestSummary: {
+          messageCount: (result.requestBody.messages as unknown[] | undefined)?.length,
+          toolCount: (result.requestBody.tools as unknown[] | undefined)?.length,
+        },
       },
     );
   }
@@ -981,7 +1056,9 @@ export class OpenAICompatibleLLM implements LLMAdapter {
   }
 
   private shouldTryAlternateCandidate(response: Response): boolean {
-    return response.status === 404 || response.status === 405 || this.isLikelyHtmlResponse(response);
+    return (
+      response.status === 404 || response.status === 405 || this.isLikelyHtmlResponse(response)
+    );
   }
 
   private isLikelyHtmlResponse(response: Response): boolean {

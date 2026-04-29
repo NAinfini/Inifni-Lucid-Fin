@@ -42,9 +42,9 @@ describe('TodoRunStore.set', () => {
 
   it('trims whitespace and drops empty labels before validating count', () => {
     const { store } = makeStore();
-    expect(() =>
-      store.set({ items: [{ label: '   ' }, { label: 'ok' }, { label: '' }] }),
-    ).toThrow(/between 2 and 10/);
+    expect(() => store.set({ items: [{ label: '   ' }, { label: 'ok' }, { label: '' }] })).toThrow(
+      /between 2 and 10/,
+    );
   });
 
   it('truncates over-length labels to MAX_LABEL_CHARS', () => {
@@ -84,9 +84,9 @@ describe('TodoRunStore.update', () => {
 
   it('rejects updates before any todo.set', () => {
     const { store } = makeStore();
-    expect(() =>
-      store.update({ todoId: 'ghost', updates: [{ id: 'x', status: 'done' }] }),
-    ).toThrow(/called before todo.set/);
+    expect(() => store.update({ todoId: 'ghost', updates: [{ id: 'x', status: 'done' }] })).toThrow(
+      /called before todo.set/,
+    );
   });
 
   it('rejects stale todoId (drift guard)', () => {

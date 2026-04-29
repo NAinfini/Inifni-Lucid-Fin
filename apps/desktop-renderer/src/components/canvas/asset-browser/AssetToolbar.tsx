@@ -81,7 +81,11 @@ export function AssetToolbar({
           <input
             value={localSearch}
             onChange={onSearchChange}
-            placeholder={semanticMode ? t('assetBrowser.semantic.toggle') + '...' : t('assetBrowser.searchPlaceholder')}
+            placeholder={
+              semanticMode
+                ? t('assetBrowser.semantic.toggle') + '...'
+                : t('assetBrowser.searchPlaceholder')
+            }
             className={cn(
               'w-full rounded-md border bg-background py-1.5 pl-7 pr-2 text-xs outline-none focus:ring-1 focus:ring-ring',
               semanticMode ? 'border-primary/60' : 'border-border/60',
@@ -177,7 +181,9 @@ export function AssetToolbar({
           onClick={onSelectModeToggle}
           className={cn(
             'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors',
-            selectMode ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 text-muted-foreground hover:bg-muted/80 hover:text-foreground',
+            selectMode
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border/60 text-muted-foreground hover:bg-muted/80 hover:text-foreground',
           )}
         >
           <CheckSquare className="h-3 w-3" />

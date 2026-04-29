@@ -55,7 +55,11 @@ export function applyStyleGuideDefaultsToEmptyTracks(
   return next as PresetTrackSet;
 }
 
-function maybeFillTrack(tracks: TrackMap, category: PresetCategory, presetId: string | undefined): void {
+function maybeFillTrack(
+  tracks: TrackMap,
+  category: PresetCategory,
+  presetId: string | undefined,
+): void {
   if (!presetId) return;
   const current = tracks[category];
   if (current?.entries.length) return;
@@ -108,11 +112,15 @@ export function hasPresetTracks(data: unknown): data is { presetTracks?: PresetT
   return typeof data === 'object' && data !== null && 'presetTracks' in data;
 }
 
-export function hasCharacterRefs(data: unknown): data is { characterRefs?: ImageNodeData['characterRefs'] } {
+export function hasCharacterRefs(
+  data: unknown,
+): data is { characterRefs?: ImageNodeData['characterRefs'] } {
   return typeof data === 'object' && data !== null && 'characterRefs' in data;
 }
 
-export function hasEquipmentRefs(data: unknown): data is { equipmentRefs?: ImageNodeData['equipmentRefs'] } {
+export function hasEquipmentRefs(
+  data: unknown,
+): data is { equipmentRefs?: ImageNodeData['equipmentRefs'] } {
   return typeof data === 'object' && data !== null && 'equipmentRefs' in data;
 }
 
@@ -145,9 +153,7 @@ function resolveRefImageHashes(
   if (ref.angleSlot && entity?.referenceImages) {
     const normalize = normalizeSlot ?? ((s: string | undefined) => s);
     const slotHash = normalizeOptionalString(
-      entity.referenceImages.find(
-        (r) => normalize(r.slot) === normalize(ref.angleSlot),
-      )?.assetHash,
+      entity.referenceImages.find((r) => normalize(r.slot) === normalize(ref.angleSlot))?.assetHash,
     );
     if (slotHash) {
       hashes.push(slotHash);
@@ -266,9 +272,7 @@ export function resolveVideoFrameReferenceImageSet(
 
 export function resolveVideoFrameReferenceImages(canvas: Canvas, node: CanvasNode): string[] {
   const frames = resolveVideoFrameReferenceImageSet(canvas, node);
-  return [frames.first, frames.last].filter(
-    (hash): hash is string => Boolean(hash),
-  );
+  return [frames.first, frames.last].filter((hash): hash is string => Boolean(hash));
 }
 
 // ---------------------------------------------------------------------------
@@ -297,14 +301,17 @@ export function findConnectedImageHash(canvas: Canvas, nodeId: string): string |
   // Prefer incoming image edges (image -> video)
   for (const edge of canvas.edges) {
     if (edge.target !== nodeId) continue;
-    const sourceNode = canvas.nodes.find((node) => node.id === edge.source && node.type === 'image');
+    const sourceNode = canvas.nodes.find(
+      (node) => node.id === edge.source && node.type === 'image',
+    );
     if (!sourceNode) continue;
     const hash = normalizeOptionalString((sourceNode.data as ImageNodeData).assetHash);
     if (hash) return hash;
   }
   // Fallback: any connected image node
   for (const edge of canvas.edges) {
-    const otherNodeId = edge.source === nodeId ? edge.target : edge.target === nodeId ? edge.source : undefined;
+    const otherNodeId =
+      edge.source === nodeId ? edge.target : edge.target === nodeId ? edge.source : undefined;
     if (!otherNodeId) continue;
     const imageNode = canvas.nodes.find((node) => node.id === otherNodeId && node.type === 'image');
     if (!imageNode) continue;
@@ -329,8 +336,9 @@ export function resolveCharacterEntities(
     if (!characterId) continue;
     const character = db.repos.entities.getCharacter(characterId);
     if (!character) continue;
-    const loadout = character.loadouts.find((l) => l.id === ref.loadoutId)
-      ?? character.loadouts.find((l) => l.id === character.defaultLoadoutId);
+    const loadout =
+      character.loadouts.find((l) => l.id === ref.loadoutId) ??
+      character.loadouts.find((l) => l.id === character.defaultLoadoutId);
     const equipment: Equipment[] = [];
     if (loadout) {
       for (const eqId of loadout.equipmentIds) {

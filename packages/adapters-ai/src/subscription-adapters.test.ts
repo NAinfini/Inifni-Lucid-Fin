@@ -32,11 +32,12 @@ describe('adapter subscribe support', () => {
   it('streams synchronous OpenAI image generation through subscribe callbacks', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ data: [{ url: 'https://example.com/image.png' }] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ data: [{ url: 'https://example.com/image.png' }] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
       ),
     );
 
@@ -72,7 +73,8 @@ describe('adapter subscribe support', () => {
   it('polls Runway task progress through subscribe and returns the final asset url', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn()
+      vi
+        .fn()
         .mockResolvedValueOnce(
           new Response(JSON.stringify({ id: 'task-1', status: 'PENDING' }), {
             status: 200,
@@ -117,8 +119,7 @@ describe('adapter subscribe support', () => {
     }
 
     const queueUpdates: Array<{ status: string; jobId?: string }> = [];
-    const progressUpdates: Array<{ percentage: number; currentStep?: string; jobId?: string }> =
-      [];
+    const progressUpdates: Array<{ percentage: number; currentStep?: string; jobId?: string }> = [];
 
     const result = await adapter.subscribe(makeVideoRequest(), {
       onQueueUpdate: (update) =>

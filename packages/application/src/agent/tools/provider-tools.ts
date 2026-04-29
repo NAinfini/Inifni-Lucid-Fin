@@ -18,7 +18,13 @@ export interface ProviderToolDeps {
   setProviderBaseUrl: (group: string, providerId: string, baseUrl: string) => Promise<void>;
   setProviderModel: (group: string, providerId: string, model: string) => Promise<void>;
   setProviderName: (group: string, providerId: string, name: string) => Promise<void>;
-  addCustomProvider: (group: string, id: string, name: string, baseUrl?: string, model?: string) => Promise<void>;
+  addCustomProvider: (
+    group: string,
+    id: string,
+    name: string,
+    baseUrl?: string,
+    model?: string,
+  ) => Promise<void>;
   removeCustomProvider: (group: string, providerId: string) => Promise<void>;
   setProviderApiKey?: (providerId: string, apiKey: string) => Promise<void>;
 }
@@ -26,12 +32,17 @@ export interface ProviderToolDeps {
 export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
   const listProviders: AgentTool = {
     name: 'provider.list',
-    description: 'List all configured AI providers for a group (llm, image, video, audio, vision). Returns provider name, base URL, model, and whether an API key is set. Does NOT return the API key itself.',
+    description:
+      'List all configured AI providers for a group (llm, image, video, audio, vision). Returns provider name, base URL, model, and whether an API key is set. Does NOT return the API key itself.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        group: { type: 'string', description: 'Provider group: llm, image, video, audio, or vision.', enum: ['llm', 'image', 'video', 'audio', 'vision'] },
+        group: {
+          type: 'string',
+          description: 'Provider group: llm, image, video, audio, or vision.',
+          enum: ['llm', 'image', 'video', 'audio', 'vision'],
+        },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
@@ -41,9 +52,16 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
       try {
         const group = args.group as string;
         const providers = await deps.listProviders(group);
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        return ok({ total: providers.length, offset, limit, providers: providers.slice(offset, offset + limit) });
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({
+          total: providers.length,
+          offset,
+          limit,
+          providers: providers.slice(offset, offset + limit),
+        });
       } catch (error) {
         return fail(error);
       }
@@ -58,7 +76,11 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        group: { type: 'string', description: 'Provider group: llm, image, video, audio, or vision.', enum: ['llm', 'image', 'video', 'audio', 'vision'] },
+        group: {
+          type: 'string',
+          description: 'Provider group: llm, image, video, audio, or vision.',
+          enum: ['llm', 'image', 'video', 'audio', 'vision'],
+        },
       },
       required: ['group'],
     },
@@ -80,7 +102,11 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        group: { type: 'string', description: 'Provider group.', enum: ['llm', 'image', 'video', 'audio', 'vision'] },
+        group: {
+          type: 'string',
+          description: 'Provider group.',
+          enum: ['llm', 'image', 'video', 'audio', 'vision'],
+        },
         providerId: { type: 'string', description: 'The provider ID to activate.' },
       },
       required: ['group', 'providerId'],
@@ -97,16 +123,22 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
 
   const update: AgentTool = {
     name: 'provider.update',
-    description: 'Update provider configuration. Wrap fields to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
+    description:
+      'Update provider configuration. Wrap fields to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
-        group: { type: 'string', description: 'Provider group.', enum: ['llm', 'image', 'video', 'audio', 'vision'] },
+        group: {
+          type: 'string',
+          description: 'Provider group.',
+          enum: ['llm', 'image', 'video', 'audio', 'vision'],
+        },
         providerId: { type: 'string', description: 'The provider ID.' },
         set: {
           type: 'object',
-          description: 'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
+          description:
+            'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
           properties: {
             baseUrl: { type: 'string', description: 'New base URL / API endpoint.' },
             model: { type: 'string', description: 'New model name.' },
@@ -147,12 +179,16 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
 
   const setKey: AgentTool = {
     name: 'provider.setKey',
-    description: 'Set the API key for any configured provider. The key will be securely stored in the system keychain.',
+    description:
+      'Set the API key for any configured provider. The key will be securely stored in the system keychain.',
     tier: 4,
     parameters: {
       type: 'object',
       properties: {
-        providerId: { type: 'string', description: 'Provider ID (e.g., "openai", "claude", "runway").' },
+        providerId: {
+          type: 'string',
+          description: 'Provider ID (e.g., "openai", "claude", "runway").',
+        },
         apiKey: { type: 'string', description: 'The API key to store.' },
       },
       required: ['providerId', 'apiKey'],
@@ -165,7 +201,10 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
         const apiKey = args.apiKey as string;
         if (!apiKey || !apiKey.trim()) throw new Error('apiKey is required');
         await deps.setProviderApiKey(providerId.trim(), apiKey.trim());
-        return ok({ providerId: providerId.trim(), message: `API key set for ${providerId.trim()}` });
+        return ok({
+          providerId: providerId.trim(),
+          message: `API key set for ${providerId.trim()}`,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -174,14 +213,22 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
 
   const addCustom: AgentTool = {
     name: 'provider.addCustom',
-    description: 'Add a new custom provider to a group. Optionally provide baseUrl and model if known. The user will need to set the API key separately in Settings.',
+    description:
+      'Add a new custom provider to a group. Optionally provide baseUrl and model if known. The user will need to set the API key separately in Settings.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
-        group: { type: 'string', description: 'Provider group.', enum: ['llm', 'image', 'video', 'audio', 'vision'] },
+        group: {
+          type: 'string',
+          description: 'Provider group.',
+          enum: ['llm', 'image', 'video', 'audio', 'vision'],
+        },
         name: { type: 'string', description: 'Display name for the new provider.' },
-        baseUrl: { type: 'string', description: 'Optional: API base URL (e.g., https://api.example.com/v1).' },
+        baseUrl: {
+          type: 'string',
+          description: 'Optional: API base URL (e.g., https://api.example.com/v1).',
+        },
         model: { type: 'string', description: 'Optional: Default model name.' },
       },
       required: ['group', 'name'],
@@ -208,7 +255,11 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        group: { type: 'string', description: 'Provider group.', enum: ['llm', 'image', 'video', 'audio', 'vision'] },
+        group: {
+          type: 'string',
+          description: 'Provider group.',
+          enum: ['llm', 'image', 'video', 'audio', 'vision'],
+        },
         providerId: { type: 'string', description: 'The custom provider ID to remove.' },
       },
       required: ['group', 'providerId'],
@@ -254,5 +305,14 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     },
   };
 
-  return [listProviders, getActive, setActive, update, setKey, addCustom, removeCustom, getCapabilities];
+  return [
+    listProviders,
+    getActive,
+    setActive,
+    update,
+    setKey,
+    addCustom,
+    removeCustom,
+    getCapabilities,
+  ];
 }

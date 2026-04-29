@@ -157,11 +157,13 @@ describe('AgentToolRegistry', () => {
     });
 
     expect(
-      registry.search({
-        context: 'canvas',
-        tags: ['search'],
-        query: 'node',
-      }).map((tool) => tool.name),
+      registry
+        .search({
+          context: 'canvas',
+          tags: ['search'],
+          query: 'node',
+        })
+        .map((tool) => tool.name),
     ).toEqual(['canvas.listNodes']);
   });
 });

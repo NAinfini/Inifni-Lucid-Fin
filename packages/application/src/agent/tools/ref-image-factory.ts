@@ -91,23 +91,26 @@ export function createRefImageTools<T extends RefImageEntity, V>(
   const viewProperty: AgentTool['parameters']['properties'][string] = {
     type: 'object',
     description:
-      'View kind discriminator. Use kind=<primary> for the default composite view '
-      + '(full-sheet / ortho-grid / bible / fake-360 depending on domain). '
-      + 'Use kind=extra-angle with angle=<string> for a custom angle.',
+      'View kind discriminator. Use kind=<primary> for the default composite view ' +
+      '(full-sheet / ortho-grid / bible / fake-360 depending on domain). ' +
+      'Use kind=extra-angle with angle=<string> for a custom angle.',
     properties: {
       kind: { type: 'string', description: 'View kind discriminator.', enum: kindEnum },
-      angle: { type: 'string', description: 'Free-form angle label (required when kind=extra-angle).' },
+      angle: {
+        type: 'string',
+        description: 'Free-form angle label (required when kind=extra-angle).',
+      },
     },
   };
 
   const tools: AgentTool[] = [];
   const generateRefImageDescription =
-    `Generate a new AI reference image for a ${entityLabel}. `
-    + `Pass a canvasId so the canvas-scoped style prompt is woven into the generation prompt. `
-    + `View defaults to the primary composite kind. Optionally specify dimensions, provider, and a custom prompt.`;
+    `Generate a new AI reference image for a ${entityLabel}. ` +
+    `Pass a canvasId so the canvas-scoped style prompt is woven into the generation prompt. ` +
+    `View defaults to the primary composite kind. Optionally specify dimensions, provider, and a custom prompt.`;
   const customPromptDescription =
-    `Optional custom prompt. When present, it REPLACES the default composite prompt entirely. `
-    + `The canvas stylePlate is still prepended if present.`;
+    `Optional custom prompt. When present, it REPLACES the default composite prompt entirely. ` +
+    `The canvas stylePlate is still prepended if present.`;
 
   // ---------------------------------------------------------------------------
   // *.generateRefImage
@@ -123,11 +126,25 @@ export function createRefImageTools<T extends RefImageEntity, V>(
         properties: {
           id: { type: 'string', description: `The ${entityLabel} ID.` },
           view: viewProperty,
-          canvasId: { type: 'string', description: 'Canvas ID whose settings (stylePlate, provider overrides) drive prompt composition.' },
-          width: { type: 'number', description: `Image width in pixels. Default ${defaultWidth}. Auto-clamped to provider max.` },
-          height: { type: 'number', description: `Image height in pixels. Default ${defaultHeight}. Auto-clamped to provider max.` },
+          canvasId: {
+            type: 'string',
+            description:
+              'Canvas ID whose settings (stylePlate, provider overrides) drive prompt composition.',
+          },
+          width: {
+            type: 'number',
+            description: `Image width in pixels. Default ${defaultWidth}. Auto-clamped to provider max.`,
+          },
+          height: {
+            type: 'number',
+            description: `Image height in pixels. Default ${defaultHeight}. Auto-clamped to provider max.`,
+          },
           prompt: { type: 'string', description: customPromptDescription },
-          providerId: { type: 'string', description: 'Optional provider ID override (falls back to canvas setting, then global default).' },
+          providerId: {
+            type: 'string',
+            description:
+              'Optional provider ID override (falls back to canvas setting, then global default).',
+          },
         },
         required: ['id'],
       },
@@ -136,20 +153,28 @@ export function createRefImageTools<T extends RefImageEntity, V>(
           const id = requireString(args, 'id');
           const entity = await getEntity(id);
           if (!entity) return { success: false, error: `${entityLabelCap} not found: ${id}` };
-          if (!config.generateImage) return { success: false, error: 'Image generation not available' };
+          if (!config.generateImage)
+            return { success: false, error: 'Image generation not available' };
 
           let view: V;
           try {
             view = parseView(args.view);
           } catch (viewErr) {
-            return { success: false, error: viewErr instanceof Error ? viewErr.message : String(viewErr) };
+            return {
+              success: false,
+              error: viewErr instanceof Error ? viewErr.message : String(viewErr),
+            };
           }
           const slot = viewToSlot(view);
 
           // Resolve canvas-scoped settings (stylePlate + providerId) when
           // a canvas context is supplied.
           let canvasSettings: CanvasSettings | undefined = defaultSettings;
-          if (typeof args.canvasId === 'string' && args.canvasId.trim().length > 0 && config.getCanvas) {
+          if (
+            typeof args.canvasId === 'string' &&
+            args.canvasId.trim().length > 0 &&
+            config.getCanvas
+          ) {
             try {
               const canvas = await config.getCanvas(args.canvasId);
               canvasSettings = canvas.settings;
@@ -159,7 +184,7 @@ export function createRefImageTools<T extends RefImageEntity, V>(
             }
           }
           const stylePlate = readStylePlateFromCanvas(
-            canvasSettings ? { settings: canvasSettings } as Canvas : undefined,
+            canvasSettings ? ({ settings: canvasSettings } as Canvas) : undefined,
           );
 
           const customPrompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
@@ -168,9 +193,7 @@ export function createRefImageTools<T extends RefImageEntity, V>(
           if (customPrompt.length > 0) {
             // Even for custom prompts, prepend the canvas stylePlate so the
             // style prompt stays in position 0.
-            finalPrompt = stylePlate
-              ? `Style: ${stylePlate}. ${customPrompt}`
-              : customPrompt;
+            finalPrompt = stylePlate ? `Style: ${stylePlate}. ${customPrompt}` : customPrompt;
           } else {
             finalPrompt = buildPrompt(entity, view, stylePlate);
           }
@@ -180,10 +203,14 @@ export function createRefImageTools<T extends RefImageEntity, V>(
 
           // Canvas-scoped refResolution overrides factory defaults when set;
           // explicit width/height args still take top priority.
-          const resolvedDefaultWidth  = canvasSettings?.refResolution?.width  ?? defaultWidth;
+          const resolvedDefaultWidth = canvasSettings?.refResolution?.width ?? defaultWidth;
           const resolvedDefaultHeight = canvasSettings?.refResolution?.height ?? defaultHeight;
-          const reqWidth  = typeof args.width  === 'number' && args.width  > 0 ? args.width  : resolvedDefaultWidth;
-          const reqHeight = typeof args.height === 'number' && args.height > 0 ? args.height : resolvedDefaultHeight;
+          const reqWidth =
+            typeof args.width === 'number' && args.width > 0 ? args.width : resolvedDefaultWidth;
+          const reqHeight =
+            typeof args.height === 'number' && args.height > 0
+              ? args.height
+              : resolvedDefaultHeight;
 
           // Provider resolution order: explicit arg > canvas setting > (fallback handled upstream).
           const explicitProvider = tryProviderId(args.providerId);
@@ -225,8 +252,8 @@ export function createRefImageTools<T extends RefImageEntity, V>(
           entity.updatedAt = Date.now();
           await saveEntity(entity);
 
-          const variantCount = referenceImages.find((image) => image.slot === slot)
-            ?.variants?.length ?? 0;
+          const variantCount =
+            referenceImages.find((image) => image.slot === slot)?.variants?.length ?? 0;
           return {
             success: true,
             data: {
@@ -273,7 +300,10 @@ export function createRefImageTools<T extends RefImageEntity, V>(
         try {
           view = parseView(args.view);
         } catch (viewErr) {
-          return { success: false, error: viewErr instanceof Error ? viewErr.message : String(viewErr) };
+          return {
+            success: false,
+            error: viewErr instanceof Error ? viewErr.message : String(viewErr),
+          };
         }
         const slot = viewToSlot(view);
         const assetHash = args.assetHash;
@@ -321,10 +351,15 @@ export function createRefImageTools<T extends RefImageEntity, V>(
         try {
           view = parseView(args.view);
         } catch (viewErr) {
-          return { success: false, error: viewErr instanceof Error ? viewErr.message : String(viewErr) };
+          return {
+            success: false,
+            error: viewErr instanceof Error ? viewErr.message : String(viewErr),
+          };
         }
         const slot = viewToSlot(view);
-        entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
+        entity.referenceImages = (entity.referenceImages ?? []).filter(
+          (image) => image.slot !== slot,
+        );
         entity.updatedAt = Date.now();
         await saveEntity(entity);
 
@@ -357,29 +392,40 @@ export function createRefImageTools<T extends RefImageEntity, V>(
       async execute(args) {
         try {
           if (!config.getCanvas) return { success: false, error: 'getCanvas not available' };
-          if (typeof args.canvasId !== 'string' || !args.canvasId.trim()) throw new Error('canvasId is required');
-          if (typeof args.nodeId !== 'string' || !args.nodeId.trim()) throw new Error('nodeId is required');
+          if (typeof args.canvasId !== 'string' || !args.canvasId.trim())
+            throw new Error('canvasId is required');
+          if (typeof args.nodeId !== 'string' || !args.nodeId.trim())
+            throw new Error('nodeId is required');
           let view: V;
           try {
             view = parseView(args.view);
           } catch (viewErr) {
-            return { success: false, error: viewErr instanceof Error ? viewErr.message : String(viewErr) };
+            return {
+              success: false,
+              error: viewErr instanceof Error ? viewErr.message : String(viewErr),
+            };
           }
           const slot = viewToSlot(view);
           const canvas = await config.getCanvas(args.canvasId);
           const node = canvas.nodes.find((n) => n.id === args.nodeId);
           if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
           if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
-            return { success: false, error: `Node type does not support reference images: ${node.type}` };
+            return {
+              success: false,
+              error: `Node type does not support reference images: ${node.type}`,
+            };
           }
           const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
           const variants = Array.isArray(data.variants) ? data.variants : [];
           const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
           const assetHash = variants[idx] ?? data.assetHash;
-          if (typeof assetHash !== 'string' || !assetHash) return { success: false, error: 'No generated asset on node' };
+          if (typeof assetHash !== 'string' || !assetHash)
+            return { success: false, error: 'No generated asset on node' };
           const entity = await getEntity(args.id as string);
           if (!entity) return { success: false, error: `${entityLabelCap} not found: ${args.id}` };
-          entity.referenceImages = (entity.referenceImages ?? []).filter((image) => image.slot !== slot);
+          entity.referenceImages = (entity.referenceImages ?? []).filter(
+            (image) => image.slot !== slot,
+          );
           entity.referenceImages.push({ slot, assetHash, isStandard: true });
           entity.updatedAt = Date.now();
           await saveEntity(entity);

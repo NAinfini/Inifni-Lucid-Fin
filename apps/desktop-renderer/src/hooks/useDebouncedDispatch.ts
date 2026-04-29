@@ -27,11 +27,14 @@ export function useDebouncedDispatch(
     }
   }, [externalValue]);
 
-  const setValue = useCallback((value: string) => {
-    setLocal(value);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => onCommitRef.current(value), delay);
-  }, [delay]);
+  const setValue = useCallback(
+    (value: string) => {
+      setLocal(value);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => onCommitRef.current(value), delay);
+    },
+    [delay],
+  );
 
   // Cleanup on unmount
   useEffect(() => () => clearTimeout(timerRef.current), []);

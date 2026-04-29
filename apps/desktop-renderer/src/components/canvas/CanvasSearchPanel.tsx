@@ -49,7 +49,8 @@ export function CanvasSearchPanel({
   const navigateTo = useCallback(
     (index: number) => {
       if (matchedNodeIds.length === 0) return;
-      const wrappedIndex = ((index % matchedNodeIds.length) + matchedNodeIds.length) % matchedNodeIds.length;
+      const wrappedIndex =
+        ((index % matchedNodeIds.length) + matchedNodeIds.length) % matchedNodeIds.length;
       setCurrentIndex(wrappedIndex);
       const nodeId = matchedNodeIds[wrappedIndex];
       if (nodeId) onNavigateToNode?.(nodeId);
@@ -58,7 +59,11 @@ export function CanvasSearchPanel({
   );
 
   return (
-    <div role="search" aria-label={t('canvas.searchPlaceholder')} className="absolute left-3 top-3 z-30 w-72 rounded-md border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-sm">
+    <div
+      role="search"
+      aria-label={t('canvas.searchPlaceholder')}
+      className="absolute left-3 top-3 z-30 w-72 rounded-md border border-border/60 bg-card/95 p-3 shadow-lg backdrop-blur-sm"
+    >
       <div className="flex items-center gap-1.5">
         <div className="flex h-7 flex-1 items-center gap-1.5 rounded-md border border-border bg-background px-2">
           <Search className="h-3.5 w-3.5 text-muted-foreground" />
@@ -110,9 +115,7 @@ export function CanvasSearchPanel({
       <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
         <span>{t('canvas.searchResults')}</span>
         <span>
-          {matchedNodeIds.length > 0 && currentIndex >= 0
-            ? `${currentIndex + 1}/`
-            : ''}
+          {matchedNodeIds.length > 0 && currentIndex >= 0 ? `${currentIndex + 1}/` : ''}
           {matchCount}/{totalCount}
         </span>
       </div>

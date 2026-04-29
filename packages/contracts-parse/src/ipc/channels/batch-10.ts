@@ -89,9 +89,7 @@ export const aiPromptSetCustomChannel = defineInvokeChannel({
   response: AiPromptSetCustomResponse,
 });
 export type AiPromptSetCustomRequest = z.infer<typeof AiPromptSetCustomRequest>;
-export type AiPromptSetCustomResponse = z.infer<
-  typeof AiPromptSetCustomResponse
->;
+export type AiPromptSetCustomResponse = z.infer<typeof AiPromptSetCustomResponse>;
 
 // ─── ai:prompt:clearCustom ───────────────────────────────────
 const AiPromptClearCustomRequest = z.object({ code: z.string() });
@@ -101,12 +99,8 @@ export const aiPromptClearCustomChannel = defineInvokeChannel({
   request: AiPromptClearCustomRequest,
   response: AiPromptClearCustomResponse,
 });
-export type AiPromptClearCustomRequest = z.infer<
-  typeof AiPromptClearCustomRequest
->;
-export type AiPromptClearCustomResponse = z.infer<
-  typeof AiPromptClearCustomResponse
->;
+export type AiPromptClearCustomRequest = z.infer<typeof AiPromptClearCustomRequest>;
+export type AiPromptClearCustomResponse = z.infer<typeof AiPromptClearCustomResponse>;
 
 // ─── asset:generateEmbedding ─────────────────────────────────
 const AssetGenerateEmbeddingRequest = z.object({ assetHash: z.string() });
@@ -116,12 +110,8 @@ export const assetGenerateEmbeddingChannel = defineInvokeChannel({
   request: AssetGenerateEmbeddingRequest,
   response: AssetGenerateEmbeddingResponse,
 });
-export type AssetGenerateEmbeddingRequest = z.infer<
-  typeof AssetGenerateEmbeddingRequest
->;
-export type AssetGenerateEmbeddingResponse = z.infer<
-  typeof AssetGenerateEmbeddingResponse
->;
+export type AssetGenerateEmbeddingRequest = z.infer<typeof AssetGenerateEmbeddingRequest>;
+export type AssetGenerateEmbeddingResponse = z.infer<typeof AssetGenerateEmbeddingResponse>;
 
 // ─── asset:reindexEmbeddings ─────────────────────────────────
 const AssetReindexEmbeddingsRequest = z.object({}).strict();
@@ -134,12 +124,8 @@ export const assetReindexEmbeddingsChannel = defineInvokeChannel({
   request: AssetReindexEmbeddingsRequest,
   response: AssetReindexEmbeddingsResponse,
 });
-export type AssetReindexEmbeddingsRequest = z.infer<
-  typeof AssetReindexEmbeddingsRequest
->;
-export type AssetReindexEmbeddingsResponse = z.infer<
-  typeof AssetReindexEmbeddingsResponse
->;
+export type AssetReindexEmbeddingsRequest = z.infer<typeof AssetReindexEmbeddingsRequest>;
+export type AssetReindexEmbeddingsResponse = z.infer<typeof AssetReindexEmbeddingsResponse>;
 
 // ─── asset:reindex:progress (push) ──────────────────────────
 const AssetReindexProgressPayload = z.object({
@@ -165,12 +151,8 @@ export const assetSearchSemanticChannel = defineInvokeChannel({
   request: AssetSearchSemanticRequest,
   response: AssetSearchSemanticResponse,
 });
-export type AssetSearchSemanticRequest = z.infer<
-  typeof AssetSearchSemanticRequest
->;
-export type AssetSearchSemanticResponse = z.infer<
-  typeof AssetSearchSemanticResponse
->;
+export type AssetSearchSemanticRequest = z.infer<typeof AssetSearchSemanticRequest>;
+export type AssetSearchSemanticResponse = z.infer<typeof AssetSearchSemanticResponse>;
 
 // ─── clipboard:setEnabled ────────────────────────────────────
 const ClipboardSetEnabledRequest = z.object({ enabled: z.boolean() });
@@ -180,12 +162,8 @@ export const clipboardSetEnabledChannel = defineInvokeChannel({
   request: ClipboardSetEnabledRequest,
   response: ClipboardSetEnabledResponse,
 });
-export type ClipboardSetEnabledRequest = z.infer<
-  typeof ClipboardSetEnabledRequest
->;
-export type ClipboardSetEnabledResponse = z.infer<
-  typeof ClipboardSetEnabledResponse
->;
+export type ClipboardSetEnabledRequest = z.infer<typeof ClipboardSetEnabledRequest>;
+export type ClipboardSetEnabledResponse = z.infer<typeof ClipboardSetEnabledResponse>;
 
 // ─── export:nle ──────────────────────────────────────────────
 const ExportNleRequest = z
@@ -230,9 +208,7 @@ export const exportAssetBundleChannel = defineInvokeChannel({
   response: ExportAssetBundleResponse,
 });
 export type ExportAssetBundleRequest = z.infer<typeof ExportAssetBundleRequest>;
-export type ExportAssetBundleResponse = z.infer<
-  typeof ExportAssetBundleResponse
->;
+export type ExportAssetBundleResponse = z.infer<typeof ExportAssetBundleResponse>;
 
 // ─── export:subtitles ────────────────────────────────────────
 const ExportSubtitlesRequest = z
@@ -349,10 +325,7 @@ const ExportCapcutRequest = z.object({
   projectTitle: z.string().optional(),
   outputDir: z.string().optional(),
 });
-const ExportCapcutResponse = z.union([
-  z.null(),
-  z.object({ draftDir: z.string() }),
-]);
+const ExportCapcutResponse = z.union([z.null(), z.object({ draftDir: z.string() })]);
 export const exportCapcutChannel = defineInvokeChannel({
   channel: 'export:capcut',
   request: ExportCapcutRequest,
@@ -502,17 +475,9 @@ const LLMProviderRuntimeInputShape = z
     baseUrl: z.string().optional(),
     model: z.string().optional(),
     protocol: z
-      .enum([
-        'openai-compatible',
-        'openai-responses',
-        'anthropic',
-        'gemini',
-        'cohere',
-      ])
+      .enum(['openai-compatible', 'openai-responses', 'anthropic', 'gemini', 'cohere'])
       .optional(),
-    authStyle: z
-      .enum(['bearer', 'x-api-key', 'x-goog-api-key', 'none'])
-      .optional(),
+    authStyle: z.enum(['bearer', 'x-api-key', 'x-goog-api-key', 'none']).optional(),
     contextWindow: z.number().optional(),
   })
   .passthrough();
@@ -545,12 +510,8 @@ export const keychainIsConfiguredChannel = defineInvokeChannel({
   request: KeychainIsConfiguredRequest,
   response: KeychainIsConfiguredResponse,
 });
-export type KeychainIsConfiguredRequest = z.infer<
-  typeof KeychainIsConfiguredRequest
->;
-export type KeychainIsConfiguredResponse = z.infer<
-  typeof KeychainIsConfiguredResponse
->;
+export type KeychainIsConfiguredRequest = z.infer<typeof KeychainIsConfiguredRequest>;
+export type KeychainIsConfiguredResponse = z.infer<typeof KeychainIsConfiguredResponse>;
 
 // ─── lipsync:* ───────────────────────────────────────────────
 const LipsyncCheckAvailabilityRequest = z.object({}).strict();
@@ -563,12 +524,8 @@ export const lipsyncCheckAvailabilityChannel = defineInvokeChannel({
   request: LipsyncCheckAvailabilityRequest,
   response: LipsyncCheckAvailabilityResponse,
 });
-export type LipsyncCheckAvailabilityRequest = z.infer<
-  typeof LipsyncCheckAvailabilityRequest
->;
-export type LipsyncCheckAvailabilityResponse = z.infer<
-  typeof LipsyncCheckAvailabilityResponse
->;
+export type LipsyncCheckAvailabilityRequest = z.infer<typeof LipsyncCheckAvailabilityRequest>;
+export type LipsyncCheckAvailabilityResponse = z.infer<typeof LipsyncCheckAvailabilityResponse>;
 
 const LipsyncProcessRequest = z.object({
   canvasId: z.string(),
@@ -610,9 +567,7 @@ const RenderStartRequest = z
     sceneId: z.string(),
     segments: z.array(z.unknown()),
     outputFormat: z.enum(['mp4', 'mov', 'webm']),
-    resolution: z
-      .object({ width: z.number(), height: z.number() })
-      .optional(),
+    resolution: z.object({ width: z.number(), height: z.number() }).optional(),
     fps: z.number().optional(),
     codec: z.string().optional(),
     quality: z.string().optional(),
@@ -647,14 +602,7 @@ const RenderStatusRequest = z.object({ jobId: z.string() });
 const RenderStatusResponse = z
   .object({
     progress: z.number(),
-    stage: z.enum([
-      'queued',
-      'rendering',
-      'completed',
-      'failed',
-      'cancelled',
-      'unknown',
-    ]),
+    stage: z.enum(['queued', 'rendering', 'completed', 'failed', 'cancelled', 'unknown']),
     outputPath: z.string().optional(),
     error: z.string().optional(),
   })
@@ -745,9 +693,7 @@ export const shellOpenExternalChannel = defineInvokeChannel({
   response: ShellOpenExternalResponse,
 });
 export type ShellOpenExternalRequest = z.infer<typeof ShellOpenExternalRequest>;
-export type ShellOpenExternalResponse = z.infer<
-  typeof ShellOpenExternalResponse
->;
+export type ShellOpenExternalResponse = z.infer<typeof ShellOpenExternalResponse>;
 
 // ─── snapshot:* (4) ──────────────────────────────────────────
 const SnapshotCaptureRequest = z.object({
@@ -805,14 +751,7 @@ const UpdaterUpdateInfoShape = z
   .passthrough();
 const UpdaterStatusShape = z
   .object({
-    state: z.enum([
-      'idle',
-      'checking',
-      'available',
-      'downloading',
-      'downloaded',
-      'error',
-    ]),
+    state: z.enum(['idle', 'checking', 'available', 'downloading', 'downloaded', 'error']),
     progress: z.number().optional(),
     info: UpdaterUpdateInfoShape.optional(),
     error: z.string().optional(),
@@ -880,12 +819,8 @@ export const videoExtractLastFrameChannel = defineInvokeChannel({
   request: VideoExtractLastFrameRequest,
   response: VideoExtractLastFrameResponse,
 });
-export type VideoExtractLastFrameRequest = z.infer<
-  typeof VideoExtractLastFrameRequest
->;
-export type VideoExtractLastFrameResponse = z.infer<
-  typeof VideoExtractLastFrameResponse
->;
+export type VideoExtractLastFrameRequest = z.infer<typeof VideoExtractLastFrameRequest>;
+export type VideoExtractLastFrameResponse = z.infer<typeof VideoExtractLastFrameResponse>;
 
 const VideoCloneRequest = z.object({
   filePath: z.string(),
@@ -915,12 +850,8 @@ export const visionDescribeImageChannel = defineInvokeChannel({
   request: VisionDescribeImageRequest,
   response: VisionDescribeImageResponse,
 });
-export type VisionDescribeImageRequest = z.infer<
-  typeof VisionDescribeImageRequest
->;
-export type VisionDescribeImageResponse = z.infer<
-  typeof VisionDescribeImageResponse
->;
+export type VisionDescribeImageRequest = z.infer<typeof VisionDescribeImageRequest>;
+export type VisionDescribeImageResponse = z.infer<typeof VisionDescribeImageResponse>;
 
 // ─── Push channels ───────────────────────────────────────────
 
@@ -966,9 +897,7 @@ export const clipboardAiDetectedChannel = definePushChannel({
   channel: 'clipboard:ai-detected',
   payload: ClipboardAiDetectedPayload,
 });
-export type ClipboardAiDetectedPayload = z.infer<
-  typeof ClipboardAiDetectedPayload
->;
+export type ClipboardAiDetectedPayload = z.infer<typeof ClipboardAiDetectedPayload>;
 
 // logger:entry — same LoggerEntry shape as logger:getRecent response items.
 const LoggerEntryPayload = LoggerEntryShape;
@@ -1025,9 +954,7 @@ export const settingsProviderKeyUpdatedChannel = definePushChannel({
   channel: 'settings:providerKeyUpdated',
   payload: SettingsProviderKeyUpdatedPayload,
 });
-export type SettingsProviderKeyUpdatedPayload = z.infer<
-  typeof SettingsProviderKeyUpdatedPayload
->;
+export type SettingsProviderKeyUpdatedPayload = z.infer<typeof SettingsProviderKeyUpdatedPayload>;
 
 // updater:toast
 const UpdaterToastPayload = z
@@ -1096,10 +1023,7 @@ export const keychainChannels = [
   keychainIsConfiguredChannel,
 ] as const;
 
-export const lipsyncChannels = [
-  lipsyncCheckAvailabilityChannel,
-  lipsyncProcessChannel,
-] as const;
+export const lipsyncChannels = [lipsyncCheckAvailabilityChannel, lipsyncProcessChannel] as const;
 
 export const loggerChannels = [loggerGetRecentChannel] as const;
 

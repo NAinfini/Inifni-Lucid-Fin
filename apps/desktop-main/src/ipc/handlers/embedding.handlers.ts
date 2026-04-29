@@ -70,16 +70,13 @@ export function registerEmbeddingHandlers(
     deps.pushGateway ??
     (deps.getWindow ? createRendererPushGateway({ getWindow: deps.getWindow }) : undefined);
 
-  ipcMain.handle(
-    'asset:generateEmbedding',
-    async (_event, args: { assetHash: string }) => {
-      if (!args?.assetHash || typeof args.assetHash !== 'string') {
-        throw new Error('assetHash is required');
-      }
-      await generateEmbeddingForAsset(cas, keychain, db, args.assetHash);
-      return { ok: true };
-    },
-  );
+  ipcMain.handle('asset:generateEmbedding', async (_event, args: { assetHash: string }) => {
+    if (!args?.assetHash || typeof args.assetHash !== 'string') {
+      throw new Error('assetHash is required');
+    }
+    await generateEmbeddingForAsset(cas, keychain, db, args.assetHash);
+    return { ok: true };
+  });
 
   ipcMain.handle(
     'asset:searchSemantic',
@@ -100,65 +97,62 @@ export function registerEmbeddingHandlers(
     },
   );
 
-  ipcMain.handle(
-    'asset:reindexEmbeddings',
-    async (_event, _args, signal?: AbortSignal) => {
-      const allAssets = db.repos.assets.query({ type: 'image', limit: 5000 }).rows;
-      const embeddedHashes = new Set<string>(db.repos.assets.getAllEmbeddedHashes());
-      const toIndex = allAssets.filter((a) => !embeddedHashes.has(a.hash));
-      const total = toIndex.length;
+  ipcMain.handle('asset:reindexEmbeddings', async (_event, _args, signal?: AbortSignal) => {
+    const allAssets = db.repos.assets.query({ type: 'image', limit: 5000 }).rows;
+    const embeddedHashes = new Set<string>(db.repos.assets.getAllEmbeddedHashes());
+    const toIndex = allAssets.filter((a) => !embeddedHashes.has(a.hash));
+    const total = toIndex.length;
 
-      log.info('Reindex embeddings started', {
-        category: 'embedding',
-        total: allAssets.length,
-        toIndex: total,
-      });
+    log.info('Reindex embeddings started', {
+      category: 'embedding',
+      total: allAssets.length,
+      toIndex: total,
+    });
 
-      let indexed = 0;
-      let failed = 0;
+    let indexed = 0;
+    let failed = 0;
 
-      for (let batchStart = 0; batchStart < toIndex.length; batchStart += REINDEX_BATCH_SIZE) {
-        // Honour abort between batches
-        if (signal?.aborted) {
-          log.info('Reindex embeddings aborted', {
-            category: 'embedding',
-            indexed,
-            failed,
-            remaining: total - indexed - failed,
-          });
-          break;
-        }
-
-        const batch = toIndex.slice(batchStart, batchStart + REINDEX_BATCH_SIZE);
-
-        for (const asset of batch) {
-          try {
-            await generateEmbeddingForAsset(cas, keychain, db, asset.hash);
-            indexed++;
-          } catch (err) {
-            failed++;
-            log.warn('Failed to generate embedding during reindex', {
-              category: 'embedding',
-              assetHash: asset.hash,
-              error: String(err),
-            });
-          }
-        }
-
-        // Emit progress after each batch
-        gateway?.emit(assetReindexProgressChannel, { indexed, failed, total });
-
-        // Yield to the event loop between batches so IPC and other work can proceed
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    for (let batchStart = 0; batchStart < toIndex.length; batchStart += REINDEX_BATCH_SIZE) {
+      // Honour abort between batches
+      if (signal?.aborted) {
+        log.info('Reindex embeddings aborted', {
+          category: 'embedding',
+          indexed,
+          failed,
+          remaining: total - indexed - failed,
+        });
+        break;
       }
 
-      log.info('Reindex embeddings complete', {
-        category: 'embedding',
-        indexed,
-        failed,
-      });
+      const batch = toIndex.slice(batchStart, batchStart + REINDEX_BATCH_SIZE);
 
-      return { indexed, failed };
-    },
-  );
+      for (const asset of batch) {
+        try {
+          await generateEmbeddingForAsset(cas, keychain, db, asset.hash);
+          indexed++;
+        } catch (err) {
+          failed++;
+          log.warn('Failed to generate embedding during reindex', {
+            category: 'embedding',
+            assetHash: asset.hash,
+            error: String(err),
+          });
+        }
+      }
+
+      // Emit progress after each batch
+      gateway?.emit(assetReindexProgressChannel, { indexed, failed, total });
+
+      // Yield to the event loop between batches so IPC and other work can proceed
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+
+    log.info('Reindex embeddings complete', {
+      category: 'embedding',
+      indexed,
+      failed,
+    });
+
+    return { indexed, failed };
+  });
 }

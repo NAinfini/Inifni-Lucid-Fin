@@ -18,14 +18,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(fileURLToPath(import.meta.url), '../..');
-const GLOBAL_DTS = path.join(
-  REPO_ROOT,
-  'apps/desktop-renderer/src/types/global.d.ts',
-);
-const PRELOAD_CTS = path.join(
-  REPO_ROOT,
-  'apps/desktop-main/src/preload.cts',
-);
+const GLOBAL_DTS = path.join(REPO_ROOT, 'apps/desktop-renderer/src/types/global.d.ts');
+const PRELOAD_CTS = path.join(REPO_ROOT, 'apps/desktop-main/src/preload.cts');
 
 /**
  * Extract the top-level namespace names declared inside the
@@ -69,9 +63,7 @@ function extractPreloadNamespaces(src: string): Set<string> {
 
   const exposureStart = src.indexOf("exposeInMainWorld('lucidAPI'");
   if (exposureStart === -1) {
-    throw new Error(
-      "preload.cts: could not find \"exposeInMainWorld('lucidAPI'\" call",
-    );
+    throw new Error('preload.cts: could not find "exposeInMainWorld(\'lucidAPI\'" call');
   }
 
   const body = src.slice(exposureStart);
@@ -105,20 +97,13 @@ async function main(): Promise<void> {
   }
 
   console.error('check-preload-drift: DRIFT DETECTED\n');
-  console.error(
-    'The following namespaces are declared in global.d.ts but have no',
-  );
-  console.error(
-    'corresponding entry in preload.cts. Any renderer call to these APIs',
-  );
-  console.error('will silently fail or timeout at runtime.\n',
-  );
+  console.error('The following namespaces are declared in global.d.ts but have no');
+  console.error('corresponding entry in preload.cts. Any renderer call to these APIs');
+  console.error('will silently fail or timeout at runtime.\n');
   for (const ns of phantom) {
     console.error(`  window.lucidAPI.${ns}  — no implementation in preload.cts`);
   }
-  console.error(
-    '\nFix: either add the namespace to preload.cts, or remove it from global.d.ts.',
-  );
+  console.error('\nFix: either add the namespace to preload.cts, or remove it from global.d.ts.');
   process.exitCode = 1;
 }
 

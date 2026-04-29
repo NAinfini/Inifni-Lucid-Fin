@@ -34,20 +34,21 @@ Rules:
 
 ## Consistency Axes to Normalize
 
-| Axis | Example normalization |
-|---|---|
-| Rendering technique | All prompts use "35mm film grain, anamorphic" |
-| Color grade | All prompts use "muted teal-orange grade, -0.5 saturation" |
-| Lighting logic | All prompts use "motivated practical lighting, soft fill" |
-| Shot structure order | All prompts follow: type → subject → environment → light → motion |
-| Vocabulary register | All prompts use cinematography terms, not casual description |
-| Character anchor | Observable attributes only — never names: "woman, late 30s, sharp jawline, dark brown shoulder-length hair, charcoal wool coat" |
+| Axis                 | Example normalization                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Rendering technique  | All prompts use "35mm film grain, anamorphic"                                                                                   |
+| Color grade          | All prompts use "muted teal-orange grade, -0.5 saturation"                                                                      |
+| Lighting logic       | All prompts use "motivated practical lighting, soft fill"                                                                       |
+| Shot structure order | All prompts follow: type → subject → environment → light → motion                                                               |
+| Vocabulary register  | All prompts use cinematography terms, not casual description                                                                    |
+| Character anchor     | Observable attributes only — never names: "woman, late 30s, sharp jawline, dark brown shoulder-length hair, charcoal wool coat" |
 
 ---
 
 ## Seed Locking
 
 When the model supports seeds (Flux, SD, Midjourney `--seed`):
+
 - Generate one "golden frame" first
 - Lock its seed and reuse across all batch generations
 - For video models without seed control: use the golden frame as first-frame image reference instead

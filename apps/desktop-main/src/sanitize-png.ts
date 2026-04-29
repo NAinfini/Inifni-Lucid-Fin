@@ -35,9 +35,7 @@ export function sanitizePng(buffer: Buffer): Buffer {
 
       if (type === 'IHDR') colorType = buffer[offset + 8 + 9]!;
 
-      const drop =
-        type === 'iCCP' ||
-        (type === 'tRNS' && (colorType === 4 || colorType === 6));
+      const drop = type === 'iCCP' || (type === 'tRNS' && (colorType === 4 || colorType === 6));
 
       if (drop) {
         changed = true;

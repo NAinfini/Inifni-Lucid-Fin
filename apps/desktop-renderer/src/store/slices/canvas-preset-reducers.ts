@@ -13,9 +13,7 @@ import {
   type TrackMap,
 } from './canvas-helpers.js';
 
-function clearAppliedShotTemplate(
-  data: Record<string, unknown>,
-): void {
+function clearAppliedShotTemplate(data: Record<string, unknown>): void {
   delete data.appliedShotTemplateId;
   delete data.appliedShotTemplateName;
 }
@@ -162,8 +160,7 @@ export function moveNodePresetTrackEntry(
   const track = data.presetTracks[action.payload.category];
   const currentIndex = track.entries.findIndex((item) => item.id === action.payload.entryId);
   if (currentIndex === -1) return;
-  const targetIndex =
-    action.payload.direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+  const targetIndex = action.payload.direction === 'up' ? currentIndex - 1 : currentIndex + 1;
   if (targetIndex < 0 || targetIndex >= track.entries.length) return;
   const [moved] = track.entries.splice(currentIndex, 1);
   track.entries.splice(targetIndex, 0, moved);

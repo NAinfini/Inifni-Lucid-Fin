@@ -65,11 +65,7 @@ class InspectorRegistryImpl {
    * Return all sections applicable to the given tab + node, pre-sorted
    * by `order`.
    */
-  getSections(
-    tab: InspectorTab,
-    node: CanvasNode,
-    canvas: Canvas,
-  ): InspectorSectionPlugin[] {
+  getSections(tab: InspectorTab, node: CanvasNode, canvas: Canvas): InspectorSectionPlugin[] {
     return this.sections.filter((s) => {
       if (s.tab !== tab) return false;
       if (s.nodeTypes.length > 0 && !s.nodeTypes.includes(node.type)) return false;

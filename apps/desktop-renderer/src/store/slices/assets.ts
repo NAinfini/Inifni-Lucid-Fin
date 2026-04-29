@@ -159,10 +159,7 @@ export const assetsSlice = createSlice({
       state.foldersLoading = action.payload;
     },
     // Asset moves key on hash (assets have hash-based identity).
-    moveItemToFolder(
-      state,
-      action: PayloadAction<{ hash: string; folderId: string | null }>,
-    ) {
+    moveItemToFolder(state, action: PayloadAction<{ hash: string; folderId: string | null }>) {
       const asset = state.items.find((a) => a.hash === action.payload.hash);
       if (asset) asset.folderId = action.payload.folderId;
     },

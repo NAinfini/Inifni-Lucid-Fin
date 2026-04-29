@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import type { SessionId, SnapshotId } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { SnapshotRepository } from './snapshot-repository.js';
 import type { StoredSnapshot } from './snapshot-repository.js';
 
@@ -132,7 +129,10 @@ describe('SnapshotRepository', () => {
     }
     repo.insert(mkSnap('manual-old', { trigger: 'manual', createdAt: 0 }));
     repo.prune('sess-1' as SessionId, 2);
-    const ids = repo.list('sess-1' as SessionId).rows.map((r) => r.id).sort();
+    const ids = repo
+      .list('sess-1' as SessionId)
+      .rows.map((r) => r.id)
+      .sort();
     expect(ids).toEqual(['a4', 'a5', 'manual-old'].sort());
   });
 
@@ -149,8 +149,10 @@ describe('SnapshotRepository', () => {
   });
 
   it('capture + restore round-trips canvas rows', () => {
-    db.prepare(`INSERT INTO canvases (id, name, nodes, edges, viewport, notes, created_at, updated_at)
-       VALUES ('c1', 'Test', '[]', '[]', '{}', '[]', 1, 1)`).run();
+    db.prepare(
+      `INSERT INTO canvases (id, name, nodes, edges, viewport, notes, created_at, updated_at)
+       VALUES ('c1', 'Test', '[]', '[]', '{}', '[]', 1, 1)`,
+    ).run();
     const snap = repo.capture('sess-1' as SessionId, 'label', 'manual');
     db.prepare(`DELETE FROM canvases`).run();
     repo.restore(snap.id as SnapshotId);
@@ -160,6 +162,50 @@ describe('SnapshotRepository', () => {
 
   it('restore throws on unknown snapshot id', () => {
     expect(() => repo.restore('nope' as SnapshotId)).toThrowError(/Snapshot not found/);
+  });
+
+  it('restore only affects rows captured in the snapshot, not other data', () => {
+    db.prepare(
+      `INSERT INTO canvases (id, name, nodes, edges, viewport, notes, created_at, updated_at)
+       VALUES ('c1', 'Canvas A', '[]', '[]', '{}', '[]', 1, 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO characters (id, name, created_at, updated_at)
+       VALUES ('char-1', 'Alice', 1, 1)`,
+    ).run();
+
+    const snap = repo.capture('sess-1' as SessionId, 'before', 'manual');
+
+    db.prepare(
+      `INSERT INTO canvases (id, name, nodes, edges, viewport, notes, created_at, updated_at)
+       VALUES ('c2', 'Canvas B', '[]', '[]', '{}', '[]', 2, 2)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO characters (id, name, created_at, updated_at)
+       VALUES ('char-2', 'Bob', 2, 2)`,
+    ).run();
+
+    db.prepare(`UPDATE canvases SET name = 'Modified A' WHERE id = 'c1'`).run();
+
+    repo.restore(snap.id as SnapshotId);
+
+    const canvases = db.prepare('SELECT id, name FROM canvases ORDER BY id').all() as Array<{
+      id: string;
+      name: string;
+    }>;
+    expect(canvases).toEqual([
+      { id: 'c1', name: 'Canvas A' },
+      { id: 'c2', name: 'Canvas B' },
+    ]);
+
+    const characters = db.prepare('SELECT id, name FROM characters ORDER BY id').all() as Array<{
+      id: string;
+      name: string;
+    }>;
+    expect(characters).toEqual([
+      { id: 'char-1', name: 'Alice' },
+      { id: 'char-2', name: 'Bob' },
+    ]);
   });
 
   it('fault injection: invalid trigger enum reports degrade + skips', () => {

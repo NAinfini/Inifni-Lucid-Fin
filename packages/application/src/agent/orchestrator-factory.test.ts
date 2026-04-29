@@ -20,10 +20,12 @@ function mockAdapter(): LLMAdapter {
   } as unknown as LLMAdapter;
 }
 
-function mockCanvasStore(canvas: {
-  nodes?: Array<{ id: string; type: string }>;
-  settings?: { stylePlate?: string | null } | null;
-} | null = null) {
+function mockCanvasStore(
+  canvas: {
+    nodes?: Array<{ id: string; type: string }>;
+    settings?: { stylePlate?: string | null } | null;
+  } | null = null,
+) {
   return {
     get: () =>
       canvas

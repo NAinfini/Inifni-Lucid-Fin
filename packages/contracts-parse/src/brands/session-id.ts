@@ -16,9 +16,6 @@ const SessionIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'sessionId must be non-empty after trim' });
 
-export const parseSessionId = makeBrandParser<SessionId, string>(
-  SessionIdSchema,
-  'SessionId',
-);
+export const parseSessionId = makeBrandParser<SessionId, string>(SessionIdSchema, 'SessionId');
 
 export const trySessionId = makeTryBrand<SessionId, string>(SessionIdSchema);

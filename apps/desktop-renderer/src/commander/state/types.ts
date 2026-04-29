@@ -18,6 +18,11 @@ export interface CommanderToolCall {
   status: 'pending' | 'done' | 'error';
 }
 
+export interface QueuedMessage {
+  id: string;
+  content: string;
+}
+
 export type MessageSegmentId = string;
 
 export type PhaseNoteKind = 'process_prompt_loaded' | 'compacted' | 'llm_retry';
@@ -189,7 +194,7 @@ export interface CommanderState {
   pendingQuestion: PendingQuestion | null;
   confirmAutoMode: 'none' | 'approve' | 'skip';
   consecutiveConfirmCount: number;
-  messageQueue: string[];
+  messageQueue: QueuedMessage[];
   /** User messages injected during streaming — committed to messages[] when streaming finishes. */
   pendingInjectedMessages: string[];
   /** Backend-reported context usage (updated per LLM request). */

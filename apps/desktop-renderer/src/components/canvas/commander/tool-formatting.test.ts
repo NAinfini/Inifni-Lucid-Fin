@@ -11,7 +11,7 @@ describe('formatAction', () => {
   });
 
   it('uses i18n when available', () => {
-    const t = (key: string) => key === 'commander.toolAction.list' ? 'List All' : key;
+    const t = (key: string) => (key === 'commander.toolAction.list' ? 'List All' : key);
     expect(formatAction('list', t)).toBe('List All');
   });
 

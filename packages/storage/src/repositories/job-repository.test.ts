@@ -2,10 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import type { Job, JobId } from '@lucid-fin/contracts';
 import { JobStatus } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { JobRepository } from './job-repository.js';
 
 const SCHEMA = `
@@ -105,7 +102,7 @@ describe('JobRepository', () => {
   });
 
   it('list orders by priority DESC then createdAt ASC', () => {
-    repo.insert(mkJob('low-early',  { priority: 0, createdAt: 1 }));
+    repo.insert(mkJob('low-early', { priority: 0, createdAt: 1 }));
     repo.insert(mkJob('high-later', { priority: 9, createdAt: 5 }));
     repo.insert(mkJob('high-early', { priority: 9, createdAt: 2 }));
     const { rows, degradedCount } = repo.list();
@@ -114,8 +111,8 @@ describe('JobRepository', () => {
   });
 
   it('list filters by status when provided', () => {
-    repo.insert(mkJob('q',  { status: JobStatus.Queued }));
-    repo.insert(mkJob('r',  { status: JobStatus.Running }));
+    repo.insert(mkJob('q', { status: JobStatus.Queued }));
+    repo.insert(mkJob('r', { status: JobStatus.Running }));
     repo.insert(mkJob('q2', { status: JobStatus.Queued }));
     const { rows } = repo.list({ status: JobStatus.Running });
     expect(rows.map((r) => r.id)).toEqual(['r']);

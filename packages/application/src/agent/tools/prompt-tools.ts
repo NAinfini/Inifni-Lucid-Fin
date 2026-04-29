@@ -25,25 +25,47 @@ export interface PromptToolDeps {
 export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
   const get: AgentTool = {
     name: 'prompt.get',
-    description: 'Get prompt templates. If ids is provided, fetch specific prompt(s) by code. If ids is omitted, return a paginated list of all prompts.',
+    description:
+      'Get prompt templates. If ids is provided, fetch specific prompt(s) by code. If ids is omitted, return a paginated list of all prompts.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        ids: { type: 'array', items: { type: 'string', description: 'Prompt ID.' }, description: 'Prompt ID or array of prompt IDs to fetch. Omit to list all prompts.' },
-        offset: { type: 'number', description: 'Start index (0-based). Default 0. Used when ids is omitted.' },
-        limit: { type: 'number', description: 'Max items to return. Default 50. Used when ids is omitted.' },
+        ids: {
+          type: 'array',
+          items: { type: 'string', description: 'Prompt ID.' },
+          description: 'Prompt ID or array of prompt IDs to fetch. Omit to list all prompts.',
+        },
+        offset: {
+          type: 'number',
+          description: 'Start index (0-based). Default 0. Used when ids is omitted.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max items to return. Default 50. Used when ids is omitted.',
+        },
       },
       required: [],
     },
     async execute(args) {
       try {
         const rawIds = args.ids;
-        if (rawIds === undefined || rawIds === null || (Array.isArray(rawIds) && rawIds.length === 0)) {
+        if (
+          rawIds === undefined ||
+          rawIds === null ||
+          (Array.isArray(rawIds) && rawIds.length === 0)
+        ) {
           const prompts = await deps.listPrompts();
-          const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-          const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-          return ok({ total: prompts.length, offset, limit, prompts: prompts.slice(offset, offset + limit) });
+          const offset =
+            typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+          const limit =
+            typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+          return ok({
+            total: prompts.length,
+            offset,
+            limit,
+            prompts: prompts.slice(offset, offset + limit),
+          });
         }
         if (typeof rawIds === 'string') {
           const id = rawIds.trim();
@@ -74,13 +96,17 @@ export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
 
   const setCustom: AgentTool = {
     name: 'prompt.setCustom',
-    description: 'Set or clear a custom override for a prompt template. If value is provided, set the custom override. If value is omitted or null, clear the override and restore the default.',
+    description:
+      'Set or clear a custom override for a prompt template. If value is provided, set the custom override. If value is omitted or null, clear the override and restore the default.',
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         code: { type: 'string', description: 'Prompt template code.' },
-        value: { type: 'string', description: 'Custom prompt value. Omit or set null to clear the override.' },
+        value: {
+          type: 'string',
+          description: 'Custom prompt value. Omit or set null to clear the override.',
+        },
       },
       required: ['code'],
     },

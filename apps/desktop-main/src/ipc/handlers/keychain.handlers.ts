@@ -90,16 +90,14 @@ export function registerKeychainHandlers(
           providerType: 'media',
           valid,
         });
-        return valid
-          ? { ok: true }
-          : { ok: false, error: 'Provider validation returned false' };
+        return valid ? { ok: true } : { ok: false, error: 'Provider validation returned false' };
       } catch (error) {
         log.error('Media provider connection test threw', {
           category: 'provider',
           providerId: args.provider,
           providerGroup: args.group,
           providerType: 'media',
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         });
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
@@ -115,7 +113,8 @@ export function registerKeychainHandlers(
       });
       return {
         ok: false,
-        error: 'Direct connection test is not supported for this provider. Try a real generation request.',
+        error:
+          'Direct connection test is not supported for this provider. Try a real generation request.',
       };
     }
 
@@ -136,9 +135,7 @@ export function registerKeychainHandlers(
           ...getLLMProviderLogFields(runtimeConfig),
           valid,
         });
-        return valid
-          ? { ok: true }
-          : { ok: false, error: 'Provider validation returned false' };
+        return valid ? { ok: true } : { ok: false, error: 'Provider validation returned false' };
       } catch (error) {
         log.error('LLM provider connection test threw', {
           category: 'provider',
@@ -146,7 +143,7 @@ export function registerKeychainHandlers(
           providerGroup: args.group,
           providerType: 'llm',
           ...getLLMProviderLogFields(runtimeConfig),
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         });
         return { ok: false, error: error instanceof Error ? error.message : String(error) };
       }
@@ -183,7 +180,7 @@ export function registerKeychainHandlers(
           providerGroup: args.group,
           providerType: 'custom-llm',
           ...getLLMProviderLogFields(runtimeConfig),
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         });
         return { ok: false, error: error instanceof Error ? error.message : 'Connection failed' };
       }

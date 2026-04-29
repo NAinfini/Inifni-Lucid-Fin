@@ -233,9 +233,7 @@ export function listWorkflowStageRuns(
   workflowRunId: string,
 ): WorkflowStageRun[] {
   const rows = db
-    .prepare(
-      'SELECT * FROM workflow_stage_runs WHERE workflow_run_id = ? ORDER BY stage_order ASC',
-    )
+    .prepare('SELECT * FROM workflow_stage_runs WHERE workflow_run_id = ? ORDER BY stage_order ASC')
     .all(workflowRunId) as Array<Record<string, unknown>>;
   return rows.map((row) => rowToWorkflowStageRun(row));
 }
@@ -316,10 +314,7 @@ export function updateWorkflowStageRun(
 
 // --- Workflow Task Runs ---
 
-export function insertWorkflowTaskRun(
-  db: BetterSqlite3.Database,
-  taskRun: WorkflowTaskRun,
-): void {
+export function insertWorkflowTaskRun(db: BetterSqlite3.Database, taskRun: WorkflowTaskRun): void {
   db.prepare(
     `
     INSERT INTO workflow_task_runs (
@@ -980,9 +975,7 @@ export function recomputeWorkflowAggregate(
       : (tasks.find((task) => task.status === 'running' || task.status === 'awaiting_provider') ??
         tasks.find(
           (task) =>
-            task.status !== 'completed' &&
-            task.status !== 'skipped' &&
-            task.status !== 'cancelled',
+            task.status !== 'completed' && task.status !== 'skipped' && task.status !== 'cancelled',
         ));
 
   const summary = `${status} ${completedStages}/${totalStages} stages, ${completedTasks}/${totalTasks} tasks`;
@@ -1152,7 +1145,8 @@ function parseJsonRecord(value: unknown): Record<string, unknown> {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : {};
-  } catch { /* malformed JSON column value — return empty record */
+  } catch {
+    /* malformed JSON column value — return empty record */
     return {};
   }
 }
@@ -1205,8 +1199,8 @@ function rowToWorkflowTaskSummary(
   const workflowMetadata = parseJsonRecord(row.workflow_metadata_json);
   const taskMetadata = getProjectionSources(taskInput, taskOutput);
   const workflowSources = getProjectionSources(workflowMetadata);
-  const producedArtifacts = (artifactsMap.get(row.id as string) ?? []).map(
-    (artifact) => toWorkflowArtifactSummary(artifact),
+  const producedArtifacts = (artifactsMap.get(row.id as string) ?? []).map((artifact) =>
+    toWorkflowArtifactSummary(artifact),
   );
 
   return {
@@ -1225,8 +1219,7 @@ function rowToWorkflowTaskSummary(
       pickProjectionString(workflowSources, ['displayCategory', 'category']) ??
       String(row.kind),
     displayLabel:
-      pickProjectionString(taskMetadata, ['displayLabel', 'label', 'name']) ??
-      (row.name as string),
+      pickProjectionString(taskMetadata, ['displayLabel', 'label', 'name']) ?? (row.name as string),
     relatedEntityType:
       pickProjectionString(taskMetadata, ['relatedEntityType']) ??
       (row.workflow_entity_type == null ? undefined : String(row.workflow_entity_type)),

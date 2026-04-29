@@ -10,6 +10,7 @@ import type {
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { normalizeOpenAICompatibleBaseUrl } from './openai-compatible-base.js';
 import { oneShotStream } from './one-shot-stream.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 interface OpenAIResponsesCompletion {
   content: string;
@@ -82,7 +83,8 @@ function normalizeResponsesBaseUrl(baseUrl: string): string {
     const parsed = new URL(normalized);
     parsed.pathname = parsed.pathname.replace(/\/responses$/i, '') || '/';
     return stringifyUrl(parsed);
-  } catch { /* malformed URL — fall back to string-based /responses stripping */
+  } catch {
+    /* malformed URL — fall back to string-based /responses stripping */
     return normalized.replace(/\/responses$/i, '');
   }
 }
@@ -114,7 +116,10 @@ export class OpenAIResponsesLLM implements LLMAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = normalizeResponsesBaseUrl(options.baseUrl as string);
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = normalizeResponsesBaseUrl(options.baseUrl as string);
+    }
     if (options?.model) this.model = options.model as string;
   }
 
@@ -130,7 +135,8 @@ export class OpenAIResponsesLLM implements LLMAdapter {
         }),
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -174,7 +180,10 @@ export class OpenAIResponsesLLM implements LLMAdapter {
     }
   }
 
-  private buildRequestBody(messages: LLMMessage[], opts?: LLMRequestOptions): Record<string, unknown> {
+  private buildRequestBody(
+    messages: LLMMessage[],
+    opts?: LLMRequestOptions,
+  ): Record<string, unknown> {
     const instructions = messages
       .filter((message) => message.role === 'system')
       .map((message) => message.content)
@@ -257,7 +266,10 @@ export class OpenAIResponsesLLM implements LLMAdapter {
     return body;
   }
 
-  private async request(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<OpenAIResponsesCompletion> {
+  private async request(
+    messages: LLMMessage[],
+    opts?: LLMRequestOptions,
+  ): Promise<OpenAIResponsesCompletion> {
     const body = this.buildRequestBody(messages, opts);
     const res = await fetch(`${this.baseUrl}/responses`, {
       method: 'POST',
@@ -271,24 +283,24 @@ export class OpenAIResponsesLLM implements LLMAdapter {
       if (res.status === 401) {
         throw new LucidError(ErrorCode.AuthFailed, `Invalid ${this.name} API key`, {
           status: res.status,
-          responseText,
+          responseText: responseText.slice(0, 200),
         });
       }
       if (res.status === 429) {
         throw new LucidError(ErrorCode.RateLimited, `${this.name} rate limited`, {
           status: res.status,
-          responseText,
+          responseText: responseText.slice(0, 200),
         });
       }
       if (res.status === 400) {
         throw new LucidError(ErrorCode.InvalidRequest, `${this.name} error: 400`, {
           status: res.status,
-          responseText,
+          responseText: responseText.slice(0, 200),
         });
       }
       throw new LucidError(ErrorCode.ServiceUnavailable, `${this.name} error: ${res.status}`, {
         status: res.status,
-        responseText,
+        responseText: responseText.slice(0, 200),
       });
     }
 
@@ -314,7 +326,9 @@ export class OpenAIResponsesLLM implements LLMAdapter {
     }
 
     const toolCalls: LLMToolCall[] = output
-      .filter((item): item is Record<string, unknown> => isRecord(item) && item.type === 'function_call')
+      .filter(
+        (item): item is Record<string, unknown> => isRecord(item) && item.type === 'function_call',
+      )
       .map((item, index) => {
         const rawName = typeof item.name === 'string' ? item.name : `tool_${index}`;
         const rawArguments = item.arguments;
@@ -324,7 +338,8 @@ export class OpenAIResponsesLLM implements LLMAdapter {
           try {
             const parsed = JSON.parse(rawArguments) as unknown;
             parsedArguments = isRecord(parsed) ? parsed : {};
-          } catch { /* malformed JSON tool arguments — pass raw string for caller to handle */
+          } catch {
+            /* malformed JSON tool arguments — pass raw string for caller to handle */
             parsedArguments = { raw: rawArguments };
           }
         } else if (isRecord(rawArguments)) {
@@ -339,9 +354,13 @@ export class OpenAIResponsesLLM implements LLMAdapter {
       });
 
     if (!content && toolCalls.length === 0 && !reasoning) {
-      throw new LucidError(ErrorCode.ServiceUnavailable, `${this.name} returned a response without extractable content`, {
-        responseBody: data,
-      });
+      throw new LucidError(
+        ErrorCode.ServiceUnavailable,
+        `${this.name} returned a response without extractable content`,
+        {
+          responseBody: data,
+        },
+      );
     }
 
     return {

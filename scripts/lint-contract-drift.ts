@@ -49,9 +49,7 @@ async function readTerminalCommitmentSection(guidePath: string): Promise<string 
   // Grab the text between `## Terminal commitment` and the next H2 (or EOF).
   // JS regex has no `\Z`; use `(?=^## |$(?![\s\S]))` to match either the next
   // H2 or end-of-string.
-  const match = raw.match(
-    /^## Terminal commitment\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m,
-  );
+  const match = raw.match(/^## Terminal commitment\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m);
   return match ? match[1] : null;
 }
 
@@ -82,9 +80,7 @@ async function main(): Promise<void> {
       reports.push({
         contractId,
         guidePath,
-        missingFromGuide: [
-          '(no "## Terminal commitment" section found in guide)',
-        ],
+        missingFromGuide: ['(no "## Terminal commitment" section found in guide)'],
       });
       continue;
     }
@@ -96,9 +92,7 @@ async function main(): Promise<void> {
       contractToolNames.add(c.toolName);
     }
 
-    const missingFromGuide = [...contractToolNames].filter(
-      (t) => !guideToolNames.has(t),
-    );
+    const missingFromGuide = [...contractToolNames].filter((t) => !guideToolNames.has(t));
 
     if (missingFromGuide.length > 0) {
       reports.push({
@@ -119,9 +113,7 @@ async function main(): Promise<void> {
     console.error(`- contract: ${r.contractId}`);
     console.error(`  guide:    ${path.relative(repoRoot, r.guidePath)}`);
     if (r.missingFromGuide.length > 0) {
-      console.error(
-        `  missing from guide prose: ${r.missingFromGuide.join(', ')}`,
-      );
+      console.error(`  missing from guide prose: ${r.missingFromGuide.join(', ')}`);
     }
     console.error('');
   }

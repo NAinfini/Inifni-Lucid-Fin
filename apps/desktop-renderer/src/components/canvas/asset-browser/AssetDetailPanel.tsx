@@ -30,7 +30,11 @@ export function AssetDetailPanel({
     <div className="border-t border-border/60 px-3 py-2 space-y-1.5 bg-card">
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-medium">{t('assetBrowser.details')}</span>
-        <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground"
+        >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -81,26 +85,56 @@ export function AssetDetailPanel({
         )}
       </div>
       <div className="space-y-1 text-[10px] text-muted-foreground">
-        <div className="flex justify-between"><span>{t('assetBrowser.fields.type')}</span><span>{localizeAssetType(asset.type)}</span></div>
-        <div className="flex justify-between"><span>{t('assetBrowser.fields.size')}</span><span>{formatSize(asset.size)}</span></div>
+        <div className="flex justify-between">
+          <span>{t('assetBrowser.fields.type')}</span>
+          <span>{localizeAssetType(asset.type)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span>{t('assetBrowser.fields.size')}</span>
+          <span>{formatSize(asset.size)}</span>
+        </div>
         {asset.format && (
-          <div className="flex justify-between"><span>{t('assetBrowser.fields.format')}</span><span className="uppercase">{asset.format}</span></div>
+          <div className="flex justify-between">
+            <span>{t('assetBrowser.fields.format')}</span>
+            <span className="uppercase">{asset.format}</span>
+          </div>
         )}
         {asset.width != null && asset.height != null && (
-          <div className="flex justify-between"><span>{t('assetBrowser.fields.dimensions')}</span><span>{asset.width}&times;{asset.height}</span></div>
+          <div className="flex justify-between">
+            <span>{t('assetBrowser.fields.dimensions')}</span>
+            <span>
+              {asset.width}&times;{asset.height}
+            </span>
+          </div>
         )}
         {asset.duration != null && (asset.type === 'video' || asset.type === 'audio') && (
-          <div className="flex justify-between"><span>{t('assetBrowser.fields.duration')}</span><span>{formatDuration(asset.duration)}</span></div>
+          <div className="flex justify-between">
+            <span>{t('assetBrowser.fields.duration')}</span>
+            <span>{formatDuration(asset.duration)}</span>
+          </div>
         )}
-        <div className="flex justify-between"><span>{t('assetBrowser.fields.hash')}</span><span className="font-mono truncate max-w-[120px]" title={asset.hash}>{asset.hash.slice(0, 16)}...</span></div>
-        <div className="flex justify-between"><span>{t('assetBrowser.created')}</span><span>{new Date(asset.createdAt).toLocaleString(getLocale())}</span></div>
+        <div className="flex justify-between">
+          <span>{t('assetBrowser.fields.hash')}</span>
+          <span className="font-mono truncate max-w-[120px]" title={asset.hash}>
+            {asset.hash.slice(0, 16)}...
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span>{t('assetBrowser.created')}</span>
+          <span>{new Date(asset.createdAt).toLocaleString(getLocale())}</span>
+        </div>
         {asset.provider && (
-          <div className="flex justify-between"><span>{t('assetBrowser.fields.provider')}</span><span>{asset.provider}</span></div>
+          <div className="flex justify-between">
+            <span>{t('assetBrowser.fields.provider')}</span>
+            <span>{asset.provider}</span>
+          </div>
         )}
         {asset.prompt && (
           <div className="flex flex-col gap-0.5">
             <span>{t('assetBrowser.fields.prompt')}</span>
-            <span className="text-[10px] text-foreground/80 break-words leading-snug">{asset.prompt}</span>
+            <span className="text-[10px] text-foreground/80 break-words leading-snug">
+              {asset.prompt}
+            </span>
           </div>
         )}
       </div>

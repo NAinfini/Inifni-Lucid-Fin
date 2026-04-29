@@ -6,7 +6,12 @@ import {
 } from '@lucid-fin/contracts';
 import type { AgentTool } from '../tool-registry.js';
 import { createRefImageTools } from './ref-image-factory.js';
-import { extractSet, warnExtraKeys, requireString, requireSetString } from './tool-result-helpers.js';
+import {
+  extractSet,
+  warnExtraKeys,
+  requireString,
+  requireSetString,
+} from './tool-result-helpers.js';
 import { buildCharacterRefImagePrompt } from './character-prompt.js';
 
 function parseCharacterView(raw: unknown): CharacterRefImageView {
@@ -15,7 +20,9 @@ function parseCharacterView(raw: unknown): CharacterRefImageView {
   // front/back/side/full-body + detailed expressions.
   if (raw === undefined || raw === null) return { kind: 'full-sheet' };
   if (typeof raw !== 'object') {
-    throw new Error('view must be an object: { kind: "full-sheet" | "extra-angle", angle?: string }');
+    throw new Error(
+      'view must be an object: { kind: "full-sheet" | "extra-angle", angle?: string }',
+    );
   }
   const obj = raw as Record<string, unknown>;
   const kind = obj.kind;
@@ -39,12 +46,14 @@ export interface CharacterToolDeps {
   listCharacters: () => Promise<Character[]>;
   saveCharacter: (character: Character) => Promise<void>;
   deleteCharacter: (id: string) => Promise<void>;
-  generateImage?: (prompt: string, options?: GenerateImageOptions) => Promise<{ assetHash: string }>;
+  generateImage?: (
+    prompt: string,
+    options?: GenerateImageOptions,
+  ) => Promise<{ assetHash: string }>;
   getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
 export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
-
   const characterList: AgentTool = {
     name: 'character.list',
     description: 'List all characters in the current project.',
@@ -53,7 +62,11 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Optional search query. Matches against name, role, or description (case-insensitive OR logic).' },
+        query: {
+          type: 'string',
+          description:
+            'Optional search query. Matches against name, role, or description (case-insensitive OR logic).',
+        },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
@@ -62,20 +75,32 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const characters = await deps.listCharacters();
-        const query = typeof args.query === 'string' && args.query.length > 0
-          ? args.query.toLowerCase()
-          : undefined;
+        const query =
+          typeof args.query === 'string' && args.query.length > 0
+            ? args.query.toLowerCase()
+            : undefined;
         let filtered = characters;
         if (query) {
-          filtered = filtered.filter((c) =>
-            c.name?.toLowerCase().includes(query) ||
-            c.role?.toLowerCase().includes(query) ||
-            c.description?.toLowerCase().includes(query),
+          filtered = filtered.filter(
+            (c) =>
+              c.name?.toLowerCase().includes(query) ||
+              c.role?.toLowerCase().includes(query) ||
+              c.description?.toLowerCase().includes(query),
           );
         }
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        return { success: true, data: { total: filtered.length, offset, limit, characters: filtered.slice(offset, offset + limit) } };
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return {
+          success: true,
+          data: {
+            total: filtered.length,
+            offset,
+            limit,
+            characters: filtered.slice(offset, offset + limit),
+          },
+        };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
@@ -84,7 +109,8 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
   const characterCreate: AgentTool = {
     name: 'character.create',
-    description: 'Create a new character in the current project. To update an existing character, use character.update instead. To generate a reference image, use character.generateRefImage after creation.',
+    description:
+      'Create a new character in the current project. To update an existing character, use character.update instead. To generate a reference image, use character.generateRefImage after creation.',
     tags: ['character', 'mutate'],
     tier: 2,
     parameters: {
@@ -100,18 +126,31 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         appearance: { type: 'string', description: 'Physical appearance description.' },
         personality: { type: 'string', description: 'Personality traits description.' },
         age: { type: 'number', description: 'Character age.' },
-        gender: { type: 'string', description: 'Gender.', enum: ['male', 'female', 'non-binary', 'other'] },
-        voice: { type: 'string', description: 'Voice description (e.g. warm alto, gravelly baritone).' },
+        gender: {
+          type: 'string',
+          description: 'Gender.',
+          enum: ['male', 'female', 'non-binary', 'other'],
+        },
+        voice: {
+          type: 'string',
+          description: 'Voice description (e.g. warm alto, gravelly baritone).',
+        },
         face: {
           type: 'object',
           description: 'Structured face description for prompt compilation.',
           properties: {
             eyeShape: { type: 'string', description: 'Eye shape (e.g. almond, round, hooded).' },
             eyeColor: { type: 'string', description: 'Eye color.' },
-            noseType: { type: 'string', description: 'Nose type (e.g. straight, aquiline, button).' },
+            noseType: {
+              type: 'string',
+              description: 'Nose type (e.g. straight, aquiline, button).',
+            },
             lipShape: { type: 'string', description: 'Lip shape (e.g. full, thin, cupid bow).' },
             jawline: { type: 'string', description: 'Jawline shape (e.g. oval, square, pointed).' },
-            definingFeatures: { type: 'string', description: 'Additional defining facial features.' },
+            definingFeatures: {
+              type: 'string',
+              description: 'Additional defining facial features.',
+            },
           },
         },
         hair: {
@@ -120,11 +159,17 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           properties: {
             color: { type: 'string', description: 'Hair color.' },
             style: { type: 'string', description: 'Hair style (e.g. bob, braids, undercut).' },
-            length: { type: 'string', description: 'Hair length (e.g. shoulder-length, waist-length).' },
+            length: {
+              type: 'string',
+              description: 'Hair length (e.g. shoulder-length, waist-length).',
+            },
             texture: { type: 'string', description: 'Hair texture (e.g. straight, curly, coily).' },
           },
         },
-        skinTone: { type: 'string', description: 'Skin tone description (e.g. warm olive, deep brown).' },
+        skinTone: {
+          type: 'string',
+          description: 'Skin tone description (e.g. warm olive, deep brown).',
+        },
         body: {
           type: 'object',
           description: 'Body type description.',
@@ -145,10 +190,17 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           properties: {
             pitch: { type: 'string', description: 'Voice pitch (e.g. alto, tenor, baritone).' },
             accent: { type: 'string', description: 'Accent (e.g. British RP, Southern US).' },
-            cadence: { type: 'string', description: 'Speaking cadence (e.g. measured, rapid-fire).' },
+            cadence: {
+              type: 'string',
+              description: 'Speaking cadence (e.g. measured, rapid-fire).',
+            },
           },
         },
-        tags: { type: 'array', description: 'Tags for organizing characters.', items: { type: 'string', description: 'A tag.' } },
+        tags: {
+          type: 'array',
+          description: 'Tags for organizing characters.',
+          items: { type: 'string', description: 'A tag.' },
+        },
       },
       required: ['name', 'role', 'description', 'appearance', 'personality'],
     },
@@ -156,12 +208,26 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
       try {
         const now = Date.now();
         const name = requireString(args, 'name');
-        const face = typeof args.face === 'object' && args.face !== null ? args.face as Record<string, unknown> : undefined;
-        const hair = typeof args.hair === 'object' && args.hair !== null ? args.hair as Record<string, unknown> : undefined;
+        const face =
+          typeof args.face === 'object' && args.face !== null
+            ? (args.face as Record<string, unknown>)
+            : undefined;
+        const hair =
+          typeof args.hair === 'object' && args.hair !== null
+            ? (args.hair as Record<string, unknown>)
+            : undefined;
         const skinTone = typeof args.skinTone === 'string' ? args.skinTone : undefined;
-        const body = typeof args.body === 'object' && args.body !== null ? args.body as Record<string, unknown> : undefined;
-        const distinctTraits = Array.isArray(args.distinctTraits) ? args.distinctTraits.filter((t): t is string => typeof t === 'string') : undefined;
-        const vocalTraits = typeof args.vocalTraits === 'object' && args.vocalTraits !== null ? args.vocalTraits as Record<string, unknown> : undefined;
+        const body =
+          typeof args.body === 'object' && args.body !== null
+            ? (args.body as Record<string, unknown>)
+            : undefined;
+        const distinctTraits = Array.isArray(args.distinctTraits)
+          ? args.distinctTraits.filter((t): t is string => typeof t === 'string')
+          : undefined;
+        const vocalTraits =
+          typeof args.vocalTraits === 'object' && args.vocalTraits !== null
+            ? (args.vocalTraits as Record<string, unknown>)
+            : undefined;
         const character: Character = {
           id: crypto.randomUUID(),
           name,
@@ -173,9 +239,12 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           referenceImages: [],
           loadouts: [],
           defaultLoadoutId: '',
-          tags: Array.isArray(args.tags) ? args.tags.filter((t): t is string => typeof t === 'string') : [],
+          tags: Array.isArray(args.tags)
+            ? args.tags.filter((t): t is string => typeof t === 'string')
+            : [],
           ...(typeof args.age === 'number' && { age: args.age }),
-          ...(typeof args.gender === 'string' && args.gender && { gender: args.gender as Character['gender'] }),
+          ...(typeof args.gender === 'string' &&
+            args.gender && { gender: args.gender as Character['gender'] }),
           ...(typeof args.voice === 'string' && args.voice && { voice: args.voice }),
           ...(face !== undefined && { face }),
           ...(hair !== undefined && { hair }),
@@ -196,7 +265,8 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
 
   const characterUpdate: AgentTool = {
     name: 'character.update',
-    description: 'Update an existing character by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new character, use character.create instead.',
+    description:
+      'Update an existing character by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new character, use character.create instead.',
     tags: ['character', 'mutate'],
     tier: 2,
     parameters: {
@@ -205,7 +275,8 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         id: { type: 'string', description: 'The character ID to update.' },
         set: {
           type: 'object',
-          description: 'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
+          description:
+            'Fields to update. ONLY include the fields you want to change — omitted fields are left untouched.',
           properties: {
             name: { type: 'string', description: 'Updated character name.' },
             role: {
@@ -217,18 +288,37 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
             appearance: { type: 'string', description: 'Updated appearance description.' },
             personality: { type: 'string', description: 'Updated personality description.' },
             age: { type: 'number', description: 'Character age.' },
-            gender: { type: 'string', description: 'Gender.', enum: ['male', 'female', 'non-binary', 'other'] },
+            gender: {
+              type: 'string',
+              description: 'Gender.',
+              enum: ['male', 'female', 'non-binary', 'other'],
+            },
             voice: { type: 'string', description: 'Voice description.' },
             face: {
               type: 'object',
               description: 'Structured face description for prompt compilation.',
               properties: {
-                eyeShape: { type: 'string', description: 'Eye shape (e.g. almond, round, hooded).' },
+                eyeShape: {
+                  type: 'string',
+                  description: 'Eye shape (e.g. almond, round, hooded).',
+                },
                 eyeColor: { type: 'string', description: 'Eye color.' },
-                noseType: { type: 'string', description: 'Nose type (e.g. straight, aquiline, button).' },
-                lipShape: { type: 'string', description: 'Lip shape (e.g. full, thin, cupid bow).' },
-                jawline: { type: 'string', description: 'Jawline shape (e.g. oval, square, pointed).' },
-                definingFeatures: { type: 'string', description: 'Additional defining facial features.' },
+                noseType: {
+                  type: 'string',
+                  description: 'Nose type (e.g. straight, aquiline, button).',
+                },
+                lipShape: {
+                  type: 'string',
+                  description: 'Lip shape (e.g. full, thin, cupid bow).',
+                },
+                jawline: {
+                  type: 'string',
+                  description: 'Jawline shape (e.g. oval, square, pointed).',
+                },
+                definingFeatures: {
+                  type: 'string',
+                  description: 'Additional defining facial features.',
+                },
               },
             },
             hair: {
@@ -237,18 +327,33 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
               properties: {
                 color: { type: 'string', description: 'Hair color.' },
                 style: { type: 'string', description: 'Hair style (e.g. bob, braids, undercut).' },
-                length: { type: 'string', description: 'Hair length (e.g. shoulder-length, waist-length).' },
-                texture: { type: 'string', description: 'Hair texture (e.g. straight, curly, coily).' },
+                length: {
+                  type: 'string',
+                  description: 'Hair length (e.g. shoulder-length, waist-length).',
+                },
+                texture: {
+                  type: 'string',
+                  description: 'Hair texture (e.g. straight, curly, coily).',
+                },
               },
             },
-            skinTone: { type: 'string', description: 'Skin tone description (e.g. warm olive, deep brown).' },
+            skinTone: {
+              type: 'string',
+              description: 'Skin tone description (e.g. warm olive, deep brown).',
+            },
             body: {
               type: 'object',
               description: 'Body type description.',
               properties: {
                 height: { type: 'string', description: 'Height.' },
-                build: { type: 'string', description: 'Body build (e.g. athletic, slender, stocky).' },
-                proportions: { type: 'string', description: 'Body proportions (e.g. 8-head body).' },
+                build: {
+                  type: 'string',
+                  description: 'Body build (e.g. athletic, slender, stocky).',
+                },
+                proportions: {
+                  type: 'string',
+                  description: 'Body proportions (e.g. 8-head body).',
+                },
               },
             },
             distinctTraits: {
@@ -262,10 +367,17 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
               properties: {
                 pitch: { type: 'string', description: 'Voice pitch (e.g. alto, tenor, baritone).' },
                 accent: { type: 'string', description: 'Accent (e.g. British RP, Southern US).' },
-                cadence: { type: 'string', description: 'Speaking cadence (e.g. measured, rapid-fire).' },
+                cadence: {
+                  type: 'string',
+                  description: 'Speaking cadence (e.g. measured, rapid-fire).',
+                },
               },
             },
-            tags: { type: 'array', description: 'Tags for organizing characters.', items: { type: 'string', description: 'A tag.' } },
+            tags: {
+              type: 'array',
+              description: 'Tags for organizing characters.',
+              items: { type: 'string', description: 'A tag.' },
+            },
           },
         },
       },
@@ -281,12 +393,26 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
         }
         const set = extractSet(args);
         const warnings = warnExtraKeys(args);
-        const face = typeof set.face === 'object' && set.face !== null ? set.face as Record<string, unknown> : undefined;
-        const hair = typeof set.hair === 'object' && set.hair !== null ? set.hair as Record<string, unknown> : undefined;
+        const face =
+          typeof set.face === 'object' && set.face !== null
+            ? (set.face as Record<string, unknown>)
+            : undefined;
+        const hair =
+          typeof set.hair === 'object' && set.hair !== null
+            ? (set.hair as Record<string, unknown>)
+            : undefined;
         const skinTone = typeof set.skinTone === 'string' ? set.skinTone : undefined;
-        const body = typeof set.body === 'object' && set.body !== null ? set.body as Record<string, unknown> : undefined;
-        const distinctTraits = Array.isArray(set.distinctTraits) ? set.distinctTraits.filter((t): t is string => typeof t === 'string') : undefined;
-        const vocalTraits = typeof set.vocalTraits === 'object' && set.vocalTraits !== null ? set.vocalTraits as Record<string, unknown> : undefined;
+        const body =
+          typeof set.body === 'object' && set.body !== null
+            ? (set.body as Record<string, unknown>)
+            : undefined;
+        const distinctTraits = Array.isArray(set.distinctTraits)
+          ? set.distinctTraits.filter((t): t is string => typeof t === 'string')
+          : undefined;
+        const vocalTraits =
+          typeof set.vocalTraits === 'object' && set.vocalTraits !== null
+            ? (set.vocalTraits as Record<string, unknown>)
+            : undefined;
         const updated: Character = {
           ...existing,
           ...(set.name !== undefined && { name: requireSetString(set, 'name') }),
@@ -303,7 +429,9 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           ...(body !== undefined && { body }),
           ...(distinctTraits !== undefined && { distinctTraits }),
           ...(vocalTraits !== undefined && { vocalTraits }),
-          ...(Array.isArray(set.tags) && { tags: set.tags.filter((t): t is string => typeof t === 'string') }),
+          ...(Array.isArray(set.tags) && {
+            tags: set.tags.filter((t): t is string => typeof t === 'string'),
+          }),
           updatedAt: Date.now(),
         };
         await deps.saveCharacter(updated);
@@ -342,10 +470,10 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     entityLabel: 'character',
     tags: ['character', 'generation'],
     description:
-      'Manage a character reference image. '
-      + 'Default view kind "full-sheet" produces ONE composite image: top row is the full-body turnaround (front, left profile, rear) at ~70% sheet height; bottom row is a small expression strip (neutral, happy, angry) at ~30% sheet height. Everything is on a single landscape sheet so the character has one canonical reference. '
-      + 'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom angles that the full-sheet does not cover. '
-      + 'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
+      'Manage a character reference image. ' +
+      'Default view kind "full-sheet" produces ONE composite image: top row is the full-body turnaround (front, left profile, rear) at ~70% sheet height; bottom row is a small expression strip (neutral, happy, angry) at ~30% sheet height. Everything is on a single landscape sheet so the character has one canonical reference. ' +
+      'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom angles that the full-sheet does not cover. ' +
+      'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
     getEntity: async (id) => {
       const characters = await deps.listCharacters();
       return characters.find((c) => c.id === id) ?? null;
@@ -361,11 +489,5 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     defaultHeight: 1360,
   });
 
-  return [
-    characterList,
-    characterCreate,
-    characterUpdate,
-    characterDelete,
-    ...characterRefImages,
-  ];
+  return [characterList, characterCreate, characterUpdate, characterDelete, ...characterRefImages];
 }

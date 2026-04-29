@@ -89,7 +89,7 @@ export function AudioStudio() {
           level: 'error',
           category: 'audio',
           message: t('audio.generationFailed'),
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         }),
       );
       dispatch(updateAudioTrack({ id, data: { status: 'failed' } }));
@@ -201,7 +201,11 @@ export function AudioStudio() {
             disabled={loading || !text.trim()}
             className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+            {loading ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
             {t('audio.generate')}
           </button>
         </div>

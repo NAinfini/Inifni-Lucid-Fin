@@ -138,16 +138,30 @@ describe('useCanvasKeyboard', () => {
     renderHook(() => useCanvasKeyboard(deps));
 
     act(() => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, cancelable: true }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, cancelable: true }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, cancelable: true }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, cancelable: true }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, cancelable: true }));
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, cancelable: true }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, cancelable: true }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'f', metaKey: true, cancelable: true }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, cancelable: true }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, cancelable: true }),
+      );
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, cancelable: true }),
+      );
       window.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, cancelable: true }),
       );
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, cancelable: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, cancelable: true }),
+      );
     });
 
     expect(deps.dispatch).toHaveBeenCalledWith(
@@ -173,7 +187,9 @@ describe('useCanvasKeyboard', () => {
     renderHook(() => useCanvasKeyboard(deps));
 
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, cancelable: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, cancelable: true }),
+      );
       await Promise.resolve();
     });
 
@@ -197,7 +213,9 @@ describe('useCanvasKeyboard', () => {
     } as Selection);
 
     await act(async () => {
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, cancelable: true }));
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, cancelable: true }),
+      );
       await Promise.resolve();
     });
 

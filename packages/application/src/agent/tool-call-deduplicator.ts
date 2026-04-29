@@ -37,9 +37,7 @@ function stableStringify(value: unknown): string {
     .filter(([, v]) => v !== undefined)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return (
-    '{' +
-    entries.map(([k, v]) => JSON.stringify(k) + ':' + stableStringify(v)).join(',') +
-    '}'
+    '{' + entries.map(([k, v]) => JSON.stringify(k) + ':' + stableStringify(v)).join(',') + '}'
   );
 }
 
@@ -76,11 +74,7 @@ export class ToolCallDeduplicator {
    * within `windowSteps`. Evicts stale records on miss so the Map
    * doesn't grow unbounded.
    */
-  check(
-    toolRef: ToolRef,
-    args: Record<string, unknown>,
-    currentStep: number,
-  ): DedupRecord | null {
+  check(toolRef: ToolRef, args: Record<string, unknown>, currentStep: number): DedupRecord | null {
     const k = this.key(toolRef, args);
     const prior = this.records.get(k);
     if (!prior) return null;
@@ -91,11 +85,7 @@ export class ToolCallDeduplicator {
     return prior;
   }
 
-  register(
-    toolRef: ToolRef,
-    args: Record<string, unknown>,
-    record: DedupRecord,
-  ): void {
+  register(toolRef: ToolRef, args: Record<string, unknown>, record: DedupRecord): void {
     this.records.set(this.key(toolRef, args), record);
   }
 

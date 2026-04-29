@@ -6,7 +6,7 @@
 
 ## Core Principle
 
-Style transfer in AI generation is **not** copying content — it is extracting and re-applying the *visual grammar*: color palette, texture, lighting logic, rendering technique, and compositional rhythm.
+Style transfer in AI generation is **not** copying content — it is extracting and re-applying the _visual grammar_: color palette, texture, lighting logic, rendering technique, and compositional rhythm.
 
 ---
 
@@ -19,6 +19,7 @@ When analyzing a reference image for style, decompose into 6 axes:
 ```
 
 **Example extraction from a Studio Ghibli frame:**
+
 ```
 hand-drawn cel animation, warm desaturated earth tones with selective cyan accents,
 soft watercolor wash backgrounds, diffused natural window light with no hard shadows,
@@ -30,6 +31,7 @@ wide establishing shots with foreground foliage framing, 1980s Japanese animatio
 ## Prompt Patterns
 
 ### Pattern 1 — Explicit Style Descriptor Block
+
 Prepend a style block before the scene description:
 
 ```
@@ -41,6 +43,7 @@ Prepend a style block before the scene description:
 Separate STYLE, SUBJECT, and ACTION explicitly — models treat them as independent axes.
 
 ### Pattern 2 — Style Anchor Phrase
+
 Embed style as a modifier clause:
 
 ```
@@ -48,6 +51,7 @@ rendered in the visual style of [extracted descriptors], [scene content]
 ```
 
 ### Pattern 3 — Negative Style Isolation
+
 Use negative prompts to suppress competing styles:
 
 ```
@@ -68,6 +72,7 @@ To maintain style across multiple generations:
 5. **Avoid style drift** — do not vary lighting or color descriptors between shots; only vary scene content
 
 ### Consistency Checklist
+
 - [ ] Same rendering technique keyword (e.g., "35mm film", "cel animation", "oil painting")
 - [ ] Same color palette descriptor (e.g., "muted earth tones", "neon cyberpunk palette")
 - [ ] Same lighting logic (e.g., "motivated side lighting", "overcast diffused light")
@@ -90,13 +95,13 @@ Max 60 words. Use vocabulary compatible with Kling, Runway, and Wan 2.1.
 
 ## Model-Specific Notes
 
-| Model | Style Transfer Approach |
-|---|---|
-| Kling 2.0 | `--style` image input + text block; use first-frame image ref for i2v style lock |
+| Model        | Style Transfer Approach                                                             |
+| ------------ | ----------------------------------------------------------------------------------- |
+| Kling 2.0    | `--style` image input + text block; use first-frame image ref for i2v style lock    |
 | Runway Gen-4 | Style image upload; keep prompts under 200 chars; first 30 tokens carry most weight |
-| Wan 2.1 | Text only; responds well to medium/era references; always add `cinematic, 24fps` |
-| Sora | Longer narrative style paragraphs work; supports style reference images natively |
-| Luma Ray 2 | "in the style of [medium]" phrasing; reference image strongly overrides text |
+| Wan 2.1      | Text only; responds well to medium/era references; always add `cinematic, 24fps`    |
+| Sora         | Longer narrative style paragraphs work; supports style reference images natively    |
+| Luma Ray 2   | "in the style of [medium]" phrasing; reference image strongly overrides text        |
 
 ---
 

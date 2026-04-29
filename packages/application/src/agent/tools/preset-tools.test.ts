@@ -48,11 +48,13 @@ describe('createPresetTools', () => {
   it('lists, saves, resets, deletes, and gets presets', async () => {
     const deps = createDeps();
 
-    await expect(getTool('preset.list', deps).execute({
-      category: 'camera',
-      offset: 0,
-      limit: 1,
-    })).resolves.toEqual({
+    await expect(
+      getTool('preset.list', deps).execute({
+        category: 'camera',
+        offset: 0,
+        limit: 1,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { total: 1, offset: 0, limit: 1, presets: [preset] },
     });
@@ -80,14 +82,18 @@ describe('createPresetTools', () => {
     });
     expect((customResult.data as PresetDefinition).id).toMatch(/^custom-/);
 
-    await expect(getTool('preset.reset', deps).execute({ presetId: 'preset-2', scope: 'params' })).resolves.toEqual({
+    await expect(
+      getTool('preset.reset', deps).execute({ presetId: 'preset-2', scope: 'params' }),
+    ).resolves.toEqual({
       success: true,
       data: { ...preset, id: 'preset-2' },
     });
-    await expect(getTool('preset.delete', deps).execute({ presetId: 'preset-3' })).resolves.toEqual({
-      success: true,
-      data: { presetId: 'preset-3' },
-    });
+    await expect(getTool('preset.delete', deps).execute({ presetId: 'preset-3' })).resolves.toEqual(
+      {
+        success: true,
+        data: { presetId: 'preset-3' },
+      },
+    );
     await expect(getTool('preset.get', deps).execute({ ids: 'preset-1' })).resolves.toEqual({
       success: true,
       data: preset,
@@ -99,13 +105,16 @@ describe('createPresetTools', () => {
 
     await expect(getTool('preset.list', deps).execute({ category: 'invalid' })).resolves.toEqual({
       success: false,
-      error: 'category must be one of camera, lens, look, scene, composition, emotion, flow, technical',
+      error:
+        'category must be one of camera, lens, look, scene, composition, emotion, flow, technical',
     });
     await expect(getTool('preset.update', deps).execute({ preset: [] })).resolves.toEqual({
       success: false,
       error: 'preset must be a valid object',
     });
-    await expect(getTool('preset.reset', deps).execute({ presetId: 'preset-1', scope: 'bad' })).resolves.toEqual({
+    await expect(
+      getTool('preset.reset', deps).execute({ presetId: 'preset-1', scope: 'bad' }),
+    ).resolves.toEqual({
       success: false,
       error: 'scope must be one of all, prompt, or params',
     });
@@ -119,16 +128,36 @@ describe('createPresetTools', () => {
     const deps = createDeps();
     vi.mocked(deps.deletePreset).mockRejectedValueOnce(new Error('delete failed'));
 
-    await expect(getTool('preset.delete', deps).execute({ presetId: 'preset-1' })).resolves.toEqual({
-      success: false,
-      error: 'delete failed',
-    });
+    await expect(getTool('preset.delete', deps).execute({ presetId: 'preset-1' })).resolves.toEqual(
+      {
+        success: false,
+        error: 'delete failed',
+      },
+    );
   });
 
   describe('preset.list query and categories filter', () => {
-    const cameraPreset: PresetDefinition = { ...preset, id: 'p-camera', category: 'camera', name: 'Push In', description: 'Slow push in' };
-    const lensPreset: PresetDefinition = { ...preset, id: 'p-lens', category: 'lens', name: 'Wide Angle', description: 'A wide field of view' };
-    const lookPreset: PresetDefinition = { ...preset, id: 'p-look', category: 'look', name: 'Noir Style', description: 'Dark moody look' };
+    const cameraPreset: PresetDefinition = {
+      ...preset,
+      id: 'p-camera',
+      category: 'camera',
+      name: 'Push In',
+      description: 'Slow push in',
+    };
+    const lensPreset: PresetDefinition = {
+      ...preset,
+      id: 'p-lens',
+      category: 'lens',
+      name: 'Wide Angle',
+      description: 'A wide field of view',
+    };
+    const lookPreset: PresetDefinition = {
+      ...preset,
+      id: 'p-look',
+      category: 'look',
+      name: 'Noir Style',
+      description: 'Dark moody look',
+    };
 
     function createMultiDeps(): PresetToolDeps {
       return {
@@ -154,7 +183,10 @@ describe('createPresetTools', () => {
     it('backward compat: category string filters correctly', async () => {
       const deps = createMultiDeps();
       const result = await getTool('preset.list', deps).execute({ category: 'lens' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, presets: [expect.objectContaining({ id: 'p-lens' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, presets: [expect.objectContaining({ id: 'p-lens' })] },
+      });
     });
 
     it('categories array OR-matches multiple categories', async () => {
@@ -168,13 +200,19 @@ describe('createPresetTools', () => {
     it('query filters by name (case-insensitive)', async () => {
       const deps = createMultiDeps();
       const result = await getTool('preset.list', deps).execute({ query: 'noir' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, presets: [expect.objectContaining({ id: 'p-look' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, presets: [expect.objectContaining({ id: 'p-look' })] },
+      });
     });
 
     it('query filters by description (OR logic)', async () => {
       const deps = createMultiDeps();
       const result = await getTool('preset.list', deps).execute({ query: 'wide' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, presets: [expect.objectContaining({ id: 'p-lens' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, presets: [expect.objectContaining({ id: 'p-lens' })] },
+      });
     });
 
     it('returns empty when query matches nothing', async () => {
@@ -223,4 +261,3 @@ describe('createPresetTools', () => {
     });
   });
 });
-

@@ -2,7 +2,11 @@ import { app, BrowserWindow, ipcMain, Menu, protocol, net, shell } from 'electro
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { startClipboardWatcher, stopClipboardWatcher, setClipboardWatcherEnabled } from './clipboard-watcher.js';
+import {
+  startClipboardWatcher,
+  stopClipboardWatcher,
+  setClipboardWatcherEnabled,
+} from './clipboard-watcher.js';
 import {
   createAgentOrchestratorForRun,
   JobQueue,
@@ -51,6 +55,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 let earlyIpcRegistered = false;
+let appDb: import('@lucid-fin/storage').SqliteIndex | null = null;
+let appJobQueue: import('@lucid-fin/application').JobQueue | null = null;
 
 // Module-scope gateway bound to the current `mainWindow`. Used for the
 // app-level push channels (`app:ready`, `app:init-error`) that fire during
@@ -99,7 +105,14 @@ function registerEarlyIpcHandlers(): void {
 
   log.debug('Registered early IPC handlers', {
     category: 'ipc',
-    channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping', 'health:ping', 'app:restart'],
+    channels: [
+      'logger:getRecent',
+      'updater:*',
+      'app:version',
+      'ipc:ping',
+      'health:ping',
+      'app:restart',
+    ],
   });
 }
 
@@ -163,8 +176,7 @@ function createWindow(): BrowserWindow {
   // Security: prevent renderer from navigating to non-local URLs
   win.webContents.on('will-navigate', (event, url) => {
     const devServerUrl = process.env.VITE_DEV_SERVER_URL;
-    const allowed = url.startsWith('file://')
-      || (devServerUrl && url.startsWith(devServerUrl));
+    const allowed = url.startsWith('file://') || (devServerUrl && url.startsWith(devServerUrl));
     if (!allowed) {
       event.preventDefault();
     }
@@ -246,7 +258,8 @@ app.whenReady().then(async () => {
           const metaPath = cas.getAssetPath(hash, assetType, 'meta.json');
           const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { format?: string };
           if (meta.format) ext = meta.format;
-        } catch { /* meta.json not found or unreadable — use the originally requested extension */
+        } catch {
+          /* meta.json not found or unreadable — use the originally requested extension */
           // meta.json not found — use requested ext
         }
 
@@ -302,7 +315,8 @@ app.whenReady().then(async () => {
     let llmAdapter: import('@lucid-fin/contracts').LLMAdapter | null = null;
     try {
       llmAdapter = await selectConfiguredLLMAdapter(llmRegistry.list());
-    } catch { /* no configured LLM adapter — AI features degrade gracefully until a key is set */
+    } catch {
+      /* no configured LLM adapter — AI features degrade gracefully until a key is set */
       log.warn(
         'No configured LLM adapter — AI features will be unavailable until an API key is set',
       );
@@ -322,10 +336,13 @@ app.whenReady().then(async () => {
       : null;
 
     // Single JobQueue instance — shared across recovery and IPC handlers
-    const jobQueue = new JobQueue(db.repos.jobs, adapterRegistry);
+    const jobQueue = new JobQueue(() => db.repos.jobs, adapterRegistry);
     await jobQueue.recover();
     jobQueue.start();
     logJobQueueRecovered();
+
+    appDb = db;
+    appJobQueue = jobQueue;
 
     const workflowRegistry = registerDefaultWorkflows();
     const workflowEngine = new WorkflowEngine({
@@ -367,26 +384,39 @@ app.whenReady().then(async () => {
     await initAutoUpdater(mainWindow);
 
     // Auto-check for updates 10s after startup (non-blocking)
-    setTimeout(() => { void checkForUpdates(); }, 10_000);
+    setTimeout(() => {
+      void checkForUpdates();
+    }, 10_000);
     ipcMain.handle('shell:openExternal', (_e, args: { url: string }) => {
-      if (args.url.startsWith('https://')) return shell.openExternal(args.url);
+      let parsed: URL;
+      try {
+        parsed = new URL(args.url);
+      } catch {
+        throw new Error('Invalid URL');
+      }
+      if (parsed.protocol !== 'https:') throw new Error('Only https: URLs are allowed');
+      return shell.openExternal(parsed.href);
     });
 
     // Settings persistence (app-level, not project-level)
     const settingsPath = path.join(app.getPath('userData'), 'settings.json');
     ipcMain.handle('settings:load', async () => {
       try {
-        const raw = await fs.promises.readFile(settingsPath, 'utf-8').catch((err: NodeJS.ErrnoException) => {
-          if (err.code === 'ENOENT') return null;
-          throw err;
-        });
+        const raw = await fs.promises
+          .readFile(settingsPath, 'utf-8')
+          .catch((err: NodeJS.ErrnoException) => {
+            if (err.code === 'ENOENT') return null;
+            throw err;
+          });
         if (raw === null) return null;
         const loaded = JSON.parse(raw);
         if (loaded && typeof loaded === 'object') {
           updateSettingsCache(loaded as Record<string, unknown>);
         }
         return loaded;
-      } catch (err) { log.warn('Settings file corrupt, using defaults', { error: String(err) }); }
+      } catch (err) {
+        log.warn('Settings file corrupt, using defaults', { error: String(err) });
+      }
       return null;
     });
     ipcMain.handle('settings:save', async (_e, data: unknown) => {
@@ -416,7 +446,28 @@ app.on('window-all-closed', () => {
   stopClipboardWatcher();
   stopApiServer();
   stopSessionCleanup();
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    if (appJobQueue) {
+      appJobQueue.stop();
+      appJobQueue = null;
+    }
+    if (appDb) {
+      appDb.close();
+      appDb = null;
+    }
+    app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  if (appJobQueue) {
+    appJobQueue.stop();
+    appJobQueue = null;
+  }
+  if (appDb) {
+    appDb.close();
+    appDb = null;
+  }
 });
 
 app.on('activate', () => {

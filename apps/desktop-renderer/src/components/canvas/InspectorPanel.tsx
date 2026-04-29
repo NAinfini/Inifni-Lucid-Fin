@@ -1,7 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { selectActiveCanvas, selectSingleSelectedNode, selectNodesById } from '../../store/slices/canvas-selectors.js';
+import {
+  selectActiveCanvas,
+  selectSingleSelectedNode,
+  selectNodesById,
+} from '../../store/slices/canvas-selectors.js';
 import { useInspectorEntityRefs } from './useInspectorEntityRefs.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 import {
@@ -39,7 +43,10 @@ import { InspectorPanelHeader } from './InspectorPanelHeader.js';
 import { InspectorPanelTabBar, type InspectorPanelTab } from './InspectorPanelTabBar.js';
 import { InspectorPanelIdentitySection } from './InspectorPanelIdentitySection.js';
 import { InspectorTrackGridCell } from './InspectorTrackGridCell.js';
-import { InspectorGenerationState, type GenerationRenderProps } from './InspectorGenerationState.js';
+import {
+  InspectorGenerationState,
+  type GenerationRenderProps,
+} from './InspectorGenerationState.js';
 import { hasTracks, isGenerationNode } from './inspector/guardTypes.js';
 import type {
   CanvasNode,
@@ -187,10 +194,7 @@ export function InspectorPanel() {
     },
     [dispatch, selectedNode],
   );
-  const [localTitle, setLocalTitle] = useDebouncedDispatch(
-    selectedNode?.title ?? '',
-    commitTitle,
-  );
+  const [localTitle, setLocalTitle] = useDebouncedDispatch(selectedNode?.title ?? '', commitTitle);
 
   const commitContent = useCallback(
     (value: string) => {
@@ -215,9 +219,7 @@ export function InspectorPanel() {
       dispatch(
         updateNodeData({
           id: selectedNode.id,
-          data: { prompt: value } as Partial<
-            ImageNodeData | VideoNodeData | AudioNodeData
-          >,
+          data: { prompt: value } as Partial<ImageNodeData | VideoNodeData | AudioNodeData>,
         }),
       );
     },
@@ -362,90 +364,99 @@ export function InspectorPanel() {
   }, [presets, hiddenPresetIdSet]);
 
   const characterPickerOptions = useMemo(
-    () => characters.map((character) => ({
-      id: character.id,
-      label: character.name || t('characterManager.untitled'),
-    })),
+    () =>
+      characters.map((character) => ({
+        id: character.id,
+        label: character.name || t('characterManager.untitled'),
+      })),
     [characters, t],
   );
   const characterContextItems = useMemo(
-    () => nodeCharacterRefs.map((ref) => {
-      const character = characterById[ref.characterId];
-      const slotOptions = Array.from(
-        new Map(
-          (character?.referenceImages ?? [])
-            .filter((image: ReferenceImage) => image.assetHash)
-            .map((image: ReferenceImage) => [
-              normalizeCharacterRefSlot(image.slot),
-              {
-                value: normalizeCharacterRefSlot(image.slot),
-                label: localizeSlot(image.slot),
-              },
-            ]),
-        ).values(),
-      );
-      const thumbnailAssetHash =
-        ref.referenceImageHash ??
-        (character?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
-      return {
-        id: ref.characterId,
-        label: character?.name ?? ref.characterId.slice(0, 8),
-        thumbnailAssetHash,
-        selectedSlot: ref.angleSlot ? normalizeCharacterRefSlot(ref.angleSlot) : '',
-        slotOptions,
-      };
-    }),
+    () =>
+      nodeCharacterRefs.map((ref) => {
+        const character = characterById[ref.characterId];
+        const slotOptions = Array.from(
+          new Map(
+            (character?.referenceImages ?? [])
+              .filter((image: ReferenceImage) => image.assetHash)
+              .map((image: ReferenceImage) => [
+                normalizeCharacterRefSlot(image.slot),
+                {
+                  value: normalizeCharacterRefSlot(image.slot),
+                  label: localizeSlot(image.slot),
+                },
+              ]),
+          ).values(),
+        );
+        const thumbnailAssetHash =
+          ref.referenceImageHash ??
+          (character?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)
+            ?.assetHash;
+        return {
+          id: ref.characterId,
+          label: character?.name ?? ref.characterId.slice(0, 8),
+          thumbnailAssetHash,
+          selectedSlot: ref.angleSlot ? normalizeCharacterRefSlot(ref.angleSlot) : '',
+          slotOptions,
+        };
+      }),
     [nodeCharacterRefs, characterById],
   );
   const equipmentPickerOptions = useMemo(
-    () => equipmentItems.map((equipment) => ({
-      id: equipment.id,
-      label: equipment.name || t('equipmentManager.untitled'),
-      description: equipment.type,
-    })),
+    () =>
+      equipmentItems.map((equipment) => ({
+        id: equipment.id,
+        label: equipment.name || t('equipmentManager.untitled'),
+        description: equipment.type,
+      })),
     [equipmentItems, t],
   );
   const equipmentContextItems = useMemo(
-    () => nodeEquipmentRefs.map((ref) => {
-      const equipment = equipmentById[ref.equipmentId];
-      const slotOptions = (equipment?.referenceImages ?? [])
-        .filter((image: ReferenceImage) => image.assetHash)
-        .map((image: ReferenceImage) => ({
-          value: image.slot,
-          label: localizeSlot(image.slot),
-        }));
-      const thumbnailAssetHash =
-        ref.referenceImageHash ??
-        (equipment?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
-      return {
-        id: ref.equipmentId,
-        label: equipment?.name ?? ref.equipmentId.slice(0, 8),
-        thumbnailAssetHash,
-        selectedSlot: ref.angleSlot ?? '',
-        slotOptions,
-      };
-    }),
+    () =>
+      nodeEquipmentRefs.map((ref) => {
+        const equipment = equipmentById[ref.equipmentId];
+        const slotOptions = (equipment?.referenceImages ?? [])
+          .filter((image: ReferenceImage) => image.assetHash)
+          .map((image: ReferenceImage) => ({
+            value: image.slot,
+            label: localizeSlot(image.slot),
+          }));
+        const thumbnailAssetHash =
+          ref.referenceImageHash ??
+          (equipment?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)
+            ?.assetHash;
+        return {
+          id: ref.equipmentId,
+          label: equipment?.name ?? ref.equipmentId.slice(0, 8),
+          thumbnailAssetHash,
+          selectedSlot: ref.angleSlot ?? '',
+          slotOptions,
+        };
+      }),
     [nodeEquipmentRefs, equipmentById],
   );
   const locationPickerOptions = useMemo(
-    () => locationItems.map((location) => ({
-      id: location.id,
-      label: location.name || t('locationManager.title'),
-    })),
+    () =>
+      locationItems.map((location) => ({
+        id: location.id,
+        label: location.name || t('locationManager.title'),
+      })),
     [locationItems, t],
   );
   const locationContextItems = useMemo(
-    () => nodeLocationRefs.map((ref) => {
-      const location = locationById[ref.locationId];
-      const thumbnailAssetHash =
-        ref.referenceImageHash ??
-        (location?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)?.assetHash;
-      return {
-        id: ref.locationId,
-        label: location?.name ?? ref.locationId.slice(0, 8),
-        thumbnailAssetHash,
-      };
-    }),
+    () =>
+      nodeLocationRefs.map((ref) => {
+        const location = locationById[ref.locationId];
+        const thumbnailAssetHash =
+          ref.referenceImageHash ??
+          (location?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)
+            ?.assetHash;
+        return {
+          id: ref.locationId,
+          label: location?.name ?? ref.locationId.slice(0, 8),
+          thumbnailAssetHash,
+        };
+      }),
     [nodeLocationRefs, locationById],
   );
 
@@ -651,9 +662,7 @@ export function InspectorPanel() {
                 ? (selectedNode.data as { audioType?: string }).audioType
                 : undefined
             }
-            textContent={
-              selectedNode.type === 'text' ? localContent : undefined
-            }
+            textContent={selectedNode.type === 'text' ? localContent : undefined}
             promptValue={isGenerationNode(selectedNode) ? localPrompt : undefined}
             onContentChange={handleContentChange}
             onPromptChange={handlePromptChange}
@@ -667,37 +676,22 @@ export function InspectorPanel() {
             localizeShotTemplateDescription={localizeShotTemplateDescription}
             trackGrid={presetTrackGrid}
             backdropControls={backdropControls}
-            textCharCount={
-              selectedNode.type === 'text'
-                ? localContent.length
-                : undefined
-            }
+            textCharCount={selectedNode.type === 'text' ? localContent.length : undefined}
             textWordCount={
               selectedNode.type === 'text'
-                ? localContent
-                    .trim()
-                    .split(/\s+/)
-                    .filter(Boolean).length
+                ? localContent.trim().split(/\s+/).filter(Boolean).length
                 : undefined
             }
             charsLabel={
               selectedNode.type === 'text'
-                ? t('inspector.chars').replace(
-                    '{count}',
-                    String(localContent.length),
-                  )
+                ? t('inspector.chars').replace('{count}', String(localContent.length))
                 : undefined
             }
             wordsLabel={
               selectedNode.type === 'text'
                 ? t('inspector.words').replace(
                     '{count}',
-                    String(
-                      localContent
-                        .trim()
-                        .split(/\s+/)
-                        .filter(Boolean).length,
-                    ),
+                    String(localContent.trim().split(/\s+/).filter(Boolean).length),
                   )
                 : undefined
             }
@@ -745,19 +739,17 @@ export function InspectorPanel() {
 
         {/* ===== Registry-driven bottom sections ===== */}
         {canvas &&
-          inspectorRegistry
-            .getSections('bottom', selectedNode, canvas)
-            .map((section) => (
-              <Fragment key={section.id}>
-                {section.render({
-                  node: selectedNode,
-                  canvas,
-                  canvasId: canvas.id,
-                  dispatch,
-                  t,
-                })}
-              </Fragment>
-            ))}
+          inspectorRegistry.getSections('bottom', selectedNode, canvas).map((section) => (
+            <Fragment key={section.id}>
+              {section.render({
+                node: selectedNode,
+                canvas,
+                canvasId: canvas.id,
+                dispatch,
+                t,
+              })}
+            </Fragment>
+          ))}
       </div>
 
       {/* Generation bar -- always visible at bottom for generation nodes */}
@@ -767,10 +759,7 @@ export function InspectorPanel() {
 
   if (isGenerationNode(selectedNode)) {
     return (
-      <InspectorGenerationState
-        selectedNode={selectedNode}
-        t={t}
-      >
+      <InspectorGenerationState selectedNode={selectedNode} t={t}>
         {(gen) => renderContent(gen)}
       </InspectorGenerationState>
     );

@@ -1,6 +1,22 @@
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import { Children, isValidElement, type ReactElement } from 'react';
-import { AlignHorizontalJustifyCenter, AlignVerticalJustifyCenter, AlignStartHorizontal, AlignStartVertical, AlignEndHorizontal, AlignEndVertical, Clipboard, FileText, Image, LayoutTemplate, Redo2, Undo2, Upload, Video, Volume2 } from 'lucide-react';
+import {
+  AlignHorizontalJustifyCenter,
+  AlignVerticalJustifyCenter,
+  AlignStartHorizontal,
+  AlignStartVertical,
+  AlignEndHorizontal,
+  AlignEndVertical,
+  Clipboard,
+  FileText,
+  Image,
+  LayoutTemplate,
+  Redo2,
+  Undo2,
+  Upload,
+  Video,
+  Volume2,
+} from 'lucide-react';
 import type { NodeKind } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
 
@@ -50,7 +66,11 @@ const MENU_ITEMS: Array<{ type: NodeKind; label: string; icon: typeof FileText }
   { type: 'backdrop', label: 'contextMenu.addBackdropFrame', icon: LayoutTemplate },
 ];
 
-const ALIGN_ITEMS: Array<{ dir: AlignDirection; labelKey: string; icon: typeof AlignStartHorizontal }> = [
+const ALIGN_ITEMS: Array<{
+  dir: AlignDirection;
+  labelKey: string;
+  icon: typeof AlignStartHorizontal;
+}> = [
   { dir: 'left', labelKey: 'contextMenu.alignLeft', icon: AlignStartHorizontal },
   { dir: 'right', labelKey: 'contextMenu.alignRight', icon: AlignEndHorizontal },
   { dir: 'top', labelKey: 'contextMenu.alignTop', icon: AlignStartVertical },

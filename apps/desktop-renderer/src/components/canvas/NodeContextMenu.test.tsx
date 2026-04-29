@@ -13,9 +13,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function createCallbacks(
-  overrides: Partial<NodeCallbacks> = {},
-): NodeCallbacks {
+function createCallbacks(overrides: Partial<NodeCallbacks> = {}): NodeCallbacks {
   return {
     onTitleChange: vi.fn(),
     onDelete: vi.fn(),
@@ -41,7 +39,11 @@ function createCallbacks(
 }
 
 async function openMenu(
-  overrides: { nodeType?: 'text' | 'image' | 'video' | 'audio' | 'backdrop'; locked?: boolean; colorTag?: string } = {},
+  overrides: {
+    nodeType?: 'text' | 'image' | 'video' | 'audio' | 'backdrop';
+    locked?: boolean;
+    colorTag?: string;
+  } = {},
   cbOverrides: Partial<NodeCallbacks> = {},
 ) {
   const callbacks = createCallbacks(cbOverrides);
@@ -81,13 +83,10 @@ describe('NodeContextMenu', () => {
     expect(screen.getByText('Delete')).toBeTruthy();
   });
 
-  it.each(['text', 'backdrop'] as const)(
-    'Generate hidden for %s nodes',
-    async (nodeType) => {
-      await openMenu({ nodeType });
-      expect(screen.queryByText('Generate')).toBeNull();
-    },
-  );
+  it.each(['text', 'backdrop'] as const)('Generate hidden for %s nodes', async (nodeType) => {
+    await openMenu({ nodeType });
+    expect(screen.queryByText('Generate')).toBeNull();
+  });
 
   it('Connect To hidden for backdrop type', async () => {
     await openMenu({ nodeType: 'backdrop' });

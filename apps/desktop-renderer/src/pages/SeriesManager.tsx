@@ -76,7 +76,7 @@ export function SeriesManager() {
             level: 'error',
             category: 'series',
             message: t('series.log.loadFailed'),
-            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+            detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
           }),
         );
       });
@@ -97,7 +97,7 @@ export function SeriesManager() {
             level: 'error',
             category: 'series',
             message: t('series.log.saveFailed'),
-            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+            detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
           }),
         );
       }
@@ -121,7 +121,7 @@ export function SeriesManager() {
             level: 'error',
             category: 'series',
             message: t('series.log.deleteFailed'),
-            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+            detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
           }),
         );
       }
@@ -149,7 +149,7 @@ export function SeriesManager() {
             level: 'error',
             category: 'series',
             message: t('series.log.addEpisodeFailed'),
-            detail: err instanceof Error ? err.stack ?? err.message : String(err),
+            detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
           }),
         );
       }
@@ -170,7 +170,7 @@ export function SeriesManager() {
               level: 'error',
               category: 'series',
               message: t('series.log.removeEpisodeFailed'),
-              detail: err instanceof Error ? err.stack ?? err.message : String(err),
+              detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
             }),
           );
         }
@@ -367,8 +367,13 @@ export function SeriesManager() {
                             </tr>
                           ) : (
                             series.episodes.map((ep, i) => (
-                              <tr key={ep.id} className="border-t border-border/40 hover:bg-muted/30">
-                                <td className="px-2.5 py-1.5 text-[10px] text-muted-foreground">{i + 1}</td>
+                              <tr
+                                key={ep.id}
+                                className="border-t border-border/40 hover:bg-muted/30"
+                              >
+                                <td className="px-2.5 py-1.5 text-[10px] text-muted-foreground">
+                                  {i + 1}
+                                </td>
                                 <td className="px-2.5 py-1.5 text-[10px]">{ep.title}</td>
                                 <td className="px-2.5 py-1.5">
                                   <select

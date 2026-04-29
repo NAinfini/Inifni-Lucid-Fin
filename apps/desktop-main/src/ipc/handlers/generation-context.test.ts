@@ -5,7 +5,9 @@ import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 /**
  * Wrap flat entity spies into the new `.repos.entities` shape (Phase G1-4.7).
  */
-function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
+function withEntityRepos<T extends Record<string, unknown>>(
+  flat: T,
+): T & {
   repos: { entities: Record<string, unknown>; projectSettings: Record<string, unknown> };
 } {
   return {
@@ -245,8 +247,17 @@ function makeAdapter(
     maxConcurrent: 1,
     configure: vi.fn(),
     validate: vi.fn(async () => true),
-    generate: vi.fn(async () => ({ assetHash: '', assetPath: '/tmp/out.png', provider: 'mock-provider' })),
-    estimateCost: vi.fn(() => ({ estimatedCost: 0, currency: 'USD', provider: 'mock-provider', unit: 'image' })),
+    generate: vi.fn(async () => ({
+      assetHash: '',
+      assetPath: '/tmp/out.png',
+      provider: 'mock-provider',
+    })),
+    estimateCost: vi.fn(() => ({
+      estimatedCost: 0,
+      currency: 'USD',
+      provider: 'mock-provider',
+      unit: 'image',
+    })),
     checkStatus: vi.fn(async () => 'completed'),
     cancel: vi.fn(async () => undefined),
   };
@@ -259,7 +270,10 @@ function makeRegistry(adapter: ReturnType<typeof makeAdapter> | null = null) {
   };
 }
 
-function makeDepsWithNode(node: CanvasNode, adapterOverrides: Partial<Parameters<typeof makeAdapter>[0]> = {}) {
+function makeDepsWithNode(
+  node: CanvasNode,
+  adapterOverrides: Partial<Parameters<typeof makeAdapter>[0]> = {},
+) {
   const canvas = makeCanvas([node]);
   const adapter = makeAdapter(adapterOverrides);
   return {
@@ -268,7 +282,16 @@ function makeDepsWithNode(node: CanvasNode, adapterOverrides: Partial<Parameters
       cas: {
         importAsset: vi.fn(async () => ({
           ref: { hash: 'hash-out' },
-          meta: { hash: 'hash-out', type: 'image', mimeType: 'image/png', size: 4, width: 1, height: 1, duration: undefined, createdAt: Date.now() },
+          meta: {
+            hash: 'hash-out',
+            type: 'image',
+            mimeType: 'image/png',
+            size: 4,
+            width: 1,
+            height: 1,
+            duration: undefined,
+            createdAt: Date.now(),
+          },
         })),
         getAssetPath: vi.fn(() => '/tmp/asset.png'),
       },
@@ -325,9 +348,10 @@ describe('determinePromptMode', () => {
     imgNode.id = 'img-1';
     const vidNode = makeVideoNode();
     vidNode.id = 'vid-1';
-    const canvas = makeCanvas([imgNode, vidNode], [
-      { id: 'e1', source: 'img-1', target: 'vid-1', data: { status: 'idle' } },
-    ]);
+    const canvas = makeCanvas(
+      [imgNode, vidNode],
+      [{ id: 'e1', source: 'img-1', target: 'vid-1', data: { status: 'idle' } }],
+    );
     expect(determinePromptMode(canvas, vidNode)).toBe('image-to-video');
   });
 
@@ -388,7 +412,6 @@ describe('resolveNodeProviderId', () => {
     const result = resolveNodeProviderId(node, undefined);
     expect(result).toBeUndefined();
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -416,17 +439,24 @@ describe('ensureAdapterSupports', () => {
   });
 
   it('accepts adapter with array of types', () => {
-    const adapter = makeAdapter({ type: ['image', 'video'], capabilities: ['text-to-image', 'text-to-video'] });
+    const adapter = makeAdapter({
+      type: ['image', 'video'],
+      capabilities: ['text-to-image', 'text-to-video'],
+    });
     expect(() => ensureAdapterSupports(adapter as never, 'image', 'text-to-image')).not.toThrow();
     expect(() => ensureAdapterSupports(adapter as never, 'video', 'text-to-video')).not.toThrow();
   });
 
   it('accepts voice/music/sfx when capability is present', () => {
     const voiceAdapter = makeAdapter({ type: 'voice', capabilities: ['text-to-voice'] });
-    expect(() => ensureAdapterSupports(voiceAdapter as never, 'voice', 'text-to-voice')).not.toThrow();
+    expect(() =>
+      ensureAdapterSupports(voiceAdapter as never, 'voice', 'text-to-voice'),
+    ).not.toThrow();
 
     const musicAdapter = makeAdapter({ type: 'music', capabilities: ['text-to-music'] });
-    expect(() => ensureAdapterSupports(musicAdapter as never, 'music', 'text-to-music')).not.toThrow();
+    expect(() =>
+      ensureAdapterSupports(musicAdapter as never, 'music', 'text-to-music'),
+    ).not.toThrow();
 
     const sfxAdapter = makeAdapter({ type: 'sfx', capabilities: ['text-to-sfx'] });
     expect(() => ensureAdapterSupports(sfxAdapter as never, 'sfx', 'text-to-sfx')).not.toThrow();
@@ -584,7 +614,12 @@ describe('resolveMediaDimensions', () => {
   });
 
   it('returns default video dimensions and duration when video node has minimal data', () => {
-    const node = makeVideoNode({ width: undefined, height: undefined, duration: undefined, fps: undefined });
+    const node = makeVideoNode({
+      width: undefined,
+      height: undefined,
+      duration: undefined,
+      fps: undefined,
+    });
     const result = resolveMediaDimensions(node, 'video');
     expect(result).toEqual({
       width: DEFAULT_VIDEO_SIZE.width,
@@ -709,7 +744,11 @@ describe('resolveAdapter', () => {
   });
 
   it('returns the registered adapter when providerId matches and capabilities align', async () => {
-    const adapter = makeAdapter({ id: 'openai-dalle', type: 'image', capabilities: ['text-to-image'] });
+    const adapter = makeAdapter({
+      id: 'openai-dalle',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
     const registry = makeRegistry(adapter);
 
     const result = await resolveAdapter(
@@ -729,7 +768,11 @@ describe('resolveAdapter', () => {
   });
 
   it('configures adapter with baseUrl and model from providerConfig', async () => {
-    const adapter = makeAdapter({ id: 'openai-dalle', type: 'image', capabilities: ['text-to-image'] });
+    const adapter = makeAdapter({
+      id: 'openai-dalle',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
     const registry = makeRegistry(adapter);
 
     await resolveAdapter(
@@ -748,18 +791,17 @@ describe('resolveAdapter', () => {
   });
 
   it('falls back to first supported adapter from list when no providerId is given', async () => {
-    const adapter = makeAdapter({ id: 'fallback-image', type: 'image', capabilities: ['text-to-image'] });
+    const adapter = makeAdapter({
+      id: 'fallback-image',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
     const registry = {
       get: vi.fn(() => undefined),
       list: vi.fn(() => [adapter]),
     };
 
-    const result = await resolveAdapter(
-      registry as never,
-      undefined,
-      'image',
-      'text-to-image',
-    );
+    const result = await resolveAdapter(registry as never, undefined, 'image', 'text-to-image');
 
     expect(result.id).toBe('fallback-image');
   });
@@ -776,7 +818,11 @@ describe('resolveAdapter', () => {
   });
 
   it('uses apiKey from providerConfig instead of keychain', async () => {
-    const adapter = makeAdapter({ id: 'openai-dalle', type: 'image', capabilities: ['text-to-image'] });
+    const adapter = makeAdapter({
+      id: 'openai-dalle',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
     const registry = makeRegistry(adapter);
     const keychain = { getKey: vi.fn(async () => 'keychain-key') };
 
@@ -848,7 +894,12 @@ describe('buildGenerationContext', () => {
     const deps = {
       adapterRegistry: makeRegistry(adapter),
       cas: { importAsset: vi.fn(), getAssetPath: vi.fn() },
-      db: withEntityRepos({ insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) }),
+      db: withEntityRepos({
+        insertAsset: vi.fn(),
+        getCharacter: vi.fn(() => undefined),
+        getEquipment: vi.fn(() => undefined),
+        getLocation: vi.fn(() => undefined),
+      }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
     };
@@ -860,7 +911,11 @@ describe('buildGenerationContext', () => {
 
   it('builds a valid context for a minimal image node', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -878,8 +933,18 @@ describe('buildGenerationContext', () => {
   });
 
   it('builds a valid context for a video node', async () => {
-    const node = makeVideoNode({ providerId: 'mock-provider', width: 1280, height: 720, duration: 5, fps: 24 });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'video', capabilities: ['text-to-video'] });
+    const node = makeVideoNode({
+      providerId: 'mock-provider',
+      width: 1280,
+      height: 720,
+      duration: 5,
+      fps: 24,
+    });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'video',
+      capabilities: ['text-to-video'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -907,16 +972,35 @@ describe('buildGenerationContext', () => {
       locationRefs: [{ locationId: 'loc-1' }],
     } as Record<string, unknown>);
 
-    const canvas = makeCanvas([videoNode, firstFrameNode], [
-      { id: 'edge-1', source: 'first-frame-node', target: 'node-video', data: { status: 'idle' } },
-    ]);
-    const adapter = makeAdapter({ id: 'mock-provider', type: 'video', capabilities: ['text-to-video', 'image-to-video'] });
+    const canvas = makeCanvas(
+      [videoNode, firstFrameNode],
+      [
+        {
+          id: 'edge-1',
+          source: 'first-frame-node',
+          target: 'node-video',
+          data: { status: 'idle' },
+        },
+      ],
+    );
+    const adapter = makeAdapter({
+      id: 'mock-provider',
+      type: 'video',
+      capabilities: ['text-to-video', 'image-to-video'],
+    });
     const deps = {
       adapterRegistry: makeRegistry(adapter),
       cas: {
         importAsset: vi.fn(async () => ({
           ref: { hash: 'hash-out' },
-          meta: { hash: 'hash-out', type: 'video', mimeType: 'video/mp4', size: 4, duration: 1, createdAt: Date.now() },
+          meta: {
+            hash: 'hash-out',
+            type: 'video',
+            mimeType: 'video/mp4',
+            size: 4,
+            duration: 1,
+            createdAt: Date.now(),
+          },
         })),
         getAssetPath: vi.fn(() => '/tmp/asset.png'),
       },
@@ -943,7 +1027,9 @@ describe('buildGenerationContext', () => {
           name: 'Blue Moon Bar',
           description: 'neon bar',
           tags: [],
-          referenceImages: [{ slot: 'wide-establishing', assetHash: 'loc-ref-hash', isStandard: true }],
+          referenceImages: [
+            { slot: 'wide-establishing', assetHash: 'loc-ref-hash', isStandard: true },
+          ],
           createdAt: 0,
           updatedAt: 0,
         })),
@@ -968,10 +1054,12 @@ describe('buildGenerationContext', () => {
       nodeId: 'node-video',
     });
 
-    expect(compilePromptMock).toHaveBeenCalledWith(expect.objectContaining({
-      negativePrompt: 'no duplicate people',
-      referenceImages: expect.arrayContaining(['char-ref-hash', 'loc-ref-hash']),
-    }));
+    expect(compilePromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        negativePrompt: 'no duplicate people',
+        referenceImages: expect.arrayContaining(['char-ref-hash', 'loc-ref-hash']),
+      }),
+    );
     expect(ctx.requestBase.referenceImages).toEqual(['char-ref-hash', 'loc-ref-hash']);
     expect(ctx.requestBase.frameReferenceImages).toEqual({
       first: 'frame-first-hash',
@@ -981,7 +1069,11 @@ describe('buildGenerationContext', () => {
 
   it('builds a valid context for an audio (voice) node', async () => {
     const node = makeAudioNode({ providerId: 'mock-provider', audioType: 'voice', duration: 10 });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'voice', capabilities: ['text-to-voice'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'voice',
+      capabilities: ['text-to-voice'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -999,14 +1091,23 @@ describe('buildGenerationContext', () => {
     // An adapter that lists 'sfx' type covers the path that resolveAdapter takes.
     const node = makeBackdropNode({ providerId: 'mock-provider' });
     const canvas = makeCanvas([node]);
-    const adapter = makeAdapter({ id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const adapter = makeAdapter({
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
     const deps = {
       adapterRegistry: {
         get: vi.fn((id: string) => (id === 'mock-provider' ? adapter : undefined)),
         list: vi.fn(() => [adapter]),
       },
       cas: { importAsset: vi.fn(), getAssetPath: vi.fn() },
-      db: withEntityRepos({ insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) }),
+      db: withEntityRepos({
+        insertAsset: vi.fn(),
+        getCharacter: vi.fn(() => undefined),
+        getEquipment: vi.fn(() => undefined),
+        getLocation: vi.fn(() => undefined),
+      }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
     };
@@ -1022,7 +1123,11 @@ describe('buildGenerationContext', () => {
 
   it('propagates requestedVariantCount into the context', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -1035,7 +1140,11 @@ describe('buildGenerationContext', () => {
 
   it('propagates requestedSeed into the context', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -1052,7 +1161,11 @@ describe('buildGenerationContext', () => {
       providerId: 'mock-provider',
       prompt: '',
     });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
 
     compilePromptMock.mockImplementation((args: { prompt: string }) => ({
       prompt: args.prompt,
@@ -1079,7 +1192,11 @@ describe('buildGenerationContext', () => {
       sourceImageHash: 'src-hash-abc',
       img2imgStrength: 0.75,
     });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image', 'image-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image', 'image-to-image'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -1097,7 +1214,11 @@ describe('buildGenerationContext', () => {
       audioType: 'voice',
       emotionVector: { valence: 0.8, arousal: 0.6 },
     });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'voice', capabilities: ['text-to-voice'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'voice',
+      capabilities: ['text-to-voice'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -1109,7 +1230,11 @@ describe('buildGenerationContext', () => {
 
   it('does not include emotionVector for non-audio nodes', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
 
     const ctx = await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -1121,7 +1246,11 @@ describe('buildGenerationContext', () => {
 
   it('logs compilation diagnostics when present', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
 
     compilePromptMock.mockReturnValue({
       prompt: 'compiled',
@@ -1132,7 +1261,12 @@ describe('buildGenerationContext', () => {
       budget: 100,
       segments: [],
       diagnostics: [
-        { severity: 'warning', message: 'Too many refs', type: 'ref-overflow', source: 'characters' },
+        {
+          severity: 'warning',
+          message: 'Too many refs',
+          type: 'ref-overflow',
+          source: 'characters',
+        },
         { severity: 'info', message: 'Preset matched', type: 'preset-match', source: 'look' },
       ],
     });
@@ -1158,7 +1292,11 @@ describe('buildGenerationContext', () => {
 
   it('does not log compilation diagnostics when there are none', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
-    const { deps } = makeDepsWithNode(node, { id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
 
     await buildGenerationContext(deps as never, {
       canvasId: 'canvas-1',
@@ -1174,14 +1312,23 @@ describe('buildGenerationContext', () => {
   it('resolves the override provider when requestedProviderId is specified', async () => {
     const node = makeImageNode({ providerId: 'some-other-provider' });
     const canvas = makeCanvas([node]);
-    const adapter = makeAdapter({ id: 'mock-provider', type: 'image', capabilities: ['text-to-image'] });
+    const adapter = makeAdapter({
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
     const deps = {
       adapterRegistry: {
         get: vi.fn((id: string) => (id === 'mock-provider' ? adapter : undefined)),
         list: vi.fn(() => [adapter]),
       },
       cas: { importAsset: vi.fn(), getAssetPath: vi.fn() },
-      db: withEntityRepos({ insertAsset: vi.fn(), getCharacter: vi.fn(() => undefined), getEquipment: vi.fn(() => undefined), getLocation: vi.fn(() => undefined) }),
+      db: withEntityRepos({
+        insertAsset: vi.fn(),
+        getCharacter: vi.fn(() => undefined),
+        getEquipment: vi.fn(() => undefined),
+        getLocation: vi.fn(() => undefined),
+      }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
     };

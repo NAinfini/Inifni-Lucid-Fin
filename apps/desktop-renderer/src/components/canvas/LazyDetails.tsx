@@ -16,11 +16,14 @@ interface LazyDetailsProps {
 export function LazyDetails({ summary, children, className }: LazyDetailsProps) {
   const [hasOpened, setHasOpened] = useState(false);
 
-  const handleToggle = useCallback((e: React.SyntheticEvent<HTMLDetailsElement>) => {
-    if (e.currentTarget.open && !hasOpened) {
-      setHasOpened(true);
-    }
-  }, [hasOpened]);
+  const handleToggle = useCallback(
+    (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+      if (e.currentTarget.open && !hasOpened) {
+        setHasOpened(true);
+      }
+    },
+    [hasOpened],
+  );
 
   return (
     <details className={className} onToggle={handleToggle}>

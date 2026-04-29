@@ -48,9 +48,7 @@ export type EntityManagerResult<TDraft> = EntityManagerState<TDraft> &
  * Shared state management for entity manager panels (Character, Equipment, Location).
  * Extracts the duplicated draft/dirty/error/confirm patterns.
  */
-export function useEntityManager<TDraft>(
-  config: EntityManagerConfig,
-): EntityManagerResult<TDraft> {
+export function useEntityManager<TDraft>(config: EntityManagerConfig): EntityManagerResult<TDraft> {
   const { t } = useI18n();
   const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();

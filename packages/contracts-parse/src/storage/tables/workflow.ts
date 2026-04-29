@@ -5,7 +5,12 @@
  * join table is included so repositories can traverse DAG edges without
  * reaching for a string literal.
  */
-import type { WorkflowRunId, WorkflowStageId, WorkflowTaskId, AssetHash } from '@lucid-fin/contracts';
+import type {
+  WorkflowRunId,
+  WorkflowStageId,
+  WorkflowTaskId,
+  AssetHash,
+} from '@lucid-fin/contracts';
 import { defineTable, col } from '../../tables.js';
 
 export const WorkflowRunsTable = defineTable('workflow_runs', {

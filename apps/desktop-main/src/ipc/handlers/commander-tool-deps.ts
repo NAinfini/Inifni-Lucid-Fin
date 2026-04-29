@@ -182,7 +182,11 @@ export function registerAllTools(
   deps: ToolRegistrationDeps,
   getWindow: () => BrowserWindow | null,
   promptGuides: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
-  compactRef?: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> },
+  compactRef?: {
+    compact?: (
+      instructions?: string,
+    ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+  },
   sessionId?: string,
   defaultProviders?: Record<string, string>,
   pushGateway?: RendererPushGateway,
@@ -193,8 +197,7 @@ export function registerAllTools(
   // the gateway so payload drift surfaces loudly in main instead of silently
   // in the renderer. Fall back to a locally-constructed gateway when callers
   // predate Phase F-split-4.
-  const gateway =
-    pushGateway ?? createRendererPushGateway({ getWindow });
+  const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
   const generateImage = makeGenerateImage({
     ...deps,
     onStart: (jobId, provider, width, height) => {
@@ -322,20 +325,14 @@ export function registerAllTools(
       );
     },
     cancelGeneration: async (canvasId: string, nodeId: string) => {
-      await cancelCanvasGeneration(
-        gateway,
-        { canvasId, nodeId },
-        canvasGenerationDeps,
-      );
+      await cancelCanvasGeneration(gateway, { canvasId, nodeId }, canvasGenerationDeps);
     },
     deleteNode: async (canvasId: string, nodeId: string) => {
       const current = requireCanvas(deps.canvasStore, canvasId);
       const idx = current.nodes.findIndex((n) => n.id === nodeId);
       if (idx === -1) throw new Error(`Node not found: ${nodeId}`);
       current.nodes.splice(idx, 1);
-      current.edges = current.edges.filter(
-        (e) => e.source !== nodeId && e.target !== nodeId,
-      );
+      current.edges = current.edges.filter((e) => e.source !== nodeId && e.target !== nodeId);
       touchCanvas(current, deps.canvasStore);
     },
     deleteEdge: async (canvasId: string, edgeId: string) => {
@@ -368,7 +365,8 @@ export function registerAllTools(
       try {
         const key = await deps.keychain.getKey(providerId);
         return key != null && key.length > 0;
-      } catch { /* keychain read failed — report key as absent */
+      } catch {
+        /* keychain read failed — report key as absent */
         return false;
       }
     },
@@ -381,7 +379,8 @@ export function registerAllTools(
     },
     toggleSeedLock: async (canvasId: string, nodeId: string) => {
       const { canvas: cur, node } = requireNode(deps.canvasStore, canvasId, nodeId);
-      (node.data as { seedLocked?: boolean }).seedLocked = !(node.data as { seedLocked?: boolean }).seedLocked;
+      (node.data as { seedLocked?: boolean }).seedLocked = !(node.data as { seedLocked?: boolean })
+        .seedLocked;
       node.updatedAt = Date.now();
       touchCanvas(cur, deps.canvasStore);
     },
@@ -398,9 +397,16 @@ export function registerAllTools(
       // evaluated. Currency of the first successful estimate wins; defaults
       // to USD. Upstream failures are logged, never swallowed silently.
       const canvas = requireCanvas(deps.canvasStore, canvasId);
-      const targets = Array.isArray(nodeIds) && nodeIds.length > 0
-        ? canvas.nodes.filter((n) => nodeIds.includes(n.id))
-        : canvas.nodes.filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio' || n.type === 'backdrop');
+      const targets =
+        Array.isArray(nodeIds) && nodeIds.length > 0
+          ? canvas.nodes.filter((n) => nodeIds.includes(n.id))
+          : canvas.nodes.filter(
+              (n) =>
+                n.type === 'image' ||
+                n.type === 'video' ||
+                n.type === 'audio' ||
+                n.type === 'backdrop',
+            );
       let total = 0;
       let currency = 'USD';
       const nodeCosts: Array<{ nodeId: string; estimatedCost: number }> = [];
@@ -436,21 +442,24 @@ export function registerAllTools(
       // Compile the same prompt the generation pipeline would send, without
       // triggering a job. Returns segments/diagnostics/budget so Commander
       // can surface the compiled text for user review.
-      const context = await buildGenerationContext({
-        adapterRegistry: deps.adapterRegistry,
-        cas: deps.cas,
-        db: deps.db,
-        canvasStore: deps.canvasStore,
-        keychain: deps.keychain,
-        getWindow,
-      }, {
-        canvasId,
-        nodeId,
-        requestedProviderId: undefined,
-        requestedProviderConfig: undefined,
-        requestedVariantCount: undefined,
-        requestedSeed: undefined,
-      });
+      const context = await buildGenerationContext(
+        {
+          adapterRegistry: deps.adapterRegistry,
+          cas: deps.cas,
+          db: deps.db,
+          canvasStore: deps.canvasStore,
+          keychain: deps.keychain,
+          getWindow,
+        },
+        {
+          canvasId,
+          nodeId,
+          requestedProviderId: undefined,
+          requestedProviderConfig: undefined,
+          requestedVariantCount: undefined,
+          requestedSeed: undefined,
+        },
+      );
       return {
         prompt: context.compiled.prompt,
         negativePrompt: context.compiled.negativePrompt,
@@ -567,7 +576,9 @@ export function registerAllTools(
           bypassed: typeof n.bypassed === 'boolean' ? n.bypassed : false,
           locked: typeof n.locked === 'boolean' ? n.locked : false,
           colorTag: typeof n.colorTag === 'string' ? n.colorTag : undefined,
-          tags: Array.isArray(n.tags) ? (n.tags as string[]).filter((t) => typeof t === 'string') : undefined,
+          tags: Array.isArray(n.tags)
+            ? (n.tags as string[]).filter((t) => typeof t === 'string')
+            : undefined,
           groupId: typeof n.groupId === 'string' ? n.groupId : undefined,
           parentId: typeof n.parentId === 'string' ? n.parentId : undefined,
           width: typeof n.width === 'number' ? n.width : undefined,
@@ -588,10 +599,14 @@ export function registerAllTools(
           throw new Error(`importWorkflow: edges[${i}] missing id`);
         }
         if (typeof e.source !== 'string' || !nodeIds.has(e.source)) {
-          throw new Error(`importWorkflow: edges[${i}] references unknown source "${String(e.source)}"`);
+          throw new Error(
+            `importWorkflow: edges[${i}] references unknown source "${String(e.source)}"`,
+          );
         }
         if (typeof e.target !== 'string' || !nodeIds.has(e.target)) {
-          throw new Error(`importWorkflow: edges[${i}] references unknown target "${String(e.target)}"`);
+          throw new Error(
+            `importWorkflow: edges[${i}] references unknown target "${String(e.target)}"`,
+          );
         }
         if (e.source === e.target) {
           throw new Error(`importWorkflow: edges[${i}] self-loop not allowed`);
@@ -603,9 +618,10 @@ export function registerAllTools(
           sourceHandle: typeof e.sourceHandle === 'string' ? e.sourceHandle : undefined,
           targetHandle: typeof e.targetHandle === 'string' ? e.targetHandle : undefined,
           data: {
-            label: typeof (e.data as Record<string, unknown> | undefined)?.label === 'string'
-              ? (e.data as Record<string, unknown>).label as string
-              : undefined,
+            label:
+              typeof (e.data as Record<string, unknown> | undefined)?.label === 'string'
+                ? ((e.data as Record<string, unknown>).label as string)
+                : undefined,
             status: 'idle',
           },
         });
@@ -658,7 +674,10 @@ export function registerAllTools(
       const canvas = requireCanvas(deps.canvasStore, canvasId);
       return canvas.settings ?? {};
     },
-    patchCanvasSettings: async (canvasId: string, patch: CanvasSettings): Promise<CanvasSettings> => {
+    patchCanvasSettings: async (
+      canvasId: string,
+      patch: CanvasSettings,
+    ): Promise<CanvasSettings> => {
       // Re-read through the store so we preserve cache coherence, then delegate
       // column-level updates to the repo (which also bumps updated_at). After
       // the repo write, refresh the cached canvas with the merged settings so
@@ -703,8 +722,7 @@ export function registerAllTools(
       }
       const content = fs.readFileSync(resolved, 'utf-8');
       const ext = path.extname(resolved).toLowerCase();
-      const format =
-        ext === '.fountain' ? 'fountain' : ext === '.fdx' ? 'fdx' : 'plaintext';
+      const format = ext === '.fountain' ? 'fountain' : ext === '.fdx' ? 'fdx' : 'plaintext';
       return saveScriptDocument(deps.db, content, format);
     },
     saveScript: async (content: string) => {
@@ -774,13 +792,19 @@ export function registerAllTools(
           job.params &&
           typeof job.params === 'object' &&
           typeof (job.params as { nodeId?: unknown }).nodeId === 'string'
-            ? ((job.params as { nodeId: string }).nodeId)
+            ? (job.params as { nodeId: string }).nodeId
             : undefined,
       }));
     },
-    cancelJob: async (jobId: string) => { deps.jobQueue.cancel(jobId); },
-    pauseJob: async (jobId: string) => { deps.jobQueue.pause(jobId); },
-    resumeJob: async (jobId: string) => { deps.jobQueue.resume(jobId); },
+    cancelJob: async (jobId: string) => {
+      deps.jobQueue.cancel(jobId);
+    },
+    pauseJob: async (jobId: string) => {
+      deps.jobQueue.pause(jobId);
+    },
+    resumeJob: async (jobId: string) => {
+      deps.jobQueue.resume(jobId);
+    },
   });
 
   // ---- Series tools ----
@@ -798,7 +822,17 @@ export function registerAllTools(
       id: seriesId,
       title: 'Untitled Series',
       description: '',
-      styleGuide: { global: { artStyle: '', colorPalette: { primary: '', secondary: '', forbidden: [] }, lighting: 'natural', texture: '', referenceImages: [], freeformDescription: '' }, sceneOverrides: {} } as StyleGuide,
+      styleGuide: {
+        global: {
+          artStyle: '',
+          colorPalette: { primary: '', secondary: '', forbidden: [] },
+          lighting: 'natural',
+          texture: '',
+          referenceImages: [],
+          freeformDescription: '',
+        },
+        sceneOverrides: {},
+      } as StyleGuide,
       episodeIds: [],
       createdAt: now,
       updatedAt: now,
@@ -814,35 +848,47 @@ export function registerAllTools(
     },
     saveSeries: async (data: Record<string, unknown>) => {
       const existingId =
-        typeof data.id === 'string' && data.id.trim().length > 0
-          ? data.id.trim()
-          : activeSeriesId;
-      const existingSeries = existingId ? deps.db.repos.series.getSeries(parseSeriesId(existingId)) : undefined;
+        typeof data.id === 'string' && data.id.trim().length > 0 ? data.id.trim() : activeSeriesId;
+      const existingSeries = existingId
+        ? deps.db.repos.series.getSeries(parseSeriesId(existingId))
+        : undefined;
       const now = Date.now();
       const seriesId = existingId ?? crypto.randomUUID();
       const episodeIds = Array.isArray(data.episodeIds)
         ? data.episodeIds.filter((entry): entry is string => typeof entry === 'string')
-        : existingSeries?.episodeIds ?? deps.db.repos.series.listEpisodes(parseSeriesId(seriesId)).rows.map((episode) => episode.id);
+        : (existingSeries?.episodeIds ??
+          deps.db.repos.series
+            .listEpisodes(parseSeriesId(seriesId))
+            .rows.map((episode) => episode.id));
 
       deps.db.repos.series.upsertSeries({
         id: seriesId,
         title:
           typeof data.title === 'string'
             ? data.title
-            : existingSeries?.title ?? 'Untitled Series',
+            : (existingSeries?.title ?? 'Untitled Series'),
         description:
           typeof data.description === 'string'
             ? data.description
-            : existingSeries?.description ?? '',
+            : (existingSeries?.description ?? ''),
         styleGuide:
           data.styleGuide && typeof data.styleGuide === 'object' && !Array.isArray(data.styleGuide)
-            ? data.styleGuide as StyleGuide
-            : existingSeries?.styleGuide ?? { global: { artStyle: '', colorPalette: { primary: '', secondary: '', forbidden: [] }, lighting: 'natural', texture: '', referenceImages: [], freeformDescription: '' }, sceneOverrides: {} } as StyleGuide,
+            ? (data.styleGuide as StyleGuide)
+            : (existingSeries?.styleGuide ??
+              ({
+                global: {
+                  artStyle: '',
+                  colorPalette: { primary: '', secondary: '', forbidden: [] },
+                  lighting: 'natural',
+                  texture: '',
+                  referenceImages: [],
+                  freeformDescription: '',
+                },
+                sceneOverrides: {},
+              } as StyleGuide)),
         episodeIds,
         createdAt:
-          typeof data.createdAt === 'number'
-            ? data.createdAt
-            : existingSeries?.createdAt ?? now,
+          typeof data.createdAt === 'number' ? data.createdAt : (existingSeries?.createdAt ?? now),
         updatedAt: now,
       });
 
@@ -851,11 +897,13 @@ export function registerAllTools(
     },
     listEpisodes: async () => {
       if (!activeSeriesId) return [];
-      return deps.db.repos.series.listEpisodes(parseSeriesId(activeSeriesId)).rows.map((episode) => ({
-        id: episode.id,
-        title: episode.title,
-        canvasId: undefined,
-      }));
+      return deps.db.repos.series
+        .listEpisodes(parseSeriesId(activeSeriesId))
+        .rows.map((episode) => ({
+          id: episode.id,
+          title: episode.title,
+          canvasId: undefined,
+        }));
     },
     addEpisode: async (title: string, _canvasId?: string) => {
       const { seriesId } = ensureCommanderSeriesId();
@@ -884,7 +932,9 @@ export function registerAllTools(
       return { id: episodeId };
     },
     removeEpisode: async (episodeId: string) => {
-      const series = activeSeriesId ? deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId)) : undefined;
+      const series = activeSeriesId
+        ? deps.db.repos.series.getSeries(parseSeriesId(activeSeriesId))
+        : undefined;
       deps.db.repos.series.deleteEpisode(parseEpisodeId(episodeId));
       if (series) {
         deps.db.repos.series.upsertSeries({
@@ -935,7 +985,7 @@ export function registerAllTools(
   // ---- Provider tools ----
   for (const tool of createProviderTools({
     listProviders: async (group: string) => {
-      return getCachedProviders(group).map(p => ({
+      return getCachedProviders(group).map((p) => ({
         id: p.id,
         name: p.name,
         baseUrl: p.baseUrl,
@@ -961,19 +1011,40 @@ export function registerAllTools(
       );
     },
     setProviderBaseUrl: async (group: string, providerId: string, baseUrl: string) => {
-      gateway.emit(commanderSettingsDispatchChannel, { action: 'setProviderBaseUrl', payload: { group, provider: providerId, baseUrl } });
+      gateway.emit(commanderSettingsDispatchChannel, {
+        action: 'setProviderBaseUrl',
+        payload: { group, provider: providerId, baseUrl },
+      });
     },
     setProviderModel: async (group: string, providerId: string, model: string) => {
-      gateway.emit(commanderSettingsDispatchChannel, { action: 'setProviderModel', payload: { group, provider: providerId, model } });
+      gateway.emit(commanderSettingsDispatchChannel, {
+        action: 'setProviderModel',
+        payload: { group, provider: providerId, model },
+      });
     },
     setProviderName: async (group: string, providerId: string, name: string) => {
-      gateway.emit(commanderSettingsDispatchChannel, { action: 'setProviderName', payload: { group, provider: providerId, name } });
+      gateway.emit(commanderSettingsDispatchChannel, {
+        action: 'setProviderName',
+        payload: { group, provider: providerId, name },
+      });
     },
-    addCustomProvider: async (group: string, id: string, name: string, baseUrl?: string, model?: string) => {
-      gateway.emit(commanderSettingsDispatchChannel, { action: 'addCustomProvider', payload: { group, id, name, baseUrl, model } });
+    addCustomProvider: async (
+      group: string,
+      id: string,
+      name: string,
+      baseUrl?: string,
+      model?: string,
+    ) => {
+      gateway.emit(commanderSettingsDispatchChannel, {
+        action: 'addCustomProvider',
+        payload: { group, id, name, baseUrl, model },
+      });
     },
     removeCustomProvider: async (group: string, providerId: string) => {
-      gateway.emit(commanderSettingsDispatchChannel, { action: 'removeCustomProvider', payload: { group, provider: providerId } });
+      gateway.emit(commanderSettingsDispatchChannel, {
+        action: 'removeCustomProvider',
+        payload: { group, provider: providerId },
+      });
     },
     setProviderApiKey: async (providerId: string, apiKey: string) => {
       const mediaAdapter = deps.adapterRegistry.get(providerId);
@@ -1013,10 +1084,18 @@ export function registerAllTools(
 
   // ---- Workflow tools ----
   for (const tool of createWorkflowTools({
-    pauseWorkflow: async (id: string) => { await deps.workflowEngine.pause(id); },
-    resumeWorkflow: async (id: string) => { await deps.workflowEngine.resume(id); },
-    cancelWorkflow: async (id: string) => { await deps.workflowEngine.cancel(id); },
-    retryWorkflow: async (id: string) => { await deps.workflowEngine.retryWorkflow(id); },
+    pauseWorkflow: async (id: string) => {
+      await deps.workflowEngine.pause(id);
+    },
+    resumeWorkflow: async (id: string) => {
+      await deps.workflowEngine.resume(id);
+    },
+    cancelWorkflow: async (id: string) => {
+      await deps.workflowEngine.cancel(id);
+    },
+    retryWorkflow: async (id: string) => {
+      await deps.workflowEngine.retryWorkflow(id);
+    },
   })) {
     registry.register(tool);
   }
@@ -1041,7 +1120,6 @@ export function registerAllTools(
   })) {
     registry.register(tool);
   }
-
 
   // ---- Copywriting tools ----
   for (const tool of createCopywritingTools({
@@ -1077,7 +1155,7 @@ export function registerAllTools(
     describeImage: async (assetHash, _assetType, style, providerId) => {
       const visionProviders = getCachedProviders('vision');
       const providerInfo = providerId
-        ? visionProviders.find((p) => p.id === providerId) ?? visionProviders[0]
+        ? (visionProviders.find((p) => p.id === providerId) ?? visionProviders[0])
         : visionProviders[0];
       if (!providerInfo?.id) {
         throw new Error('Vision provider not configured. Go to Settings → Vision.');
@@ -1113,9 +1191,8 @@ export function registerAllTools(
       const imageBuffer = fs.readFileSync(resolvedPath);
       const base64Data = imageBuffer.toString('base64');
       const mimeType = MIME_MAP_VISION[resolvedExt] ?? 'image/jpeg';
-      const systemPrompt = style === 'style-analysis'
-        ? VISION_PROMPT_STYLE_ANALYSIS
-        : VISION_PROMPT_DEFAULT;
+      const systemPrompt =
+        style === 'style-analysis' ? VISION_PROMPT_STYLE_ANALYSIS : VISION_PROMPT_DEFAULT;
       const result = await adapter.complete([
         { role: 'system', content: systemPrompt },
         { role: 'user', content: 'Describe this image.', images: [{ data: base64Data, mimeType }] },
@@ -1193,7 +1270,8 @@ export function registerAllTools(
             await extractFrameAtTime(filePath, scenes[i].time, framePath);
             const { ref } = await deps.cas.importAsset(framePath, 'image');
             keyframeHashes.push(ref.hash);
-          } catch { /* keyframe extraction failed for this scene — use empty placeholder */
+          } catch {
+            /* keyframe extraction failed for this scene — use empty placeholder */
             keyframeHashes.push('');
           }
         }
@@ -1248,7 +1326,8 @@ export function registerAllTools(
       } finally {
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true });
-        } catch { /* temp dir cleanup failed — not fatal, OS will reclaim on reboot */
+        } catch {
+          /* temp dir cleanup failed — not fatal, OS will reclaim on reboot */
           // ignore
         }
       }
@@ -1334,9 +1413,18 @@ export function registerAllTools(
         .filter((node) => node.type === 'video' && !node.bypassed)
         .sort((a, b) => a.position.x - b.position.x);
 
-      const segments: Array<{ inputPath: string; startTime: number; duration: number; speed: number }> = [];
+      const segments: Array<{
+        inputPath: string;
+        startTime: number;
+        duration: number;
+        speed: number;
+      }> = [];
       for (const node of videoNodes) {
-        const data = node.data as { variants?: string[]; selectedVariantIndex?: number; duration?: number };
+        const data = node.data as {
+          variants?: string[];
+          selectedVariantIndex?: number;
+          duration?: number;
+        };
         const variants = Array.isArray(data.variants) ? data.variants : [];
         const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
         const hash = variants[idx];
@@ -1360,7 +1448,9 @@ export function registerAllTools(
       }
 
       if (segments.length === 0) {
-        throw new Error('No rendered video variants available for this canvas — generate videos first.');
+        throw new Error(
+          'No rendered video variants available for this canvas — generate videos first.',
+        );
       }
 
       const codec = format === 'mov' ? 'prores' : 'h264';
@@ -1381,10 +1471,14 @@ export function registerAllTools(
       // renderTimeline currently runs synchronously-to-completion inside the
       // main IPC handler — there is no per-canvas cancellation token yet. We
       // intentionally do not fabricate cancel success here.
-      throw new Error('Render cancellation is not yet wired to the media engine — render jobs complete uninterrupted.');
+      throw new Error(
+        'Render cancellation is not yet wired to the media engine — render jobs complete uninterrupted.',
+      );
     },
     exportBundle: async () => {
-      throw new Error('Canvas→NLE bundle export is not yet wired. Use export:nle IPC with an editorial Project payload from the renderer.');
+      throw new Error(
+        'Canvas→NLE bundle export is not yet wired. Use export:nle IPC with an editorial Project payload from the renderer.',
+      );
     },
   })) {
     registry.register(tool);
@@ -1393,8 +1487,10 @@ export function registerAllTools(
   // ---- Snapshot tools ----
   if (sessionId) {
     for (const tool of createSnapshotTools({
-      captureSnapshot: (sid, label, trigger) => deps.db.repos.snapshots.capture(parseSessionId(sid), label, trigger),
-      listSnapshots: (sid) => deps.db.repos.snapshots.list(parseSessionId(sid)).rows.map(({ data: _d, ...meta }) => meta),
+      captureSnapshot: (sid, label, trigger) =>
+        deps.db.repos.snapshots.capture(parseSessionId(sid), label, trigger),
+      listSnapshots: (sid) =>
+        deps.db.repos.snapshots.list(parseSessionId(sid)).rows.map(({ data: _d, ...meta }) => meta),
       restoreSnapshot: (snapshotId) => deps.db.repos.snapshots.restore(parseSnapshotId(snapshotId)),
       getSessionId: () => sessionId,
     })) {

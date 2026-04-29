@@ -16,7 +16,11 @@ import type {
   ImageNodeData,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { findActiveCanvas, normalizeCanvasNodeFrames } from './canvas-helpers.js';
+import {
+  findActiveCanvas,
+  normalizeCanvasNodeFrames,
+  sanitizeTransientNodeStatus,
+} from './canvas-helpers.js';
 import * as nodeReducers from './canvas-node-reducers.js';
 import * as refReducers from './canvas-ref-reducers.js';
 import * as edgeReducers from './canvas-edge-reducers.js';
@@ -84,7 +88,9 @@ const internalCanvasSlice = createSlice({
     // --- Canvas-level actions -----------------------------------------------
 
     setCanvases(state, action: PayloadAction<Canvas[]>) {
-      const normalized = action.payload.map((canvas) => normalizeCanvasNodeFrames(canvas));
+      const normalized = action.payload
+        .map((canvas) => normalizeCanvasNodeFrames(canvas))
+        .map((canvas) => sanitizeTransientNodeStatus(canvas));
       canvasAdapter.setAll(state.canvases, normalized);
       const stillValid = state.canvases.ids.includes(state.activeCanvasId ?? '');
       if (!stillValid) {
@@ -316,12 +322,16 @@ const internalCanvasSlice = createSlice({
 
     // --- Canvas Settings (H2 fix: route through Redux) --------------------
 
-    updateCanvasSettings(state, action: PayloadAction<{ canvasId: string; settings: CanvasSettings | undefined }>) {
+    updateCanvasSettings(
+      state,
+      action: PayloadAction<{ canvasId: string; settings: CanvasSettings | undefined }>,
+    ) {
       const canvas = state.canvases.entities[action.payload.canvasId];
       if (!canvas) return;
-      canvas.settings = action.payload.settings && Object.keys(action.payload.settings).length > 0
-        ? action.payload.settings
-        : undefined;
+      canvas.settings =
+        action.payload.settings && Object.keys(action.payload.settings).length > 0
+          ? action.payload.settings
+          : undefined;
       canvas.updatedAt = Date.now();
     },
 
@@ -367,7 +377,14 @@ const internalCanvasSlice = createSlice({
     // --- Undo support ------------------------------------------------------
 
     restore(_state, action: PayloadAction<CanvasSliceState>) {
-      return action.payload;
+      const restored = action.payload;
+      return {
+        ...restored,
+        loading: false,
+        selectedNodeIds: [],
+        selectedEdgeIds: [],
+        clipboard: null,
+      };
     },
   },
 });

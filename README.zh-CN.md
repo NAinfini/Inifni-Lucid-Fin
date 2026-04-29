@@ -9,7 +9,7 @@
 
 ### AI 驱动的影视制作桌面应用
 
-*从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱动。*
+_从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱动。_
 
 <p>
   <a href="#-功能特性">功能特性</a> &nbsp;&bull;&nbsp;
@@ -288,11 +288,11 @@ npm run build
 <details>
 <summary><strong>环境要求</strong></summary>
 
-| 要求 | 版本 |
-|------|------|
-| Node.js | >= 20 |
-| npm | >= 10 |
-| FFmpeg | >= 6（视频处理需要） |
+| 要求     | 版本                    |
+| -------- | ----------------------- |
+| Node.js  | >= 20                   |
+| npm      | >= 10                   |
+| FFmpeg   | >= 6（视频处理需要）    |
 | 操作系统 | Windows / macOS / Linux |
 
 </details>
@@ -314,11 +314,11 @@ npm run build
 
 每次 push 和 pull request 都会通过 GitHub Actions 运行完整 CI 管线：
 
-| 任务 | 内容 |
-|------|------|
+| 任务         | 内容                                                            |
+| ------------ | --------------------------------------------------------------- |
 | **类型检查** | `tsc --noEmit` — 检查 `contracts`、`application`、`adapters-ai` |
-| **测试** | `vitest run` — 运行所有单元测试和集成测试 |
-| **代码规范** | `eslint` — 零警告策略 |
+| **测试**     | `vitest run` — 运行所有单元测试和集成测试                       |
+| **代码规范** | `eslint` — 零警告策略                                           |
 
 详见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。
 

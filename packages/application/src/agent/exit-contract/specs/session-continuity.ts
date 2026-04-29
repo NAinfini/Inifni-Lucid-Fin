@@ -4,9 +4,7 @@ export interface SessionContinuitySpecDeps {
   resolvePromptText: (key: 'session-continuity') => string | null | undefined;
 }
 
-export function createSessionContinuitySpec(
-  deps: SessionContinuitySpecDeps,
-): ProcessPromptSpec {
+export function createSessionContinuitySpec(deps: SessionContinuitySpecDeps): ProcessPromptSpec {
   return {
     key: 'session-continuity',
     displayName: 'Session Continuity',

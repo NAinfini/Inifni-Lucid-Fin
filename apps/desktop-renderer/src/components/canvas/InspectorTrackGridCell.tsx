@@ -1,5 +1,11 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/Dialog.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { localizePresetName } from '../../i18n.js';
@@ -94,7 +100,10 @@ export function InspectorTrackGridCell({
               )}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              {t('inspector.categoryPresetsTitle').replace('{category}', t('presetCategory.' + category))}
+              {t('inspector.categoryPresetsTitle').replace(
+                '{category}',
+                t('presetCategory.' + category),
+              )}
             </DialogDescription>
           </DialogHeader>
           <InspectorTrackEditor

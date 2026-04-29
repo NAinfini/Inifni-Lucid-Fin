@@ -203,7 +203,7 @@ function rowToCharacter(row: Record<string, unknown>): Character {
   return {
     id: row.id as string,
     name: row.name as string,
-    role: ((row.role as Character['role']) ?? 'supporting'),
+    role: (row.role as Character['role']) ?? 'supporting',
     description: (row.description as string) ?? '',
     appearance: (row.appearance as string) ?? '',
     personality: (row.personality as string) ?? '',
@@ -218,9 +218,7 @@ function rowToCharacter(row: Record<string, unknown>): Character {
     body: parseJsonObjectOrUndef(row.body) as CharacterBody | undefined,
     distinctTraits: parseStringArrayOrUndef(row.distinct_traits),
     vocalTraits: parseJsonObjectOrUndef(row.vocal_traits) as VocalTraits | undefined,
-    referenceImages: parseJsonArrayOrEmpty(
-      row.reference_images,
-    ) as Character['referenceImages'],
+    referenceImages: parseJsonArrayOrEmpty(row.reference_images) as Character['referenceImages'],
     loadouts: parseJsonArrayOrEmpty(row.loadouts) as Character['loadouts'],
     defaultLoadoutId: (row.default_loadout_id as string) ?? '',
     folderId: (row.folder_id as string | null) ?? null,
@@ -242,9 +240,7 @@ function rowToEquipment(row: Record<string, unknown>): Equipment {
     condition: (row.condition as string | null) ?? undefined,
     visualDetails: (row.visual_details as string | null) ?? undefined,
     tags: parseStringArrayOrEmpty(row.tags),
-    referenceImages: parseJsonArrayOrEmpty(
-      row.reference_images,
-    ) as Equipment['referenceImages'],
+    referenceImages: parseJsonArrayOrEmpty(row.reference_images) as Equipment['referenceImages'],
     folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
     updatedAt: (row.updated_at as number) ?? Date.now(),
@@ -267,9 +263,7 @@ function rowToLocation(row: Record<string, unknown>): Location {
     keyFeatures: parseStringArrayOrUndef(row.key_features),
     atmosphereKeywords: parseStringArrayOrUndef(row.atmosphere_keywords),
     tags: parseStringArrayOrEmpty(row.tags),
-    referenceImages: parseJsonArrayOrEmpty(
-      row.reference_images,
-    ) as Location['referenceImages'],
+    referenceImages: parseJsonArrayOrEmpty(row.reference_images) as Location['referenceImages'],
     folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
     updatedAt: (row.updated_at as number) ?? Date.now(),
@@ -282,9 +276,9 @@ export class EntityRepository {
   // ── Characters ─────────────────────────────────────────────────
 
   private existsCharacter(id: string, d: BetterSqlite3.Database | Tx): boolean {
-    const row = d
-      .prepare(`SELECT 1 FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT 1 FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     return row !== undefined;
   }
 
@@ -296,24 +290,50 @@ export class EntityRepository {
       const fields: FieldMapping[] = [];
       fields.push({ sqlName: CHAR.name.sqlName, value: input.name });
       if (input.role !== undefined) fields.push({ sqlName: CHAR.role.sqlName, value: input.role });
-      if (input.description !== undefined) fields.push({ sqlName: CHAR.description.sqlName, value: input.description });
-      if (input.appearance !== undefined) fields.push({ sqlName: CHAR.appearance.sqlName, value: input.appearance });
-      if (input.personality !== undefined) fields.push({ sqlName: CHAR.personality.sqlName, value: input.personality });
-      if (input.costumes !== undefined) fields.push({ sqlName: CHAR.costumes.sqlName, value: JSON.stringify(input.costumes) });
-      if (input.tags !== undefined) fields.push({ sqlName: CHAR.tags.sqlName, value: JSON.stringify(input.tags) });
+      if (input.description !== undefined)
+        fields.push({ sqlName: CHAR.description.sqlName, value: input.description });
+      if (input.appearance !== undefined)
+        fields.push({ sqlName: CHAR.appearance.sqlName, value: input.appearance });
+      if (input.personality !== undefined)
+        fields.push({ sqlName: CHAR.personality.sqlName, value: input.personality });
+      if (input.costumes !== undefined)
+        fields.push({ sqlName: CHAR.costumes.sqlName, value: JSON.stringify(input.costumes) });
+      if (input.tags !== undefined)
+        fields.push({ sqlName: CHAR.tags.sqlName, value: JSON.stringify(input.tags) });
       if (input.age !== undefined) fields.push({ sqlName: CHAR.age.sqlName, value: input.age });
-      if (input.gender !== undefined) fields.push({ sqlName: CHAR.gender.sqlName, value: input.gender });
-      if (input.voice !== undefined) fields.push({ sqlName: CHAR.voice.sqlName, value: input.voice });
-      if (input.face !== undefined) fields.push({ sqlName: CHAR.face.sqlName, value: JSON.stringify(input.face) });
-      if (input.hair !== undefined) fields.push({ sqlName: CHAR.hair.sqlName, value: JSON.stringify(input.hair) });
-      if (input.skinTone !== undefined) fields.push({ sqlName: CHAR.skinTone.sqlName, value: input.skinTone });
-      if (input.body !== undefined) fields.push({ sqlName: CHAR.body.sqlName, value: JSON.stringify(input.body) });
-      if (input.distinctTraits !== undefined) fields.push({ sqlName: CHAR.distinctTraits.sqlName, value: JSON.stringify(input.distinctTraits) });
-      if (input.vocalTraits !== undefined) fields.push({ sqlName: CHAR.vocalTraits.sqlName, value: JSON.stringify(input.vocalTraits) });
-      if (input.referenceImages !== undefined) fields.push({ sqlName: CHAR.referenceImages.sqlName, value: JSON.stringify(input.referenceImages) });
-      if (input.loadouts !== undefined) fields.push({ sqlName: CHAR.loadouts.sqlName, value: JSON.stringify(input.loadouts) });
-      if (input.defaultLoadoutId !== undefined) fields.push({ sqlName: CHAR.defaultLoadoutId.sqlName, value: input.defaultLoadoutId });
-      if (input.folderId !== undefined) fields.push({ sqlName: CHAR.folderId.sqlName, value: input.folderId });
+      if (input.gender !== undefined)
+        fields.push({ sqlName: CHAR.gender.sqlName, value: input.gender });
+      if (input.voice !== undefined)
+        fields.push({ sqlName: CHAR.voice.sqlName, value: input.voice });
+      if (input.face !== undefined)
+        fields.push({ sqlName: CHAR.face.sqlName, value: JSON.stringify(input.face) });
+      if (input.hair !== undefined)
+        fields.push({ sqlName: CHAR.hair.sqlName, value: JSON.stringify(input.hair) });
+      if (input.skinTone !== undefined)
+        fields.push({ sqlName: CHAR.skinTone.sqlName, value: input.skinTone });
+      if (input.body !== undefined)
+        fields.push({ sqlName: CHAR.body.sqlName, value: JSON.stringify(input.body) });
+      if (input.distinctTraits !== undefined)
+        fields.push({
+          sqlName: CHAR.distinctTraits.sqlName,
+          value: JSON.stringify(input.distinctTraits),
+        });
+      if (input.vocalTraits !== undefined)
+        fields.push({
+          sqlName: CHAR.vocalTraits.sqlName,
+          value: JSON.stringify(input.vocalTraits),
+        });
+      if (input.referenceImages !== undefined)
+        fields.push({
+          sqlName: CHAR.referenceImages.sqlName,
+          value: JSON.stringify(input.referenceImages),
+        });
+      if (input.loadouts !== undefined)
+        fields.push({ sqlName: CHAR.loadouts.sqlName, value: JSON.stringify(input.loadouts) });
+      if (input.defaultLoadoutId !== undefined)
+        fields.push({ sqlName: CHAR.defaultLoadoutId.sqlName, value: input.defaultLoadoutId });
+      if (input.folderId !== undefined)
+        fields.push({ sqlName: CHAR.folderId.sqlName, value: input.folderId });
       fields.push({ sqlName: CHAR.updatedAt.sqlName, value: input.updatedAt ?? now });
 
       if (fields.length > 0) {
@@ -363,9 +383,9 @@ export class EntityRepository {
 
   getCharacter(id: CharacterId, tx?: Tx): Character | undefined {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(`SELECT * FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT * FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     if (!row) return undefined;
     const parsed = parseOrDegrade(
       CharacterSchema,
@@ -413,9 +433,9 @@ export class EntityRepository {
   // ── Equipment ──────────────────────────────────────────────────
 
   private existsEquipment(id: string, d: BetterSqlite3.Database | Tx): boolean {
-    const row = d
-      .prepare(`SELECT 1 FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT 1 FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     return row !== undefined;
   }
 
@@ -427,16 +447,29 @@ export class EntityRepository {
       const fields: FieldMapping[] = [];
       fields.push({ sqlName: EQUIP.name.sqlName, value: input.name });
       if (input.type !== undefined) fields.push({ sqlName: EQUIP.type.sqlName, value: input.type });
-      if (input.subtype !== undefined) fields.push({ sqlName: EQUIP.subtype.sqlName, value: input.subtype });
-      if (input.description !== undefined) fields.push({ sqlName: EQUIP.description.sqlName, value: input.description });
-      if (input.functionDesc !== undefined) fields.push({ sqlName: EQUIP.functionDesc.sqlName, value: input.functionDesc });
-      if (input.material !== undefined) fields.push({ sqlName: EQUIP.material.sqlName, value: input.material });
-      if (input.color !== undefined) fields.push({ sqlName: EQUIP.color.sqlName, value: input.color });
-      if (input.condition !== undefined) fields.push({ sqlName: EQUIP.condition.sqlName, value: input.condition });
-      if (input.visualDetails !== undefined) fields.push({ sqlName: EQUIP.visualDetails.sqlName, value: input.visualDetails });
-      if (input.tags !== undefined) fields.push({ sqlName: EQUIP.tags.sqlName, value: JSON.stringify(input.tags) });
-      if (input.referenceImages !== undefined) fields.push({ sqlName: EQUIP.referenceImages.sqlName, value: JSON.stringify(input.referenceImages) });
-      if (input.folderId !== undefined) fields.push({ sqlName: EQUIP.folderId.sqlName, value: input.folderId });
+      if (input.subtype !== undefined)
+        fields.push({ sqlName: EQUIP.subtype.sqlName, value: input.subtype });
+      if (input.description !== undefined)
+        fields.push({ sqlName: EQUIP.description.sqlName, value: input.description });
+      if (input.functionDesc !== undefined)
+        fields.push({ sqlName: EQUIP.functionDesc.sqlName, value: input.functionDesc });
+      if (input.material !== undefined)
+        fields.push({ sqlName: EQUIP.material.sqlName, value: input.material });
+      if (input.color !== undefined)
+        fields.push({ sqlName: EQUIP.color.sqlName, value: input.color });
+      if (input.condition !== undefined)
+        fields.push({ sqlName: EQUIP.condition.sqlName, value: input.condition });
+      if (input.visualDetails !== undefined)
+        fields.push({ sqlName: EQUIP.visualDetails.sqlName, value: input.visualDetails });
+      if (input.tags !== undefined)
+        fields.push({ sqlName: EQUIP.tags.sqlName, value: JSON.stringify(input.tags) });
+      if (input.referenceImages !== undefined)
+        fields.push({
+          sqlName: EQUIP.referenceImages.sqlName,
+          value: JSON.stringify(input.referenceImages),
+        });
+      if (input.folderId !== undefined)
+        fields.push({ sqlName: EQUIP.folderId.sqlName, value: input.folderId });
       fields.push({ sqlName: EQUIP.updatedAt.sqlName, value: input.updatedAt ?? now });
 
       if (fields.length > 0) {
@@ -475,9 +508,9 @@ export class EntityRepository {
 
   getEquipment(id: EquipmentId, tx?: Tx): Equipment | undefined {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(`SELECT * FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT * FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     if (!row) return undefined;
     const parsed = parseOrDegrade(
       EquipmentSchema,
@@ -492,9 +525,7 @@ export class EntityRepository {
     const d = tx ?? this.db;
     const rows = (
       type === undefined
-        ? d
-            .prepare(`SELECT * FROM ${EQUIP_TBL} ORDER BY ${EQUIP.name.sqlName}`)
-            .all()
+        ? d.prepare(`SELECT * FROM ${EQUIP_TBL} ORDER BY ${EQUIP.name.sqlName}`).all()
         : d
             .prepare(
               `SELECT * FROM ${EQUIP_TBL} WHERE ${EQUIP.type.sqlName} = ? ORDER BY ${EQUIP.name.sqlName}`,
@@ -533,9 +564,9 @@ export class EntityRepository {
   // ── Locations ──────────────────────────────────────────────────
 
   private existsLocation(id: string, d: BetterSqlite3.Database | Tx): boolean {
-    const row = d
-      .prepare(`SELECT 1 FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT 1 FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     return row !== undefined;
   }
 
@@ -547,19 +578,43 @@ export class EntityRepository {
       const fields: FieldMapping[] = [];
       fields.push({ sqlName: LOC.name.sqlName, value: input.name });
       if (input.type !== undefined) fields.push({ sqlName: LOC.type.sqlName, value: input.type });
-      if (input.subLocation !== undefined) fields.push({ sqlName: LOC.subLocation.sqlName, value: input.subLocation });
-      if (input.description !== undefined) fields.push({ sqlName: LOC.description.sqlName, value: input.description });
-      if (input.timeOfDay !== undefined) fields.push({ sqlName: LOC.timeOfDay.sqlName, value: input.timeOfDay });
+      if (input.subLocation !== undefined)
+        fields.push({ sqlName: LOC.subLocation.sqlName, value: input.subLocation });
+      if (input.description !== undefined)
+        fields.push({ sqlName: LOC.description.sqlName, value: input.description });
+      if (input.timeOfDay !== undefined)
+        fields.push({ sqlName: LOC.timeOfDay.sqlName, value: input.timeOfDay });
       if (input.mood !== undefined) fields.push({ sqlName: LOC.mood.sqlName, value: input.mood });
-      if (input.weather !== undefined) fields.push({ sqlName: LOC.weather.sqlName, value: input.weather });
-      if (input.lighting !== undefined) fields.push({ sqlName: LOC.lighting.sqlName, value: input.lighting });
-      if (input.architectureStyle !== undefined) fields.push({ sqlName: LOC.architectureStyle.sqlName, value: input.architectureStyle });
-      if (input.dominantColors !== undefined) fields.push({ sqlName: LOC.dominantColors.sqlName, value: input.dominantColors ? JSON.stringify(input.dominantColors) : null });
-      if (input.keyFeatures !== undefined) fields.push({ sqlName: LOC.keyFeatures.sqlName, value: input.keyFeatures ? JSON.stringify(input.keyFeatures) : null });
-      if (input.atmosphereKeywords !== undefined) fields.push({ sqlName: LOC.atmosphereKeywords.sqlName, value: input.atmosphereKeywords ? JSON.stringify(input.atmosphereKeywords) : null });
-      if (input.tags !== undefined) fields.push({ sqlName: LOC.tags.sqlName, value: JSON.stringify(input.tags) });
-      if (input.referenceImages !== undefined) fields.push({ sqlName: LOC.referenceImages.sqlName, value: JSON.stringify(input.referenceImages) });
-      if (input.folderId !== undefined) fields.push({ sqlName: LOC.folderId.sqlName, value: input.folderId });
+      if (input.weather !== undefined)
+        fields.push({ sqlName: LOC.weather.sqlName, value: input.weather });
+      if (input.lighting !== undefined)
+        fields.push({ sqlName: LOC.lighting.sqlName, value: input.lighting });
+      if (input.architectureStyle !== undefined)
+        fields.push({ sqlName: LOC.architectureStyle.sqlName, value: input.architectureStyle });
+      if (input.dominantColors !== undefined)
+        fields.push({
+          sqlName: LOC.dominantColors.sqlName,
+          value: input.dominantColors ? JSON.stringify(input.dominantColors) : null,
+        });
+      if (input.keyFeatures !== undefined)
+        fields.push({
+          sqlName: LOC.keyFeatures.sqlName,
+          value: input.keyFeatures ? JSON.stringify(input.keyFeatures) : null,
+        });
+      if (input.atmosphereKeywords !== undefined)
+        fields.push({
+          sqlName: LOC.atmosphereKeywords.sqlName,
+          value: input.atmosphereKeywords ? JSON.stringify(input.atmosphereKeywords) : null,
+        });
+      if (input.tags !== undefined)
+        fields.push({ sqlName: LOC.tags.sqlName, value: JSON.stringify(input.tags) });
+      if (input.referenceImages !== undefined)
+        fields.push({
+          sqlName: LOC.referenceImages.sqlName,
+          value: JSON.stringify(input.referenceImages),
+        });
+      if (input.folderId !== undefined)
+        fields.push({ sqlName: LOC.folderId.sqlName, value: input.folderId });
       fields.push({ sqlName: LOC.updatedAt.sqlName, value: input.updatedAt ?? now });
 
       if (fields.length > 0) {
@@ -603,9 +658,9 @@ export class EntityRepository {
 
   getLocation(id: LocationId, tx?: Tx): Location | undefined {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(`SELECT * FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT * FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     if (!row) return undefined;
     const parsed = parseOrDegrade(
       LocationSchema,

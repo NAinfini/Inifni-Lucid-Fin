@@ -136,9 +136,7 @@ export class SessionRepository {
 
   delete(id: SessionId, tx?: Tx): void {
     const d = tx ?? this.db;
-    d.prepare(
-      `DELETE FROM ${TBL} WHERE ${C.id.sqlName} = ?`,
-    ).run(id);
+    d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} = ?`).run(id);
   }
 
   /**

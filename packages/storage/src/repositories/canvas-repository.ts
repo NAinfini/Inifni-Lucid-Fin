@@ -18,17 +18,8 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3';
-import type {
-  Canvas,
-  CanvasId,
-  CanvasSettings,
-  CanvasAspectRatio,
-} from '@lucid-fin/contracts';
-import {
-  CanvasesTable,
-  CanvasSchema,
-  parseOrDegrade,
-} from '@lucid-fin/contracts-parse';
+import type { Canvas, CanvasId, CanvasSettings, CanvasAspectRatio } from '@lucid-fin/contracts';
+import { CanvasesTable, CanvasSchema, parseOrDegrade } from '@lucid-fin/contracts-parse';
 import type { Tx } from '../transactions.js';
 
 /** Result shape for list reads that surface degraded-row counts. */
@@ -178,12 +169,18 @@ export class CanvasRepository {
     const sets: string[] = [];
     const params: Array<string | number | null> = [];
     const simpleFields: Array<
-      [Exclude<keyof CanvasSettings, 'refResolution' | 'publishImageResolution' | 'publishVideoResolution'>, string]
+      [
+        Exclude<
+          keyof CanvasSettings,
+          'refResolution' | 'publishImageResolution' | 'publishVideoResolution'
+        >,
+        string,
+      ]
     > = [
-      ['stylePlate',      C.stylePlate.sqlName],
-      ['negativePrompt',  C.negativePrompt.sqlName],
-      ['aspectRatio',     C.aspectRatio.sqlName],
-      ['llmProviderId',   C.llmProviderId.sqlName],
+      ['stylePlate', C.stylePlate.sqlName],
+      ['negativePrompt', C.negativePrompt.sqlName],
+      ['aspectRatio', C.aspectRatio.sqlName],
+      ['llmProviderId', C.llmProviderId.sqlName],
       ['imageProviderId', C.imageProviderId.sqlName],
       ['videoProviderId', C.videoProviderId.sqlName],
       ['audioProviderId', C.audioProviderId.sqlName],
@@ -221,9 +218,9 @@ export class CanvasRepository {
 
   get(id: CanvasId, tx?: Tx): Canvas | undefined {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(`SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`)
-      .get(id) as RawRow | undefined;
+    const row = d.prepare(`SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`).get(id) as
+      | RawRow
+      | undefined;
     if (!row) return undefined;
     const { rows } = parseRows([row]);
     return rows[0];
@@ -266,14 +263,14 @@ export class CanvasRepository {
 
 function rowToCanvas(row: RawRow): Canvas {
   // Defensive against legacy empty-string body columns (pre-DEFAULT migrations).
-  const nodesJson    = row.nodes    && row.nodes.length    > 0 ? row.nodes    : '[]';
-  const edgesJson    = row.edges    && row.edges.length    > 0 ? row.edges    : '[]';
+  const nodesJson = row.nodes && row.nodes.length > 0 ? row.nodes : '[]';
+  const edgesJson = row.edges && row.edges.length > 0 ? row.edges : '[]';
   const viewportJson = row.viewport && row.viewport.length > 0 ? row.viewport : DEFAULT_VIEWPORT;
-  const notesJson    = row.notes    && row.notes.length    > 0 ? row.notes    : '[]';
+  const notesJson = row.notes && row.notes.length > 0 ? row.notes : '[]';
 
   const settings: CanvasSettings = {};
-  if (row.style_plate)       settings.stylePlate       = row.style_plate;
-  if (row.negative_prompt)   settings.negativePrompt   = row.negative_prompt;
+  if (row.style_plate) settings.stylePlate = row.style_plate;
+  if (row.negative_prompt) settings.negativePrompt = row.negative_prompt;
   if (row.default_width && row.default_height) {
     settings.refResolution = { width: row.default_width, height: row.default_height };
   }
@@ -281,12 +278,15 @@ function rowToCanvas(row: RawRow): Canvas {
     settings.publishImageResolution = { width: row.publish_width, height: row.publish_height };
   }
   if (row.publish_video_width && row.publish_video_height) {
-    settings.publishVideoResolution = { width: row.publish_video_width, height: row.publish_video_height };
+    settings.publishVideoResolution = {
+      width: row.publish_video_width,
+      height: row.publish_video_height,
+    };
   }
   if (row.aspect_ratio && isCanvasAspectRatio(row.aspect_ratio)) {
     settings.aspectRatio = row.aspect_ratio;
   }
-  if (row.llm_provider_id)   settings.llmProviderId   = row.llm_provider_id;
+  if (row.llm_provider_id) settings.llmProviderId = row.llm_provider_id;
   if (row.image_provider_id) settings.imageProviderId = row.image_provider_id;
   if (row.video_provider_id) settings.videoProviderId = row.video_provider_id;
   if (row.audio_provider_id) settings.audioProviderId = row.audio_provider_id;
@@ -305,8 +305,12 @@ function rowToCanvas(row: RawRow): Canvas {
   return canvas;
 }
 
-const ASPECT_RATIO_VALUES: ReadonlySet<CanvasAspectRatio> =
-  new Set<CanvasAspectRatio>(['16:9', '9:16', '1:1', '2.39:1']);
+const ASPECT_RATIO_VALUES: ReadonlySet<CanvasAspectRatio> = new Set<CanvasAspectRatio>([
+  '16:9',
+  '9:16',
+  '1:1',
+  '2.39:1',
+]);
 
 function isCanvasAspectRatio(value: string): value is CanvasAspectRatio {
   return (ASPECT_RATIO_VALUES as ReadonlySet<string>).has(value);
@@ -327,12 +331,9 @@ function parseRows(rows: RawRow[]): ListResult<Canvas> {
       // columns against object fields, guaranteeing the fallback path.
       candidate = row;
     }
-    const parsed = parseOrDegrade(
-      CanvasSchema,
-      candidate,
-      SENTINEL as unknown as Canvas,
-      { ctx: { name: 'Canvas' } },
-    );
+    const parsed = parseOrDegrade(CanvasSchema, candidate, SENTINEL as unknown as Canvas, {
+      ctx: { name: 'Canvas' },
+    });
     if ((parsed as unknown) === SENTINEL) {
       degradedCount += 1;
       continue;

@@ -42,27 +42,30 @@ export function decide(input: DecideInput): ExitDecision {
   const { contract, intent, ledger, lastAssistantText } = input;
 
   // 2. Budget exhaustion preempts everything else.
-  const budget = ledger.find((e): e is Extract<CompletionEvidence, { kind: 'budget_exhausted' }> =>
-    e.kind === 'budget_exhausted',
+  const budget = ledger.find(
+    (e): e is Extract<CompletionEvidence, { kind: 'budget_exhausted' }> =>
+      e.kind === 'budget_exhausted',
   );
   if (budget) {
     return { outcome: 'budget_exhausted', metric: budget.metric };
   }
 
   // 3. Explicit user refusal is a terminal answer.
-  const refusal = ledger.find((e): e is Extract<CompletionEvidence, { kind: 'user_refused' }> =>
-    e.kind === 'user_refused',
+  const refusal = ledger.find(
+    (e): e is Extract<CompletionEvidence, { kind: 'user_refused' }> => e.kind === 'user_refused',
   );
   if (refusal) {
     return { outcome: 'refused', reason: refusal.message };
   }
 
   // 4. Pending ask with no answer — we stopped waiting on the user.
-  const asked = ledger.filter((e): e is Extract<CompletionEvidence, { kind: 'ask_user_asked' }> =>
-    e.kind === 'ask_user_asked',
+  const asked = ledger.filter(
+    (e): e is Extract<CompletionEvidence, { kind: 'ask_user_asked' }> =>
+      e.kind === 'ask_user_asked',
   );
-  const answered = ledger.filter((e): e is Extract<CompletionEvidence, { kind: 'ask_user_answered' }> =>
-    e.kind === 'ask_user_answered',
+  const answered = ledger.filter(
+    (e): e is Extract<CompletionEvidence, { kind: 'ask_user_answered' }> =>
+      e.kind === 'ask_user_answered',
   );
   if (asked.length > answered.length) {
     const lastAsk = asked[asked.length - 1];
@@ -83,9 +86,7 @@ export function decide(input: DecideInput): ExitDecision {
   // promise and will fall through to `unsatisfied`.
   if (
     contract.infoIntentExemption &&
-    (intent.kind === 'informational' ||
-      intent.kind === 'browse' ||
-      intent.kind === 'mixed')
+    (intent.kind === 'informational' || intent.kind === 'browse' || intent.kind === 'mixed')
   ) {
     return {
       outcome: 'informational_answered',
@@ -123,9 +124,13 @@ export function decide(input: DecideInput): ExitDecision {
       blocker: {
         kind: 'missing_commit',
         expected: [],
-        lastTool: ledger.slice().reverse().find(
-          (e): e is Extract<CompletionEvidence, { kind: 'mutation_commit' }> => e.kind === 'mutation_commit',
-        )?.toolName,
+        lastTool: ledger
+          .slice()
+          .reverse()
+          .find(
+            (e): e is Extract<CompletionEvidence, { kind: 'mutation_commit' }> =>
+              e.kind === 'mutation_commit',
+          )?.toolName,
       },
     };
   }
@@ -143,9 +148,13 @@ export function decide(input: DecideInput): ExitDecision {
 
   // 8. Missing commit — the primary unsatisfied shape.
   const expected = contract.requiredCommits.map((c) => c.toolName);
-  const lastCommit = ledger.slice().reverse().find(
-    (e): e is Extract<CompletionEvidence, { kind: 'mutation_commit' }> => e.kind === 'mutation_commit',
-  );
+  const lastCommit = ledger
+    .slice()
+    .reverse()
+    .find(
+      (e): e is Extract<CompletionEvidence, { kind: 'mutation_commit' }> =>
+        e.kind === 'mutation_commit',
+    );
 
   // If the LLM delivered empty narration (no commits, no refusal, no
   // pending ask, no budget hit) and we can see the text, surface that

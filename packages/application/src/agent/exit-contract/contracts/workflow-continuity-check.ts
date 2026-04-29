@@ -22,8 +22,7 @@ export const continuityCheckContract: CompletionContract = {
   requiredCommits: [
     {
       toolName: 'canvas.updateNodes',
-      description:
-        'Batch update prompt / preset / ref fields across affected nodes.',
+      description: 'Batch update prompt / preset / ref fields across affected nodes.',
       argPredicate: (args) => updatesArray(args).length >= 1,
     },
   ],

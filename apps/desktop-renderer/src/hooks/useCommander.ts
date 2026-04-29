@@ -51,15 +51,9 @@ export function useCommander(): {
 
   useEffect(() => service.subscribe(), [service]);
 
-  const sendMessage = useCallback(
-    async (message: string) => service.start(message),
-    [service],
-  );
+  const sendMessage = useCallback(async (message: string) => service.start(message), [service]);
   const cancel = useCallback(async () => service.cancel(), [service]);
-  const cancelCurrentStep = useCallback(
-    async () => service.cancelCurrentStep(),
-    [service],
-  );
+  const cancelCurrentStep = useCallback(async () => service.cancelCurrentStep(), [service]);
 
   return { sendMessage, cancel, cancelCurrentStep, isStreaming };
 }

@@ -64,9 +64,9 @@ describe('registerEmbeddingHandlers', () => {
   it('rejects malformed generateEmbedding requests at the typed IPC boundary', async () => {
     const { handlers } = registerHandlers();
 
-    await expect(
-      handlers.get('asset:generateEmbedding')?.({}, { assetHash: 42 }),
-    ).rejects.toThrow('assetHash is required');
+    await expect(handlers.get('asset:generateEmbedding')?.({}, { assetHash: 42 })).rejects.toThrow(
+      'assetHash is required',
+    );
   });
 
   it('generates an embedding for a valid asset hash', async () => {

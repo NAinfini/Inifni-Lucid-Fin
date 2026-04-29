@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import type { Canvas, CanvasId } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { CanvasRepository } from './canvas-repository.js';
 
 const SCHEMA = `
@@ -95,7 +92,7 @@ describe('CanvasRepository', () => {
   });
 
   it('list (summary) orders by updatedAt DESC and omits body', () => {
-    repo.upsert(mkCanvas('old',    { updatedAt: 1 }));
+    repo.upsert(mkCanvas('old', { updatedAt: 1 }));
     repo.upsert(mkCanvas('middle', { updatedAt: 5 }));
     repo.upsert(mkCanvas('newest', { updatedAt: 9 }));
     const rows = repo.list();

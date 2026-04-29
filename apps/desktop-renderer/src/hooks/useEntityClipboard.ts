@@ -53,20 +53,28 @@ export function useEntityClipboard<T>(kind: string): UseEntityClipboardResult<T>
   useEffect(() => {
     const rerender: Listener = () => force((n) => n + 1);
     listeners.add(rerender);
-    return () => { listeners.delete(rerender); };
+    return () => {
+      listeners.delete(rerender);
+    };
   }, []);
 
   const match = current && current.kind === kind ? (current as ClipboardPayload<T>) : null;
 
-  const copy = useCallback((items: T[]) => {
-    if (items.length === 0) return;
-    set<T>({ kind, mode: 'copy', items });
-  }, [kind]);
+  const copy = useCallback(
+    (items: T[]) => {
+      if (items.length === 0) return;
+      set<T>({ kind, mode: 'copy', items });
+    },
+    [kind],
+  );
 
-  const cut = useCallback((items: T[]) => {
-    if (items.length === 0) return;
-    set<T>({ kind, mode: 'cut', items });
-  }, [kind]);
+  const cut = useCallback(
+    (items: T[]) => {
+      if (items.length === 0) return;
+      set<T>({ kind, mode: 'cut', items });
+    },
+    [kind],
+  );
 
   const paste = useCallback((): ClipboardPayload<T> | null => {
     if (!match) return null;
@@ -77,7 +85,9 @@ export function useEntityClipboard<T>(kind: string): UseEntityClipboardResult<T>
   }, [match]);
 
   const peek = useCallback(() => match, [match]);
-  const clear = useCallback(() => { if (current?.kind === kind) set(null); }, [kind]);
+  const clear = useCallback(() => {
+    if (current?.kind === kind) set(null);
+  }, [kind]);
 
   return {
     hasClipboard: Boolean(match),

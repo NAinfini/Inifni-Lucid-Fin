@@ -90,7 +90,8 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
           return ok({ path });
         }
 
-        const hasContent = typeof args.content === 'string' && (args.content as string).trim().length > 0;
+        const hasContent =
+          typeof args.content === 'string' && (args.content as string).trim().length > 0;
         if (!hasContent) {
           throw new Error('Either path or content must be provided');
         }

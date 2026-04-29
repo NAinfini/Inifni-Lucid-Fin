@@ -24,12 +24,13 @@ import {
   setBackdropOpacity,
   pasteNodes as pasteNodesAction,
 } from '../../store/slices/canvas.js';
-import {
-  duplicateNode,
-  disconnectNode,
-} from '../../store/slices/canvas.js';
+import { duplicateNode, disconnectNode } from '../../store/slices/canvas.js';
 import type { NodeCallbacks } from './node-callbacks-context.js';
-import { buildClipboardPayload, parseClipboardPayload, localizePresetName } from './canvas-utils.js';
+import {
+  buildClipboardPayload,
+  parseClipboardPayload,
+  localizePresetName,
+} from './canvas-utils.js';
 import { buildExternalAIPrompt } from '../../utils/prompt-export.js';
 import { getAPI } from '../../utils/api.js';
 
@@ -42,16 +43,11 @@ export interface UseCanvasNodeCallbacksParams {
   setVideoCloneOpen: (open: boolean) => void;
 }
 
-export function useCanvasNodeCallbacks(
-  params: UseCanvasNodeCallbacksParams,
-): NodeCallbacks {
+export function useCanvasNodeCallbacks(params: UseCanvasNodeCallbacksParams): NodeCallbacks {
   const { generate, setConnectingFromNodeId, setVideoCloneOpen } = params;
   const dispatch = useDispatch<AppDispatch>();
   const canvas = useSelector(selectActiveCanvas);
-  const clipboard = useSelector(
-    (s: RootState) => s.canvas.clipboard,
-    shallowEqual,
-  );
+  const clipboard = useSelector((s: RootState) => s.canvas.clipboard, shallowEqual);
   const presetById = useSelector((s: RootState) => s.presets.byId);
 
   // Refs so callbacks don't re-create when canvas/presets change
@@ -161,33 +157,30 @@ export function useCanvasNodeCallbacks(
     [dispatch],
   );
 
-  const handleCopyPromptForAI = useCallback(
-    (id: string) => {
-      const c = canvasRef.current;
-      if (!c) return;
-      const currentPresetById = presetByIdRef.current;
-      const summaries: Record<string, string> = {};
-      for (const node of c.nodes ?? []) {
-        const presetData = node.data as unknown as {
-          presetTracks?: Record<string, unknown>;
-        };
-        if (presetData.presetTracks) {
-          const names: string[] = [];
-          for (const [, track] of Object.entries(presetData.presetTracks)) {
-            const t = track as { entries?: Array<{ presetId?: string }> };
-            if (t.entries?.[0]?.presetId) {
-              const p = currentPresetById[t.entries[0].presetId];
-              if (p?.name) names.push(localizePresetName(p.name));
-            }
+  const handleCopyPromptForAI = useCallback((id: string) => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const currentPresetById = presetByIdRef.current;
+    const summaries: Record<string, string> = {};
+    for (const node of c.nodes ?? []) {
+      const presetData = node.data as unknown as {
+        presetTracks?: Record<string, unknown>;
+      };
+      if (presetData.presetTracks) {
+        const names: string[] = [];
+        for (const [, track] of Object.entries(presetData.presetTracks)) {
+          const t = track as { entries?: Array<{ presetId?: string }> };
+          if (t.entries?.[0]?.presetId) {
+            const p = currentPresetById[t.entries[0].presetId];
+            if (p?.name) names.push(localizePresetName(p.name));
           }
-          if (names.length > 0) summaries[node.id] = names.join(', ');
         }
+        if (names.length > 0) summaries[node.id] = names.join(', ');
       }
-      const prompt = buildExternalAIPrompt(c, id, summaries);
-      void navigator.clipboard.writeText(prompt);
-    },
-    [],
-  );
+    }
+    const prompt = buildExternalAIPrompt(c, id, summaries);
+    void navigator.clipboard.writeText(prompt);
+  }, []);
 
   const handleNodeColorTag = useCallback(
     (id: string, color: string | undefined) => {
@@ -246,12 +239,9 @@ export function useCanvasNodeCallbacks(
     [dispatch],
   );
 
-  const handleCloneVideo = useCallback(
-    () => {
-      setVideoCloneOpen(true);
-    },
-    [setVideoCloneOpen],
-  );
+  const handleCloneVideo = useCallback(() => {
+    setVideoCloneOpen(true);
+  }, [setVideoCloneOpen]);
 
   return useMemo<NodeCallbacks>(
     () => ({

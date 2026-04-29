@@ -9,7 +9,11 @@ function makeRegistry() {
     description: 'Get the full state of the current canvas',
     tags: ['canvas', 'read'],
     tier: 1,
-    parameters: { type: 'object', properties: { canvasId: { type: 'string', description: 'Canvas id' } }, required: ['canvasId'] },
+    parameters: {
+      type: 'object',
+      properties: { canvasId: { type: 'string', description: 'Canvas id' } },
+      required: ['canvasId'],
+    },
     execute: vi.fn(),
   });
   registry.register({
@@ -17,7 +21,11 @@ function makeRegistry() {
     description: 'Delete a node from the current canvas',
     tags: ['canvas', 'mutate'],
     tier: 1,
-    parameters: { type: 'object', properties: { nodeId: { type: 'string', description: 'Node id' } }, required: ['nodeId'] },
+    parameters: {
+      type: 'object',
+      properties: { nodeId: { type: 'string', description: 'Node id' } },
+      required: ['nodeId'],
+    },
     execute: vi.fn(),
   });
   registry.register({
@@ -51,9 +59,7 @@ describe('createMetaTools', () => {
             { name: 'canvas.getState', desc: 'Get the full state of the current canvas' },
             { name: 'canvas.deleteNode', desc: 'Delete a node from the current canvas' },
           ],
-          character: [
-            { name: 'character.list', desc: 'List all characters in the project' },
-          ],
+          character: [{ name: 'character.list', desc: 'List all characters in the project' }],
         });
       });
 
@@ -64,7 +70,10 @@ describe('createMetaTools', () => {
 
         const result = await toolGet.execute({ names: [] });
         expect(result.success).toBe(true);
-        expect(Object.keys(result.data as Record<string, unknown>)).toEqual(['canvas', 'character']);
+        expect(Object.keys(result.data as Record<string, unknown>)).toEqual([
+          'canvas',
+          'character',
+        ]);
       });
 
       it('ignores unknown arguments when names is omitted (no query filtering)', async () => {
@@ -74,7 +83,10 @@ describe('createMetaTools', () => {
 
         const result = await toolGet.execute({ query: 'delete' });
         expect(result.success).toBe(true);
-        expect(Object.keys(result.data as Record<string, unknown>)).toEqual(['canvas', 'character']);
+        expect(Object.keys(result.data as Record<string, unknown>)).toEqual([
+          'canvas',
+          'character',
+        ]);
       });
 
       it('truncates long descriptions to 80 chars', async () => {
@@ -83,7 +95,7 @@ describe('createMetaTools', () => {
           name: 'test.long',
           description: 'A'.repeat(100),
           tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+          parameters: { type: 'object', properties: {}, required: [] },
           execute: vi.fn(),
         });
         const tools = createMetaTools(registry, {});
@@ -189,7 +201,9 @@ describe('createMetaTools', () => {
 
         const result = await guideGet.execute({ offset: 1, limit: 1 });
         expect(result.success).toBe(true);
-        expect((result.data as { guides: unknown[] }).guides).toEqual([{ id: 'guide-2', name: 'Guide Two' }]);
+        expect((result.data as { guides: unknown[] }).guides).toEqual([
+          { id: 'guide-2', name: 'Guide Two' },
+        ]);
       });
     });
 

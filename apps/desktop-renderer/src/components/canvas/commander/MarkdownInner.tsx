@@ -40,7 +40,13 @@ function DefaultLinkRenderer({ href, children, ...props }: ComponentPropsWithout
     }
   }
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline" {...props}>
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-primary underline"
+      {...props}
+    >
       {children}
     </a>
   );
@@ -86,7 +92,11 @@ const baseComponents = {
   code: ({ className, children, ...props }: ComponentPropsWithoutRef<'code'>) => {
     const isBlock = className?.startsWith('language-');
     if (isBlock) {
-      return <code className={className} {...props}>{children}</code>;
+      return (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
     }
     return (
       <code className="commander-inline-code rounded bg-muted px-1 py-0.5 text-[0.9em]" {...props}>
@@ -100,14 +110,15 @@ const baseComponents = {
     </div>
   ),
   th: (props: ComponentPropsWithoutRef<'th'>) => (
-    <th className="border border-border/40 bg-muted/30 px-2 py-1 text-left font-medium" {...props} />
+    <th
+      className="border border-border/40 bg-muted/30 px-2 py-1 text-left font-medium"
+      {...props}
+    />
   ),
   td: (props: ComponentPropsWithoutRef<'td'>) => (
     <td className="border border-border/40 px-2 py-1" {...props} />
   ),
-  ul: (props: ComponentPropsWithoutRef<'ul'>) => (
-    <ul className="my-1 ml-4 list-disc" {...props} />
-  ),
+  ul: (props: ComponentPropsWithoutRef<'ul'>) => <ul className="my-1 ml-4 list-disc" {...props} />,
   ol: (props: ComponentPropsWithoutRef<'ol'>) => (
     <ol className="my-1 ml-4 list-decimal" {...props} />
   ),
@@ -121,7 +132,10 @@ const baseComponents = {
     <h3 className="mt-2 mb-0.5 text-sm font-semibold" {...props} />
   ),
   blockquote: (props: ComponentPropsWithoutRef<'blockquote'>) => (
-    <blockquote className="my-1 border-l-2 border-primary/40 pl-3 text-muted-foreground" {...props} />
+    <blockquote
+      className="my-1 border-l-2 border-primary/40 pl-3 text-muted-foreground"
+      {...props}
+    />
   ),
 };
 
@@ -132,7 +146,11 @@ interface MarkdownProps {
 
 export default memo(function Markdown({ content, onNodeClick }: MarkdownProps) {
   const dynamicComponents = useMemo(() => {
-    const nodeAwareLink = function NodeAwareLink({ href, children, ...props }: ComponentPropsWithoutRef<'a'>) {
+    const nodeAwareLink = function NodeAwareLink({
+      href,
+      children,
+      ...props
+    }: ComponentPropsWithoutRef<'a'>) {
       if (href?.startsWith('node://')) {
         const nodeId = href.slice(7);
         return (
@@ -146,7 +164,11 @@ export default memo(function Markdown({ content, onNodeClick }: MarkdownProps) {
           </button>
         );
       }
-      return <DefaultLinkRenderer href={href} {...props}>{children}</DefaultLinkRenderer>;
+      return (
+        <DefaultLinkRenderer href={href} {...props}>
+          {children}
+        </DefaultLinkRenderer>
+      );
     };
     return { ...baseComponents, a: nodeAwareLink };
   }, [onNodeClick]);

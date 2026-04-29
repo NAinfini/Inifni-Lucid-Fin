@@ -81,4 +81,3 @@ export interface WorkflowRetryWorkflowRequest {
   id: string;
 }
 export type WorkflowRetryWorkflowResponse = void;
-

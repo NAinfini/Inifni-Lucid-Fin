@@ -15,10 +15,26 @@ const LEVEL_STYLES: Record<LogLevel, string> = {
 };
 
 const TOGGLE_LEVELS: Array<{ value: LogLevel; label: string; activeClass: string }> = [
-  { value: 'debug', label: 'logger.filterDebug', activeClass: 'border-gray-400 bg-gray-500/15 text-gray-300' },
-  { value: 'info', label: 'logger.filterInfo', activeClass: 'border-blue-400 bg-blue-500/15 text-blue-400' },
-  { value: 'warn', label: 'logger.filterWarn', activeClass: 'border-amber-400 bg-amber-500/15 text-amber-400' },
-  { value: 'error', label: 'logger.filterError', activeClass: 'border-red-400 bg-red-500/15 text-red-400' },
+  {
+    value: 'debug',
+    label: 'logger.filterDebug',
+    activeClass: 'border-gray-400 bg-gray-500/15 text-gray-300',
+  },
+  {
+    value: 'info',
+    label: 'logger.filterInfo',
+    activeClass: 'border-blue-400 bg-blue-500/15 text-blue-400',
+  },
+  {
+    value: 'warn',
+    label: 'logger.filterWarn',
+    activeClass: 'border-amber-400 bg-amber-500/15 text-amber-400',
+  },
+  {
+    value: 'error',
+    label: 'logger.filterError',
+    activeClass: 'border-red-400 bg-red-500/15 text-red-400',
+  },
 ];
 
 function formatTimestamp(timestamp: number): string {
@@ -34,7 +50,9 @@ export function LoggerPanel() {
   const dispatch = useDispatch<AppDispatch>();
   const { t } = useI18n();
   const entries = useSelector((state: RootState) => state.logger.entries);
-  const [enabledLevels, setEnabledLevels] = useState<Set<LogLevel>>(new Set(['info', 'warn', 'error']));
+  const [enabledLevels, setEnabledLevels] = useState<Set<LogLevel>>(
+    new Set(['info', 'warn', 'error']),
+  );
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const listRef = useRef<HTMLDivElement | null>(null);
   const prevEntryCountRef = useRef(0);
@@ -52,20 +70,30 @@ export function LoggerPanel() {
     });
   };
 
-  const handleCopyEntry = useCallback((entry: typeof entries[0], e?: React.MouseEvent) => {
+  const handleCopyEntry = useCallback((entry: (typeof entries)[0], e?: React.MouseEvent) => {
     e?.stopPropagation();
     const text = `[${formatTimestamp(entry.timestamp)}] [${entry.level.toUpperCase()}] [${entry.category}] ${entry.message}${entry.detail ? '\n' + entry.detail : ''}`;
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(entry.id);
-      setTimeout(() => setCopiedId(null), 1500);
-    }).catch(() => { /* clipboard write failure is non-critical */ });
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopiedId(entry.id);
+        setTimeout(() => setCopiedId(null), 1500);
+      })
+      .catch(() => {
+        /* clipboard write failure is non-critical */
+      });
   }, []);
 
   const handleCopyAll = useCallback(() => {
-    const text = filteredEntries.map((e) =>
-      `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] [${e.category}] ${e.message}${e.detail ? '\n' + e.detail : ''}`
-    ).join('\n');
-    void navigator.clipboard.writeText(text).catch(() => { /* clipboard write failure is non-critical */ });
+    const text = filteredEntries
+      .map(
+        (e) =>
+          `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] [${e.category}] ${e.message}${e.detail ? '\n' + e.detail : ''}`,
+      )
+      .join('\n');
+    void navigator.clipboard.writeText(text).catch(() => {
+      /* clipboard write failure is non-critical */
+    });
   }, [filteredEntries]);
 
   // Only auto-scroll when NEW entries arrive, not on expand/copy/filter changes
@@ -152,10 +180,13 @@ export function LoggerPanel() {
               )}
             >
               {/* Sticky header: always visible at top of entry so user can collapse */}
-              <div className={cn(
-                'p-2',
-                expanded && 'sticky top-0 z-10 rounded-t-md border-b border-border/40 bg-muted/90 backdrop-blur-sm',
-              )}>
+              <div
+                className={cn(
+                  'p-2',
+                  expanded &&
+                    'sticky top-0 z-10 rounded-t-md border-b border-border/40 bg-muted/90 backdrop-blur-sm',
+                )}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div
                     data-testid={`logger-entry-meta-${entry.id}`}
@@ -181,7 +212,11 @@ export function LoggerPanel() {
                       className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground"
                       title="Copy"
                     >
-                      {copiedId === entry.id ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                      {copiedId === entry.id ? (
+                        <Check className="h-3 w-3 text-emerald-400" />
+                      ) : (
+                        <Copy className="h-3 w-3" />
+                      )}
                     </button>
                     {expandable ? (
                       <button
@@ -213,10 +248,12 @@ export function LoggerPanel() {
                 </div>
               </div>
               {expandable && expanded ? (
-                <pre className={cn(
-                  'mx-2 mb-2 max-h-60 overflow-auto rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap',
-                  entry.level === 'error' && 'text-red-300/80',
-                )}>
+                <pre
+                  className={cn(
+                    'mx-2 mb-2 max-h-60 overflow-auto rounded-md border border-border/60 bg-background/70 px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground whitespace-pre-wrap',
+                    entry.level === 'error' && 'text-red-300/80',
+                  )}
+                >
                   {entry.detail}
                 </pre>
               ) : null}

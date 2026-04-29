@@ -14,8 +14,15 @@ describe('createLocationTools', () => {
   it('assigns expected tags to location tools', () => {
     const tools = createLocationTools(createDeps());
 
-    expect(tools.find((tool) => tool.name === 'location.list')?.tags).toEqual(['location', 'read', 'search']);
-    expect(tools.find((tool) => tool.name === 'location.create')?.tags).toEqual(['location', 'mutate']);
+    expect(tools.find((tool) => tool.name === 'location.list')?.tags).toEqual([
+      'location',
+      'read',
+      'search',
+    ]);
+    expect(tools.find((tool) => tool.name === 'location.create')?.tags).toEqual([
+      'location',
+      'mutate',
+    ]);
   });
 
   it('returns expected tool names', () => {
@@ -33,9 +40,36 @@ describe('createLocationTools', () => {
 
   describe('location.list query filter', () => {
     const locations = [
-      { id: '1', name: 'City Hall', type: 'exterior', description: 'a grand civic building', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '2', name: 'Warehouse', type: 'interior', description: 'dark storage space', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
-      { id: '3', name: 'Rooftop', type: 'int-ext', description: 'open air terrace', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0 },
+      {
+        id: '1',
+        name: 'City Hall',
+        type: 'exterior',
+        description: 'a grand civic building',
+        tags: [],
+        referenceImages: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '2',
+        name: 'Warehouse',
+        type: 'interior',
+        description: 'dark storage space',
+        tags: [],
+        referenceImages: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '3',
+        name: 'Rooftop',
+        type: 'int-ext',
+        description: 'open air terrace',
+        tags: [],
+        referenceImages: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
     ];
 
     function createDepsWithData() {
@@ -55,21 +89,30 @@ describe('createLocationTools', () => {
       const deps = createDepsWithData();
       const tool = createLocationTools(deps).find((t) => t.name === 'location.list')!;
       const result = await tool.execute({ query: 'city' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, locations: [expect.objectContaining({ id: '1' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, locations: [expect.objectContaining({ id: '1' })] },
+      });
     });
 
     it('filters by type (OR logic)', async () => {
       const deps = createDepsWithData();
       const tool = createLocationTools(deps).find((t) => t.name === 'location.list')!;
       const result = await tool.execute({ query: 'interior' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, locations: [expect.objectContaining({ id: '2' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, locations: [expect.objectContaining({ id: '2' })] },
+      });
     });
 
     it('filters by description (OR logic)', async () => {
       const deps = createDepsWithData();
       const tool = createLocationTools(deps).find((t) => t.name === 'location.list')!;
       const result = await tool.execute({ query: 'terrace' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, locations: [expect.objectContaining({ id: '3' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, locations: [expect.objectContaining({ id: '3' })] },
+      });
     });
 
     it('returns empty when query matches nothing', async () => {
@@ -94,7 +137,9 @@ describe('createLocationTools', () => {
 
     function createDepsWithLocation() {
       const deps = createDeps();
-      vi.mocked(deps.listLocations).mockResolvedValue([{ ...baseLocation, referenceImages: [] }] as never);
+      vi.mocked(deps.listLocations).mockResolvedValue([
+        { ...baseLocation, referenceImages: [] },
+      ] as never);
       return deps;
     }
 
@@ -141,10 +186,12 @@ describe('createLocationTools', () => {
 
     it('deleteRefImage: removes a reference image by view kind', async () => {
       const deps = createDeps();
-      vi.mocked(deps.listLocations).mockResolvedValue([{
-        ...baseLocation,
-        referenceImages: [{ slot: 'bible', assetHash: 'hash-old', isStandard: true }],
-      }] as never);
+      vi.mocked(deps.listLocations).mockResolvedValue([
+        {
+          ...baseLocation,
+          referenceImages: [{ slot: 'bible', assetHash: 'hash-old', isStandard: true }],
+        },
+      ] as never);
       const tool = createLocationTools(deps).find((t) => t.name === 'location.deleteRefImage')!;
       const result = await tool.execute({ id: 'loc-1', view: { kind: 'bible' } });
       expect(result).toMatchObject({ success: true, data: { id: 'loc-1', slot: 'bible' } });
@@ -170,7 +217,9 @@ describe('createLocationTools', () => {
       } as never;
       const deps = createDepsWithLocation();
       deps.getCanvas = vi.fn(async () => mockCanvas);
-      const tool = createLocationTools(deps).find((t) => t.name === 'location.setRefImageFromNode')!;
+      const tool = createLocationTools(deps).find(
+        (t) => t.name === 'location.setRefImageFromNode',
+      )!;
       const result = await tool.execute({
         id: 'loc-1',
         view: { kind: 'bible' },

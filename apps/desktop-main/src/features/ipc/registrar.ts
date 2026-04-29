@@ -22,11 +22,7 @@
  * wrapper for hand-written handlers that haven't been migrated yet.
  */
 import { randomUUID } from 'node:crypto';
-import type {
-  BrowserWindow,
-  IpcMain,
-  IpcMainInvokeEvent,
-} from 'electron';
+import type { BrowserWindow, IpcMain, IpcMainInvokeEvent } from 'electron';
 import type {
   IpcInvocationId,
   InvokeChannelType,
@@ -73,10 +69,7 @@ export type InvokeHandler<Req, Res, Evt> = (
   req: Req,
 ) => Promise<Res> | Res;
 
-export type ReplyHandler<Req, Res> = (
-  ctx: ReplyContext,
-  req: Req,
-) => Promise<Res> | Res;
+export type ReplyHandler<Req, Res> = (ctx: ReplyContext, req: Req) => Promise<Res> | Res;
 
 // ---------------------------------------------------------------------------
 // Shared registrar config
@@ -109,12 +102,7 @@ export function installCancelChannel(ipcMain: IpcMain): void {
 // registerInvoke
 // ---------------------------------------------------------------------------
 
-export function registerInvoke<
-  Channel extends string,
-  Req,
-  Res,
-  Evt,
->(
+export function registerInvoke<Channel extends string, Req, Res, Evt>(
   deps: RegistrarDeps,
   channel: InvokeChannelDef<Channel, Req, Res, Evt>,
   handler: InvokeHandler<Req, Res, Evt>,
@@ -280,11 +268,7 @@ function isAbortError(error: unknown): boolean {
   return code !== undefined && String(code) === 'ABORT_ERR';
 }
 
-function toLucidError(
-  error: unknown,
-  channelName: string,
-  signal?: AbortSignal,
-): LucidError {
+function toLucidError(error: unknown, channelName: string, signal?: AbortSignal): LucidError {
   if (error instanceof LucidError) {
     // Don't double-wrap; keep original code + details.
     return error;
@@ -292,11 +276,9 @@ function toLucidError(
   // Normalize aborts to `CANCELLED` so the renderer can distinguish
   // user-initiated cancellation from genuine failures.
   if (signal?.aborted === true || isAbortError(error)) {
-    return new LucidError(
-      ErrorCode.Cancelled,
-      `IPC call cancelled on '${channelName}'`,
-      { channel: channelName },
-    );
+    return new LucidError(ErrorCode.Cancelled, `IPC call cancelled on '${channelName}'`, {
+      channel: channelName,
+    });
   }
   log.error(`IPC handler error [${channelName}]`, {
     category: 'ipc',

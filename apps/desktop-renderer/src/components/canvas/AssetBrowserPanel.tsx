@@ -35,7 +35,12 @@ import {
 import { EntityFileExplorer } from './EntityFileExplorer.js';
 import { EntityDetailDrawer } from './EntityDetailDrawer.js';
 import { VideoGridCard } from './asset-browser/VideoGridCard.js';
-import { formatSize, formatDuration, getExportConfig, localizeAssetType } from './asset-browser/utils.js';
+import {
+  formatSize,
+  formatDuration,
+  getExportConfig,
+  localizeAssetType,
+} from './asset-browser/utils.js';
 
 const FILTER_OPTIONS: Array<{ value: Asset['type'] | 'all'; label: string }> = [
   { value: 'all', label: 'asset.all' },
@@ -95,14 +100,22 @@ export function AssetBrowserPanel() {
           await api.asset.setFolder(hash, folderId);
           dispatch(moveItemToFolder({ hash, folderId }));
         } catch (reason) {
-          dispatch(enqueueToast({ variant: 'error', title: t('toast.error.operationFailed'), message: String(reason) }));
+          dispatch(
+            enqueueToast({
+              variant: 'error',
+              title: t('toast.error.operationFailed'),
+              message: String(reason),
+            }),
+          );
         }
       }
     },
     [allAssets, dispatch],
   );
 
-  useEffect(() => { void loadAssets(); }, [loadAssets]);
+  useEffect(() => {
+    void loadAssets();
+  }, [loadAssets]);
 
   // Type filter narrows what the file explorer sees.
   const visibleAssets = useMemo(() => {
@@ -133,24 +146,39 @@ export function AssetBrowserPanel() {
         return prev;
       });
     } catch (reason) {
-      dispatch(enqueueToast({ variant: 'error', title: t('toast.error.operationFailed'), message: String(reason) }));
+      dispatch(
+        enqueueToast({
+          variant: 'error',
+          title: t('toast.error.operationFailed'),
+          message: String(reason),
+        }),
+      );
     }
     setPendingDeleteIds([]);
   }, [pendingDeleteIds, allAssets, ops, dispatch]);
 
-  const handlePaste = useCallback((payload: { mode: 'copy' | 'cut'; items: Asset[] }) => {
-    const folderId = folderApi.currentFolderId;
-    if (payload.mode === 'cut') {
-      // Move the items into the current folder.
-      void handleMoveToFolder(payload.items.map((it) => it.id), folderId);
-    } else {
-      // Copy: duplicate hashes into current folder by re-registering them.
-      // Assets are content-addressed so true duplication doesn't make sense
-      // — we simply move them into this folder, preserving both clipboard
-      // state (so future pastes still work) and the original membership.
-      void handleMoveToFolder(payload.items.map((it) => it.id), folderId);
-    }
-  }, [folderApi.currentFolderId, handleMoveToFolder]);
+  const handlePaste = useCallback(
+    (payload: { mode: 'copy' | 'cut'; items: Asset[] }) => {
+      const folderId = folderApi.currentFolderId;
+      if (payload.mode === 'cut') {
+        // Move the items into the current folder.
+        void handleMoveToFolder(
+          payload.items.map((it) => it.id),
+          folderId,
+        );
+      } else {
+        // Copy: duplicate hashes into current folder by re-registering them.
+        // Assets are content-addressed so true duplication doesn't make sense
+        // — we simply move them into this folder, preserving both clipboard
+        // state (so future pastes still work) and the original membership.
+        void handleMoveToFolder(
+          payload.items.map((it) => it.id),
+          folderId,
+        );
+      }
+    },
+    [folderApi.currentFolderId, handleMoveToFolder],
+  );
 
   const handleOpenItem = useCallback((asset: Asset) => {
     setDetailAsset(asset);
@@ -166,11 +194,14 @@ export function AssetBrowserPanel() {
     setIsEditingName(false);
   }, [detailAsset, editingName, dispatch]);
 
-  const handleExportOne = useCallback(async (asset: Asset) => {
-    const cfg = getExportConfig(asset.type);
-    if (!cfg) return;
-    await ops.handleQuickExport(asset, cfg);
-  }, [ops]);
+  const handleExportOne = useCallback(
+    async (asset: Asset) => {
+      const cfg = getExportConfig(asset.type);
+      if (!cfg) return;
+      await ops.handleQuickExport(asset, cfg);
+    },
+    [ops],
+  );
 
   // Drag-and-drop from OS / other panels → import.
   const handlePanelDragOver = useCallback((e: React.DragEvent) => {
@@ -184,15 +215,23 @@ export function AssetBrowserPanel() {
   const handlePanelDragLeave = useCallback((e: React.DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setIsDragOver(false);
   }, []);
-  const handlePanelDrop = useCallback(async (e: React.DragEvent) => {
-    setIsDragOver(false);
-    await ops.handleDropImport(e);
-  }, [ops]);
+  const handlePanelDrop = useCallback(
+    async (e: React.DragEvent) => {
+      setIsDragOver(false);
+      await ops.handleDropImport(e);
+    },
+    [ops],
+  );
 
   const renderThumbnail = useCallback((a: Asset) => <AssetThumb asset={a} />, []);
-  const renderSubtitle = useCallback((a: Asset) => (
-    <span>{localizeAssetType(a.type)} · {formatSize(a.size)}</span>
-  ), []);
+  const renderSubtitle = useCallback(
+    (a: Asset) => (
+      <span>
+        {localizeAssetType(a.type)} · {formatSize(a.size)}
+      </span>
+    ),
+    [],
+  );
 
   const drawerShown = drawerOpen && detailAsset !== null;
   return (
@@ -200,7 +239,9 @@ export function AssetBrowserPanel() {
       className="relative flex h-full bg-card"
       onDragOver={handlePanelDragOver}
       onDragLeave={handlePanelDragLeave}
-      onDrop={(e) => { void handlePanelDrop(e); }}
+      onDrop={(e) => {
+        void handlePanelDrop(e);
+      }}
     >
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
@@ -210,7 +251,9 @@ export function AssetBrowserPanel() {
         </div>
       )}
 
-      <div className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}>
+      <div
+        className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}
+      >
         <EntityFileExplorer<Asset>
           items={visibleAssets}
           folders={folderApi.folders}
@@ -235,7 +278,7 @@ export function AssetBrowserPanel() {
             cutIds,
           }}
           onPaste={handlePaste}
-          header={(
+          header={
             <div className="flex items-center gap-2">
               <FolderSearch className="h-3.5 w-3.5 text-primary" />
               <h2 className="text-xs font-semibold">{t('panels.assetBrowser')}</h2>
@@ -257,7 +300,7 @@ export function AssetBrowserPanel() {
                 ))}
               </div>
             </div>
-          )}
+          }
           newItemLabel={t('assetBrowser.import')}
           activeItemId={detailAsset?.id ?? null}
           loading={ops.loading}
@@ -268,9 +311,16 @@ export function AssetBrowserPanel() {
 
       <EntityDetailDrawer
         open={drawerShown}
-        onOpenChange={(o) => { setDrawerOpen(o); if (!o) setIsEditingName(false); }}
+        onOpenChange={(o) => {
+          setDrawerOpen(o);
+          if (!o) setIsEditingName(false);
+        }}
         title={detailAsset?.name ?? ''}
-        subtitle={detailAsset ? `${localizeAssetType(detailAsset.type)} · ${formatSize(detailAsset.size)}` : ''}
+        subtitle={
+          detailAsset
+            ? `${localizeAssetType(detailAsset.type)} · ${formatSize(detailAsset.size)}`
+            : ''
+        }
         onDelete={detailAsset ? () => handleDeleteIds([detailAsset.id]) : undefined}
       >
         {detailAsset && (
@@ -283,7 +333,10 @@ export function AssetBrowserPanel() {
                 disabled={!isEditingName}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && isEditingName) handleSaveName();
-                  if (e.key === 'Escape') { setEditingName(detailAsset.name); setIsEditingName(false); }
+                  if (e.key === 'Escape') {
+                    setEditingName(detailAsset.name);
+                    setIsEditingName(false);
+                  }
                 }}
                 className={cn(
                   'flex-1 rounded border px-2 py-1 text-xs outline-none',
@@ -294,38 +347,84 @@ export function AssetBrowserPanel() {
               />
               {isEditingName ? (
                 <>
-                  <button type="button" onClick={handleSaveName} className="rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground">{t('action.save')}</button>
-                  <button type="button" onClick={() => { setEditingName(detailAsset.name); setIsEditingName(false); }} className="rounded px-1.5 py-1 text-destructive hover:bg-destructive/10"><X className="h-3 w-3" /></button>
+                  <button
+                    type="button"
+                    onClick={handleSaveName}
+                    className="rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground"
+                  >
+                    {t('action.save')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingName(detailAsset.name);
+                      setIsEditingName(false);
+                    }}
+                    className="rounded px-1.5 py-1 text-destructive hover:bg-destructive/10"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </>
               ) : (
-                <button type="button" onClick={() => setIsEditingName(true)} className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground" title={t('contextMenu.rename')}>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingName(true)}
+                  className="rounded bg-muted px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
+                  title={t('contextMenu.rename')}
+                >
                   <Pencil className="h-3 w-3" />
                 </button>
               )}
             </div>
             <div className="space-y-1 text-[11px] text-muted-foreground">
-              <DetailRow label={t('assetBrowser.fields.type')} value={localizeAssetType(detailAsset.type)} />
-              <DetailRow label={t('assetBrowser.fields.size')} value={formatSize(detailAsset.size)} />
-              {detailAsset.format && <DetailRow label={t('assetBrowser.fields.format')} value={detailAsset.format.toUpperCase()} />}
+              <DetailRow
+                label={t('assetBrowser.fields.type')}
+                value={localizeAssetType(detailAsset.type)}
+              />
+              <DetailRow
+                label={t('assetBrowser.fields.size')}
+                value={formatSize(detailAsset.size)}
+              />
+              {detailAsset.format && (
+                <DetailRow
+                  label={t('assetBrowser.fields.format')}
+                  value={detailAsset.format.toUpperCase()}
+                />
+              )}
               {detailAsset.width != null && detailAsset.height != null && (
-                <DetailRow label={t('assetBrowser.fields.dimensions')} value={`${detailAsset.width}×${detailAsset.height}`} />
+                <DetailRow
+                  label={t('assetBrowser.fields.dimensions')}
+                  value={`${detailAsset.width}×${detailAsset.height}`}
+                />
               )}
-              {detailAsset.duration != null && (detailAsset.type === 'video' || detailAsset.type === 'audio') && (
-                <DetailRow label={t('assetBrowser.fields.duration')} value={formatDuration(detailAsset.duration)} />
-              )}
+              {detailAsset.duration != null &&
+                (detailAsset.type === 'video' || detailAsset.type === 'audio') && (
+                  <DetailRow
+                    label={t('assetBrowser.fields.duration')}
+                    value={formatDuration(detailAsset.duration)}
+                  />
+                )}
               <DetailRow
                 label={t('assetBrowser.fields.hash')}
-                value={<span className="font-mono" title={detailAsset.hash}>{detailAsset.hash.slice(0, 16)}…</span>}
+                value={
+                  <span className="font-mono" title={detailAsset.hash}>
+                    {detailAsset.hash.slice(0, 16)}…
+                  </span>
+                }
               />
               <DetailRow
                 label={t('assetBrowser.created')}
                 value={new Date(detailAsset.createdAt).toLocaleString(getLocale())}
               />
-              {detailAsset.provider && <DetailRow label={t('assetBrowser.fields.provider')} value={detailAsset.provider} />}
+              {detailAsset.provider && (
+                <DetailRow label={t('assetBrowser.fields.provider')} value={detailAsset.provider} />
+              )}
               {detailAsset.prompt && (
                 <div className="flex flex-col gap-0.5 pt-1">
                   <span>{t('assetBrowser.fields.prompt')}</span>
-                  <span className="text-[11px] text-foreground/80 break-words leading-snug">{detailAsset.prompt}</span>
+                  <span className="text-[11px] text-foreground/80 break-words leading-snug">
+                    {detailAsset.prompt}
+                  </span>
                 </div>
               )}
             </div>
@@ -353,12 +452,29 @@ export function AssetBrowserPanel() {
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>{t('assetBrowser.deleteSelectedConfirm').replace('{count}', String(pendingDeleteIds.length))}</DialogTitle>
+            <DialogTitle>
+              {t('assetBrowser.deleteSelectedConfirm').replace(
+                '{count}',
+                String(pendingDeleteIds.length),
+              )}
+            </DialogTitle>
             <DialogDescription>{t('assetBrowser.deleteConfirmDescription')}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <button type="button" onClick={() => setDeleteConfirmOpen(false)} className="rounded-md border border-border/60 px-3 py-1.5 text-xs text-foreground hover:bg-muted">{t('action.cancel')}</button>
-            <button type="button" onClick={() => void confirmDelete()} className="rounded-md bg-destructive px-3 py-1.5 text-xs text-destructive-foreground hover:bg-destructive/90">{t('action.delete')}</button>
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(false)}
+              className="rounded-md border border-border/60 px-3 py-1.5 text-xs text-foreground hover:bg-muted"
+            >
+              {t('action.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmDelete()}
+              className="rounded-md bg-destructive px-3 py-1.5 text-xs text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t('action.delete')}
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -378,8 +494,10 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function AssetThumb({ asset }: { asset: Asset }) {
-  const imgUrl = asset.type === 'image' && asset.hash ? `lucid-asset://${asset.hash}/image/png` : null;
-  const vidUrl = asset.type === 'video' && asset.hash ? `lucid-asset://${asset.hash}/video/mp4` : null;
+  const imgUrl =
+    asset.type === 'image' && asset.hash ? `lucid-asset://${asset.hash}/image/png` : null;
+  const vidUrl =
+    asset.type === 'video' && asset.hash ? `lucid-asset://${asset.hash}/video/mp4` : null;
   if (imgUrl) {
     return <img src={imgUrl} alt={asset.name} className="h-full w-full object-contain" />;
   }
@@ -392,21 +510,43 @@ function AssetThumb({ asset }: { asset: Asset }) {
 function AssetDetailPreview({ asset }: { asset: Asset }) {
   const { url, markFailed } = useAssetUrl(
     asset.hash,
-    asset.type === 'image' || asset.type === 'video' || asset.type === 'audio' ? asset.type : 'image',
+    asset.type === 'image' || asset.type === 'video' || asset.type === 'audio'
+      ? asset.type
+      : 'image',
     asset.format,
   );
   if (!url) return <div className="aspect-video w-full rounded bg-muted" />;
   if (asset.type === 'video') {
-    return <video src={url} controls className="aspect-video w-full rounded bg-black object-contain" onError={markFailed} />;
+    return (
+      <video
+        src={url}
+        controls
+        className="aspect-video w-full rounded bg-black object-contain"
+        onError={markFailed}
+      />
+    );
   }
   if (asset.type === 'audio') {
     return <audio src={url} controls className="w-full" onError={markFailed} />;
   }
-  return <img src={url} alt={asset.name} className="max-h-60 w-full rounded bg-muted object-contain" onError={markFailed} />;
+  return (
+    <img
+      src={url}
+      alt={asset.name}
+      className="max-h-60 w-full rounded bg-muted object-contain"
+      onError={markFailed}
+    />
+  );
 }
 
 /** Tiny helper so the panel doesn't re-render on every keystroke. */
-function SearchSync({ searchQuery: _searchQuery, onChange: _onChange }: { searchQuery: string; onChange: (v: string) => void }) {
+function SearchSync({
+  searchQuery: _searchQuery,
+  onChange: _onChange,
+}: {
+  searchQuery: string;
+  onChange: (v: string) => void;
+}) {
   // Reserved for future parity; currently the explorer owns its own local search,
   // and Redux searchQuery tracks the last value. Kept as a hook in case we want to
   // re-enable global search state later.

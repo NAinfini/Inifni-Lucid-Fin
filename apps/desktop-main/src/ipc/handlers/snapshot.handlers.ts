@@ -12,24 +12,30 @@ export function registerSnapshotHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
   // Sessions
   // ---------------------------------------------------------------------------
 
-  ipcMain.handle('session:upsert', async (_e, args: {
-    id: string;
-    canvasId: string | null;
-    title: string;
-    messages: string;
-    createdAt: number;
-    updatedAt: number;
-  }) => {
-    if (!args?.id) throw new Error('id is required');
-    sessions.upsert({ ...args, id: parseSessionId(args.id) });
-    // Prune oldest sessions beyond MAX_SESSIONS
-    const all = sessions.list(MAX_SESSIONS + 10).rows;
-    if (all.length > MAX_SESSIONS) {
-      for (const old of all.slice(MAX_SESSIONS)) {
-        sessions.delete(parseSessionId(old.id));
+  ipcMain.handle(
+    'session:upsert',
+    async (
+      _e,
+      args: {
+        id: string;
+        canvasId: string | null;
+        title: string;
+        messages: string;
+        createdAt: number;
+        updatedAt: number;
+      },
+    ) => {
+      if (!args?.id) throw new Error('id is required');
+      sessions.upsert({ ...args, id: parseSessionId(args.id) });
+      // Prune oldest sessions beyond MAX_SESSIONS
+      const all = sessions.list(MAX_SESSIONS + 10).rows;
+      if (all.length > MAX_SESSIONS) {
+        for (const old of all.slice(MAX_SESSIONS)) {
+          sessions.delete(parseSessionId(old.id));
+        }
       }
-    }
-  });
+    },
+  );
 
   ipcMain.handle('session:list', async (_e, args?: { limit?: number }) => {
     const list = sessions.list(args?.limit ?? MAX_SESSIONS).rows;
@@ -54,21 +60,32 @@ export function registerSnapshotHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
   // Snapshots
   // ---------------------------------------------------------------------------
 
-  ipcMain.handle('snapshot:capture', async (_e, args: {
-    sessionId: string;
-    label: string;
-    trigger?: 'auto' | 'manual';
-  }) => {
-    if (!args?.sessionId) throw new Error('sessionId is required');
-    const trigger = args.trigger ?? 'auto';
-    const snap = snapshots.capture(parseSessionId(args.sessionId), args.label ?? '', trigger);
-    // Tiered retention: keep recent snapshots dense, thin out older ones
-    snapshots.pruneTiered();
-    log.debug('Snapshot captured', { category: 'snapshot', sessionId: args.sessionId, snapId: snap.id, trigger });
-    // Return metadata without the heavy data blob
-    const { data: _d, ...meta } = snap;
-    return meta;
-  });
+  ipcMain.handle(
+    'snapshot:capture',
+    async (
+      _e,
+      args: {
+        sessionId: string;
+        label: string;
+        trigger?: 'auto' | 'manual';
+      },
+    ) => {
+      if (!args?.sessionId) throw new Error('sessionId is required');
+      const trigger = args.trigger ?? 'auto';
+      const snap = snapshots.capture(parseSessionId(args.sessionId), args.label ?? '', trigger);
+      // Tiered retention: keep recent snapshots dense, thin out older ones
+      snapshots.pruneTiered();
+      log.debug('Snapshot captured', {
+        category: 'snapshot',
+        sessionId: args.sessionId,
+        snapId: snap.id,
+        trigger,
+      });
+      // Return metadata without the heavy data blob
+      const { data: _d, ...meta } = snap;
+      return meta;
+    },
+  );
 
   ipcMain.handle('snapshot:restore', async (_e, args: { snapshotId: string }) => {
     if (!args?.snapshotId) throw new Error('snapshotId is required');

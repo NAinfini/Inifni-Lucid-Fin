@@ -92,6 +92,8 @@ describe('CAS', () => {
   });
 
   it('rejects buffer imports when the declared asset type does not match the detected media type', async () => {
-    await expect(cas.importBuffer(PNG_BUFFER, 'uploaded.png', 'audio')).rejects.toThrow(/expected audio asset/i);
+    await expect(cas.importBuffer(PNG_BUFFER, 'uploaded.png', 'audio')).rejects.toThrow(
+      /expected audio asset/i,
+    );
   });
 });

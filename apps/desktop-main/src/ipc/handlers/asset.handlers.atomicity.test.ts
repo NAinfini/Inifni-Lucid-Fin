@@ -39,8 +39,12 @@ function makeDbMock(initialRows: AssetMeta[] = []) {
   return {
     repos: {
       assets: {
-        insert: vi.fn((meta: AssetMeta) => { store.set(meta.hash, meta); }),
-        delete: vi.fn((hash: string) => { store.delete(hash); }),
+        insert: vi.fn((meta: AssetMeta) => {
+          store.set(meta.hash, meta);
+        }),
+        delete: vi.fn((hash: string) => {
+          store.delete(hash);
+        }),
         findByHash: vi.fn((hash: string) => store.get(hash)),
         query: vi.fn(({ limit }: { limit?: number }) => ({
           rows: [...store.values()].slice(0, limit ?? 100),
@@ -80,7 +84,11 @@ describe('A1: CAS rollback on DB insert failure', () => {
     try {
       db.repos.assets.insert({ hash: ref.hash } as AssetMeta);
     } catch {
-      try { cas.deleteAsset(ref.hash); } catch { /* best-effort */ }
+      try {
+        cas.deleteAsset(ref.hash);
+      } catch {
+        /* best-effort */
+      }
     }
 
     expect(cas.assetExists(ref.hash, 'image', 'png')).toBe(false);

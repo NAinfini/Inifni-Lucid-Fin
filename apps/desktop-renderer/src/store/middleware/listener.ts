@@ -33,7 +33,9 @@ listenerMiddleware.startListening({
       try {
         const api = getAPI();
         await api?.commander?.cancel(oldCanvasId);
-      } catch { /* best-effort cancel */ }
+      } catch {
+        /* best-effort cancel */
+      }
     }
 
     listenerApi.dispatch(switchCanvas(newCanvasId));

@@ -1,4 +1,9 @@
-import { deriveNodeStatus, type CanvasNode, type CanvasEdge, type CanvasSettings } from '@lucid-fin/contracts';
+import {
+  deriveNodeStatus,
+  type CanvasNode,
+  type CanvasEdge,
+  type CanvasSettings,
+} from '@lucid-fin/contracts';
 import { tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
 import {
@@ -22,12 +27,16 @@ import {
   formatValidationError,
 } from './canvas-tool-utils.js';
 
-export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[]; clipboardRef: { nodes: CanvasNode[] } } {
+export function createCanvasCoreTools(deps: CanvasToolDeps): {
+  tools: AgentTool[];
+  clipboardRef: { nodes: CanvasNode[] };
+} {
   const clipboardRef = { nodes: [] as CanvasNode[] };
 
   const addNode: AgentTool = {
     name: 'canvas.addNode',
-    description: 'Add a single node to the current canvas. Position is optional — if omitted, the node is auto-placed in the correct column based on type (image nodes left, video center, text/audio right). For image/video nodes, you can set prompt, provider, and entity refs (characters, locations, equipment) in one call. Use this for a single node; for multiple nodes with edges, use canvas.batchCreate instead.',
+    description:
+      'Add a single node to the current canvas. Position is optional — if omitted, the node is auto-placed in the correct column based on type (image nodes left, video center, text/audio right). For image/video nodes, you can set prompt, provider, and entity refs (characters, locations, equipment) in one call. Use this for a single node; for multiple nodes with edges, use canvas.batchCreate instead.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -43,9 +52,21 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         content: { type: 'string', description: 'Text content (text nodes only).' },
         prompt: { type: 'string', description: 'Generation prompt (image/video/audio nodes).' },
         providerId: { type: 'string', description: 'AI provider ID for generation.' },
-        characterIds: { type: 'array', description: 'Character IDs to attach as refs.', items: { type: 'string', description: 'Character ID.' } },
-        locationIds: { type: 'array', description: 'Location IDs to attach as refs.', items: { type: 'string', description: 'Location ID.' } },
-        equipmentIds: { type: 'array', description: 'Equipment IDs to attach as refs.', items: { type: 'string', description: 'Equipment ID.' } },
+        characterIds: {
+          type: 'array',
+          description: 'Character IDs to attach as refs.',
+          items: { type: 'string', description: 'Character ID.' },
+        },
+        locationIds: {
+          type: 'array',
+          description: 'Location IDs to attach as refs.',
+          items: { type: 'string', description: 'Location ID.' },
+        },
+        equipmentIds: {
+          type: 'array',
+          description: 'Equipment IDs to attach as refs.',
+          items: { type: 'string', description: 'Equipment ID.' },
+        },
         position: {
           type: 'object',
           description: 'Optional. If omitted, auto-placed based on type column.',
@@ -66,7 +87,11 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
         // Auto-position if not provided
         let position: { x: number; y: number };
-        if (args.position && typeof (args.position as Record<string, unknown>).x === 'number' && typeof (args.position as Record<string, unknown>).y === 'number') {
+        if (
+          args.position &&
+          typeof (args.position as Record<string, unknown>).x === 'number' &&
+          typeof (args.position as Record<string, unknown>).y === 'number'
+        ) {
           position = requirePosition(args);
         } else {
           position = autoPositionNode(canvas, type);
@@ -102,17 +127,24 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           const mediaData = node.data as Record<string, unknown>;
           if (typeof args.prompt === 'string') mediaData.prompt = args.prompt;
           // Auto-assign provider: explicit arg > default from settings > none
-          const providerId = tryProviderId(args.providerId)
-            ?? deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
+          const providerId =
+            tryProviderId(args.providerId) ??
+            deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
           if (providerId) mediaData.providerId = providerId;
           if (Array.isArray(args.characterIds)) {
-            mediaData.characterRefs = (args.characterIds as string[]).map((id) => ({ characterId: id }));
+            mediaData.characterRefs = (args.characterIds as string[]).map((id) => ({
+              characterId: id,
+            }));
           }
           if (Array.isArray(args.locationIds)) {
-            mediaData.locationRefs = (args.locationIds as string[]).map((id) => ({ locationId: id }));
+            mediaData.locationRefs = (args.locationIds as string[]).map((id) => ({
+              locationId: id,
+            }));
           }
           if (Array.isArray(args.equipmentIds)) {
-            mediaData.equipmentRefs = (args.equipmentIds as string[]).map((id) => ({ equipmentId: id }));
+            mediaData.equipmentRefs = (args.equipmentIds as string[]).map((id) => ({
+              equipmentId: id,
+            }));
           }
         }
 
@@ -152,7 +184,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const connectNodes: AgentTool = {
     name: 'canvas.connectNodes',
-    description: 'Create directional edges between nodes. Single pair: pass sourceId+targetId. Batch: pass "connections" array of {sourceId, targetId, label?} objects. Use this for edge connections between nodes; for spatial layout/positioning, use canvas.layout instead.',
+    description:
+      'Create directional edges between nodes. Single pair: pass sourceId+targetId. Batch: pass "connections" array of {sourceId, targetId, label?} objects. Use this for edge connections between nodes; for spatial layout/positioning, use canvas.layout instead.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -191,14 +224,22 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
             label: typeof c.label === 'string' ? c.label : undefined,
           }));
         } else {
-          pairs = [{
-            sourceId: requireString(args, 'sourceId'),
-            targetId: requireString(args, 'targetId'),
-            label: typeof args.label === 'string' ? args.label : undefined,
-          }];
+          pairs = [
+            {
+              sourceId: requireString(args, 'sourceId'),
+              targetId: requireString(args, 'targetId'),
+              label: typeof args.label === 'string' ? args.label : undefined,
+            },
+          ];
         }
         const canvas = await requireCanvas(deps, canvasId);
-        const results: Array<{ sourceId: string; targetId: string; success: boolean; edge?: CanvasEdge; error?: string }> = [];
+        const results: Array<{
+          sourceId: string;
+          targetId: string;
+          success: boolean;
+          edge?: CanvasEdge;
+          error?: string;
+        }> = [];
         for (const pair of pairs) {
           try {
             const sourceNode = requireCanvasNodeById(canvas, pair.sourceId);
@@ -216,11 +257,21 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
             await deps.connectNodes(canvasId, edge);
             results.push({ sourceId: pair.sourceId, targetId: pair.targetId, success: true, edge });
           } catch (error) {
-            results.push({ sourceId: pair.sourceId, targetId: pair.targetId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              sourceId: pair.sourceId,
+              targetId: pair.targetId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
-        if (pairs.length === 1) return results[0].success ? ok(results[0].edge!) : fail(results[0].error!);
-        return ok({ connected: results.filter((r) => r.success).length, total: pairs.length, results });
+        if (pairs.length === 1)
+          return results[0].success ? ok(results[0].edge!) : fail(results[0].error!);
+        return ok({
+          connected: results.filter((r) => r.success).length,
+          total: pairs.length,
+          results,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -337,7 +388,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const getState: AgentTool = {
     name: 'canvas.getState',
-    description: 'Read canvas metadata and edge list only (no node details). Use canvas.listNodes to find nodes, canvas.getNode for a single node.',
+    description:
+      'Read canvas metadata and edge list only (no node details). Use canvas.listNodes to find nodes, canvas.getNode for a single node.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -357,7 +409,12 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           name: canvas.name,
           nodeCount: canvas.nodes.length,
           edgeCount: canvas.edges.length,
-          edges: canvas.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, label: e.data?.label })),
+          edges: canvas.edges.map((e) => ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            label: e.data?.label,
+          })),
         });
       } catch (error) {
         return fail(error);
@@ -367,11 +424,12 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const listNodes: AgentTool = {
     name: 'canvas.listNodes',
-    description: 'List nodes on a canvas with pagination. Returns { total, offset, limit, nodes[] }. '
-      + 'Check "total" — if total > offset+limit, there are more pages. '
-      + 'Use types filter to get nodes of specific kinds (e.g. types=["image"]). Default limit is 50. '
-      + 'Pass detail=true to include full node data (prompt, presets, refs, variants) inline — '
-      + 'prefer this over listNodes + N× getNode when you need to read many nodes.',
+    description:
+      'List nodes on a canvas with pagination. Returns { total, offset, limit, nodes[] }. ' +
+      'Check "total" — if total > offset+limit, there are more pages. ' +
+      'Use types filter to get nodes of specific kinds (e.g. types=["image"]). Default limit is 50. ' +
+      'Pass detail=true to include full node data (prompt, presets, refs, variants) inline — ' +
+      'prefer this over listNodes + N× getNode when you need to read many nodes.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -381,10 +439,28 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max nodes to return. Default 50.' },
-        type: { type: 'string', description: 'Filter by node type: text, image, video, audio, backdrop. Omit to list all types.', enum: ['text', 'image', 'video', 'audio', 'backdrop'] },
-        types: { type: 'array', description: 'Filter by one or more node types (OR-matched). e.g. ["image", "video"]. Overrides "type" if both provided.', items: { type: 'string', description: 'A node type.' } },
-        query: { type: 'string', description: 'Optional search query. Matches against node title or prompt (case-insensitive OR logic).' },
-        detail: { type: 'boolean', description: 'If true, include full node data (equivalent to canvas.getNode on every returned id) in a single call. Default false.' },
+        type: {
+          type: 'string',
+          description:
+            'Filter by node type: text, image, video, audio, backdrop. Omit to list all types.',
+          enum: ['text', 'image', 'video', 'audio', 'backdrop'],
+        },
+        types: {
+          type: 'array',
+          description:
+            'Filter by one or more node types (OR-matched). e.g. ["image", "video"]. Overrides "type" if both provided.',
+          items: { type: 'string', description: 'A node type.' },
+        },
+        query: {
+          type: 'string',
+          description:
+            'Optional search query. Matches against node title or prompt (case-insensitive OR logic).',
+        },
+        detail: {
+          type: 'boolean',
+          description:
+            'If true, include full node data (equivalent to canvas.getNode on every returned id) in a single call. Default false.',
+        },
       },
       required: ['canvasId'],
     },
@@ -396,17 +472,22 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         // Resolve type filter: `types` array takes precedence over singular `type`
         let typeSet: Set<string> | undefined;
         if (Array.isArray(args.types) && args.types.length > 0) {
-          typeSet = new Set((args.types as string[]).filter((t) => typeof t === 'string' && t.length > 0));
+          typeSet = new Set(
+            (args.types as string[]).filter((t) => typeof t === 'string' && t.length > 0),
+          );
         } else if (typeof args.type === 'string' && args.type) {
           typeSet = new Set([args.type]);
         }
 
-        const query = typeof args.query === 'string' && args.query.length > 0
-          ? args.query.toLowerCase()
-          : undefined;
+        const query =
+          typeof args.query === 'string' && args.query.length > 0
+            ? args.query.toLowerCase()
+            : undefined;
 
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
         const detail = args.detail === true;
 
         let filtered = canvas.nodes;
@@ -417,7 +498,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           filtered = filtered.filter((n) => {
             if (n.title?.toLowerCase().includes(query)) return true;
             const data = n.data as Record<string, unknown>;
-            if (typeof data.prompt === 'string' && data.prompt.toLowerCase().includes(query)) return true;
+            if (typeof data.prompt === 'string' && data.prompt.toLowerCase().includes(query))
+              return true;
             return false;
           });
         }
@@ -446,8 +528,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const listEdges: AgentTool = {
     name: 'canvas.listEdges',
-    description: 'List edges on a canvas with pagination. Returns { total, offset, limit, edges[] }. '
-      + 'Check "total" — if total > offset+limit, there are more pages. Direction matters: source→target.',
+    description:
+      'List edges on a canvas with pagination. Returns { total, offset, limit, edges[] }. ' +
+      'Check "total" — if total > offset+limit, there are more pages. Direction matters: source→target.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -464,8 +547,10 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
       try {
         const canvasId = requireString(args, 'canvasId');
         const canvas = await requireCanvas(deps, canvasId);
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
         const page = canvas.edges.slice(offset, offset + limit).map((edge) => ({
           id: edge.id,
           source: edge.source,
@@ -482,11 +567,11 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
   const getNode: AgentTool = {
     name: 'canvas.getNode',
     description:
-      'Read full details (prompt, presets, refs, variants) for one or more nodes. '
-      + 'IMPORTANT: Pass ALL the node IDs you need in a single call as an array — '
-      + 'do NOT call this tool once per node in a loop. One batched call is orders of '
-      + 'magnitude cheaper than N sequential calls. Single-ID string form is only for the '
-      + 'truly-one-node case; for 2+ nodes, always use the array form.',
+      'Read full details (prompt, presets, refs, variants) for one or more nodes. ' +
+      'IMPORTANT: Pass ALL the node IDs you need in a single call as an array — ' +
+      'do NOT call this tool once per node in a loop. One batched call is orders of ' +
+      'magnitude cheaper than N sequential calls. Single-ID string form is only for the ' +
+      'truly-one-node case; for 2+ nodes, always use the array form.',
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -494,7 +579,12 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Array of node IDs to fetch in one call (preferred). Pass every ID you need here, not one per call. A single string is also accepted for the one-node case.' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description:
+            'Array of node IDs to fetch in one call (preferred). Pass every ID you need here, not one per call. A single string is also accepted for the one-node case.',
+        },
       },
       required: ['canvasId', 'nodeIds'],
     },
@@ -531,7 +621,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const layout: AgentTool = {
     name: 'canvas.layout',
-    description: 'Arrange all canvas nodes spatially. "auto" arranges by type and edge connections into columns: first-frame images (left) | video (center) | last-frame images (right) | text (far right). "horizontal"/"vertical" arrange in a single line. Use this for spatial positioning; for creating/deleting edge connections, use canvas.connectNodes or canvas.deleteEdge instead.',
+    description:
+      'Arrange all canvas nodes spatially. "auto" arranges by type and edge connections into columns: first-frame images (left) | video (center) | last-frame images (right) | text (far right). "horizontal"/"vertical" arrange in a single line. Use this for spatial positioning; for creating/deleting edge connections, use canvas.connectNodes or canvas.deleteEdge instead.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -561,14 +652,13 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   const batchCreate: AgentTool = {
     name: 'canvas.batchCreate',
-    description:
-      [
-        'REQUIRED: nodes (non-empty array). Do NOT call with no arguments — it always fails. If you want to add a single node, canvas.addNode may be simpler. If you only want to connect existing nodes, call canvas.connectNodes instead. Example: canvas.batchCreate({ canvasId, nodes: [{ type: "text", title: "Scene 1", content: "Opening..." }], edges: [] }).',
-        '',
-        'Bulk create multiple nodes and edges. Edges use fromIndex/toIndex (0-based) referencing the nodes array. ' +
-          'Nodes are auto-arranged in columns by type and edge role: first-frame images (left) | video (center) | last-frame images (right) | text/audio (far right). ' +
-          'For each video shot, include BOTH a first-frame image node AND a last-frame image node, with edges image→video (first frame) and video→image (last frame).',
-      ].join('\n'),
+    description: [
+      'REQUIRED: nodes (non-empty array). Do NOT call with no arguments — it always fails. If you want to add a single node, canvas.addNode may be simpler. If you only want to connect existing nodes, call canvas.connectNodes instead. Example: canvas.batchCreate({ canvasId, nodes: [{ type: "text", title: "Scene 1", content: "Opening..." }], edges: [] }).',
+      '',
+      'Bulk create multiple nodes and edges. Edges use fromIndex/toIndex (0-based) referencing the nodes array. ' +
+        'Nodes are auto-arranged in columns by type and edge role: first-frame images (left) | video (center) | last-frame images (right) | text/audio (far right). ' +
+        'For each video shot, include BOTH a first-frame image node AND a last-frame image node, with edges image→video (first frame) and video→image (last frame).',
+    ].join('\n'),
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -582,7 +672,11 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
             type: 'object',
             description: 'A node descriptor.',
             properties: {
-              type: { type: 'string', description: 'Node type.', enum: ['text', 'image', 'video', 'audio'] },
+              type: {
+                type: 'string',
+                description: 'Node type.',
+                enum: ['text', 'image', 'video', 'audio'],
+              },
               title: { type: 'string', description: 'Node title.' },
               content: { type: 'string', description: 'Text content (text nodes).' },
               prompt: { type: 'string', description: 'Prompt (media nodes).' },
@@ -631,7 +725,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         const rowGap = 280;
 
         const nodeDescs = args.nodes as Array<Record<string, unknown>>;
-        const edgeDescs = Array.isArray(args.edges) ? (args.edges as Array<Record<string, unknown>>) : [];
+        const edgeDescs = Array.isArray(args.edges)
+          ? (args.edges as Array<Record<string, unknown>>)
+          : [];
 
         // Classify image nodes by edge role: first-frame (image→video) or last-frame (video→image)
         const firstFrameIndices = new Set<number>();
@@ -640,7 +736,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           const fromIdx = e.fromIndex as number;
           const toIdx = e.toIndex as number;
           if (typeof fromIdx !== 'number' || typeof toIdx !== 'number') continue;
-          if (fromIdx < 0 || fromIdx >= nodeDescs.length || toIdx < 0 || toIdx >= nodeDescs.length) continue;
+          if (fromIdx < 0 || fromIdx >= nodeDescs.length || toIdx < 0 || toIdx >= nodeDescs.length)
+            continue;
           const fromType = nodeDescs[fromIdx].type;
           const toType = nodeDescs[toIdx].type;
           if (fromType === 'image' && toType === 'video') firstFrameIndices.add(fromIdx);
@@ -650,7 +747,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         // Build columns: first-frame images | video | last-frame images | text/audio
         const columns: number[][] = [[], [], [], []]; // [firstFrame, video, lastFrame, textAudio]
         for (let i = 0; i < nodeDescs.length; i++) {
-          const type = typeof nodeDescs[i].type === 'string' ? nodeDescs[i].type as string : 'text';
+          const type =
+            typeof nodeDescs[i].type === 'string' ? (nodeDescs[i].type as string) : 'text';
           if (type === 'image' && firstFrameIndices.has(i)) {
             columns[0].push(i);
           } else if (type === 'video') {
@@ -683,7 +781,10 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         for (let i = 0; i < nodeDescs.length; i++) {
           const desc = nodeDescs[i];
           const type =
-            desc.type === 'text' || desc.type === 'image' || desc.type === 'video' || desc.type === 'audio'
+            desc.type === 'text' ||
+            desc.type === 'image' ||
+            desc.type === 'video' ||
+            desc.type === 'audio'
               ? (desc.type as CanvasNode['type'])
               : 'text';
           const title = typeof desc.title === 'string' ? desc.title : `Node ${i + 1}`;
@@ -694,18 +795,25 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           } else if (type !== 'text') {
             const mediaData = data as Record<string, unknown>;
             if (typeof desc.prompt === 'string') mediaData.prompt = desc.prompt;
-            const batchProviderId = typeof desc.providerId === 'string'
-              ? desc.providerId
-              : deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
+            const batchProviderId =
+              typeof desc.providerId === 'string'
+                ? desc.providerId
+                : deps.getDefaultProviderId?.(type as 'image' | 'video' | 'audio');
             if (batchProviderId) mediaData.providerId = batchProviderId;
             if (Array.isArray(desc.characterIds)) {
-              mediaData.characterRefs = (desc.characterIds as string[]).map((id) => ({ characterId: id }));
+              mediaData.characterRefs = (desc.characterIds as string[]).map((id) => ({
+                characterId: id,
+              }));
             }
             if (Array.isArray(desc.locationIds)) {
-              mediaData.locationRefs = (desc.locationIds as string[]).map((id) => ({ locationId: id }));
+              mediaData.locationRefs = (desc.locationIds as string[]).map((id) => ({
+                locationId: id,
+              }));
             }
             if (Array.isArray(desc.equipmentIds)) {
-              mediaData.equipmentRefs = (desc.equipmentIds as string[]).map((id) => ({ equipmentId: id }));
+              mediaData.equipmentRefs = (desc.equipmentIds as string[]).map((id) => ({
+                equipmentId: id,
+              }));
             }
           }
           const node: CanvasNode = {
@@ -765,9 +873,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
   const getSettings: AgentTool = {
     name: 'canvas.getSettings',
     description:
-      'Read canvas-scoped settings (style plate prompt, aspect ratio, provider ids). '
-      + 'Returns only fields this canvas has explicitly set; missing fields simply have no canvas-level value. '
-      + 'Use this before canvas.setSettings to preview the current state.',
+      'Read canvas-scoped settings (style plate prompt, aspect ratio, provider ids). ' +
+      'Returns only fields this canvas has explicitly set; missing fields simply have no canvas-level value. ' +
+      'Use this before canvas.setSettings to preview the current state.',
     tags: ['canvas', 'read', 'settings'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -796,15 +904,15 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
   const setSettings: AgentTool = {
     name: 'canvas.setSettings',
     description:
-      'Patch canvas-scoped settings. Include only the fields you want to change. '
-      + 'Pass null for a field to clear it. '
-      + 'stylePlate is a free-form style prompt describing the visual look of this canvas/video; '
-      + 'it is prepended to every ref-image generation prompt as the leading style anchor. '
-      + 'negativePrompt is a free-form "avoid" prompt appended to every ref-image generation. '
-      + 'refResolution sets the default size for ref-image generation (overrides per-entity defaults). '
-      + 'publishImageResolution sets the default size for image-node outputs. '
-      + 'publishVideoResolution sets the default size for video-node outputs. '
-      + 'Valid aspectRatio: 16:9 | 9:16 | 1:1 | 2.39:1.',
+      'Patch canvas-scoped settings. Include only the fields you want to change. ' +
+      'Pass null for a field to clear it. ' +
+      'stylePlate is a free-form style prompt describing the visual look of this canvas/video; ' +
+      'it is prepended to every ref-image generation prompt as the leading style anchor. ' +
+      'negativePrompt is a free-form "avoid" prompt appended to every ref-image generation. ' +
+      'refResolution sets the default size for ref-image generation (overrides per-entity defaults). ' +
+      'publishImageResolution sets the default size for image-node outputs. ' +
+      'publishVideoResolution sets the default size for video-node outputs. ' +
+      'Valid aspectRatio: 16:9 | 9:16 | 1:1 | 2.39:1.',
     tags: ['canvas', 'write', 'settings'],
     context: CANVAS_CONTEXT,
     tier: 2,
@@ -815,21 +923,21 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         stylePlate: {
           type: 'string',
           description:
-            'Free-form style prompt (e.g. "neo-noir watercolor, muted teal and ochre palette, soft chiaroscuro lighting"). '
-            + 'Pass null to clear.',
+            'Free-form style prompt (e.g. "neo-noir watercolor, muted teal and ochre palette, soft chiaroscuro lighting"). ' +
+            'Pass null to clear.',
         },
         negativePrompt: {
           type: 'string',
           description:
-            'Free-form negative prompt (e.g. "text, watermark, blurry, low-quality, extra limbs"). '
-            + 'Appended to every ref-image prompt as "Avoid: …". Pass null to clear.',
+            'Free-form negative prompt (e.g. "text, watermark, blurry, low-quality, extra limbs"). ' +
+            'Appended to every ref-image prompt as "Avoid: …". Pass null to clear.',
         },
         refResolution: {
           type: 'object',
           description:
             'Default resolution for ref-image generation. Both width and height are required when set. Pass null to clear.',
           properties: {
-            width:  { type: 'number', description: 'Image width in pixels.' },
+            width: { type: 'number', description: 'Image width in pixels.' },
             height: { type: 'number', description: 'Image height in pixels.' },
           },
         },
@@ -838,7 +946,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           description:
             'Default resolution for image-node outputs (publishing format). Both width and height are required when set. Pass null to clear.',
           properties: {
-            width:  { type: 'number', description: 'Width in pixels.' },
+            width: { type: 'number', description: 'Width in pixels.' },
             height: { type: 'number', description: 'Height in pixels.' },
           },
         },
@@ -847,7 +955,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           description:
             'Default resolution for video-node outputs (publishing format). Both width and height are required when set. Pass null to clear.',
           properties: {
-            width:  { type: 'number', description: 'Width in pixels.' },
+            width: { type: 'number', description: 'Width in pixels.' },
             height: { type: 'number', description: 'Height in pixels.' },
           },
         },
@@ -856,10 +964,19 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           description: 'Publishing aspect ratio override.',
           enum: ['16:9', '9:16', '1:1', '2.39:1'],
         },
-        llmProviderId:   { type: 'string', description: 'Active LLM provider id for this canvas.' },
-        imageProviderId: { type: 'string', description: 'Active image provider id for this canvas.' },
-        videoProviderId: { type: 'string', description: 'Active video provider id for this canvas.' },
-        audioProviderId: { type: 'string', description: 'Active audio provider id for this canvas.' },
+        llmProviderId: { type: 'string', description: 'Active LLM provider id for this canvas.' },
+        imageProviderId: {
+          type: 'string',
+          description: 'Active image provider id for this canvas.',
+        },
+        videoProviderId: {
+          type: 'string',
+          description: 'Active video provider id for this canvas.',
+        },
+        audioProviderId: {
+          type: 'string',
+          description: 'Active audio provider id for this canvas.',
+        },
       },
       required: ['canvasId'],
     },
@@ -888,7 +1005,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
         copy('imageProviderId');
         copy('videoProviderId');
         copy('audioProviderId');
-        const copyResolution = (key: 'refResolution' | 'publishImageResolution' | 'publishVideoResolution') => {
+        const copyResolution = (
+          key: 'refResolution' | 'publishImageResolution' | 'publishVideoResolution',
+        ) => {
           if (!(key in args)) return null;
           const raw = args[key];
           if (raw === null) {
@@ -898,7 +1017,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
           if (raw && typeof raw === 'object') {
             const obj = raw as { width?: unknown; height?: unknown };
             const w = typeof obj.width === 'number' && obj.width > 0 ? Math.floor(obj.width) : null;
-            const h = typeof obj.height === 'number' && obj.height > 0 ? Math.floor(obj.height) : null;
+            const h =
+              typeof obj.height === 'number' && obj.height > 0 ? Math.floor(obj.height) : null;
             if (w !== null && h !== null) {
               (patch as Record<string, unknown>)[key] = { width: w, height: h };
               return null;
@@ -923,9 +1043,21 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): { tools: AgentTool[
 
   return {
     tools: [
-      addNode, renameCanvas, deleteCanvas, connectNodes, duplicateNodes,
-      importWorkflow, exportWorkflow, getState, listNodes, listEdges, getNode, layout, batchCreate,
-      getSettings, setSettings,
+      addNode,
+      renameCanvas,
+      deleteCanvas,
+      connectNodes,
+      duplicateNodes,
+      importWorkflow,
+      exportWorkflow,
+      getState,
+      listNodes,
+      listEdges,
+      getNode,
+      layout,
+      batchCreate,
+      getSettings,
+      setSettings,
     ],
     clipboardRef,
   };

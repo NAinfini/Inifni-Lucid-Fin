@@ -16,7 +16,8 @@ vi.mock('../../utils/api.js', () => ({
 }));
 
 vi.mock('../ui/Dialog.js', () => ({
-  Dialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) => (open ? <>{children}</> : null),
+  Dialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) =>
+    open ? <>{children}</> : null,
   DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

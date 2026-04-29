@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import type { SessionId, ContextItem, ToolKey } from '@lucid-fin/contracts';
 import { SessionRepository, type StoredSession } from './session-repository.js';
 
@@ -80,7 +77,7 @@ describe('SessionRepository', () => {
   });
 
   it('list returns rows ordered by updatedAt DESC', () => {
-    repo.upsert(mkSession('old',    { updatedAt: 1 }));
+    repo.upsert(mkSession('old', { updatedAt: 1 }));
     repo.upsert(mkSession('middle', { updatedAt: 5 }));
     repo.upsert(mkSession('newest', { updatedAt: 9 }));
     const { rows, degradedCount } = repo.list();
@@ -165,9 +162,10 @@ describe('SessionRepository', () => {
   it('getContextGraph returns null on malformed JSON (fail-soft)', () => {
     repo.upsert(mkSession('bad-graph'));
     // Inject corrupt JSON directly
-    db.prepare(
-      `UPDATE commander_sessions SET context_graph_json = ? WHERE id = ?`,
-    ).run('not valid json {{{{', 'bad-graph');
+    db.prepare(`UPDATE commander_sessions SET context_graph_json = ? WHERE id = ?`).run(
+      'not valid json {{{{',
+      'bad-graph',
+    );
     expect(repo.getContextGraph('bad-graph' as SessionId)).toBeNull();
   });
 

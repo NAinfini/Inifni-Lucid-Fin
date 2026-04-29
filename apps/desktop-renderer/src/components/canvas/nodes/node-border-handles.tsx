@@ -3,7 +3,11 @@ import { Handle, Position } from '@xyflow/react';
 import { cn } from '../../../lib/utils.js';
 
 type BorderSide = 'top' | 'right' | 'bottom' | 'left';
-type HandlePosition = typeof Position.Top | typeof Position.Right | typeof Position.Bottom | typeof Position.Left;
+type HandlePosition =
+  | typeof Position.Top
+  | typeof Position.Right
+  | typeof Position.Bottom
+  | typeof Position.Left;
 
 /** Single anchor per side at 50% — reduced from 3 (25/50/75%) to cut DOM
  *  element count by 16 per node (from 24 handles to 8). */
@@ -69,9 +73,7 @@ interface NodeBorderHandlesProps {
   colorClassName: string;
 }
 
-export function NodeBorderHandles({
-  colorClassName,
-}: NodeBorderHandlesProps) {
+export function NodeBorderHandles({ colorClassName }: NodeBorderHandlesProps) {
   const descriptors = DEFAULT_DESCRIPTORS;
   return (
     <>

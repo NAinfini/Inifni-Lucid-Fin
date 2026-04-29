@@ -51,22 +51,19 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
     adapter.configure('test-key');
 
     await expect(
-      complete(adapter,
-        [{ role: 'user', content: 'hello' }],
-        {
-          tools: [
-            {
-              name: 'tool.search',
-              description: 'Search tools',
-              parameters: {
-                type: 'object',
-                properties: {},
-              },
+      complete(adapter, [{ role: 'user', content: 'hello' }], {
+        tools: [
+          {
+            name: 'tool.search',
+            description: 'Search tools',
+            parameters: {
+              type: 'object',
+              properties: {},
             },
-          ],
-          toolChoice: 'auto',
-        },
-      ),
+          },
+        ],
+        toolChoice: 'auto',
+      }),
     ).resolves.toMatchObject({
       content: '',
       finishReason: 'tool_calls',
@@ -128,23 +125,24 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
   });
 
   it('preserves anthropic HTTP error details for logging and diagnosis', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          error: {
-            type: 'service_unavailable_error',
-            message: 'gateway overloaded',
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              type: 'service_unavailable_error',
+              message: 'gateway overloaded',
+            },
+          }),
+          {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: {
+              'Content-Type': 'application/json',
+              'request-id': 'anthropic-req-123',
+            },
           },
-        }),
-        {
-          status: 503,
-          statusText: 'Service Unavailable',
-          headers: {
-            'Content-Type': 'application/json',
-            'request-id': 'anthropic-req-123',
-          },
-        },
-      ),
+        ),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -195,36 +193,33 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
       },
       upstreamRequestId: 'anthropic-req-123',
     });
-    expect((thrown as LucidError).details?.requestBody).toMatchObject({
-      model: 'claude-sonnet-4-20250514',
-      tools: [
-        {
-          name: 'tool_search',
-        },
-      ],
+    expect((thrown as LucidError).details?.requestSummary).toMatchObject({
+      messageCount: 1,
+      toolCount: 1,
     });
   });
 
   it('extracts reasoning from a response that only contains thinking content blocks', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            id: 'msg_empty',
-            content: [
-              {
-                type: 'thinking',
-                thinking: 'internal only',
-              },
-            ],
-            stop_reason: 'end_turn',
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 'msg_empty',
+              content: [
+                {
+                  type: 'thinking',
+                  thinking: 'internal only',
+                },
+              ],
+              stop_reason: 'end_turn',
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
       ),
     );
 
@@ -261,11 +256,12 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
   it('throws a structured error when Claude returns HTML instead of JSON', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response('<!doctype html><html><body>gateway</body></html>', {
-          status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
-        }),
+      vi.fn(
+        async () =>
+          new Response('<!doctype html><html><body>gateway</body></html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }),
       ),
     );
 

@@ -24,14 +24,7 @@ const JobStatusEnum = z.enum([
   'dead',
 ]);
 
-const GenerationTypeEnum = z.enum([
-  'text',
-  'image',
-  'video',
-  'voice',
-  'music',
-  'sfx',
-]);
+const GenerationTypeEnum = z.enum(['text', 'image', 'video', 'voice', 'music', 'sfx']);
 
 export const JobSchema = z.object({
   id: z.string().min(1),

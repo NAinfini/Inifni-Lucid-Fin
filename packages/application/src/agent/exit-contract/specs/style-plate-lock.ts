@@ -24,9 +24,7 @@ export interface StylePlateLockSpecDeps {
   resolvePromptText: (key: 'style-plate-lock') => string | null | undefined;
 }
 
-export function createStylePlateLockSpec(
-  deps: StylePlateLockSpecDeps,
-): ProcessPromptSpec {
+export function createStylePlateLockSpec(deps: StylePlateLockSpecDeps): ProcessPromptSpec {
   return {
     key: 'style-plate-lock',
     displayName: 'Style Plate Lock',
@@ -60,15 +58,12 @@ export function stylePlateLockPredicate(ctx: ActivationContext): boolean {
  * because the predicate needs it and we want the orchestrator side to be
  * trivial.
  */
-export function isGenerationTool(
-  name: string,
-  args?: Record<string, unknown>,
-): boolean {
+export function isGenerationTool(name: string, args?: Record<string, unknown>): boolean {
   if (
-    name === 'canvas.generate'
-    || name === 'character.generateRefImage'
-    || name === 'location.generateRefImage'
-    || name === 'equipment.generateRefImage'
+    name === 'canvas.generate' ||
+    name === 'character.generateRefImage' ||
+    name === 'location.generateRefImage' ||
+    name === 'equipment.generateRefImage'
   ) {
     return true;
   }

@@ -103,13 +103,17 @@ describe('canvas generation reducers', () => {
 
     const state = canvasSlice.reducer(undefined, setCanvases([canvas]));
 
-    expect(state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-legacy')).toEqual(
+    expect(
+      state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-legacy'),
+    ).toEqual(
       expect.objectContaining({
         width: 240,
         height: 180,
       }),
     );
-    expect(state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-legacy')).toEqual(
+    expect(
+      state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-legacy'),
+    ).toEqual(
       expect.objectContaining({
         width: 240,
         height: 180,
@@ -208,25 +212,29 @@ describe('canvas generation reducers', () => {
 
     const imageNode = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const audioNode = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'aud-1');
-    expect((imageNode?.data as { selectedVariantIndex: number; assetHash?: string }).selectedVariantIndex).toBe(1);
-    expect((imageNode?.data as { selectedVariantIndex: number; assetHash?: string }).assetHash).toBe('img-v2');
-    expect((audioNode?.data as { selectedVariantIndex: number; assetHash?: string }).selectedVariantIndex).toBe(1);
-    expect((audioNode?.data as { selectedVariantIndex: number; assetHash?: string }).assetHash).toBe('aud-v2');
+    expect(
+      (imageNode?.data as { selectedVariantIndex: number; assetHash?: string })
+        .selectedVariantIndex,
+    ).toBe(1);
+    expect(
+      (imageNode?.data as { selectedVariantIndex: number; assetHash?: string }).assetHash,
+    ).toBe('img-v2');
+    expect(
+      (audioNode?.data as { selectedVariantIndex: number; assetHash?: string })
+        .selectedVariantIndex,
+    ).toBe(1);
+    expect(
+      (audioNode?.data as { selectedVariantIndex: number; assetHash?: string }).assetHash,
+    ).toBe('aud-v2');
   });
 
   it('updates seed/provider/variant count/estimated cost and toggles lock', () => {
     let state = setup();
     state = canvasSlice.reducer(state, setNodeSeed({ id: 'img-1', seed: 42 }));
     state = canvasSlice.reducer(state, toggleSeedLock({ id: 'img-1' }));
-    state = canvasSlice.reducer(
-      state,
-      setNodeProvider({ id: 'img-1', providerId: 'runway' }),
-    );
+    state = canvasSlice.reducer(state, setNodeProvider({ id: 'img-1', providerId: 'runway' }));
     state = canvasSlice.reducer(state, setNodeVariantCount({ id: 'img-1', count: 4 }));
-    state = canvasSlice.reducer(
-      state,
-      setNodeEstimatedCost({ id: 'img-1', estimatedCost: 0.14 }),
-    );
+    state = canvasSlice.reducer(state, setNodeEstimatedCost({ id: 'img-1', estimatedCost: 0.14 }));
 
     const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as {
@@ -245,8 +253,12 @@ describe('canvas generation reducers', () => {
 
   it('stores resolution, duration, and fps on generation nodes only', () => {
     let state = setup();
-    const initialImageNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-1');
-    const initialVideoNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-1');
+    const initialImageNode = state.canvases.entities['canvas-1']!.nodes.find(
+      (node) => node.id === 'img-1',
+    );
+    const initialVideoNode = state.canvases.entities['canvas-1']!.nodes.find(
+      (node) => node.id === 'vid-1',
+    );
 
     expect(initialImageNode).toEqual(
       expect.objectContaining({
@@ -274,8 +286,12 @@ describe('canvas generation reducers', () => {
     state = canvasSlice.reducer(state, setNodeDuration({ id: 'txt-1', duration: 12 }));
     state = canvasSlice.reducer(state, setNodeFps({ id: 'txt-1', fps: 30 }));
 
-    const imageNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-1');
-    const videoNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'vid-1');
+    const imageNode = state.canvases.entities['canvas-1']!.nodes.find(
+      (node) => node.id === 'img-1',
+    );
+    const videoNode = state.canvases.entities['canvas-1']!.nodes.find(
+      (node) => node.id === 'vid-1',
+    );
     const textNode = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'txt-1');
 
     expect(imageNode?.data).toEqual(
@@ -426,5 +442,88 @@ describe('canvas generation reducers', () => {
     };
     expect(data.firstFrameNodeId).toBeUndefined();
     expect(data.firstFrameAssetHash).toBeUndefined();
+  });
+
+  it('setCanvases sanitizes generating/failed nodes on load', () => {
+    const canvas = {
+      ...makeCanvas(),
+      nodes: [
+        {
+          id: 'img-generating',
+          type: 'image' as const,
+          position: { x: 0, y: 0 },
+          title: '',
+          bypassed: false,
+          locked: false,
+          data: {
+            status: 'generating' as const,
+            assetHash: 'abc',
+            prompt: 'test',
+            progress: 42,
+            jobId: 'j1',
+            variants: ['abc'],
+            selectedVariantIndex: 0,
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'img-failed',
+          type: 'image' as const,
+          position: { x: 120, y: 0 },
+          title: '',
+          bypassed: false,
+          locked: false,
+          data: {
+            status: 'failed' as const,
+            error: 'timeout',
+            prompt: 'test',
+            variants: [] as string[],
+            selectedVariantIndex: 0,
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'img-done',
+          type: 'image' as const,
+          position: { x: 240, y: 0 },
+          title: '',
+          bypassed: false,
+          locked: false,
+          data: {
+            status: 'done' as const,
+            assetHash: 'xyz',
+            prompt: 'test',
+            variants: ['xyz'],
+            selectedVariantIndex: 0,
+          },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    } satisfies Canvas;
+
+    const state = canvasSlice.reducer(undefined, setCanvases([canvas]));
+    const nodes = state.canvases.entities['canvas-1']!.nodes;
+
+    const generating = nodes.find((n) => n.id === 'img-generating')!.data as {
+      status: string;
+      progress?: number;
+      jobId?: string;
+    };
+    expect(generating.status).toBe('done');
+    expect(generating.progress).toBeUndefined();
+    expect(generating.jobId).toBeUndefined();
+
+    const failed = nodes.find((n) => n.id === 'img-failed')!.data as {
+      status: string;
+      error?: string;
+    };
+    expect(failed.status).toBe('empty');
+    expect(failed.error).toBeUndefined();
+
+    const done = nodes.find((n) => n.id === 'img-done')!.data as { status: string };
+    expect(done.status).toBe('done');
   });
 });

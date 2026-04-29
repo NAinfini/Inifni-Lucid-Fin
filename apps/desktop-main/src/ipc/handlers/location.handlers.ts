@@ -19,9 +19,7 @@ function normalizeLocationType(
 export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   safeHandle(ipcMain, 'location:list', async (_e, args?: { type?: string } | void) => {
     const typeFilter =
-      args && typeof args === 'object' && typeof args.type === 'string'
-        ? args.type
-        : undefined;
+      args && typeof args === 'object' && typeof args.type === 'string' ? args.type : undefined;
     return db.repos.entities.listLocations(typeFilter).rows;
   });
 
@@ -46,18 +44,22 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     if (!name) throw new Error('name is required');
 
     const loc: Location = {
-      id: existing?.id ?? (typeof args.id === 'string' && args.id ? parseLocationId(args.id) : randomUUID()),
+      id:
+        existing?.id ??
+        (typeof args.id === 'string' && args.id ? parseLocationId(args.id) : randomUUID()),
       name,
       type: normalizeLocationType(args.type, existing?.type ?? 'interior'),
-      subLocation:
-        typeof args.subLocation === 'string' ? args.subLocation : existing?.subLocation,
+      subLocation: typeof args.subLocation === 'string' ? args.subLocation : existing?.subLocation,
       description:
         typeof args.description === 'string' ? args.description : (existing?.description ?? ''),
       timeOfDay: typeof args.timeOfDay === 'string' ? args.timeOfDay : existing?.timeOfDay,
       mood: typeof args.mood === 'string' ? args.mood : existing?.mood,
       weather: typeof args.weather === 'string' ? args.weather : existing?.weather,
       lighting: typeof args.lighting === 'string' ? args.lighting : existing?.lighting,
-      architectureStyle: typeof args.architectureStyle === 'string' ? args.architectureStyle : existing?.architectureStyle,
+      architectureStyle:
+        typeof args.architectureStyle === 'string'
+          ? args.architectureStyle
+          : existing?.architectureStyle,
       dominantColors: Array.isArray(args.dominantColors)
         ? args.dominantColors.filter((c): c is string => typeof c === 'string')
         : existing?.dominantColors,
@@ -104,14 +106,14 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     db.repos.entities.deleteLocation(parseLocationId(args.id));
   });
 
-  safeHandle(ipcMain,
+  safeHandle(
+    ipcMain,
     'location:setRefImage',
     async (
       _e,
       args: { locationId: string; slot: string; assetHash: string; isStandard: boolean },
     ) => {
-      if (!args || typeof args.locationId !== 'string')
-        throw new Error('locationId is required');
+      if (!args || typeof args.locationId !== 'string') throw new Error('locationId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
       if (typeof args.assetHash !== 'string') throw new Error('assetHash is required');
 
@@ -139,11 +141,11 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     },
   );
 
-  safeHandle(ipcMain,
+  safeHandle(
+    ipcMain,
     'location:removeRefImage',
     async (_e, args: { locationId: string; slot: string }) => {
-      if (!args || typeof args.locationId !== 'string')
-        throw new Error('locationId is required');
+      if (!args || typeof args.locationId !== 'string') throw new Error('locationId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
 
       const loc = db.repos.entities.getLocation(parseLocationId(args.locationId));

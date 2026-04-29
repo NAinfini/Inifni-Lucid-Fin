@@ -16,12 +16,9 @@ export function col<TSType, SqlName extends string = string>(
  * so the constant can be imported across the storage package without
  * risk of mutation.
  */
-export function defineTable<
-  Name extends string,
-  Cols extends Record<string, ColumnDef>,
->(tableName: Name, cols: Cols): TableDef<Name, Cols> {
-  return Object.freeze({ tableName, cols: Object.freeze(cols) }) as TableDef<
-    Name,
-    Cols
-  >;
+export function defineTable<Name extends string, Cols extends Record<string, ColumnDef>>(
+  tableName: Name,
+  cols: Cols,
+): TableDef<Name, Cols> {
+  return Object.freeze({ tableName, cols: Object.freeze(cols) }) as TableDef<Name, Cols>;
 }

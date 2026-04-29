@@ -226,9 +226,7 @@ export function computeInverseAction(
     case 'canvas/disconnectNode': {
       const nodeId = payload as string;
       if (!prevCanvas || !nodeId) return null;
-      const edges = prevCanvas.edges.filter(
-        (e) => e.source === nodeId || e.target === nodeId,
-      );
+      const edges = prevCanvas.edges.filter((e) => e.source === nodeId || e.target === nodeId);
       if (edges.length === 0) return null;
       return { type: 'canvas/restoreEdges', payload: edges } as UnknownAction;
     }
@@ -275,7 +273,8 @@ export function computeInverseAction(
 export function estimateActionBytes(action: UnknownAction): number {
   try {
     return JSON.stringify(action).length;
-  } catch { /* circular reference in action — return conservative fallback */
+  } catch {
+    /* circular reference in action — return conservative fallback */
     return 512; // Conservative fallback
   }
 }

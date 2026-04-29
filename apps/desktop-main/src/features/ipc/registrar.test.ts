@@ -22,10 +22,7 @@ import {
 
 // ── Fakes ─────────────────────────────────────────────────────
 
-type HandlerFn = (
-  event: IpcMainInvokeEvent,
-  ...args: unknown[]
-) => unknown | Promise<unknown>;
+type HandlerFn = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>;
 
 function createFakeIpcMain(): IpcMain & {
   __invoke(channel: string, ...args: unknown[]): Promise<unknown>;
@@ -165,11 +162,8 @@ describe('registrar', () => {
           // Wait for the invocation id to be pushed to the renderer, then
           // fire cancel using it.
           queueMicrotask(() => {
-            const invocationBeacon = sent.find(
-              (s) => s.channel === 'demo:stream:invocation',
-            );
-            const id = (invocationBeacon?.payload as { invocationId: string })
-              .invocationId;
+            const invocationBeacon = sent.find((s) => s.channel === 'demo:stream:invocation');
+            const id = (invocationBeacon?.payload as { invocationId: string }).invocationId;
             void ipcMain.__invoke('ipc:cancel', id);
           });
         });
@@ -190,9 +184,7 @@ describe('registrar', () => {
       await ipcMain.__invoke('demo:stream', { input: 'x' });
       const beacon = sent.find((s) => s.channel === 'demo:stream:invocation');
       expect(beacon).toBeTruthy();
-      expect((beacon?.payload as { invocationId: string }).invocationId).toBe(
-        idSeenInsideHandler,
-      );
+      expect((beacon?.payload as { invocationId: string }).invocationId).toBe(idSeenInsideHandler);
     });
 
     it('normalizes AbortError thrown by the handler to ErrorCode.Cancelled', async () => {
@@ -251,9 +243,7 @@ describe('registrar', () => {
       const { deps, sent } = makeDeps();
       const emit = registerPush(deps, jobProgress);
       emit({ jobId: 'j1', pct: 42 });
-      expect(sent).toEqual([
-        { channel: 'job:progress', payload: { jobId: 'j1', pct: 42 } },
-      ]);
+      expect(sent).toEqual([{ channel: 'job:progress', payload: { jobId: 'j1', pct: 42 } }]);
     });
 
     it('throws when payload is invalid', () => {

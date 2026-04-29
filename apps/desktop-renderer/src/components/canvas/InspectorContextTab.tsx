@@ -200,11 +200,7 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {characterItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noCharacters')}</div>
         ) : (
-          <ReferenceItemList
-            items={characterItems}
-            icon={User}
-            onRemove={onRemoveCharacter}
-          />
+          <ReferenceItemList items={characterItems} icon={User} onRemove={onRemoveCharacter} />
         )}
       </div>
 
@@ -249,7 +245,9 @@ export const InspectorContextTab = memo(function InspectorContextTab({
                     {equipment.label}
                     {added && <span className="ml-1 text-[10px]">✓</span>}
                   </div>
-                  {equipment.description ? <div className="text-muted-foreground capitalize">{equipment.description}</div> : null}
+                  {equipment.description ? (
+                    <div className="text-muted-foreground capitalize">{equipment.description}</div>
+                  ) : null}
                 </button>
               );
             })}
@@ -258,11 +256,7 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {equipmentItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noEquipment')}</div>
         ) : (
-          <ReferenceItemList
-            items={equipmentItems}
-            icon={Package}
-            onRemove={onRemoveEquipment}
-          />
+          <ReferenceItemList items={equipmentItems} icon={Package} onRemove={onRemoveEquipment} />
         )}
       </div>
 
@@ -307,7 +301,9 @@ export const InspectorContextTab = memo(function InspectorContextTab({
                     {location.label}
                     {added && <span className="ml-1 text-[10px]">✓</span>}
                   </div>
-                  {location.description ? <div className="text-muted-foreground">{location.description}</div> : null}
+                  {location.description ? (
+                    <div className="text-muted-foreground">{location.description}</div>
+                  ) : null}
                 </button>
               );
             })}
@@ -316,11 +312,7 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {locationItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noLocations')}</div>
         ) : (
-          <ReferenceItemList
-            items={locationItems}
-            icon={MapPin}
-            onRemove={onRemoveLocation}
-          />
+          <ReferenceItemList items={locationItems} icon={MapPin} onRemove={onRemoveLocation} />
         )}
       </div>
     </>
@@ -377,7 +369,9 @@ function ReferenceItemRow({ item, icon: Icon, onRemove }: ReferenceItemRowProps)
       <div className="min-w-0 flex-1">
         <span className="block truncate text-xs">{item.label}</span>
         {item.description ? (
-          <span className="block truncate text-[10px] text-muted-foreground">{item.description}</span>
+          <span className="block truncate text-[10px] text-muted-foreground">
+            {item.description}
+          </span>
         ) : null}
       </div>
       <button
@@ -423,7 +417,9 @@ function VideoFrameSlotSection({ label, slot, t }: VideoFrameSlotSectionProps) {
           if (parsed.type === 'image') {
             slot.onDropAsset(parsed.hash);
           }
-        } catch { /* ignore bad json */ }
+        } catch {
+          /* ignore bad json */
+        }
         return;
       }
       // File from OS file explorer — import via buffer
@@ -470,7 +466,11 @@ function VideoFrameSlotSection({ label, slot, t }: VideoFrameSlotSectionProps) {
       {/* Preview area: clickable + drag-drop target */}
       <div
         className={`relative w-full aspect-video rounded-md overflow-hidden border bg-muted/20 cursor-pointer flex items-center justify-center transition-colors ${
-          dragOver ? 'border-primary bg-primary/10' : slot.preview ? 'border-border/60' : 'border-dashed border-border/60'
+          dragOver
+            ? 'border-primary bg-primary/10'
+            : slot.preview
+              ? 'border-border/60'
+              : 'border-dashed border-border/60'
         }`}
         onClick={() => void slot.onUpload()}
         onDragOver={handleDragOver}

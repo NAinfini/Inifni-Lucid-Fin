@@ -25,10 +25,7 @@ describe('createWorkflowTools', () => {
     const deps = createDeps();
     const tools = createWorkflowTools(deps);
 
-    expect(tools.map((tool) => tool.name)).toEqual([
-      'workflow.control',
-      'workflow.expandIdea',
-    ]);
+    expect(tools.map((tool) => tool.name)).toEqual(['workflow.control', 'workflow.expandIdea']);
     expect(tools.every((tool) => tool.context?.includes('canvas'))).toBe(true);
   });
 
@@ -36,24 +33,34 @@ describe('createWorkflowTools', () => {
     const deps = createDeps();
     const tools = createWorkflowTools(deps);
 
-    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-1', action: 'pause' })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'workflow.control').execute({ id: 'wf-1', action: 'pause' }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'wf-1', action: 'pause' },
     });
-    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-2', action: 'resume' })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'workflow.control').execute({ id: 'wf-2', action: 'resume' }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'wf-2', action: 'resume' },
     });
-    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-3', action: 'cancel' })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'workflow.control').execute({ id: 'wf-3', action: 'cancel' }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'wf-3', action: 'cancel' },
     });
-    await expect(getTool(tools, 'workflow.control').execute({ id: 'wf-4', action: 'retry' })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'workflow.control').execute({ id: 'wf-4', action: 'retry' }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'wf-4', action: 'retry' },
     });
 
-    await expect(getTool(tools, 'workflow.control').execute({ id: ' ', action: 'pause' })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'workflow.control').execute({ id: ' ', action: 'pause' }),
+    ).resolves.toEqual({
       success: false,
       error: 'id is required',
       errorClass: 'validation',
@@ -63,36 +70,55 @@ describe('createWorkflowTools', () => {
   it('builds expandIdea instructions with defaults and explicit overrides', async () => {
     const tools = createWorkflowTools(createDeps());
 
-    await expect(getTool(tools, 'workflow.expandIdea').execute({
-      prompt: 'time-traveling samurai',
-    })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'workflow.expandIdea').execute({
+        prompt: 'time-traveling samurai',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         instructions: expect.stringContaining('time-traveling samurai'),
         outlineFormat: expect.objectContaining({
           genre: 'cinematic',
           acts: [
-            { name: 'Act 1', scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }] },
-            { name: 'Act 2', scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }] },
-            { name: 'Act 3', scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }] },
+            {
+              name: 'Act 1',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+            {
+              name: 'Act 2',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+            {
+              name: 'Act 3',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
           ],
         }),
       }),
     });
 
-    await expect(getTool(tools, 'workflow.expandIdea').execute({
-      prompt: 'time-traveling samurai',
-      genre: 'anime',
-      actCount: 2.2,
-    })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'workflow.expandIdea').execute({
+        prompt: 'time-traveling samurai',
+        genre: 'anime',
+        actCount: 2.2,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         instructions: expect.stringContaining('anime story with 2 acts'),
         outlineFormat: expect.objectContaining({
           genre: 'anime',
           acts: [
-            { name: 'Act 1', scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }] },
-            { name: 'Act 2', scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }] },
+            {
+              name: 'Act 1',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+            {
+              name: 'Act 2',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
           ],
         }),
       }),
@@ -103,11 +129,14 @@ describe('createWorkflowTools', () => {
     const deps = createDeps();
     vi.mocked(deps.cancelWorkflow).mockRejectedValueOnce(new Error('cancel failed'));
 
-    await expect(createWorkflowTools(deps).find((tool) => tool.name === 'workflow.control')?.execute({ id: 'wf-1', action: 'cancel' }))
-      .resolves.toEqual({
-        success: false,
-        error: 'cancel failed',
-      });
+    await expect(
+      createWorkflowTools(deps)
+        .find((tool) => tool.name === 'workflow.control')
+        ?.execute({ id: 'wf-1', action: 'cancel' }),
+    ).resolves.toEqual({
+      success: false,
+      error: 'cancel failed',
+    });
   });
 
   it('returns a teaching validation error for empty-arg expandIdea (04-19 fake-user-study fix)', async () => {
@@ -126,7 +155,10 @@ describe('createWorkflowTools', () => {
 
   it('echoes the actual args back in the validation error (04-19 fix)', async () => {
     const tools = createWorkflowTools(createDeps());
-    const result = await getTool(tools, 'workflow.expandIdea').execute({ genre: 'noir', actCount: 4 });
+    const result = await getTool(tools, 'workflow.expandIdea').execute({
+      genre: 'noir',
+      actCount: 4,
+    });
     expect(result.success).toBe(false);
     if (result.success === false) {
       expect(result.error).toContain('"genre":"noir"');

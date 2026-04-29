@@ -19,11 +19,13 @@ Shot #  | Scene | Duration | Shot Type | Angle | Motion | Subject Action | Locat
 ```
 
 **Minimal viable shot for AI generation:**
+
 ```
 [SHOT TYPE] [ANGLE]: [SUBJECT] [ACTION/STATE], [LOCATION], [LIGHTING], [DURATION]s
 ```
 
 **Example:**
+
 ```
 ECU LOW ANGLE: weathered hands gripping a katana hilt, rain-soaked dojo floor,
 single motivated candle backlight, 4s
@@ -33,17 +35,17 @@ single motivated candle backlight, 4s
 
 ## Shot Type Reference
 
-| Code | Name | Use |
-|---|---|---|
-| ELS | Extreme Long Shot | Establish world, scale |
-| LS | Long Shot | Full body, environment context |
-| MS | Medium Shot | Waist up, dialogue, reaction |
-| MCU | Medium Close-Up | Chest up, emotional beats |
-| CU | Close-Up | Face, object detail |
-| ECU | Extreme Close-Up | Eyes, hands, texture |
-| OTS | Over-the-Shoulder | Conversation, POV implied |
-| POV | Point of View | Immersive, subjective |
-| INSERT | Insert Shot | Object detail, cutaway |
+| Code   | Name              | Use                            |
+| ------ | ----------------- | ------------------------------ |
+| ELS    | Extreme Long Shot | Establish world, scale         |
+| LS     | Long Shot         | Full body, environment context |
+| MS     | Medium Shot       | Waist up, dialogue, reaction   |
+| MCU    | Medium Close-Up   | Chest up, emotional beats      |
+| CU     | Close-Up          | Face, object detail            |
+| ECU    | Extreme Close-Up  | Eyes, hands, texture           |
+| OTS    | Over-the-Shoulder | Conversation, POV implied      |
+| POV    | Point of View     | Immersive, subjective          |
+| INSERT | Insert Shot       | Object detail, cutaway         |
 
 ---
 
@@ -70,6 +72,7 @@ single motivated candle backlight, 4s
 ```
 
 **State Flow rule (from 01-prompt-structure):** describe mid-action state, not sequences.
+
 - ❌ "the samurai draws his sword and turns"
 - ✅ "samurai mid-draw, body torqued 45°, sword half-unsheathed"
 
@@ -90,13 +93,13 @@ All shots in the scene inherit this context; individual shot prompts only overri
 
 ## Model-Specific Shot Duration
 
-| Model | Recommended clip length | Notes |
-|---|---|---|
-| Kling 2.0 | 5–10s | Longer clips maintain motion coherence |
-| Runway Gen-4 | 4–8s | Shorter clips = more control; keep prompts under 200 chars |
-| Wan 2.1 | 3–6s | Degrades past 6s; always add `cinematic, 24fps` to every prompt |
-| Sora | 5–20s | Handles long shots well; longer narrative prompts preferred |
-| Luma Ray 2 | 5–9s | Sweet spot for motion quality |
+| Model        | Recommended clip length | Notes                                                           |
+| ------------ | ----------------------- | --------------------------------------------------------------- |
+| Kling 2.0    | 5–10s                   | Longer clips maintain motion coherence                          |
+| Runway Gen-4 | 4–8s                    | Shorter clips = more control; keep prompts under 200 chars      |
+| Wan 2.1      | 3–6s                    | Degrades past 6s; always add `cinematic, 24fps` to every prompt |
+| Sora         | 5–20s                   | Handles long shots well; longer narrative prompts preferred     |
+| Luma Ray 2   | 5–9s                    | Sweet spot for motion quality                                   |
 
 ---
 

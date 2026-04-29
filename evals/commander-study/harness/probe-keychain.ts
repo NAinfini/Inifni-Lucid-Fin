@@ -26,7 +26,9 @@ async function main() {
         console.log(`  [ok] ${spec.name} -> ${key.length} chars`);
         ok++;
       } else {
-        console.log(`  [MISSING] ${spec.name} (id=${spec.id}) - no key under service '${SERVICE_NAME}'`);
+        console.log(
+          `  [MISSING] ${spec.name} (id=${spec.id}) - no key under service '${SERVICE_NAME}'`,
+        );
       }
     } catch (err) {
       console.log(`  [ERROR] ${spec.name}: ${err instanceof Error ? err.message : String(err)}`);

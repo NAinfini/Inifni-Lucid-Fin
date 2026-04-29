@@ -33,9 +33,20 @@ export function registerEntityHandlers(ipcMain: IpcMain, deps: EntityGenerationD
 
     for (let i = 0; i < Math.min(variantCount, 9); i++) {
       const result = await generateAndImport(
-        { type: 'image', providerId: provider, prompt: description, seed: typeof seed === 'number' ? seed + i : undefined, width: 1024, height: 1024 },
+        {
+          type: 'image',
+          providerId: provider,
+          prompt: description,
+          seed: typeof seed === 'number' ? seed + i : undefined,
+          width: 1024,
+          height: 1024,
+        },
         { adapter, cas: deps.cas, db: deps.db },
-        { prompt: description, provider, tags: [entityType, `${entityType}:${entityId}`, 'reference-image'] },
+        {
+          prompt: description,
+          provider,
+          tags: [entityType, `${entityType}:${entityId}`, 'reference-image'],
+        },
       );
       hashes.push(...result.hashes);
     }
@@ -49,15 +60,30 @@ export function registerEntityHandlers(ipcMain: IpcMain, deps: EntityGenerationD
     if (entityType === 'character') {
       const entity = deps.db.repos.entities.getCharacter(parseCharacterId(entityId));
       if (!entity) throw new Error(`Character not found: ${entityId}`);
-      deps.db.repos.entities.upsertCharacter({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.repos.entities.upsertCharacter({
+        id: entity.id,
+        name: entity.name,
+        referenceImages: [...entity.referenceImages, ...newRefs],
+        updatedAt: Date.now(),
+      });
     } else if (entityType === 'equipment') {
       const entity = deps.db.repos.entities.getEquipment(parseEquipmentId(entityId));
       if (!entity) throw new Error(`Equipment not found: ${entityId}`);
-      deps.db.repos.entities.upsertEquipment({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.repos.entities.upsertEquipment({
+        id: entity.id,
+        name: entity.name,
+        referenceImages: [...entity.referenceImages, ...newRefs],
+        updatedAt: Date.now(),
+      });
     } else {
       const entity = deps.db.repos.entities.getLocation(parseLocationId(entityId));
       if (!entity) throw new Error(`Location not found: ${entityId}`);
-      deps.db.repos.entities.upsertLocation({ id: entity.id, name: entity.name, referenceImages: [...entity.referenceImages, ...newRefs], updatedAt: Date.now() });
+      deps.db.repos.entities.upsertLocation({
+        id: entity.id,
+        name: entity.name,
+        referenceImages: [...entity.referenceImages, ...newRefs],
+        updatedAt: Date.now(),
+      });
     }
 
     return { variants: hashes };

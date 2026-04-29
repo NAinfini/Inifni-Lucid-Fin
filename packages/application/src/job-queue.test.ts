@@ -141,7 +141,11 @@ describe('JobQueue', () => {
         providerId: 'unknown',
         prompt: 'test',
       });
-      db.repos.jobs.update(id as JobId, { status: JobStatus.Running, startedAt: Date.now(), attempts: 3 });
+      db.repos.jobs.update(id as JobId, {
+        status: JobStatus.Running,
+        startedAt: Date.now(),
+        attempts: 3,
+      });
 
       await queue.recover();
       const job = db.repos.jobs.get(id as JobId);

@@ -28,11 +28,21 @@ describe('desktop renderer vite config', () => {
 
   it('groups node_modules into vendor chunks and canvas panels into named chunks', () => {
     expect(desktopRendererManualChunks('C:/repo/node_modules/react/index.js')).toBe('vendor');
-    expect(desktopRendererManualChunks('C:\\repo\\node_modules\\@xyflow\\react\\dist\\index.mjs')).toBe('vendor-reactflow');
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/CommanderPanel.tsx')).toBe('panel-commander');
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/AssetBrowserPanel.tsx')).toBe('panel-assets');
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/InspectorPanel.tsx')).toBe('panel-inspector');
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/HistoryPanel.tsx')).toBe('panels');
+    expect(
+      desktopRendererManualChunks('C:\\repo\\node_modules\\@xyflow\\react\\dist\\index.mjs'),
+    ).toBe('vendor-reactflow');
+    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/CommanderPanel.tsx')).toBe(
+      'panel-commander',
+    );
+    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/AssetBrowserPanel.tsx')).toBe(
+      'panel-assets',
+    );
+    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/InspectorPanel.tsx')).toBe(
+      'panel-inspector',
+    );
+    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/HistoryPanel.tsx')).toBe(
+      'panels',
+    );
     expect(desktopRendererManualChunks('C:/repo/src/store/slices/canvas.ts')).toBeUndefined();
   });
 });

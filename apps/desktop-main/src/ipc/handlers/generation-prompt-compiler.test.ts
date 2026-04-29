@@ -316,7 +316,16 @@ describe('applyStyleGuideDefaultsToEmptyTracks', () => {
       makeStyleGuide(),
       BUILT_IN_PRESET_LIBRARY,
     );
-    const categories = ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'];
+    const categories = [
+      'camera',
+      'lens',
+      'look',
+      'scene',
+      'composition',
+      'emotion',
+      'flow',
+      'technical',
+    ];
     for (const cat of categories) {
       expect(result).toHaveProperty(cat);
     }
@@ -832,7 +841,9 @@ describe('resolveCharacterEntities', () => {
     const char1 = makeCharacter('char-1', { loadouts: [], defaultLoadoutId: '' });
     const char2 = makeCharacter('char-2', { loadouts: [], defaultLoadoutId: '' });
     const db = makeDb({
-      getCharacter: vi.fn((id: string) => (id === 'char-1' ? char1 : id === 'char-2' ? char2 : undefined)),
+      getCharacter: vi.fn((id: string) =>
+        id === 'char-1' ? char1 : id === 'char-2' ? char2 : undefined,
+      ),
     });
     const refs: CharacterRef[] = [
       { characterId: 'char-1', loadoutId: '' },
@@ -959,9 +970,7 @@ describe('resolveStandaloneEquipment', () => {
     const eqA = makeEquipment('eq-a');
     const eqB = makeEquipment('eq-b');
     const db = makeDb({
-      getEquipment: vi.fn((id: string) =>
-        id === 'eq-a' ? eqA : id === 'eq-b' ? eqB : undefined,
-      ),
+      getEquipment: vi.fn((id: string) => (id === 'eq-a' ? eqA : id === 'eq-b' ? eqB : undefined)),
     });
     const result = resolveStandaloneEquipment(
       db,

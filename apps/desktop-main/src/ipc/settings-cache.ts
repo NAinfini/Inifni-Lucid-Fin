@@ -35,29 +35,36 @@ export function updateSettingsCache(settings: Record<string, unknown>): void {
 }
 
 const VALID_PROTOCOLS = new Set<string>([
-  'openai-compatible', 'openai-responses', 'anthropic', 'gemini', 'cohere',
+  'openai-compatible',
+  'openai-responses',
+  'anthropic',
+  'gemini',
+  'cohere',
 ]);
-const VALID_AUTH_STYLES = new Set<string>([
-  'bearer', 'x-api-key', 'x-goog-api-key', 'none',
-]);
+const VALID_AUTH_STYLES = new Set<string>(['bearer', 'x-api-key', 'x-goog-api-key', 'none']);
 
-function extractProviderGroup(settings: Record<string, unknown>, group: string): { providers: ProviderInfo[] } {
+function extractProviderGroup(
+  settings: Record<string, unknown>,
+  group: string,
+): { providers: ProviderInfo[] } {
   const groupData = settings[group] as Record<string, unknown> | undefined;
   if (!groupData || !Array.isArray(groupData.providers)) return { providers: [] };
   return {
-    providers: (groupData.providers as Array<Record<string, unknown>>).map(p => ({
+    providers: (groupData.providers as Array<Record<string, unknown>>).map((p) => ({
       id: String(p.id ?? ''),
       name: String(p.name ?? ''),
       baseUrl: String(p.baseUrl ?? ''),
       model: String(p.model ?? ''),
       isCustom: Boolean(p.isCustom),
       hasKey: Boolean(p.hasKey),
-      protocol: typeof p.protocol === 'string' && VALID_PROTOCOLS.has(p.protocol)
-        ? p.protocol as LLMProviderProtocol
-        : undefined,
-      authStyle: typeof p.authStyle === 'string' && VALID_AUTH_STYLES.has(p.authStyle)
-        ? p.authStyle as LLMProviderAuthStyle
-        : undefined,
+      protocol:
+        typeof p.protocol === 'string' && VALID_PROTOCOLS.has(p.protocol)
+          ? (p.protocol as LLMProviderProtocol)
+          : undefined,
+      authStyle:
+        typeof p.authStyle === 'string' && VALID_AUTH_STYLES.has(p.authStyle)
+          ? (p.authStyle as LLMProviderAuthStyle)
+          : undefined,
     })),
   };
 }

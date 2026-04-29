@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRefImageTools, type RefImageFactoryConfig, type RefImageEntity } from './ref-image-factory.js';
+import {
+  createRefImageTools,
+  type RefImageFactoryConfig,
+  type RefImageEntity,
+} from './ref-image-factory.js';
 
 interface TestEntity extends RefImageEntity {
   name: string;
@@ -35,7 +39,9 @@ function createConfig(
     toolNamePrefix: 'test',
     entityLabel: 'test entity',
     tags: ['test'],
-    getEntity: vi.fn(async (id) => id === 'e1' ? { id: 'e1', name: 'Entity 1', referenceImages: [] } : null),
+    getEntity: vi.fn(async (id) =>
+      id === 'e1' ? { id: 'e1', name: 'Entity 1', referenceImages: [] } : null,
+    ),
     saveEntity: vi.fn(async () => {}),
     generateImage: vi.fn(async () => ({ assetHash: 'hash-123' })),
     parseView: parseTestView,
@@ -52,7 +58,9 @@ function createConfig(
 describe('createRefImageTools', () => {
   describe('tool metadata', () => {
     it('generates correct tool names', () => {
-      const tools = createRefImageTools(createConfig({ getCanvas: vi.fn(async () => ({} as never)) }));
+      const tools = createRefImageTools(
+        createConfig({ getCanvas: vi.fn(async () => ({}) as never) }),
+      );
       const names = tools.map((t) => t.name);
       expect(names).toContain('test.generateRefImage');
       expect(names).toContain('test.setRefImage');
@@ -103,9 +111,14 @@ describe('createRefImageTools', () => {
         expect.objectContaining({ width: 2048, height: 1360 }),
       );
       expect(config.saveEntity).toHaveBeenCalledOnce();
-      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
+      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
-      expect(savedEntity.referenceImages![0]).toMatchObject({ slot: 'primary', assetHash: 'hash-123', isStandard: true });
+      expect(savedEntity.referenceImages![0]).toMatchObject({
+        slot: 'primary',
+        assetHash: 'hash-123',
+        isStandard: true,
+      });
     });
 
     it('defaults view to the primary kind when view is not provided', async () => {
@@ -121,9 +134,12 @@ describe('createRefImageTools', () => {
 
     it('uses custom prompt verbatim (with style plate prefix) when provided', async () => {
       const config = createConfig({
-        getCanvas: vi.fn(async () => ({
-          settings: { stylePlate: 'neo-noir watercolor' },
-        } as never)),
+        getCanvas: vi.fn(
+          async () =>
+            ({
+              settings: { stylePlate: 'neo-noir watercolor' },
+            }) as never,
+        ),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
@@ -201,7 +217,8 @@ describe('createRefImageTools', () => {
       const result = await tool.execute({ id: 'e1', view: { kind: 'primary' } });
 
       expect(result.success).toBe(true);
-      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
+      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as TestEntity;
       const primary = savedEntity.referenceImages?.find((r) => r.slot === 'primary');
       expect(primary?.assetHash).toBe('hash-123');
       expect(primary?.variants).toContain('old-hash');
@@ -209,9 +226,12 @@ describe('createRefImageTools', () => {
 
     it('threads canvas-scoped stylePlate into the prompt builder', async () => {
       const config = createConfig({
-        getCanvas: vi.fn(async () => ({
-          settings: { stylePlate: 'style-xyz' },
-        } as never)),
+        getCanvas: vi.fn(
+          async () =>
+            ({
+              settings: { stylePlate: 'style-xyz' },
+            }) as never,
+        ),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
@@ -226,9 +246,12 @@ describe('createRefImageTools', () => {
 
     it('uses canvas imageProviderId when no explicit providerId is supplied', async () => {
       const config = createConfig({
-        getCanvas: vi.fn(async () => ({
-          settings: { imageProviderId: 'flux-2-pro' },
-        } as never)),
+        getCanvas: vi.fn(
+          async () =>
+            ({
+              settings: { imageProviderId: 'flux-2-pro' },
+            }) as never,
+        ),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
@@ -242,9 +265,12 @@ describe('createRefImageTools', () => {
 
     it('uses canvas refResolution when args.width/height are omitted', async () => {
       const config = createConfig({
-        getCanvas: vi.fn(async () => ({
-          settings: { refResolution: { width: 1536, height: 1024 } },
-        } as never)),
+        getCanvas: vi.fn(
+          async () =>
+            ({
+              settings: { refResolution: { width: 1536, height: 1024 } },
+            }) as never,
+        ),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
@@ -258,9 +284,12 @@ describe('createRefImageTools', () => {
 
     it('appends canvas negativePrompt as "Avoid: …" trailing segment', async () => {
       const config = createConfig({
-        getCanvas: vi.fn(async () => ({
-          settings: { negativePrompt: 'text, watermark' },
-        } as never)),
+        getCanvas: vi.fn(
+          async () =>
+            ({
+              settings: { negativePrompt: 'text, watermark' },
+            }) as never,
+        ),
       });
       const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
 
@@ -283,9 +312,14 @@ describe('createRefImageTools', () => {
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ assetHash: 'abc', slot: 'primary' });
       expect(config.saveEntity).toHaveBeenCalledOnce();
-      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
+      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
-      expect(savedEntity.referenceImages![0]).toMatchObject({ slot: 'primary', assetHash: 'abc', isStandard: true });
+      expect(savedEntity.referenceImages![0]).toMatchObject({
+        slot: 'primary',
+        assetHash: 'abc',
+        isStandard: true,
+      });
     });
 
     it('returns fail when assetHash is missing', async () => {
@@ -302,7 +336,11 @@ describe('createRefImageTools', () => {
       const config = createConfig();
       const tool = createRefImageTools(config).find((t) => t.name === 'test.setRefImage')!;
 
-      const result = await tool.execute({ id: 'missing', view: { kind: 'primary' }, assetHash: 'abc' });
+      const result = await tool.execute({
+        id: 'missing',
+        view: { kind: 'primary' },
+        assetHash: 'abc',
+      });
 
       expect(result.success).toBe(false);
     });
@@ -319,7 +357,8 @@ describe('createRefImageTools', () => {
 
       await tool.execute({ id: 'e1', view: { kind: 'primary' }, assetHash: 'new' });
 
-      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
+      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
       expect(savedEntity.referenceImages![0].assetHash).toBe('new');
     });
@@ -343,7 +382,8 @@ describe('createRefImageTools', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toMatchObject({ id: 'e1', slot: 'primary' });
-      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock.calls[0][0] as TestEntity;
+      const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as TestEntity;
       expect(savedEntity.referenceImages).toHaveLength(1);
       expect(savedEntity.referenceImages![0].slot).toBe('extra-angle:side');
     });

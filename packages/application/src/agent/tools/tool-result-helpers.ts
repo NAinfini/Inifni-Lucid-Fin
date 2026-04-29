@@ -80,10 +80,7 @@ export function formatValidationError(
  * `name is required`. Returns the trimmed string or throws a typed
  * validation error.
  */
-export function requireSetString(
-  set: Record<string, unknown>,
-  key: string,
-): string {
+export function requireSetString(set: Record<string, unknown>, key: string): string {
   const value = set[key];
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new TypedToolError(`set.${key} must be a non-empty string`, 'validation');
@@ -138,11 +135,27 @@ export function requireBoolean(args: Record<string, unknown>, key: string): bool
 
 /** Keys that are structural identifiers and always stay top-level (never belong in `set`). */
 const STRUCTURAL_KEYS = new Set([
-  'set', 'canvasId', 'nodeId', 'nodeIds', 'id', 'ids',
-  'episodeId', 'seriesId', 'snapshotId',
-  'code', 'presetId', 'templateId', 'workflowId',
-  'edgeId', 'edgeIds', 'entryId', 'category',
-  'group', 'action', 'slot', 'providerId',
+  'set',
+  'canvasId',
+  'nodeId',
+  'nodeIds',
+  'id',
+  'ids',
+  'episodeId',
+  'seriesId',
+  'snapshotId',
+  'code',
+  'presetId',
+  'templateId',
+  'workflowId',
+  'edgeId',
+  'edgeIds',
+  'entryId',
+  'category',
+  'group',
+  'action',
+  'slot',
+  'providerId',
 ]);
 
 /**
@@ -158,7 +171,9 @@ const STRUCTURAL_KEYS = new Set([
 export function extractSet(args: Record<string, unknown>): Record<string, unknown> {
   const raw = args.set;
   if (raw === null || raw === undefined || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new Error('"set" object is required — wrap the fields you want to change inside set: { ... }');
+    throw new Error(
+      '"set" object is required — wrap the fields you want to change inside set: { ... }',
+    );
   }
   const set = raw as Record<string, unknown>;
   if (Object.keys(set).length === 0) {

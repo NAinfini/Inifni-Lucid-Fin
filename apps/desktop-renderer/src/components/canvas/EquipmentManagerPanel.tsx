@@ -23,11 +23,7 @@ import {
 } from '../../store/slices/equipment.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
-import type {
-  Equipment,
-  EquipmentType,
-  ReferenceImage,
-} from '@lucid-fin/contracts';
+import type { Equipment, EquipmentType, ReferenceImage } from '@lucid-fin/contracts';
 import { useAssetUrl } from '../../hooks/useAssetUrl.js';
 import { Image, ImageOff, Link2, Package, Upload, X } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -37,7 +33,13 @@ import { useEntityClipboard } from '../../hooks/useEntityClipboard.js';
 import { EntityFileExplorer } from './EntityFileExplorer.js';
 import { EntityDetailDrawer } from './EntityDetailDrawer.js';
 import { selectImageAssets, type Asset } from '../../store/slices/assets.js';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/Dialog.js';
 
 const TYPE_OPTIONS: EquipmentType[] = [
   'weapon',
@@ -78,10 +80,13 @@ export function EquipmentManagerPanel() {
   const { items, selectedId, loading } = useSelector((s: RootState) => s.equipment);
 
   const {
-    draft, setDraft,
+    draft,
+    setDraft,
     setOriginalDraft,
-    error, setError,
-    assetPickerOpen, setAssetPickerOpen,
+    error,
+    setError,
+    assetPickerOpen,
+    setAssetPickerOpen,
     isDirty,
     reportError,
     confirmDiscardIfDirty,
@@ -204,7 +209,10 @@ export function EquipmentManagerPanel() {
     (payload: { mode: 'copy' | 'cut'; items: Equipment[] }) => {
       const folderId = folderApi.currentFolderId;
       if (payload.mode === 'cut') {
-        void handleMoveIdsToFolder(payload.items.map((it) => it.id), folderId);
+        void handleMoveIdsToFolder(
+          payload.items.map((it) => it.id),
+          folderId,
+        );
       } else {
         const api = getAPI();
         if (!api?.equipment) return;
@@ -258,9 +266,7 @@ export function EquipmentManagerPanel() {
   const handleDeleteIds = useCallback(
     async (ids: string[]) => {
       if (ids.length === 0) return;
-      const names = ids
-        .map((id) => items.find((e) => e.id === id)?.name || id)
-        .join(', ');
+      const names = ids.map((id) => items.find((e) => e.id === id)?.name || id).join(', ');
       const ok = await confirm({
         title: t('equipmentManager.deleteConfirm').replace('{name}', names),
         destructive: true,
@@ -370,9 +376,7 @@ export function EquipmentManagerPanel() {
 
         const newVariants = mainRef.variants.filter((v) => v !== variantHash);
         const newAssetHash =
-          mainRef.assetHash === variantHash
-            ? (newVariants[0] ?? '')
-            : mainRef.assetHash;
+          mainRef.assetHash === variantHash ? (newVariants[0] ?? '') : mainRef.assetHash;
 
         const updatedRef: ReferenceImage = {
           ...mainRef,
@@ -423,7 +427,9 @@ export function EquipmentManagerPanel() {
   const drawerShown = drawerOpen && draft !== null;
   return (
     <div className="flex h-full min-h-0">
-      <div className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}>
+      <div
+        className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}
+      >
         <EntityFileExplorer<Equipment>
           items={items}
           folders={folderApi.folders}
@@ -452,7 +458,10 @@ export function EquipmentManagerPanel() {
               {(usageCountById[e.id] ?? 0) > 0 && (
                 <span
                   className="inline-flex items-center gap-0.5"
-                  title={t('equipmentManager.usedInNodes').replace('{count}', String(usageCountById[e.id]))}
+                  title={t('equipmentManager.usedInNodes').replace(
+                    '{count}',
+                    String(usageCountById[e.id]),
+                  )}
                 >
                   <Link2 className="h-3 w-3" />
                   {usageCountById[e.id]}
@@ -469,12 +478,12 @@ export function EquipmentManagerPanel() {
             cutIds,
           }}
           onPaste={handlePaste}
-          header={(
+          header={
             <div className="flex items-center gap-2">
               <Package className="h-3.5 w-3.5 text-primary" />
               <h2 className="text-xs font-semibold">{t('equipmentManager.title')}</h2>
             </div>
-          )}
+          }
           newItemLabel={t('equipmentManager.newEquipment')}
           activeItemId={drawerOpen ? (selectedId ?? null) : null}
           loading={loading}
@@ -525,7 +534,9 @@ export function EquipmentManagerPanel() {
                   className="w-full rounded bg-muted px-2 py-1 text-xs"
                 >
                   {TYPE_OPTIONS.map((tp) => (
-                    <option key={tp} value={tp}>{t('equipmentManager.types.' + tp)}</option>
+                    <option key={tp} value={tp}>
+                      {t('equipmentManager.types.' + tp)}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -813,17 +824,24 @@ function SingleReferenceImage({
           </span>
           <div className="flex gap-1 overflow-x-auto">
             {mainRef.assetHash && (
-              <VariantThumb key={mainRef.assetHash} hash={mainRef.assetHash} isActive onDelete={onDeleteVariant ? () => onDeleteVariant(mainRef.assetHash!) : undefined} />
-            )}
-            {mainRef.variants.filter((v) => v !== mainRef.assetHash).map((variantHash) => (
               <VariantThumb
-                key={variantHash}
-                hash={variantHash}
-                isActive={false}
-                onClick={() => onSelectVariant?.(variantHash)}
-                onDelete={onDeleteVariant ? () => onDeleteVariant(variantHash) : undefined}
+                key={mainRef.assetHash}
+                hash={mainRef.assetHash}
+                isActive
+                onDelete={onDeleteVariant ? () => onDeleteVariant(mainRef.assetHash!) : undefined}
               />
-            ))}
+            )}
+            {mainRef.variants
+              .filter((v) => v !== mainRef.assetHash)
+              .map((variantHash) => (
+                <VariantThumb
+                  key={variantHash}
+                  hash={variantHash}
+                  isActive={false}
+                  onClick={() => onSelectVariant?.(variantHash)}
+                  onDelete={onDeleteVariant ? () => onDeleteVariant(variantHash) : undefined}
+                />
+              ))}
           </div>
         </div>
       )}
@@ -861,7 +879,10 @@ function VariantThumb({
       {onDelete && (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
           className="absolute top-1 right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="Delete variant"
         >
@@ -875,9 +896,7 @@ function VariantThumb({
 function ListThumb({ hash }: { hash?: string }) {
   const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return <div className="h-full w-full bg-muted/50" />;
-  return (
-    <img src={url} alt="" className="h-full w-full object-contain" onError={markFailed} />
-  );
+  return <img src={url} alt="" className="h-full w-full object-contain" onError={markFailed} />;
 }
 
 function AssetPickerDialog({

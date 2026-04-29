@@ -10,8 +10,11 @@ function complete(adapter: GeminiLLMAdapter, messages: LLMMessage[], opts?: LLMR
 
 describe('GeminiLLMAdapter', () => {
   it('uses Gemini defaults and validates against the configured API root', async () => {
-    const fetchMock = vi.fn(async (input: string | URL) => {
-      expect(String(input)).toBe('https://gemini.example/v1beta/models?key=sk-gemini');
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://gemini.example/v1beta/models');
+      expect((init?.headers as Record<string, string> | undefined)?.['x-goog-api-key']).toBe(
+        'sk-gemini',
+      );
       return new Response(JSON.stringify({ models: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -41,7 +44,10 @@ describe('GeminiLLMAdapter', () => {
   it('builds Gemini request bodies and parses text plus function calls', async () => {
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://gemini.example/v1beta/models/gemini-2.5-pro:generateContent?key=sk-gemini',
+        'https://gemini.example/v1beta/models/gemini-2.5-pro:generateContent',
+      );
+      expect((init?.headers as Record<string, string> | undefined)?.['x-goog-api-key']).toBe(
+        'sk-gemini',
       );
 
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
@@ -118,7 +124,8 @@ describe('GeminiLLMAdapter', () => {
       adapter.configure('sk-gemini');
 
       await expect(
-        complete(adapter,
+        complete(
+          adapter,
           [
             { role: 'system', content: 'system rule' },
             { role: 'user', content: 'hello' },

@@ -9,6 +9,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { oneShotStream } from './one-shot-stream.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 type CohereAdapterConfig = {
   id?: string;
@@ -42,14 +43,17 @@ export class CohereLLMAdapter implements LLMAdapter {
       providerId: this.id,
       charsPerToken: 4.0,
       sanitizeToolNames: false,
-      maxUtilization: 0.90,
+      maxUtilization: 0.9,
       outputReserveTokens: 4096,
     };
   }
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.model) this.model = options.model as string;
   }
 
@@ -65,7 +69,8 @@ export class CohereLLMAdapter implements LLMAdapter {
         }),
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -103,7 +108,10 @@ export class CohereLLMAdapter implements LLMAdapter {
     const data = (await res.json()) as {
       message?: {
         content?: Array<{ text?: string }>;
-        tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }>;
+        tool_calls?: Array<{
+          id?: string;
+          function?: { name?: string; arguments?: string | Record<string, unknown> };
+        }>;
       };
       finish_reason?: string;
     };
@@ -114,15 +122,11 @@ export class CohereLLMAdapter implements LLMAdapter {
       arguments:
         typeof toolCall.function?.arguments === 'string'
           ? JSON.parse(toolCall.function.arguments)
-          : toolCall.function?.arguments ?? {},
+          : (toolCall.function?.arguments ?? {}),
     }));
 
     const finishReason: 'tool_calls' | 'length' | 'stop' =
-      toolCalls.length > 0
-        ? 'tool_calls'
-        : data.finish_reason === 'MAX_TOKENS'
-          ? 'length'
-          : 'stop';
+      toolCalls.length > 0 ? 'tool_calls' : data.finish_reason === 'MAX_TOKENS' ? 'length' : 'stop';
 
     return oneShotStream({
       content: data.message?.content?.map((entry) => entry.text ?? '').join('') ?? '',

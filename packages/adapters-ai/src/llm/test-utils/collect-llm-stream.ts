@@ -53,7 +53,11 @@ export async function collectLLMStream(
           existing.arguments = event.arguments;
         } else {
           toolOrder.push(event.id);
-          toolCallsById.set(event.id, { id: event.id, name: event.name, arguments: event.arguments });
+          toolCallsById.set(event.id, {
+            id: event.id,
+            name: event.name,
+            arguments: event.arguments,
+          });
         }
         break;
       }

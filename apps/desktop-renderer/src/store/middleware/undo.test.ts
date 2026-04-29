@@ -2,13 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 // We need to test the middleware in isolation
 // Import directly to test the module's exported functions
-import {
-  undoMiddleware,
-  canUndo,
-  canRedo,
-  getUndoLabel,
-  getUndoStackSize,
-} from './undo.js';
+import { undoMiddleware, canUndo, canRedo, getUndoLabel, getUndoStackSize } from './undo.js';
 import type { CanvasSliceState } from '../slices/canvas.js';
 import { canvasAdapter } from '../slices/canvas.js';
 
@@ -123,7 +117,7 @@ describe('undoMiddleware', () => {
       middleware({
         type: 'canvas/moveNode',
         payload: { id: 'node-1', position: { x: 100, y: 200 } },
-      })
+      }),
     ).not.toThrow();
   });
 });

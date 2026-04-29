@@ -160,9 +160,10 @@ export class AssetRepository {
 
   setFolder(hash: AssetHash, folderId: string | null, tx?: Tx): void {
     const d = tx ?? this.db;
-    d.prepare(
-      `UPDATE ${AT} SET ${AC.folderId.sqlName} = ? WHERE ${AC.hash.sqlName} = ?`,
-    ).run(folderId, hash);
+    d.prepare(`UPDATE ${AT} SET ${AC.folderId.sqlName} = ? WHERE ${AC.hash.sqlName} = ?`).run(
+      folderId,
+      hash,
+    );
   }
 
   query(
@@ -192,24 +193,25 @@ export class AssetRepository {
     return parseAssetRows(rows);
   }
 
-  /**
-   * FTS search — `query` must already be a valid FTS5 match expression
-   * (single-quoted tokens, `AND/OR/NOT` operators, etc). Mirrors the
-   * legacy `searchAssets` contract: result list is **not** degraded-soft
-   * because FTS join rows are trusted.
-   */
+  /** FTS search — strips FTS5 operators from `query` to prevent injection. Returns `[]` on empty/malformed input. */
   search(query: string, limit = 50, tx?: Tx): ListResult<AssetMeta> {
+    const sanitized = query.replace(/["*(){}^\-:]/g, ' ').trim();
+    if (!sanitized) return { rows: [], degradedCount: 0 };
     const d = tx ?? this.db;
-    const rows = d
-      .prepare(
-        `SELECT ${ASSET_SELECT_COLS_PREFIXED_A}
-         FROM ${AT} a
-         JOIN assets_fts f ON a.rowid = f.rowid
-         WHERE assets_fts MATCH ?
-         LIMIT ?`,
-      )
-      .all(query, limit) as RawAssetRow[];
-    return parseAssetRows(rows);
+    try {
+      const rows = d
+        .prepare(
+          `SELECT ${ASSET_SELECT_COLS_PREFIXED_A}
+           FROM ${AT} a
+           JOIN assets_fts f ON a.rowid = f.rowid
+           WHERE assets_fts MATCH ?
+           LIMIT ?`,
+        )
+        .all(sanitized, limit) as RawAssetRow[];
+      return parseAssetRows(rows);
+    } catch {
+      return { rows: [], degradedCount: 0 };
+    }
   }
 
   // ── Embeddings ─────────────────────────────────────────────────
@@ -285,9 +287,7 @@ export class AssetRepository {
 
   getAllEmbeddedHashes(tx?: Tx): AssetHash[] {
     const d = tx ?? this.db;
-    const rows = d
-      .prepare(`SELECT ${EC.hash.sqlName} FROM ${ET}`)
-      .all() as Array<{ hash: string }>;
+    const rows = d.prepare(`SELECT ${EC.hash.sqlName} FROM ${ET}`).all() as Array<{ hash: string }>;
     return rows.map((r) => r.hash as AssetHash);
   }
 
@@ -336,12 +336,9 @@ function parseAssetRows(rows: RawAssetRow[]): ListResult<AssetMeta> {
   const SENTINEL = Symbol('degraded');
   for (const row of rows) {
     const candidate = rowToAssetMeta(row);
-    const parsed = parseOrDegrade(
-      AssetMetaSchema,
-      candidate,
-      SENTINEL as unknown as AssetMeta,
-      { ctx: { name: 'AssetMeta' } },
-    );
+    const parsed = parseOrDegrade(AssetMetaSchema, candidate, SENTINEL as unknown as AssetMeta, {
+      ctx: { name: 'AssetMeta' },
+    });
     if ((parsed as unknown) === SENTINEL) {
       degradedCount += 1;
       continue;

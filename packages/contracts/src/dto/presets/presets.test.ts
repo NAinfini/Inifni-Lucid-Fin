@@ -1,27 +1,27 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from 'vitest';
 import {
   BUILT_IN_PRESET_LIBRARY,
   BUILT_IN_SHOT_TEMPLATES,
   PRESET_CATEGORIES,
   createEmptyPresetTrackSet,
-} from "./index.js";
+} from './index.js';
 
-describe("presets DTO", () => {
-  it("exports all preset categories in a stable order", () => {
+describe('presets DTO', () => {
+  it('exports all preset categories in a stable order', () => {
     expect(PRESET_CATEGORIES).toEqual([
-      "camera",
-      "lens",
-      "look",
-      "scene",
-      "composition",
-      "emotion",
-      "flow",
-      "technical",
+      'camera',
+      'lens',
+      'look',
+      'scene',
+      'composition',
+      'emotion',
+      'flow',
+      'technical',
     ]);
     expect(new Set(PRESET_CATEGORIES).size).toBe(PRESET_CATEGORIES.length);
   });
 
-  it("creates an empty preset track set with per-category defaults", () => {
+  it('creates an empty preset track set with per-category defaults', () => {
     const trackSet = createEmptyPresetTrackSet();
 
     expect(Object.keys(trackSet)).toEqual(PRESET_CATEGORIES);
@@ -34,7 +34,7 @@ describe("presets DTO", () => {
     }
   });
 
-  it("returns fresh track objects and arrays on each factory call", () => {
+  it('returns fresh track objects and arrays on each factory call', () => {
     const first = createEmptyPresetTrackSet();
     const second = createEmptyPresetTrackSet();
 
@@ -43,9 +43,9 @@ describe("presets DTO", () => {
     expect(first.camera.entries).not.toBe(second.camera.entries);
 
     first.camera.entries.push({
-      id: "entry-1",
-      category: "camera",
-      presetId: "builtin-camera-zoom-in",
+      id: 'entry-1',
+      category: 'camera',
+      presetId: 'builtin-camera-zoom-in',
       params: {},
       order: 0,
     });
@@ -53,7 +53,7 @@ describe("presets DTO", () => {
     expect(second.camera.entries).toEqual([]);
   });
 
-  it("builds a complete built-in preset library with unique ids", () => {
+  it('builds a complete built-in preset library with unique ids', () => {
     expect(BUILT_IN_PRESET_LIBRARY).toHaveLength(186);
 
     const ids = BUILT_IN_PRESET_LIBRARY.map((preset) => preset.id);
@@ -73,30 +73,30 @@ describe("presets DTO", () => {
     }
   });
 
-  it("applies technical aspect-ratio defaults for built-in technical presets", () => {
+  it('applies technical aspect-ratio defaults for built-in technical presets', () => {
     const verticalPreset = BUILT_IN_PRESET_LIBRARY.find(
-      (preset) => preset.id === "builtin-technical-vertical-mobile-916",
+      (preset) => preset.id === 'builtin-technical-vertical-mobile-916',
     );
     const scopePreset = BUILT_IN_PRESET_LIBRARY.find(
-      (preset) => preset.id === "builtin-technical-cinematic-scope-239",
+      (preset) => preset.id === 'builtin-technical-cinematic-scope-239',
     );
 
     expect(verticalPreset).toMatchObject({
-      category: "technical",
-      prompt: "9:16 vertical portrait framing, mobile-first social media composition",
+      category: 'technical',
+      prompt: '9:16 vertical portrait framing, mobile-first social media composition',
       defaults: {
-        ratio: "9:16",
-        quality: "medium",
+        ratio: '9:16',
+        quality: 'medium',
         steps: 20,
         cfg: 7,
         intensity: 100,
       },
     });
     expect(scopePreset).toMatchObject({
-      category: "technical",
+      category: 'technical',
       defaults: {
-        ratio: "2.39:1",
-        quality: "medium",
+        ratio: '2.39:1',
+        quality: 'medium',
         steps: 20,
         cfg: 7,
         intensity: 100,
@@ -104,39 +104,39 @@ describe("presets DTO", () => {
     });
   });
 
-  it("derives preset descriptions and parameter definitions for representative presets", () => {
+  it('derives preset descriptions and parameter definitions for representative presets', () => {
     const zoomInPreset = BUILT_IN_PRESET_LIBRARY.find(
-      (preset) => preset.id === "builtin-camera-zoom-in",
+      (preset) => preset.id === 'builtin-camera-zoom-in',
     );
     const wesAndersonPreset = BUILT_IN_PRESET_LIBRARY.find(
-      (preset) => preset.id === "builtin-look-wes-anderson-pastel",
+      (preset) => preset.id === 'builtin-look-wes-anderson-pastel',
     );
 
     expect(zoomInPreset).toMatchObject({
-      description: "Zoom In preset for camera control with production-ready defaults.",
+      description: 'Zoom In preset for camera control with production-ready defaults.',
       defaults: {
-        speed: "medium",
+        speed: 'medium',
         intensity: 100,
         amplitude: 40,
       },
     });
     expect(zoomInPreset?.params.map((param) => param.key)).toEqual([
-      "speed",
-      "intensity",
-      "amplitude",
+      'speed',
+      'intensity',
+      'amplitude',
     ]);
 
-    expect(wesAndersonPreset?.prompt).toContain("pastel warm yellows and pinks");
+    expect(wesAndersonPreset?.prompt).toContain('pastel warm yellows and pinks');
     expect(wesAndersonPreset?.params.map((param) => param.key)).toEqual([
-      "stylization",
-      "saturation",
-      "temperature",
-      "detail",
-      "intensity",
+      'stylization',
+      'saturation',
+      'temperature',
+      'detail',
+      'intensity',
     ]);
   });
 
-  it("exports built-in shot templates that resolve to library presets", () => {
+  it('exports built-in shot templates that resolve to library presets', () => {
     expect(BUILT_IN_SHOT_TEMPLATES.length).toBeGreaterThan(0);
 
     const presetIds = new Set(BUILT_IN_PRESET_LIBRARY.map((preset) => preset.id));
@@ -151,7 +151,7 @@ describe("presets DTO", () => {
         expect(track?.category).toBe(category);
         expect(track?.entries).toHaveLength(1);
         expect(track?.entries[0]).toMatchObject({
-          id: `tmpl-${category}-${track?.entries[0].presetId.replace(`builtin-${category}-`, "")}`,
+          id: `tmpl-${category}-${track?.entries[0].presetId.replace(`builtin-${category}-`, '')}`,
           category,
           params: {},
           order: 0,

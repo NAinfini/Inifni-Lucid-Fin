@@ -120,7 +120,10 @@ const WORKFLOW_HINTS: ReadonlyArray<{ match: RegExp; workflow: string }> = [
   { match: /\bcontinuity\b/i, workflow: 'continuity-check' },
   { match: /\b(audio|voice|lip[\s-]*sync)\b/i, workflow: 'audio-production' },
   { match: /\b(image|photo)[\s-]*analyz(e|is)\b/i, workflow: 'image-analyze' },
-  { match: /\banalyz(e|ing) (the |this |these |an? )?(image|photo|images|photos|frame)/i, workflow: 'image-analyze' },
+  {
+    match: /\banalyz(e|ing) (the |this |these |an? )?(image|photo|images|photos|frame)/i,
+    workflow: 'image-analyze',
+  },
   // zh-CN workflow aliases.
   { match: /(剧本|故事).*?(到|生成|转).*?视频/, workflow: 'story-to-video' },
   { match: /(镜头列表|分镜列表|分镜表)/, workflow: 'shot-list' },

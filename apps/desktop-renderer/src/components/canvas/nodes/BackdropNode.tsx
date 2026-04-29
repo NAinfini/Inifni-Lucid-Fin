@@ -98,17 +98,29 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
           isVisible={selected && !collapsed}
           className="!h-3 !w-3 !border-background !bg-primary"
         />
-        <div className={cn('flex h-full flex-col', collapsed ? 'justify-center px-3 py-1' : 'justify-between p-4')}>
+        <div
+          className={cn(
+            'flex h-full flex-col',
+            collapsed ? 'justify-center px-3 py-1' : 'justify-between p-4',
+          )}
+        >
           <div className="flex items-center gap-2 text-foreground/90">
             <button
               type="button"
               className="nodrag inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-foreground/80 transition-colors hover:bg-muted/50 hover:text-foreground"
               aria-label={collapsed ? t('node.expandBackdrop') : t('node.collapseBackdrop')}
-              onClick={(e) => { e.stopPropagation(); if (!d.locked) cb.onToggleCollapse(d.nodeId); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!d.locked) cb.onToggleCollapse(d.nodeId);
+              }}
               onContextMenu={(e) => e.preventDefault()}
               disabled={d.locked}
             >
-              {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {collapsed ? (
+                <ChevronRight className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
             </button>
             <LayoutTemplate className="h-4 w-4 shrink-0" />
             {editing ? (

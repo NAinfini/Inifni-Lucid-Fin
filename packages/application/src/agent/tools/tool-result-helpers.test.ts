@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { ok, fail, requireString, requireNumber, requireStringArray, requireText, requireBoolean, extractSet, warnExtraKeys, formatValidationError } from './tool-result-helpers.js';
+import {
+  ok,
+  fail,
+  requireString,
+  requireNumber,
+  requireStringArray,
+  requireText,
+  requireBoolean,
+  extractSet,
+  warnExtraKeys,
+  formatValidationError,
+} from './tool-result-helpers.js';
 
 describe('tool-result-helpers', () => {
   describe('ok', () => {
@@ -58,7 +69,9 @@ describe('tool-result-helpers', () => {
       expect(() => requireNumber({ count: NaN }, 'count')).toThrow('count must be a finite number');
     });
     it('throws on Infinity', () => {
-      expect(() => requireNumber({ count: Infinity }, 'count')).toThrow('count must be a finite number');
+      expect(() => requireNumber({ count: Infinity }, 'count')).toThrow(
+        'count must be a finite number',
+      );
     });
     it('throws on string', () => {
       expect(() => requireNumber({ count: '5' }, 'count')).toThrow('count must be a finite number');
@@ -76,10 +89,14 @@ describe('tool-result-helpers', () => {
       expect(() => requireStringArray({ ids: [] }, 'ids')).toThrow('ids must be a non-empty array');
     });
     it('throws on non-array', () => {
-      expect(() => requireStringArray({ ids: 'not-array' }, 'ids')).toThrow('ids must be a non-empty array');
+      expect(() => requireStringArray({ ids: 'not-array' }, 'ids')).toThrow(
+        'ids must be a non-empty array',
+      );
     });
     it('throws on empty string element', () => {
-      expect(() => requireStringArray({ ids: ['a', ''] }, 'ids')).toThrow('ids[1] must be a non-empty string');
+      expect(() => requireStringArray({ ids: ['a', ''] }, 'ids')).toThrow(
+        'ids[1] must be a non-empty string',
+      );
     });
   });
 
@@ -109,8 +126,10 @@ describe('tool-result-helpers', () => {
 
   describe('extractSet', () => {
     it('returns the set object when present and non-empty', () => {
-      expect(extractSet({ canvasId: 'c1', set: { prompt: 'hello', width: 100 } }))
-        .toEqual({ prompt: 'hello', width: 100 });
+      expect(extractSet({ canvasId: 'c1', set: { prompt: 'hello', width: 100 } })).toEqual({
+        prompt: 'hello',
+        width: 100,
+      });
     });
 
     it('throws when set is missing', () => {
@@ -130,12 +149,17 @@ describe('tool-result-helpers', () => {
     });
 
     it('throws when set is empty', () => {
-      expect(() => extractSet({ canvasId: 'c1', set: {} })).toThrow('"set" must contain at least one field');
+      expect(() => extractSet({ canvasId: 'c1', set: {} })).toThrow(
+        '"set" must contain at least one field',
+      );
     });
 
     it('preserves empty string and zero values inside set', () => {
-      expect(extractSet({ set: { prompt: '', seed: 0, locked: false } }))
-        .toEqual({ prompt: '', seed: 0, locked: false });
+      expect(extractSet({ set: { prompt: '', seed: 0, locked: false } })).toEqual({
+        prompt: '',
+        seed: 0,
+        locked: false,
+      });
     });
 
     it('returns set with a single field', () => {
@@ -154,15 +178,23 @@ describe('tool-result-helpers', () => {
     });
 
     it('ignores structural keys', () => {
-      expect(warnExtraKeys({ canvasId: 'c1', nodeId: 'n1', nodeIds: ['a'], id: 'x', set: { p: 1 } }))
-        .toEqual([]);
+      expect(
+        warnExtraKeys({ canvasId: 'c1', nodeId: 'n1', nodeIds: ['a'], id: 'x', set: { p: 1 } }),
+      ).toEqual([]);
     });
   });
 
   describe('formatValidationError (04-19 fake-user-study fix)', () => {
     it('emits the canonical "<tool>: <param> <constraint>. You called it with: <args>." shape', () => {
-      const msg = formatValidationError('workflow.expandIdea', 'prompt', 'is required and must be a non-empty string', {});
-      expect(msg).toBe('workflow.expandIdea: "prompt" is required and must be a non-empty string. You called it with: {}.');
+      const msg = formatValidationError(
+        'workflow.expandIdea',
+        'prompt',
+        'is required and must be a non-empty string',
+        {},
+      );
+      expect(msg).toBe(
+        'workflow.expandIdea: "prompt" is required and must be a non-empty string. You called it with: {}.',
+      );
     });
 
     it('appends the alternative-tool pointer when provided', () => {
@@ -175,7 +207,9 @@ describe('tool-result-helpers', () => {
       );
       expect(msg).toContain('canvas.batchCreate: "nodes" must be a non-empty array');
       expect(msg).toContain('You called it with: {"edges":[]}');
-      expect(msg).toContain('If you only want to connect existing nodes, call canvas.connectNodes.');
+      expect(msg).toContain(
+        'If you only want to connect existing nodes, call canvas.connectNodes.',
+      );
     });
 
     it('truncates args JSON at 400 chars to keep the error short', () => {

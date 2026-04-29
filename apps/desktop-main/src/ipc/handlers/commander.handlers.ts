@@ -11,7 +11,12 @@
 import type { BrowserWindow, IpcMain } from 'electron';
 import log from '../../logger.js';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
-import { runningSessions, setLastToolRegistry, touchSession, type RunningCommanderSession } from './commander-registry.js';
+import {
+  runningSessions,
+  setLastToolRegistry,
+  touchSession,
+  type RunningCommanderSession,
+} from './commander-registry.js';
 import { registerCommanderMetaHandlers } from './commander-meta.handlers.js';
 import {
   AgentOrchestrator,
@@ -38,7 +43,11 @@ import type {
   Location,
   Equipment,
 } from '@lucid-fin/contracts';
-import { DEFAULT_PROVIDER_PROFILE, COMMANDER_WIRE_VERSION, deriveNodeStatus } from '@lucid-fin/contracts';
+import {
+  DEFAULT_PROVIDER_PROFILE,
+  COMMANDER_WIRE_VERSION,
+  deriveNodeStatus,
+} from '@lucid-fin/contracts';
 import { matchNode } from '@lucid-fin/shared-utils';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
@@ -150,18 +159,28 @@ function summarizeSelectedNode(node: CanvasNode, _db: SqliteIndex): Record<strin
   function addMediaFields(): Record<string, unknown> {
     const mediaData = node.data as ImageNodeData | VideoNodeData;
     const prompt = normalizeOptionalString((mediaData as { prompt?: unknown }).prompt);
-    const negativePrompt = normalizeOptionalString((mediaData as { negativePrompt?: unknown }).negativePrompt);
+    const negativePrompt = normalizeOptionalString(
+      (mediaData as { negativePrompt?: unknown }).negativePrompt,
+    );
     const providerId = normalizeOptionalString((mediaData as { providerId?: unknown }).providerId);
-    const sourceImageHash = normalizeOptionalString((mediaData as { sourceImageHash?: unknown }).sourceImageHash);
+    const sourceImageHash = normalizeOptionalString(
+      (mediaData as { sourceImageHash?: unknown }).sourceImageHash,
+    );
 
     if (prompt) summary.hasPrompt = true;
     if (negativePrompt) summary.hasNegativePrompt = true;
     if (providerId) summary.providerId = providerId;
     if (sourceImageHash) summary.sourceImageHash = sourceImageHash;
 
-    const characterRefIds = summarizeCharacterRefIds((mediaData as { characterRefs?: unknown }).characterRefs);
-    const locationRefIds = summarizeLocationRefIds((mediaData as { locationRefs?: unknown }).locationRefs);
-    const equipmentRefIds = summarizeEquipmentRefIds((mediaData as { equipmentRefs?: unknown }).equipmentRefs);
+    const characterRefIds = summarizeCharacterRefIds(
+      (mediaData as { characterRefs?: unknown }).characterRefs,
+    );
+    const locationRefIds = summarizeLocationRefIds(
+      (mediaData as { locationRefs?: unknown }).locationRefs,
+    );
+    const equipmentRefIds = summarizeEquipmentRefIds(
+      (mediaData as { equipmentRefs?: unknown }).equipmentRefs,
+    );
     if (characterRefIds) summary.characterRefIds = characterRefIds;
     if (locationRefIds) summary.locationRefIds = locationRefIds;
     if (equipmentRefIds) summary.equipmentRefIds = equipmentRefIds;
@@ -181,10 +200,7 @@ function summarizeSelectedNode(node: CanvasNode, _db: SqliteIndex): Record<strin
  * orchestrator. That means message-text intent detection is NOT done here
  * and works identically across languages (Chinese, English, anything).
  */
-function detectInitialProcessPrompts(
-  canvas: Canvas,
-  selectedNodeIds: string[],
-): string[] {
+function detectInitialProcessPrompts(canvas: Canvas, selectedNodeIds: string[]): string[] {
   const prompts = new Set<string>();
   const nodeMap = new Map(canvas.nodes.map((node) => [node.id, node]));
   const selectedNodes = selectedNodeIds
@@ -193,11 +209,17 @@ function detectInitialProcessPrompts(
 
   for (const node of selectedNodes) {
     matchNode(node.type, {
-      image:    () => { prompts.add('image-node-generation'); },
-      backdrop: () => { prompts.add('image-node-generation'); },
-      video:    () => { prompts.add('video-node-generation'); },
-      audio:    () => {},
-      text:     () => {},
+      image: () => {
+        prompts.add('image-node-generation');
+      },
+      backdrop: () => {
+        prompts.add('image-node-generation');
+      },
+      video: () => {
+        prompts.add('video-node-generation');
+      },
+      audio: () => {},
+      text: () => {},
     });
   }
 
@@ -294,13 +316,19 @@ export function buildWorkspaceSnapshot(
     }
     if (settings.aspectRatio) lines.push(`Aspect ratio: ${settings.aspectRatio}`);
     if (settings.refResolution) {
-      lines.push(`Ref resolution: ${settings.refResolution.width}x${settings.refResolution.height}`);
+      lines.push(
+        `Ref resolution: ${settings.refResolution.width}x${settings.refResolution.height}`,
+      );
     }
     if (settings.publishImageResolution) {
-      lines.push(`Publish image res: ${settings.publishImageResolution.width}x${settings.publishImageResolution.height}`);
+      lines.push(
+        `Publish image res: ${settings.publishImageResolution.width}x${settings.publishImageResolution.height}`,
+      );
     }
     if (settings.publishVideoResolution) {
-      lines.push(`Publish video res: ${settings.publishVideoResolution.width}x${settings.publishVideoResolution.height}`);
+      lines.push(
+        `Publish video res: ${settings.publishVideoResolution.width}x${settings.publishVideoResolution.height}`,
+      );
     }
     const providerParts: string[] = [];
     if (settings.imageProviderId) providerParts.push(`image:${settings.imageProviderId}`);
@@ -323,7 +351,9 @@ export function buildWorkspaceSnapshot(
         lines.push(`  ${c.name} [${c.role}] ${ref}${desc}`);
       }
     }
-  } catch { /* entity query failed — omit section */ }
+  } catch {
+    /* entity query failed — omit section */
+  }
 
   // --- Locations ---
   try {
@@ -338,7 +368,9 @@ export function buildWorkspaceSnapshot(
         lines.push(`  ${l.name}${typeStr} ${ref}${desc}`);
       }
     }
-  } catch { /* entity query failed — omit section */ }
+  } catch {
+    /* entity query failed — omit section */
+  }
 
   // --- Equipment ---
   try {
@@ -352,7 +384,9 @@ export function buildWorkspaceSnapshot(
         lines.push(`  ${e.name} [${e.type}] ${ref}${desc}`);
       }
     }
-  } catch { /* entity query failed — omit section */ }
+  } catch {
+    /* entity query failed — omit section */
+  }
 
   // --- Edges (graph flow) ---
   if (canvas.edges.length > 0) {
@@ -379,22 +413,39 @@ export function buildWorkspaceSnapshot(
       lines.push('');
       lines.push(`Selected nodes (${selected.length}):`);
       for (const node of selected.slice(0, MAX_CONTEXT_SELECTED_NODES)) {
-        const parts: string[] = [`  ${node.title || node.id} [${node.type}] status:${deriveNodeStatus(node)}`];
+        const parts: string[] = [
+          `  ${node.title || node.id} [${node.type}] status:${deriveNodeStatus(node)}`,
+        ];
         const data = node.data as Record<string, unknown>;
         if (typeof data.prompt === 'string' && data.prompt.trim().length > 0) {
           parts.push(`    prompt: ${truncSnap(data.prompt.trim(), 200)}`);
         }
         const charRefs = data.characterRefs as Array<{ characterId?: string }> | undefined;
         if (Array.isArray(charRefs) && charRefs.length > 0) {
-          parts.push(`    characterRefs: ${charRefs.map((r) => r.characterId).filter(Boolean).join(', ')}`);
+          parts.push(
+            `    characterRefs: ${charRefs
+              .map((r) => r.characterId)
+              .filter(Boolean)
+              .join(', ')}`,
+          );
         }
         const locRefs = data.locationRefs as Array<{ locationId?: string }> | undefined;
         if (Array.isArray(locRefs) && locRefs.length > 0) {
-          parts.push(`    locationRefs: ${locRefs.map((r) => r.locationId).filter(Boolean).join(', ')}`);
+          parts.push(
+            `    locationRefs: ${locRefs
+              .map((r) => r.locationId)
+              .filter(Boolean)
+              .join(', ')}`,
+          );
         }
         const equipRefs = data.equipmentRefs as Array<{ equipmentId?: string }> | undefined;
         if (Array.isArray(equipRefs) && equipRefs.length > 0) {
-          parts.push(`    equipmentRefs: ${equipRefs.map((r) => r.equipmentId).filter(Boolean).join(', ')}`);
+          parts.push(
+            `    equipmentRefs: ${equipRefs
+              .map((r) => r.equipmentId)
+              .filter(Boolean)
+              .join(', ')}`,
+          );
         }
         lines.push(parts.join('\n'));
       }
@@ -517,7 +568,9 @@ function buildMasterIndex(
   }
   if (processLines.length > 0) {
     sections.push('');
-    sections.push(`### Process Prompts (${processLines.length}) — auto-injected on matching tool calls`);
+    sections.push(
+      `### Process Prompts (${processLines.length}) — auto-injected on matching tool calls`,
+    );
     sections.push(...processLines);
   }
   return sections.join('\n');
@@ -532,7 +585,11 @@ async function selectConfiguredAdapter(
   keychain: import('@lucid-fin/storage').Keychain,
   customProvider?: LLMProviderRuntimeConfig,
 ) {
-  const logAttempt = (level: 'info' | 'warn' | 'error', message: string, detail: Record<string, unknown>) => {
+  const logAttempt = (
+    level: 'info' | 'warn' | 'error',
+    message: string,
+    detail: Record<string, unknown>,
+  ) => {
     log[level](message, { category: 'provider', ...detail });
   };
 
@@ -655,6 +712,20 @@ export function registerCommanderHandlers(
         throw new Error('selectedNodeIds must be an array');
       }
       validateHistoryEntries(args.history);
+
+      const MAX_STEPS = 50;
+      const MAX_TOKENS = 200_000;
+      const MAX_HISTORY = 200;
+      if (typeof args.maxSteps === 'number' && args.maxSteps > MAX_STEPS) {
+        throw new Error(`maxSteps exceeds limit (${MAX_STEPS})`);
+      }
+      if (typeof args.maxTokens === 'number' && args.maxTokens > MAX_TOKENS) {
+        throw new Error(`maxTokens exceeds limit (${MAX_TOKENS})`);
+      }
+      if (args.history.length > MAX_HISTORY) {
+        throw new Error(`history length exceeds limit (${MAX_HISTORY})`);
+      }
+
       if (runningSessions.has(args.canvasId)) {
         throw new Error('Commander already has an active session for this canvas');
       }
@@ -682,11 +753,19 @@ export function registerCommanderHandlers(
           permissionMode: args.permissionMode ?? 'normal',
         });
 
-        const llmAdapter = await selectConfiguredAdapter(deps.llmRegistry, deps.keychain, args.customLLMProvider);
+        const llmAdapter = await selectConfiguredAdapter(
+          deps.llmRegistry,
+          deps.keychain,
+          args.customLLMProvider,
+        );
 
         // Build tool registry
         const registry = new AgentToolRegistry();
-        const compactRef: { compact?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }> } = {};
+        const compactRef: {
+          compact?: (
+            instructions?: string,
+          ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+        } = {};
         const toolDeps: ToolRegistrationDeps = {
           adapterRegistry: deps.adapterRegistry,
           llmRegistry: deps.llmRegistry,
@@ -730,8 +809,14 @@ export function registerCommanderHandlers(
           },
         });
         orchestrator = orchestratorInstance;
-        compactRef.compact = (instructions?: string) => orchestratorInstance.compactNow(instructions);
-        session = { aborted: false, canvasId: args.canvasId, orchestrator: orchestratorInstance, lastActivity: Date.now() };
+        compactRef.compact = (instructions?: string) =>
+          orchestratorInstance.compactNow(instructions);
+        session = {
+          aborted: false,
+          canvasId: args.canvasId,
+          orchestrator: orchestratorInstance,
+          lastActivity: Date.now(),
+        };
         runningSessions.set(args.canvasId, session);
 
         // G2-5: rehydrate ContextGraph from storage. Seeds graph-only items
@@ -912,9 +997,7 @@ export function registerCommanderHandlers(
       if (!args || typeof args.sessionId !== 'string' || !args.sessionId.trim()) {
         throw new Error('sessionId is required');
       }
-      const rows = deps.db.repos.commanderEvents.listBySession(
-        args.sessionId as SessionId,
-      );
+      const rows = deps.db.repos.commanderEvents.listBySession(args.sessionId as SessionId);
       const events: unknown[] = [];
       for (const row of rows) {
         try {

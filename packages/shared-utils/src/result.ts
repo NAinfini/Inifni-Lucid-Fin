@@ -8,9 +8,7 @@
  * is deliberately narrow and lives here so features can opt in per-callsite
  * rather than the whole codebase being forced into Rust-style error flow.
  */
-export type Result<T, E = Error> =
-  | { ok: true; value: T }
-  | { ok: false; error: E };
+export type Result<T, E = Error> = { ok: true; value: T } | { ok: false; error: E };
 
 export function ok<T>(value: T): Result<T, never> {
   return { ok: true, value };
@@ -33,16 +31,10 @@ export function isErr<T, E>(r: Result<T, E>): r is { ok: false; error: E } {
  * `Result::map`. Kept separate from `match` to avoid forcing callers to
  * provide both branches when they only care about the success path.
  */
-export function mapOk<T, U, E>(
-  r: Result<T, E>,
-  fn: (value: T) => U,
-): Result<U, E> {
+export function mapOk<T, U, E>(r: Result<T, E>, fn: (value: T) => U): Result<U, E> {
   return r.ok ? { ok: true, value: fn(r.value) } : r;
 }
 
-export function mapErr<T, E, F>(
-  r: Result<T, E>,
-  fn: (error: E) => F,
-): Result<T, F> {
+export function mapErr<T, E, F>(r: Result<T, E>, fn: (error: E) => F): Result<T, F> {
   return r.ok ? r : { ok: false, error: fn(r.error) };
 }

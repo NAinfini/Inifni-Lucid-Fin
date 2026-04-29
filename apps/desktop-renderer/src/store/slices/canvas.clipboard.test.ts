@@ -54,7 +54,10 @@ function setup() {
 describe('canvas clipboard', () => {
   it('copyNodes populates clipboard with selected nodes and internal edges only', () => {
     let state = setup();
-    state = canvasSlice.reducer(state, setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }));
+    state = canvasSlice.reducer(
+      state,
+      setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }),
+    );
     state = canvasSlice.reducer(state, copyNodes(undefined));
 
     expect(state.clipboard).not.toBeNull();
@@ -66,7 +69,10 @@ describe('canvas clipboard', () => {
 
   it('pasteNodes creates new nodes with new IDs and offset positions', () => {
     let state = setup();
-    state = canvasSlice.reducer(state, setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }));
+    state = canvasSlice.reducer(
+      state,
+      setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }),
+    );
     state = canvasSlice.reducer(state, copyNodes(undefined));
 
     const originalNodeIds = new Set(state.canvases.entities['canvas-1']!.nodes.map((n) => n.id));
@@ -103,15 +109,18 @@ describe('canvas clipboard', () => {
 
   it('pasteNodes updates selectedNodeIds to the pasted nodes', () => {
     let state = setup();
-    state = canvasSlice.reducer(state, setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }));
+    state = canvasSlice.reducer(
+      state,
+      setSelection({ nodeIds: ['node-1', 'node-2'], edgeIds: [] }),
+    );
     state = canvasSlice.reducer(state, copyNodes(undefined));
 
     const originalNodeIds = new Set(state.canvases.entities['canvas-1']!.nodes.map((n) => n.id));
     state = canvasSlice.reducer(state, pasteNodes({ offset: { x: 40, y: 40 } }));
 
-    const pastedNodeIds = state.canvases.entities['canvas-1']!.nodes
-      .filter((n) => !originalNodeIds.has(n.id))
-      .map((n) => n.id);
+    const pastedNodeIds = state.canvases.entities['canvas-1']!.nodes.filter(
+      (n) => !originalNodeIds.has(n.id),
+    ).map((n) => n.id);
 
     expect(state.selectedNodeIds).toEqual(pastedNodeIds);
   });

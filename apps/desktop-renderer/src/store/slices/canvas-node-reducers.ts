@@ -66,7 +66,10 @@ export function removeNodes(state: CanvasSliceState, action: PayloadAction<strin
 
 export function updateNode(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; changes: Partial<import('@lucid-fin/contracts').CanvasNode> }>,
+  action: PayloadAction<{
+    id: string;
+    changes: Partial<import('@lucid-fin/contracts').CanvasNode>;
+  }>,
 ): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
@@ -451,7 +454,10 @@ export function setVideoFrameAsset(
  */
 export function restoreNodes(
   state: CanvasSliceState,
-  action: PayloadAction<{ nodes: import('@lucid-fin/contracts').CanvasNode[]; edges: import('@lucid-fin/contracts').CanvasEdge[] }>,
+  action: PayloadAction<{
+    nodes: import('@lucid-fin/contracts').CanvasNode[];
+    edges: import('@lucid-fin/contracts').CanvasEdge[];
+  }>,
 ): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;

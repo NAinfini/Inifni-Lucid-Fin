@@ -25,8 +25,13 @@ const MAX_UNDO_MEMORY = 10 * 1024 * 1024;
 const DEFAULT_GROUP_WINDOW_MS = 300;
 
 /** Read settings from store, falling back to defaults if unavailable */
-function getUndoSettings(state: Record<string, unknown>): { maxStack: number; groupWindowMs: number } {
-  const commander = state.commander as { undoStackDepth?: number; undoGroupWindowMs?: number } | undefined;
+function getUndoSettings(state: Record<string, unknown>): {
+  maxStack: number;
+  groupWindowMs: number;
+} {
+  const commander = state.commander as
+    | { undoStackDepth?: number; undoGroupWindowMs?: number }
+    | undefined;
   return {
     maxStack: commander?.undoStackDepth ?? DEFAULT_MAX_STACK,
     groupWindowMs: commander?.undoGroupWindowMs ?? DEFAULT_GROUP_WINDOW_MS,
@@ -38,6 +43,9 @@ const redoStack: UndoCommand[] = [];
 
 /** Running total of approximate byte sizes across the undo stack */
 let undoStackBytes = 0;
+
+/** When true the middleware is replaying an inverse action — skip tracking */
+let isReplaying = false;
 
 function shouldTrack(type: string): boolean {
   return TRACKED_PREFIXES.some((p) => type.startsWith(p));
@@ -84,22 +92,44 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
       undoStackBytes -= entry.byteSize;
       if (undoStackBytes < 0) undoStackBytes = 0;
       redoStack.push(entry);
-      store.dispatch(entry.undo);
+      isReplaying = true;
+      try {
+        store.dispatch(entry.undo);
+      } finally {
+        isReplaying = false;
+      }
     }
     return;
   }
 
   if (typed.type === 'undo/redo') {
     const entry = redoStack.pop();
-    if (entry) {
+    if (!entry) return next(action);
+    isReplaying = true;
+    try {
+      const result = next(entry.execute);
       undoStack.push(entry);
       undoStackBytes += entry.byteSize;
-      return next(entry.execute);
+      return result;
+    } catch (err) {
+      redoStack.push(entry); // push back on failure
+      throw err;
+    } finally {
+      isReplaying = false;
     }
-    return;
   }
 
-  if (shouldTrack(typed.type)) {
+  // Clear undo/redo stacks when the active canvas changes
+  if (typed.type === 'canvas/setActiveCanvas') {
+    clearStacks();
+    return next(action);
+  }
+
+  if (isReplaying || !shouldTrack(typed.type)) {
+    return next(action);
+  }
+
+  {
     const sliceName = typed.type.split('/')[0];
     const currentState = store.getState() as Record<string, unknown>;
     const prevSliceState = currentState[sliceName];
@@ -114,9 +144,10 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
       prevSliceState as Record<string, unknown>,
     );
 
-    const undoAction: UnknownAction = inverseAction !== null
-      ? inverseAction
-      : ({ type: `${sliceName}/restore`, payload: prevSliceState } as UnknownAction);
+    const undoAction: UnknownAction =
+      inverseAction !== null
+        ? inverseAction
+        : ({ type: `${sliceName}/restore`, payload: prevSliceState } as UnknownAction);
 
     const byteSize = estimateActionBytes(undoAction);
 
@@ -166,6 +197,12 @@ export const undoMiddleware: Middleware = (store) => (next) => (action) => {
 
   return next(action);
 };
+
+export function clearStacks(): void {
+  undoStack.length = 0;
+  redoStack.length = 0;
+  undoStackBytes = 0;
+}
 
 export function canUndo(): boolean {
   return undoStack.length > 0;

@@ -8,9 +8,7 @@ interface ListThumbProps {
 export function ListThumb({ hash }: ListThumbProps) {
   const { url, markFailed } = useAssetUrl(hash, 'image', 'png');
   if (!url) return <div className="h-full w-full bg-muted/50" />;
-  return (
-    <img src={url} alt="" className="h-full w-full object-contain" onError={markFailed} />
-  );
+  return <img src={url} alt="" className="h-full w-full object-contain" onError={markFailed} />;
 }
 
 interface StructFieldProps {

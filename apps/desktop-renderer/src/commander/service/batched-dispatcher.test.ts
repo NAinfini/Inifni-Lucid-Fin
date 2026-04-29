@@ -129,7 +129,8 @@ describe('BatchedDispatcher', () => {
       vi.advanceTimersByTime(60);
       expect(flushes).toEqual([{ kind: 'text_delta', key: '', joined: 'hello' }]);
     } finally {
-      if (origRAF) (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = origRAF;
+      if (origRAF)
+        (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = origRAF;
       vi.useRealTimers();
     }
   });

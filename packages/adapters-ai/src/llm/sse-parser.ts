@@ -19,19 +19,32 @@ export async function* parseSseStream(response: Response): AsyncGenerator<unknow
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
-      try {
-        yield JSON.parse(line.slice(6));
-      } catch {
-        console.warn('[sse-parser] malformed JSON line:', line.slice(6, 206));
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+        try {
+          yield JSON.parse(line.slice(6));
+        } catch {
+          console.warn('[sse-parser] malformed JSON line (content redacted)');
+        }
       }
+    }
+  } finally {
+    try {
+      reader.cancel();
+    } catch {
+      /* best-effort */
+    }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* best-effort */
     }
   }
 }

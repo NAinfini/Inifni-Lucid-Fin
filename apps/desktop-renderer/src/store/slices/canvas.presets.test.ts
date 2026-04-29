@@ -135,7 +135,9 @@ describe('canvas preset tracks', () => {
       }),
     );
 
-    const template = BUILT_IN_SHOT_TEMPLATES.find((entry) => entry.id === 'builtin-tmpl-horror-suspense');
+    const template = BUILT_IN_SHOT_TEMPLATES.find(
+      (entry) => entry.id === 'builtin-tmpl-horror-suspense',
+    );
     if (!template) {
       throw new Error('Expected built-in shot template to exist');
     }
@@ -158,7 +160,9 @@ describe('canvas preset tracks', () => {
 
     expect(imageNode.data.appliedShotTemplateId).toBe(template.id);
     expect(imageNode.data.appliedShotTemplateName).toBe(template.name);
-    expect(imageNode.data.presetTracks.emotion.entries[0]?.presetId).toBe('builtin-emotion-ominous');
+    expect(imageNode.data.presetTracks.emotion.entries[0]?.presetId).toBe(
+      'builtin-emotion-ominous',
+    );
 
     state = canvasSlice.reducer(
       state,
@@ -175,7 +179,10 @@ describe('canvas preset tracks', () => {
       }),
     );
 
-    const nodeData = state.canvases.entities['canvas-1']?.nodes[0]?.data as unknown as Record<string, unknown>;
+    const nodeData = state.canvases.entities['canvas-1']?.nodes[0]?.data as unknown as Record<
+      string,
+      unknown
+    >;
 
     expect(nodeData.appliedShotTemplateId).toBeUndefined();
     expect(nodeData.appliedShotTemplateName).toBeUndefined();

@@ -21,9 +21,7 @@ describe('parseStrict', () => {
   });
 
   it('throws with schema name on failure', () => {
-    expect(() =>
-      parseStrict(nameSchema, { name: '' }, { name: 'Person' }),
-    ).toThrow(/Person/);
+    expect(() => parseStrict(nameSchema, { name: '' }, { name: 'Person' })).toThrow(/Person/);
   });
 });
 
@@ -51,12 +49,7 @@ describe('parseOrDegrade', () => {
 
   it('throws under throwOnDegrade=true for test harnesses', () => {
     expect(() =>
-      parseOrDegrade(
-        nameSchema,
-        { name: '' },
-        { name: 'fallback' },
-        { throwOnDegrade: true },
-      ),
+      parseOrDegrade(nameSchema, { name: '' }, { name: 'fallback' }, { throwOnDegrade: true }),
     ).toThrow(/strict-mode failure/);
   });
 });
@@ -75,20 +68,12 @@ describe('parsePartial', () => {
   });
 
   it('recovers a single bad field using defaults', () => {
-    const v = parsePartial(
-      schema,
-      { name: 'a', count: -1 },
-      { name: 'd', count: 0 },
-    );
+    const v = parsePartial(schema, { name: 'a', count: -1 }, { name: 'd', count: 0 });
     expect(v).toEqual({ name: 'a', count: 0 });
   });
 
   it('recovers multiple bad fields cumulatively', () => {
-    const v = parsePartial(
-      schema,
-      { name: '', count: -1 },
-      { name: 'd', count: 0 },
-    );
+    const v = parsePartial(schema, { name: '', count: -1 }, { name: 'd', count: 0 });
     expect(v).toEqual({ name: 'd', count: 0 });
   });
 
@@ -96,14 +81,13 @@ describe('parsePartial', () => {
     // The schema coerces name to uppercase via transform. parsePartial must
     // return the transform output, not the raw candidate object.
     const xformSchema = z.object({
-      name: z.string().min(1).transform((s) => s.toUpperCase()),
+      name: z
+        .string()
+        .min(1)
+        .transform((s) => s.toUpperCase()),
       count: z.number().int().nonnegative(),
     });
-    const v = parsePartial(
-      xformSchema,
-      { name: 'hello', count: -1 },
-      { name: 'd', count: 0 },
-    );
+    const v = parsePartial(xformSchema, { name: 'hello', count: -1 }, { name: 'd', count: 0 });
     // name is valid ('hello') → coerced to 'HELLO'; count was invalid → defaulted to 0
     expect(v).toEqual({ name: 'HELLO', count: 0 });
   });
@@ -119,7 +103,10 @@ describe('parsePartial', () => {
 type ProviderId = string & { readonly __brand: 'ProviderId' };
 
 describe('makeBrandParser / makeTryBrand', () => {
-  const raw = z.string().min(1).regex(/^[a-z0-9-]+$/);
+  const raw = z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/);
   const parseProviderId = makeBrandParser<ProviderId>(raw, 'ProviderId');
   const tryProviderId = makeTryBrand<ProviderId>(raw);
 

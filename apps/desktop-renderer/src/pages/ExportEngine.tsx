@@ -59,7 +59,7 @@ export function ExportEngine() {
           level: 'error',
           category: 'export',
           message: t('export.renderFailed'),
-          detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
         }),
       );
     } finally {
@@ -79,7 +79,7 @@ export function ExportEngine() {
           level: 'error',
           category: 'export',
           message: t('export.nleFailed'),
-          detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
         }),
       );
     } finally {
@@ -115,7 +115,7 @@ export function ExportEngine() {
           level: 'error',
           category: 'export',
           message: t('export.assetPackFailed'),
-          detail: err instanceof Error ? err.stack ?? err.message : String(err),
+          detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
         }),
       );
     } finally {

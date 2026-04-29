@@ -228,7 +228,9 @@ declare global {
       settings: {
         load: () => Promise<unknown>;
         save: (data: unknown) => Promise<void>;
-        onProviderKeyUpdated: (cb: (data: { providerId: string; hasKey: boolean }) => void) => () => void;
+        onProviderKeyUpdated: (
+          cb: (data: { providerId: string; hasKey: boolean }) => void,
+        ) => () => void;
       };
       script: {
         parse: (content: string, format?: string) => Promise<unknown>;
@@ -250,19 +252,14 @@ declare global {
           isStandard: boolean,
         ) => Promise<ReferenceImage>;
         removeRefImage: (characterId: string, slot: string) => Promise<void>;
-        saveLoadout: (
-          characterId: string,
-          loadout: EquipmentLoadout,
-        ) => Promise<EquipmentLoadout>;
+        saveLoadout: (characterId: string, loadout: EquipmentLoadout) => Promise<EquipmentLoadout>;
         deleteLoadout: (characterId: string, loadoutId: string) => Promise<void>;
         setFolder: (id: string, folderId: string | null) => Promise<void>;
       };
       equipment: {
         list: (filter?: { type?: string }) => Promise<Equipment[]>;
         get: (id: string) => Promise<Equipment>;
-        save: (
-          data: Record<string, unknown>,
-        ) => Promise<Equipment>;
+        save: (data: Record<string, unknown>) => Promise<Equipment>;
         delete: (id: string) => Promise<void>;
         setRefImage: (
           equipmentId: string,
@@ -337,13 +334,17 @@ declare global {
         onProgress: (cb: (job: JobSummary) => void) => () => void;
         onComplete: (cb: (job: JobSummary) => void) => () => void;
         onSubmitted: (cb: (data: { id: string; status: string }) => void) => () => void;
-        onFailed: (cb: (data: { id: string; status: string; error?: string }) => void) => () => void;
+        onFailed: (
+          cb: (data: { id: string; status: string; error?: string }) => void,
+        ) => () => void;
         onCancelled: (cb: (data: { id: string; status: string }) => void) => () => void;
         onPaused: (cb: (data: { id: string; status: string }) => void) => () => void;
         onResumed: (cb: (data: { id: string; status: string }) => void) => () => void;
       };
       refimage: {
-        onStart: (cb: (data: { jobId: string; provider: string; width: number; height: number }) => void) => () => void;
+        onStart: (
+          cb: (data: { jobId: string; provider: string; width: number; height: number }) => void,
+        ) => () => void;
         onComplete: (cb: (data: { jobId: string; assetHash: string }) => void) => () => void;
         onFailed: (cb: (data: { jobId: string; error: string }) => void) => () => void;
       };
@@ -410,7 +411,9 @@ declare global {
         ) => Promise<void>;
         cancel: (canvasId: string) => Promise<void>;
         cancelCurrentStep: (canvasId: string) => Promise<{ escalated: boolean }>;
-        compact: (canvasId: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+        compact: (
+          canvasId: string,
+        ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
         injectMessage: (canvasId: string, message: string) => Promise<void>;
         confirmTool: (canvasId: string, toolCallId: string, approved: boolean) => Promise<void>;
         answerQuestion: (canvasId: string, toolCallId: string, answer: string) => Promise<void>;
@@ -420,7 +423,9 @@ declare global {
         onStream: (cb: (envelope: WireEnvelope<TimelineEvent>) => void) => () => void;
         onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;
-        onSettingsDispatch: (cb: (data: { action: string; payload: Record<string, unknown> }) => void) => () => void;
+        onSettingsDispatch: (
+          cb: (data: { action: string; payload: Record<string, unknown> }) => void,
+        ) => () => void;
         onUndoDispatch: (cb: (data: { action: 'undo' | 'redo' }) => void) => () => void;
       };
       session: {
@@ -432,13 +437,15 @@ declare global {
           createdAt: number;
           updatedAt: number;
         }) => Promise<void>;
-        list: (limit?: number) => Promise<Array<{
-          id: string;
-          canvasId: string | null;
-          title: string;
-          createdAt: number;
-          updatedAt: number;
-        }>>;
+        list: (limit?: number) => Promise<
+          Array<{
+            id: string;
+            canvasId: string | null;
+            title: string;
+            createdAt: number;
+            updatedAt: number;
+          }>
+        >;
         get: (id: string) => Promise<{
           id: string;
           canvasId: string | null;
@@ -455,13 +462,15 @@ declare global {
           label: string,
           trigger?: 'auto' | 'manual',
         ) => Promise<Record<string, unknown>>;
-        list: (sessionId: string) => Promise<Array<{
-          id: string;
-          sessionId: string;
-          label: string;
-          trigger: string;
-          createdAt: number;
-        }>>;
+        list: (sessionId: string) => Promise<
+          Array<{
+            id: string;
+            sessionId: string;
+            label: string;
+            trigger: string;
+            createdAt: number;
+          }>
+        >;
         restore: (snapshotId: string) => Promise<{ success: true }>;
         delete: (snapshotId: string) => Promise<{ success: true }>;
       };
@@ -496,10 +505,27 @@ declare global {
         nle: (preset: ExportPreset) => Promise<ExportResult>;
         assetBundle: (assetHashes: string[], outputPath?: string) => Promise<ExportResult | null>;
         subtitles: (format: 'srt' | 'ass', outputPath: string) => Promise<void>;
-        storyboard: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) => Promise<ExportResult | null>;
-        metadata: (format: 'csv' | 'json', nodes: Array<Record<string, unknown>>, projectTitle?: string, outputPath?: string) => Promise<ExportResult | null>;
-        importSrt: (canvasId: string, filePath: string, alignToNodes?: boolean) => Promise<{ importedCount: number; alignedCount: number; noVideoNodes?: boolean }>;
-        capcut: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputDir?: string) => Promise<{ draftDir: string } | null>;
+        storyboard: (
+          nodes: Array<Record<string, unknown>>,
+          projectTitle?: string,
+          outputPath?: string,
+        ) => Promise<ExportResult | null>;
+        metadata: (
+          format: 'csv' | 'json',
+          nodes: Array<Record<string, unknown>>,
+          projectTitle?: string,
+          outputPath?: string,
+        ) => Promise<ExportResult | null>;
+        importSrt: (
+          canvasId: string,
+          filePath: string,
+          alignToNodes?: boolean,
+        ) => Promise<{ importedCount: number; alignedCount: number; noVideoNodes?: boolean }>;
+        capcut: (
+          nodes: Array<Record<string, unknown>>,
+          projectTitle?: string,
+          outputDir?: string,
+        ) => Promise<{ draftDir: string } | null>;
       };
       ffmpeg: {
         probe: (filePath: string) => Promise<ProbeResult>;
@@ -547,31 +573,33 @@ declare global {
           providerConfig?: { baseUrl: string; model: string; apiKey?: string },
         ) => Promise<{ estimatedCost: number; currency: string }>;
         extractLastFrame: (canvasId: string, nodeId: string) => Promise<void>;
-        onProgress: (cb: (data: {
-          canvasId: string;
-          nodeId: string;
-          progress: number;
-          currentStep?: string;
-        }) => void) => () => void;
-        onComplete: (cb: (data: {
-          canvasId: string;
-          nodeId: string;
-          variants: string[];
-          primaryAssetHash: string;
-          cost?: number;
-          generationTimeMs: number;
-          characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-          equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-          locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-          frameReferenceHashes?: { first?: string; last?: string };
-          sourceImageHash?: string;
-          model?: string;
-        }) => void) => () => void;
-        onFailed: (cb: (data: {
-          canvasId: string;
-          nodeId: string;
-          error: string;
-        }) => void) => () => void;
+        onProgress: (
+          cb: (data: {
+            canvasId: string;
+            nodeId: string;
+            progress: number;
+            currentStep?: string;
+          }) => void,
+        ) => () => void;
+        onComplete: (
+          cb: (data: {
+            canvasId: string;
+            nodeId: string;
+            variants: string[];
+            primaryAssetHash: string;
+            cost?: number;
+            generationTimeMs: number;
+            characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+            equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+            locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
+            frameReferenceHashes?: { first?: string; last?: string };
+            sourceImageHash?: string;
+            model?: string;
+          }) => void,
+        ) => () => void;
+        onFailed: (
+          cb: (data: { canvasId: string; nodeId: string; error: string }) => void,
+        ) => () => void;
       };
       preset: {
         list: (filter?: {
@@ -605,8 +633,13 @@ declare global {
       };
       video: {
         pickFile: () => Promise<string | null>;
-        clone: (filePath: string, threshold?: number) => Promise<{ canvasId: string; nodeCount: number }>;
-        onCloneProgress: (cb: (data: { step: string; current: number; total: number; message: string }) => void) => () => void;
+        clone: (
+          filePath: string,
+          threshold?: number,
+        ) => Promise<{ canvasId: string; nodeCount: number }>;
+        onCloneProgress: (
+          cb: (data: { step: string; current: number; total: number; message: string }) => void,
+        ) => () => void;
       };
       storage: {
         getOverview: () => Promise<{
@@ -624,7 +657,9 @@ declare global {
         clearEmbeddings: () => Promise<{ success: boolean; error?: string }>;
         vacuumDatabase: () => Promise<{ success: boolean; error?: string }>;
         backupDatabase: (destPath: string) => Promise<{ success: boolean; error?: string }>;
-        restoreDatabase: (sourcePath: string) => Promise<{ success: boolean; error?: string; backupCreated?: string }>;
+        restoreDatabase: (
+          sourcePath: string,
+        ) => Promise<{ success: boolean; error?: string; backupCreated?: string }>;
         pickFolder: () => Promise<string | null>;
         pickSaveFile: (defaultName: string) => Promise<string | null>;
         pickOpenFile: (extensions: string[]) => Promise<string | null>;

@@ -24,12 +24,7 @@ function TextNodeComponent({ data, selected }: NodeProps) {
   const d = data as unknown as TextNodeFlowData;
   const lod = useCanvasLodFromContext();
   return (
-    <NodeContextMenu
-      nodeId={d.nodeId}
-      nodeType="text"
-      locked={d.locked}
-      colorTag={d.colorTag}
-    >
+    <NodeContextMenu nodeId={d.nodeId} nodeType="text" locked={d.locked} colorTag={d.colorTag}>
       <div className="relative h-full min-h-[120px] min-w-[200px] w-full">
         <NodeBorderHandles colorClassName="!bg-primary" />
         {lod === 'full' && (

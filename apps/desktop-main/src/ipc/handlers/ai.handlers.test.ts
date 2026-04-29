@@ -116,8 +116,6 @@ describe('registerAiHandlers', () => {
     };
     const { handlers } = registerHandlers({ promptStore });
 
-    expect(() => handlers.get('ai:prompt:get')?.({}, { code: '' })).toThrow(
-      'Prompt not found: ',
-    );
+    expect(() => handlers.get('ai:prompt:get')?.({}, { code: '' })).toThrow('Prompt not found: ');
   });
 });

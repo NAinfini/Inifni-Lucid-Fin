@@ -20,7 +20,11 @@ function createDeps(): ScriptToolDeps {
     loadScript: vi.fn(async (path?: string) => (path ? script : script)),
     saveScript: vi.fn(async () => undefined),
     parseScript: vi.fn(() => parsedScenes),
-    importScript: vi.fn(async (content: string, format?: string) => ({ content, parsedScenes, format })),
+    importScript: vi.fn(async (content: string, format?: string) => ({
+      content,
+      parsedScenes,
+      format,
+    })),
   };
 }
 
@@ -40,7 +44,11 @@ describe('createScriptTools', () => {
       'script.write',
       'script.import',
     ]);
-    expect(getTool('script.read', deps).context).toEqual(['script-editor', 'storyboard', 'orchestrator']);
+    expect(getTool('script.read', deps).context).toEqual([
+      'script-editor',
+      'storyboard',
+      'orchestrator',
+    ]);
   });
 
   it('reads existing or empty script content', async () => {
@@ -61,7 +69,9 @@ describe('createScriptTools', () => {
   it('writes scripts via dependency', async () => {
     const deps = createDeps();
 
-    await expect(getTool('script.write', deps).execute({ content: 'INT. HALL - NIGHT' })).resolves.toEqual({
+    await expect(
+      getTool('script.write', deps).execute({ content: 'INT. HALL - NIGHT' }),
+    ).resolves.toEqual({
       success: true,
       data: { parsedScenes },
     });
@@ -72,7 +82,9 @@ describe('createScriptTools', () => {
   it('imports script from path (load mode)', async () => {
     const deps = createDeps();
 
-    await expect(getTool('script.import', deps).execute({ path: ' C:/tmp/script.fountain ' })).resolves.toEqual({
+    await expect(
+      getTool('script.import', deps).execute({ path: ' C:/tmp/script.fountain ' }),
+    ).resolves.toEqual({
       success: true,
       data: { path: 'C:/tmp/script.fountain' },
     });
@@ -82,10 +94,12 @@ describe('createScriptTools', () => {
   it('imports script from raw content (content mode)', async () => {
     const deps = createDeps();
 
-    await expect(getTool('script.import', deps).execute({
-      content: 'INT. ROOM - DAY',
-      format: 'fountain',
-    })).resolves.toEqual({
+    await expect(
+      getTool('script.import', deps).execute({
+        content: 'INT. ROOM - DAY',
+        format: 'fountain',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { content: 'INT. ROOM - DAY', parsedScenes, format: 'fountain' },
     });
@@ -109,10 +123,12 @@ describe('createScriptTools', () => {
       success: false,
       error: 'Either path or content must be provided',
     });
-    await expect(getTool('script.import', deps).execute({
-      content: 'INT. ROOM - DAY',
-      format: 'plaintext',
-    })).resolves.toEqual({
+    await expect(
+      getTool('script.import', deps).execute({
+        content: 'INT. ROOM - DAY',
+        format: 'plaintext',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'import failed',
     });

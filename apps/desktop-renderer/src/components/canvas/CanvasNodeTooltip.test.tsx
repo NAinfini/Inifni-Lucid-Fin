@@ -16,10 +16,7 @@ describe('CanvasNodeTooltip', () => {
 
   it('renders a native DOM element trigger with Radix state attributes', () => {
     render(
-      <CanvasNodeTooltip
-        title="Node info"
-        items={[{ label: 'Status', value: 'Ready' }]}
-      >
+      <CanvasNodeTooltip title="Node info" items={[{ label: 'Status', value: 'Ready' }]}>
         <button type="button">Open</button>
       </CanvasNodeTooltip>,
     );
@@ -30,10 +27,7 @@ describe('CanvasNodeTooltip', () => {
   it('rejects non-native trigger components before Radix can enter a ref loop', () => {
     expect(() =>
       render(
-        <CanvasNodeTooltip
-          title="Node info"
-          items={[{ label: 'Status', value: 'Ready' }]}
-        >
+        <CanvasNodeTooltip title="Node info" items={[{ label: 'Status', value: 'Ready' }]}>
           <CustomTrigger />
         </CanvasNodeTooltip>,
       ),

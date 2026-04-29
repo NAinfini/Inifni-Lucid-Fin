@@ -26,9 +26,7 @@ import type { ToolDef } from '../tools.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyToolDef = ToolDef<string, any, any>;
 
-export function createCatalog<const T extends readonly AnyToolDef[]>(
-  tools: T,
-): ToolCatalog<T> {
+export function createCatalog<const T extends readonly AnyToolDef[]>(tools: T): ToolCatalog<T> {
   const byKey: Record<string, AnyToolDef> = {};
   const byProcess: Record<string, AnyToolDef[]> = {};
   const mutatingKeys: string[] = [];

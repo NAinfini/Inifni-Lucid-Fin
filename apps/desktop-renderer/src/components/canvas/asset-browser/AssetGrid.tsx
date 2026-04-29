@@ -3,7 +3,13 @@ import { Download, FileType, Image, Music, Video } from 'lucide-react';
 import type { Asset } from '../../../store/slices/assets.js';
 import { t, getLocale } from '../../../i18n.js';
 import { cn } from '../../../lib/utils.js';
-import { formatSize, formatDurationShort, getFormatLabel, localizeAssetType, getExportConfig } from './utils.js';
+import {
+  formatSize,
+  formatDurationShort,
+  getFormatLabel,
+  localizeAssetType,
+  getExportConfig,
+} from './utils.js';
 import { VideoGridCard } from './VideoGridCard.js';
 
 const TYPE_ICONS: Record<string, ComponentType<{ className?: string }>> = {
@@ -26,7 +32,10 @@ export interface AssetGridProps {
   onAssetClick: (asset: Asset, e: React.MouseEvent) => void;
   onAssetKeyDown: (asset: Asset, e: React.KeyboardEvent) => void;
   onContextMenuSelect: (asset: Asset, e: React.MouseEvent) => void;
-  onQuickExport: (asset: Asset, exportConfig: { type: 'image' | 'video' | 'audio'; format: string }) => void;
+  onQuickExport: (
+    asset: Asset,
+    exportConfig: { type: 'image' | 'video' | 'audio'; format: string },
+  ) => void;
   /** Loading / indexing / empty states */
   loading: boolean;
   semanticIndexing: boolean;
@@ -67,7 +76,11 @@ export function AssetGrid({
       <div className="p-3">
         <div className="flex h-full flex-col items-center justify-center text-center text-xs text-muted-foreground">
           <span className="mb-2 h-8 w-8 opacity-20" />
-          <div>{semanticMode && searchQuery ? t('assetBrowser.semantic.noResults') : t('assetBrowser.empty')}</div>
+          <div>
+            {semanticMode && searchQuery
+              ? t('assetBrowser.semantic.noResults')
+              : t('assetBrowser.empty')}
+          </div>
           <div className="mt-0.5 text-[11px]">{t('assetBrowser.emptyHint')}</div>
         </div>
       </div>
@@ -128,17 +141,25 @@ interface GridCardProps {
   onAssetClick: (asset: Asset, e: React.MouseEvent) => void;
   onAssetKeyDown: (asset: Asset, e: React.KeyboardEvent) => void;
   onContextMenuSelect: (asset: Asset, e: React.MouseEvent) => void;
-  onQuickExport: (asset: Asset, exportConfig: { type: 'image' | 'video' | 'audio'; format: string }) => void;
+  onQuickExport: (
+    asset: Asset,
+    exportConfig: { type: 'image' | 'video' | 'audio'; format: string },
+  ) => void;
 }
 
-function GridCard({ asset, isSelected, onAssetClick, onAssetKeyDown, onContextMenuSelect, onQuickExport }: GridCardProps) {
+function GridCard({
+  asset,
+  isSelected,
+  onAssetClick,
+  onAssetKeyDown,
+  onContextMenuSelect,
+  onQuickExport,
+}: GridCardProps) {
   const Icon = TYPE_ICONS[asset.type] ?? FileType;
-  const thumbnail = asset.type === 'image' && asset.hash
-    ? `lucid-asset://${asset.hash}/image/png`
-    : undefined;
-  const videoUrl = asset.type === 'video' && asset.hash
-    ? `lucid-asset://${asset.hash}/video/mp4`
-    : undefined;
+  const thumbnail =
+    asset.type === 'image' && asset.hash ? `lucid-asset://${asset.hash}/image/png` : undefined;
+  const videoUrl =
+    asset.type === 'video' && asset.hash ? `lucid-asset://${asset.hash}/video/mp4` : undefined;
   const exportConfig = getExportConfig(asset.type);
   const typeBadgeColor = TYPE_BADGE_COLORS[asset.type] ?? 'bg-muted text-muted-foreground';
 
@@ -187,19 +208,18 @@ function GridCard({ asset, isSelected, onAssetClick, onAssetKeyDown, onContextMe
               className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
             />
           ) : videoUrl ? (
-            <VideoGridCard
-              src={videoUrl}
-              className="h-full w-full object-cover"
-            />
+            <VideoGridCard src={videoUrl} className="h-full w-full object-cover" />
           ) : (
             <Icon className="h-6 w-6 text-muted-foreground" />
           )}
 
           {/* Type badge: top-left */}
-          <span className={cn(
-            'absolute top-1 left-1 flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight',
-            typeBadgeColor,
-          )}>
+          <span
+            className={cn(
+              'absolute top-1 left-1 flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight',
+              typeBadgeColor,
+            )}
+          >
             <Icon className="h-2.5 w-2.5" />
           </span>
 
@@ -254,9 +274,8 @@ interface ListRowProps {
 
 function ListRow({ asset, isSelected, onAssetClick, onContextMenuSelect }: ListRowProps) {
   const Icon = TYPE_ICONS[asset.type] ?? FileType;
-  const thumbnail = asset.type === 'image' && asset.hash
-    ? `lucid-asset://${asset.hash}/image/png`
-    : undefined;
+  const thumbnail =
+    asset.type === 'image' && asset.hash ? `lucid-asset://${asset.hash}/image/png` : undefined;
   const typeBadgeColor = TYPE_BADGE_COLORS[asset.type] ?? 'bg-muted text-muted-foreground';
 
   return (
@@ -295,7 +314,12 @@ function ListRow({ asset, isSelected, onAssetClick, onContextMenuSelect }: ListR
       {/* Name */}
       <span className="truncate text-[11px] font-medium">{asset.name}</span>
       {/* Type badge */}
-      <span className={cn('inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight w-fit', typeBadgeColor)}>
+      <span
+        className={cn(
+          'inline-flex items-center gap-0.5 rounded px-1 py-px text-[9px] font-semibold leading-tight w-fit',
+          typeBadgeColor,
+        )}
+      >
         <Icon className="h-2.5 w-2.5" />
         <span>{localizeAssetType(asset.type)}</span>
       </span>

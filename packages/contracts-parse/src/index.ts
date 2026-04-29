@@ -90,10 +90,7 @@ export { parseSessionId, trySessionId } from './brands/session-id.js';
 export { StoredSessionSchema, type StoredSessionDto } from './dto/stored-session.js';
 
 // ── Phase G1-2.2: ProcessPromptKey parser + ProcessPromptRecord DTO ─
-export {
-  parseProcessPromptKey,
-  tryProcessPromptKey,
-} from './brands/process-prompt-key.js';
+export { parseProcessPromptKey, tryProcessPromptKey } from './brands/process-prompt-key.js';
 export {
   ProcessPromptRecordSchema,
   type ProcessPromptRecordDto,
@@ -139,33 +136,19 @@ export {
 // ── Phase G1-2.7: SeriesId + EpisodeId parsers + Series/Episode DTOs ─
 export { parseSeriesId, trySeriesId } from './brands/series-id.js';
 export { parseEpisodeId, tryEpisodeId } from './brands/episode-id.js';
-export {
-  SeriesSchema,
-  EpisodeSchema,
-  type SeriesDto,
-  type EpisodeDto,
-} from './dto/series.js';
+export { SeriesSchema, EpisodeSchema, type SeriesDto, type EpisodeDto } from './dto/series.js';
 
 // ── Phase G1-2.8: PresetId parser + PresetOverride DTO ─────────
 export { parsePresetId, tryPresetId } from './brands/preset-id.js';
-export {
-  PresetOverrideSchema,
-  type PresetOverrideDto,
-} from './dto/preset.js';
+export { PresetOverrideSchema, type PresetOverrideDto } from './dto/preset.js';
 
 // ── Phase G1-2.9: ShotTemplateId parser + ShotTemplate DTO ─────
 export { parseShotTemplateId, tryShotTemplateId } from './brands/shot-template-id.js';
-export {
-  ShotTemplateSchema,
-  type ShotTemplateDto,
-} from './dto/shot-template.js';
+export { ShotTemplateSchema, type ShotTemplateDto } from './dto/shot-template.js';
 
 // ── Phase G1-2.10: SnapshotId parser + StoredSnapshot DTO ──────
 export { parseSnapshotId, trySnapshotId } from './brands/snapshot-id.js';
-export {
-  StoredSnapshotSchema,
-  type StoredSnapshotDto,
-} from './dto/snapshot.js';
+export { StoredSnapshotSchema, type StoredSnapshotDto } from './dto/snapshot.js';
 
 // ── Phase G1-2.11: Workflow-domain ID parsers + run/stage/task DTOs ─
 export {
@@ -191,7 +174,4 @@ export {
   tryContextItemId,
   freshContextItemId,
 } from './brands/context-item-id.js';
-export {
-  ContextItemSchema,
-  type ContextItemSchemaType,
-} from './storage/schemas/context-graph.js';
+export { ContextItemSchema, type ContextItemSchemaType } from './storage/schemas/context-graph.js';

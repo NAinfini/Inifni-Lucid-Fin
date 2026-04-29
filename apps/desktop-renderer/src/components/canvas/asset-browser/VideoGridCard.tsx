@@ -15,7 +15,9 @@ export function VideoGridCard({ src, className }: VideoGridCardProps) {
   const handleMouseEnter = useCallback(() => {
     if (!videoRef.current || failed) return;
     videoRef.current.currentTime = 0;
-    videoRef.current.play().catch(() => { /* 404/missing asset: silent */ });
+    videoRef.current.play().catch(() => {
+      /* 404/missing asset: silent */
+    });
   }, [failed]);
 
   const handleMouseLeave = useCallback(() => {

@@ -42,7 +42,8 @@ function stitchConcat(inputs: string[], outputPath: string): Promise<void> {
   return runCommand(cmd).finally(() => {
     try {
       unlinkSync(listPath);
-    } catch { /* temp concat list cleanup failed — non-fatal, file will be cleaned up eventually */
+    } catch {
+      /* temp concat list cleanup failed — non-fatal, file will be cleaned up eventually */
       /* ignore */
     }
   });

@@ -13,13 +13,7 @@
  */
 
 import type { GeneratableNodeKind } from './node-kinds.js';
-import type {
-  CanvasId,
-  NodeId,
-  CharacterId,
-  LocationId,
-  EquipmentId,
-} from './brands.js';
+import type { CanvasId, NodeId, CharacterId, LocationId, EquipmentId } from './brands.js';
 
 export type GenerationSubject =
   | {

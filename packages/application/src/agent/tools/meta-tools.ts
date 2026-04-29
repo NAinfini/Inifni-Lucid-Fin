@@ -7,7 +7,9 @@ export interface MetaToolDeps {
   promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
   context?: string;
   /** Callback to trigger mid-loop context compaction. Optional instructions guide the summary focus. */
-  compactContext?: (instructions?: string) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+  compactContext?: (
+    instructions?: string,
+  ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
   /**
    * Resolves the effective (user-overridden or default) process prompt for
    * a given category. When provided, `tool.get` includes the matching
@@ -30,7 +32,9 @@ export interface MetaToolDeps {
  */
 function staticProcessCategoryFor(toolName: string): ProcessCategory | null {
   if (toolName === 'canvas.generate') return null;
-  const byKey = ToolCatalog.byKey as Readonly<Record<string, { process: string; category: string }>>;
+  const byKey = ToolCatalog.byKey as Readonly<
+    Record<string, { process: string; category: string }>
+  >;
   const entry = byKey[toolName];
   if (!entry) return null;
   if (entry.category === 'meta') return null;
@@ -64,16 +68,15 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
 
   const toolGet: AgentTool = {
     name: 'tool.get',
-    description:
-      [
-        'WHEN TO CALL: any time the user asks what Commander can do, what tools or features exist, a menu, a catalogue, or "how do I start". Call this BEFORE answering from memory — the MASTER INDEX in the system prompt lists names only; the full descriptions live here.',
-        '',
-        'Two modes:',
-        '  (1) Omit "names" to list all available tools grouped by domain (name + short description only). Use this for browse/menu intent.',
-        '  (2) Provide "names" array to load full parameter schemas for specific tools. Use this before you commit to calling a tool whose schema you are unsure about.',
-        '',
-        'When a tool has a governing process guide (e.g. character-ref-image-generation), the guide is attached inline under `processGuide` — follow it before choosing arguments.',
-      ].join('\n'),
+    description: [
+      'WHEN TO CALL: any time the user asks what Commander can do, what tools or features exist, a menu, a catalogue, or "how do I start". Call this BEFORE answering from memory — the MASTER INDEX in the system prompt lists names only; the full descriptions live here.',
+      '',
+      'Two modes:',
+      '  (1) Omit "names" to list all available tools grouped by domain (name + short description only). Use this for browse/menu intent.',
+      '  (2) Provide "names" array to load full parameter schemas for specific tools. Use this before you commit to calling a tool whose schema you are unsure about.',
+      '',
+      'When a tool has a governing process guide (e.g. character-ref-image-generation), the guide is attached inline under `processGuide` — follow it before choosing arguments.',
+    ].join('\n'),
     tags: ['meta', 'read'],
     tier: 1,
     parameters: {
@@ -82,7 +85,8 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         names: {
           type: 'array',
           items: { type: 'string', description: 'Tool name.' },
-          description: 'Tool name or array of tool names to load. Omit to list all tools grouped by domain.',
+          description:
+            'Tool name or array of tool names to load. Omit to list all tools grouped by domain.',
         },
       },
       required: [],
@@ -92,10 +96,12 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         const rawNames = args.names;
 
         // No names provided or empty array — list all tools grouped by domain
-        if (rawNames === undefined || rawNames === null || (Array.isArray(rawNames) && rawNames.length === 0)) {
-          const allTools = deps.context
-            ? registry.forContext(deps.context)
-            : registry.list();
+        if (
+          rawNames === undefined ||
+          rawNames === null ||
+          (Array.isArray(rawNames) && rawNames.length === 0)
+        ) {
+          const allTools = deps.context ? registry.forContext(deps.context) : registry.list();
 
           const grouped: Record<string, Array<{ name: string; desc: string }>> = {};
           for (const tool of allTools) {
@@ -126,7 +132,14 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         }
 
         if (Array.isArray(rawNames)) {
-          const results: Array<{ name: string; description: string; parameters: unknown; processCategory?: string; processCategoryName?: string; processGuide?: string }> = [];
+          const results: Array<{
+            name: string;
+            description: string;
+            parameters: unknown;
+            processCategory?: string;
+            processCategoryName?: string;
+            processGuide?: string;
+          }> = [];
           for (const entry of rawNames) {
             const name = typeof entry === 'string' ? entry.trim() : String(entry);
             const tool = registry.get(name);
@@ -153,14 +166,13 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
 
   const guideGet: AgentTool = {
     name: 'guide.get',
-    description:
-      [
-        'WHEN TO CALL: any time the user asks what workflows, skills, or guides are available, asks to "see the docs", "list the guides", or any browse-the-docs intent. Call this BEFORE summarising from memory.',
-        '',
-        'Two modes:',
-        '  If `ids` is provided: fetch prompt guide content by id (one or many).',
-        '  If `ids` is omitted: list all available guides (id and name only, with offset/limit pagination). Use this for browse intent.',
-      ].join('\n'),
+    description: [
+      'WHEN TO CALL: any time the user asks what workflows, skills, or guides are available, asks to "see the docs", "list the guides", or any browse-the-docs intent. Call this BEFORE summarising from memory.',
+      '',
+      'Two modes:',
+      '  If `ids` is provided: fetch prompt guide content by id (one or many).',
+      '  If `ids` is omitted: list all available guides (id and name only, with offset/limit pagination). Use this for browse intent.',
+    ].join('\n'),
     tags: ['meta', 'guide', 'read'],
     tier: 1,
     parameters: {
@@ -171,8 +183,16 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
           items: { type: 'string', description: 'Guide id.' },
           description: 'Guide id or array of guide ids to fetch. Omit to list all guides.',
         },
-        offset: { type: 'number', description: 'Start index for listing (0-based). Default 0. Only used when ids is omitted.' },
-        limit: { type: 'number', description: 'Max items to return for listing. Default 50. Only used when ids is omitted.' },
+        offset: {
+          type: 'number',
+          description:
+            'Start index for listing (0-based). Default 0. Only used when ids is omitted.',
+        },
+        limit: {
+          type: 'number',
+          description:
+            'Max items to return for listing. Default 50. Only used when ids is omitted.',
+        },
       },
       required: [],
     },
@@ -181,11 +201,22 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         const rawIds = args.ids;
 
         // No ids provided or empty array — list all guides
-        if (rawIds === undefined || rawIds === null || (Array.isArray(rawIds) && rawIds.length === 0)) {
+        if (
+          rawIds === undefined ||
+          rawIds === null ||
+          (Array.isArray(rawIds) && rawIds.length === 0)
+        ) {
           const guides = promptGuides.map(({ id, name }) => ({ id, name }));
-          const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-          const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-          return ok({ total: guides.length, offset, limit, guides: guides.slice(offset, offset + limit) });
+          const offset =
+            typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+          const limit =
+            typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+          return ok({
+            total: guides.length,
+            offset,
+            limit,
+            guides: guides.slice(offset, offset + limit),
+          });
         }
 
         if (typeof rawIds === 'string') {
@@ -222,13 +253,18 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
 
   const toolCompact: AgentTool = {
     name: 'tool.compact',
-    description: 'Compact conversation context by summarizing old tool exchanges and stripping unused tool schemas. Optionally pass "instructions" to focus the summary (e.g. "focus on the API changes"). Call proactively when context feels large or before complex multi-step operations.',
+    description:
+      'Compact conversation context by summarizing old tool exchanges and stripping unused tool schemas. Optionally pass "instructions" to focus the summary (e.g. "focus on the API changes"). Call proactively when context feels large or before complex multi-step operations.',
     tags: ['meta'],
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        instructions: { type: 'string', description: 'Optional focus instructions to guide what the compaction summary should emphasize (e.g. "focus on character setup and preset changes").' },
+        instructions: {
+          type: 'string',
+          description:
+            'Optional focus instructions to guide what the compaction summary should emphasize (e.g. "focus on character setup and preset changes").',
+        },
       },
       required: [],
     },
@@ -242,9 +278,10 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         freedChars: result.freedChars,
         messageCount: result.messageCount,
         toolCount: result.toolCount,
-        note: result.freedChars > 0
-          ? `Freed ~${result.freedChars.toLocaleString()} chars of context.`
-          : 'Context already compact — nothing to free.',
+        note:
+          result.freedChars > 0
+            ? `Freed ~${result.freedChars.toLocaleString()} chars of context.`
+            : 'Context already compact — nothing to free.',
       });
     },
   };

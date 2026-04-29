@@ -52,7 +52,8 @@ export function createConfiguredLLMAdapter(
   config: LLMProviderRuntimeConfig,
   apiKey: string | null,
 ): LLMAdapter {
-  const adapter = llmRegistry.list().find((entry) => entry.id === config.id) ?? buildRuntimeLLMAdapter(config);
+  const adapter =
+    llmRegistry.list().find((entry) => entry.id === config.id) ?? buildRuntimeLLMAdapter(config);
 
   adapter.configure(apiKey ?? '', {
     baseUrl: config.baseUrl,

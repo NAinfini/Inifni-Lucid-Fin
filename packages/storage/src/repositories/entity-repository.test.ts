@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
-import type { Character, CharacterId, Equipment, EquipmentId, Location, LocationId } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import type {
+  Character,
+  CharacterId,
+  Equipment,
+  EquipmentId,
+  Location,
+  LocationId,
+} from '@lucid-fin/contracts';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { EntityRepository } from './entity-repository.js';
 
 const SCHEMA = `

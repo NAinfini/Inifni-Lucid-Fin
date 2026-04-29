@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  createEmptyPresetTrackSet,
-  type Canvas,
-  type PresetTrackSet,
-} from '@lucid-fin/contracts';
+import { createEmptyPresetTrackSet, type Canvas, type PresetTrackSet } from '@lucid-fin/contracts';
 import { createCanvasPresetTools } from './canvas-preset-tools.js';
 import type { CanvasToolDeps } from './canvas-tool-utils.js';
 
@@ -143,10 +139,12 @@ describe('createCanvasPresetTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.readNodePresetTracks', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.readNodePresetTracks', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         nodeId: 'image-1',
@@ -154,15 +152,15 @@ describe('createCanvasPresetTools', () => {
       },
     });
 
-    await expect(getTool('canvas.writeNodePresetTracks', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      intensity: 120,
-      entries: [
-        { presetId: 'camera-push-in', intensity: 12.6, direction: 'left' },
-      ],
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.writeNodePresetTracks', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        category: 'camera',
+        intensity: 120,
+        entries: [{ presetId: 'camera-push-in', intensity: 12.6, direction: 'left' }],
+      }),
+    ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         nodeId: 'image-1',
@@ -252,30 +250,35 @@ describe('createCanvasPresetTools', () => {
       category: 'camera',
       presetId: 'camera-crane',
     });
-    const track = ((canvas.nodes[0].data as { presetTracks: PresetTrackSet }).presetTracks.camera);
+    const track = (canvas.nodes[0].data as { presetTracks: PresetTrackSet }).presetTracks.camera;
     const [firstEntry, _secondEntry] = track.entries;
 
-    await expect(getTool('canvas.updatePresetEntry', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entryId: firstEntry.id,
-      changes: { intensity: 10, direction: 'right', presetId: 'camera-dolly' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.updatePresetEntry', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        category: 'camera',
+        entryId: firstEntry.id,
+        changes: { intensity: 10, direction: 'right', presetId: 'camera-dolly' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', category: 'camera', entryId: firstEntry.id },
     });
 
-    await expect(getTool('canvas.removePresetEntry', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entryId: firstEntry.id,
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.removePresetEntry', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        category: 'camera',
+        entryId: firstEntry.id,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', category: 'camera', entryId: firstEntry.id },
     });
-    const removedTrack = ((canvas.nodes[0].data as { presetTracks: PresetTrackSet }).presetTracks.camera);
+    const removedTrack = (canvas.nodes[0].data as { presetTracks: PresetTrackSet }).presetTracks
+      .camera;
     expect(removedTrack.entries).toHaveLength(1);
   });
 
@@ -285,11 +288,13 @@ describe('createCanvasPresetTools', () => {
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-1');
     vi.spyOn(Date, 'now').mockReturnValue(123);
 
-    await expect(getTool('canvas.applyShotTemplate', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      templateName: 'sweep',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.applyShotTemplate', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        templateName: 'sweep',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         nodeId: 'image-1',
@@ -304,37 +309,45 @@ describe('createCanvasPresetTools', () => {
   it('rejects invalid preset inputs and unsupported nodes', async () => {
     const deps = createDeps();
 
-    await expect(getTool('canvas.writeNodePresetTracks', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entries: [{ presetId: '' }],
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.writeNodePresetTracks', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        category: 'camera',
+        entries: [{ presetId: '' }],
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'entries[0].presetId is required',
     });
-    await expect(getTool('canvas.updatePresetEntry', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      category: 'camera',
-      entryId: 'missing',
-      changes: 'bad',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.updatePresetEntry', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        category: 'camera',
+        entryId: 'missing',
+        changes: 'bad',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'changes is required',
     });
-    await expect(getTool('canvas.readNodePresetTracks', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'text-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.readNodePresetTracks', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'text-1',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'Node type "text" does not support presets',
     });
-    await expect(getTool('canvas.applyShotTemplate', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      templateName: 'missing',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.applyShotTemplate', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        templateName: 'missing',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'Shot template "missing" not found. Available: Cinematic Sweep',
     });
@@ -394,7 +407,9 @@ describe('shotTemplate.update', () => {
     const deps = createDeps();
     const result = await getTool('shotTemplate.update', deps).execute({ templateId: 'tmpl-1' });
     expect((result as { success: boolean }).success).toBe(false);
-    expect((result as { success: false; error: string }).error).toBe('Cannot modify built-in templates.');
+    expect((result as { success: false; error: string }).error).toBe(
+      'Cannot modify built-in templates.',
+    );
   });
 });
 
@@ -403,7 +418,9 @@ describe('shotTemplate.delete', () => {
     const deps = createDeps();
     const result = await getTool('shotTemplate.delete', deps).execute({ templateId: 'tmpl-1' });
     expect((result as { success: boolean }).success).toBe(false);
-    expect((result as { success: false; error: string }).error).toBe('Cannot delete built-in templates.');
+    expect((result as { success: false; error: string }).error).toBe(
+      'Cannot delete built-in templates.',
+    );
   });
 
   it('calls deleteShotTemplate for custom templates', async () => {
@@ -411,7 +428,9 @@ describe('shotTemplate.delete', () => {
     vi.mocked(deps.listShotTemplates).mockResolvedValueOnce([
       { id: 'custom-tmpl-1', name: 'My Custom', description: 'custom', builtIn: false, tracks: {} },
     ]);
-    const result = await getTool('shotTemplate.delete', deps).execute({ templateId: 'custom-tmpl-1' });
+    const result = await getTool('shotTemplate.delete', deps).execute({
+      templateId: 'custom-tmpl-1',
+    });
     expect((result as { success: boolean }).success).toBe(true);
     expect(deps.deleteShotTemplate).toHaveBeenCalledWith('custom-tmpl-1');
   });

@@ -210,7 +210,9 @@ describe('CommanderPanel', () => {
   it('disables chat input and send button until bootstrap finishes', () => {
     const { container } = renderCommanderPanel([], [createCanvas()], { bootstrapped: false });
 
-    const input = container.querySelector('textarea[placeholder="Message Commander AI... (/ for commands)"]');
+    const input = container.querySelector(
+      'textarea[placeholder="Message Commander AI... (/ for commands)"]',
+    );
     const sendButton = Array.from(container.querySelectorAll('button')).find(
       (button) => button.textContent?.trim() === 'Send',
     );

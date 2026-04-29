@@ -12,7 +12,10 @@ export function lazyPage<T extends ComponentType<unknown>>(
 }
 
 /** Debounce a function */
-export function debounce<A extends unknown[], R>(fn: (...args: A) => R, ms: number): (...args: A) => void {
+export function debounce<A extends unknown[], R>(
+  fn: (...args: A) => R,
+  ms: number,
+): (...args: A) => void {
   let timer: ReturnType<typeof setTimeout>;
   return (...args: A) => {
     clearTimeout(timer);
@@ -21,7 +24,10 @@ export function debounce<A extends unknown[], R>(fn: (...args: A) => R, ms: numb
 }
 
 /** Throttle a function to at most once per `ms` */
-export function throttle<A extends unknown[], R>(fn: (...args: A) => R, ms: number): (...args: A) => void {
+export function throttle<A extends unknown[], R>(
+  fn: (...args: A) => R,
+  ms: number,
+): (...args: A) => void {
   let last = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   return (...args: A) => {

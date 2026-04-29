@@ -59,10 +59,7 @@ describe('createCatalog', () => {
 
   it('indexes tools by name', () => {
     const catalog = createCatalog([queryTool, mutationTool] as const);
-    expect(Object.keys(catalog.byKey).sort()).toEqual([
-      'test.mutate',
-      'test.query',
-    ]);
+    expect(Object.keys(catalog.byKey).sort()).toEqual(['test.mutate', 'test.query']);
     expect(catalog.byKey['test.query']).toBe(queryTool);
     expect(catalog.byKey['test.mutate']).toBe(mutationTool);
   });
@@ -82,9 +79,7 @@ describe('createCatalog', () => {
   it('reflects declared uiEffects (empty array when absent)', () => {
     const catalog = createCatalog([queryTool, mutationTool] as const);
     expect(catalog.uiEffectsByKey['test.query']).toEqual([]);
-    expect(catalog.uiEffectsByKey['test.mutate']).toEqual([
-      { kind: 'toast', message: 'done' },
-    ]);
+    expect(catalog.uiEffectsByKey['test.mutate']).toEqual([{ kind: 'toast', message: 'done' }]);
   });
 
   it('freezes the catalog and all nested containers', () => {

@@ -162,4 +162,3 @@ export interface PresetResetRequest {
   id: string;
   scope?: PresetResetScope;
 }
-

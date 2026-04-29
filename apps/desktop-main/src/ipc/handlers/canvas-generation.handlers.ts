@@ -60,7 +60,10 @@ const runningJobs = new Map<string, RunningCanvasJob>();
 // IPC handler registration
 // ---------------------------------------------------------------------------
 
-export function registerCanvasGenerationHandlers(ipcMain: IpcMain, deps: CanvasGenerationDeps): void {
+export function registerCanvasGenerationHandlers(
+  ipcMain: IpcMain,
+  deps: CanvasGenerationDeps,
+): void {
   const gateway = createRendererPushGateway({ getWindow: deps.getWindow });
 
   ipcMain.handle('canvas:generate', async (_event, args: GenerateArgs) => {
@@ -221,7 +224,13 @@ async function executeGeneration(args: {
     for (let index = 0; index < variantCount; index += 1) {
       throwIfCancelled(runningJob);
       const progress = Math.round((index / variantCount) * 100);
-      sendProgress(gateway, runningJob.canvasId, runningJob.nodeId, progress, `Generating variant ${index + 1}`);
+      sendProgress(
+        gateway,
+        runningJob.canvasId,
+        runningJob.nodeId,
+        progress,
+        `Generating variant ${index + 1}`,
+      );
 
       const variantSeed = typeof baseSeed === 'number' ? baseSeed + index : undefined;
       const variantRequest = materializeGenerationRequest(
@@ -318,7 +327,10 @@ async function executeGeneration(args: {
             cfgScale: requestBase.cfgScale ?? undefined,
             scheduler: requestBase.scheduler ?? undefined,
             img2imgStrength: requestBase.img2imgStrength ?? undefined,
-            model: generated.provenance?.model ?? (generated.metadata?.model as string | undefined) ?? undefined,
+            model:
+              generated.provenance?.model ??
+              (generated.metadata?.model as string | undefined) ??
+              undefined,
             cost: generated.cost ?? undefined,
           },
         });
@@ -364,7 +376,9 @@ async function executeGeneration(args: {
         void autoChainVideoFrame(canvas, node, deps.cas)
           .then(() => touchCanvas(canvas, deps))
           .catch((err) => {
-            log.warn('[canvas:generation] auto-chain frame extraction failed', { error: String(err) });
+            log.warn('[canvas:generation] auto-chain frame extraction failed', {
+              error: String(err),
+            });
           });
 
         const videoData = node.data as VideoNodeData;
@@ -446,12 +460,15 @@ async function runAdapterGeneration(input: {
     return adapter.generate(request);
   }
 
-  return adapter.subscribe(request, createVariantCallbacks({
-    gateway,
-    runningJob,
-    variantIndex,
-    variantCount,
-  }));
+  return adapter.subscribe(
+    request,
+    createVariantCallbacks({
+      gateway,
+      runningJob,
+      variantIndex,
+      variantCount,
+    }),
+  );
 }
 
 function createVariantCallbacks(input: {
@@ -596,7 +613,10 @@ function throwIfCancelled(job: RunningCanvasJob): void {
   }
 }
 
-function collectProviderJobId(job: RunningCanvasJob, metadata: Record<string, unknown> | undefined): void {
+function collectProviderJobId(
+  job: RunningCanvasJob,
+  metadata: Record<string, unknown> | undefined,
+): void {
   if (!metadata) return;
   const providerTaskId = normalizeOptionalString(
     (metadata.jobId as string | undefined) ??
@@ -631,4 +651,3 @@ function sendProgress(
     currentStep,
   });
 }
-

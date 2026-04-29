@@ -4,7 +4,13 @@ import { Image } from 'lucide-react';
 import { useAssetUrl } from '../../../hooks/useAssetUrl.js';
 import { useI18n } from '../../../hooks/use-i18n.js';
 import { selectImageAssets, type Asset } from '../../../store/slices/assets.js';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../ui/Dialog.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../../ui/Dialog.js';
 
 interface AssetThumbProps {
   asset: Asset;

@@ -65,8 +65,10 @@ describe('exit-contract/classifyIntent', () => {
     });
 
     it('workflow mention without execution verb is mixed', () => {
-      expect(classifyIntent({ userMessage: "I've been thinking about a style plate" }))
-        .toEqual({ kind: 'mixed', workflow: 'style-plate' });
+      expect(classifyIntent({ userMessage: "I've been thinking about a style plate" })).toEqual({
+        kind: 'mixed',
+        workflow: 'style-plate',
+      });
     });
 
     it('random short text falls through to mixed', () => {
@@ -77,15 +79,17 @@ describe('exit-contract/classifyIntent', () => {
   describe('precedence', () => {
     it('browse wins over execution verbs', () => {
       // "list the tools I can use to create videos" — still browse.
-      expect(classifyIntent({ userMessage: 'list the tools I can use to create videos' }))
-        .toEqual({ kind: 'browse' });
+      expect(classifyIntent({ userMessage: 'list the tools I can use to create videos' })).toEqual({
+        kind: 'browse',
+      });
     });
 
     it('execution verb beats question phrasing when both are present', () => {
       // Has a verb + a trailing question mark; verb wins because the
       // user explicitly asked for the action.
-      expect(classifyIntent({ userMessage: 'Can you create three scene nodes?' }))
-        .toEqual({ kind: 'execution' });
+      expect(classifyIntent({ userMessage: 'Can you create three scene nodes?' })).toEqual({
+        kind: 'execution',
+      });
     });
   });
 

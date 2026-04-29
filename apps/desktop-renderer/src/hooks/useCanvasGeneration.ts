@@ -9,6 +9,7 @@ import {
   setNodeProgress,
 } from '../store/slices/canvas.js';
 import { addLog } from '../store/slices/logger.js';
+import { enqueueToast } from '../store/slices/toast.js';
 import { setAssets, type Asset } from '../store/slices/assets.js';
 import { recordGeneration, recordError } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';
@@ -78,10 +79,17 @@ export function useCanvasGeneration(): {
 
   useEffect(() => {
     const api = getAPI();
-    if (!api?.canvasGeneration) return;
+    if (!api?.canvasGeneration) return () => {};
 
     const unsubProgress = api.canvasGeneration.onProgress((data) => {
-      dispatch(setNodeProgress({ id: data.nodeId, progress: data.progress, currentStep: data.currentStep, canvasId: data.canvasId }));
+      dispatch(
+        setNodeProgress({
+          id: data.nodeId,
+          progress: data.progress,
+          currentStep: data.currentStep,
+          canvasId: data.canvasId,
+        }),
+      );
     });
     const unsubComplete = api.canvasGeneration.onComplete((data) => {
       dispatch(
@@ -100,7 +108,9 @@ export function useCanvasGeneration(): {
           model: data.model,
         }),
       );
-      dispatch(recordGeneration({ type: 'image', success: true, durationMs: data.generationTimeMs ?? 0 }));
+      dispatch(
+        recordGeneration({ type: 'image', success: true, durationMs: data.generationTimeMs ?? 0 }),
+      );
       dispatch(
         addLog({
           level: 'info',
@@ -117,33 +127,45 @@ export function useCanvasGeneration(): {
         }),
       );
       // Refresh asset store so newly generated assets appear in the browser
-      void api.asset.query({}).then((result) => {
-        if (!Array.isArray(result)) return;
-        dispatch(
-          setAssets(
-            result.map((a: Record<string, unknown>) => ({
-              id: a.hash as string,
-              hash: a.hash as string,
-              name: (typeof a.name === 'string' ? a.name : typeof a.originalName === 'string' ? a.originalName : (a.hash as string).slice(0, 12)),
-              type: (a.type as Asset['type']) ?? 'other',
-              path: typeof a.path === 'string' ? a.path : '',
-              tags: Array.isArray(a.tags) ? a.tags as string[] : [],
-              global: false,
-              size: typeof a.fileSize === 'number' ? a.fileSize : 0,
-              createdAt: typeof a.createdAt === 'number' ? a.createdAt : Date.now(),
-              format: typeof a.format === 'string' ? a.format : undefined,
-              width: typeof a.width === 'number' ? a.width : undefined,
-              height: typeof a.height === 'number' ? a.height : undefined,
-              duration: typeof a.duration === 'number' ? a.duration : undefined,
-              provider: typeof a.provider === 'string' ? a.provider : undefined,
-              prompt: typeof a.prompt === 'string' ? a.prompt : undefined,
-            })),
-          ),
-        );
-      }).catch(() => { /* asset refresh is best-effort */ });
+      void api.asset
+        .query({})
+        .then((result) => {
+          if (!Array.isArray(result)) return;
+          dispatch(
+            setAssets(
+              result.map((a: Record<string, unknown>) => ({
+                id: a.hash as string,
+                hash: a.hash as string,
+                name:
+                  typeof a.name === 'string'
+                    ? a.name
+                    : typeof a.originalName === 'string'
+                      ? a.originalName
+                      : (a.hash as string).slice(0, 12),
+                type: (a.type as Asset['type']) ?? 'other',
+                path: typeof a.path === 'string' ? a.path : '',
+                tags: Array.isArray(a.tags) ? (a.tags as string[]) : [],
+                global: false,
+                size: typeof a.fileSize === 'number' ? a.fileSize : 0,
+                createdAt: typeof a.createdAt === 'number' ? a.createdAt : Date.now(),
+                format: typeof a.format === 'string' ? a.format : undefined,
+                width: typeof a.width === 'number' ? a.width : undefined,
+                height: typeof a.height === 'number' ? a.height : undefined,
+                duration: typeof a.duration === 'number' ? a.duration : undefined,
+                provider: typeof a.provider === 'string' ? a.provider : undefined,
+                prompt: typeof a.prompt === 'string' ? a.prompt : undefined,
+              })),
+            ),
+          );
+        })
+        .catch(() => {
+          /* asset refresh is best-effort */
+        });
     });
     const unsubFailed = api.canvasGeneration.onFailed((data) => {
-      dispatch(setNodeGenerationFailed({ id: data.nodeId, error: data.error, canvasId: data.canvasId }));
+      dispatch(
+        setNodeGenerationFailed({ id: data.nodeId, error: data.error, canvasId: data.canvasId }),
+      );
       dispatch(recordGeneration({ type: 'image', success: false, durationMs: 0 }));
       dispatch(recordError());
       dispatch(
@@ -151,10 +173,13 @@ export function useCanvasGeneration(): {
           level: 'error',
           category: 'generation',
           message: 'Canvas generation failed',
-          detail: serializeGenerationDetail({
-            canvasId: data.canvasId,
-            nodeId: data.nodeId,
-          }, data.error),
+          detail: serializeGenerationDetail(
+            {
+              canvasId: data.canvasId,
+              nodeId: data.nodeId,
+            },
+            data.error,
+          ),
         }),
       );
     });
@@ -184,7 +209,29 @@ export function useCanvasGeneration(): {
       const { canvases } = state.canvas;
       const activeCanvas = canvases.entities[activeCanvasId];
       if (activeCanvas && api.canvas?.save) {
-        await api.canvas.save(activeCanvas).catch(() => {});
+        try {
+          await api.canvas.save(activeCanvas);
+        } catch (saveError) {
+          dispatch(
+            addLog({
+              level: 'error',
+              category: 'persistence',
+              message: 'Pre-generation canvas save failed — aborting generation',
+              detail:
+                saveError instanceof Error
+                  ? (saveError.stack ?? saveError.message)
+                  : String(saveError),
+            }),
+          );
+          dispatch(
+            enqueueToast({
+              title: 'Canvas save failed',
+              message: 'Generation aborted.',
+              variant: 'error',
+            }),
+          );
+          return;
+        }
       }
 
       dispatch(
@@ -237,14 +284,17 @@ export function useCanvasGeneration(): {
             level: 'error',
             category: 'generation',
             message: 'Canvas generation failed',
-            detail: serializeGenerationDetail({
-              canvasId: activeCanvasId,
-              nodeId,
-              providerId,
-              providerConfig,
-              variantCount,
-              seed,
-            }, error),
+            detail: serializeGenerationDetail(
+              {
+                canvasId: activeCanvasId,
+                nodeId,
+                providerId,
+                providerConfig,
+                variantCount,
+                seed,
+              },
+              error,
+            ),
           }),
         );
         throw error;
@@ -292,10 +342,13 @@ export function useCanvasGeneration(): {
             level: 'error',
             category: 'generation',
             message: 'Canvas generation cancel failed',
-            detail: serializeGenerationDetail({
-              canvasId: activeCanvasId,
-              nodeId,
-            }, error),
+            detail: serializeGenerationDetail(
+              {
+                canvasId: activeCanvasId,
+                nodeId,
+              },
+              error,
+            ),
           }),
         );
         throw error;
@@ -316,7 +369,12 @@ export function useCanvasGeneration(): {
       const state = reduxStore.getState();
       const providerConfig = resolveNodeProviderConfig(state, activeCanvasId, nodeId, providerId);
       try {
-        const result = await api.canvasGeneration.estimateCost(activeCanvasId, nodeId, providerId, providerConfig);
+        const result = await api.canvasGeneration.estimateCost(
+          activeCanvasId,
+          nodeId,
+          providerId,
+          providerConfig,
+        );
         dispatch(setNodeEstimatedCost({ id: nodeId, estimatedCost: result.estimatedCost }));
         dispatch(
           addLog({
@@ -340,12 +398,15 @@ export function useCanvasGeneration(): {
             level: 'error',
             category: 'generation',
             message: 'Canvas generation cost estimate failed',
-            detail: serializeGenerationDetail({
-              canvasId: activeCanvasId,
-              nodeId,
-              providerId,
-              providerConfig,
-            }, error),
+            detail: serializeGenerationDetail(
+              {
+                canvasId: activeCanvasId,
+                nodeId,
+                providerId,
+                providerConfig,
+              },
+              error,
+            ),
           }),
         );
         throw error;

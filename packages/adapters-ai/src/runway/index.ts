@@ -11,13 +11,9 @@ import type {
 } from '@lucid-fin/contracts';
 import { JobStatus as JobStatusEnum } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError } from '../error-utils.js';
-import { fetchWithTimeout } from '../fetch-utils.js';
-import {
-  parseError,
-  parseRunwayResponse,
-  parseRunwayTask,
-  toRunwayRequest,
-} from './mapper.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
+import { parseError, parseRunwayResponse, parseRunwayTask, toRunwayRequest } from './mapper.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class RunwayAdapter implements AIProviderAdapter {
   readonly id = 'runway-gen4';
@@ -39,7 +35,10 @@ export class RunwayAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
     if (typeof options?.pollIntervalMs === 'number') {
       this.pollIntervalMs = Math.max(0, options.pollIntervalMs);
     }
@@ -52,7 +51,8 @@ export class RunwayAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok || res.status === 404;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -89,7 +89,10 @@ export class RunwayAdapter implements AIProviderAdapter {
     };
   }
 
-  async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<GenerationResult> {
+  async subscribe(
+    req: GenerationRequest,
+    callbacks: SubscribeCallbacks,
+  ): Promise<GenerationResult> {
     const initial = await this.generate(req);
     const taskId = String(initial.metadata?.taskId ?? '');
     if (!taskId) {

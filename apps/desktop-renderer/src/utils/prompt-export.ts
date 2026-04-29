@@ -63,9 +63,7 @@ export function buildExternalAIPrompt(
   }
 
   // Connected nodes
-  const connectedEdges = canvas.edges.filter(
-    (e) => e.source === nodeId || e.target === nodeId,
-  );
+  const connectedEdges = canvas.edges.filter((e) => e.source === nodeId || e.target === nodeId);
   if (connectedEdges.length > 0) {
     lines.push('');
     lines.push('## Connected Nodes');
@@ -83,7 +81,9 @@ export function buildExternalAIPrompt(
   // Instructions for external AI
   lines.push('');
   lines.push('## Instructions');
-  lines.push('Please generate a detailed prompt for this node. You can output in this tagged format so I can paste it back:');
+  lines.push(
+    'Please generate a detailed prompt for this node. You can output in this tagged format so I can paste it back:',
+  );
   lines.push('```');
   if (isVisualMedia(node.type)) {
     lines.push('[prompt] Your detailed generation prompt here...');

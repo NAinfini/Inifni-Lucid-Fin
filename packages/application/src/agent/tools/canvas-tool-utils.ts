@@ -13,7 +13,17 @@ import {
 } from '@lucid-fin/contracts';
 import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
 import type { AgentTool } from '../tool-registry.js';
-export { ok, fail, requireString, requireText, requireNumber, requireStringArray, requireBoolean, TypedToolError, formatValidationError } from './tool-result-helpers.js';
+export {
+  ok,
+  fail,
+  requireString,
+  requireText,
+  requireNumber,
+  requireStringArray,
+  requireBoolean,
+  TypedToolError,
+  formatValidationError,
+} from './tool-result-helpers.js';
 
 export interface CanvasToolDeps {
   getCanvas: (canvasId: string) => Promise<Canvas>;
@@ -34,11 +44,21 @@ export interface CanvasToolDeps {
   cancelGeneration: (canvasId: string, nodeId: string) => Promise<void>;
   deleteNode: (canvasId: string, nodeId: string) => Promise<void>;
   deleteEdge: (canvasId: string, edgeId: string) => Promise<void>;
-  updateNodeData: (canvasId: string, nodeId: string, data: Record<string, unknown>) => Promise<void>;
-  listPresets: (category?: PresetCategory) => Promise<import('@lucid-fin/contracts').PresetDefinition[]>;
-  savePreset: (preset: import('@lucid-fin/contracts').PresetDefinition) => Promise<import('@lucid-fin/contracts').PresetDefinition>;
+  updateNodeData: (
+    canvasId: string,
+    nodeId: string,
+    data: Record<string, unknown>,
+  ) => Promise<void>;
+  listPresets: (
+    category?: PresetCategory,
+  ) => Promise<import('@lucid-fin/contracts').PresetDefinition[]>;
+  savePreset: (
+    preset: import('@lucid-fin/contracts').PresetDefinition,
+  ) => Promise<import('@lucid-fin/contracts').PresetDefinition>;
   listShotTemplates: () => Promise<import('@lucid-fin/contracts').ShotTemplate[]>;
-  saveShotTemplate: (template: import('@lucid-fin/contracts').ShotTemplate) => Promise<import('@lucid-fin/contracts').ShotTemplate>;
+  saveShotTemplate: (
+    template: import('@lucid-fin/contracts').ShotTemplate,
+  ) => Promise<import('@lucid-fin/contracts').ShotTemplate>;
   deleteShotTemplate: (templateId: string) => Promise<void>;
   importWorkflow: (canvasId: string, json: string) => Promise<Canvas>;
   exportWorkflow: (canvasId: string) => Promise<string>;
@@ -66,7 +86,10 @@ export interface CanvasToolDeps {
     providerId: string;
     mode: string;
   }>;
-  addNote: (canvasId: string, content: string) => Promise<import('@lucid-fin/contracts').CanvasNote>;
+  addNote: (
+    canvasId: string,
+    content: string,
+  ) => Promise<import('@lucid-fin/contracts').CanvasNote>;
   getRecentLogs: (
     level?: string,
     category?: string,
@@ -95,7 +118,9 @@ export type CanvasToolResult =
 export const CANVAS_CONTEXT = ['canvas'];
 export type TrackMap = Record<PresetCategory, PresetTrack>;
 
-export function requireDirection(args: Record<string, unknown>): 'horizontal' | 'vertical' | 'auto' {
+export function requireDirection(
+  args: Record<string, unknown>,
+): 'horizontal' | 'vertical' | 'auto' {
   const value = args.direction;
   if (value === 'horizontal' || value === 'vertical' || value === 'auto') {
     return value;
@@ -118,7 +143,13 @@ export function requirePosition(args: Record<string, unknown>): { x: number; y: 
 
 export function requireCanvasNodeType(args: Record<string, unknown>): CanvasNode['type'] {
   const value = args.type;
-  if (value === 'text' || value === 'image' || value === 'video' || value === 'audio' || value === 'backdrop') {
+  if (
+    value === 'text' ||
+    value === 'image' ||
+    value === 'video' ||
+    value === 'audio' ||
+    value === 'backdrop'
+  ) {
     return value;
   }
   throw new Error('type must be one of text, image, video, audio, or backdrop');
@@ -133,9 +164,20 @@ export function requirePresetCategory(args: Record<string, unknown>): PresetCate
 }
 
 export const CAMERA_DIRECTIONS: CameraDirection[] = [
-  'front', 'back', 'left', 'right', 'above', 'below',
-  'over-shoulder-left', 'over-shoulder-right', 'dutch-angle', 'pov',
-  'tracking-behind', 'worms-eye', 'high-angle', 'profile',
+  'front',
+  'back',
+  'left',
+  'right',
+  'above',
+  'below',
+  'over-shoulder-left',
+  'over-shoulder-right',
+  'dutch-angle',
+  'pov',
+  'tracking-behind',
+  'worms-eye',
+  'high-angle',
+  'profile',
 ];
 
 export function clampIntensity(value: unknown): number | undefined {
@@ -157,7 +199,9 @@ export function requireCameraDirection(value: unknown, key: string): CameraDirec
   return direction;
 }
 
-export function requireBackdropBorderStyle(args: Record<string, unknown>): 'dashed' | 'solid' | 'dotted' {
+export function requireBackdropBorderStyle(
+  args: Record<string, unknown>,
+): 'dashed' | 'solid' | 'dotted' {
   const value = args.borderStyle;
   if (value === 'dashed' || value === 'solid' || value === 'dotted') {
     return value;
@@ -218,7 +262,10 @@ export function requireCanvasNodeById(canvas: Canvas, nodeId: string): CanvasNod
   return node;
 }
 
-export function selectEdgeHandles(sourceNode: CanvasNode, targetNode: CanvasNode): Pick<CanvasEdge, 'sourceHandle' | 'targetHandle'> {
+export function selectEdgeHandles(
+  sourceNode: CanvasNode,
+  targetNode: CanvasNode,
+): Pick<CanvasEdge, 'sourceHandle' | 'targetHandle'> {
   const sourceCenter = {
     x: sourceNode.position.x + (sourceNode.width ?? 0) / 2,
     y: sourceNode.position.y + (sourceNode.height ?? 0) / 2,
@@ -290,9 +337,7 @@ export function normalizeTrackOrders(track: PresetTrack): void {
   });
 }
 
-export function requirePresetTrackEntryChanges(
-  args: Record<string, unknown>,
-): {
+export function requirePresetTrackEntryChanges(args: Record<string, unknown>): {
   intensity?: number;
   presetId?: string;
   direction?: CameraDirection;
@@ -447,10 +492,7 @@ export function buildDuplicatedNodes(canvas: Canvas, nodeIds: string[]): CanvasN
  * Places nodes in type-based columns: image (col 0) | video (col 1) | text/audio (col 2).
  * Within each column, stacks below the lowest existing node of that column.
  */
-export function autoPositionNode(
-  canvas: Canvas,
-  type: string,
-): { x: number; y: number } {
+export function autoPositionNode(canvas: Canvas, type: string): { x: number; y: number } {
   const colGap = 360;
   const rowGap = 280;
 
@@ -473,10 +515,7 @@ export function autoPositionNode(
   }
 
   // Stack below the lowest node in this column
-  const maxY = sameColNodes.reduce(
-    (max, n) => Math.max(max, n.position.y + (n.height ?? 200)),
-    0,
-  );
+  const maxY = sameColNodes.reduce((max, n) => Math.max(max, n.position.y + (n.height ?? 200)), 0);
   const colX = sameColNodes[0].position.x;
   return { x: colX, y: maxY + (rowGap - (sameColNodes[0].height ?? 200)) };
 }
@@ -541,9 +580,7 @@ export async function layoutCanvasNodes(
   const spacingY = 250;
   const positions = canvas.nodes.map((node, index) => {
     const position =
-      direction === 'horizontal'
-        ? { x: index * spacingX, y: 0 }
-        : { x: 0, y: index * spacingY };
+      direction === 'horizontal' ? { x: index * spacingX, y: 0 } : { x: 0, y: index * spacingY };
     return { id: node.id, position };
   });
 

@@ -2,10 +2,7 @@ import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { localizeSettingsCategory, localizeSkillName, t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
-import {
-  getDefaultSkillName,
-  type SkillDefinition,
-} from '../../store/slices/skillDefinitions.js';
+import { getDefaultSkillName, type SkillDefinition } from '../../store/slices/skillDefinitions.js';
 
 interface SettingsGuidesSectionProps {
   skills: SkillDefinition[];

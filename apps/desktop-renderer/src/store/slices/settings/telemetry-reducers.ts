@@ -97,8 +97,12 @@ export function recordSession(
   if (action.payload.cancelled) state.usage.cancelledSessions += 1;
   if (action.payload.failed) state.usage.failedSessions += 1;
   const n = state.usage.sessionCount;
-  state.usage.avgToolsPerSession = state.usage.avgToolsPerSession + (action.payload.toolCount - state.usage.avgToolsPerSession) / n;
-  state.usage.avgTurnsPerSession = state.usage.avgTurnsPerSession + (action.payload.turnCount - state.usage.avgTurnsPerSession) / n;
+  state.usage.avgToolsPerSession =
+    state.usage.avgToolsPerSession +
+    (action.payload.toolCount - state.usage.avgToolsPerSession) / n;
+  state.usage.avgTurnsPerSession =
+    state.usage.avgTurnsPerSession +
+    (action.payload.turnCount - state.usage.avgTurnsPerSession) / n;
   state.usage.dailySessions[today] = (state.usage.dailySessions[today] ?? 0) + 1;
 }
 
@@ -130,11 +134,15 @@ export function recordProviderRequest(
 ) {
   const { providerId, latencyMs, error } = action.payload;
   const existing = state.usage.providerUsage[providerId] ?? {
-    requestCount: 0, errorCount: 0, avgLatencyMs: 0, lastUsed: '',
+    requestCount: 0,
+    errorCount: 0,
+    avgLatencyMs: 0,
+    lastUsed: '',
   };
   existing.requestCount += 1;
   if (error) existing.errorCount += 1;
-  existing.avgLatencyMs = existing.avgLatencyMs + (latencyMs - existing.avgLatencyMs) / existing.requestCount;
+  existing.avgLatencyMs =
+    existing.avgLatencyMs + (latencyMs - existing.avgLatencyMs) / existing.requestCount;
   existing.lastUsed = new Date().toISOString();
   state.usage.providerUsage[providerId] = existing;
 }
@@ -165,10 +173,7 @@ export function updateDailyActive(
   state.usage.lastActiveDate = action.payload.date;
 }
 
-export function recordPrompt(
-  state: SettingsState,
-  action: PayloadAction<{ wordCount: number }>,
-) {
+export function recordPrompt(state: SettingsState, action: PayloadAction<{ wordCount: number }>) {
   const today = new Date().toISOString().slice(0, 10);
   state.usage.totalPromptsWritten += 1;
   state.usage.totalPromptWords += action.payload.wordCount;
@@ -184,10 +189,18 @@ export function recordEntityCreate(
 ) {
   const today = new Date().toISOString().slice(0, 10);
   switch (action.payload.entityType) {
-    case 'character': state.usage.charactersCreated += 1; break;
-    case 'location': state.usage.locationsCreated += 1; break;
-    case 'equipment': state.usage.equipmentCreated += 1; break;
-    case 'prop': state.usage.propsCreated += 1; break;
+    case 'character':
+      state.usage.charactersCreated += 1;
+      break;
+    case 'location':
+      state.usage.locationsCreated += 1;
+      break;
+    case 'equipment':
+      state.usage.equipmentCreated += 1;
+      break;
+    case 'prop':
+      state.usage.propsCreated += 1;
+      break;
   }
   state.usage.entitiesCreated += 1;
   state.usage.dailyEntityCreations[today] = (state.usage.dailyEntityCreations[today] ?? 0) + 1;
@@ -216,10 +229,7 @@ export function recordSceneCreate(state: SettingsState) {
   state.usage.totalScenesCreated += 1;
 }
 
-export function recordExport(
-  state: SettingsState,
-  action: PayloadAction<{ format: string }>,
-) {
+export function recordExport(state: SettingsState, action: PayloadAction<{ format: string }>) {
   const today = new Date().toISOString().slice(0, 10);
   state.usage.totalExports += 1;
   state.usage.exportsByFormat[action.payload.format] =
@@ -260,5 +270,6 @@ export function recordTokenUsage(
   existing.input += inputTokens;
   existing.output += outputTokens;
   state.usage.tokensByProvider[providerId] = existing;
-  state.usage.dailyTokensUsed[today] = (state.usage.dailyTokensUsed[today] ?? 0) + inputTokens + outputTokens;
+  state.usage.dailyTokensUsed[today] =
+    (state.usage.dailyTokensUsed[today] ?? 0) + inputTokens + outputTokens;
 }

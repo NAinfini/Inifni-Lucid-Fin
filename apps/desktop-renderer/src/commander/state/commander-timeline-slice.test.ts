@@ -6,18 +6,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  commanderTimelineSlice,
-  appendEvent,
-  resetTimeline,
-} from './commander-timeline-slice.js';
+import { commanderTimelineSlice, appendEvent, resetTimeline } from './commander-timeline-slice.js';
 import type { TimelineEvent } from '@lucid-fin/contracts';
 
-function mkEvent(
-  runId: string,
-  seq: number,
-  overrides?: Partial<TimelineEvent>,
-): TimelineEvent {
+function mkEvent(runId: string, seq: number, overrides?: Partial<TimelineEvent>): TimelineEvent {
   return {
     kind: 'assistant_text',
     runId,
@@ -34,7 +26,10 @@ describe('commanderTimelineSlice', () => {
   it('appends monotonically and indexes by runId', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
-    state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'hi' } as never)));
+    state = reducer(
+      state,
+      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'hi' } as never)),
+    );
     state = reducer(state, appendEvent(mkEvent('r1', 1)));
     state = reducer(state, appendEvent(mkEvent('r1', 2)));
 
@@ -58,7 +53,10 @@ describe('commanderTimelineSlice', () => {
   it('clears currentRunId on run_end', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
-    state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)));
+    state = reducer(
+      state,
+      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+    );
     expect(state.currentRunId).toBe('r1');
     state = reducer(
       state,
@@ -70,7 +68,10 @@ describe('commanderTimelineSlice', () => {
   it('clears currentRunId on cancelled', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
-    state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)));
+    state = reducer(
+      state,
+      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+    );
     state = reducer(
       state,
       appendEvent(
@@ -88,9 +89,15 @@ describe('commanderTimelineSlice', () => {
   it('keeps two runs independent in byRunId', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
-    state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'a' } as never)));
+    state = reducer(
+      state,
+      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'a' } as never)),
+    );
     state = reducer(state, appendEvent(mkEvent('r1', 1)));
-    state = reducer(state, appendEvent(mkEvent('r2', 0, { kind: 'run_start', intent: 'b' } as never)));
+    state = reducer(
+      state,
+      appendEvent(mkEvent('r2', 0, { kind: 'run_start', intent: 'b' } as never)),
+    );
     state = reducer(state, appendEvent(mkEvent('r2', 1)));
 
     expect(state.byRunId['r1']).toEqual([0, 1]);
@@ -100,7 +107,10 @@ describe('commanderTimelineSlice', () => {
   it('resetTimeline wipes everything', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
-    state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)));
+    state = reducer(
+      state,
+      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+    );
     state = reducer(state, resetTimeline());
     expect(state.events).toHaveLength(0);
     expect(state.byRunId).toEqual({});
@@ -111,7 +121,10 @@ describe('commanderTimelineSlice', () => {
     it('synthesizes tool_result with RUN_ENDED_BEFORE_RESULT on run_end for pending tool_calls', () => {
       const reducer = commanderTimelineSlice.reducer;
       let state = reducer(undefined, { type: '@@INIT' });
-      state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)));
+      state = reducer(
+        state,
+        appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+      );
       state = reducer(
         state,
         appendEvent(
@@ -165,7 +178,10 @@ describe('commanderTimelineSlice', () => {
     it('also fires on cancelled terminal event', () => {
       const reducer = commanderTimelineSlice.reducer;
       let state = reducer(undefined, { type: '@@INIT' });
-      state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)));
+      state = reducer(
+        state,
+        appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+      );
       state = reducer(
         state,
         appendEvent(
@@ -197,7 +213,10 @@ describe('commanderTimelineSlice', () => {
     it('does nothing when every tool_call already has a tool_result', () => {
       const reducer = commanderTimelineSlice.reducer;
       let state = reducer(undefined, { type: '@@INIT' });
-      state = reducer(state, appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)));
+      state = reducer(
+        state,
+        appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+      );
       state = reducer(
         state,
         appendEvent(

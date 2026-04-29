@@ -34,7 +34,8 @@ describe('AppShell drag regions', () => {
     const titleBar = screen.getAllByText('Lucid Fin')[0].parentElement as HTMLElement;
     const main = screen.getByRole('main') as HTMLElement;
 
-    const titleBarRegion = (titleBar.style as unknown as { WebkitAppRegion?: string }).WebkitAppRegion;
+    const titleBarRegion = (titleBar.style as unknown as { WebkitAppRegion?: string })
+      .WebkitAppRegion;
     const mainRegion = (main.style as unknown as { WebkitAppRegion?: string }).WebkitAppRegion;
 
     expect(titleBarRegion).toBe('drag');

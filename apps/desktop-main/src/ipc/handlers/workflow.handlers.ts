@@ -3,12 +3,9 @@ import type { WorkflowEngine } from '@lucid-fin/application';
 import log from '../../logger.js';
 
 export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: WorkflowEngine): void {
-  ipcMain.handle(
-    'workflow:list',
-    async (_event, args?: { status?: string }) => {
-      return workflowEngine.list(args);
-    },
-  );
+  ipcMain.handle('workflow:list', async (_event, args?: { status?: string }) => {
+    return workflowEngine.list(args);
+  });
 
   ipcMain.handle('workflow:get', async (_event, args: { id: string }) => {
     const workflow = workflowEngine.get(args.id);

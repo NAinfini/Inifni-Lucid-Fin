@@ -1,10 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from './Dialog.js';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from './Dialog.js';
 import { Button } from './Button.js';
 import { t } from '../../i18n.js';
 
@@ -44,7 +39,12 @@ export function useConfirm() {
   }, []);
 
   const ConfirmDialogComponent = (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) handleCancel(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) handleCancel();
+      }}
+    >
       <DialogContent className="max-w-sm">
         <DialogTitle className="text-sm font-medium">{options.title}</DialogTitle>
         {options.description ? (
@@ -55,11 +55,7 @@ export function useConfirm() {
           <DialogDescription className="sr-only">Confirm action</DialogDescription>
         )}
         <div className="flex justify-end gap-2 pt-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCancel}
-          >
+          <Button variant="outline" size="sm" onClick={handleCancel}>
             {options.cancelLabel ?? t('dialog.cancel')}
           </Button>
           <Button

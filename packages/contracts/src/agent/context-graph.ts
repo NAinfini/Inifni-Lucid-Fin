@@ -146,9 +146,7 @@ export interface CompactionKeepRules {
   sessionSummaries: boolean;
 }
 
-export type CompactStrategy =
-  | { kind: 'identity-dedup' }
-  | { kind: 'summarize-oldest' };
+export type CompactStrategy = { kind: 'identity-dedup' } | { kind: 'summarize-oldest' };
 
 export interface CompactionPolicy {
   tokenBudget: number;

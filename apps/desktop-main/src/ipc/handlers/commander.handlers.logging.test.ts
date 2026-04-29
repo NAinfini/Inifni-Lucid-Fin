@@ -119,10 +119,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => []) } as never,
@@ -142,12 +143,15 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-      }),
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+        },
+      ),
     ).resolves.toBeUndefined();
 
     expect(logger.error).toHaveBeenCalledWith(
@@ -202,10 +206,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => [selectedAdapter, fallbackAdapter]) } as never,
@@ -225,20 +230,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'openai',
-          name: 'OpenAI',
-          baseUrl: 'https://api.openai.com/v1',
-          model: 'gpt-5.4',
-          protocol: 'openai-compatible',
-          authStyle: 'bearer',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'openai',
+            name: 'OpenAI',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-5.4',
+            protocol: 'openai-compatible',
+            authStyle: 'bearer',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(selectedAdapter.validate).not.toHaveBeenCalled();
@@ -274,10 +282,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => [fallbackAdapter]) } as never,
@@ -297,20 +306,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'local',
-          name: 'Local',
-          baseUrl: 'http://127.0.0.1:37123/v1',
-          model: 'gpt-5.4',
-          protocol: 'anthropic',
-          authStyle: 'x-api-key',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'local',
+            name: 'Local',
+            baseUrl: 'http://127.0.0.1:37123/v1',
+            model: 'gpt-5.4',
+            protocol: 'anthropic',
+            authStyle: 'x-api-key',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(buildRuntimeLLMAdapter).toHaveBeenCalledWith(
@@ -350,10 +362,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => []) } as never,
@@ -373,20 +386,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'openai',
-          name: 'OpenAI',
-          baseUrl: '',
-          model: '',
-          protocol: 'openai-compatible',
-          authStyle: 'bearer',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'openai',
+            name: 'OpenAI',
+            baseUrl: '',
+            model: '',
+            protocol: 'openai-compatible',
+            authStyle: 'bearer',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(logger.warn).toHaveBeenCalledWith(
@@ -420,10 +436,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => []) } as never,
@@ -443,20 +460,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'openai',
-          name: 'OpenAI',
-          baseUrl: 'https://api.openai.com/v1',
-          model: 'gpt-5.4',
-          protocol: 'openai-compatible',
-          authStyle: 'bearer',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'openai',
+            name: 'OpenAI',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-5.4',
+            protocol: 'openai-compatible',
+            authStyle: 'bearer',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(logger.warn).toHaveBeenCalledWith(
@@ -508,12 +528,15 @@ describe('registerCommanderHandlers logging', () => {
 
     const chat = handlers.get('commander:chat');
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-      }),
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+        },
+      ),
     ).rejects.toThrow('Commander already has an active session');
   });
 
@@ -547,28 +570,37 @@ describe('registerCommanderHandlers logging', () => {
 
     await expect(chat?.({}, null as never)).rejects.toThrow('canvasId is required');
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: 'bad-history',
-        selectedNodeIds: [],
-      }),
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: 'bad-history',
+          selectedNodeIds: [],
+        },
+      ),
     ).rejects.toThrow('history must be an array');
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: 'bad-selected',
-      }),
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: 'bad-selected',
+        },
+      ),
     ).rejects.toThrow('selectedNodeIds must be an array');
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [{ role: 'system', content: 'bad' }],
-        selectedNodeIds: [],
-      }),
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [{ role: 'system', content: 'bad' }],
+          selectedNodeIds: [],
+        },
+      ),
     ).rejects.toThrow('history entries must contain a valid role and content');
   });
 
@@ -587,10 +619,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => []) } as never,
@@ -610,20 +643,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'local',
-          name: 'Local',
-          baseUrl: 'http://127.0.0.1:37123/v1',
-          model: 'gpt-5.4',
-          protocol: 'openai-compatible',
-          authStyle: 'bearer',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'local',
+            name: 'Local',
+            baseUrl: 'http://127.0.0.1:37123/v1',
+            model: 'gpt-5.4',
+            protocol: 'openai-compatible',
+            authStyle: 'bearer',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(send).toHaveBeenCalledWith(
@@ -652,7 +688,13 @@ describe('registerCommanderHandlers logging', () => {
       async (_message, _context, rawEmit, options) => {
         let seq = 0;
         const emit = (body: Record<string, unknown>) =>
-          rawEmit({ ...body, runId: 'run-test', step: 1, seq: seq++, emittedAt: Date.now() } as never);
+          rawEmit({
+            ...body,
+            runId: 'run-test',
+            step: 1,
+            seq: seq++,
+            emittedAt: Date.now(),
+          } as never);
         options?.onLLMRequest?.({
           step: 1,
           toolCount: 4,
@@ -742,10 +784,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => []) } as never,
@@ -765,20 +808,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'local',
-          name: 'Local',
-          baseUrl: 'http://127.0.0.1:37123/v1',
-          model: 'gpt-5.4',
-          protocol: 'openai-compatible',
-          authStyle: 'none',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'local',
+            name: 'Local',
+            baseUrl: 'http://127.0.0.1:37123/v1',
+            model: 'gpt-5.4',
+            protocol: 'openai-compatible',
+            authStyle: 'none',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(send).toHaveBeenCalledWith(
@@ -886,16 +932,15 @@ describe('registerCommanderHandlers logging', () => {
         toolCallId: 'call-5',
       }),
     );
-
   });
 
   it('cleans up the running commander session when orchestrator execution fails', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
     const send = vi.fn();
 
-    vi
-      .spyOn(AgentOrchestrator.prototype, 'execute')
-      .mockRejectedValueOnce(new Error('LLM transport failed'));
+    vi.spyOn(AgentOrchestrator.prototype, 'execute').mockRejectedValueOnce(
+      new Error('LLM transport failed'),
+    );
 
     registerCommanderHandlers(
       {
@@ -903,10 +948,11 @@ describe('registerCommanderHandlers logging', () => {
           handlers.set(channel, handler);
         },
       } as Parameters<typeof registerCommanderHandlers>[0],
-      () => ({
-        isDestroyed: () => false,
-        webContents: { send },
-      }) as never,
+      () =>
+        ({
+          isDestroyed: () => false,
+          webContents: { send },
+        }) as never,
       {
         adapterRegistry: { list: vi.fn(() => []), get: vi.fn() } as never,
         llmRegistry: { list: vi.fn(() => []) } as never,
@@ -926,20 +972,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'local',
-          name: 'Local',
-          baseUrl: 'http://127.0.0.1:37123/v1',
-          model: 'gpt-5.4',
-          protocol: 'openai-compatible',
-          authStyle: 'none',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'local',
+            name: 'Local',
+            baseUrl: 'http://127.0.0.1:37123/v1',
+            model: 'gpt-5.4',
+            protocol: 'openai-compatible',
+            authStyle: 'none',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(runningSessions.size).toBe(0);
@@ -964,12 +1013,17 @@ describe('registerCommanderHandlers logging', () => {
   it('does not emit commander stream payloads when the main window is unavailable', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
-    vi
-      .spyOn(AgentOrchestrator.prototype, 'execute')
-      .mockImplementationOnce(async (_message, _context, rawEmit) => {
+    vi.spyOn(AgentOrchestrator.prototype, 'execute').mockImplementationOnce(
+      async (_message, _context, rawEmit) => {
         let seq = 0;
         const emit = (body: Record<string, unknown>) =>
-          rawEmit({ ...body, runId: 'run-test', step: 1, seq: seq++, emittedAt: Date.now() } as never);
+          rawEmit({
+            ...body,
+            runId: 'run-test',
+            step: 1,
+            seq: seq++,
+            emittedAt: Date.now(),
+          } as never);
         emit({
           kind: 'assistant_text',
           content: 'assistant response',
@@ -980,7 +1034,8 @@ describe('registerCommanderHandlers logging', () => {
           status: 'completed',
         });
         return { content: 'assistant response', toolCalls: [], finishReason: 'stop' } as never;
-      });
+      },
+    );
 
     registerCommanderHandlers(
       {
@@ -1008,20 +1063,23 @@ describe('registerCommanderHandlers logging', () => {
     expect(chat).toBeTypeOf('function');
 
     await expect(
-      chat?.({}, {
-        canvasId: 'canvas-1',
-        message: 'hello',
-        history: [],
-        selectedNodeIds: [],
-        customLLMProvider: {
-          id: 'local',
-          name: 'Local',
-          baseUrl: 'http://127.0.0.1:37123/v1',
-          model: 'gpt-5.4',
-          protocol: 'openai-compatible',
-          authStyle: 'none',
+      chat?.(
+        {},
+        {
+          canvasId: 'canvas-1',
+          message: 'hello',
+          history: [],
+          selectedNodeIds: [],
+          customLLMProvider: {
+            id: 'local',
+            name: 'Local',
+            baseUrl: 'http://127.0.0.1:37123/v1',
+            model: 'gpt-5.4',
+            protocol: 'openai-compatible',
+            authStyle: 'none',
+          },
         },
-      }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(logger.info).toHaveBeenCalledWith(

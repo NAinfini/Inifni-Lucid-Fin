@@ -71,7 +71,8 @@ function matchesTemplateTracks(trackSet: PresetTrackSet, template: ShotTemplate)
     .sort();
 
   if (nodeCategories.length !== templateCategories.length) return false;
-  if (nodeCategories.some((category, index) => category !== templateCategories[index])) return false;
+  if (nodeCategories.some((category, index) => category !== templateCategories[index]))
+    return false;
 
   return templateCategories.every((category) => {
     const nodeTrack = trackSet[category as keyof PresetTrackSet];
@@ -119,8 +120,12 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
   wordsLabel,
   suggestedTemplates,
 }: InspectorCreativeTabProps) {
-  const visibleBuiltInTemplates = builtInTemplates.filter((template) => !hiddenTemplateIds.includes(template.id));
-  const visibleCustomTemplates = customTemplates.filter((template) => !hiddenTemplateIds.includes(template.id));
+  const visibleBuiltInTemplates = builtInTemplates.filter(
+    (template) => !hiddenTemplateIds.includes(template.id),
+  );
+  const visibleCustomTemplates = customTemplates.filter(
+    (template) => !hiddenTemplateIds.includes(template.id),
+  );
   const currentTrackTemplate =
     generationData &&
     'presetTracks' in generationData &&
@@ -131,12 +136,17 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
         )
       : undefined;
   const currentTemplateLabel =
-    generationData && ('appliedShotTemplateName' in generationData || 'appliedShotTemplateId' in generationData)
+    generationData &&
+    ('appliedShotTemplateName' in generationData || 'appliedShotTemplateId' in generationData)
       ? (() => {
           const templateId =
-            'appliedShotTemplateId' in generationData ? generationData.appliedShotTemplateId : undefined;
+            'appliedShotTemplateId' in generationData
+              ? generationData.appliedShotTemplateId
+              : undefined;
           const templateName =
-            'appliedShotTemplateName' in generationData ? generationData.appliedShotTemplateName : undefined;
+            'appliedShotTemplateName' in generationData
+              ? generationData.appliedShotTemplateName
+              : undefined;
           if (!templateId && !templateName) return undefined;
           const builtInTemplate = templateId
             ? builtInTemplates.find((template) => template.id === templateId)
@@ -188,26 +198,29 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
             placeholder={t('inspector.promptPlaceholder')}
           />
           {/* Suggested templates — shown when prompt is empty */}
-          {!promptValue && !generationData.prompt && suggestedTemplates && suggestedTemplates.length > 0 && (
-            <div className="mt-1.5 space-y-1">
-              <span className="text-[10px] text-muted-foreground">
-                {t('inspector.suggestedTemplates')}
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {suggestedTemplates.slice(0, 6).map((tpl) => (
-                  <button
-                    key={tpl.id}
-                    type="button"
-                    className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => onApplyTemplate(tpl)}
-                    title={localizeShotTemplateDescription(tpl.id, tpl.description)}
-                  >
-                    {localizeShotTemplateName(tpl.id, tpl.name)}
-                  </button>
-                ))}
+          {!promptValue &&
+            !generationData.prompt &&
+            suggestedTemplates &&
+            suggestedTemplates.length > 0 && (
+              <div className="mt-1.5 space-y-1">
+                <span className="text-[10px] text-muted-foreground">
+                  {t('inspector.suggestedTemplates')}
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {suggestedTemplates.slice(0, 6).map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/40 transition-colors"
+                      onClick={() => onApplyTemplate(tpl)}
+                      title={localizeShotTemplateDescription(tpl.id, tpl.description)}
+                    >
+                      {localizeShotTemplateName(tpl.id, tpl.name)}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       )}
 
@@ -223,7 +236,12 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
               className="w-full flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5 text-xs hover:bg-muted/50 transition-colors"
               onClick={onToggleTemplateDropdown}
             >
-              <span className={cn('text-[11px]', currentTemplateLabel ? 'text-foreground' : 'text-muted-foreground')}>
+              <span
+                className={cn(
+                  'text-[11px]',
+                  currentTemplateLabel ? 'text-foreground' : 'text-muted-foreground',
+                )}
+              >
                 {currentTemplateLabel ?? t('shotTemplate.selectTemplate')}
               </span>
               <ChevronDown className="w-3 h-3 text-muted-foreground" />
@@ -264,7 +282,9 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
                       >
                         <div className="text-[11px] font-medium">{template.name}</div>
                         {template.description ? (
-                          <div className="text-[10px] text-muted-foreground truncate">{template.description}</div>
+                          <div className="text-[10px] text-muted-foreground truncate">
+                            {template.description}
+                          </div>
                         ) : null}
                       </button>
                     ))}
@@ -300,7 +320,9 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] text-muted-foreground">{t('inspector.backdrop.color')}</label>
+              <label className="text-[11px] text-muted-foreground">
+                {t('inspector.backdrop.color')}
+              </label>
               <div className="flex items-center gap-2">
                 <input
                   type="color"
@@ -335,7 +357,9 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">{t('inspector.backdrop.opacity')}</label>
+              <label className="text-[11px] text-muted-foreground">
+                {t('inspector.backdrop.opacity')}
+              </label>
               <div className="flex items-center gap-2">
                 <CommitSlider
                   min={5}
@@ -352,7 +376,9 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">{t('inspector.backdrop.borderStyle')}</label>
+              <label className="text-[11px] text-muted-foreground">
+                {t('inspector.backdrop.borderStyle')}
+              </label>
               <div className="flex items-center gap-1">
                 {(['dashed', 'solid', 'dotted'] as const).map((style) => (
                   <button
@@ -372,7 +398,9 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-muted-foreground">{t('inspector.backdrop.titleSize')}</label>
+              <label className="text-[11px] text-muted-foreground">
+                {t('inspector.backdrop.titleSize')}
+              </label>
               <div className="flex items-center gap-1">
                 {(['sm', 'md', 'lg'] as const).map((size) => (
                   <button
@@ -415,7 +443,9 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
               {t('inspector.backdrop.autoArrange')}
             </button>
 
-            <div className="text-[10px] text-muted-foreground/70 italic">{t('inspector.backdrop.collapseHint')}</div>
+            <div className="text-[10px] text-muted-foreground/70 italic">
+              {t('inspector.backdrop.collapseHint')}
+            </div>
           </div>
         </>
       ) : null}

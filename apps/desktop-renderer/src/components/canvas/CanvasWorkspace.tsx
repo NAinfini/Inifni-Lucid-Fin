@@ -48,7 +48,12 @@ import {
   toggleSearchPanel,
   toggleSnapToGrid,
 } from '../../store/slices/ui.js';
-import { recordUndo, recordRedo, recordShotCreate, recordProjectActivity } from '../../store/slices/settings.js';
+import {
+  recordUndo,
+  recordRedo,
+  recordShotCreate,
+  recordProjectActivity,
+} from '../../store/slices/settings.js';
 import { canUndo, canRedo } from '../../store/middleware/undo.js';
 import { enqueueToast } from '../../store/slices/toast.js';
 import type { NodeKind } from '@lucid-fin/contracts';
@@ -65,7 +70,11 @@ import { VideoCloneDialog } from './VideoCloneDialog.js';
 import { EditView } from './views/EditView.js';
 import { AudioView } from './views/AudioView.js';
 import { MaterialsView } from './views/MaterialsView.js';
-import { CanvasContextMenu, setContextMenuPosition, type AlignDirection } from './CanvasContextMenu.js';
+import {
+  CanvasContextMenu,
+  setContextMenuPosition,
+  type AlignDirection,
+} from './CanvasContextMenu.js';
 import { useCanvasGeneration } from '../../hooks/useCanvasGeneration.js';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard.js';
 import { useCanvasDragDrop } from '../../hooks/useCanvasDragDrop.js';
@@ -74,11 +83,7 @@ import { getAPI } from '../../utils/api.js';
 import { downloadWorkflowDocument } from '../../utils/workflowExport.js';
 import { materializeImportedCanvas, readWorkflowDocument } from '../../utils/workflowImport.js';
 import { t } from '../../i18n.js';
-import {
-  buildClipboardPayload,
-  parseClipboardPayload,
-  minimapNodeColor,
-} from './canvas-utils.js';
+import { buildClipboardPayload, parseClipboardPayload, minimapNodeColor } from './canvas-utils.js';
 import { useFlowData, applyNodeChanges } from './useFlowData.js';
 import { useCanvasNodeCallbacks } from './useCanvasNodeCallbacks.js';
 import { useCanvasEdgeCallbacks } from './useCanvasEdgeCallbacks.js';
@@ -172,18 +177,11 @@ export function CanvasWorkspace() {
   const edgeCallbacks = useCanvasEdgeCallbacks();
 
   // Dependency highlight focus
-  const dependencyFocusNodeId = depHighlightLocked
-    ? selectedNodeIds[0] ?? null
-    : null;
+  const dependencyFocusNodeId = depHighlightLocked ? (selectedNodeIds[0] ?? null) : null;
 
   // Flow data: DTO→ReactFlow mapping, caching, search, dependency graph
-  const {
-    appliedNodes,
-    appliedEdges,
-    setAppliedNodes,
-    matchingNodeIds,
-    matchedNodeIdsArray,
-  } = useFlowData({ dependencyFocusNodeId });
+  const { appliedNodes, appliedEdges, setAppliedNodes, matchingNodeIds, matchedNodeIdsArray } =
+    useFlowData({ dependencyFocusNodeId });
 
   // Keep a ref to the current canvas so event handlers can read it without
   // being in the dependency array of every callback.
@@ -252,8 +250,12 @@ export function CanvasWorkspace() {
                     if (child.id === change.id || child.type === 'backdrop') continue;
                     const cx = child.position.x + (child.width ?? 200) / 2;
                     const cy = child.position.y + (child.height ?? 100) / 2;
-                    if (cx >= movedNode.position.x && cy >= movedNode.position.y &&
-                        cx <= movedNode.position.x + bw && cy <= movedNode.position.y + bh) {
+                    if (
+                      cx >= movedNode.position.x &&
+                      cy >= movedNode.position.y &&
+                      cx <= movedNode.position.x + bw &&
+                      cy <= movedNode.position.y + bh
+                    ) {
                       backdropChildrenRef.current.set(child.id, {
                         offsetX: child.position.x - movedNode.position.x,
                         offsetY: child.position.y - movedNode.position.y,
@@ -308,10 +310,7 @@ export function CanvasWorkspace() {
         }
         if (change.type === 'dimensions' && change.dimensions && change.resizing) {
           const { width, height } = change.dimensions;
-          if (
-            Number.isFinite(width) && Number.isFinite(height) &&
-            width > 0 && height > 0
-          ) {
+          if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
             dispatch(updateNode({ id: change.id, changes: { width, height } }));
           }
         }
@@ -505,7 +504,8 @@ export function CanvasWorkspace() {
   );
 
   // Drag-drop — delegated to extracted hook
-  const { handleDrop, handleDragOver, handleDragLeave, isDraggingOver } = useCanvasDragDrop(rfInstanceRef);
+  const { handleDrop, handleDragOver, handleDragLeave, isDraggingOver } =
+    useCanvasDragDrop(rfInstanceRef);
 
   // ---- Paste / Undo / Redo (shared by keyboard shortcuts + context menu) ----
 
@@ -544,7 +544,9 @@ export function CanvasWorkspace() {
   // ---- Keyboard shortcuts ---------------------------------------------------
 
   const handleNodeGenerate = useCallback(
-    (id: string) => { void generate(id); },
+    (id: string) => {
+      void generate(id);
+    },
     [generate],
   );
 
@@ -564,48 +566,65 @@ export function CanvasWorkspace() {
 
   // ---- Node alignment -------------------------------------------------------
 
-  const handleAlign = useCallback((direction: AlignDirection) => {
-    if (!canvas || selectedNodeIds.length < 2) return;
-    const nodes = selectedNodeIds
-      .map((id) => canvas.nodes.find((n) => n.id === id))
-      .filter((n): n is NonNullable<typeof n> => n != null && !n.locked);
-    if (nodes.length < 2) return;
+  const handleAlign = useCallback(
+    (direction: AlignDirection) => {
+      if (!canvas || selectedNodeIds.length < 2) return;
+      const nodes = selectedNodeIds
+        .map((id) => canvas.nodes.find((n) => n.id === id))
+        .filter((n): n is NonNullable<typeof n> => n != null && !n.locked);
+      if (nodes.length < 2) return;
 
-    let moves: Array<{ id: string; position: { x: number; y: number } }>;
-    switch (direction) {
-      case 'left': {
-        const minX = Math.min(...nodes.map((n) => n.position.x));
-        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, x: minX } }));
-        break;
+      let moves: Array<{ id: string; position: { x: number; y: number } }>;
+      switch (direction) {
+        case 'left': {
+          const minX = Math.min(...nodes.map((n) => n.position.x));
+          moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, x: minX } }));
+          break;
+        }
+        case 'right': {
+          const maxX = Math.max(...nodes.map((n) => n.position.x + (n.width ?? 200)));
+          moves = nodes.map((n) => ({
+            id: n.id,
+            position: { ...n.position, x: maxX - (n.width ?? 200) },
+          }));
+          break;
+        }
+        case 'top': {
+          const minY = Math.min(...nodes.map((n) => n.position.y));
+          moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, y: minY } }));
+          break;
+        }
+        case 'bottom': {
+          const maxY = Math.max(...nodes.map((n) => n.position.y + (n.height ?? 100)));
+          moves = nodes.map((n) => ({
+            id: n.id,
+            position: { ...n.position, y: maxY - (n.height ?? 100) },
+          }));
+          break;
+        }
+        case 'centerH': {
+          const avgX =
+            nodes.reduce((s, n) => s + n.position.x + (n.width ?? 200) / 2, 0) / nodes.length;
+          moves = nodes.map((n) => ({
+            id: n.id,
+            position: { ...n.position, x: avgX - (n.width ?? 200) / 2 },
+          }));
+          break;
+        }
+        case 'centerV': {
+          const avgY =
+            nodes.reduce((s, n) => s + n.position.y + (n.height ?? 100) / 2, 0) / nodes.length;
+          moves = nodes.map((n) => ({
+            id: n.id,
+            position: { ...n.position, y: avgY - (n.height ?? 100) / 2 },
+          }));
+          break;
+        }
       }
-      case 'right': {
-        const maxX = Math.max(...nodes.map((n) => n.position.x + (n.width ?? 200)));
-        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, x: maxX - (n.width ?? 200) } }));
-        break;
-      }
-      case 'top': {
-        const minY = Math.min(...nodes.map((n) => n.position.y));
-        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, y: minY } }));
-        break;
-      }
-      case 'bottom': {
-        const maxY = Math.max(...nodes.map((n) => n.position.y + (n.height ?? 100)));
-        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, y: maxY - (n.height ?? 100) } }));
-        break;
-      }
-      case 'centerH': {
-        const avgX = nodes.reduce((s, n) => s + n.position.x + (n.width ?? 200) / 2, 0) / nodes.length;
-        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, x: avgX - (n.width ?? 200) / 2 } }));
-        break;
-      }
-      case 'centerV': {
-        const avgY = nodes.reduce((s, n) => s + n.position.y + (n.height ?? 100) / 2, 0) / nodes.length;
-        moves = nodes.map((n) => ({ id: n.id, position: { ...n.position, y: avgY - (n.height ?? 100) / 2 } }));
-        break;
-      }
-    }
-    dispatch(moveNodes(moves));
-  }, [canvas, dispatch, selectedNodeIds]);
+      dispatch(moveNodes(moves));
+    },
+    [canvas, dispatch, selectedNodeIds],
+  );
 
   // ---- Context menu position tracking ---------------------------------------
 
@@ -657,17 +676,18 @@ export function CanvasWorkspace() {
   const handleExportWorkflow = useCallback(() => {
     if (!canvas) return;
     try {
-      const canvasWithViewport = canvas.viewport === canvasViewport
-        ? canvas
-        : { ...canvas, viewport: canvasViewport };
+      const canvasWithViewport =
+        canvas.viewport === canvasViewport ? canvas : { ...canvas, viewport: canvasViewport };
       downloadWorkflowDocument(canvasWithViewport);
       dispatch(enqueueToast({ variant: 'success', title: t('toast.workflowExported') }));
     } catch (error) {
-      dispatch(enqueueToast({
-        variant: 'error',
-        title: t('toast.error.workflowExportFailed'),
-        message: error instanceof Error ? error.message : String(error),
-      }));
+      dispatch(
+        enqueueToast({
+          variant: 'error',
+          title: t('toast.error.workflowExportFailed'),
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
   }, [canvas, canvasViewport, dispatch]);
 
@@ -696,7 +716,9 @@ export function CanvasWorkspace() {
         const importedCanvas = materializeImportedCanvas({
           document,
           canvasId: replacingActiveCanvas ? canvas.id : crypto.randomUUID(),
-          name: replacingActiveCanvas ? canvas.name : `${document.canvas.name} ${t('canvas.importedSuffix')}`,
+          name: replacingActiveCanvas
+            ? canvas.name
+            : `${document.canvas.name} ${t('canvas.importedSuffix')}`,
         });
 
         await getAPI()?.canvas.save(importedCanvas);
@@ -746,152 +768,156 @@ export function CanvasWorkspace() {
 
   return (
     <>
-    <CanvasContextMenu
-      onAddNode={handleAddNode}
-      onPaste={() => { void handlePaste(); }}
-      onUndo={handleUndo}
-      onRedo={handleRedo}
-      onAlign={handleAlign}
-      selectedNodeCount={selectedNodeIds.length}
-      hasClipboard={Boolean(clipboard)}
-    >
-      <div
-        ref={containerRef}
-        className="relative h-full w-full"
-        role="application"
-        aria-label={t('canvasWorkspace.ariaLabel')}
-        onContextMenu={handleContextMenu}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
+      <CanvasContextMenu
+        onAddNode={handleAddNode}
+        onPaste={() => {
+          void handlePaste();
+        }}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onAlign={handleAlign}
+        selectedNodeCount={selectedNodeIds.length}
+        hasClipboard={Boolean(clipboard)}
       >
-        {isDraggingOver && (
-          <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-primary/5 border-2 border-dashed border-primary/40 rounded-lg">
-            <span className="text-sm font-medium text-primary/70">{t('canvas.dropHere')}</span>
-          </div>
-        )}
-        <input
-          ref={workflowImportInputRef}
-          type="file"
-          accept=".json,.lucid-workflow.json"
-          className="hidden"
-          aria-label={t('canvasWorkspace.importFileAriaLabel')}
-          onChange={(event) => {
-            void handleWorkflowImport(event);
-          }}
-        />
-        <CanvasToolbar
-          minimapVisible={minimapVisible}
-          snapToGrid={snapToGrid}
-          searchOpen={searchPanelOpen}
-          onToggleSearch={() => dispatch(toggleSearchPanel())}
-          onToggleMinimap={() => dispatch(toggleMinimapVisible())}
-          onToggleSnapToGrid={() => dispatch(toggleSnapToGrid())}
-          onExportWorkflow={handleExportWorkflow}
-          onImportWorkflow={handleOpenWorkflowImport}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          undoEnabled={undoEnabled}
-          redoEnabled={redoEnabled}
-          onZoomIn={() => reactFlow.zoomIn()}
-          onZoomOut={() => reactFlow.zoomOut()}
-          onFitView={() => reactFlow.fitView({ padding: 0.15 })}
-          styleGuide={{
-            artStyle: projectStyleGuide?.global?.artStyle,
-            lighting: projectStyleGuide?.global?.lighting,
-            freeformDescription: projectStyleGuide?.global?.freeformDescription,
-            onOpenSettings: () => { window.location.hash = '#/settings'; },
-          }}
-        />
-        {connectingFromNodeId && (
-          <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-full border border-primary/30 bg-card/95 px-3 py-1.5 text-xs text-foreground shadow-lg backdrop-blur">
-            {t('canvasWorkspace.connectMode')}
-          </div>
-        )}
-        {searchPanelOpen ? (
-          <CanvasSearchPanel
-            matchCount={matchingNodeIds.size}
-            totalCount={canvas.nodes.length}
-            matchedNodeIds={matchedNodeIdsArray}
-            onNavigateToNode={handleNavigateToNode}
-          />
-        ) : null}
-        {canvasViewMode === 'edit' && <EditView focusedNodeId={editViewFocusedNodeId} />}
-        {canvasViewMode === 'audio' && <AudioView />}
-        {canvasViewMode === 'materials' && <MaterialsView />}
-        {canvasViewMode === 'main' && (
-        <>
-        <CanvasLodContext.Provider value={canvasLod}>
-        <NodeCallbacksContext.Provider value={nodeCallbacks}>
-        <EdgeCallbacksContext.Provider value={edgeCallbacks}>
-        <ReactFlow
-          nodes={appliedNodes}
-          edges={appliedEdges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onReconnect={onReconnect}
-          onSelectionChange={onSelectionChange}
-          onNodeClick={onNodeClick}
-          onEdgeClick={onEdgeClick}
-          onPaneClick={onPaneClick}
-          onPaneContextMenu={handlePaneContextMenu}
-          onNodeContextMenu={handleNodeContextMenu}
-          onNodeMouseEnter={onNodeMouseEnter}
-          onNodeMouseLeave={onNodeMouseLeave}
-          onPaneMouseLeave={onPaneMouseLeave}
-          onMoveStart={onMoveStart}
-          onMoveEnd={onMoveEnd}
-          onInit={onFlowInit}
-          defaultViewport={canvasViewport}
-          fitView={false}
-          snapToGrid={snapToGrid}
-          snapGrid={[16, 16]}
-          deleteKeyCode={null}
-          multiSelectionKeyCode="Control"
-          selectionOnDrag
-          panOnDrag={[1, 2]}
-          elementsSelectable={true}
-          disableKeyboardA11y
-          onlyRenderVisibleElements
-          edgesReconnectable
-          connectionMode={ConnectionMode.Loose}
-          connectionLineType={ConnectionLineType.SmoothStep}
-          defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+        <div
+          ref={containerRef}
+          className="relative h-full w-full"
+          role="application"
           aria-label={t('canvasWorkspace.ariaLabel')}
-          ariaLabelConfig={{
-            'minimap.ariaLabel': t('canvasWorkspace.minimapAriaLabel'),
-          }}
-          className="bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.04),transparent_40%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.04),transparent_35%),hsl(var(--background))]"
+          onContextMenu={handleContextMenu}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
         >
-          <Background gap={16} size={1} color="hsl(var(--border))" />
-          {minimapVisible && (
-            <div ref={minimapWrapperRef}>
-              <MiniMap
-                pannable
-                zoomable
-                className="!rounded-2xl !border !border-border/80 !bg-card/95 !shadow-xl"
-                maskColor="rgba(15,23,42,0.45)"
-                nodeBorderRadius={10}
-                nodeColor={minimapNodeColor}
-              />
+          {isDraggingOver && (
+            <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-primary/5 border-2 border-dashed border-primary/40 rounded-lg">
+              <span className="text-sm font-medium text-primary/70">{t('canvas.dropHere')}</span>
             </div>
           )}
-        </ReactFlow>
-        </EdgeCallbacksContext.Provider>
-        </NodeCallbacksContext.Provider>
-        </CanvasLodContext.Provider>
-        </>
-        )}
-      </div>
-    </CanvasContextMenu>
-    <VideoCloneDialog
-      open={videoCloneOpen}
-      onClose={() => setVideoCloneOpen(false)}
-      onCanvasCreated={(canvasId) => dispatch(setActiveCanvas(canvasId))}
-    />
+          <input
+            ref={workflowImportInputRef}
+            type="file"
+            accept=".json,.lucid-workflow.json"
+            className="hidden"
+            aria-label={t('canvasWorkspace.importFileAriaLabel')}
+            onChange={(event) => {
+              void handleWorkflowImport(event);
+            }}
+          />
+          <CanvasToolbar
+            minimapVisible={minimapVisible}
+            snapToGrid={snapToGrid}
+            searchOpen={searchPanelOpen}
+            onToggleSearch={() => dispatch(toggleSearchPanel())}
+            onToggleMinimap={() => dispatch(toggleMinimapVisible())}
+            onToggleSnapToGrid={() => dispatch(toggleSnapToGrid())}
+            onExportWorkflow={handleExportWorkflow}
+            onImportWorkflow={handleOpenWorkflowImport}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            undoEnabled={undoEnabled}
+            redoEnabled={redoEnabled}
+            onZoomIn={() => reactFlow.zoomIn()}
+            onZoomOut={() => reactFlow.zoomOut()}
+            onFitView={() => reactFlow.fitView({ padding: 0.15 })}
+            styleGuide={{
+              artStyle: projectStyleGuide?.global?.artStyle,
+              lighting: projectStyleGuide?.global?.lighting,
+              freeformDescription: projectStyleGuide?.global?.freeformDescription,
+              onOpenSettings: () => {
+                window.location.hash = '#/settings';
+              },
+            }}
+          />
+          {connectingFromNodeId && (
+            <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-full border border-primary/30 bg-card/95 px-3 py-1.5 text-xs text-foreground shadow-lg backdrop-blur">
+              {t('canvasWorkspace.connectMode')}
+            </div>
+          )}
+          {searchPanelOpen ? (
+            <CanvasSearchPanel
+              matchCount={matchingNodeIds.size}
+              totalCount={canvas.nodes.length}
+              matchedNodeIds={matchedNodeIdsArray}
+              onNavigateToNode={handleNavigateToNode}
+            />
+          ) : null}
+          {canvasViewMode === 'edit' && <EditView focusedNodeId={editViewFocusedNodeId} />}
+          {canvasViewMode === 'audio' && <AudioView />}
+          {canvasViewMode === 'materials' && <MaterialsView />}
+          {canvasViewMode === 'main' && (
+            <>
+              <CanvasLodContext.Provider value={canvasLod}>
+                <NodeCallbacksContext.Provider value={nodeCallbacks}>
+                  <EdgeCallbacksContext.Provider value={edgeCallbacks}>
+                    <ReactFlow
+                      nodes={appliedNodes}
+                      edges={appliedEdges}
+                      nodeTypes={nodeTypes}
+                      edgeTypes={edgeTypes}
+                      onNodesChange={onNodesChange}
+                      onEdgesChange={onEdgesChange}
+                      onConnect={onConnect}
+                      onReconnect={onReconnect}
+                      onSelectionChange={onSelectionChange}
+                      onNodeClick={onNodeClick}
+                      onEdgeClick={onEdgeClick}
+                      onPaneClick={onPaneClick}
+                      onPaneContextMenu={handlePaneContextMenu}
+                      onNodeContextMenu={handleNodeContextMenu}
+                      onNodeMouseEnter={onNodeMouseEnter}
+                      onNodeMouseLeave={onNodeMouseLeave}
+                      onPaneMouseLeave={onPaneMouseLeave}
+                      onMoveStart={onMoveStart}
+                      onMoveEnd={onMoveEnd}
+                      onInit={onFlowInit}
+                      defaultViewport={canvasViewport}
+                      fitView={false}
+                      snapToGrid={snapToGrid}
+                      snapGrid={[16, 16]}
+                      deleteKeyCode={null}
+                      multiSelectionKeyCode="Control"
+                      selectionOnDrag
+                      panOnDrag={[1, 2]}
+                      elementsSelectable={true}
+                      disableKeyboardA11y
+                      onlyRenderVisibleElements
+                      edgesReconnectable
+                      connectionMode={ConnectionMode.Loose}
+                      connectionLineType={ConnectionLineType.SmoothStep}
+                      defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+                      aria-label={t('canvasWorkspace.ariaLabel')}
+                      ariaLabelConfig={{
+                        'minimap.ariaLabel': t('canvasWorkspace.minimapAriaLabel'),
+                      }}
+                      className="bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.04),transparent_40%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.04),transparent_35%),hsl(var(--background))]"
+                    >
+                      <Background gap={16} size={1} color="hsl(var(--border))" />
+                      {minimapVisible && (
+                        <div ref={minimapWrapperRef}>
+                          <MiniMap
+                            pannable
+                            zoomable
+                            className="!rounded-2xl !border !border-border/80 !bg-card/95 !shadow-xl"
+                            maskColor="rgba(15,23,42,0.45)"
+                            nodeBorderRadius={10}
+                            nodeColor={minimapNodeColor}
+                          />
+                        </div>
+                      )}
+                    </ReactFlow>
+                  </EdgeCallbacksContext.Provider>
+                </NodeCallbacksContext.Provider>
+              </CanvasLodContext.Provider>
+            </>
+          )}
+        </div>
+      </CanvasContextMenu>
+      <VideoCloneDialog
+        open={videoCloneOpen}
+        onClose={() => setVideoCloneOpen(false)}
+        onCanvasCreated={(canvasId) => dispatch(setActiveCanvas(canvasId))}
+      />
     </>
   );
 }

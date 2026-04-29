@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { listBuiltinLLMProviderPresets } from '@lucid-fin/contracts';
 import { enUSMessages } from '../../i18n.messages.en-US.js';
 import { zhCNMessages } from '../../i18n.messages.zh-CN.js';
-import { buildSparseSettings, getProviderMetadata, PROVIDER_REGISTRY, settingsSlice } from './settings.js';
+import {
+  buildSparseSettings,
+  getProviderMetadata,
+  PROVIDER_REGISTRY,
+  settingsSlice,
+} from './settings.js';
 
 function toDefaultStateSummary(group: keyof typeof PROVIDER_REGISTRY) {
   return PROVIDER_REGISTRY[group].map(({ id, model, protocol, authStyle, baseUrl }) => ({
@@ -51,9 +56,15 @@ describe('provider registry metadata', () => {
       for (const provider of providers) {
         const metadata = getProviderMetadata(group as keyof typeof PROVIDER_REGISTRY, provider.id);
         expect(metadata, `missing metadata for ${group}:${provider.id}`).toBeDefined();
-        expect(metadata?.capabilities.length, `missing capabilities for ${group}:${provider.id}`).toBeGreaterThan(0);
+        expect(
+          metadata?.capabilities.length,
+          `missing capabilities for ${group}:${provider.id}`,
+        ).toBeGreaterThan(0);
 
-        if (metadata?.capabilities.includes('image-to-image') || metadata?.capabilities.includes('image-to-video')) {
+        if (
+          metadata?.capabilities.includes('image-to-image') ||
+          metadata?.capabilities.includes('image-to-video')
+        ) {
           expect(metadata.supportsReferenceImage).toBe(true);
         }
 
@@ -610,7 +621,12 @@ describe('usage stats reducers', () => {
     );
     state = settingsSlice.reducer(
       state,
-      settingsSlice.actions.recordSession({ durationMs: 3000, toolCount: 8, turnCount: 6, cancelled: true }),
+      settingsSlice.actions.recordSession({
+        durationMs: 3000,
+        toolCount: 8,
+        turnCount: 6,
+        cancelled: true,
+      }),
     );
 
     expect(state.usage.sessionCount).toBe(2);
@@ -647,7 +663,11 @@ describe('usage stats reducers', () => {
     );
     state = settingsSlice.reducer(
       state,
-      settingsSlice.actions.recordProviderRequest({ providerId: 'openai', latencyMs: 300, error: true }),
+      settingsSlice.actions.recordProviderRequest({
+        providerId: 'openai',
+        latencyMs: 300,
+        error: true,
+      }),
     );
 
     const openai = state.usage.providerUsage['openai'];
@@ -731,7 +751,14 @@ describe('provider merge on restore', () => {
     const state = restoreWith({
       image: {
         providers: [
-          { id: 'openai-image', name: 'OpenAI GPT Image', baseUrl: 'https://api.openai.com/v1', model: 'dall-e-3', hasKey: true, isCustom: false },
+          {
+            id: 'openai-image',
+            name: 'OpenAI GPT Image',
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'dall-e-3',
+            hasKey: true,
+            isCustom: false,
+          },
         ],
       },
     });
@@ -745,7 +772,14 @@ describe('provider merge on restore', () => {
     const state = restoreWith({
       llm: {
         providers: [
-          { id: 'openai', name: 'OpenAI', baseUrl: 'https://my-proxy.example.com/v1', model: 'gpt-4o', hasKey: true, isCustom: false },
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            baseUrl: 'https://my-proxy.example.com/v1',
+            model: 'gpt-4o',
+            hasKey: true,
+            isCustom: false,
+          },
         ],
       },
     });
@@ -759,7 +793,14 @@ describe('provider merge on restore', () => {
     const state = restoreWith({
       llm: {
         providers: [
-          { id: 'openai', name: 'OpenAI', baseUrl: defaultProvider!.baseUrl, model: defaultProvider!.model, hasKey: false, isCustom: false },
+          {
+            id: 'openai',
+            name: 'OpenAI',
+            baseUrl: defaultProvider!.baseUrl,
+            model: defaultProvider!.model,
+            hasKey: false,
+            isCustom: false,
+          },
         ],
       },
     });
@@ -771,7 +812,14 @@ describe('provider merge on restore', () => {
     const state = restoreWith({
       llm: {
         providers: [
-          { id: 'my-custom-llm', name: 'My LLM', baseUrl: 'https://custom.example.com', model: 'custom-model', hasKey: true, isCustom: true },
+          {
+            id: 'my-custom-llm',
+            name: 'My LLM',
+            baseUrl: 'https://custom.example.com',
+            model: 'custom-model',
+            hasKey: true,
+            isCustom: true,
+          },
         ],
       },
     });

@@ -47,16 +47,19 @@ describe('registerCanvasHandlers', () => {
     const saveCanvas = handlers.get('canvas:save');
     expect(saveCanvas).toBeTypeOf('function');
 
-    await saveCanvas?.({}, {
-      id: 'canvas-1',
-      name: 'Storyboard',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      notes: [],
-      createdAt: 1,
-      updatedAt: 1,
-    });
+    await saveCanvas?.(
+      {},
+      {
+        id: 'canvas-1',
+        name: 'Storyboard',
+        nodes: [],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        notes: [],
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    );
 
     expect(store.save).toHaveBeenCalledWith(
       expect.objectContaining({

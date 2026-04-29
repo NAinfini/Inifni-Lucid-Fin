@@ -6,10 +6,23 @@ import { addCanvasNote, updateCanvasNote, deleteCanvasNote } from '../../store/s
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 
-function NoteTextarea({ noteId, content, dispatch, t }: { noteId: string; content: string; dispatch: ReturnType<typeof useDispatch>; t: (key: string) => string }) {
+function NoteTextarea({
+  noteId,
+  content,
+  dispatch,
+  t,
+}: {
+  noteId: string;
+  content: string;
+  dispatch: ReturnType<typeof useDispatch>;
+  t: (key: string) => string;
+}) {
   const [local, setLocal] = useDebouncedDispatch(
     content,
-    useCallback((v: string) => dispatch(updateCanvasNote({ id: noteId, content: v })), [dispatch, noteId]),
+    useCallback(
+      (v: string) => dispatch(updateCanvasNote({ id: noteId, content: v })),
+      [dispatch, noteId],
+    ),
     300,
   );
   return (
@@ -52,7 +65,10 @@ export function CanvasNotesPanel() {
           </div>
         ) : (
           notes.map((note) => (
-            <div key={note.id} className="bg-background rounded-md border border-border/60 p-2.5 space-y-1.5">
+            <div
+              key={note.id}
+              className="bg-background rounded-md border border-border/60 p-2.5 space-y-1.5"
+            >
               <NoteTextarea noteId={note.id} content={note.content} dispatch={dispatch} t={t} />
               <div className="flex items-center justify-between">
                 <div className="text-[10px] text-muted-foreground">

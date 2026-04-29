@@ -117,8 +117,7 @@ const initialState: CommanderState = {
   clipboardWatchIntervalMs:
     persistedSettings.clipboardWatchIntervalMs ?? DEFAULT_CLIPBOARD_WATCH_INTERVAL_MS,
   clipboardMinLength: persistedSettings.clipboardMinLength ?? DEFAULT_CLIPBOARD_MIN_LENGTH,
-  generationConcurrency:
-    persistedSettings.generationConcurrency ?? DEFAULT_GENERATION_CONCURRENCY,
+  generationConcurrency: persistedSettings.generationConcurrency ?? DEFAULT_GENERATION_CONCURRENCY,
   pendingConfirmation: null,
   pendingQuestion: null,
   confirmAutoMode: 'none',
@@ -472,7 +471,7 @@ export const commanderSlice = createSlice({
       state.pendingQuestion = null;
     },
     enqueueMessage(state, action: PayloadAction<string>) {
-      state.messageQueue.push(action.payload);
+      state.messageQueue.push({ id: createMessageId('queue'), content: action.payload });
     },
     dequeueMessage(state) {
       state.messageQueue.shift();
@@ -481,7 +480,8 @@ export const commanderSlice = createSlice({
       state.messageQueue.splice(action.payload, 1);
     },
     editQueuedMessage(state, action: PayloadAction<{ index: number; content: string }>) {
-      state.messageQueue[action.payload.index] = action.payload.content;
+      const item = state.messageQueue[action.payload.index];
+      if (item) item.content = action.payload.content;
     },
     clearQueue(state) {
       state.messageQueue = [];

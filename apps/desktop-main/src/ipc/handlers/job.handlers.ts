@@ -30,20 +30,17 @@ export function registerJobHandlers(
   // predate Phase F-split-5.
   const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
 
-  ipcMain.handle(
-    'job:submit',
-    async (_e, args: GenerationRequest & { segmentId?: string }) => {
-      const jobId = queue.submit(args);
-      log.info('Job submitted', {
-        category: 'job',
-        jobId,
-        providerId: args.providerId,
-        generationType: args.type,
-        segmentId: args.segmentId,
-      });
-      return { jobId };
-    },
-  );
+  ipcMain.handle('job:submit', async (_e, args: GenerationRequest & { segmentId?: string }) => {
+    const jobId = queue.submit(args);
+    log.info('Job submitted', {
+      category: 'job',
+      jobId,
+      providerId: args.providerId,
+      generationType: args.type,
+      segmentId: args.segmentId,
+    });
+    return { jobId };
+  });
 
   ipcMain.handle('job:list', async (_e, args: { status?: string }) => {
     return db.repos.jobs.list(args).rows;
@@ -88,12 +85,22 @@ export function registerJobHandlers(
 
   // Event-driven IPC notifications — replaces 2s poll loop
   queue.on('job:submitted', (data: { id: string; status: string }) => {
-    gateway.emit(jobSubmittedChannel, data);
+    gateway.emit(jobSubmittedChannel, { jobId: data.id, status: data.status });
   });
 
-  queue.on('job:progress', (data: { jobId: string; progress: number; completedSteps?: number; totalSteps?: number; currentStep?: string; message?: string }) => {
-    gateway.emit(jobProgressChannel, data);
-  });
+  queue.on(
+    'job:progress',
+    (data: {
+      jobId: string;
+      progress: number;
+      completedSteps?: number;
+      totalSteps?: number;
+      currentStep?: string;
+      message?: string;
+    }) => {
+      gateway.emit(jobProgressChannel, data);
+    },
+  );
 
   queue.on('job:completed', (data: { id: string; status: string }) => {
     if (notifiedJobs.has(data.id)) return;
@@ -114,18 +121,18 @@ export function registerJobHandlers(
       success: false,
       error: data.error,
     });
-    gateway.emit(jobFailedChannel, data);
+    gateway.emit(jobFailedChannel, { jobId: data.id, status: data.status, error: data.error });
   });
 
   queue.on('job:cancelled', (data: { id: string; status: string }) => {
-    gateway.emit(jobCancelledChannel, data);
+    gateway.emit(jobCancelledChannel, { jobId: data.id, status: data.status });
   });
 
   queue.on('job:paused', (data: { id: string; status: string }) => {
-    gateway.emit(jobPausedChannel, data);
+    gateway.emit(jobPausedChannel, { jobId: data.id, status: data.status });
   });
 
   queue.on('job:resumed', (data: { id: string; status: string }) => {
-    gateway.emit(jobResumedChannel, data);
+    gateway.emit(jobResumedChannel, { jobId: data.id, status: data.status });
   });
 }

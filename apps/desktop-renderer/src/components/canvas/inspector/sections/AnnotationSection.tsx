@@ -41,9 +41,7 @@ export function AnnotationSection({ node, dispatch, t }: InspectorSectionProps) 
             type="text"
             className="w-full rounded-md border border-border/60 bg-muted px-2 py-1 text-[11px] outline-none focus:ring-1 focus:ring-ring"
             placeholder={t('inspector.annotationPlaceholder')}
-            value={
-              (generationData as { annotation?: { text?: string } })?.annotation?.text ?? ''
-            }
+            value={(generationData as { annotation?: { text?: string } })?.annotation?.text ?? ''}
             onChange={handleChange}
           />
         </div>

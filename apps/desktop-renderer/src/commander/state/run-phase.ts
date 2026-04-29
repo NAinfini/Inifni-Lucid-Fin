@@ -72,9 +72,7 @@ export function phaseFromEvent(prev: RunPhase, event: TimelineEvent): RunPhase {
             : [...prev.tools, event.toolCallId]
           : [event.toolCallId];
       const since =
-        prev.kind === 'tool_running' && prev.step === event.step
-          ? prev.since
-          : event.emittedAt;
+        prev.kind === 'tool_running' && prev.step === event.step ? prev.since : event.emittedAt;
       return { kind: 'tool_running', step: event.step, tools, since };
     }
     case 'tool_result': {
@@ -110,9 +108,7 @@ export function phaseFromEvent(prev: RunPhase, event: TimelineEvent): RunPhase {
     case 'phase_note':
       return prev;
     case 'run_end':
-      return event.status === 'failed'
-        ? { kind: 'failed', error: 'run_failed' }
-        : { kind: 'done' };
+      return event.status === 'failed' ? { kind: 'failed', error: 'run_failed' } : { kind: 'done' };
     case 'cancelled':
       return { kind: 'done' };
     default:

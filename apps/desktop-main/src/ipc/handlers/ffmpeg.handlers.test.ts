@@ -80,7 +80,7 @@ describe('registerFfmpegHandlers', () => {
     expect(createCommandMock).toHaveBeenCalledWith(input);
     expect(command.videoCodec).toHaveBeenCalledWith('libx264');
     expect(command.audioCodec).toHaveBeenCalledWith('aac');
-    expect(command.addOutputOptions).toHaveBeenCalledWith(['-movflags', '+faststart']);
+    expect(command.addOutputOptions).toHaveBeenCalledWith(['-movflags']);
     expect(command.output).toHaveBeenCalledWith(output);
     expect(runCommandMock).toHaveBeenCalledWith(command);
   });

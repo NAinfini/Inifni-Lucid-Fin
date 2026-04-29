@@ -7,7 +7,8 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class SDWebUIAdapter implements AIProviderAdapter {
   readonly id = 'sd-webui-local';
@@ -19,14 +20,18 @@ export class SDWebUIAdapter implements AIProviderAdapter {
   private baseUrl = 'http://127.0.0.1:7860';
 
   configure(_apiKey: string, options?: Record<string, unknown>): void {
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string, { allowLocalhost: true });
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   async validate(): Promise<boolean> {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/sdapi/v1/sd-models`, { timeoutMs: 5000 });
       return res.ok;
-    } catch { /* network error — SD WebUI server unreachable, report as invalid */
+    } catch {
+      /* network error — SD WebUI server unreachable, report as invalid */
       return false;
     }
   }

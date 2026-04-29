@@ -33,9 +33,7 @@ export const DEFAULT_MEDIA_NODE_FRAME = {
   height: 180,
 } as const;
 
-export function getDefaultNodeFrame(
-  type: NodeKind,
-): { width: number; height: number } | undefined {
+export function getDefaultNodeFrame(type: NodeKind): { width: number; height: number } | undefined {
   switch (type) {
     case 'image':
     case 'video':
@@ -74,6 +72,34 @@ export function normalizeCanvasNodeFrames(canvas: Canvas): Canvas {
   return changed ? { ...canvas, nodes } : canvas;
 }
 
+/**
+ * Reset transient generation statuses that should not survive a reload.
+ * Nodes stuck as 'generating' or 'failed' get reset to 'done' (if they
+ * have a completed asset) or 'empty'.
+ */
+export function sanitizeTransientNodeStatus(canvas: Canvas): Canvas {
+  let changed = false;
+  const nodes = canvas.nodes.map((node) => {
+    if (!isGeneratableMedia(node.type)) return node;
+    const data = node.data as GenerationNodeData;
+    if (data.status !== 'generating' && data.status !== 'failed') return node;
+    changed = true;
+    const resetStatus = data.assetHash ? ('done' as const) : ('empty' as const);
+    return {
+      ...node,
+      data: {
+        ...data,
+        status: resetStatus,
+        progress: undefined,
+        error: undefined,
+        currentStep: undefined,
+        jobId: undefined,
+      },
+    };
+  });
+  return changed ? { ...canvas, nodes } : canvas;
+}
+
 // ---------------------------------------------------------------------------
 // Pure helpers (no Redux dependency)
 // ---------------------------------------------------------------------------
@@ -83,7 +109,10 @@ export function findActiveCanvas(state: CanvasSliceState): Canvas | undefined {
   return state.canvases.entities[state.activeCanvasId];
 }
 
-export function findCanvasById(state: CanvasSliceState, canvasId: string | null | undefined): Canvas | undefined {
+export function findCanvasById(
+  state: CanvasSliceState,
+  canvasId: string | null | undefined,
+): Canvas | undefined {
   if (!canvasId) return undefined;
   return state.canvases.entities[canvasId];
 }
@@ -93,7 +122,11 @@ export function createDefaultPresetTracks(): PresetTrackSet {
 }
 
 export function cloneDeep<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  try {
+    return structuredClone(value) as T;
+  } catch {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
 }
 
 export function createEntityId(prefix: 'node' | 'edge'): string {
@@ -113,7 +146,8 @@ export function getAutoEdgeLabel(
   if (sourceType === 'text' && targetType === 'image') return t('edge.generateImage');
   if (sourceType === 'image' && targetType === 'video') return t('edge.animate');
   if (sourceType === 'text' && targetType === 'video') return t('edge.generateVideo');
-  if (sourceType === 'audio' && (targetType === 'image' || targetType === 'video')) return t('edge.addAudio');
+  if (sourceType === 'audio' && (targetType === 'image' || targetType === 'video'))
+    return t('edge.addAudio');
   if (sourceType === 'text' && targetType === 'audio') return t('edge.narrate');
   if (sourceType === 'image' && targetType === 'image') return t('edge.reference');
   if (sourceType === 'video' && targetType === 'image') return t('edge.extractFrame');
@@ -136,7 +170,10 @@ export function ensureEdgeLabel(canvas: Canvas, edge: CanvasEdge): CanvasEdge {
     ...edge,
     data: {
       ...edge.data,
-      label: getAutoEdgeLabel(getCanvasNodeType(canvas, edge.source), getCanvasNodeType(canvas, edge.target)),
+      label: getAutoEdgeLabel(
+        getCanvasNodeType(canvas, edge.source),
+        getCanvasNodeType(canvas, edge.target),
+      ),
       autoLabel: true,
     },
   };
@@ -151,7 +188,9 @@ export function buildCanvasClipboardPayload(
   }
 
   const nodeIdSet = new Set(selectedNodeIds);
-  const nodes = canvas.nodes.filter((node) => nodeIdSet.has(node.id)).map((node) => cloneDeep(node));
+  const nodes = canvas.nodes
+    .filter((node) => nodeIdSet.has(node.id))
+    .map((node) => cloneDeep(node));
   const edges = canvas.edges
     .filter((edge) => nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target))
     .map((edge) => cloneDeep(edge));
@@ -241,9 +280,7 @@ export function stampCanvasDefaultProvider(node: CanvasNode, canvas: Canvas): vo
   const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
   if (data.providerId) return;
   const fallback =
-    t === 'image' ? s.imageProviderId :
-    t === 'video' ? s.videoProviderId :
-    s.audioProviderId;
+    t === 'image' ? s.imageProviderId : t === 'video' ? s.videoProviderId : s.audioProviderId;
   if (fallback) data.providerId = fallback;
 }
 
@@ -353,7 +390,10 @@ export function ensureNodePresetTracks(node: CanvasNode): { presetTracks: TrackM
   return data as { presetTracks: TrackMap };
 }
 
-export function normalizeTrackEntries(track: { entries: PresetTrackEntry[] }, category: PresetCategory): void {
+export function normalizeTrackEntries(
+  track: { entries: PresetTrackEntry[] },
+  category: PresetCategory,
+): void {
   track.entries.forEach((entry: PresetTrackEntry, index: number) => {
     entry.category = category;
     entry.order = index;
@@ -376,7 +416,11 @@ export function normalizeEquipmentRefs(refs: EquipmentRef[] | undefined): Equipm
     const equipmentId = ref.equipmentId.trim();
     if (seen.has(equipmentId)) continue;
     seen.add(equipmentId);
-    result.push({ equipmentId, angleSlot: ref.angleSlot, referenceImageHash: ref.referenceImageHash });
+    result.push({
+      equipmentId,
+      angleSlot: ref.angleSlot,
+      referenceImageHash: ref.referenceImageHash,
+    });
   }
   return result;
 }

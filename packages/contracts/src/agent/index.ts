@@ -9,21 +9,14 @@
  * `@lucid-fin/contracts-parse/src/agent`.
  */
 
-export type {
-  ToolCatalog,
-  ToolKey,
-  ProcessCategory,
-} from './tool-catalog-type.js';
+export type { ToolCatalog, ToolKey, ProcessCategory } from './tool-catalog-type.js';
 
 export type { ToolDefinitionType, UiEffect } from '../types/tool-types.js';
 
 export { ENTITY_REFRESH_TOOL_ENTITY } from './entity-refresh-map.js';
 
 // ── Commander wire envelope (v2-only) ──────────────────────────
-export {
-  COMMANDER_WIRE_VERSION,
-  COMMANDER_WIRE_VERSION_LATEST,
-} from './wire-version.js';
+export { COMMANDER_WIRE_VERSION, COMMANDER_WIRE_VERSION_LATEST } from './wire-version.js';
 export type {
   CommanderWireVersion,
   WireEnvelope,

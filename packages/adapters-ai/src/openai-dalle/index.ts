@@ -11,6 +11,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { adapterErrorToLucidError } from '../error-utils.js';
 import { parseError, parseOpenAIResponse, toOpenAIRequest } from './mapper.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class OpenAIDalleAdapter implements AIProviderAdapter {
   readonly id = 'openai-dalle';
@@ -31,7 +32,10 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   async validate(): Promise<boolean> {
@@ -40,7 +44,8 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -76,7 +81,10 @@ export class OpenAIDalleAdapter implements AIProviderAdapter {
     };
   }
 
-  async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<GenerationResult> {
+  async subscribe(
+    req: GenerationRequest,
+    callbacks: SubscribeCallbacks,
+  ): Promise<GenerationResult> {
     callbacks.onQueueUpdate?.({
       status: 'processing',
       currentStep: 'submitting',

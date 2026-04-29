@@ -3,6 +3,7 @@
 Use this when timing already exists in subtitle form and you want to turn it into editable canvas structure.
 
 Workflow:
+
 1. Import the SRT from the canvas toolbar once the target canvas is open.
 2. Choose the right mode for the job:
    - create nodes when you need a rough script lane on the canvas
@@ -13,11 +14,13 @@ Workflow:
 6. If aligning to existing shots, review the order visually from left to right and confirm the imported text landed on the intended clips.
 
 Checks:
+
 - subtitle order matches the shot order
 - long lines are split where natural cuts or breaths exist
 - imported text is reviewed before audio generation
 
 Avoid:
+
 - assuming subtitle text is automatically good voiceover writing
 - aligning to a canvas whose shot order is still unstable
 - importing once and never checking whether timing or punctuation needs cleanup

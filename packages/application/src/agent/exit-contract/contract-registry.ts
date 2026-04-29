@@ -62,9 +62,7 @@ class ContractRegistry {
       throw new Error(`contract-registry: fallback "${contractId}" not registered`);
     }
     if (this.fallbackId !== null && this.fallbackId !== contractId) {
-      throw new Error(
-        `contract-registry: fallback already set to "${this.fallbackId}"`,
-      );
+      throw new Error(`contract-registry: fallback already set to "${this.fallbackId}"`);
     }
     this.fallbackId = contractId;
   }
@@ -110,9 +108,7 @@ class ContractRegistry {
     }
     const fallback = this.byId.get(this.fallbackId);
     if (!fallback) {
-      throw new Error(
-        `contract-registry: fallback id "${this.fallbackId}" vanished from map`,
-      );
+      throw new Error(`contract-registry: fallback id "${this.fallbackId}" vanished from map`);
     }
     return fallback;
   }

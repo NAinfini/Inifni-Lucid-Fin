@@ -112,22 +112,10 @@ describe('series slice', () => {
 
   it('adds episodes once, updates them, reorders them, and removes active episodes', () => {
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(50);
-    let state = seriesSlice.reducer(
-      undefined,
-      addEpisode({ id: 'ep-1', title: 'Pilot' }),
-    );
-    state = seriesSlice.reducer(
-      state,
-      addEpisode({ id: 'ep-2', title: 'Finale' }),
-    );
-    state = seriesSlice.reducer(
-      state,
-      addEpisode({ id: 'ep-3', title: 'Interlude' }),
-    );
-    state = seriesSlice.reducer(
-      state,
-      addEpisode({ id: 'ep-2', title: 'Duplicate' }),
-    );
+    let state = seriesSlice.reducer(undefined, addEpisode({ id: 'ep-1', title: 'Pilot' }));
+    state = seriesSlice.reducer(state, addEpisode({ id: 'ep-2', title: 'Finale' }));
+    state = seriesSlice.reducer(state, addEpisode({ id: 'ep-3', title: 'Interlude' }));
+    state = seriesSlice.reducer(state, addEpisode({ id: 'ep-2', title: 'Duplicate' }));
     state = seriesSlice.reducer(state, setActiveEpisode('ep-2'));
 
     nowSpy.mockReturnValue(75);
@@ -207,10 +195,7 @@ describe('series slice', () => {
       undefined,
       setSeries({ id: 'series-1', title: 'Anthology', description: 'Stories' }),
     );
-    state = seriesSlice.reducer(
-      state,
-      addEpisode({ id: 'ep-1', title: 'Pilot' }),
-    );
+    state = seriesSlice.reducer(state, addEpisode({ id: 'ep-1', title: 'Pilot' }));
     state = seriesSlice.reducer(
       state,
       addSharedResource({

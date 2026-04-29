@@ -105,7 +105,12 @@ describe('useCanvasGeneration', () => {
 
   it('stores currentStep from active-canvas progress events', async () => {
     let progressCallback:
-      | ((data: { canvasId: string; nodeId: string; progress: number; currentStep?: string }) => void)
+      | ((data: {
+          canvasId: string;
+          nodeId: string;
+          progress: number;
+          currentStep?: string;
+        }) => void)
       | undefined;
 
     vi.mocked(getAPI).mockReturnValue({
@@ -174,7 +179,9 @@ describe('useCanvasGeneration', () => {
 
     const { store, getHook } = renderHookHarness();
 
-    await expect(getHook().generate('node-1', 'openai-image', 2, 42)).rejects.toThrow('provider down');
+    await expect(getHook().generate('node-1', 'openai-image', 2, 42)).rejects.toThrow(
+      'provider down',
+    );
 
     const node = store.getState().canvas.canvases.entities['canvas-1']?.nodes[0];
     expect(node?.data).toEqual(
@@ -216,9 +223,9 @@ describe('useCanvasGeneration', () => {
     expect(node?.data).toEqual(
       expect.objectContaining({
         status: 'generating',
-        jobId: 'job-789',
       }),
     );
+    expect((node?.data as { jobId?: string }).jobId).toMatch(/^pending-\d+$/);
     expect(store.getState().logger.entries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -326,10 +333,26 @@ describe('useCanvasGeneration', () => {
       ],
     });
 
-    store.dispatch(setProviderBaseUrl({ group: 'image', provider: 'replicate', url: 'https://image.example/api' }));
-    store.dispatch(setProviderModel({ group: 'image', provider: 'replicate', model: 'flux-image' }));
-    store.dispatch(setProviderBaseUrl({ group: 'video', provider: 'replicate', url: 'https://video.example/api' }));
-    store.dispatch(setProviderModel({ group: 'video', provider: 'replicate', model: 'minimax-video' }));
+    store.dispatch(
+      setProviderBaseUrl({
+        group: 'image',
+        provider: 'replicate',
+        url: 'https://image.example/api',
+      }),
+    );
+    store.dispatch(
+      setProviderModel({ group: 'image', provider: 'replicate', model: 'flux-image' }),
+    );
+    store.dispatch(
+      setProviderBaseUrl({
+        group: 'video',
+        provider: 'replicate',
+        url: 'https://video.example/api',
+      }),
+    );
+    store.dispatch(
+      setProviderModel({ group: 'video', provider: 'replicate', model: 'minimax-video' }),
+    );
 
     await act(async () => {
       await getHook().generate('node-1');

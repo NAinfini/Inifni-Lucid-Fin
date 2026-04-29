@@ -116,7 +116,8 @@ describe('OllamaLLMAdapter', () => {
       });
 
       await expect(
-        complete(adapter,
+        complete(
+          adapter,
           [
             { role: 'user', content: 'hello' },
             {

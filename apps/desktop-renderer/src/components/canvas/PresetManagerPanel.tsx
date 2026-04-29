@@ -31,7 +31,9 @@ function parseIntensityFromDefaults(defaultsText: string): number {
   try {
     const parsed = JSON.parse(defaultsText) as Record<string, unknown>;
     if (typeof parsed.intensity === 'number') return Math.round(parsed.intensity);
-  } catch { /* invalid JSON — return fallback */ }
+  } catch {
+    /* invalid JSON — return fallback */
+  }
   return 50;
 }
 
@@ -42,7 +44,8 @@ function updateIntensityInDefaults(defaultsText: string, intensity: number): str
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       parsed = {};
     }
-  } catch { /* invalid JSON in defaults text — reset to empty object */
+  } catch {
+    /* invalid JSON in defaults text — reset to empty object */
     parsed = {};
   }
   parsed.intensity = intensity;
@@ -154,9 +157,8 @@ export function PresetManagerPanel() {
   const { t } = useI18n();
   const { confirm, ConfirmDialog } = useConfirm();
   const dispatch = useDispatch();
-  const { byId, allIds, loading, search, selectedCategory, managerSelectedPresetId, hiddenIds } = useSelector(
-    (s: RootState) => s.presets,
-  );
+  const { byId, allIds, loading, search, selectedCategory, managerSelectedPresetId, hiddenIds } =
+    useSelector((s: RootState) => s.presets);
   const presets = useMemo(() => allIds.map((id) => byId[id]).filter(Boolean), [allIds, byId]);
   const categories = useMemo(() => {
     const fromData = Array.from(new Set(presets.map((preset) => preset.category)));
@@ -179,7 +181,8 @@ export function PresetManagerPanel() {
       if (selectedCategory !== 'all' && preset.category !== selectedCategory) return false;
       if (!keyword) return true;
       const localized = localizePresetName(preset.name);
-      const blob = `${preset.name} ${localized} ${preset.description} ${preset.prompt}`.toLowerCase();
+      const blob =
+        `${preset.name} ${localized} ${preset.description} ${preset.prompt}`.toLowerCase();
       return blob.includes(keyword);
     });
   }, [presets, search, selectedCategory]);
@@ -459,19 +462,26 @@ export function PresetManagerPanel() {
                     >
                       <div className="flex items-start justify-between gap-1">
                         <div className="min-w-0">
-                          <div className="font-medium truncate">{localizePresetName(preset.name)}</div>
+                          <div className="font-medium truncate">
+                            {localizePresetName(preset.name)}
+                          </div>
                           <div className="text-[10px] text-muted-foreground truncate">
                             {t('presetCategory.' + preset.category)}
                           </div>
                           {preset.builtIn && (
                             <div className="text-[10px] text-muted-foreground">
-                              {preset.modified ? t('presetManager.builtInModified') : t('presetManager.builtIn')}
+                              {preset.modified
+                                ? t('presetManager.builtInModified')
+                                : t('presetManager.builtIn')}
                             </div>
                           )}
                         </div>
                         <span
                           role="button"
-                          onClick={(e) => { e.stopPropagation(); dispatch(togglePresetHidden(preset.id)); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            dispatch(togglePresetHidden(preset.id));
+                          }}
                           className="shrink-0 p-0.5 rounded hover:bg-muted text-muted-foreground"
                         >
                           {isHidden ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
@@ -482,7 +492,9 @@ export function PresetManagerPanel() {
                 );
               })}
               {filtered.length === 0 && (
-                <div className="text-[11px] text-muted-foreground px-2 py-1.5">{t('presetManager.noResults')}</div>
+                <div className="text-[11px] text-muted-foreground px-2 py-1.5">
+                  {t('presetManager.noResults')}
+                </div>
               )}
             </div>
           )}
@@ -519,7 +531,10 @@ export function PresetManagerPanel() {
                       const value = Number(event.target.value);
                       setDraft((prev) =>
                         prev
-                          ? { ...prev, defaultsText: updateIntensityInDefaults(prev.defaultsText, value) }
+                          ? {
+                              ...prev,
+                              defaultsText: updateIntensityInDefaults(prev.defaultsText, value),
+                            }
                           : prev,
                       );
                     }}
@@ -591,7 +606,9 @@ export function PresetManagerPanel() {
                 <textarea
                   value={draft.defaultsText}
                   onChange={(event) =>
-                    setDraft((prev) => (prev ? { ...prev, defaultsText: event.target.value } : prev))
+                    setDraft((prev) =>
+                      prev ? { ...prev, defaultsText: event.target.value } : prev,
+                    )
                   }
                   className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[90px] font-mono"
                 />

@@ -11,7 +11,10 @@
  * orthogonal to the Commander timeline.
  */
 
-import { ENTITY_REFRESH_TOOL_ENTITY, normalizeLLMProviderRuntimeConfig } from '@lucid-fin/contracts';
+import {
+  ENTITY_REFRESH_TOOL_ENTITY,
+  normalizeLLMProviderRuntimeConfig,
+} from '@lucid-fin/contracts';
 
 import type { AppDispatch, RootState } from '../../store/index.js';
 import {
@@ -370,10 +373,7 @@ export class CommanderSessionService {
 
     // Fast-path: if run_end already finalized during the transport.cancel
     // await, no reason to wait further.
-    if (
-      !currentRunId ||
-      getState().commander.finalizedRunIds.includes(currentRunId)
-    ) {
+    if (!currentRunId || getState().commander.finalizedRunIds.includes(currentRunId)) {
       return;
     }
 
@@ -626,7 +626,6 @@ export class CommanderSessionService {
       .catch(() => {});
   }
 
-
   private handleCanvasUpdate(data: CommanderCanvasUpdatedPayload): void {
     const { dispatch, getState } = this.deps;
     const currentState = getState();
@@ -683,9 +682,7 @@ export class CommanderSessionService {
         dispatch(renameNode({ id: inNode.id, title: inNode.title }));
       }
       if (JSON.stringify(curNode.data) !== JSON.stringify(inNode.data)) {
-        dispatch(
-          updateNodeData({ id: inNode.id, data: inNode.data as Record<string, unknown> }),
-        );
+        dispatch(updateNodeData({ id: inNode.id, data: inNode.data as Record<string, unknown> }));
       }
     }
 

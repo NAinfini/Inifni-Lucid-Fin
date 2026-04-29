@@ -65,8 +65,12 @@ export async function exportCapCut(opts: CapCutExportOptions): Promise<{ draftDi
   const draftContent = {
     id: draftId,
     tracks: [
-      ...(videoSegments.length > 0 ? [{ id: randomUUID(), type: 'video', segments: videoSegments }] : []),
-      ...(audioSegments.length > 0 ? [{ id: randomUUID(), type: 'audio', segments: audioSegments }] : []),
+      ...(videoSegments.length > 0
+        ? [{ id: randomUUID(), type: 'video', segments: videoSegments }]
+        : []),
+      ...(audioSegments.length > 0
+        ? [{ id: randomUUID(), type: 'audio', segments: audioSegments }]
+        : []),
     ],
     materials,
     canvas_config: { width, height, ratio: 'original' },
@@ -81,8 +85,16 @@ export async function exportCapCut(opts: CapCutExportOptions): Promise<{ draftDi
     tm_draft_modified: now,
   };
 
-  fs.writeFileSync(path.join(draftDir, 'draft_content.json'), JSON.stringify(draftContent, null, 2), 'utf-8');
-  fs.writeFileSync(path.join(draftDir, 'draft_meta_info.json'), JSON.stringify(draftMeta, null, 2), 'utf-8');
+  fs.writeFileSync(
+    path.join(draftDir, 'draft_content.json'),
+    JSON.stringify(draftContent, null, 2),
+    'utf-8',
+  );
+  fs.writeFileSync(
+    path.join(draftDir, 'draft_meta_info.json'),
+    JSON.stringify(draftMeta, null, 2),
+    'utf-8',
+  );
 
   return { draftDir };
 }

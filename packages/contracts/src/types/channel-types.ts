@@ -28,10 +28,7 @@ export interface InvokeChannelType<
 }
 
 /** A typed push channel: main → renderer, one-way. */
-export interface PushChannelType<
-  Channel extends string = string,
-  Payload = unknown,
-> {
+export interface PushChannelType<Channel extends string = string, Payload = unknown> {
   readonly kind: 'push';
   readonly channel: Channel;
   readonly _types: {
@@ -40,11 +37,7 @@ export interface PushChannelType<
 }
 
 /** A typed reply channel: renderer → main, correlated to a pending prompt. */
-export interface ReplyChannelType<
-  Channel extends string = string,
-  Req = unknown,
-  Res = unknown,
-> {
+export interface ReplyChannelType<Channel extends string = string, Req = unknown, Res = unknown> {
   readonly kind: 'reply';
   readonly channel: Channel;
   readonly _types: {
@@ -53,7 +46,4 @@ export interface ReplyChannelType<
   };
 }
 
-export type AnyChannelType =
-  | InvokeChannelType
-  | PushChannelType
-  | ReplyChannelType;
+export type AnyChannelType = InvokeChannelType | PushChannelType | ReplyChannelType;

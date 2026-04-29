@@ -28,7 +28,8 @@ export async function generateAndImport(
 
   const materialized = await materializeAsset(generated);
   try {
-    const assetType = request.type === 'image' ? 'image' : request.type === 'video' ? 'video' : 'audio';
+    const assetType =
+      request.type === 'image' ? 'image' : request.type === 'video' ? 'video' : 'audio';
     const { ref, meta } = await deps.cas.importAsset(materialized.filePath, assetType);
 
     deps.db.repos.assets.insert({
@@ -55,7 +56,11 @@ async function materializeAsset(generated: {
 }): Promise<MaterializedAsset> {
   const assetPath = normalizeOptionalString(generated.assetPath);
   if (assetPath) {
-    if (assetPath.startsWith('data:image/') || assetPath.startsWith('data:video/') || assetPath.startsWith('data:audio/')) {
+    if (
+      assetPath.startsWith('data:image/') ||
+      assetPath.startsWith('data:video/') ||
+      assetPath.startsWith('data:audio/')
+    ) {
       return decodeBase64DataUrl(assetPath);
     }
     if (/^https?:\/\//i.test(assetPath)) {
@@ -73,7 +78,11 @@ async function materializeAsset(generated: {
     normalizeOptionalString(generated.metadata?.output as string | undefined) ??
     normalizeOptionalString(generated.metadata?.download_url as string | undefined);
   if (metadataUrl) {
-    if (metadataUrl.startsWith('data:image/') || metadataUrl.startsWith('data:video/') || metadataUrl.startsWith('data:audio/')) {
+    if (
+      metadataUrl.startsWith('data:image/') ||
+      metadataUrl.startsWith('data:video/') ||
+      metadataUrl.startsWith('data:audio/')
+    ) {
       return decodeBase64DataUrl(metadataUrl);
     }
     return downloadRemoteAsset(metadataUrl);
@@ -102,7 +111,11 @@ async function downloadRemoteAsset(url: string): Promise<MaterializedAsset> {
   const filePath = path.join(dir, `generated-${Date.now()}.${ext}`);
   const buffer = sanitizePng(Buffer.from(await response.arrayBuffer()));
   await fsp.writeFile(filePath, buffer);
-  log.info('[generation-pipeline] downloaded remote asset', { url, filePath, fileSize: buffer.byteLength });
+  log.info('[generation-pipeline] downloaded remote asset', {
+    url,
+    filePath,
+    fileSize: buffer.byteLength,
+  });
   return { filePath, cleanupPath: dir, sourceUrl: url };
 }
 
@@ -110,16 +123,25 @@ function inferRemoteExtension(url: string, contentType: string | null): string {
   try {
     const ext = path.extname(new URL(url).pathname).slice(1).toLowerCase();
     if (ext) return ext;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   const normalized = contentType?.split(';')[0].trim().toLowerCase();
   switch (normalized) {
-    case 'image/jpeg': return 'jpg';
-    case 'image/webp': return 'webp';
-    case 'image/png': return 'png';
-    case 'video/mp4': return 'mp4';
-    case 'audio/mpeg': return 'mp3';
-    case 'audio/wav': return 'wav';
-    default: return 'bin';
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/png':
+      return 'png';
+    case 'video/mp4':
+      return 'mp4';
+    case 'audio/mpeg':
+      return 'mp3';
+    case 'audio/wav':
+      return 'wav';
+    default:
+      return 'bin';
   }
 }
 

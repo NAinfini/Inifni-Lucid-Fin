@@ -10,9 +10,7 @@ export interface PromptQualityGateSpecDeps {
   resolvePromptText: (key: 'prompt-quality-gate') => string | null | undefined;
 }
 
-export function createPromptQualityGateSpec(
-  deps: PromptQualityGateSpecDeps,
-): ProcessPromptSpec {
+export function createPromptQualityGateSpec(deps: PromptQualityGateSpecDeps): ProcessPromptSpec {
   return {
     key: 'prompt-quality-gate',
     displayName: 'Prompt Quality Gate',

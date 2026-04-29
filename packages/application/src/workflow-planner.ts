@@ -240,10 +240,7 @@ export class WorkflowPlanner {
    * DFS-based cycle detection on a dependency graph.
    * Throws with the cycle path if a back edge is found.
    */
-  private detectCycles(
-    nodes: Array<{ id: string; dependsOn: string[] }>,
-    label: string,
-  ): void {
+  private detectCycles(nodes: Array<{ id: string; dependsOn: string[] }>, label: string): void {
     const visited = new Set<string>();
     const stack = new Set<string>();
     const adjacency = new Map<string, string[]>();
@@ -255,9 +252,7 @@ export class WorkflowPlanner {
       if (stack.has(id)) {
         const cycleStart = path.indexOf(id);
         const cycle = path.slice(cycleStart).concat(id);
-        throw new Error(
-          `Circular ${label} dependency: ${cycle.join(' → ')}`,
-        );
+        throw new Error(`Circular ${label} dependency: ${cycle.join(' → ')}`);
       }
       if (visited.has(id)) return;
       visited.add(id);

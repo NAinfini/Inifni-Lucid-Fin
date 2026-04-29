@@ -13,9 +13,19 @@ describe('exit-contract/EvidenceLedger', () => {
     const l = new EvidenceLedger();
     l.record({ kind: 'guide_loaded', guideId: 'a', at: 1 });
     l.record({ kind: 'ask_user_asked', question: 'q', at: 2 });
-    l.record({ kind: 'mutation_commit', toolName: 'canvas.addNode', args: {}, resultOk: true, at: 3 });
+    l.record({
+      kind: 'mutation_commit',
+      toolName: 'canvas.addNode',
+      args: {},
+      resultOk: true,
+      at: 3,
+    });
     const entries = l.entries();
-    expect(entries.map((e) => e.kind)).toEqual(['guide_loaded', 'ask_user_asked', 'mutation_commit']);
+    expect(entries.map((e) => e.kind)).toEqual([
+      'guide_loaded',
+      'ask_user_asked',
+      'mutation_commit',
+    ]);
     expect(l.size()).toBe(3);
   });
 

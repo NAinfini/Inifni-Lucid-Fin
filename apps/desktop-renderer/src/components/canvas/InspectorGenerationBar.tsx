@@ -184,7 +184,9 @@ export function InspectorGenerationBar({
         >
           {providerLoading && <option value="">{t('generation.loadingProviders') || '...'}</option>}
           {providerOptions.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
           ))}
         </select>
         <button
@@ -197,7 +199,9 @@ export function InspectorGenerationBar({
           {hasVariants ? t('generation.regenerate') : t('generation.generate')}
         </button>
         {!expanded && estimatedCost && !isGenerating && (
-          <span className="text-[9px] text-muted-foreground whitespace-nowrap">{estimatedCost}</span>
+          <span className="text-[9px] text-muted-foreground whitespace-nowrap">
+            {estimatedCost}
+          </span>
         )}
         {isGenerating && (
           <button
@@ -215,7 +219,9 @@ export function InspectorGenerationBar({
         <div className="space-y-1.5 border-t border-border/40 px-3 py-1.5">
           {/* Variants */}
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">{t('generation.variantCount')}</span>
+            <span className="text-[10px] text-muted-foreground">
+              {t('generation.variantCount')}
+            </span>
             <div className="flex items-center rounded-md border border-border/60 overflow-hidden">
               {variantOptions.map((count) => (
                 <button
@@ -247,7 +253,9 @@ export function InspectorGenerationBar({
                 {resolutionGroups.map((group) => (
                   <optgroup key={group.label} label={group.label}>
                     {group.options.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
                     ))}
                   </optgroup>
                 ))}
@@ -257,9 +265,23 @@ export function InspectorGenerationBar({
           )}
           {resolutionValue === customResolutionValue && onWidthChange && onHeightChange && (
             <div className="flex items-center justify-end gap-1">
-              <input type="number" min={1} className="w-16 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px]" value={widthValue ?? ''} onChange={onWidthChange} placeholder="W" />
+              <input
+                type="number"
+                min={1}
+                className="w-16 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px]"
+                value={widthValue ?? ''}
+                onChange={onWidthChange}
+                placeholder="W"
+              />
               <span className="text-[10px] text-muted-foreground">×</span>
-              <input type="number" min={1} className="w-16 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px]" value={heightValue ?? ''} onChange={onHeightChange} placeholder="H" />
+              <input
+                type="number"
+                min={1}
+                className="w-16 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px]"
+                value={heightValue ?? ''}
+                onChange={onHeightChange}
+                placeholder="H"
+              />
             </div>
           )}
 
@@ -273,17 +295,28 @@ export function InspectorGenerationBar({
                 className="w-20 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
               >
                 {durationOptions.map((d) => (
-                  <option key={d} value={d}>{d}s</option>
+                  <option key={d} value={d}>
+                    {d}s
+                  </option>
                 ))}
                 <option value={customResolutionValue ?? ''}>Custom</option>
               </select>
             </div>
           )}
-          {nodeType === 'video' && durationValue === customResolutionValue && onDurationInputChange && (
-            <div className="flex items-center justify-end">
-              <input type="number" min={1} max={60} className="w-20 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px]" value={durationInputValue ?? ''} onChange={onDurationInputChange} />
-            </div>
-          )}
+          {nodeType === 'video' &&
+            durationValue === customResolutionValue &&
+            onDurationInputChange && (
+              <div className="flex items-center justify-end">
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  className="w-20 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px]"
+                  value={durationInputValue ?? ''}
+                  onChange={onDurationInputChange}
+                />
+              </div>
+            )}
 
           {/* FPS (video) */}
           {nodeType === 'video' && fpsOptions && onFpsChange && (
@@ -295,7 +328,9 @@ export function InspectorGenerationBar({
                 className="w-20 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
               >
                 {fpsOptions.map((fps) => (
-                  <option key={fps} value={fps}>{fps}fps</option>
+                  <option key={fps} value={fps}>
+                    {fps}fps
+                  </option>
                 ))}
               </select>
             </div>
@@ -313,12 +348,22 @@ export function InspectorGenerationBar({
                   onChange={onSeedChange}
                 />
                 {onRandomizeSeed && (
-                  <button type="button" onClick={onRandomizeSeed} className="p-0.5 text-muted-foreground hover:text-foreground" title="Randomize">
+                  <button
+                    type="button"
+                    onClick={onRandomizeSeed}
+                    className="p-0.5 text-muted-foreground hover:text-foreground"
+                    title="Randomize"
+                  >
                     <Dice5 className="h-3 w-3" />
                   </button>
                 )}
                 {onToggleSeedLock && (
-                  <button type="button" onClick={onToggleSeedLock} className="p-0.5 text-muted-foreground hover:text-foreground" title={seedLocked ? t('generation.seedLocked') : t('generation.seedUnlocked')}>
+                  <button
+                    type="button"
+                    onClick={onToggleSeedLock}
+                    className="p-0.5 text-muted-foreground hover:text-foreground"
+                    title={seedLocked ? t('generation.seedLocked') : t('generation.seedUnlocked')}
+                  >
                     {seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
                   </button>
                 )}
@@ -384,27 +429,38 @@ export function InspectorGenerationBar({
           )}
 
           {/* Quality selector (all video providers) */}
-          {showQualitySelector && qualityOptions && qualityOptions.length > 0 && onQualityChange && (
-            <div className="space-y-1">
-              <span className="text-[10px] text-muted-foreground">{qualityLabel ?? 'Quality'}</span>
-              <select
-                value={qualityValue ?? ''}
-                onChange={onQualityChange}
-                className="w-full text-[11px] rounded-md border border-border/60 bg-background px-1.5 py-1 outline-none"
-              >
-                {qualityOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          {showQualitySelector &&
+            qualityOptions &&
+            qualityOptions.length > 0 &&
+            onQualityChange && (
+              <div className="space-y-1">
+                <span className="text-[10px] text-muted-foreground">
+                  {qualityLabel ?? 'Quality'}
+                </span>
+                <select
+                  value={qualityValue ?? ''}
+                  onChange={onQualityChange}
+                  className="w-full text-[11px] rounded-md border border-border/60 bg-background px-1.5 py-1 outline-none"
+                >
+                  {qualityOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
           {/* Variant gallery */}
           {variantGrid && (
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-muted-foreground">{t('generation.variants')}</span>
-                {variantLabel && <span className="text-[10px] text-muted-foreground">{variantLabel}</span>}
+                <span className="text-[10px] text-muted-foreground">
+                  {t('generation.variants')}
+                </span>
+                {variantLabel && (
+                  <span className="text-[10px] text-muted-foreground">{variantLabel}</span>
+                )}
               </div>
               <div className="max-h-[140px] overflow-auto">
                 <div className="grid grid-cols-4 gap-1">{variantGrid}</div>

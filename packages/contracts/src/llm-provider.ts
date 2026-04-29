@@ -389,7 +389,9 @@ export function listBuiltinVisionProviderPresets(): VisionProviderPreset[] {
   return BUILTIN_VISION_PROVIDER_PRESETS.map((preset) => ({ ...preset }));
 }
 
-export function getBuiltinVisionProviderPreset(providerId: string): VisionProviderPreset | undefined {
+export function getBuiltinVisionProviderPreset(
+  providerId: string,
+): VisionProviderPreset | undefined {
   const preset = BUILTIN_VISION_PROVIDER_PRESETS.find((entry) => entry.id === providerId);
   return preset ? { ...preset } : undefined;
 }

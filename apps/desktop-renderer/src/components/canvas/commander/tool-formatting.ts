@@ -46,9 +46,10 @@ export function formatToolName(name: string, t?: (key: string) => string): strin
   const { domain, action } = splitToolName(name);
   if (domain) {
     const localizedDomain = t?.(`commander.toolDomain.${domain}`);
-    const domainLabel = localizedDomain && !localizedDomain.startsWith('commander.toolDomain.')
-      ? localizedDomain
-      : domain.replace(/^./, (c) => c.toUpperCase());
+    const domainLabel =
+      localizedDomain && !localizedDomain.startsWith('commander.toolDomain.')
+        ? localizedDomain
+        : domain.replace(/^./, (c) => c.toUpperCase());
     return `${domainLabel}: ${formatAction(action, t)}`;
   }
   return formatAction(action, t);
@@ -72,7 +73,8 @@ export function formatProductionToolName(
   if (domain === 'canvas' && action === 'batchCreate') {
     const nodes = Array.isArray(r.nodes) ? r.nodes : [];
     const count = nodes.length || (Array.isArray(a.nodes) ? a.nodes.length : 0);
-    if (count > 0) return t('commander.productionTool.createdNodes').replace('{count}', String(count));
+    if (count > 0)
+      return t('commander.productionTool.createdNodes').replace('{count}', String(count));
   }
 
   if (domain === 'canvas' && action === 'addNode') {
@@ -94,7 +96,8 @@ export function formatProductionToolName(
   if (domain === 'canvas' && action === 'updateNodes') {
     const nodeIds = Array.isArray(a.nodeIds) ? a.nodeIds : [];
     const count = nodeIds.length || (a.nodeId ? 1 : 0);
-    if (count > 0) return t('commander.productionTool.updatedNodes').replace('{count}', String(count));
+    if (count > 0)
+      return t('commander.productionTool.updatedNodes').replace('{count}', String(count));
   }
 
   if (domain === 'canvas' && action === 'deleteNode') {
@@ -102,8 +105,13 @@ export function formatProductionToolName(
   }
 
   if (domain === 'canvas' && action === 'generate') {
-    const title = typeof a.title === 'string' ? a.title : typeof a.nodeId === 'string' ? a.nodeId.slice(0, 8) : '';
-    const done = r.success === true || (r.status === 'done');
+    const title =
+      typeof a.title === 'string'
+        ? a.title
+        : typeof a.nodeId === 'string'
+          ? a.nodeId.slice(0, 8)
+          : '';
+    const done = r.success === true || r.status === 'done';
     const key = done ? 'commander.productionTool.generated' : 'commander.productionTool.generating';
     return t(key).replace('{title}', title);
   }

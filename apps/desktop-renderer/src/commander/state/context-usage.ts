@@ -17,11 +17,7 @@
  * No React, no Redux — all inputs arrive as plain data.
  */
 
-import type {
-  CommanderBackendContextUsage,
-  CommanderMessage,
-  CommanderToolCall,
-} from './types.js';
+import type { CommanderBackendContextUsage, CommanderMessage, CommanderToolCall } from './types.js';
 
 export interface ContextUsageBreakdown {
   user: number;

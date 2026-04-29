@@ -6,10 +6,7 @@ import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import type { Locale } from '../../i18n.js';
 import { setLocale, t } from '../../i18n.js';
-import {
-  getDefaultSkillName,
-  type SkillDefinition,
-} from '../../store/slices/skillDefinitions.js';
+import { getDefaultSkillName, type SkillDefinition } from '../../store/slices/skillDefinitions.js';
 import type { Theme } from '../../store/slices/ui.js';
 import { settingsSlice } from '../../store/slices/settings.js';
 import { getAPI } from '../../utils/api.js';
@@ -45,9 +42,7 @@ describe('settings extracted sections', () => {
       </Provider>,
     );
 
-    expect(
-      screen.getByRole('button', { current: 'page', name: 'Providers' }),
-    ).toBeTruthy();
+    expect(screen.getByRole('button', { current: 'page', name: 'Providers' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Guides' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Process Injection' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Prompt Templates' })).toBeNull();
@@ -210,7 +205,10 @@ describe('settings extracted sections', () => {
 
     expect(onResetAllSkills).toHaveBeenCalledTimes(1);
     expect(onRenameSkill).toHaveBeenCalledWith({ id: 'meta-prompt', name: 'Director Notes' });
-    expect(onSetSkillContent).toHaveBeenCalledWith({ id: 'meta-prompt', content: 'Updated content' });
+    expect(onSetSkillContent).toHaveBeenCalledWith({
+      id: 'meta-prompt',
+      content: 'Updated content',
+    });
     expect(onResetSkill).toHaveBeenCalledWith('meta-prompt');
     expect(onAddSkill).toHaveBeenCalledWith({
       id: expect.stringMatching(/^custom-/),
@@ -466,9 +464,12 @@ describe('settings extracted sections', () => {
 
     expect(screen.getByText('Loading process injection...')).toBeTruthy();
 
-    await waitFor(() => {
-      expect(currentApi.processPrompt.list).toHaveBeenCalledTimes(1);
-    }, { timeout: 1500 });
+    await waitFor(
+      () => {
+        expect(currentApi.processPrompt.list).toHaveBeenCalledTimes(1);
+      },
+      { timeout: 1500 },
+    );
 
     expect(await screen.findByText('Image Node Generation')).toBeTruthy();
     expect(screen.queryByText(t('settings.processGuides.unavailable'))).toBeNull();

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { ScriptDocument, ParsedScene } from '@lucid-fin/contracts';
 import { parseScript } from '@lucid-fin/domain';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import { assertSafePath, getSafeRoots } from '../path-safety.js';
 
 export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   ipcMain.handle('script:parse', async (_e, args: { content: string; format?: string }) => {
@@ -49,7 +50,7 @@ export function registerScriptHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
     if (!args || typeof args.filePath !== 'string' || !args.filePath.trim()) {
       throw new Error('filePath is required');
     }
-    const resolved = path.resolve(args.filePath);
+    const resolved = assertSafePath(args.filePath, getSafeRoots());
     if (!fs.existsSync(resolved) || fs.statSync(resolved).isDirectory()) {
       throw new Error(`Script file not found: ${resolved}`);
     }

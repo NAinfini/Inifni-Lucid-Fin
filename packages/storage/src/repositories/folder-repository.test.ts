@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
-import {
-  FolderRepository,
-  FolderCycleError,
-  FolderNotFoundError,
-} from './folder-repository.js';
+import { FolderRepository, FolderCycleError, FolderNotFoundError } from './folder-repository.js';
 
 const SCHEMA = `
 CREATE TABLE character_folders (

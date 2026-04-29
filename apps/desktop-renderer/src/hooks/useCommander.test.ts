@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { setCanvases, setActiveCanvas } from '../store/slices/canvas.js';
-import { clearHistory, deleteSession, setProviderId, startStreaming } from '../store/slices/commander.js';
+import {
+  clearHistory,
+  deleteSession,
+  setProviderId,
+  startStreaming,
+} from '../store/slices/commander.js';
 import { setEquipment } from '../store/slices/equipment.js';
 import { store } from '../store/index.js';
 import { syncCommanderEntitiesForTool, useCommander } from './useCommander.js';
@@ -93,9 +98,7 @@ afterEach(() => {
   store.dispatch(setCanvases([]));
   store.dispatch(setActiveCanvas(null));
   store.dispatch(setProviderId(null));
-  store.dispatch(
-    restoreSettings(settingsSlice.reducer(undefined, { type: '@@INIT' })),
-  );
+  store.dispatch(restoreSettings(settingsSlice.reducer(undefined, { type: '@@INIT' })));
   vi.clearAllMocks();
 });
 
@@ -117,16 +120,20 @@ describe('useCommander stream completion', () => {
       },
     } as never);
 
-    store.dispatch(setCanvases([{
-      id: 'canvas-1',
-      name: 'Main',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      createdAt: 1,
-      updatedAt: 1,
-      notes: [],
-    }]));
+    store.dispatch(
+      setCanvases([
+        {
+          id: 'canvas-1',
+          name: 'Main',
+          nodes: [],
+          edges: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+          createdAt: 1,
+          updatedAt: 1,
+          notes: [],
+        },
+      ]),
+    );
     store.dispatch(setActiveCanvas('canvas-1'));
 
     const { getByRole } = render(
@@ -150,7 +157,8 @@ describe('useCommander stream completion', () => {
           expect.objectContaining({
             level: 'error',
             category: 'commander',
-            message: 'Commander backend is still starting. Wait for the app to finish loading and try again.',
+            message:
+              'Commander backend is still starting. Wait for the app to finish loading and try again.',
           }),
         ]),
       );
@@ -176,24 +184,42 @@ describe('useCommander stream completion', () => {
       },
     } as never);
 
-    store.dispatch(setCanvases([{
-      id: 'canvas-1',
-      name: 'Main',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      createdAt: 1,
-      updatedAt: 1,
-      notes: [],
-    }]));
+    store.dispatch(
+      setCanvases([
+        {
+          id: 'canvas-1',
+          name: 'Main',
+          nodes: [],
+          edges: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+          createdAt: 1,
+          updatedAt: 1,
+          notes: [],
+        },
+      ]),
+    );
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(startStreaming());
 
     render(React.createElement(Provider, { store, children: React.createElement(HookHarness) }));
 
     await act(async () => {
-      onStream?.({ wireVersion: 2, event: { kind: 'assistant_text', content: 'Final answer', isDelta: false, runId: 'r', step: 1, seq: 0, emittedAt: 0 } });
-      onStream?.({ wireVersion: 2, event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 1, emittedAt: 0 } });
+      onStream?.({
+        wireVersion: 2,
+        event: {
+          kind: 'assistant_text',
+          content: 'Final answer',
+          isDelta: false,
+          runId: 'r',
+          step: 1,
+          seq: 0,
+          emittedAt: 0,
+        },
+      });
+      onStream?.({
+        wireVersion: 2,
+        event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 1, emittedAt: 0 },
+      });
     });
 
     await waitFor(() => {
@@ -225,16 +251,20 @@ describe('useCommander stream completion', () => {
       },
     } as never);
 
-    store.dispatch(setCanvases([{
-      id: 'canvas-1',
-      name: 'Main',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      createdAt: 1,
-      updatedAt: 1,
-      notes: [],
-    }]));
+    store.dispatch(
+      setCanvases([
+        {
+          id: 'canvas-1',
+          name: 'Main',
+          nodes: [],
+          edges: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+          createdAt: 1,
+          updatedAt: 1,
+          notes: [],
+        },
+      ]),
+    );
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(setBootstrapped());
     store.dispatch(
@@ -298,16 +328,20 @@ describe('useCommander stream completion', () => {
       },
     } as never);
 
-    store.dispatch(setCanvases([{
-      id: 'canvas-1',
-      name: 'Main',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      createdAt: 1,
-      updatedAt: 1,
-      notes: [],
-    }]));
+    store.dispatch(
+      setCanvases([
+        {
+          id: 'canvas-1',
+          name: 'Main',
+          nodes: [],
+          edges: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+          createdAt: 1,
+          updatedAt: 1,
+          notes: [],
+        },
+      ]),
+    );
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(setBootstrapped());
 
@@ -326,7 +360,11 @@ describe('useCommander stream completion', () => {
       expect(chat).toHaveBeenCalledTimes(1);
     });
 
-    const promptGuides = chat.mock.calls[0]?.[4] as Array<{ id: string; name: string; content: string }>;
+    const promptGuides = chat.mock.calls[0]?.[4] as Array<{
+      id: string;
+      name: string;
+      content: string;
+    }>;
 
     expect(promptGuides).toEqual(
       expect.arrayContaining([
@@ -371,16 +409,20 @@ describe('useCommander stream completion', () => {
       },
     } as never);
 
-    store.dispatch(setCanvases([{
-      id: 'canvas-1',
-      name: 'Main',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      createdAt: 1,
-      updatedAt: 1,
-      notes: [],
-    }]));
+    store.dispatch(
+      setCanvases([
+        {
+          id: 'canvas-1',
+          name: 'Main',
+          nodes: [],
+          edges: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+          createdAt: 1,
+          updatedAt: 1,
+          notes: [],
+        },
+      ]),
+    );
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(setBootstrapped());
 
@@ -401,14 +443,16 @@ describe('useCommander stream completion', () => {
       expect(capture).toHaveBeenCalledTimes(1);
     });
 
-    const [stubSession] = upsert.mock.calls[0] as [{
-      id: string;
-      canvasId: string | null;
-      title: string;
-      messages: string;
-      createdAt: number;
-      updatedAt: number;
-    }];
+    const [stubSession] = upsert.mock.calls[0] as [
+      {
+        id: string;
+        canvasId: string | null;
+        title: string;
+        messages: string;
+        createdAt: number;
+        updatedAt: number;
+      },
+    ];
 
     expect(stubSession.id).not.toBe('canvas-1');
     expect(capture).toHaveBeenCalledWith(stubSession.id, 'Before Commander session', 'auto');
@@ -452,16 +496,20 @@ describe('useCommander stream completion', () => {
       },
     } as never);
 
-    store.dispatch(setCanvases([{
-      id: 'canvas-1',
-      name: 'Main',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      createdAt: 1,
-      updatedAt: 1,
-      notes: [],
-    }]));
+    store.dispatch(
+      setCanvases([
+        {
+          id: 'canvas-1',
+          name: 'Main',
+          nodes: [],
+          edges: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+          createdAt: 1,
+          updatedAt: 1,
+          notes: [],
+        },
+      ]),
+    );
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(setBootstrapped());
 
@@ -482,7 +530,10 @@ describe('useCommander stream completion', () => {
     });
 
     await act(async () => {
-      onStream?.({ wireVersion: 2, event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 0, emittedAt: 0 } });
+      onStream?.({
+        wireVersion: 2,
+        event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 0, emittedAt: 0 },
+      });
     });
 
     await waitFor(() => {

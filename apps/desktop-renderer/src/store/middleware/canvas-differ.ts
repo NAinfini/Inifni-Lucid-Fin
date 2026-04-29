@@ -39,16 +39,24 @@ export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch 
   }
 
   // Node diffs
-  const prevNodeMap = new Map(prev.nodes.map(n => [n.id, n]));
-  const nextNodeMap = new Map(next.nodes.map(n => [n.id, n]));
+  const prevNodeMap = new Map(prev.nodes.map((n) => [n.id, n]));
+  const nextNodeMap = new Map(next.nodes.map((n) => [n.id, n]));
 
   // Added nodes
-  const added = next.nodes.filter(n => !prevNodeMap.has(n.id));
-  if (added.length > 0) { patch.addedNodes = added; patch.operations.push('addNode'); hasChanges = true; }
+  const added = next.nodes.filter((n) => !prevNodeMap.has(n.id));
+  if (added.length > 0) {
+    patch.addedNodes = added;
+    patch.operations.push('addNode');
+    hasChanges = true;
+  }
 
   // Removed nodes
-  const removed = prev.nodes.filter(n => !nextNodeMap.has(n.id)).map(n => n.id);
-  if (removed.length > 0) { patch.removedNodeIds = removed; patch.operations.push('removeNode'); hasChanges = true; }
+  const removed = prev.nodes.filter((n) => !nextNodeMap.has(n.id)).map((n) => n.id);
+  if (removed.length > 0) {
+    patch.removedNodeIds = removed;
+    patch.operations.push('removeNode');
+    hasChanges = true;
+  }
 
   // Updated nodes (compare updatedAt timestamp)
   const updated: Array<{ id: string; changes: Record<string, unknown> }> = [];
@@ -68,17 +76,29 @@ export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch 
       }
     }
   }
-  if (updated.length > 0) { patch.updatedNodes = updated; patch.operations.push('updateNode'); hasChanges = true; }
+  if (updated.length > 0) {
+    patch.updatedNodes = updated;
+    patch.operations.push('updateNode');
+    hasChanges = true;
+  }
 
   // Edge diffs
-  const prevEdgeMap = new Map(prev.edges.map(e => [e.id, e]));
-  const nextEdgeMap = new Map(next.edges.map(e => [e.id, e]));
+  const prevEdgeMap = new Map(prev.edges.map((e) => [e.id, e]));
+  const nextEdgeMap = new Map(next.edges.map((e) => [e.id, e]));
 
-  const addedEdges = next.edges.filter(e => !prevEdgeMap.has(e.id));
-  if (addedEdges.length > 0) { patch.addedEdges = addedEdges; patch.operations.push('addEdge'); hasChanges = true; }
+  const addedEdges = next.edges.filter((e) => !prevEdgeMap.has(e.id));
+  if (addedEdges.length > 0) {
+    patch.addedEdges = addedEdges;
+    patch.operations.push('addEdge');
+    hasChanges = true;
+  }
 
-  const removedEdges = prev.edges.filter(e => !nextEdgeMap.has(e.id)).map(e => e.id);
-  if (removedEdges.length > 0) { patch.removedEdgeIds = removedEdges; patch.operations.push('removeEdge'); hasChanges = true; }
+  const removedEdges = prev.edges.filter((e) => !nextEdgeMap.has(e.id)).map((e) => e.id);
+  if (removedEdges.length > 0) {
+    patch.removedEdgeIds = removedEdges;
+    patch.operations.push('removeEdge');
+    hasChanges = true;
+  }
 
   // Updated edges: detect source/target/handle/data changes on existing edges
   const updatedEdges: Array<{ id: string; edge: CanvasEdge }> = [];
@@ -89,7 +109,11 @@ export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch 
       updatedEdges.push({ id: nextEdge.id, edge: nextEdge });
     }
   }
-  if (updatedEdges.length > 0) { patch.updatedEdges = updatedEdges; patch.operations.push('updateEdge'); hasChanges = true; }
+  if (updatedEdges.length > 0) {
+    patch.updatedEdges = updatedEdges;
+    patch.operations.push('updateEdge');
+    hasChanges = true;
+  }
 
   return hasChanges ? patch : null;
 }

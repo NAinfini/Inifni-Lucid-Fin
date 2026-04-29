@@ -98,9 +98,7 @@ export function AdvancedParamsSection({ node, dispatch, t }: InspectorSectionPro
           </div>
           <div className="grid grid-cols-3 gap-1.5">
             <div>
-              <label className="text-[10px] text-muted-foreground">
-                {t('inspector.steps')}
-              </label>
+              <label className="text-[10px] text-muted-foreground">{t('inspector.steps')}</label>
               <input
                 type="number"
                 min={1}
@@ -111,9 +109,7 @@ export function AdvancedParamsSection({ node, dispatch, t }: InspectorSectionPro
               />
             </div>
             <div>
-              <label className="text-[10px] text-muted-foreground">
-                {t('inspector.cfgScale')}
-              </label>
+              <label className="text-[10px] text-muted-foreground">{t('inspector.cfgScale')}</label>
               <input
                 type="number"
                 min={1}

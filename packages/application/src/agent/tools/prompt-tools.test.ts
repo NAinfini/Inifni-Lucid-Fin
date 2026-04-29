@@ -7,9 +7,11 @@ function createDeps(): PromptToolDeps {
       { code: 'scene.system', name: 'Scene', type: 'system', hasCustom: false },
       { code: 'shot.user', name: 'Shot', type: 'user', hasCustom: true },
     ]),
-    getPrompt: vi.fn(async (code: string) => (code === 'scene.system'
-      ? { code, name: 'Scene', defaultValue: 'default', customValue: null }
-      : null)),
+    getPrompt: vi.fn(async (code: string) =>
+      code === 'scene.system'
+        ? { code, name: 'Scene', defaultValue: 'default', customValue: null }
+        : null,
+    ),
     setCustomPrompt: vi.fn(async () => undefined),
     clearCustomPrompt: vi.fn(async () => undefined),
   };
@@ -83,8 +85,18 @@ describe('createPromptTools', () => {
   });
 
   describe('prompt.get batch support', () => {
-    const scenePrompt = { code: 'scene.system', name: 'Scene', defaultValue: 'default', customValue: null };
-    const shotPrompt = { code: 'shot.user', name: 'Shot', defaultValue: 'shot default', customValue: 'custom shot' };
+    const scenePrompt = {
+      code: 'scene.system',
+      name: 'Scene',
+      defaultValue: 'default',
+      customValue: null,
+    };
+    const shotPrompt = {
+      code: 'shot.user',
+      name: 'Shot',
+      defaultValue: 'shot default',
+      customValue: 'custom shot',
+    };
 
     function createBatchDeps(): PromptToolDeps {
       const store = new Map([
@@ -110,16 +122,20 @@ describe('createPromptTools', () => {
 
     it('array of IDs returns array of prompts', async () => {
       const deps = createBatchDeps();
-      const result = await getTool('prompt.get', deps).execute({ ids: ['scene.system', 'shot.user'] });
+      const result = await getTool('prompt.get', deps).execute({
+        ids: ['scene.system', 'shot.user'],
+      });
       expect(result.success).toBe(true);
-      const data = result.data as typeof scenePrompt[];
+      const data = result.data as (typeof scenePrompt)[];
       expect(data).toHaveLength(2);
       expect(data.map((p) => p.code)).toEqual(['scene.system', 'shot.user']);
     });
 
     it('missing ID in batch returns error for first missing', async () => {
       const deps = createBatchDeps();
-      const result = await getTool('prompt.get', deps).execute({ ids: ['scene.system', 'missing.code'] });
+      const result = await getTool('prompt.get', deps).execute({
+        ids: ['scene.system', 'missing.code'],
+      });
       expect(result).toEqual({ success: false, error: 'Prompt not found: missing.code' });
     });
   });
@@ -127,10 +143,12 @@ describe('createPromptTools', () => {
   describe('prompt.setCustom', () => {
     it('sets custom value when value is provided', async () => {
       const deps = createDeps();
-      await expect(getTool('prompt.setCustom', deps).execute({
-        code: 'scene.system',
-        value: ' custom ',
-      })).resolves.toEqual({
+      await expect(
+        getTool('prompt.setCustom', deps).execute({
+          code: 'scene.system',
+          value: ' custom ',
+        }),
+      ).resolves.toEqual({
         success: true,
         data: { code: 'scene.system' },
       });
@@ -139,7 +157,9 @@ describe('createPromptTools', () => {
 
     it('clears custom override when value is not provided', async () => {
       const deps = createDeps();
-      await expect(getTool('prompt.setCustom', deps).execute({ code: 'scene.system' })).resolves.toEqual({
+      await expect(
+        getTool('prompt.setCustom', deps).execute({ code: 'scene.system' }),
+      ).resolves.toEqual({
         success: true,
         data: { code: 'scene.system' },
       });
@@ -148,7 +168,9 @@ describe('createPromptTools', () => {
 
     it('clears custom override when value is null', async () => {
       const deps = createDeps();
-      await expect(getTool('prompt.setCustom', deps).execute({ code: 'scene.system', value: null })).resolves.toEqual({
+      await expect(
+        getTool('prompt.setCustom', deps).execute({ code: 'scene.system', value: null }),
+      ).resolves.toEqual({
         success: true,
         data: { code: 'scene.system' },
       });
@@ -157,7 +179,9 @@ describe('createPromptTools', () => {
 
     it('returns error when value is empty string', async () => {
       const deps = createDeps();
-      await expect(getTool('prompt.setCustom', deps).execute({ code: 'scene.system', value: '' })).resolves.toEqual({
+      await expect(
+        getTool('prompt.setCustom', deps).execute({ code: 'scene.system', value: '' }),
+      ).resolves.toEqual({
         success: false,
         error: 'value is required',
         errorClass: 'validation',
@@ -167,7 +191,9 @@ describe('createPromptTools', () => {
     it('returns error when clearCustomPrompt fails', async () => {
       const deps = createDeps();
       vi.mocked(deps.clearCustomPrompt).mockRejectedValueOnce(new Error('clear failed'));
-      await expect(getTool('prompt.setCustom', deps).execute({ code: 'scene.system' })).resolves.toEqual({
+      await expect(
+        getTool('prompt.setCustom', deps).execute({ code: 'scene.system' }),
+      ).resolves.toEqual({
         success: false,
         error: 'clear failed',
       });

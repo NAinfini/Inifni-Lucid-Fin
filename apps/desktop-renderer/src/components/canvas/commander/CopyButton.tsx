@@ -9,10 +9,15 @@ export interface CopyButtonProps {
 export function CopyButton({ text, label }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(() => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }).catch(() => { /* clipboard write failure is non-critical */ });
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {
+        /* clipboard write failure is non-critical */
+      });
   }, [text]);
 
   return (

@@ -20,9 +20,7 @@ import {
   moveItemToFolder,
 } from '../../store/slices/characters.js';
 import { getAPI } from '../../utils/api.js';
-import type {
-  Character,
-} from '@lucid-fin/contracts';
+import type { Character } from '@lucid-fin/contracts';
 import { normalizeCharacterRefSlot } from '@lucid-fin/contracts';
 import { Link2, User } from 'lucide-react';
 import { useI18n } from '../../hooks/use-i18n.js';
@@ -41,10 +39,13 @@ export function CharacterManagerPanel() {
   const { items, selectedId, loading } = useSelector((s: RootState) => s.characters);
 
   const {
-    draft, setDraft,
+    draft,
+    setDraft,
     setOriginalDraft,
-    error, setError,
-    assetPickerOpen, setAssetPickerOpen,
+    error,
+    setError,
+    assetPickerOpen,
+    setAssetPickerOpen,
     isDirty,
     reportError,
     confirmDiscardIfDirty,
@@ -109,15 +110,20 @@ export function CharacterManagerPanel() {
     }
   }, [dispatch, reportError]);
 
-  useEffect(() => { void loadCharacters(); }, [loadCharacters]);
+  useEffect(() => {
+    void loadCharacters();
+  }, [loadCharacters]);
 
-  const handleOpenItem = useCallback(async (char: Character) => {
-    if (selectedId !== char.id) {
-      if (!(await confirmDiscardIfDirty())) return;
-      dispatch(selectCharacter(char.id));
-    }
-    setDrawerOpen(true);
-  }, [confirmDiscardIfDirty, dispatch, selectedId]);
+  const handleOpenItem = useCallback(
+    async (char: Character) => {
+      if (selectedId !== char.id) {
+        if (!(await confirmDiscardIfDirty())) return;
+        dispatch(selectCharacter(char.id));
+      }
+      setDrawerOpen(true);
+    },
+    [confirmDiscardIfDirty, dispatch, selectedId],
+  );
 
   const createNewCharacter = useCallback(async () => {
     if (!(await confirmDiscardIfDirty())) return;
@@ -158,7 +164,10 @@ export function CharacterManagerPanel() {
         description: draft.description,
         appearance: draft.appearance,
         personality: draft.personality,
-        tags: draft.tags.split(',').map((s) => s.trim()).filter(Boolean),
+        tags: draft.tags
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
         age: draft.age ? Number(draft.age) : undefined,
         gender: draft.gender || undefined,
         voice: draft.voice || undefined,
@@ -167,7 +176,10 @@ export function CharacterManagerPanel() {
         skinTone: draft.skinTone || undefined,
         body: Object.values(draft.body).some(Boolean) ? draft.body : undefined,
         distinctTraits: draft.distinctTraits
-          ? draft.distinctTraits.split(',').map((s) => s.trim()).filter(Boolean)
+          ? draft.distinctTraits
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
           : undefined,
         vocalTraits: Object.values(draft.vocalTraits).some(Boolean) ? draft.vocalTraits : undefined,
       };
@@ -182,31 +194,32 @@ export function CharacterManagerPanel() {
     }
   }, [dispatch, draft, reportError, selectedChar, setError, t]);
 
-  const handleDeleteIds = useCallback(async (ids: string[]) => {
-    if (ids.length === 0) return;
-    const names = ids
-      .map((id) => items.find((c) => c.id === id)?.name || id)
-      .join(', ');
-    const ok = await confirm({
-      title: t('characterManager.deleteConfirm').replace('{name}', names),
-      destructive: true,
-      confirmLabel: t('action.confirm'),
-      cancelLabel: t('action.cancel'),
-    });
-    if (!ok) return;
-    setError(null);
-    const api = getAPI();
-    for (const id of ids) {
-      try {
-        if (api?.character) await api.character.delete(id);
-        dispatch(removeCharacter(id));
-        dispatch(removeEntityRefsFromAllCanvases({ entityType: 'character', entityId: id }));
-        if (selectedId === id) setDrawerOpen(false);
-      } catch (reason) {
-        reportError(reason, 'handleDeleteIds');
+  const handleDeleteIds = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const names = ids.map((id) => items.find((c) => c.id === id)?.name || id).join(', ');
+      const ok = await confirm({
+        title: t('characterManager.deleteConfirm').replace('{name}', names),
+        destructive: true,
+        confirmLabel: t('action.confirm'),
+        cancelLabel: t('action.cancel'),
+      });
+      if (!ok) return;
+      setError(null);
+      const api = getAPI();
+      for (const id of ids) {
+        try {
+          if (api?.character) await api.character.delete(id);
+          dispatch(removeCharacter(id));
+          dispatch(removeEntityRefsFromAllCanvases({ entityType: 'character', entityId: id }));
+          if (selectedId === id) setDrawerOpen(false);
+        } catch (reason) {
+          reportError(reason, 'handleDeleteIds');
+        }
       }
-    }
-  }, [confirm, dispatch, items, reportError, selectedId, setError, t]);
+    },
+    [confirm, dispatch, items, reportError, selectedId, setError, t],
+  );
 
   const handleMoveToFolder = useCallback(
     async (ids: string[], folderId: string | null) => {
@@ -224,36 +237,44 @@ export function CharacterManagerPanel() {
     [dispatch, reportError],
   );
 
-  const handlePaste = useCallback((payload: { mode: 'copy' | 'cut'; items: Character[] }) => {
-    const folderId = folderApi.currentFolderId;
-    if (payload.mode === 'cut') {
-      void handleMoveToFolder(payload.items.map((it) => it.id), folderId);
-    } else {
-      // Copy: duplicate each character via the API.
-      const api = getAPI();
-      if (!api?.character) return;
-      (async () => {
-        for (const original of payload.items) {
-          try {
-            const { id: _id, ...rest } = original;
-            const saved = (await api.character.save({
-              ...rest,
-              name: `${original.name} ${t('action.copySuffix')}`,
-              folderId,
-            } as Record<string, unknown>)) as Character;
-            dispatch(addCharacter(saved));
-          } catch (reason) {
-            reportError(reason, 'handlePasteCopy');
+  const handlePaste = useCallback(
+    (payload: { mode: 'copy' | 'cut'; items: Character[] }) => {
+      const folderId = folderApi.currentFolderId;
+      if (payload.mode === 'cut') {
+        void handleMoveToFolder(
+          payload.items.map((it) => it.id),
+          folderId,
+        );
+      } else {
+        // Copy: duplicate each character via the API.
+        const api = getAPI();
+        if (!api?.character) return;
+        (async () => {
+          for (const original of payload.items) {
+            try {
+              const { id: _id, ...rest } = original;
+              const saved = (await api.character.save({
+                ...rest,
+                name: `${original.name} ${t('action.copySuffix')}`,
+                folderId,
+              } as Record<string, unknown>)) as Character;
+              dispatch(addCharacter(saved));
+            } catch (reason) {
+              reportError(reason, 'handlePasteCopy');
+            }
           }
-        }
-      })();
-    }
-  }, [folderApi.currentFolderId, handleMoveToFolder, dispatch, reportError, t]);
+        })();
+      }
+    },
+    [folderApi.currentFolderId, handleMoveToFolder, dispatch, reportError, t],
+  );
 
   const drawerShown = drawerOpen && draft !== null;
   return (
     <div className="flex h-full min-h-0">
-      <div className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}>
+      <div
+        className={drawerShown ? 'w-[140px] shrink-0 border-r border-border/60' : 'flex-1 min-w-0'}
+      >
         <EntityFileExplorer<Character>
           items={items}
           folders={folderApi.folders}
@@ -270,8 +291,8 @@ export function CharacterManagerPanel() {
           renderThumbnail={(c) => (
             <ListThumb
               hash={
-                c.referenceImages?.find((r) => normalizeCharacterRefSlot(r.slot) === 'main')?.assetHash ??
-                c.referenceImages?.[0]?.assetHash
+                c.referenceImages?.find((r) => normalizeCharacterRefSlot(r.slot) === 'main')
+                  ?.assetHash ?? c.referenceImages?.[0]?.assetHash
               }
             />
           )}
@@ -281,7 +302,10 @@ export function CharacterManagerPanel() {
               {(usageCountById[c.id] ?? 0) > 0 && (
                 <span
                   className="inline-flex items-center gap-0.5"
-                  title={t('characterManager.usedInNodes').replace('{count}', String(usageCountById[c.id]))}
+                  title={t('characterManager.usedInNodes').replace(
+                    '{count}',
+                    String(usageCountById[c.id]),
+                  )}
                 >
                   <Link2 className="h-3 w-3" />
                   {usageCountById[c.id]}
@@ -298,12 +322,12 @@ export function CharacterManagerPanel() {
             cutIds,
           }}
           onPaste={handlePaste}
-          header={(
+          header={
             <div className="flex items-center gap-2">
               <User className="h-3.5 w-3.5 text-primary" />
               <h2 className="text-xs font-semibold">{t('characterManager.title')}</h2>
             </div>
-          )}
+          }
           newItemLabel={t('characterManager.newCharacter')}
           activeItemId={drawerOpen ? (selectedId ?? null) : null}
           loading={loading}

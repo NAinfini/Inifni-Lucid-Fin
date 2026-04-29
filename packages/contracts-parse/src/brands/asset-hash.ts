@@ -16,9 +16,6 @@ const AssetHashSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'assetHash must be non-empty after trim' });
 
-export const parseAssetHash = makeBrandParser<AssetHash, string>(
-  AssetHashSchema,
-  'AssetHash',
-);
+export const parseAssetHash = makeBrandParser<AssetHash, string>(AssetHashSchema, 'AssetHash');
 
 export const tryAssetHash = makeTryBrand<AssetHash, string>(AssetHashSchema);

@@ -66,23 +66,23 @@
    Cool-neutral base, subtle blue undertone, high contrast text
    ═══════════════════════════════════════════════════ */
 .dark {
-  --background: 220 16% 6%;       /* deepest bg — workspace */
-  --foreground: 220 10% 88%;      /* primary text — high contrast */
-  --card: 220 14% 9%;             /* panels, cards */
+  --background: 220 16% 6%; /* deepest bg — workspace */
+  --foreground: 220 10% 88%; /* primary text — high contrast */
+  --card: 220 14% 9%; /* panels, cards */
   --card-foreground: 220 10% 88%;
-  --surface: 220 14% 12%;         /* elevated surfaces, inputs */
+  --surface: 220 14% 12%; /* elevated surfaces, inputs */
   --surface-foreground: 220 10% 80%;
-  --primary: 213 94% 56%;         /* accent blue — actions, focus */
+  --primary: 213 94% 56%; /* accent blue — actions, focus */
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 14% 14%;       /* subtle bg for grouped elements */
+  --secondary: 220 14% 14%; /* subtle bg for grouped elements */
   --secondary-foreground: 220 10% 78%;
-  --muted: 220 14% 11%;           /* disabled bg, dividers */
+  --muted: 220 14% 11%; /* disabled bg, dividers */
   --muted-foreground: 220 10% 50%; /* secondary text */
   --accent: 213 94% 56%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 220 14% 15%;          /* subtle borders */
+  --border: 220 14% 15%; /* subtle borders */
   --ring: 213 94% 56%;
   --radius: 0.375rem;
   --popover: 220 14% 10%;
@@ -161,7 +161,12 @@ body {
 /* ═══════════════════════════════════════════════════
    Typography scale
    ═══════════════════════════════════════════════════ */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   letter-spacing: -0.02em;
   font-weight: 600;
 }
@@ -187,11 +192,19 @@ h1, h2, h3, h4, h5, h6 {
 /* ═══════════════════════════════════════════════════
    Global transitions — smooth micro-interactions
    ═══════════════════════════════════════════════════ */
-button, a, input, select, textarea,
-[role="button"], [role="tab"] {
-  transition: background-color 0.15s ease, color 0.15s ease,
-              border-color 0.15s ease, box-shadow 0.15s ease,
-              opacity 0.15s ease;
+button,
+a,
+input,
+select,
+textarea,
+[role='button'],
+[role='tab'] {
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -222,11 +235,11 @@ button, a, input, select, textarea,
 /* ═══════════════════════════════════════════════════
    Inputs — professional, tight
    ═══════════════════════════════════════════════════ */
-input[type="text"],
-input[type="number"],
-input[type="search"],
-input[type="url"],
-input[type="email"],
+input[type='text'],
+input[type='number'],
+input[type='search'],
+input[type='url'],
+input[type='email'],
 textarea,
 select {
   background: hsl(var(--input));
@@ -236,11 +249,14 @@ select {
   font-size: 12px;
   padding: 5px 8px;
 }
-input:focus, textarea:focus, select:focus {
+input:focus,
+textarea:focus,
+select:focus {
   border-color: hsl(var(--primary) / 0.6);
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.2);
 }
-input::placeholder, textarea::placeholder {
+input::placeholder,
+textarea::placeholder {
   color: hsl(var(--muted-foreground) / 0.6);
 }
 
@@ -260,7 +276,7 @@ input::placeholder, textarea::placeholder {
   color: hsl(var(--foreground));
   background: hsl(var(--muted) / 0.5);
 }
-.lucid-tab[data-active="true"],
+.lucid-tab[data-active='true'],
 .lucid-tab.active {
   color: hsl(var(--primary));
   border-bottom-color: hsl(var(--primary));
@@ -344,13 +360,16 @@ input::placeholder, textarea::placeholder {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius-lg);
-  box-shadow: 0 8px 30px hsl(0 0% 0% / 0.4), 0 0 1px hsl(0 0% 0% / 0.2);
+  box-shadow:
+    0 8px 30px hsl(0 0% 0% / 0.4),
+    0 0 1px hsl(0 0% 0% / 0.2);
 }
 
 /* ═══════════════════════════════════════════════════
    Dividers
    ═══════════════════════════════════════════════════ */
-hr, .lucid-divider {
+hr,
+.lucid-divider {
   border: none;
   height: 1px;
   background: hsl(var(--border));
@@ -359,11 +378,21 @@ hr, .lucid-divider {
 /* ═══════════════════════════════════════════════════
    Status colors — consistent across app
    ═══════════════════════════════════════════════════ */
-.status-idle     { color: hsl(220 10% 50%); }
-.status-active   { color: hsl(213 94% 56%); }
-.status-success  { color: hsl(142 71% 45%); }
-.status-warning  { color: hsl(38 92% 50%); }
-.status-error    { color: hsl(0 72% 51%); }
+.status-idle {
+  color: hsl(220 10% 50%);
+}
+.status-active {
+  color: hsl(213 94% 56%);
+}
+.status-success {
+  color: hsl(142 71% 45%);
+}
+.status-warning {
+  color: hsl(38 92% 50%);
+}
+.status-error {
+  color: hsl(0 72% 51%);
+}
 
 /* ═══════════════════════════════════════════════════
    ReactFlow overrides
@@ -386,78 +415,167 @@ hr, .lucid-divider {
 .react-flow__node-toolbar {
   display: none !important;
 }
-.react-flow__node button[aria-label="delete"] {
+.react-flow__node button[aria-label='delete'] {
   display: none !important;
 }
 
 /* Node generating border glow animation — theme-aware */
 @keyframes border-glow {
-  0%, 100% { box-shadow: 0 0 8px hsl(var(--primary) / 0.3); border-color: hsl(var(--primary) / 0.4); }
-  50% { box-shadow: 0 0 20px hsl(var(--primary) / 0.6); border-color: hsl(var(--primary) / 0.8); }
+  0%,
+  100% {
+    box-shadow: 0 0 8px hsl(var(--primary) / 0.3);
+    border-color: hsl(var(--primary) / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.6);
+    border-color: hsl(var(--primary) / 0.8);
+  }
 }
 @keyframes border-glow-purple {
-  0%, 100% { box-shadow: 0 0 8px hsl(270 60% 60% / 0.3); border-color: hsl(270 60% 60% / 0.4); }
-  50% { box-shadow: 0 0 20px hsl(270 60% 60% / 0.6); border-color: hsl(270 60% 60% / 0.8); }
+  0%,
+  100% {
+    box-shadow: 0 0 8px hsl(270 60% 60% / 0.3);
+    border-color: hsl(270 60% 60% / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px hsl(270 60% 60% / 0.6);
+    border-color: hsl(270 60% 60% / 0.8);
+  }
 }
 
 /* Accordion open/close keyframes */
 @keyframes accordion-down {
-  from { height: 0; }
-  to { height: var(--radix-accordion-content-height); }
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
 }
 @keyframes accordion-up {
-  from { height: var(--radix-accordion-content-height); }
-  to { height: 0; }
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
 }
 
 /* shadcn/tailwindcss-animate compatible enter/exit keyframes */
 @keyframes enter {
-  from { opacity: var(--tw-enter-opacity, 0); transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0) scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), 1) rotate(var(--tw-enter-rotate, 0)); }
+  from {
+    opacity: var(--tw-enter-opacity, 0);
+    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+      scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), 1)
+      rotate(var(--tw-enter-rotate, 0));
+  }
 }
 @keyframes exit {
-  to { opacity: var(--tw-exit-opacity, 0); transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0) scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), 1) rotate(var(--tw-exit-rotate, 0)); }
+  to {
+    opacity: var(--tw-exit-opacity, 0);
+    transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0)
+      scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), 1) rotate(var(--tw-exit-rotate, 0));
+  }
 }
 
 /* ═══════════════════════════════════════════════════
    tailwindcss-animate utilities for Tailwind v4
    ═══════════════════════════════════════════════════ */
-@utility animate-in { animation: enter var(--animate-in); }
-@utility animate-out { animation: exit var(--animate-out); }
+@utility animate-in {
+  animation: enter var(--animate-in);
+}
+@utility animate-out {
+  animation: exit var(--animate-out);
+}
 
-@utility fade-in-0 { --tw-enter-opacity: 0; }
-@utility fade-in-50 { --tw-enter-opacity: 0.5; }
-@utility fade-out-0 { --tw-exit-opacity: 0; }
-@utility fade-out-50 { --tw-exit-opacity: 0.5; }
+@utility fade-in-0 {
+  --tw-enter-opacity: 0;
+}
+@utility fade-in-50 {
+  --tw-enter-opacity: 0.5;
+}
+@utility fade-out-0 {
+  --tw-exit-opacity: 0;
+}
+@utility fade-out-50 {
+  --tw-exit-opacity: 0.5;
+}
 
-@utility zoom-in-95 { --tw-enter-scale: 0.95; }
-@utility zoom-in-90 { --tw-enter-scale: 0.9; }
-@utility zoom-out-95 { --tw-exit-scale: 0.95; }
-@utility zoom-out-90 { --tw-exit-scale: 0.9; }
+@utility zoom-in-95 {
+  --tw-enter-scale: 0.95;
+}
+@utility zoom-in-90 {
+  --tw-enter-scale: 0.9;
+}
+@utility zoom-out-95 {
+  --tw-exit-scale: 0.95;
+}
+@utility zoom-out-90 {
+  --tw-exit-scale: 0.9;
+}
 
-@utility slide-in-from-top-2 { --tw-enter-translate-y: -0.5rem; }
-@utility slide-in-from-top-full { --tw-enter-translate-y: -100%; }
-@utility slide-in-from-bottom-2 { --tw-enter-translate-y: 0.5rem; }
-@utility slide-in-from-bottom-full { --tw-enter-translate-y: 100%; }
-@utility slide-in-from-left-2 { --tw-enter-translate-x: -0.5rem; }
-@utility slide-in-from-left-full { --tw-enter-translate-x: -100%; }
-@utility slide-in-from-left-1half { --tw-enter-translate-x: -50%; }
-@utility slide-in-from-right-2 { --tw-enter-translate-x: 0.5rem; }
-@utility slide-in-from-right-full { --tw-enter-translate-x: 100%; }
+@utility slide-in-from-top-2 {
+  --tw-enter-translate-y: -0.5rem;
+}
+@utility slide-in-from-top-full {
+  --tw-enter-translate-y: -100%;
+}
+@utility slide-in-from-bottom-2 {
+  --tw-enter-translate-y: 0.5rem;
+}
+@utility slide-in-from-bottom-full {
+  --tw-enter-translate-y: 100%;
+}
+@utility slide-in-from-left-2 {
+  --tw-enter-translate-x: -0.5rem;
+}
+@utility slide-in-from-left-full {
+  --tw-enter-translate-x: -100%;
+}
+@utility slide-in-from-left-1half {
+  --tw-enter-translate-x: -50%;
+}
+@utility slide-in-from-right-2 {
+  --tw-enter-translate-x: 0.5rem;
+}
+@utility slide-in-from-right-full {
+  --tw-enter-translate-x: 100%;
+}
 
-@utility slide-out-to-top { --tw-exit-translate-y: -100%; }
-@utility slide-out-to-top-full { --tw-exit-translate-y: -100%; }
-@utility slide-out-to-bottom { --tw-exit-translate-y: 100%; }
-@utility slide-out-to-bottom-full { --tw-exit-translate-y: 100%; }
-@utility slide-out-to-left { --tw-exit-translate-x: -100%; }
-@utility slide-out-to-left-1half { --tw-exit-translate-x: -50%; }
-@utility slide-out-to-right { --tw-exit-translate-x: 100%; }
+@utility slide-out-to-top {
+  --tw-exit-translate-y: -100%;
+}
+@utility slide-out-to-top-full {
+  --tw-exit-translate-y: -100%;
+}
+@utility slide-out-to-bottom {
+  --tw-exit-translate-y: 100%;
+}
+@utility slide-out-to-bottom-full {
+  --tw-exit-translate-y: 100%;
+}
+@utility slide-out-to-left {
+  --tw-exit-translate-x: -100%;
+}
+@utility slide-out-to-left-1half {
+  --tw-exit-translate-x: -50%;
+}
+@utility slide-out-to-right {
+  --tw-exit-translate-x: 100%;
+}
 
-@utility slide-in-from-top-48pct { --tw-enter-translate-y: -48%; }
-@utility slide-out-to-top-48pct { --tw-exit-translate-y: -48%; }
+@utility slide-in-from-top-48pct {
+  --tw-enter-translate-y: -48%;
+}
+@utility slide-out-to-top-48pct {
+  --tw-exit-translate-y: -48%;
+}
 
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -473,7 +591,9 @@ hr, .lucid-divider {
   border-radius: 50% !important;
   border: 2px solid hsl(var(--background)) !important;
   opacity: 0;
-  transition: opacity 0.15s, box-shadow 0.15s;
+  transition:
+    opacity 0.15s,
+    box-shadow 0.15s;
   z-index: 20;
 }
 .react-flow__node:hover .react-flow__resize-control.handle,

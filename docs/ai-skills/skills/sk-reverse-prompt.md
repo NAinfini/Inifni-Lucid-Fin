@@ -3,6 +3,7 @@
 Use this when you have a finished image and want a clean, reusable prompt instead of a vague visual summary.
 
 Workflow:
+
 1. Start from a real image node or reference frame, not from memory.
 2. Ask for the right readout:
    - use prompt-style description when you want a recreation prompt
@@ -18,11 +19,13 @@ Workflow:
 6. If the goal is modification, keep the stable parts and only swap the layer you want to change.
 
 Checks:
+
 - the rewritten prompt describes visible evidence, not fantasy explanations
 - the prompt is clean enough to edit later
 - style traits are separated from story content when reuse matters
 
 Avoid:
+
 - pasting the raw description back without editing
 - treating uncertain details as facts
 - mixing style transfer goals with literal scene reconstruction in one messy prompt

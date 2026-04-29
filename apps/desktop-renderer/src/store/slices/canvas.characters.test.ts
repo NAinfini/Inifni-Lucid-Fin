@@ -159,27 +159,22 @@ describe('canvas character refs', () => {
 describe('canvas equipment refs', () => {
   it('adds equipment ref to an image node', () => {
     let state = setup();
-    state = canvasSlice.reducer(
-      state,
-      addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }),
-    );
+    state = canvasSlice.reducer(state, addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }));
 
     const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
     expect(data.equipmentRefs).toHaveLength(1);
-    expect(data.equipmentRefs![0]).toEqual({ equipmentId: 'eq-1', angleSlot: undefined, referenceImageHash: undefined });
+    expect(data.equipmentRefs![0]).toEqual({
+      equipmentId: 'eq-1',
+      angleSlot: undefined,
+      referenceImageHash: undefined,
+    });
   });
 
   it('prevents duplicate equipment refs', () => {
     let state = setup();
-    state = canvasSlice.reducer(
-      state,
-      addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }),
-    );
-    state = canvasSlice.reducer(
-      state,
-      addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }),
-    );
+    state = canvasSlice.reducer(state, addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }));
+    state = canvasSlice.reducer(state, addNodeEquipmentRef({ id: 'img-1', equipmentId: 'eq-1' }));
 
     const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1');
     const data = node?.data as ImageNodeData;
@@ -188,14 +183,8 @@ describe('canvas equipment refs', () => {
 
   it('removes equipment ref', () => {
     let state = setup();
-    state = canvasSlice.reducer(
-      state,
-      addNodeEquipmentRef({ id: 'vid-1', equipmentId: 'eq-1' }),
-    );
-    state = canvasSlice.reducer(
-      state,
-      addNodeEquipmentRef({ id: 'vid-1', equipmentId: 'eq-2' }),
-    );
+    state = canvasSlice.reducer(state, addNodeEquipmentRef({ id: 'vid-1', equipmentId: 'eq-1' }));
+    state = canvasSlice.reducer(state, addNodeEquipmentRef({ id: 'vid-1', equipmentId: 'eq-2' }));
     state = canvasSlice.reducer(
       state,
       removeNodeEquipmentRef({ id: 'vid-1', equipmentId: 'eq-1' }),
@@ -204,7 +193,11 @@ describe('canvas equipment refs', () => {
     const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'vid-1');
     const data = node?.data as VideoNodeData;
     expect(data.equipmentRefs).toHaveLength(1);
-    expect(data.equipmentRefs![0]).toEqual({ equipmentId: 'eq-2', angleSlot: undefined, referenceImageHash: undefined });
+    expect(data.equipmentRefs![0]).toEqual({
+      equipmentId: 'eq-2',
+      angleSlot: undefined,
+      referenceImageHash: undefined,
+    });
   });
 
   it('sets equipment refs wholesale', () => {
@@ -224,10 +217,7 @@ describe('canvas equipment refs', () => {
 
   it('ignores equipment ref actions on text nodes', () => {
     let state = setup();
-    state = canvasSlice.reducer(
-      state,
-      addNodeEquipmentRef({ id: 'txt-1', equipmentId: 'eq-1' }),
-    );
+    state = canvasSlice.reducer(state, addNodeEquipmentRef({ id: 'txt-1', equipmentId: 'eq-1' }));
 
     const node = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'txt-1');
     expect((node?.data as unknown as Record<string, unknown>).equipmentRefs).toBeUndefined();

@@ -246,10 +246,7 @@ export function insertNodeIntoEdge(
  * Restores edges that were removed.
  * Used as the inverse action for `removeEdges`.
  */
-export function restoreEdges(
-  state: CanvasSliceState,
-  action: PayloadAction<CanvasEdge[]>,
-): void {
+export function restoreEdges(state: CanvasSliceState, action: PayloadAction<CanvasEdge[]>): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
   const existingIds = new Set(canvas.edges.map((e) => e.id));

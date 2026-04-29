@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
-import {
-  normalizeOpenAICompatibleBaseUrl,
-  OpenAICompatibleLLM,
-} from './openai-compatible-base.js';
+import { normalizeOpenAICompatibleBaseUrl, OpenAICompatibleLLM } from './openai-compatible-base.js';
 import { collectLLMStream } from './test-utils/collect-llm-stream.js';
 import type { LLMMessage, LLMRequestOptions } from '@lucid-fin/contracts';
+
+// Allow localhost/private URLs in tests — validateProviderUrl blocks them by default.
+vi.mock('../url-policy.js', () => ({
+  validateProviderUrl: vi.fn(),
+}));
 
 /** Drain the adapter's streaming completion into the legacy flat shape. */
 function complete(adapter: OpenAICompatibleLLM, messages: LLMMessage[], opts?: LLMRequestOptions) {
@@ -84,28 +86,29 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
   it('extracts assistant text from output_text content parts returned by OpenAI-compatible gateways', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            choices: [
-              {
-                message: {
-                  content: [
-                    {
-                      type: 'output_text',
-                      text: 'hello from gateway',
-                    },
-                  ],
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: [
+                      {
+                        type: 'output_text',
+                        text: 'hello from gateway',
+                      },
+                    ],
+                  },
+                  finish_reason: 'stop',
                 },
-                finish_reason: 'stop',
-              },
-            ],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
       ),
     );
 
@@ -120,9 +123,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       model: 'gpt-5.4',
     });
 
-    await expect(
-      complete(adapter, [{ role: 'user', content: 'hello' }]),
-    ).resolves.toMatchObject({
+    await expect(complete(adapter, [{ role: 'user', content: 'hello' }])).resolves.toMatchObject({
       content: 'hello from gateway',
       finishReason: 'stop',
     });
@@ -131,24 +132,25 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
   it('extracts reasoning from a response with reasoning_content field', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            choices: [
-              {
-                message: {
-                  content: '',
-                  reasoning_content: 'internal only',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: '',
+                    reasoning_content: 'internal only',
+                  },
+                  finish_reason: 'stop',
                 },
-                finish_reason: 'stop',
-              },
-            ],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
       ),
     );
 
@@ -175,20 +177,21 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
   it('surfaces upstream status, endpoint, model, and response body when the provider rejects the request', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            error: {
-              message: 'Unsupported parameter: tools',
-              code: 'unsupported_parameter',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: 'Unsupported parameter: tools',
+                code: 'unsupported_parameter',
+              },
+              trace_id: 'trace-123',
+            }),
+            {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
             },
-            trace_id: 'trace-123',
-          }),
-          {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
+          ),
       ),
     );
 
@@ -204,21 +207,18 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      adapter.completeWithTools(
-        [{ role: 'user', content: 'hello' }],
-        {
-          tools: [
-            {
-              name: 'listNodes',
-              description: 'List nodes',
-              parameters: {
-                type: 'object',
-                properties: {},
-              },
+      adapter.completeWithTools([{ role: 'user', content: 'hello' }], {
+        tools: [
+          {
+            name: 'listNodes',
+            description: 'List nodes',
+            parameters: {
+              type: 'object',
+              properties: {},
             },
-          ],
-        },
-      ),
+          },
+        ],
+      }),
     ).rejects.toMatchObject<Partial<LucidError>>({
       code: ErrorCode.InvalidRequest,
       message: 'Unsupported parameter: tools',
@@ -236,11 +236,12 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
   it('throws a structured LucidError when a successful response returns HTML instead of JSON', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response('<!doctype html><html><body>proxy page</body></html>', {
-          status: 200,
-          headers: { 'Content-Type': 'text/html; charset=utf-8' },
-        }),
+      vi.fn(
+        async () =>
+          new Response('<!doctype html><html><body>proxy page</body></html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }),
       ),
     );
 
@@ -255,9 +256,9 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       model: 'gpt-5.4',
     });
 
-    await expect(
-      complete(adapter, [{ role: 'user', content: 'hello' }]),
-    ).rejects.toMatchObject<Partial<LucidError>>({
+    await expect(complete(adapter, [{ role: 'user', content: 'hello' }])).rejects.toMatchObject<
+      Partial<LucidError>
+    >({
       code: ErrorCode.ServiceUnavailable,
       message: 'Custom Local returned a non-JSON response',
       details: expect.objectContaining({
@@ -313,9 +314,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       model: 'gpt-5.4',
     });
 
-    await expect(
-      complete(adapter, [{ role: 'user', content: 'hello' }]),
-    ).resolves.toMatchObject({
+    await expect(complete(adapter, [{ role: 'user', content: 'hello' }])).resolves.toMatchObject({
       content: 'hello from api',
       finishReason: 'stop',
     });
@@ -328,26 +327,27 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
   it('extracts assistant text when message.content uses OpenAI-style output_text parts', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            choices: [
-              {
-                message: {
-                  content: [
-                    { type: 'output_text', text: 'Hello' },
-                    { type: 'output_text', text: ' world' },
-                  ],
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: [
+                      { type: 'output_text', text: 'Hello' },
+                      { type: 'output_text', text: ' world' },
+                    ],
+                  },
+                  finish_reason: 'stop',
                 },
-                finish_reason: 'stop',
-              },
-            ],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
       ),
     );
 
@@ -362,9 +362,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       model: 'gpt-5.4',
     });
 
-    await expect(
-      complete(adapter, [{ role: 'user', content: 'hello' }]),
-    ).resolves.toMatchObject({
+    await expect(complete(adapter, [{ role: 'user', content: 'hello' }])).resolves.toMatchObject({
       content: 'Hello world',
       finishReason: 'stop',
       toolCalls: [],
@@ -374,25 +372,26 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
   it('throws a structured error when a 200 JSON response contains no assistant text and no tool calls', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            id: 'chatcmpl-empty',
-            choices: [
-              {
-                message: {
-                  role: 'assistant',
-                  content: [],
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: 'chatcmpl-empty',
+              choices: [
+                {
+                  message: {
+                    role: 'assistant',
+                    content: [],
+                  },
+                  finish_reason: 'stop',
                 },
-                finish_reason: 'stop',
-              },
-            ],
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        ),
+              ],
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          ),
       ),
     );
 
@@ -407,9 +406,9 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       model: 'gpt-5.4',
     });
 
-    await expect(
-      complete(adapter, [{ role: 'user', content: 'hello' }]),
-    ).rejects.toMatchObject<Partial<LucidError>>({
+    await expect(complete(adapter, [{ role: 'user', content: 'hello' }])).rejects.toMatchObject<
+      Partial<LucidError>
+    >({
       code: ErrorCode.ServiceUnavailable,
       message: 'Custom Local returned JSON without extractable assistant content',
       details: expect.objectContaining({
@@ -465,23 +464,20 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      complete(adapter,
-        [{ role: 'user', content: 'hello' }],
-        {
-          temperature: 0.7,
-          maxTokens: 4096,
-          tools: [
-            {
-              name: 'tool.search',
-              description: 'Search tools',
-              parameters: {
-                type: 'object',
-                properties: {},
-              },
+      complete(adapter, [{ role: 'user', content: 'hello' }], {
+        temperature: 0.7,
+        maxTokens: 4096,
+        tools: [
+          {
+            name: 'tool.search',
+            description: 'Search tools',
+            parameters: {
+              type: 'object',
+              properties: {},
             },
-          ],
-        },
-      ),
+          },
+        ],
+      }),
     ).resolves.toMatchObject({
       content: 'compat ok',
       finishReason: 'stop',
@@ -540,21 +536,18 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
 
     await expect(
-      complete(adapter,
-        [{ role: 'user', content: 'hello' }],
-        {
-          tools: [
-            {
-              name: 'tool.search',
-              description: 'Search tools',
-              parameters: {
-                type: 'object',
-                properties: {},
-              },
+      complete(adapter, [{ role: 'user', content: 'hello' }], {
+        tools: [
+          {
+            name: 'tool.search',
+            description: 'Search tools',
+            parameters: {
+              type: 'object',
+              properties: {},
             },
-          ],
-        },
-      ),
+          },
+        ],
+      }),
     ).rejects.toMatchObject<Partial<LucidError>>({
       code: ErrorCode.ServiceUnavailable,
       message: 'Custom Local returned JSON without extractable assistant content',
@@ -564,8 +557,8 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
         providerId: 'custom-local',
         finishReason: 'stop',
         toolCallCount: 0,
-        requestBody: expect.objectContaining({
-          tools: expect.any(Array),
+        requestSummary: expect.objectContaining({
+          toolCount: expect.any(Number),
         }),
       }),
     });

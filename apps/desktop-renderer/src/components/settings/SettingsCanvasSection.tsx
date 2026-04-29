@@ -1,8 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  CanvasAspectRatio,
-  CanvasSettings,
-} from '@lucid-fin/contracts';
+import type { CanvasAspectRatio, CanvasSettings } from '@lucid-fin/contracts';
 import { useDispatch, useSelector } from 'react-redux';
 import { Palette, Image as ImageIcon, Layers } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
@@ -10,13 +7,7 @@ import { updateCanvasSettings } from '../../store/slices/canvas.js';
 import { t } from '../../i18n.js';
 import { Input } from '../ui/Input.js';
 import { Textarea } from '../ui/Textarea.js';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/Select.js';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/Select.js';
 
 /**
  * Canvas-scoped settings, surfaced inside the program Settings page.
@@ -36,25 +27,41 @@ import {
 
 // Image-publishing presets. Each preset pins an aspect ratio → updates
 // both publishImageResolution and aspectRatio atomically.
-const PUBLISH_IMAGE_PRESETS: Array<{ id: string; width: number; height: number; aspect: CanvasAspectRatio }> = [
-  { id: '4k',              width: 3840, height: 2160, aspect: '16:9' },
-  { id: '2k',              width: 2560, height: 1440, aspect: '16:9' },
-  { id: '1080p',           width: 1920, height: 1080, aspect: '16:9' },
-  { id: '720p',            width: 1280, height: 720,  aspect: '16:9' },
-  { id: 'vertical-1080p',  width: 1080, height: 1920, aspect: '9:16' },
-  { id: 'vertical-720p',   width: 720,  height: 1280, aspect: '9:16' },
+const PUBLISH_IMAGE_PRESETS: Array<{
+  id: string;
+  width: number;
+  height: number;
+  aspect: CanvasAspectRatio;
+}> = [
+  { id: '4k', width: 3840, height: 2160, aspect: '16:9' },
+  { id: '2k', width: 2560, height: 1440, aspect: '16:9' },
+  { id: '1080p', width: 1920, height: 1080, aspect: '16:9' },
+  { id: '720p', width: 1280, height: 720, aspect: '16:9' },
+  { id: 'vertical-1080p', width: 1080, height: 1920, aspect: '9:16' },
+  { id: 'vertical-720p', width: 720, height: 1280, aspect: '9:16' },
 ];
-type PublishImagePresetId = (typeof PUBLISH_IMAGE_PRESETS)[number]['id'] | 'provider-default' | 'custom';
+type PublishImagePresetId =
+  | (typeof PUBLISH_IMAGE_PRESETS)[number]['id']
+  | 'provider-default'
+  | 'custom';
 
 // Video-publishing presets. Dropped 4K because only Veo supports it —
 // everywhere else it would force a clamp-down.
-const PUBLISH_VIDEO_PRESETS: Array<{ id: string; width: number; height: number; aspect: CanvasAspectRatio }> = [
-  { id: '1080p',           width: 1920, height: 1080, aspect: '16:9' },
-  { id: '720p',            width: 1280, height: 720,  aspect: '16:9' },
-  { id: 'vertical-1080p',  width: 1080, height: 1920, aspect: '9:16' },
-  { id: 'vertical-720p',   width: 720,  height: 1280, aspect: '9:16' },
+const PUBLISH_VIDEO_PRESETS: Array<{
+  id: string;
+  width: number;
+  height: number;
+  aspect: CanvasAspectRatio;
+}> = [
+  { id: '1080p', width: 1920, height: 1080, aspect: '16:9' },
+  { id: '720p', width: 1280, height: 720, aspect: '16:9' },
+  { id: 'vertical-1080p', width: 1080, height: 1920, aspect: '9:16' },
+  { id: 'vertical-720p', width: 720, height: 1280, aspect: '9:16' },
 ];
-type PublishVideoPresetId = (typeof PUBLISH_VIDEO_PRESETS)[number]['id'] | 'provider-default' | 'custom';
+type PublishVideoPresetId =
+  | (typeof PUBLISH_VIDEO_PRESETS)[number]['id']
+  | 'provider-default'
+  | 'custom';
 
 // Ref-image presets: sizes accepted natively by every mainstream image
 // provider we ship (OpenAI gpt-image-1, Imagen 4, Flux 1.1 Pro/Ultra,
@@ -63,16 +70,16 @@ type PublishVideoPresetId = (typeof PUBLISH_VIDEO_PRESETS)[number]['id'] | 'prov
 // sentinel — selecting it clears refResolution so per-provider / per-entity
 // factory defaults apply downstream.
 const REF_PRESETS: Array<{ id: string; width: number; height: number }> = [
-  { id: 'ref-1024-square',    width: 1024, height: 1024 },
-  { id: 'ref-1344-landscape', width: 1344, height: 768  },
-  { id: 'ref-768-vertical',   width: 768,  height: 1344 },
-  { id: 'ref-2048-square',    width: 2048, height: 2048 },
+  { id: 'ref-1024-square', width: 1024, height: 1024 },
+  { id: 'ref-1344-landscape', width: 1344, height: 768 },
+  { id: 'ref-768-vertical', width: 768, height: 1344 },
+  { id: 'ref-2048-square', width: 2048, height: 2048 },
 ];
 type RefPresetId = (typeof REF_PRESETS)[number]['id'] | 'provider-default' | 'custom';
 
 const DEFAULT_PUBLISH_IMAGE_PRESET: PublishImagePresetId = 'provider-default';
 const DEFAULT_PUBLISH_VIDEO_PRESET: PublishVideoPresetId = 'provider-default';
-const DEFAULT_ASPECT_RATIO = '';  // empty sentinel — means "canvas has no aspect override"
+const DEFAULT_ASPECT_RATIO = ''; // empty sentinel — means "canvas has no aspect override"
 const DEFAULT_REF_PRESET: RefPresetId = 'provider-default';
 
 function detectPublishImagePreset(width: number, height: number): PublishImagePresetId {
@@ -121,16 +128,16 @@ function settingsToDraft(settings: CanvasSettings | undefined): DraftState {
   const refPreset: RefPresetId = settings?.refResolution
     ? detectRefPreset(settings.refResolution.width, settings.refResolution.height)
     : DEFAULT_REF_PRESET;
-  const refW = settings?.refResolution?.width  ?? 0;
+  const refW = settings?.refResolution?.width ?? 0;
   const refH = settings?.refResolution?.height ?? 0;
   return {
     stylePlate: settings?.stylePlate ?? '',
     negativePrompt: settings?.negativePrompt ?? '',
     publishImagePreset: imgPreset,
-    publishImageWidth:  imgRes ? String(imgRes.width)  : '',
+    publishImageWidth: imgRes ? String(imgRes.width) : '',
     publishImageHeight: imgRes ? String(imgRes.height) : '',
     publishVideoPreset: vidPreset,
-    publishVideoWidth:  vidRes ? String(vidRes.width)  : '',
+    publishVideoWidth: vidRes ? String(vidRes.width) : '',
     publishVideoHeight: vidRes ? String(vidRes.height) : '',
     aspectRatio: settings?.aspectRatio ?? DEFAULT_ASPECT_RATIO,
     refPreset,
@@ -180,7 +187,7 @@ function draftToSettings(draft: DraftState): CanvasSettings {
 
 export function SettingsCanvasSection() {
   const activeCanvasId = useSelector((s: RootState) => s.canvas.activeCanvasId);
-  const llmProviders   = useSelector((s: RootState) => s.settings.llm.providers);
+  const llmProviders = useSelector((s: RootState) => s.settings.llm.providers);
   const imageProviders = useSelector((s: RootState) => s.settings.image.providers);
   const videoProviders = useSelector((s: RootState) => s.settings.video.providers);
   const audioProviders = useSelector((s: RootState) => s.settings.audio.providers);
@@ -229,21 +236,26 @@ export function SettingsCanvasSection() {
     if (!activeCanvasId) return;
     const { draft: liveDraft } = latestRef.current;
     const nextSettings = draftToSettings(liveDraft);
-    dispatch(updateCanvasSettings({
-      canvasId: activeCanvasId,
-      settings: Object.keys(nextSettings).length > 0 ? nextSettings : undefined,
-    }));
+    dispatch(
+      updateCanvasSettings({
+        canvasId: activeCanvasId,
+        settings: Object.keys(nextSettings).length > 0 ? nextSettings : undefined,
+      }),
+    );
     setSavedAt(Date.now());
   }, [activeCanvasId, dispatch]);
 
-  const updateDraft = useCallback((patch: Partial<DraftState>) => {
-    setDraft((d) => ({ ...d, ...patch }));
-    setSavedAt(null);
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      void persist();
-    }, 400);
-  }, [persist]);
+  const updateDraft = useCallback(
+    (patch: Partial<DraftState>) => {
+      setDraft((d) => ({ ...d, ...patch }));
+      setSavedAt(null);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        void persist();
+      }, 400);
+    },
+    [persist],
+  );
 
   useEffect(() => {
     return () => {
@@ -268,251 +280,267 @@ export function SettingsCanvasSection() {
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         {canvasName && (
           <span>
-            {t('settings.canvas.editing')}: <span className="font-medium text-foreground">{canvasName}</span>
+            {t('settings.canvas.editing')}:{' '}
+            <span className="font-medium text-foreground">{canvasName}</span>
           </span>
         )}
-        <span className="ml-auto">
-          {savedAt ? t('settings.canvas.saved') : ''}
-        </span>
+        <span className="ml-auto">{savedAt ? t('settings.canvas.saved') : ''}</span>
       </div>
 
-        <div className="space-y-4">
-          {/* Style */}
-          <SectionCard icon={Palette} title={t('canvas.canvasSettings.sectionStyle')}>
-            <div className="space-y-3">
-              <LabeledField
-                label={t('canvas.canvasSettings.stylePlate')}
-                hint={t('canvas.canvasSettings.stylePlateHint')}
-              >
-                <Textarea
-                  rows={3}
-                  value={draft.stylePlate}
-                  onChange={(e) => updateDraft({ stylePlate: e.target.value })}
-                  placeholder={t('canvas.canvasSettings.stylePlatePlaceholder')}
-                />
-              </LabeledField>
-              <LabeledField
-                label={t('canvas.canvasSettings.negativePrompt')}
-                hint={t('canvas.canvasSettings.negativePromptHint')}
-              >
-                <Textarea
-                  rows={2}
-                  value={draft.negativePrompt}
-                  onChange={(e) => updateDraft({ negativePrompt: e.target.value })}
-                  placeholder={t('canvas.canvasSettings.negativePromptPlaceholder')}
-                />
-              </LabeledField>
-            </div>
-          </SectionCard>
+      <div className="space-y-4">
+        {/* Style */}
+        <SectionCard icon={Palette} title={t('canvas.canvasSettings.sectionStyle')}>
+          <div className="space-y-3">
+            <LabeledField
+              label={t('canvas.canvasSettings.stylePlate')}
+              hint={t('canvas.canvasSettings.stylePlateHint')}
+            >
+              <Textarea
+                rows={3}
+                value={draft.stylePlate}
+                onChange={(e) => updateDraft({ stylePlate: e.target.value })}
+                placeholder={t('canvas.canvasSettings.stylePlatePlaceholder')}
+              />
+            </LabeledField>
+            <LabeledField
+              label={t('canvas.canvasSettings.negativePrompt')}
+              hint={t('canvas.canvasSettings.negativePromptHint')}
+            >
+              <Textarea
+                rows={2}
+                value={draft.negativePrompt}
+                onChange={(e) => updateDraft({ negativePrompt: e.target.value })}
+                placeholder={t('canvas.canvasSettings.negativePromptPlaceholder')}
+              />
+            </LabeledField>
+          </div>
+        </SectionCard>
 
-          {/* Output: Publish image + Publish video + Ref image */}
-          <SectionCard icon={ImageIcon} title={t('canvas.canvasSettings.sectionOutput')}>
-            <div className="space-y-3">
-              <LabeledField
-                label={t('canvas.canvasSettings.publishImageResolution')}
-                hint={t('canvas.canvasSettings.publishImageResolutionHint')}
-              >
-                <div className="space-y-2">
-                  <PlainSelect
-                    value={draft.publishImagePreset}
-                    onChange={(v) => {
-                      const presetId = v as PublishImagePresetId;
-                      if (presetId === 'provider-default') {
-                        updateDraft({ publishImagePreset: 'provider-default', publishImageWidth: '', publishImageHeight: '' });
-                        return;
-                      }
-                      if (presetId === 'custom') {
-                        updateDraft({ publishImagePreset: 'custom' });
-                        return;
-                      }
-                      const preset = PUBLISH_IMAGE_PRESETS.find((p) => p.id === presetId);
-                      if (!preset) return;
+        {/* Output: Publish image + Publish video + Ref image */}
+        <SectionCard icon={ImageIcon} title={t('canvas.canvasSettings.sectionOutput')}>
+          <div className="space-y-3">
+            <LabeledField
+              label={t('canvas.canvasSettings.publishImageResolution')}
+              hint={t('canvas.canvasSettings.publishImageResolutionHint')}
+            >
+              <div className="space-y-2">
+                <PlainSelect
+                  value={draft.publishImagePreset}
+                  onChange={(v) => {
+                    const presetId = v as PublishImagePresetId;
+                    if (presetId === 'provider-default') {
                       updateDraft({
-                        publishImagePreset: preset.id,
-                        publishImageWidth: String(preset.width),
-                        publishImageHeight: String(preset.height),
-                        aspectRatio: preset.aspect,
+                        publishImagePreset: 'provider-default',
+                        publishImageWidth: '',
+                        publishImageHeight: '',
                       });
-                    }}
-                    options={[
-                      { id: 'provider-default', name: t('canvas.canvasSettings.publishPreset.providerDefault') },
-                      ...PUBLISH_IMAGE_PRESETS.map((p) => ({
-                        id: p.id,
-                        name: `${t(`canvas.canvasSettings.publishPreset.${p.id}`)} (${p.width}×${p.height} · ${p.aspect})`,
-                      })),
-                      { id: 'custom', name: t('canvas.canvasSettings.publishPreset.custom') },
-                    ]}
-                  />
-                  {draft.publishImagePreset === 'custom' && (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min={1}
-                        value={draft.publishImageWidth}
-                        onChange={(e) => updateDraft({ publishImageWidth: e.target.value })}
-                        placeholder={t('canvas.canvasSettings.widthPlaceholder')}
-                      />
-                      <span className="text-xs text-muted-foreground">×</span>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={draft.publishImageHeight}
-                        onChange={(e) => updateDraft({ publishImageHeight: e.target.value })}
-                        placeholder={t('canvas.canvasSettings.heightPlaceholder')}
-                      />
-                    </div>
-                  )}
-                </div>
-              </LabeledField>
+                      return;
+                    }
+                    if (presetId === 'custom') {
+                      updateDraft({ publishImagePreset: 'custom' });
+                      return;
+                    }
+                    const preset = PUBLISH_IMAGE_PRESETS.find((p) => p.id === presetId);
+                    if (!preset) return;
+                    updateDraft({
+                      publishImagePreset: preset.id,
+                      publishImageWidth: String(preset.width),
+                      publishImageHeight: String(preset.height),
+                      aspectRatio: preset.aspect,
+                    });
+                  }}
+                  options={[
+                    {
+                      id: 'provider-default',
+                      name: t('canvas.canvasSettings.publishPreset.providerDefault'),
+                    },
+                    ...PUBLISH_IMAGE_PRESETS.map((p) => ({
+                      id: p.id,
+                      name: `${t(`canvas.canvasSettings.publishPreset.${p.id}`)} (${p.width}×${p.height} · ${p.aspect})`,
+                    })),
+                    { id: 'custom', name: t('canvas.canvasSettings.publishPreset.custom') },
+                  ]}
+                />
+                {draft.publishImagePreset === 'custom' && (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.publishImageWidth}
+                      onChange={(e) => updateDraft({ publishImageWidth: e.target.value })}
+                      placeholder={t('canvas.canvasSettings.widthPlaceholder')}
+                    />
+                    <span className="text-xs text-muted-foreground">×</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.publishImageHeight}
+                      onChange={(e) => updateDraft({ publishImageHeight: e.target.value })}
+                      placeholder={t('canvas.canvasSettings.heightPlaceholder')}
+                    />
+                  </div>
+                )}
+              </div>
+            </LabeledField>
 
-              <LabeledField
-                label={t('canvas.canvasSettings.publishVideoResolution')}
-                hint={t('canvas.canvasSettings.publishVideoResolutionHint')}
-              >
-                <div className="space-y-2">
-                  <PlainSelect
-                    value={draft.publishVideoPreset}
-                    onChange={(v) => {
-                      const presetId = v as PublishVideoPresetId;
-                      if (presetId === 'provider-default') {
-                        updateDraft({ publishVideoPreset: 'provider-default', publishVideoWidth: '', publishVideoHeight: '' });
-                        return;
-                      }
-                      if (presetId === 'custom') {
-                        updateDraft({ publishVideoPreset: 'custom' });
-                        return;
-                      }
-                      const preset = PUBLISH_VIDEO_PRESETS.find((p) => p.id === presetId);
-                      if (!preset) return;
+            <LabeledField
+              label={t('canvas.canvasSettings.publishVideoResolution')}
+              hint={t('canvas.canvasSettings.publishVideoResolutionHint')}
+            >
+              <div className="space-y-2">
+                <PlainSelect
+                  value={draft.publishVideoPreset}
+                  onChange={(v) => {
+                    const presetId = v as PublishVideoPresetId;
+                    if (presetId === 'provider-default') {
                       updateDraft({
-                        publishVideoPreset: preset.id,
-                        publishVideoWidth: String(preset.width),
-                        publishVideoHeight: String(preset.height),
+                        publishVideoPreset: 'provider-default',
+                        publishVideoWidth: '',
+                        publishVideoHeight: '',
                       });
-                    }}
-                    options={[
-                      { id: 'provider-default', name: t('canvas.canvasSettings.publishPreset.providerDefault') },
-                      ...PUBLISH_VIDEO_PRESETS.map((p) => ({
-                        id: p.id,
-                        name: `${t(`canvas.canvasSettings.publishPreset.${p.id}`)} (${p.width}×${p.height} · ${p.aspect})`,
-                      })),
-                      { id: 'custom', name: t('canvas.canvasSettings.publishPreset.custom') },
-                    ]}
-                  />
-                  {draft.publishVideoPreset === 'custom' && (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min={1}
-                        value={draft.publishVideoWidth}
-                        onChange={(e) => updateDraft({ publishVideoWidth: e.target.value })}
-                        placeholder={t('canvas.canvasSettings.widthPlaceholder')}
-                      />
-                      <span className="text-xs text-muted-foreground">×</span>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={draft.publishVideoHeight}
-                        onChange={(e) => updateDraft({ publishVideoHeight: e.target.value })}
-                        placeholder={t('canvas.canvasSettings.heightPlaceholder')}
-                      />
-                    </div>
-                  )}
-                </div>
-              </LabeledField>
+                      return;
+                    }
+                    if (presetId === 'custom') {
+                      updateDraft({ publishVideoPreset: 'custom' });
+                      return;
+                    }
+                    const preset = PUBLISH_VIDEO_PRESETS.find((p) => p.id === presetId);
+                    if (!preset) return;
+                    updateDraft({
+                      publishVideoPreset: preset.id,
+                      publishVideoWidth: String(preset.width),
+                      publishVideoHeight: String(preset.height),
+                    });
+                  }}
+                  options={[
+                    {
+                      id: 'provider-default',
+                      name: t('canvas.canvasSettings.publishPreset.providerDefault'),
+                    },
+                    ...PUBLISH_VIDEO_PRESETS.map((p) => ({
+                      id: p.id,
+                      name: `${t(`canvas.canvasSettings.publishPreset.${p.id}`)} (${p.width}×${p.height} · ${p.aspect})`,
+                    })),
+                    { id: 'custom', name: t('canvas.canvasSettings.publishPreset.custom') },
+                  ]}
+                />
+                {draft.publishVideoPreset === 'custom' && (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.publishVideoWidth}
+                      onChange={(e) => updateDraft({ publishVideoWidth: e.target.value })}
+                      placeholder={t('canvas.canvasSettings.widthPlaceholder')}
+                    />
+                    <span className="text-xs text-muted-foreground">×</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.publishVideoHeight}
+                      onChange={(e) => updateDraft({ publishVideoHeight: e.target.value })}
+                      placeholder={t('canvas.canvasSettings.heightPlaceholder')}
+                    />
+                  </div>
+                )}
+              </div>
+            </LabeledField>
 
-              <LabeledField
-                label={t('canvas.canvasSettings.refResolution')}
-                hint={t('canvas.canvasSettings.refResolutionHint')}
-              >
-                <div className="space-y-2">
-                  <PlainSelect
-                    value={draft.refPreset}
-                    onChange={(v) => {
-                      const presetId = v as RefPresetId;
-                      if (presetId === 'provider-default') {
-                        updateDraft({ refPreset: 'provider-default', refWidth: '', refHeight: '' });
-                        return;
-                      }
-                      if (presetId === 'custom') {
-                        updateDraft({ refPreset: 'custom' });
-                        return;
-                      }
-                      const preset = REF_PRESETS.find((p) => p.id === presetId);
-                      if (!preset) return;
-                      updateDraft({
-                        refPreset: preset.id,
-                        refWidth: String(preset.width),
-                        refHeight: String(preset.height),
-                      });
-                    }}
-                    options={[
-                      { id: 'provider-default', name: t('canvas.canvasSettings.refPreset.providerDefault') },
-                      ...REF_PRESETS.map((p) => ({
-                        id: p.id,
-                        name: `${t(`canvas.canvasSettings.refPreset.${p.id}`)} (${p.width}×${p.height})`,
-                      })),
-                      { id: 'custom', name: t('canvas.canvasSettings.refPreset.custom') },
-                    ]}
-                  />
-                  {draft.refPreset === 'custom' && (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min={1}
-                        value={draft.refWidth}
-                        onChange={(e) => updateDraft({ refWidth: e.target.value })}
-                        placeholder={t('canvas.canvasSettings.widthPlaceholder')}
-                      />
-                      <span className="text-xs text-muted-foreground">×</span>
-                      <Input
-                        type="number"
-                        min={1}
-                        value={draft.refHeight}
-                        onChange={(e) => updateDraft({ refHeight: e.target.value })}
-                        placeholder={t('canvas.canvasSettings.heightPlaceholder')}
-                      />
-                    </div>
-                  )}
-                </div>
-              </LabeledField>
-            </div>
-          </SectionCard>
+            <LabeledField
+              label={t('canvas.canvasSettings.refResolution')}
+              hint={t('canvas.canvasSettings.refResolutionHint')}
+            >
+              <div className="space-y-2">
+                <PlainSelect
+                  value={draft.refPreset}
+                  onChange={(v) => {
+                    const presetId = v as RefPresetId;
+                    if (presetId === 'provider-default') {
+                      updateDraft({ refPreset: 'provider-default', refWidth: '', refHeight: '' });
+                      return;
+                    }
+                    if (presetId === 'custom') {
+                      updateDraft({ refPreset: 'custom' });
+                      return;
+                    }
+                    const preset = REF_PRESETS.find((p) => p.id === presetId);
+                    if (!preset) return;
+                    updateDraft({
+                      refPreset: preset.id,
+                      refWidth: String(preset.width),
+                      refHeight: String(preset.height),
+                    });
+                  }}
+                  options={[
+                    {
+                      id: 'provider-default',
+                      name: t('canvas.canvasSettings.refPreset.providerDefault'),
+                    },
+                    ...REF_PRESETS.map((p) => ({
+                      id: p.id,
+                      name: `${t(`canvas.canvasSettings.refPreset.${p.id}`)} (${p.width}×${p.height})`,
+                    })),
+                    { id: 'custom', name: t('canvas.canvasSettings.refPreset.custom') },
+                  ]}
+                />
+                {draft.refPreset === 'custom' && (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.refWidth}
+                      onChange={(e) => updateDraft({ refWidth: e.target.value })}
+                      placeholder={t('canvas.canvasSettings.widthPlaceholder')}
+                    />
+                    <span className="text-xs text-muted-foreground">×</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={draft.refHeight}
+                      onChange={(e) => updateDraft({ refHeight: e.target.value })}
+                      placeholder={t('canvas.canvasSettings.heightPlaceholder')}
+                    />
+                  </div>
+                )}
+              </div>
+            </LabeledField>
+          </div>
+        </SectionCard>
 
-          {/* Providers */}
-          <SectionCard icon={Layers} title={t('canvas.canvasSettings.sectionProviders')}>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <LabeledField label={t('canvas.canvasSettings.llmProvider')}>
-                <PlainSelect
-                  value={draft.llmProviderId}
-                  onChange={(v) => updateDraft({ llmProviderId: v })}
-                  options={llmOptions}
-                />
-              </LabeledField>
-              <LabeledField label={t('canvas.canvasSettings.imageProvider')}>
-                <PlainSelect
-                  value={draft.imageProviderId}
-                  onChange={(v) => updateDraft({ imageProviderId: v })}
-                  options={imageOptions}
-                />
-              </LabeledField>
-              <LabeledField label={t('canvas.canvasSettings.videoProvider')}>
-                <PlainSelect
-                  value={draft.videoProviderId}
-                  onChange={(v) => updateDraft({ videoProviderId: v })}
-                  options={videoOptions}
-                />
-              </LabeledField>
-              <LabeledField label={t('canvas.canvasSettings.audioProvider')}>
-                <PlainSelect
-                  value={draft.audioProviderId}
-                  onChange={(v) => updateDraft({ audioProviderId: v })}
-                  options={audioOptions}
-                />
-              </LabeledField>
-            </div>
-          </SectionCard>
-        </div>
+        {/* Providers */}
+        <SectionCard icon={Layers} title={t('canvas.canvasSettings.sectionProviders')}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <LabeledField label={t('canvas.canvasSettings.llmProvider')}>
+              <PlainSelect
+                value={draft.llmProviderId}
+                onChange={(v) => updateDraft({ llmProviderId: v })}
+                options={llmOptions}
+              />
+            </LabeledField>
+            <LabeledField label={t('canvas.canvasSettings.imageProvider')}>
+              <PlainSelect
+                value={draft.imageProviderId}
+                onChange={(v) => updateDraft({ imageProviderId: v })}
+                options={imageOptions}
+              />
+            </LabeledField>
+            <LabeledField label={t('canvas.canvasSettings.videoProvider')}>
+              <PlainSelect
+                value={draft.videoProviderId}
+                onChange={(v) => updateDraft({ videoProviderId: v })}
+                options={videoOptions}
+              />
+            </LabeledField>
+            <LabeledField label={t('canvas.canvasSettings.audioProvider')}>
+              <PlainSelect
+                value={draft.audioProviderId}
+                onChange={(v) => updateDraft({ audioProviderId: v })}
+                options={audioOptions}
+              />
+            </LabeledField>
+          </div>
+        </SectionCard>
+      </div>
     </div>
   );
 }
@@ -561,10 +589,7 @@ interface PlainSelectProps {
 
 function PlainSelect({ value, onChange, options }: PlainSelectProps) {
   return (
-    <Select
-      value={value || undefined}
-      onValueChange={(v) => onChange(v)}
-    >
+    <Select value={value || undefined} onValueChange={(v) => onChange(v)}>
       <SelectTrigger>
         <SelectValue placeholder={t('canvas.canvasSettings.selectPlaceholder')} />
       </SelectTrigger>

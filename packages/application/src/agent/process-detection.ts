@@ -75,9 +75,7 @@ function normalizeNodeType(args?: Record<string, unknown>): 'image' | 'video' | 
   return null;
 }
 
-function normalizeAudioType(
-  args?: Record<string, unknown>,
-): 'voice' | 'music' | 'sfx' | null {
+function normalizeAudioType(args?: Record<string, unknown>): 'voice' | 'music' | 'sfx' | null {
   const raw = typeof args?.audioType === 'string' ? args.audioType.trim().toLowerCase() : '';
   if (raw === 'voice' || raw === 'music' || raw === 'sfx') return raw;
   return null;
@@ -102,7 +100,9 @@ export function detectProcess(
     return 'image-node-generation';
   }
 
-  const byKey = ToolCatalog.byKey as Readonly<Record<string, { process: string; category: string }>>;
+  const byKey = ToolCatalog.byKey as Readonly<
+    Record<string, { process: string; category: string }>
+  >;
   const entry = byKey[toolName];
   if (!entry) return null;
   // Meta tools (`tool.*`, `guide.*`, `commander.askUser`) don't belong to any

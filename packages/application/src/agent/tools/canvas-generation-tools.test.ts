@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  createEmptyPresetTrackSet,
-  type Canvas,
-  type CanvasEdge,
-} from '@lucid-fin/contracts';
+import { createEmptyPresetTrackSet, type Canvas, type CanvasEdge } from '@lucid-fin/contracts';
 import { createCanvasGenerationTools } from './canvas-generation-tools.js';
 import type { CanvasToolDeps } from './canvas-tool-utils.js';
 
@@ -113,7 +109,9 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     cancelGeneration: vi.fn(async () => undefined),
     deleteNode: vi.fn(async (_canvasId, nodeId) => {
       canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
-      canvas.edges = canvas.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+      canvas.edges = canvas.edges.filter(
+        (edge) => edge.source !== nodeId && edge.target !== nodeId,
+      );
     }),
     deleteEdge: vi.fn(async (_canvasId, edgeId) => {
       canvas.edges = canvas.edges.filter((edge) => edge.id !== edgeId);
@@ -149,7 +147,10 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     estimateCost: vi.fn(async (_canvasId, nodeIds) => ({
       totalEstimatedCost: nodeIds?.length ?? 3,
       currency: 'USD',
-      nodeCosts: (nodeIds ?? ['image-1', 'video-1', 'audio-1']).map((nodeId) => ({ nodeId, estimatedCost: 1 })),
+      nodeCosts: (nodeIds ?? ['image-1', 'video-1', 'audio-1']).map((nodeId) => ({
+        nodeId,
+        estimatedCost: 1,
+      })),
     })),
     addNote: vi.fn(async (_canvasId, content) => {
       const note = { id: `note-${canvas.notes.length + 1}`, content, createdAt: 2, updatedAt: 2 };
@@ -216,24 +217,26 @@ describe('createCanvasGenerationTools', () => {
     vi.useFakeTimers();
     const canvas = createCanvas();
     const deps = createDeps(canvas);
-    vi.mocked(deps.triggerGeneration).mockImplementationOnce(async () => {
-      const image = canvas.nodes.find((node) => node.id === 'image-1');
-      if (image) {
-        Object.assign(image.data as Record<string, unknown>, {
-          status: 'done',
-          variants: [{ assetHash: 'hash-1' }],
-          assetHash: 'hash-1',
-        });
-      }
-    }).mockImplementationOnce(async () => {
-      const video = canvas.nodes.find((node) => node.id === 'video-1');
-      if (video) {
-        Object.assign(video.data as Record<string, unknown>, {
-          status: 'failed',
-          error: 'provider failed',
-        });
-      }
-    });
+    vi.mocked(deps.triggerGeneration)
+      .mockImplementationOnce(async () => {
+        const image = canvas.nodes.find((node) => node.id === 'image-1');
+        if (image) {
+          Object.assign(image.data as Record<string, unknown>, {
+            status: 'done',
+            variants: [{ assetHash: 'hash-1' }],
+            assetHash: 'hash-1',
+          });
+        }
+      })
+      .mockImplementationOnce(async () => {
+        const video = canvas.nodes.find((node) => node.id === 'video-1');
+        if (video) {
+          Object.assign(video.data as Record<string, unknown>, {
+            status: 'failed',
+            error: 'provider failed',
+          });
+        }
+      });
 
     const donePromise = getTool('canvas.generate', deps).execute({
       canvasId: 'canvas-1',
@@ -283,7 +286,12 @@ describe('createCanvasGenerationTools', () => {
       success: true,
       data: { nodeId: 'image-1', status: 'generating' },
     });
-    expect(deps.triggerGeneration).toHaveBeenCalledWith('canvas-1', 'image-1', undefined, undefined);
+    expect(deps.triggerGeneration).toHaveBeenCalledWith(
+      'canvas-1',
+      'image-1',
+      undefined,
+      undefined,
+    );
   });
 
   it('accepts nodeType on canvas.generate without affecting execution', async () => {
@@ -307,44 +315,57 @@ describe('createCanvasGenerationTools', () => {
       success: true,
       data: { nodeId: 'video-1', status: 'generating' },
     });
-    expect(deps.triggerGeneration).toHaveBeenCalledWith('canvas-1', 'video-1', undefined, undefined);
+    expect(deps.triggerGeneration).toHaveBeenCalledWith(
+      'canvas-1',
+      'video-1',
+      undefined,
+      undefined,
+    );
   });
 
   it('delegates content/prompt updates via updateNodes and selection via selectVariant', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.cancelGeneration', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-    })).resolves.toEqual({ success: true, data: { nodeId: 'image-1' } });
+    await expect(
+      getTool('canvas.cancelGeneration', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+      }),
+    ).resolves.toEqual({ success: true, data: { nodeId: 'image-1' } });
 
     // updateNodes: set prompt on media node
-    await expect(getTool('canvas.updateNodes', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      set: { prompt: 'new image prompt' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.updateNodes', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        set: { prompt: 'new image prompt' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', updated: { prompt: 'new image prompt' } },
     });
 
     // updateNodes: set content on text node
-    await expect(getTool('canvas.updateNodes', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'text-1',
-      set: { content: 'rewritten' },
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.updateNodes', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'text-1',
+        set: { content: 'rewritten' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { nodeId: 'text-1', updated: { content: 'rewritten' } },
     });
 
     // selectVariant
-    await expect(getTool('canvas.selectVariant', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      index: 2.4,
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.selectVariant', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        index: 2.4,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', index: 2 },
     });
@@ -354,14 +375,18 @@ describe('createCanvasGenerationTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setNodeProvider', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'video-1',
-      set: { providerId: 'kling-v1' },
-    })).resolves.toEqual(expect.objectContaining({
-      success: true,
-      data: expect.objectContaining({ nodeId: 'video-1' }),
-    }));
+    await expect(
+      getTool('canvas.setNodeProvider', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'video-1',
+        set: { providerId: 'kling-v1' },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ nodeId: 'video-1' }),
+      }),
+    );
     expect((canvas.nodes[2].data as Record<string, unknown>).providerId).toBe('kling-v1');
   });
 
@@ -369,30 +394,36 @@ describe('createCanvasGenerationTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setNodeProvider', deps).execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['image-1', 'audio-1'],
-      set: { seed: 9.6 },
-    })).resolves.toEqual(expect.objectContaining({ success: true }));
+    await expect(
+      getTool('canvas.setNodeProvider', deps).execute({
+        canvasId: 'canvas-1',
+        nodeIds: ['image-1', 'audio-1'],
+        set: { seed: 9.6 },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
     expect((canvas.nodes[1].data as Record<string, unknown>).seed).toBe(10);
     expect((canvas.nodes[3].data as Record<string, unknown>).seed).toBe(10);
 
     // setNodeProvider: set variantCount
-    await expect(getTool('canvas.setNodeProvider', deps).execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['image-1', 'video-1'],
-      set: { variantCount: 4 },
-    })).resolves.toEqual(expect.objectContaining({ success: true }));
+    await expect(
+      getTool('canvas.setNodeProvider', deps).execute({
+        canvasId: 'canvas-1',
+        nodeIds: ['image-1', 'video-1'],
+        set: { variantCount: 4 },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
   });
 
   it('validates variantCount via setNodeProvider', async () => {
     const deps = createDeps();
 
-    await expect(getTool('canvas.setNodeProvider', deps).execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['image-1'],
-      set: { variantCount: 3 },
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.setNodeProvider', deps).execute({
+        canvasId: 'canvas-1',
+        nodeIds: ['image-1'],
+        set: { variantCount: 3 },
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'variantCount must be one of 1, 2, 4, 9, or 25',
     });
@@ -401,10 +432,12 @@ describe('createCanvasGenerationTools', () => {
   it('estimates cost, manages notes, and supports undo/redo', async () => {
     const deps = createDeps();
 
-    await expect(getTool('canvas.estimateCost', deps).execute({
-      canvasId: 'canvas-1',
-      nodeIds: ['image-1', 'video-1'],
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.estimateCost', deps).execute({
+        canvasId: 'canvas-1',
+        nodeIds: ['image-1', 'video-1'],
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         totalEstimatedCost: 2,
@@ -415,25 +448,31 @@ describe('createCanvasGenerationTools', () => {
         ],
       },
     });
-    await expect(getTool('canvas.addNote', deps).execute({
-      canvasId: 'canvas-1',
-      content: ' keep spacing ',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.addNote', deps).execute({
+        canvasId: 'canvas-1',
+        content: ' keep spacing ',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'note-2', content: ' keep spacing ', createdAt: 2, updatedAt: 2 },
     });
-    await expect(getTool('canvas.updateNote', deps).execute({
-      canvasId: 'canvas-1',
-      noteId: 'note-1',
-      content: 'updated',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.updateNote', deps).execute({
+        canvasId: 'canvas-1',
+        noteId: 'note-1',
+        content: 'updated',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { noteId: 'note-1', content: 'updated' },
     });
-    await expect(getTool('canvas.deleteNote', deps).execute({
-      canvasId: 'canvas-1',
-      noteId: 'note-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.deleteNote', deps).execute({
+        canvasId: 'canvas-1',
+        noteId: 'note-1',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { noteId: 'note-1' },
     });
@@ -451,10 +490,12 @@ describe('createCanvasGenerationTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.swapEdgeDirection', deps).execute({
-      canvasId: 'canvas-1',
-      edgeId: 'edge-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.swapEdgeDirection', deps).execute({
+        canvasId: 'canvas-1',
+        edgeId: 'edge-1',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
         id: 'edge-1',
@@ -465,25 +506,31 @@ describe('createCanvasGenerationTools', () => {
       }),
     });
 
-    await expect(getTool('canvas.disconnectNode', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.disconnectNode', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { nodeId: 'image-1', edgeIds: ['edge-2', 'edge-1'], count: 2 },
     });
 
-    await expect(getTool('canvas.deleteNode', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'audio-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.deleteNode', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'audio-1',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { nodeId: 'audio-1' },
     });
-    await expect(getTool('canvas.deleteEdge', deps).execute({
-      canvasId: 'canvas-1',
-      edgeId: 'edge-2',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.deleteEdge', deps).execute({
+        canvasId: 'canvas-1',
+        edgeId: 'edge-2',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { edgeId: 'edge-2' },
     });
@@ -493,40 +540,50 @@ describe('createCanvasGenerationTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setVideoParams', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'video-1',
-      set: { duration: 5, audio: true, quality: 'pro' },
-    })).resolves.toEqual(expect.objectContaining({
-      success: true,
-      data: expect.objectContaining({ nodeId: 'video-1' }),
-    }));
+    await expect(
+      getTool('canvas.setVideoParams', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'video-1',
+        set: { duration: 5, audio: true, quality: 'pro' },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ nodeId: 'video-1' }),
+      }),
+    );
   });
 
   it('sets image params via setImageParams', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setImageParams', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      set: { width: 1920, height: 1080 },
-    })).resolves.toEqual(expect.objectContaining({
-      success: true,
-      data: expect.objectContaining({ nodeId: 'image-1' }),
-    }));
+    await expect(
+      getTool('canvas.setImageParams', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        set: { width: 1920, height: 1080 },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ nodeId: 'image-1' }),
+      }),
+    );
   });
 
   it('sets video frame references', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setVideoFrames', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'video-1',
-      firstFrameNodeId: 'image-1',
-      lastFrameAssetHash: 'asset-last',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.setVideoFrames', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'video-1',
+        firstFrameNodeId: 'image-1',
+        lastFrameAssetHash: 'asset-last',
+      }),
+    ).resolves.toEqual({
       success: true,
       data: {
         nodeId: 'video-1',
@@ -541,10 +598,12 @@ describe('createCanvasGenerationTools', () => {
   it('rejects setVideoFrames on non-video nodes', async () => {
     const deps = createDeps();
 
-    await expect(getTool('canvas.setVideoFrames', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.setVideoFrames', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'Node "image-1" type "image" is not a video node',
     });
@@ -554,14 +613,18 @@ describe('createCanvasGenerationTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setAudioParams', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'audio-1',
-      set: { audioType: 'voice' },
-    })).resolves.toEqual(expect.objectContaining({
-      success: true,
-      data: expect.objectContaining({ nodeId: 'audio-1' }),
-    }));
+    await expect(
+      getTool('canvas.setAudioParams', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'audio-1',
+        set: { audioType: 'voice' },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ nodeId: 'audio-1' }),
+      }),
+    );
     expect((canvas.nodes[3].data as Record<string, unknown>).audioType).toBe('voice');
   });
 
@@ -569,14 +632,18 @@ describe('createCanvasGenerationTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    await expect(getTool('canvas.setVideoParams', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'video-1',
-      set: { lipSyncEnabled: true },
-    })).resolves.toEqual(expect.objectContaining({
-      success: true,
-      data: expect.objectContaining({ nodeId: 'video-1' }),
-    }));
+    await expect(
+      getTool('canvas.setVideoParams', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'video-1',
+        set: { lipSyncEnabled: true },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ nodeId: 'video-1' }),
+      }),
+    );
     expect((canvas.nodes[2].data as Record<string, unknown>).lipSyncEnabled).toBe(true);
   });
 
@@ -584,10 +651,12 @@ describe('createCanvasGenerationTools', () => {
     const deps = createDeps();
     vi.mocked(deps.deleteEdge).mockRejectedValueOnce(new Error('edge delete failed'));
 
-    await expect(getTool('canvas.deleteEdge', deps).execute({
-      canvasId: 'canvas-1',
-      edgeId: 'edge-1',
-    })).resolves.toEqual({
+    await expect(
+      getTool('canvas.deleteEdge', deps).execute({
+        canvasId: 'canvas-1',
+        edgeId: 'edge-1',
+      }),
+    ).resolves.toEqual({
       success: false,
       error: 'edge delete failed',
     });
@@ -597,20 +666,26 @@ describe('createCanvasGenerationTools', () => {
     const deps = createDeps();
 
     // Missing set → error
-    await expect(getTool('canvas.updateNodes', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      prompt: 'this should fail',
-    })).resolves.toEqual(expect.objectContaining({
-      success: false,
-      error: expect.stringContaining('"set" object is required'),
-    }));
+    await expect(
+      getTool('canvas.updateNodes', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        prompt: 'this should fail',
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        success: false,
+        error: expect.stringContaining('"set" object is required'),
+      }),
+    );
 
     // Valid set → success
-    await expect(getTool('canvas.updateNodes', deps).execute({
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      set: { prompt: 'this works' },
-    })).resolves.toEqual(expect.objectContaining({ success: true }));
+    await expect(
+      getTool('canvas.updateNodes', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        set: { prompt: 'this works' },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
   });
 });

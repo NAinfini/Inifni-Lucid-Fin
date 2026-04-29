@@ -17,7 +17,8 @@ export function tryParseJson(value: string): unknown {
 
   try {
     return JSON.parse(value) as unknown;
-  } catch { /* malformed JSON -- return undefined so caller can fall back */
+  } catch {
+    /* malformed JSON -- return undefined so caller can fall back */
     return undefined;
   }
 }
@@ -47,12 +48,14 @@ export function serializeError(error: unknown): Record<string, unknown> | string
  * Supports both OpenAI-style (system messages in the messages array) and
  * Claude-style (top-level `system` string field) request bodies.
  */
-export function measureRequestDiagnostics(requestBody: Record<string, unknown>): Record<string, unknown> {
+export function measureRequestDiagnostics(
+  requestBody: Record<string, unknown>,
+): Record<string, unknown> {
   const messages = Array.isArray(requestBody.messages)
-    ? requestBody.messages as Array<Record<string, unknown>>
+    ? (requestBody.messages as Array<Record<string, unknown>>)
     : [];
   const tools = Array.isArray(requestBody.tools)
-    ? requestBody.tools as Array<Record<string, unknown>>
+    ? (requestBody.tools as Array<Record<string, unknown>>)
     : [];
 
   // OpenAI-style: system messages in the messages array
@@ -61,9 +64,8 @@ export function measureRequestDiagnostics(requestBody: Record<string, unknown>):
     .reduce((sum, message) => sum + String(message.content).length, 0);
 
   // Claude-style: top-level system string
-  const topLevelSystemChars = typeof requestBody.system === 'string'
-    ? requestBody.system.length
-    : 0;
+  const topLevelSystemChars =
+    typeof requestBody.system === 'string' ? requestBody.system.length : 0;
 
   return {
     requestBytes: Buffer.byteLength(JSON.stringify(requestBody), 'utf8'),

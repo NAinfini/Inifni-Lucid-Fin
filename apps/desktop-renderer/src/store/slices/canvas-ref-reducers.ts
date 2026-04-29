@@ -96,14 +96,21 @@ export function setNodeEquipmentRefs(
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node || (node.type !== 'image' && node.type !== 'video')) return;
-  (node.data as ImageNodeData | VideoNodeData).equipmentRefs = normalizeEquipmentRefs(action.payload.equipmentRefs);
+  (node.data as ImageNodeData | VideoNodeData).equipmentRefs = normalizeEquipmentRefs(
+    action.payload.equipmentRefs,
+  );
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
 
 export function addNodeEquipmentRef(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; equipmentId: string; angleSlot?: string; referenceImageHash?: string }>,
+  action: PayloadAction<{
+    id: string;
+    equipmentId: string;
+    angleSlot?: string;
+    referenceImageHash?: string;
+  }>,
 ): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
@@ -201,9 +208,7 @@ export function removeNodeLocationRef(
   if (!node || (node.type !== 'image' && node.type !== 'video')) return;
   const data = node.data as ImageNodeData | VideoNodeData;
   if (!data.locationRefs) return;
-  data.locationRefs = data.locationRefs.filter(
-    (r) => r.locationId !== action.payload.locationId,
-  );
+  data.locationRefs = data.locationRefs.filter((r) => r.locationId !== action.payload.locationId);
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -263,11 +268,14 @@ export function pasteNodes(
 ): void {
   const clipboard = state.clipboard;
   if (!clipboard) return;
-  const canvas =
-    findCanvasById(state, action.payload?.targetCanvasId) ?? findActiveCanvas(state);
+  const canvas = findCanvasById(state, action.payload?.targetCanvasId) ?? findActiveCanvas(state);
   if (!canvas) return;
 
-  const { nodes, edges } = pasteClipboardPayload(canvas, clipboard, action.payload?.offset ?? { x: 50, y: 50 });
+  const { nodes, edges } = pasteClipboardPayload(
+    canvas,
+    clipboard,
+    action.payload?.offset ?? { x: 50, y: 50 },
+  );
   if (nodes.length === 0) return;
 
   canvas.nodes.push(...nodes);

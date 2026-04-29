@@ -12,9 +12,6 @@ const LocationIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'locationId must be non-empty after trim' });
 
-export const parseLocationId = makeBrandParser<LocationId, string>(
-  LocationIdSchema,
-  'LocationId',
-);
+export const parseLocationId = makeBrandParser<LocationId, string>(LocationIdSchema, 'LocationId');
 
 export const tryLocationId = makeTryBrand<LocationId, string>(LocationIdSchema);

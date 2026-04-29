@@ -67,10 +67,7 @@ export function cloneDeep<T>(value: T): T {
 }
 
 /** Shallow-compare two plain data objects (one level deep). */
-export function shallowDataEqual(
-  a: Record<string, unknown>,
-  b: Record<string, unknown>,
-): boolean {
+export function shallowDataEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const keysA = Object.keys(a);
   const keysB = Object.keys(b);
   if (keysA.length !== keysB.length) return false;
@@ -152,20 +149,23 @@ export interface DependencyState {
   downstreamEdges: Set<string>;
 }
 
-export function collectDependencies(
-  edges: CanvasEdgeDTO[],
-  focusNodeId: string,
-): DependencyState {
+export function collectDependencies(edges: CanvasEdgeDTO[], focusNodeId: string): DependencyState {
   // Build adjacency lists once — O(E) — instead of scanning all edges per walk step.
   const byTarget = new Map<string, { source: string; id: string }[]>();
   const bySource = new Map<string, { target: string; id: string }[]>();
   for (const edge of edges) {
     let list = byTarget.get(edge.target);
-    if (!list) { list = []; byTarget.set(edge.target, list); }
+    if (!list) {
+      list = [];
+      byTarget.set(edge.target, list);
+    }
     list.push({ source: edge.source, id: edge.id });
 
     let list2 = bySource.get(edge.source);
-    if (!list2) { list2 = []; bySource.set(edge.source, list2); }
+    if (!list2) {
+      list2 = [];
+      bySource.set(edge.source, list2);
+    }
     list2.push({ target: edge.target, id: edge.id });
   }
 
@@ -294,8 +294,12 @@ export function toFlowNode(
       const flowName = firstPresetNameFromCategory(presetData, 'flow', presetById);
       const emotionName = firstPresetNameFromCategory(presetData, 'emotion', presetById);
       const summary = [cameraName, flowName, emotionName].filter(Boolean).join(', ');
-      const firstFrameNode = vd.firstFrameNodeId ? allNodes.find((x) => x.id === vd.firstFrameNodeId) : undefined;
-      const lastFrameNode = vd.lastFrameNodeId ? allNodes.find((x) => x.id === vd.lastFrameNodeId) : undefined;
+      const firstFrameNode = vd.firstFrameNodeId
+        ? allNodes.find((x) => x.id === vd.firstFrameNodeId)
+        : undefined;
+      const lastFrameNode = vd.lastFrameNodeId
+        ? allNodes.find((x) => x.id === vd.lastFrameNodeId)
+        : undefined;
       const firstFrameHash =
         vd.firstFrameAssetHash ??
         (firstFrameNode ? (firstFrameNode.data as ImageNodeData).assetHash : undefined);

@@ -627,7 +627,11 @@ describe('SqliteIndex', () => {
         progress: 0,
       });
 
-      db.repos.workflows.updateTaskRun('task-agg-1', { status: 'running', progress: 25, updatedAt: 3 });
+      db.repos.workflows.updateTaskRun('task-agg-1', {
+        status: 'running',
+        progress: 25,
+        updatedAt: 3,
+      });
       db.repos.workflows.recomputeStageAggregate('stage-agg');
       expect(db.repos.workflows.listStageRuns('wf-agg-stage').rows[0]).toMatchObject({
         id: 'stage-agg',
@@ -637,7 +641,11 @@ describe('SqliteIndex', () => {
         progress: 13,
       });
 
-      db.repos.workflows.updateTaskRun('task-agg-2', { status: 'running', progress: 50, updatedAt: 4 });
+      db.repos.workflows.updateTaskRun('task-agg-2', {
+        status: 'running',
+        progress: 50,
+        updatedAt: 4,
+      });
       db.repos.workflows.recomputeStageAggregate('stage-agg');
       expect(db.repos.workflows.listStageRuns('wf-agg-stage').rows[0]).toMatchObject({
         id: 'stage-agg',
@@ -1098,7 +1106,11 @@ describe('SqliteIndex', () => {
         summary: 'running 1/2 stages, 1/3 tasks',
       });
 
-      db.repos.workflows.updateTaskRun('task-wf-3', { status: 'running', progress: 25, updatedAt: 4 });
+      db.repos.workflows.updateTaskRun('task-wf-3', {
+        status: 'running',
+        progress: 25,
+        updatedAt: 4,
+      });
       db.repos.workflows.recomputeStageAggregate('stage-wf-2');
       db.repos.workflows.recomputeWorkflowAggregate('wf-agg-workflow');
 
@@ -1274,9 +1286,9 @@ describe('SqliteIndex', () => {
       expect(db.repos.workflows.listReadyTasks('wf-filter-2').rows.map((task) => task.id)).toEqual([
         'task-filter-ready-2',
       ]);
-      expect(db.repos.workflows.listAwaitingProviderTasks('wf-filter-1').rows.map((task) => task.id)).toEqual([
-        'task-filter-await-1',
-      ]);
+      expect(
+        db.repos.workflows.listAwaitingProviderTasks('wf-filter-1').rows.map((task) => task.id),
+      ).toEqual(['task-filter-await-1']);
     });
 
     it('orders multiple ready tasks with the same updatedAt by id ASC', () => {
@@ -1330,11 +1342,9 @@ describe('SqliteIndex', () => {
         'task-await-tie-b',
         'task-await-tie-c',
       ]);
-      expect(db.repos.workflows.listAwaitingProviderTasks('wf-tie-await-1').rows.map((t) => t.id)).toEqual([
-        'task-await-tie-a',
-        'task-await-tie-b',
-        'task-await-tie-c',
-      ]);
+      expect(
+        db.repos.workflows.listAwaitingProviderTasks('wf-tie-await-1').rows.map((t) => t.id),
+      ).toEqual(['task-await-tie-a', 'task-await-tie-b', 'task-await-tie-c']);
     });
 
     it('returns empty array from listReadyWorkflowTasks when no ready tasks exist', () => {
@@ -1434,8 +1444,9 @@ describe('migration 004 — commander_sessions and snapshots tables exist', () =
 
   it('commander_sessions table exists with correct columns', () => {
     const cols = (db as unknown as { db: import('better-sqlite3').Database }).db
-      .prepare("PRAGMA table_info(commander_sessions)").all() as Array<{ name: string }>;
-    const names = cols.map(c => c.name);
+      .prepare('PRAGMA table_info(commander_sessions)')
+      .all() as Array<{ name: string }>;
+    const names = cols.map((c) => c.name);
     expect(names).toContain('id');
     expect(names).toContain('canvas_id');
     expect(names).toContain('title');
@@ -1446,8 +1457,9 @@ describe('migration 004 — commander_sessions and snapshots tables exist', () =
 
   it('snapshots table exists with correct columns', () => {
     const cols = (db as unknown as { db: import('better-sqlite3').Database }).db
-      .prepare("PRAGMA table_info(snapshots)").all() as Array<{ name: string }>;
-    const names = cols.map(c => c.name);
+      .prepare('PRAGMA table_info(snapshots)')
+      .all() as Array<{ name: string }>;
+    const names = cols.map((c) => c.name);
     expect(names).toContain('id');
     expect(names).toContain('session_id');
     expect(names).toContain('label');

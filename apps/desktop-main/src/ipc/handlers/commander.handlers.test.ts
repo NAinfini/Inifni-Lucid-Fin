@@ -154,7 +154,11 @@ describe('buildContext', () => {
     expect(extra).not.toHaveProperty('promptGuides');
     // All 4 guides (~660 chars each) fit in the 8k auto-inject budget
     expect(extra).toHaveProperty('autoInjectGuides');
-    const autoInjected = extra.autoInjectGuides as Array<{ id: string; name: string; content: string }>;
+    const autoInjected = extra.autoInjectGuides as Array<{
+      id: string;
+      name: string;
+      content: string;
+    }>;
     expect(autoInjected).toHaveLength(4);
     // Guide content IS present in auto-inject (rendered in system prompt)
     expect(autoInjected[0].content).toContain('body-1');
@@ -180,7 +184,11 @@ describe('buildContext', () => {
     const extra = context.extra as Record<string, unknown>;
     // First 2 guides fit in 8k budget (~3k each)
     expect(extra).toHaveProperty('autoInjectGuides');
-    const autoInjected = extra.autoInjectGuides as Array<{ id: string; name: string; content: string }>;
+    const autoInjected = extra.autoInjectGuides as Array<{
+      id: string;
+      name: string;
+      content: string;
+    }>;
     expect(autoInjected).toHaveLength(2);
     // Third guide is demoted to discovery-only
     expect(extra).toHaveProperty('availablePromptGuides');
@@ -193,15 +201,31 @@ describe('buildContext', () => {
 
   it('keeps selected node context lightweight and leaves full node data to tools/cache', () => {
     const db = makeDb({
-      getCharacter: vi.fn((id: string) => (id === 'char-1'
-        ? { id: 'char-1', name: 'Hero', role: 'protagonist', description: 'Quiet student' }
-        : undefined)),
-      getLocation: vi.fn((id: string) => (id === 'loc-1'
-        ? { id: 'loc-1', name: 'School Rooftop', type: 'exterior', description: 'Empty rooftop at dusk' }
-        : undefined)),
-      getEquipment: vi.fn((id: string) => (id === 'eq-1'
-        ? { id: 'eq-1', name: 'School Bag', type: 'accessory', description: 'Worn canvas shoulder bag' }
-        : undefined)),
+      getCharacter: vi.fn((id: string) =>
+        id === 'char-1'
+          ? { id: 'char-1', name: 'Hero', role: 'protagonist', description: 'Quiet student' }
+          : undefined,
+      ),
+      getLocation: vi.fn((id: string) =>
+        id === 'loc-1'
+          ? {
+              id: 'loc-1',
+              name: 'School Rooftop',
+              type: 'exterior',
+              description: 'Empty rooftop at dusk',
+            }
+          : undefined,
+      ),
+      getEquipment: vi.fn((id: string) =>
+        id === 'eq-1'
+          ? {
+              id: 'eq-1',
+              name: 'School Bag',
+              type: 'accessory',
+              description: 'Worn canvas shoulder bag',
+            }
+          : undefined,
+      ),
     });
     const now = Date.now();
     const canvas: Canvas = {
@@ -241,13 +265,9 @@ describe('buildContext', () => {
       updatedAt: now,
     };
 
-    const context = buildContext(
-      canvas,
-      [],
-      ['image-1'],
-      db,
-      [{ id: 'guide-1', name: 'Prompt Guide', content: 'guide body' }],
-    );
+    const context = buildContext(canvas, [], ['image-1'], db, [
+      { id: 'guide-1', name: 'Prompt Guide', content: 'guide body' },
+    ]);
 
     const extra = context.extra as Record<string, unknown>;
     expect(extra.initialProcessPrompts).toEqual(expect.arrayContaining(['image-node-generation']));
@@ -275,13 +295,7 @@ describe('buildContext', () => {
 
   it('primes workflow-orchestration on an empty canvas and does not infer ref-image guides from text alone', () => {
     const db = makeDb();
-    const context = buildContext(
-      makeCanvas(0),
-      [],
-      [],
-      db,
-      [],
-    );
+    const context = buildContext(makeCanvas(0), [], [], db, []);
 
     const extra = context.extra as Record<string, unknown>;
     // With an empty canvas + no selection, the pipeline seeds

@@ -210,10 +210,18 @@ const CanvasGenerationCompletePayload = z.object({
   primaryAssetHash: z.string(),
   cost: z.number().optional(),
   generationTimeMs: z.number(),
-  characterRefs: z.array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) })).optional(),
-  equipmentRefs: z.array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) })).optional(),
-  locationRefs: z.array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) })).optional(),
-  frameReferenceHashes: z.object({ first: z.string().optional(), last: z.string().optional() }).optional(),
+  characterRefs: z
+    .array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) }))
+    .optional(),
+  equipmentRefs: z
+    .array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) }))
+    .optional(),
+  locationRefs: z
+    .array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) }))
+    .optional(),
+  frameReferenceHashes: z
+    .object({ first: z.string().optional(), last: z.string().optional() })
+    .optional(),
   sourceImageHash: z.string().optional(),
   model: z.string().optional(),
 });

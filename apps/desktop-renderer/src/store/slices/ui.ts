@@ -46,7 +46,9 @@ export function resolveEffectiveTheme(theme: Theme): 'light' | 'dark' | 'high-co
   if (theme !== 'auto') return theme;
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  } catch { return 'dark'; }
+  } catch {
+    return 'dark';
+  }
 }
 
 export function applyThemeToDOM(theme: Theme): void {
@@ -58,11 +60,18 @@ export function applyThemeToDOM(theme: Theme): void {
 function loadTheme(): Theme {
   try {
     const stored = localStorage.getItem('lucid-fin:theme');
-    if (stored === 'light' || stored === 'dark' || stored === 'high-contrast' || stored === 'auto') {
+    if (
+      stored === 'light' ||
+      stored === 'dark' ||
+      stored === 'high-contrast' ||
+      stored === 'auto'
+    ) {
       applyThemeToDOM(stored);
       return stored;
     }
-  } catch { /* localStorage unavailable */ }
+  } catch {
+    /* localStorage unavailable */
+  }
   document.documentElement.classList.add('dark');
   return 'dark';
 }
@@ -70,7 +79,9 @@ function loadTheme(): Theme {
 function loadOnboardingComplete(): boolean {
   try {
     return localStorage.getItem('lucid-fin:onboarding-complete') === 'true';
-  } catch { /* localStorage unavailable */ }
+  } catch {
+    /* localStorage unavailable */
+  }
   return false;
 }
 
@@ -132,7 +143,9 @@ export const uiSlice = createSlice({
     },
     toggleCanvasStatusFilter(state, action: PayloadAction<NodeStatus>) {
       if (state.canvasStatusFilters.includes(action.payload)) {
-        state.canvasStatusFilters = state.canvasStatusFilters.filter((status) => status !== action.payload);
+        state.canvasStatusFilters = state.canvasStatusFilters.filter(
+          (status) => status !== action.payload,
+        );
       } else {
         state.canvasStatusFilters.push(action.payload);
       }
@@ -159,7 +172,9 @@ export const uiSlice = createSlice({
       applyThemeToDOM(action.payload);
       try {
         localStorage.setItem('lucid-fin:theme', action.payload);
-      } catch { /* localStorage unavailable */ }
+      } catch {
+        /* localStorage unavailable */
+      }
     },
     setHoveredDependencyNodeId(state, action: PayloadAction<string | null>) {
       state.hoveredDependencyNodeId = action.payload;
@@ -168,7 +183,9 @@ export const uiSlice = createSlice({
       state.onboardingComplete = action.payload;
       try {
         localStorage.setItem('lucid-fin:onboarding-complete', action.payload ? 'true' : 'false');
-      } catch { /* localStorage unavailable */ }
+      } catch {
+        /* localStorage unavailable */
+      }
     },
     restore(_state, action: PayloadAction<UIState>) {
       return action.payload;

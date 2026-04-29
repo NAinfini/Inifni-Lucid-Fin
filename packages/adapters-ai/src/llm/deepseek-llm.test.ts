@@ -72,13 +72,15 @@ describe('DeepSeekLLMAdapter', () => {
         baseUrl: 'https://api.deepseek.com/v1',
       });
 
+      // With fetchWithRetry, 429 responses are retried then thrown as a
+      // transport error after retries are exhausted. The resulting error code
+      // is SERVICE_UNAVAILABLE (transport path), and the provider context is
+      // still attached via the error details.
       await expect(adapter.complete([{ role: 'user', content: 'hello' }])).rejects.toMatchObject<
         Partial<LucidError>
       >({
-        code: ErrorCode.RateLimited,
-        message: 'slow down',
+        code: ErrorCode.ServiceUnavailable,
         details: expect.objectContaining({
-          status: 429,
           endpoint: 'https://api.deepseek.com/v1/chat/completions',
           provider: 'DeepSeek',
           providerId: 'deepseek',

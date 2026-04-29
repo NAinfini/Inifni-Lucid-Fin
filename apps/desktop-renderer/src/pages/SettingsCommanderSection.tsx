@@ -153,53 +153,223 @@ export function SettingsCommanderSection() {
   return (
     <div className="space-y-6">
       {/* Agent Parameters */}
-      <SectionCard icon={Bot} title={tr('settings.commander.agentParams', 'Agent Parameters')} onReset={handleResetAgent}>
-        <SettingRow label={tr('settings.commander.maxSteps', 'Max Steps')} description={tr('settings.commander.maxStepsDesc', 'Maximum tool call iterations per request.')}>
-          <SliderInput value={state.maxSteps} min={1} max={200} step={1} onChange={(v) => dispatch(setMaxSteps(v))} />
+      <SectionCard
+        icon={Bot}
+        title={tr('settings.commander.agentParams', 'Agent Parameters')}
+        onReset={handleResetAgent}
+      >
+        <SettingRow
+          label={tr('settings.commander.maxSteps', 'Max Steps')}
+          description={tr(
+            'settings.commander.maxStepsDesc',
+            'Maximum tool call iterations per request.',
+          )}
+        >
+          <SliderInput
+            value={state.maxSteps}
+            min={1}
+            max={200}
+            step={1}
+            onChange={(v) => dispatch(setMaxSteps(v))}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.temperature', 'Temperature')} description={tr('settings.commander.temperatureDesc', 'Controls creativity vs determinism.')}>
-          <SliderInput value={state.temperature} min={0} max={1} step={0.1} onChange={(v) => dispatch(setTemperature(v))} formatValue={(v) => v.toFixed(1)} />
+        <SettingRow
+          label={tr('settings.commander.temperature', 'Temperature')}
+          description={tr(
+            'settings.commander.temperatureDesc',
+            'Controls creativity vs determinism.',
+          )}
+        >
+          <SliderInput
+            value={state.temperature}
+            min={0}
+            max={1}
+            step={0.1}
+            onChange={(v) => dispatch(setTemperature(v))}
+            formatValue={(v) => v.toFixed(1)}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.contextWindow', 'Context Window')} description={tr('settings.commander.contextWindowDesc', 'Token budget for LLM context — controls both input history and output limits.')}>
-          <SliderInput value={state.maxTokens} min={1024} max={1000000} step={1024} onChange={(v) => dispatch(setMaxTokens(v))} formatValue={(v) => `${(v / 1000).toFixed(0)}K`} />
+        <SettingRow
+          label={tr('settings.commander.contextWindow', 'Context Window')}
+          description={tr(
+            'settings.commander.contextWindowDesc',
+            'Token budget for LLM context — controls both input history and output limits.',
+          )}
+        >
+          <SliderInput
+            value={state.maxTokens}
+            min={1024}
+            max={1000000}
+            step={1024}
+            onChange={(v) => dispatch(setMaxTokens(v))}
+            formatValue={(v) => `${(v / 1000).toFixed(0)}K`}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.llmRetries', 'LLM Retries')} description={tr('settings.commander.llmRetriesDesc', 'Retry count on rate-limit or service errors.')}>
-          <SliderInput value={state.llmRetries} min={0} max={10} step={1} onChange={(v) => dispatch(setLlmRetries(v))} />
+        <SettingRow
+          label={tr('settings.commander.llmRetries', 'LLM Retries')}
+          description={tr(
+            'settings.commander.llmRetriesDesc',
+            'Retry count on rate-limit or service errors.',
+          )}
+        >
+          <SliderInput
+            value={state.llmRetries}
+            min={0}
+            max={10}
+            step={1}
+            onChange={(v) => dispatch(setLlmRetries(v))}
+          />
         </SettingRow>
       </SectionCard>
 
       {/* Storage & Data */}
-      <SectionCard icon={Database} title={tr('settings.commander.dataLimits', 'Storage & Data Limits')} onReset={handleResetData}>
-        <SettingRow label={tr('settings.commander.maxSessions', 'Max Sessions')} description={tr('settings.commander.maxSessionsDesc', 'Maximum saved Commander sessions.')}>
-          <SliderInput value={state.maxSessions} min={5} max={200} step={5} onChange={(v) => dispatch(setMaxSessions(v))} />
+      <SectionCard
+        icon={Database}
+        title={tr('settings.commander.dataLimits', 'Storage & Data Limits')}
+        onReset={handleResetData}
+      >
+        <SettingRow
+          label={tr('settings.commander.maxSessions', 'Max Sessions')}
+          description={tr(
+            'settings.commander.maxSessionsDesc',
+            'Maximum saved Commander sessions.',
+          )}
+        >
+          <SliderInput
+            value={state.maxSessions}
+            min={5}
+            max={200}
+            step={5}
+            onChange={(v) => dispatch(setMaxSessions(v))}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.maxMessagesPerSession', 'Messages/Session')} description={tr('settings.commander.maxMessagesPerSessionDesc', 'Maximum messages kept per session.')}>
-          <SliderInput value={state.maxMessagesPerSession} min={20} max={1000} step={20} onChange={(v) => dispatch(setMaxMessagesPerSession(v))} />
+        <SettingRow
+          label={tr('settings.commander.maxMessagesPerSession', 'Messages/Session')}
+          description={tr(
+            'settings.commander.maxMessagesPerSessionDesc',
+            'Maximum messages kept per session.',
+          )}
+        >
+          <SliderInput
+            value={state.maxMessagesPerSession}
+            min={20}
+            max={1000}
+            step={20}
+            onChange={(v) => dispatch(setMaxMessagesPerSession(v))}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.undoStackDepth', 'Undo Depth')} description={tr('settings.commander.undoStackDepthDesc', 'Maximum canvas undo steps.')}>
-          <SliderInput value={state.undoStackDepth} min={10} max={500} step={10} onChange={(v) => dispatch(setUndoStackDepth(v))} />
+        <SettingRow
+          label={tr('settings.commander.undoStackDepth', 'Undo Depth')}
+          description={tr('settings.commander.undoStackDepthDesc', 'Maximum canvas undo steps.')}
+        >
+          <SliderInput
+            value={state.undoStackDepth}
+            min={10}
+            max={500}
+            step={10}
+            onChange={(v) => dispatch(setUndoStackDepth(v))}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.maxLogEntries', 'Log Entries')} description={tr('settings.commander.maxLogEntriesDesc', 'Maximum log entries in the log panel.')}>
-          <SliderInput value={state.maxLogEntries} min={100} max={5000} step={100} onChange={(v) => dispatch(setMaxLogEntries(v))} />
+        <SettingRow
+          label={tr('settings.commander.maxLogEntries', 'Log Entries')}
+          description={tr(
+            'settings.commander.maxLogEntriesDesc',
+            'Maximum log entries in the log panel.',
+          )}
+        >
+          <SliderInput
+            value={state.maxLogEntries}
+            min={100}
+            max={5000}
+            step={100}
+            onChange={(v) => dispatch(setMaxLogEntries(v))}
+          />
         </SettingRow>
       </SectionCard>
 
       {/* Behavior */}
-      <SectionCard icon={Cog} title={tr('settings.commander.behavior', 'Behavior')} onReset={handleResetBehavior}>
-        <SettingRow label={tr('settings.commander.autoSaveDelay', 'Auto-Save Delay')} description={tr('settings.commander.autoSaveDelayDesc', 'Debounce delay before auto-saving changes.')}>
-          <SliderInput value={state.autoSaveDelayMs} min={100} max={5000} step={100} onChange={(v) => dispatch(setAutoSaveDelayMs(v))} formatValue={(v) => `${v}ms`} />
+      <SectionCard
+        icon={Cog}
+        title={tr('settings.commander.behavior', 'Behavior')}
+        onReset={handleResetBehavior}
+      >
+        <SettingRow
+          label={tr('settings.commander.autoSaveDelay', 'Auto-Save Delay')}
+          description={tr(
+            'settings.commander.autoSaveDelayDesc',
+            'Debounce delay before auto-saving changes.',
+          )}
+        >
+          <SliderInput
+            value={state.autoSaveDelayMs}
+            min={100}
+            max={5000}
+            step={100}
+            onChange={(v) => dispatch(setAutoSaveDelayMs(v))}
+            formatValue={(v) => `${v}ms`}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.undoGroupWindow', 'Undo Group Window')} description={tr('settings.commander.undoGroupWindowDesc', 'Time window for grouping rapid edits into one undo step.')}>
-          <SliderInput value={state.undoGroupWindowMs} min={50} max={1000} step={50} onChange={(v) => dispatch(setUndoGroupWindowMs(v))} formatValue={(v) => `${v}ms`} />
+        <SettingRow
+          label={tr('settings.commander.undoGroupWindow', 'Undo Group Window')}
+          description={tr(
+            'settings.commander.undoGroupWindowDesc',
+            'Time window for grouping rapid edits into one undo step.',
+          )}
+        >
+          <SliderInput
+            value={state.undoGroupWindowMs}
+            min={50}
+            max={1000}
+            step={50}
+            onChange={(v) => dispatch(setUndoGroupWindowMs(v))}
+            formatValue={(v) => `${v}ms`}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.clipboardInterval', 'Clipboard Watch')} description={tr('settings.commander.clipboardIntervalDesc', 'Polling interval for clipboard AI text detection.')}>
-          <SliderInput value={state.clipboardWatchIntervalMs} min={500} max={10000} step={500} onChange={(v) => dispatch(setClipboardWatchIntervalMs(v))} formatValue={(v) => `${(v / 1000).toFixed(1)}s`} />
+        <SettingRow
+          label={tr('settings.commander.clipboardInterval', 'Clipboard Watch')}
+          description={tr(
+            'settings.commander.clipboardIntervalDesc',
+            'Polling interval for clipboard AI text detection.',
+          )}
+        >
+          <SliderInput
+            value={state.clipboardWatchIntervalMs}
+            min={500}
+            max={10000}
+            step={500}
+            onChange={(v) => dispatch(setClipboardWatchIntervalMs(v))}
+            formatValue={(v) => `${(v / 1000).toFixed(1)}s`}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.clipboardMinLength', 'Clipboard Min Length')} description={tr('settings.commander.clipboardMinLengthDesc', 'Minimum text length to trigger clipboard detection.')}>
-          <SliderInput value={state.clipboardMinLength} min={10} max={1000} step={10} onChange={(v) => dispatch(setClipboardMinLength(v))} />
+        <SettingRow
+          label={tr('settings.commander.clipboardMinLength', 'Clipboard Min Length')}
+          description={tr(
+            'settings.commander.clipboardMinLengthDesc',
+            'Minimum text length to trigger clipboard detection.',
+          )}
+        >
+          <SliderInput
+            value={state.clipboardMinLength}
+            min={10}
+            max={1000}
+            step={10}
+            onChange={(v) => dispatch(setClipboardMinLength(v))}
+          />
         </SettingRow>
-        <SettingRow label={tr('settings.commander.generationConcurrency', 'Generation Concurrency')} description={tr('settings.commander.generationConcurrencyDesc', 'Max parallel API calls for media generation.')}>
-          <SliderInput value={state.generationConcurrency} min={1} max={10} step={1} onChange={(v) => dispatch(setGenerationConcurrency(v))} />
+        <SettingRow
+          label={tr('settings.commander.generationConcurrency', 'Generation Concurrency')}
+          description={tr(
+            'settings.commander.generationConcurrencyDesc',
+            'Max parallel API calls for media generation.',
+          )}
+        >
+          <SliderInput
+            value={state.generationConcurrency}
+            min={1}
+            max={10}
+            step={1}
+            onChange={(v) => dispatch(setGenerationConcurrency(v))}
+          />
         </SettingRow>
       </SectionCard>
     </div>

@@ -15,7 +15,7 @@ vi.mock('../../hooks/useAssetUrl.js', () => ({
 
 const t = (key: string) =>
   (
-    {
+    ({
       'inspector.characters': 'Characters',
       'inspector.equipment': 'Equipment',
       'inspector.locations': 'Locations',
@@ -25,7 +25,7 @@ const t = (key: string) =>
       'inspector.noCharacters': 'No characters',
       'inspector.noEquipment': 'No equipment',
       'inspector.noLocations': 'No locations',
-    } as Record<string, string>
+    }) as Record<string, string>
   )[key] ?? key;
 
 afterEach(() => {
@@ -93,7 +93,9 @@ describe('InspectorContextTab', () => {
     expect(locationThumb.className).toContain('w-10');
 
     expect(screen.getByAltText('Astra').getAttribute('src')).toBe('mock-asset://character-hash');
-    expect(screen.getByAltText('Hangar Bay').getAttribute('src')).toBe('mock-asset://location-hash');
+    expect(screen.getByAltText('Hangar Bay').getAttribute('src')).toBe(
+      'mock-asset://location-hash',
+    );
     expect(equipmentThumb.querySelector('img')).toBeNull();
     expect(screen.getByText('Blade')).toBeTruthy();
   });

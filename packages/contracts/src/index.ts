@@ -113,16 +113,10 @@ export type {
 } from './types/channel-types.js';
 
 // Tool definition type shape (pure type — factory in contracts-parse)
-export type {
-  ToolDefinitionType,
-  UiEffect,
-} from './types/tool-types.js';
+export type { ToolDefinitionType, UiEffect } from './types/tool-types.js';
 
 // Table definition type shape (pure type — factory in contracts-parse)
-export type {
-  TableDef,
-  ColumnDef,
-} from './types/table-types.js';
+export type { TableDef, ColumnDef } from './types/table-types.js';
 
 // ── Phase B: IPC single source of truth ────────────────────────
 // The generated `LucidAPI` interface — emitted by scripts/gen-preload.ts
@@ -140,10 +134,7 @@ export type {
 // NOT this generated type, until the runtime preload cutover completes.
 // Importing `LucidAPI` from here and calling methods object-style will
 // produce malformed IPC payloads that fail schema validation at runtime.
-export type {
-  LucidAPI,
-  LucidAPIInfrastructure,
-} from './ipc/lucid-api.generated.js';
+export type { LucidAPI, LucidAPIInfrastructure } from './ipc/lucid-api.generated.js';
 
 // ── Phase C-1: Tool catalog aggregator (pure types) ────────────
 // `ToolKey` is re-exported as `CatalogToolKey` to avoid colliding with the
@@ -155,10 +146,7 @@ export type { ToolKey as CatalogToolKey } from './agent/tool-catalog-type.js';
 export { ENTITY_REFRESH_TOOL_ENTITY } from './agent/entity-refresh-map.js';
 
 // ── Commander wire envelope (v2-only) ──────────────────────────
-export {
-  COMMANDER_WIRE_VERSION,
-  COMMANDER_WIRE_VERSION_LATEST,
-} from './agent/wire-version.js';
+export { COMMANDER_WIRE_VERSION, COMMANDER_WIRE_VERSION_LATEST } from './agent/wire-version.js';
 export type {
   CommanderWireVersion,
   WireEnvelope,

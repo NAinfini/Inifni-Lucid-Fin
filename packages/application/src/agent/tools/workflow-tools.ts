@@ -1,5 +1,11 @@
 import type { AgentTool } from '../tool-registry.js';
-import { ok, fail, requireString, TypedToolError, formatValidationError } from './tool-result-helpers.js';
+import {
+  ok,
+  fail,
+  requireString,
+  TypedToolError,
+  formatValidationError,
+} from './tool-result-helpers.js';
 
 export interface WorkflowToolDeps {
   pauseWorkflow: (id: string) => Promise<void>;
@@ -20,7 +26,11 @@ export function createWorkflowTools(deps: WorkflowToolDeps): AgentTool[] {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Workflow run ID.' },
-        action: { type: 'string', description: 'Action to perform.', enum: ['pause', 'resume', 'cancel', 'retry'] },
+        action: {
+          type: 'string',
+          description: 'Action to perform.',
+          enum: ['pause', 'resume', 'cancel', 'retry'],
+        },
       },
       required: ['id', 'action'],
     },
@@ -48,20 +58,25 @@ export function createWorkflowTools(deps: WorkflowToolDeps): AgentTool[] {
 
   const expandIdea: AgentTool = {
     name: 'workflow.expandIdea',
-    description:
-      [
-        'REQUIRED: prompt (string, non-empty). Do NOT call this tool with no arguments — it always fails. Example: workflow.expandIdea({ prompt: "A heist set in a decommissioned observatory, 8 shots, tense pacing" }).',
-        '',
-        'Returns structured instructions and outline template for Commander to expand a one-liner idea into story text nodes on the canvas.',
-      ].join('\n'),
+    description: [
+      'REQUIRED: prompt (string, non-empty). Do NOT call this tool with no arguments — it always fails. Example: workflow.expandIdea({ prompt: "A heist set in a decommissioned observatory, 8 shots, tense pacing" }).',
+      '',
+      'Returns structured instructions and outline template for Commander to expand a one-liner idea into story text nodes on the canvas.',
+    ].join('\n'),
     tags: ['workflow', 'story', 'generation'],
     context,
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'REQUIRED. The one-liner idea to expand. Must be a non-empty string.' },
-        genre: { type: 'string', description: 'Optional genre (e.g. anime, film noir, documentary).' },
+        prompt: {
+          type: 'string',
+          description: 'REQUIRED. The one-liner idea to expand. Must be a non-empty string.',
+        },
+        genre: {
+          type: 'string',
+          description: 'Optional genre (e.g. anime, film noir, documentary).',
+        },
         actCount: { type: 'number', description: 'Number of acts. Default 3.' },
       },
       required: ['prompt'],
@@ -83,7 +98,8 @@ export function createWorkflowTools(deps: WorkflowToolDeps): AgentTool[] {
         }
         const prompt = rawPrompt.trim();
         const genre = typeof args.genre === 'string' ? args.genre : 'cinematic';
-        const actCount = typeof args.actCount === 'number' && args.actCount > 0 ? Math.round(args.actCount) : 3;
+        const actCount =
+          typeof args.actCount === 'number' && args.actCount > 0 ? Math.round(args.actCount) : 3;
         const instructions = [
           `Expand the idea "${prompt}" into a ${genre} story with ${actCount} acts and 2-4 scenes per act.`,
           '',

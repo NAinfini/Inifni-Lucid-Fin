@@ -13,9 +13,7 @@ export interface StoryWorkflowPhaseSpecDeps {
   resolvePromptText: (key: 'story-workflow-phase') => string | null | undefined;
 }
 
-export function createStoryWorkflowPhaseSpec(
-  deps: StoryWorkflowPhaseSpecDeps,
-): ProcessPromptSpec {
+export function createStoryWorkflowPhaseSpec(deps: StoryWorkflowPhaseSpecDeps): ProcessPromptSpec {
   return {
     key: 'story-workflow-phase',
     displayName: 'Story Workflow Phase',
@@ -29,8 +27,6 @@ export function storyWorkflowPhasePredicate(ctx: ActivationContext): boolean {
   // Fire when the workflow-orchestration process prompt has already been
   // activated in this run (visible via ledger evidence).
   return ctx.ledger.some(
-    (e) =>
-      e.kind === 'process_prompt_activated' &&
-      e.key === 'workflow-orchestration',
+    (e) => e.kind === 'process_prompt_activated' && e.key === 'workflow-orchestration',
   );
 }

@@ -8,7 +8,7 @@
 
 ### AI-Powered Film Production Desktop App
 
-*Turn scripts into shots, shots into scenes, scenes into films — all driven by AI.*
+_Turn scripts into shots, shots into scenes, scenes into films — all driven by AI._
 
 <p>
   <a href="#-features">Features</a> &nbsp;&bull;&nbsp;
@@ -301,12 +301,12 @@ npm run build
 <details>
 <summary><strong>Prerequisites</strong></summary>
 
-| Requirement | Version |
-|-------------|---------|
-| Node.js     | >= 20   |
-| npm         | >= 10   |
+| Requirement | Version                     |
+| ----------- | --------------------------- |
+| Node.js     | >= 20                       |
+| npm         | >= 10                       |
 | FFmpeg      | >= 6 (for video processing) |
-| OS          | Windows / macOS / Linux |
+| OS          | Windows / macOS / Linux     |
 
 </details>
 
@@ -327,11 +327,11 @@ npm run build
 
 Every push and pull request runs the full CI pipeline via GitHub Actions:
 
-| Job | What it does |
-|-----|-------------|
+| Job            | What it does                                                    |
+| -------------- | --------------------------------------------------------------- |
 | **Type Check** | `tsc --noEmit` across `contracts`, `application`, `adapters-ai` |
-| **Tests** | `vitest run` — all unit and integration tests |
-| **Lint** | `eslint` with zero-warning policy |
+| **Tests**      | `vitest run` — all unit and integration tests                   |
+| **Lint**       | `eslint` with zero-warning policy                               |
 
 See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full config.
 

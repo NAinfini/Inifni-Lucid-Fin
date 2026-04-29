@@ -57,8 +57,7 @@ export class LucidError extends Error {
   static fromUnknown(error: unknown, fallbackCode?: ErrorCode): LucidError {
     if (error instanceof LucidError) return error;
     const code = fallbackCode ?? ErrorCode.Unknown;
-    const message =
-      error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
     const cause = error instanceof Error ? error : undefined;
     const le = new LucidError(code, message);
     if (cause !== undefined) {
@@ -72,39 +71,26 @@ export class LucidError extends Error {
   // reads better than `throw new LucidError(ErrorCode.ResourceNotFound, ...)`.
 
   /** The request validated but the named entity does not exist. */
-  static notFound(
-    resource: string,
-    id: string,
-    details?: Record<string, unknown>,
-  ): LucidError {
-    return new LucidError(
-      ErrorCode.ResourceNotFound,
-      `${resource} not found: ${id}`,
-      { resource, id, ...details },
-    );
+  static notFound(resource: string, id: string, details?: Record<string, unknown>): LucidError {
+    return new LucidError(ErrorCode.ResourceNotFound, `${resource} not found: ${id}`, {
+      resource,
+      id,
+      ...details,
+    });
   }
 
   /** Caller provided semantically bad input that parseStrict can't catch. */
-  static validation(
-    message: string,
-    details?: Record<string, unknown>,
-  ): LucidError {
+  static validation(message: string, details?: Record<string, unknown>): LucidError {
     return new LucidError(ErrorCode.ValidationFailed, message, details);
   }
 
   /** Optimistic-concurrency / state-mismatch errors. */
-  static conflict(
-    message: string,
-    details?: Record<string, unknown>,
-  ): LucidError {
+  static conflict(message: string, details?: Record<string, unknown>): LucidError {
     return new LucidError(ErrorCode.Conflict, message, details);
   }
 
   /** Provider API key / config missing — user-actionable in Settings. */
-  static providerUnconfigured(
-    providerId: string,
-    details?: Record<string, unknown>,
-  ): LucidError {
+  static providerUnconfigured(providerId: string, details?: Record<string, unknown>): LucidError {
     return new LucidError(
       ErrorCode.ProviderUnconfigured,
       `Provider '${providerId}' is not configured`,
@@ -126,10 +112,7 @@ export class LucidError extends Error {
   }
 
   /** User-initiated cancellation. The registrar already converts AbortError. */
-  static cancelled(
-    message = 'Operation cancelled',
-    details?: Record<string, unknown>,
-  ): LucidError {
+  static cancelled(message = 'Operation cancelled', details?: Record<string, unknown>): LucidError {
     return new LucidError(ErrorCode.Cancelled, message, details);
   }
 
@@ -138,14 +121,10 @@ export class LucidError extends Error {
    * alongside the (possibly partial) response so the renderer can show a
    * warning banner. Use `parseOrDegrade` to produce the value itself.
    */
-  static degradedRead(
-    resource: string,
-    details?: Record<string, unknown>,
-  ): LucidError {
-    return new LucidError(
-      ErrorCode.DegradedRead,
-      `Degraded read for ${resource}`,
-      { resource, ...details },
-    );
+  static degradedRead(resource: string, details?: Record<string, unknown>): LucidError {
+    return new LucidError(ErrorCode.DegradedRead, `Degraded read for ${resource}`, {
+      resource,
+      ...details,
+    });
   }
 }

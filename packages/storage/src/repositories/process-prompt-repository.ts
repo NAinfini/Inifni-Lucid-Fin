@@ -103,7 +103,7 @@ export class ProcessPromptRepository {
   /** Convenience: returns customValue ?? defaultValue, or null if missing. */
   getEffectiveValue(key: ProcessPromptKey, tx?: Tx): string | null {
     const rec = this.get(key, tx);
-    return rec ? rec.customValue ?? rec.defaultValue : null;
+    return rec ? (rec.customValue ?? rec.defaultValue) : null;
   }
 
   /**
@@ -139,12 +139,9 @@ function parseRows(rows: RawRow[]): ListResult<ProcessPromptRecord> {
   let degradedCount = 0;
   const SENTINEL = Symbol('degraded');
   for (const row of rows) {
-    const parsed = parseOrDegrade(
-      ProcessPromptRecordSchema,
-      row,
-      SENTINEL as unknown as RawRow,
-      { ctx: { name: 'ProcessPromptRecord' } },
-    );
+    const parsed = parseOrDegrade(ProcessPromptRecordSchema, row, SENTINEL as unknown as RawRow, {
+      ctx: { name: 'ProcessPromptRecord' },
+    });
     if ((parsed as unknown) === SENTINEL) {
       degradedCount += 1;
       continue;

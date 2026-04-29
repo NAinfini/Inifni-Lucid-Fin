@@ -56,17 +56,20 @@ describe('registerKeychainHandlers', () => {
     const testConnection = handlers.get('keychain:test');
     expect(testConnection).toBeTypeOf('function');
 
-    const result = await testConnection?.({}, {
-      provider: 'openai',
-      providerConfig: {
-        id: 'openai',
-        name: 'OpenAI',
-        baseUrl: 'http://127.0.0.1:37123/v1',
-        model: 'gpt-5.4',
-        protocol: 'openai-compatible',
-        authStyle: 'bearer',
+    const result = await testConnection?.(
+      {},
+      {
+        provider: 'openai',
+        providerConfig: {
+          id: 'openai',
+          name: 'OpenAI',
+          baseUrl: 'http://127.0.0.1:37123/v1',
+          model: 'gpt-5.4',
+          protocol: 'openai-compatible',
+          authStyle: 'bearer',
+        },
       },
-    });
+    );
 
     expect(configure).toHaveBeenCalledWith(
       'sk-test',
@@ -85,11 +88,12 @@ describe('registerKeychainHandlers', () => {
 
   it('tests custom anthropic providers with anthropic-native validation instead of openai chat completions', async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ error: 'unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -114,17 +118,20 @@ describe('registerKeychainHandlers', () => {
       const testConnection = handlers.get('keychain:test');
       expect(testConnection).toBeTypeOf('function');
 
-      const result = await testConnection?.({}, {
-        provider: 'custom-anthropic',
-        providerConfig: {
-          id: 'custom-anthropic',
-          name: 'Custom Anthropic',
-          baseUrl: 'https://api.anthropic.com',
-          model: 'claude-sonnet-4-20250514',
-          protocol: 'anthropic',
-          authStyle: 'x-api-key',
+      const result = await testConnection?.(
+        {},
+        {
+          provider: 'custom-anthropic',
+          providerConfig: {
+            id: 'custom-anthropic',
+            name: 'Custom Anthropic',
+            baseUrl: 'https://api.anthropic.com',
+            model: 'claude-sonnet-4-20250514',
+            protocol: 'anthropic',
+            authStyle: 'x-api-key',
+          },
         },
-      });
+      );
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://api.anthropic.com/v1/messages');
@@ -184,21 +191,25 @@ describe('registerKeychainHandlers', () => {
     const testConnection = handlers.get('keychain:test');
     expect(testConnection).toBeTypeOf('function');
 
-    const result = await testConnection?.({}, {
-      provider: 'together',
-      group: 'image',
-      providerConfig: {
-        id: 'together',
-        name: 'Together AI',
-        baseUrl: 'https://api.together.xyz/v1',
-        model: 'black-forest-labs/FLUX.1-schnell',
+    const result = await testConnection?.(
+      {},
+      {
+        provider: 'together',
+        group: 'image',
+        providerConfig: {
+          id: 'together',
+          name: 'Together AI',
+          baseUrl: 'https://api.together.xyz/v1',
+          model: 'black-forest-labs/FLUX.1-schnell',
+        },
       },
-    });
+    );
 
     expect(llmValidate).not.toHaveBeenCalled();
     expect(result).toEqual({
       ok: false,
-      error: 'Direct connection test is not supported for this provider. Try a real generation request.',
+      error:
+        'Direct connection test is not supported for this provider. Try a real generation request.',
     });
     expect(logger.warn).toHaveBeenCalledWith(
       'Provider connection test requested for unsupported direct media validation',

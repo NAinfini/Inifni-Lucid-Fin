@@ -9,6 +9,7 @@ import type {
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { oneShotStream } from './one-shot-stream.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class OllamaLLMAdapter implements LLMAdapter {
   readonly id = 'ollama-local';
@@ -36,7 +37,10 @@ export class OllamaLLMAdapter implements LLMAdapter {
   }
 
   configure(_apiKey: string, options?: Record<string, unknown>): void {
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string, { allowLocalhost: true });
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.model) this.model = options.model as string;
   }
 
@@ -44,7 +48,8 @@ export class OllamaLLMAdapter implements LLMAdapter {
     try {
       const res = await fetch(`${this.baseUrl}/api/tags`);
       return res.ok;
-    } catch { /* network error — Ollama server unreachable, report as invalid */
+    } catch {
+      /* network error — Ollama server unreachable, report as invalid */
       return false;
     }
   }
@@ -104,7 +109,8 @@ export class OllamaLLMAdapter implements LLMAdapter {
         try {
           const json = JSON.parse(line) as { message?: { content?: string }; done?: boolean };
           if (json.message?.content) yield json.message.content;
-        } catch { /* malformed NDJSON line from Ollama stream — skip and continue */
+        } catch {
+          /* malformed NDJSON line from Ollama stream — skip and continue */
           /* skip */
         }
       }

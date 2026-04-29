@@ -32,9 +32,16 @@ export function createColorStyleTools(deps: ColorStyleToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const styles = await deps.listColorStyles();
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        return ok({ total: styles.length, offset, limit, colorStyles: styles.slice(offset, offset + limit) });
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({
+          total: styles.length,
+          offset,
+          limit,
+          colorStyles: styles.slice(offset, offset + limit),
+        });
       } catch (error) {
         return fail(error);
       }

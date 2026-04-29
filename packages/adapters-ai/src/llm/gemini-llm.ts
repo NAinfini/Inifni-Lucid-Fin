@@ -10,6 +10,7 @@ import type {
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { parseSseStream } from './sse-parser.js';
 import { oneShotStream } from './one-shot-stream.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 type GeminiAdapterConfig = {
   id?: string;
@@ -50,29 +51,32 @@ export class GeminiLLMAdapter implements LLMAdapter {
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
     if (options?.model) this.model = options.model as string;
   }
 
   async validate(): Promise<boolean> {
     try {
-      const res = await fetch(`${this.baseUrl}/models?key=${this.apiKey}`);
+      const res = await fetch(`${this.baseUrl}/models`, {
+        headers: { 'x-goog-api-key': this.apiKey },
+      });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
 
   async complete(messages: LLMMessage[], opts?: LLMRequestOptions): Promise<string> {
     const body = this.buildBody(messages, opts);
-    const res = await fetch(
-      `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
-    );
+    const res = await fetch(`${this.baseUrl}/models/${this.model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+      body: JSON.stringify(body),
+    });
     if (!res.ok) this.throwError(res.status);
     const data = (await res.json()) as {
       candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
@@ -82,14 +86,11 @@ export class GeminiLLMAdapter implements LLMAdapter {
 
   async *stream(messages: LLMMessage[], opts?: LLMRequestOptions): AsyncIterable<string> {
     const body = this.buildBody(messages, opts);
-    const res = await fetch(
-      `${this.baseUrl}/models/${this.model}:streamGenerateContent?alt=sse&key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      },
-    );
+    const res = await fetch(`${this.baseUrl}/models/${this.model}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+      body: JSON.stringify(body),
+    });
     if (!res.ok) this.throwError(res.status);
 
     for await (const json of parseSseStream(res)) {
@@ -109,7 +110,9 @@ export class GeminiLLMAdapter implements LLMAdapter {
         if (m.role === 'tool') {
           return {
             role: 'user',
-            parts: [{ functionResponse: { name: m.toolCallId ?? '', response: { content: m.content } } }],
+            parts: [
+              { functionResponse: { name: m.toolCallId ?? '', response: { content: m.content } } },
+            ],
           };
         }
         if (m.role === 'assistant' && m.toolCalls?.length) {
@@ -159,15 +162,12 @@ export class GeminiLLMAdapter implements LLMAdapter {
     opts?: LLMRequestOptions,
   ): Promise<AsyncIterable<LLMStreamEvent>> {
     const body = this.buildBody(messages, opts);
-    const res = await fetch(
-      `${this.baseUrl}/models/${this.model}:generateContent?key=${this.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: opts?.signal,
-      },
-    );
+    const res = await fetch(`${this.baseUrl}/models/${this.model}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+      body: JSON.stringify(body),
+      signal: opts?.signal,
+    });
     if (!res.ok) this.throwError(res.status);
 
     const data = (await res.json()) as {

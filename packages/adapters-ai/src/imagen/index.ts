@@ -34,10 +34,13 @@ export class GoogleImagen3Adapter implements AIProviderAdapter {
 
   async validate(): Promise<boolean> {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`;
-      const res = await fetch(url);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models`;
+      const res = await fetch(url, {
+        headers: { 'x-goog-api-key': this.apiKey },
+      });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -46,12 +49,11 @@ export class GoogleImagen3Adapter implements AIProviderAdapter {
     const aspectRatio = this.resolveAspectRatio(req);
     const sampleCount = (req.params?.sampleCount as number) ?? 1;
 
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:predict?key=${this.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:predict`;
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
       body: JSON.stringify({
         instances: [{ prompt: req.prompt }],
         parameters: {
@@ -66,8 +68,7 @@ export class GoogleImagen3Adapter implements AIProviderAdapter {
       const status = res.status;
       if (status === 401 || status === 403)
         throw new LucidError(ErrorCode.AuthFailed, 'Invalid Google API key');
-      if (status === 429)
-        throw new LucidError(ErrorCode.RateLimited, 'Google Imagen rate limited');
+      if (status === 429) throw new LucidError(ErrorCode.RateLimited, 'Google Imagen rate limited');
       throw new LucidError(ErrorCode.ServiceUnavailable, `Google Imagen error: ${status}`);
     }
 

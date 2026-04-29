@@ -39,10 +39,13 @@ describe('registerProcessPromptHandlers', () => {
     ).toThrow('Process prompt not found: missing-process');
 
     expect(
-      handlers.get('processPrompt:setCustom')?.({}, {
-        processKey: 'image-node-generation',
-        value: 'updated',
-      }),
+      handlers.get('processPrompt:setCustom')?.(
+        {},
+        {
+          processKey: 'image-node-generation',
+          value: 'updated',
+        },
+      ),
     ).toBeUndefined();
     expect(store.setCustom).toHaveBeenCalledWith('image-node-generation', 'updated');
 

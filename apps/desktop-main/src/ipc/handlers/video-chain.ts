@@ -64,9 +64,7 @@ export async function autoChainVideoFrame(
 
     for (const edge of canvas.edges) {
       if (edge.source !== completedNode.id) continue;
-      const targetNode = canvas.nodes.find(
-        (n) => n.id === edge.target && n.type === 'video',
-      );
+      const targetNode = canvas.nodes.find((n) => n.id === edge.target && n.type === 'video');
       if (targetNode) {
         nextNode = targetNode;
         break;
@@ -109,19 +107,22 @@ export function registerVideoChainHandlers(
   canvasStore: CanvasStore,
   cas: CAS,
 ): void {
-  ipcMain.handle('video:extractLastFrame', async (_event, args: { canvasId: string; nodeId: string }) => {
-    const { canvasId, nodeId } = args;
-    const canvas = canvasStore.get(canvasId);
-    if (!canvas) {
-      log.warn('[video-chain] video:extractLastFrame: canvas not found', { canvasId });
-      return;
-    }
-    const node = canvas.nodes.find((n) => n.id === nodeId);
-    if (!node) {
-      log.warn('[video-chain] video:extractLastFrame: node not found', { canvasId, nodeId });
-      return;
-    }
-    await autoChainVideoFrame(canvas, node, cas);
-    canvasStore.save(canvas);
-  });
+  ipcMain.handle(
+    'video:extractLastFrame',
+    async (_event, args: { canvasId: string; nodeId: string }) => {
+      const { canvasId, nodeId } = args;
+      const canvas = canvasStore.get(canvasId);
+      if (!canvas) {
+        log.warn('[video-chain] video:extractLastFrame: canvas not found', { canvasId });
+        return;
+      }
+      const node = canvas.nodes.find((n) => n.id === nodeId);
+      if (!node) {
+        log.warn('[video-chain] video:extractLastFrame: node not found', { canvasId, nodeId });
+        return;
+      }
+      await autoChainVideoFrame(canvas, node, cas);
+      canvasStore.save(canvas);
+    },
+  );
 }

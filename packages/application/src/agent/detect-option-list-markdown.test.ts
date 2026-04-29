@@ -35,8 +35,7 @@ C. option three`;
   });
 
   it('does not fire on prose mentioning A and B inline', () => {
-    const text =
-      'Option A is better than option B because it handles the edge case.';
+    const text = 'Option A is better than option B because it handles the edge case.';
     expect(detectOptionListMarkdown(text)).toBe(false);
   });
 

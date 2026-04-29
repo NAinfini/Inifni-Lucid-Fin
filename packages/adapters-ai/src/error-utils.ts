@@ -14,10 +14,10 @@ export function parseAdapterError(input: ParseAdapterErrorInput): AdapterError {
   const providerCode = extractProviderCode(input.error);
   const retryAfter = extractRetryAfter(input.error);
   const category =
-    classifyByProviderCode(providerCode)
-    ?? classifyByStatus(status, message)
-    ?? input.fallbackCategory
-    ?? ErrorCategory.ServiceError;
+    classifyByProviderCode(providerCode) ??
+    classifyByStatus(status, message) ??
+    input.fallbackCategory ??
+    ErrorCategory.ServiceError;
 
   return {
     category,
@@ -62,7 +62,9 @@ function classifyByStatus(status: number | undefined, message: string): ErrorCat
   if (status === 408 || status === 504) return ErrorCategory.Timeout;
   if (status === 429) return ErrorCategory.RateLimit;
   if (status === 400) {
-    return looksLikeModeration(message) ? ErrorCategory.ContentModeration : ErrorCategory.InvalidInput;
+    return looksLikeModeration(message)
+      ? ErrorCategory.ContentModeration
+      : ErrorCategory.InvalidInput;
   }
   if (typeof status === 'number' && status >= 500) return ErrorCategory.ServiceError;
   return looksLikeModeration(message) ? ErrorCategory.ContentModeration : undefined;
@@ -73,11 +75,16 @@ function classifyByProviderCode(providerCode: string | undefined): ErrorCategory
   const normalized = providerCode.toLowerCase();
   if (normalized.includes('auth') || normalized.includes('key')) return ErrorCategory.Auth;
   if (normalized.includes('rate') || normalized.includes('quota')) return ErrorCategory.RateLimit;
-  if (normalized.includes('moderation') || normalized.includes('policy') || normalized.includes('safety')) {
+  if (
+    normalized.includes('moderation') ||
+    normalized.includes('policy') ||
+    normalized.includes('safety')
+  ) {
     return ErrorCategory.ContentModeration;
   }
   if (normalized.includes('timeout')) return ErrorCategory.Timeout;
-  if (normalized.includes('input') || normalized.includes('invalid')) return ErrorCategory.InvalidInput;
+  if (normalized.includes('input') || normalized.includes('invalid'))
+    return ErrorCategory.InvalidInput;
   return undefined;
 }
 
@@ -97,7 +104,9 @@ function extractMessage(error: unknown): string | undefined {
   const record = error as Record<string, unknown>;
   const nestedError = asRecord(record['error']);
   const directMessage = firstString(record['message'], record['detail'], record['title']);
-  const nestedMessage = nestedError ? firstString(nestedError['message'], nestedError['detail'], nestedError['type']) : undefined;
+  const nestedMessage = nestedError
+    ? firstString(nestedError['message'], nestedError['detail'], nestedError['type'])
+    : undefined;
   return directMessage ?? nestedMessage;
 }
 

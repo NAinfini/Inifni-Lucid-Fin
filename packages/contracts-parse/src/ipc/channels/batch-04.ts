@@ -113,9 +113,7 @@ const AssetExportRequest = z.object({
   format: z.string(),
   name: z.string().optional(),
 });
-const AssetExportResponse = z
-  .object({ success: z.literal(true), path: z.string() })
-  .nullable();
+const AssetExportResponse = z.object({ success: z.literal(true), path: z.string() }).nullable();
 export const assetExportChannel = defineInvokeChannel({
   channel: 'asset:export',
   request: AssetExportRequest,

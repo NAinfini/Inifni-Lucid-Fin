@@ -45,17 +45,11 @@ function schemaName(schema: ZodType<unknown>, ctx?: ParseContext): string {
  * Never use this for persisted reads — corrupt legacy rows should not take
  * the whole app down. Use {@link parseOrDegrade} instead.
  */
-export function parseStrict<T>(
-  schema: ZodType<T>,
-  raw: unknown,
-  ctx?: ParseContext,
-): T {
+export function parseStrict<T>(schema: ZodType<T>, raw: unknown, ctx?: ParseContext): T {
   const result = schema.safeParse(raw);
   if (result.success) return result.data;
   const name = schemaName(schema, ctx);
-  const err = new Error(
-    `parseStrict failed for ${name}: ${result.error.message}`,
-  );
+  const err = new Error(`parseStrict failed for ${name}: ${result.error.message}`);
   (err as { cause?: unknown }).cause = result.error;
   throw err;
 }
@@ -127,9 +121,7 @@ export function parsePartial<T extends Record<string, unknown>>(
     // Even if not fully valid yet, check if this key was part of the problem
     // by comparing error counts. If replacing the key reduces errors, keep it.
     const currentErrors = schema.safeParse(candidate);
-    const currentCount = currentErrors.success
-      ? 0
-      : currentErrors.error.issues.length;
+    const currentCount = currentErrors.success ? 0 : currentErrors.error.issues.length;
     const withDefaultErrors = probe.success ? 0 : probe.error.issues.length;
     if (withDefaultErrors < currentCount) {
       candidate = withDefault;

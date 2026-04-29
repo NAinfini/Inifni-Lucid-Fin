@@ -83,7 +83,12 @@ describe('registerAllHandlers', () => {
       db: {
         tag: 'db',
         repos: {
-          sessions: { upsert: vi.fn(), get: vi.fn(), list: vi.fn(() => ({ rows: [], degradedCount: 0 })), delete: vi.fn() },
+          sessions: {
+            upsert: vi.fn(),
+            get: vi.fn(),
+            list: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+            delete: vi.fn(),
+          },
           snapshots: {
             insert: vi.fn(),
             get: vi.fn(),

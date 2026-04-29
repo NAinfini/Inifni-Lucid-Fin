@@ -37,24 +37,28 @@ function parseOptionalResetScope(args: Record<string, unknown>): PresetResetScop
 export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
   const list: AgentTool = {
     name: 'preset.list',
-    description: 'List presets in the current project, optionally filtered by category or categories.',
+    description:
+      'List presets in the current project, optionally filtered by category or categories.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
         category: {
           type: 'string',
-          description: 'Optional single preset category filter (backward compat). Use categories[] for OR-matching multiple.',
+          description:
+            'Optional single preset category filter (backward compat). Use categories[] for OR-matching multiple.',
           enum: [...PRESET_CATEGORIES],
         },
         categories: {
           type: 'array',
-          description: 'Optional array of preset categories to OR-match against. Matches if preset category is any of the provided values.',
+          description:
+            'Optional array of preset categories to OR-match against. Matches if preset category is any of the provided values.',
           items: { type: 'string', description: 'A preset category.' },
         },
         query: {
           type: 'string',
-          description: 'Optional search query. Matches against preset name or description (case-insensitive OR logic).',
+          description:
+            'Optional search query. Matches against preset name or description (case-insensitive OR logic).',
         },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
@@ -101,19 +105,27 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
         }
 
         // Apply query filter
-        const query = typeof args.query === 'string' && args.query.length > 0
-          ? args.query.toLowerCase()
-          : undefined;
+        const query =
+          typeof args.query === 'string' && args.query.length > 0
+            ? args.query.toLowerCase()
+            : undefined;
         if (query) {
-          presets = presets.filter((p) =>
-            p.name?.toLowerCase().includes(query) ||
-            p.description?.toLowerCase().includes(query),
+          presets = presets.filter(
+            (p) =>
+              p.name?.toLowerCase().includes(query) || p.description?.toLowerCase().includes(query),
           );
         }
 
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
-        return ok({ total: presets.length, offset, limit, presets: presets.slice(offset, offset + limit) });
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        return ok({
+          total: presets.length,
+          offset,
+          limit,
+          presets: presets.slice(offset, offset + limit),
+        });
       } catch (error) {
         return fail(error);
       }
@@ -242,12 +254,17 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
 
   const get: AgentTool = {
     name: 'preset.get',
-    description: 'Get one or more preset definitions by ID. Pass a single ID string or an array of IDs.',
+    description:
+      'Get one or more preset definitions by ID. Pass a single ID string or an array of IDs.',
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        ids: { type: 'array', items: { type: 'string', description: 'Preset ID.' }, description: 'Preset ID or array of preset IDs to fetch.' },
+        ids: {
+          type: 'array',
+          items: { type: 'string', description: 'Preset ID.' },
+          description: 'Preset ID or array of preset IDs to fetch.',
+        },
       },
       required: ['ids'],
     },

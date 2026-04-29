@@ -48,18 +48,17 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
   const cb = useNodeCallbacks();
   const lod = useCanvasLodFromContext();
   const activeHash = d.assetHash ?? d.variants[d.selectedVariantIndex];
-  const { url: activeUrl } = useAssetUrl(lod !== 'minimal' ? activeHash : undefined, 'audio', 'mp3');
+  const { url: activeUrl } = useAssetUrl(
+    lod !== 'minimal' ? activeHash : undefined,
+    'audio',
+    'mp3',
+  );
   const { ref: visibilityRef, isVisible } = useNodeVisibility<HTMLDivElement>();
 
   const isGenerating = d.generationStatus === 'generating';
 
   return (
-    <NodeContextMenu
-      nodeId={d.nodeId}
-      nodeType="audio"
-      locked={d.locked}
-      colorTag={d.colorTag}
-    >
+    <NodeContextMenu nodeId={d.nodeId} nodeType="audio" locked={d.locked} colorTag={d.colorTag}>
       <div ref={visibilityRef} className="relative min-w-[200px]">
         <NodeBorderHandles colorClassName="!bg-green-500" />
         {lod === 'full' && (
@@ -82,7 +81,11 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
           <NodeStatusBadge status={d.status} />
           {typeof d.estimatedCost === 'number' && (
             <div className="absolute right-1 top-1 z-20 rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-300">
-              {new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(d.estimatedCost)}
+              {new Intl.NumberFormat(getLocale(), {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2,
+              }).format(d.estimatedCost)}
             </div>
           )}
 
@@ -91,7 +94,11 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
             <span className="flex-1 truncate text-xs font-medium">
               {d.title || t('node.audioNode')}
             </span>
-            {lod === 'full' && d.providerId && <span className="text-[9px] text-muted-foreground/70">{getProviderDisplayName(d.providerId)}</span>}
+            {lod === 'full' && d.providerId && (
+              <span className="text-[9px] text-muted-foreground/70">
+                {getProviderDisplayName(d.providerId)}
+              </span>
+            )}
             <span className="rounded bg-green-500/10 px-1.5 text-[10px] text-green-400">
               {AUDIO_TYPE_LABELS[d.audioType] ?? d.audioType}
             </span>
@@ -118,7 +125,11 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
                   />
                 ) : activeUrl || activeHash ? (
                   <div className="flex h-8 w-full items-center justify-center rounded bg-green-500/10 text-xs text-muted-foreground">
-                    {isVisible ? t('node.loading') : <Volume2 className="h-4 w-4 text-green-400/40" />}
+                    {isVisible ? (
+                      t('node.loading')
+                    ) : (
+                      <Volume2 className="h-4 w-4 text-green-400/40" />
+                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-1 text-muted-foreground">
@@ -132,7 +143,9 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
               {lod === 'full' && (
                 <>
                   {d.duration != null && (
-                    <div className="px-3 pb-1 text-[10px] text-muted-foreground">{t('node.duration')}: {d.duration.toFixed(1)}s</div>
+                    <div className="px-3 pb-1 text-[10px] text-muted-foreground">
+                      {t('node.duration')}: {d.duration.toFixed(1)}s
+                    </div>
                   )}
 
                   {d.generationStatus === 'failed' && d.error && (
@@ -144,7 +157,10 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
                   {isGenerating && typeof d.progress === 'number' && (
                     <div className="px-3 pb-1">
                       <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full bg-green-500 transition-[width] duration-200" style={{ width: `${d.progress}%` }} />
+                        <div
+                          className="h-full bg-green-500 transition-[width] duration-200"
+                          style={{ width: `${d.progress}%` }}
+                        />
                       </div>
                       <span className="text-[10px] text-muted-foreground">{d.progress}%</span>
                     </div>
@@ -153,7 +169,9 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
                   {d.variants.length > 1 && (
                     <div className="border-t border-green-500/10 px-3 py-1.5">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
+                        <span className="text-[9px] text-muted-foreground">
+                          {d.selectedVariantIndex + 1}/{d.variants.length}
+                        </span>
                       </div>
                       <div className="overflow-x-auto">
                         <div className="flex min-w-max items-center gap-1">
@@ -190,7 +208,11 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
                         onContextMenu={(e) => e.preventDefault()}
                         aria-label={d.seedLocked ? 'Unlock seed' : 'Lock seed'}
                       >
-                        {d.seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                        {d.seedLocked ? (
+                          <Lock className="h-3 w-3" />
+                        ) : (
+                          <Unlock className="h-3 w-3" />
+                        )}
                       </button>
                     </span>
                   </div>
@@ -198,7 +220,6 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
               )}
             </>
           )}
-
         </div>
       </div>
     </NodeContextMenu>
@@ -222,7 +243,9 @@ const VariantThumb = memo(function VariantThumb({
     <button
       className={cn(
         'relative h-10 w-10 shrink-0 overflow-hidden rounded border-2 bg-muted/70',
-        selected ? 'border-green-500 ring-1 ring-green-500/40' : 'border-transparent hover:border-green-400/50',
+        selected
+          ? 'border-green-500 ring-1 ring-green-500/40'
+          : 'border-transparent hover:border-green-400/50',
       )}
       onClick={onClick}
       onContextMenu={(e) => e.preventDefault()}

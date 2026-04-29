@@ -20,11 +20,7 @@
 
 import type BetterSqlite3 from 'better-sqlite3';
 import type { SessionId, SnapshotId } from '@lucid-fin/contracts';
-import {
-  parseOrDegrade,
-  SnapshotsTable,
-  StoredSnapshotSchema,
-} from '@lucid-fin/contracts-parse';
+import { parseOrDegrade, SnapshotsTable, StoredSnapshotSchema } from '@lucid-fin/contracts-parse';
 import type { Tx } from '../transactions.js';
 
 export interface StoredSession {
@@ -104,6 +100,8 @@ const SNAPSHOT_TABLES = [
 
 /** Discover column names from the live schema — future-proof against ALTER TABLE additions. */
 function discoverColumns(db: BetterSqlite3.Database, table: string): string[] {
+  const ALLOWED_TABLES = new Set(SNAPSHOT_TABLES as readonly string[]);
+  if (!ALLOWED_TABLES.has(table)) throw new Error(`Disallowed table: ${table}`);
   const info = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
   return info.map((col) => col.name);
 }
@@ -130,9 +128,9 @@ export class SnapshotRepository {
 
   get(id: SnapshotId, tx?: Tx): StoredSnapshot | undefined {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(`SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`)
-      .get(id) as RawRow | undefined;
+    const row = d.prepare(`SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`).get(id) as
+      | RawRow
+      | undefined;
     if (!row) return undefined;
     const parsed = parseOrDegrade(
       StoredSnapshotSchema,
@@ -232,7 +230,9 @@ export class SnapshotRepository {
     const dayDeleteIds = weekToMonthRows.filter((r) => !dayKeepers.has(r.id)).map((r) => r.id);
     if (dayDeleteIds.length > 0) {
       const placeholders = dayDeleteIds.map(() => '?').join(',');
-      d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} IN (${placeholders})`).run(...dayDeleteIds);
+      d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} IN (${placeholders})`).run(
+        ...dayDeleteIds,
+      );
     }
 
     // 3) 1–7 days: keep newest per 3-hour window.
@@ -249,7 +249,9 @@ export class SnapshotRepository {
     const hourDeleteIds = dayToWeekRows.filter((r) => !hourKeepers.has(r.id)).map((r) => r.id);
     if (hourDeleteIds.length > 0) {
       const placeholders = hourDeleteIds.map(() => '?').join(',');
-      d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} IN (${placeholders})`).run(...hourDeleteIds);
+      d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} IN (${placeholders})`).run(
+        ...hourDeleteIds,
+      );
     }
 
     // 4) Last 24 hours: trim anything beyond 20 newest.
@@ -268,21 +270,28 @@ export class SnapshotRepository {
   }
 
   capture(sessionId: SessionId, label: string, trigger: 'auto' | 'manual'): StoredSnapshot {
-    const data: Record<string, unknown[]> = {};
-    for (const table of SNAPSHOT_TABLES) {
-      const cols = discoverColumns(this.db, table);
-      if (cols.length === 0) continue;
-      data[table] = this.db.prepare(`SELECT ${cols.join(', ')} FROM ${table}`).all() as unknown[];
-    }
+    const doCapture = this.db.transaction(() => {
+      const data: Record<string, unknown[]> = {};
+      for (const table of SNAPSHOT_TABLES) {
+        const cols = discoverColumns(this.db, table);
+        if (cols.length === 0) continue;
+        data[table] = this.db.prepare(`SELECT ${cols.join(', ')} FROM ${table}`).all() as unknown[];
+      }
+      return data;
+    });
+
+    const data = doCapture();
 
     // Ensure the referenced session exists in SQLite (may only live in
     // Redux/localStorage at this point). Insert a minimal stub so the FK
     // on snapshots.session_id is satisfied.
     const now = Date.now();
-    this.db.prepare(
-      `INSERT OR IGNORE INTO commander_sessions (id, canvas_id, title, messages, created_at, updated_at)
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO commander_sessions (id, canvas_id, title, messages, created_at, updated_at)
        VALUES (?, NULL, '', '[]', ?, ?)`,
-    ).run(sessionId, now, now);
+      )
+      .run(sessionId, now, now);
 
     const snap: StoredSnapshot = {
       id: crypto.randomUUID(),
@@ -304,17 +313,29 @@ export class SnapshotRepository {
     const doRestore = this.db.transaction(() => {
       for (const table of SNAPSHOT_TABLES) {
         const rows = parsed[table] ?? [];
-        this.db.exec(`DELETE FROM ${table}`);
+        const liveCols = new Set(discoverColumns(this.db, table));
+
+        // Collect IDs of rows captured in this snapshot.
+        const snapshotIds = rows
+          .map((r) => r['id'] as string | undefined)
+          .filter((id): id is string => typeof id === 'string');
+
+        // Only delete rows that were part of the snapshot — leave other sessions' data intact.
+        if (snapshotIds.length > 0) {
+          const placeholders = snapshotIds.map(() => '?').join(', ');
+          this.db.prepare(`DELETE FROM ${table} WHERE id IN (${placeholders})`).run(...snapshotIds);
+        }
+
         if (rows.length === 0) continue;
 
-        const liveCols = new Set(discoverColumns(this.db, table));
         const rawCols = Object.keys(rows[0]);
         const cols = rawCols.filter((c) => liveCols.has(c));
         if (cols.length === 0) continue;
 
+        const safeCols = cols.map((c) => `"${c.replace(/"/g, '""')}"`);
         const placeholders = cols.map(() => '?').join(', ');
         const stmt = this.db.prepare(
-          `INSERT OR IGNORE INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`,
+          `INSERT OR REPLACE INTO ${table} (${safeCols.join(', ')}) VALUES (${placeholders})`,
         );
         for (const row of rows) {
           stmt.run(...cols.map((c) => row[c]));

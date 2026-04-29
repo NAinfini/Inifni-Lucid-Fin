@@ -48,10 +48,7 @@ export interface AppDeps {
   processPromptStore: ProcessPromptStore;
 }
 
-export function registerAllHandlers(
-  getWindow: () => BrowserWindow | null,
-  deps: AppDeps,
-): void {
+export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps: AppDeps): void {
   const {
     db,
     cas,
@@ -110,7 +107,9 @@ export function registerAllHandlers(
     resolvePrompt: (code: string) => promptStore.resolve(code),
     resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
     listProcessPromptKeys: () =>
-      processPromptStore.list().map((record) => ({ processKey: record.processKey, name: record.name })),
+      processPromptStore
+        .list()
+        .map((record) => ({ processKey: record.processKey, name: record.name })),
   });
   registerEntityHandlers(ipcMain, { adapterRegistry: registry, cas, db });
   registerVisionHandlers(ipcMain, { cas, keychain });

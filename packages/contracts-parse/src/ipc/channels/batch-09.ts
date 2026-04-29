@@ -66,13 +66,7 @@ const LLMProviderRuntimeConfigShape = z
     name: z.string(),
     baseUrl: z.string(),
     model: z.string(),
-    protocol: z.enum([
-      'openai-compatible',
-      'openai-responses',
-      'anthropic',
-      'gemini',
-      'cohere',
-    ]),
+    protocol: z.enum(['openai-compatible', 'openai-responses', 'anthropic', 'gemini', 'cohere']),
     authStyle: z.enum(['bearer', 'x-api-key', 'x-goog-api-key', 'none']),
     contextWindow: z.number().optional(),
   })
@@ -149,12 +143,8 @@ export const commanderInjectMessageChannel = defineInvokeChannel({
   request: CommanderInjectMessageRequest,
   response: CommanderInjectMessageResponse,
 });
-export type CommanderInjectMessageRequest = z.infer<
-  typeof CommanderInjectMessageRequest
->;
-export type CommanderInjectMessageResponse = z.infer<
-  typeof CommanderInjectMessageResponse
->;
+export type CommanderInjectMessageRequest = z.infer<typeof CommanderInjectMessageRequest>;
+export type CommanderInjectMessageResponse = z.infer<typeof CommanderInjectMessageResponse>;
 
 // ── commander:tool:decision (invoke) ─────────────────────────
 const CommanderToolDecisionRequest = z.object({
@@ -168,12 +158,8 @@ export const commanderToolDecisionChannel = defineInvokeChannel({
   request: CommanderToolDecisionRequest,
   response: CommanderToolDecisionResponse,
 });
-export type CommanderToolDecisionRequest = z.infer<
-  typeof CommanderToolDecisionRequest
->;
-export type CommanderToolDecisionResponse = z.infer<
-  typeof CommanderToolDecisionResponse
->;
+export type CommanderToolDecisionRequest = z.infer<typeof CommanderToolDecisionRequest>;
+export type CommanderToolDecisionResponse = z.infer<typeof CommanderToolDecisionResponse>;
 
 // ── commander:tool:answer (invoke) ───────────────────────────
 const CommanderToolAnswerRequest = z.object({
@@ -187,12 +173,8 @@ export const commanderToolAnswerChannel = defineInvokeChannel({
   request: CommanderToolAnswerRequest,
   response: CommanderToolAnswerResponse,
 });
-export type CommanderToolAnswerRequest = z.infer<
-  typeof CommanderToolAnswerRequest
->;
-export type CommanderToolAnswerResponse = z.infer<
-  typeof CommanderToolAnswerResponse
->;
+export type CommanderToolAnswerRequest = z.infer<typeof CommanderToolAnswerRequest>;
+export type CommanderToolAnswerResponse = z.infer<typeof CommanderToolAnswerResponse>;
 
 // ── commander:compact (invoke) ───────────────────────────────
 // Handler always resolves with a stats record — even the "no active session"
@@ -231,9 +213,7 @@ export const commanderToolListChannel = defineInvokeChannel({
   response: CommanderToolListResponse,
 });
 export type CommanderToolListRequest = z.infer<typeof CommanderToolListRequest>;
-export type CommanderToolListResponse = z.infer<
-  typeof CommanderToolListResponse
->;
+export type CommanderToolListResponse = z.infer<typeof CommanderToolListResponse>;
 
 // ── commander:tool-search (invoke) ───────────────────────────
 // Response variant: handler maps to `{ name, description }` only — tags/tier
@@ -248,12 +228,8 @@ export const commanderToolSearchChannel = defineInvokeChannel({
   request: CommanderToolSearchRequest,
   response: CommanderToolSearchResponse,
 });
-export type CommanderToolSearchRequest = z.infer<
-  typeof CommanderToolSearchRequest
->;
-export type CommanderToolSearchResponse = z.infer<
-  typeof CommanderToolSearchResponse
->;
+export type CommanderToolSearchRequest = z.infer<typeof CommanderToolSearchRequest>;
+export type CommanderToolSearchResponse = z.infer<typeof CommanderToolSearchResponse>;
 
 // ── commander:stream (push) — single zod source of truth ─────
 /**
@@ -372,12 +348,7 @@ const TimelineEventCommon = {
   emittedAt: z.number(),
 };
 
-const TimelineParamValue = z.union([
-  z.string(),
-  z.number(),
-  z.boolean(),
-  z.null(),
-]);
+const TimelineParamValue = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
 const ToolRefShape = z.object({
   domain: z.string(),
@@ -472,9 +443,7 @@ const TimelineEvent = z.discriminatedUnion('kind', [
     kind: z.literal('question_prompt'),
     questionId: z.string(),
     prompt: z.string(),
-    options: z
-      .array(z.object({ id: z.string(), label: z.string() }))
-      .optional(),
+    options: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
     allowFreeText: z.boolean(),
     ...TimelineEventCommon,
   }),
@@ -526,9 +495,7 @@ export { CommanderStreamPayload as CommanderStreamPayloadSchema };
 export type CommanderIntentPayload = z.infer<typeof CommanderIntentPayload>;
 export type CommanderEvidencePayload = z.infer<typeof CommanderEvidencePayload>;
 export type CommanderBlockerPayload = z.infer<typeof CommanderBlockerPayload>;
-export type CommanderExitDecisionPayload = z.infer<
-  typeof CommanderExitDecisionPayload
->;
+export type CommanderExitDecisionPayload = z.infer<typeof CommanderExitDecisionPayload>;
 
 // ── commander:canvas:dispatch (push) ─────────────────────────
 // Carries a full Canvas snapshot. Canvas DTO is not yet contract-owned — kept
@@ -543,9 +510,7 @@ export const commanderCanvasDispatchChannel = definePushChannel({
   channel: 'commander:canvas:dispatch',
   payload: CommanderCanvasDispatchPayload,
 });
-export type CommanderCanvasDispatchPayload = z.infer<
-  typeof CommanderCanvasDispatchPayload
->;
+export type CommanderCanvasDispatchPayload = z.infer<typeof CommanderCanvasDispatchPayload>;
 
 // ── commander:entities:updated (push) ────────────────────────
 const CommanderEntitiesUpdatedPayload = z.object({ toolName: z.string() });
@@ -553,9 +518,7 @@ export const commanderEntitiesUpdatedChannel = definePushChannel({
   channel: 'commander:entities:updated',
   payload: CommanderEntitiesUpdatedPayload,
 });
-export type CommanderEntitiesUpdatedPayload = z.infer<
-  typeof CommanderEntitiesUpdatedPayload
->;
+export type CommanderEntitiesUpdatedPayload = z.infer<typeof CommanderEntitiesUpdatedPayload>;
 
 // ── commander:settings:dispatch (push) ───────────────────────
 // `action` is a provider-settings verb; `payload` shape varies per action
@@ -571,9 +534,7 @@ export const commanderSettingsDispatchChannel = definePushChannel({
   channel: 'commander:settings:dispatch',
   payload: CommanderSettingsDispatchPayload,
 });
-export type CommanderSettingsDispatchPayload = z.infer<
-  typeof CommanderSettingsDispatchPayload
->;
+export type CommanderSettingsDispatchPayload = z.infer<typeof CommanderSettingsDispatchPayload>;
 
 // ── commander:undo:dispatch (push) ───────────────────────────
 const CommanderUndoDispatchPayload = z.object({
@@ -583,9 +544,7 @@ export const commanderUndoDispatchChannel = definePushChannel({
   channel: 'commander:undo:dispatch',
   payload: CommanderUndoDispatchPayload,
 });
-export type CommanderUndoDispatchPayload = z.infer<
-  typeof CommanderUndoDispatchPayload
->;
+export type CommanderUndoDispatchPayload = z.infer<typeof CommanderUndoDispatchPayload>;
 
 // ── commander:events:hydrate (invoke) ───────────────────────
 // Renderer → main: read back all persisted `TimelineEvent`s for a
@@ -603,12 +562,8 @@ export const commanderEventsHydrateChannel = defineInvokeChannel({
   request: CommanderEventsHydrateRequest,
   response: CommanderEventsHydrateResponse,
 });
-export type CommanderEventsHydrateRequest = z.infer<
-  typeof CommanderEventsHydrateRequest
->;
-export type CommanderEventsHydrateResponse = z.infer<
-  typeof CommanderEventsHydrateResponse
->;
+export type CommanderEventsHydrateRequest = z.infer<typeof CommanderEventsHydrateRequest>;
+export type CommanderEventsHydrateResponse = z.infer<typeof CommanderEventsHydrateResponse>;
 
 // ── Channel tuples ──────────────────────────────────────────
 export const commanderChannels = [

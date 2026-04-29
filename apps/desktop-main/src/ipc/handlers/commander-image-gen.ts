@@ -59,8 +59,14 @@ export function makeGenerateImage(deps: {
   onStart?: (jobId: string, provider: string, width: number, height: number) => void;
   onComplete?: (jobId: string, assetHash: string) => void;
   onFailed?: (jobId: string, error: string) => void;
-}): (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => Promise<{ assetHash: string }> {
-  return async (prompt: string, options?: { providerId?: string; width?: number; height?: number }) => {
+}): (
+  prompt: string,
+  options?: { providerId?: string; width?: number; height?: number },
+) => Promise<{ assetHash: string }> {
+  return async (
+    prompt: string,
+    options?: { providerId?: string; width?: number; height?: number },
+  ) => {
     const providerId = options?.providerId;
     const width = options?.width ?? 1024;
     const height = options?.height ?? 1024;
@@ -112,19 +118,19 @@ export function makeGenerateImage(deps: {
             }
           }
 
-        log.info('Commander image generated and stored', {
-          category: 'commander',
-          hash: ref.hash,
-          format: ref.format,
-          path: ref.path,
-        });
-        deps.onComplete?.(jobId, ref.hash);
-        return { assetHash: ref.hash };
-      } finally {
-        if (materialized.cleanupPath) {
-          await fsp.rm(materialized.cleanupPath, { recursive: true, force: true });
+          log.info('Commander image generated and stored', {
+            category: 'commander',
+            hash: ref.hash,
+            format: ref.format,
+            path: ref.path,
+          });
+          deps.onComplete?.(jobId, ref.hash);
+          return { assetHash: ref.hash };
+        } finally {
+          if (materialized.cleanupPath) {
+            await fsp.rm(materialized.cleanupPath, { recursive: true, force: true });
+          }
         }
-      }
       } catch (genErr) {
         deps.onFailed?.(jobId, genErr instanceof Error ? genErr.message : String(genErr));
         throw genErr;
@@ -206,7 +212,8 @@ function extensionFromUrl(url: string): string | undefined {
     const pathname = new URL(url).pathname;
     const ext = path.extname(pathname).slice(1).toLowerCase();
     return ext.length > 0 ? ext : undefined;
-  } catch { /* malformed URL — extension cannot be determined, return undefined */
+  } catch {
+    /* malformed URL — extension cannot be determined, return undefined */
     return undefined;
   }
 }

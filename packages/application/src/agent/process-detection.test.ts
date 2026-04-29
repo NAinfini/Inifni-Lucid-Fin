@@ -6,65 +6,49 @@ describe('detectProcess', () => {
     expect(detectProcess('character.generateRefImage')).toBe('character-ref-image-generation');
     expect(detectProcess('character.setRefImage')).toBe('character-ref-image-generation');
     expect(detectProcess('character.deleteRefImage')).toBe('character-ref-image-generation');
-    expect(detectProcess('character.setRefImageFromNode')).toBe(
-      'character-ref-image-generation',
-    );
+    expect(detectProcess('character.setRefImageFromNode')).toBe('character-ref-image-generation');
 
     expect(detectProcess('location.generateRefImage')).toBe('location-ref-image-generation');
     expect(detectProcess('location.setRefImage')).toBe('location-ref-image-generation');
     expect(detectProcess('location.deleteRefImage')).toBe('location-ref-image-generation');
-    expect(detectProcess('location.setRefImageFromNode')).toBe(
-      'location-ref-image-generation',
-    );
+    expect(detectProcess('location.setRefImageFromNode')).toBe('location-ref-image-generation');
 
-    expect(detectProcess('equipment.generateRefImage')).toBe(
-      'equipment-ref-image-generation',
-    );
+    expect(detectProcess('equipment.generateRefImage')).toBe('equipment-ref-image-generation');
     expect(detectProcess('equipment.setRefImage')).toBe('equipment-ref-image-generation');
-    expect(detectProcess('equipment.deleteRefImage')).toBe(
-      'equipment-ref-image-generation',
-    );
-    expect(detectProcess('equipment.setRefImageFromNode')).toBe(
-      'equipment-ref-image-generation',
-    );
+    expect(detectProcess('equipment.deleteRefImage')).toBe('equipment-ref-image-generation');
+    expect(detectProcess('equipment.setRefImageFromNode')).toBe('equipment-ref-image-generation');
   });
 
   it('maps canvas.generate by node type', () => {
-    expect(detectProcess('canvas.generate', { nodeType: 'image' })).toBe(
-      'image-node-generation',
-    );
-    expect(detectProcess('canvas.generate', { nodeType: 'video' })).toBe(
-      'video-node-generation',
-    );
+    expect(detectProcess('canvas.generate', { nodeType: 'image' })).toBe('image-node-generation');
+    expect(detectProcess('canvas.generate', { nodeType: 'video' })).toBe('video-node-generation');
     // Audio without audioType defaults to audio-voice.
     expect(detectProcess('canvas.generate', { nodeType: 'audio' })).toBe('audio-voice');
   });
 
   it('routes canvas.generate audio by audioType argument', () => {
-    expect(
-      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'voice' }),
-    ).toBe('audio-voice');
-    expect(
-      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'music' }),
-    ).toBe('audio-music');
-    expect(
-      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'sfx' }),
-    ).toBe('audio-sfx');
+    expect(detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'voice' })).toBe(
+      'audio-voice',
+    );
+    expect(detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'music' })).toBe(
+      'audio-music',
+    );
+    expect(detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'sfx' })).toBe(
+      'audio-sfx',
+    );
     // Unknown audioType falls back to audio-voice.
-    expect(
-      detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'unknown' }),
-    ).toBe('audio-voice');
+    expect(detectProcess('canvas.generate', { nodeType: 'audio', audioType: 'unknown' })).toBe(
+      'audio-voice',
+    );
     // audioType without audio nodeType is ignored.
-    expect(
-      detectProcess('canvas.generate', { nodeType: 'image', audioType: 'music' }),
-    ).toBe('image-node-generation');
+    expect(detectProcess('canvas.generate', { nodeType: 'image', audioType: 'music' })).toBe(
+      'image-node-generation',
+    );
   });
 
   it('defaults canvas.generate to image-node-generation when nodeType is missing or unknown', () => {
     expect(detectProcess('canvas.generate')).toBe('image-node-generation');
-    expect(detectProcess('canvas.generate', { nodeType: 'unknown' })).toBe(
-      'image-node-generation',
-    );
+    expect(detectProcess('canvas.generate', { nodeType: 'unknown' })).toBe('image-node-generation');
   });
 
   it('maps preset, style, and template tools into split preset categories', () => {
@@ -175,8 +159,6 @@ describe('detectProcess', () => {
     expect(getProcessCategoryName('canvas-node-editing')).toBe('Canvas Node Editing');
     expect(getProcessCategoryName('provider-management')).toBe('Provider Management');
     expect(getProcessCategoryName('series-management')).toBe('Series Management');
-    expect(getProcessCategoryName('prompt-template-management')).toBe(
-      'Prompt Template Management',
-    );
+    expect(getProcessCategoryName('prompt-template-management')).toBe('Prompt Template Management');
   });
 });

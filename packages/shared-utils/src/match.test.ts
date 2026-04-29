@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { match, matchKind, matchParams } from './match.js';
 
-type Event =
-  | { type: 'click'; x: number; y: number }
-  | { type: 'keydown'; key: string };
+type Event = { type: 'click'; x: number; y: number } | { type: 'keydown'; key: string };
 
 describe('match', () => {
   it('dispatches by the supplied tag', () => {

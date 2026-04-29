@@ -4,11 +4,7 @@ import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import type { AppDispatch, RootState } from '../../store/index.js';
 import { setCanvasViewMode, type CanvasViewMode } from '../../store/slices/ui.js';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '../ui/Tooltip.js';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip.js';
 
 const VIEW_BUTTONS: Array<{ mode: CanvasViewMode; icon: typeof Layers; labelKey: string }> = [
   { mode: 'main', icon: Layers, labelKey: 'view.main' },

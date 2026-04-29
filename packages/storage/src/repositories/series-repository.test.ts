@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import type { EpisodeId, Series, SeriesId } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { SeriesRepository } from './series-repository.js';
 
 const SCHEMA = `
@@ -122,10 +119,20 @@ describe('SeriesRepository', () => {
     repo.upsertSeries(mkSeries('s1'));
     repo.upsertSeries(mkSeries('s2'));
     repo.upsertEpisode({
-      id: 'e-a', seriesId: 's1', title: 'A', order: 1, createdAt: 1, updatedAt: 1,
+      id: 'e-a',
+      seriesId: 's1',
+      title: 'A',
+      order: 1,
+      createdAt: 1,
+      updatedAt: 1,
     });
     repo.upsertEpisode({
-      id: 'e-b', seriesId: 's2', title: 'B', order: 1, createdAt: 1, updatedAt: 1,
+      id: 'e-b',
+      seriesId: 's2',
+      title: 'B',
+      order: 1,
+      createdAt: 1,
+      updatedAt: 1,
     });
     repo.deleteSeries('s1' as SeriesId);
     expect(repo.listEpisodes('s2' as SeriesId).rows.map((r) => r.id)).toEqual(['e-b']);
@@ -158,9 +165,30 @@ describe('SeriesRepository', () => {
 
   it('upsertEpisode + listEpisodes orders by episode_order ascending', () => {
     repo.upsertSeries(mkSeries('s1'));
-    repo.upsertEpisode({ id: 'e2', seriesId: 's1', title: 'Two', order: 2, createdAt: 1, updatedAt: 1 });
-    repo.upsertEpisode({ id: 'e1', seriesId: 's1', title: 'One', order: 1, createdAt: 1, updatedAt: 1 });
-    repo.upsertEpisode({ id: 'e3', seriesId: 's1', title: 'Three', order: 3, createdAt: 1, updatedAt: 1 });
+    repo.upsertEpisode({
+      id: 'e2',
+      seriesId: 's1',
+      title: 'Two',
+      order: 2,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    repo.upsertEpisode({
+      id: 'e1',
+      seriesId: 's1',
+      title: 'One',
+      order: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    repo.upsertEpisode({
+      id: 'e3',
+      seriesId: 's1',
+      title: 'Three',
+      order: 3,
+      createdAt: 1,
+      updatedAt: 1,
+    });
     const { rows, degradedCount } = repo.listEpisodes('s1' as SeriesId);
     expect(degradedCount).toBe(0);
     expect(rows.map((r) => r.id)).toEqual(['e1', 'e2', 'e3']);
@@ -169,14 +197,28 @@ describe('SeriesRepository', () => {
 
   it('deleteEpisode removes the row', () => {
     repo.upsertSeries(mkSeries('s1'));
-    repo.upsertEpisode({ id: 'e1', seriesId: 's1', title: 'One', order: 1, createdAt: 1, updatedAt: 1 });
+    repo.upsertEpisode({
+      id: 'e1',
+      seriesId: 's1',
+      title: 'One',
+      order: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
     repo.deleteEpisode('e1' as EpisodeId);
     expect(repo.listEpisodes('s1' as SeriesId).rows).toEqual([]);
   });
 
   it('fault injection: episode with missing seriesId reports degrade', () => {
     repo.upsertSeries(mkSeries('s1'));
-    repo.upsertEpisode({ id: 'good', seriesId: 's1', title: 'G', order: 1, createdAt: 1, updatedAt: 1 });
+    repo.upsertEpisode({
+      id: 'good',
+      seriesId: 's1',
+      title: 'G',
+      order: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    });
     // Inject an episode row where series_id passes the NOT NULL constraint
     // with an empty string, which zod (min(1)) will reject.
     db.prepare(

@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import type { ShotTemplate, ShotTemplateId } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { ShotTemplateRepository } from './shot-template-repository.js';
 
 const SCHEMA = `
@@ -59,7 +56,9 @@ describe('ShotTemplateRepository', () => {
   it('upsert inserts a new template with serialized tracks', () => {
     repo.upsert(
       mkTemplate('t1', {
-        tracks: { camera: { category: 'camera', intensity: 1, entries: [] } } as unknown as ShotTemplate['tracks'],
+        tracks: {
+          camera: { category: 'camera', intensity: 1, entries: [] },
+        } as unknown as ShotTemplate['tracks'],
       }),
     );
     const { rows, degradedCount } = repo.list();

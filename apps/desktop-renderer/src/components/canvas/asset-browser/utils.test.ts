@@ -5,7 +5,14 @@ vi.mock('../../../i18n.js', () => ({
   t: (key: string) => key,
 }));
 
-import { formatSize, formatDuration, formatDurationShort, getErrorMessage, getErrorDetail, formatFailureSummary } from './utils.js';
+import {
+  formatSize,
+  formatDuration,
+  formatDurationShort,
+  getErrorMessage,
+  getErrorDetail,
+  formatFailureSummary,
+} from './utils.js';
 
 describe('formatSize', () => {
   it('formats bytes', () => expect(formatSize(500)).toBe('500B'));

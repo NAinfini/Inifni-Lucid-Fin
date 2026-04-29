@@ -8,7 +8,12 @@ import {
   type PresetDefinition,
   type PresetTrackSet,
 } from '@lucid-fin/contracts';
-import { compilePrompt, getCameraShot, tokenizeForWordCount, type ResolvedCharacter } from './prompt-compiler.js';
+import {
+  compilePrompt,
+  getCameraShot,
+  tokenizeForWordCount,
+  type ResolvedCharacter,
+} from './prompt-compiler.js';
 
 function makePreset(
   id: string,
@@ -32,7 +37,9 @@ function makePreset(
 
 function makeTracks(): PresetTrackSet {
   const tracks = createEmptyPresetTrackSet();
-  for (const _key of Object.keys(tracks) as PresetCategory[]) { /* init default entries if needed */ }
+  for (const _key of Object.keys(tracks) as PresetCategory[]) {
+    /* init default entries if needed */
+  }
   return tracks;
 }
 
@@ -254,9 +261,7 @@ describe('compilePrompt', () => {
       description: 'A grizzled detective.',
       appearance: 'Tall with sharp jawline. Short brown hair. Scar on left cheek.',
       personality: 'Stoic',
-      costumes: [
-        { id: 'c1', name: 'trench-coat', description: 'long dark trench coat' },
-      ],
+      costumes: [{ id: 'c1', name: 'trench-coat', description: 'long dark trench coat' }],
       tags: [],
       age: 45,
       gender: 'male',
@@ -321,8 +326,28 @@ describe('compilePrompt', () => {
 
   it('detects conflicting presets and reports diagnostic', () => {
     const presets = [
-      { id: 'scene:high-key', category: 'scene' as const, name: 'High Key', description: '', prompt: 'high key lighting', builtIn: true, modified: false, params: [], defaults: {} },
-      { id: 'scene:low-key', category: 'scene' as const, name: 'Low Key', description: '', prompt: 'low key lighting', builtIn: true, modified: false, params: [], defaults: {} },
+      {
+        id: 'scene:high-key',
+        category: 'scene' as const,
+        name: 'High Key',
+        description: '',
+        prompt: 'high key lighting',
+        builtIn: true,
+        modified: false,
+        params: [],
+        defaults: {},
+      },
+      {
+        id: 'scene:low-key',
+        category: 'scene' as const,
+        name: 'Low Key',
+        description: '',
+        prompt: 'low key lighting',
+        builtIn: true,
+        modified: false,
+        params: [],
+        defaults: {},
+      },
     ];
     const result = compilePrompt({
       nodeType: 'image',
@@ -337,8 +362,22 @@ describe('compilePrompt', () => {
         scene: {
           category: 'scene',
           entries: [
-            { id: 'e1', category: 'scene' as const, presetId: 'scene:high-key', params: {}, order: 0, intensity: 80 },
-            { id: 'e2', category: 'scene' as const, presetId: 'scene:low-key', params: {}, order: 1, intensity: 50 },
+            {
+              id: 'e1',
+              category: 'scene' as const,
+              presetId: 'scene:high-key',
+              params: {},
+              order: 0,
+              intensity: 80,
+            },
+            {
+              id: 'e2',
+              category: 'scene' as const,
+              presetId: 'scene:low-key',
+              params: {},
+              order: 1,
+              intensity: 50,
+            },
           ],
         },
         composition: { category: 'composition', entries: [] },
@@ -348,7 +387,7 @@ describe('compilePrompt', () => {
       },
     });
 
-    const conflicts = result.diagnostics.filter(d => d.type === 'conflict');
+    const conflicts = result.diagnostics.filter((d) => d.type === 'conflict');
     expect(conflicts.length).toBeGreaterThanOrEqual(1);
     expect(conflicts[0].message).toContain('high-key');
     expect(conflicts[0].message).toContain('low-key');
@@ -360,37 +399,44 @@ describe('compilePrompt', () => {
       mode: 'character-sheet',
       providerId: 'test',
       presetLibrary: [],
-      characters: [{
-        character: {
-          id: 'char-1',
-          name: 'Maya Chen',
-          role: 'protagonist',
-          description: '',
-          appearance: '',
-          personality: '',
-          costumes: [],
-          tags: [],
-          referenceImages: [],
-          loadouts: [],
-          defaultLoadoutId: '',
-          createdAt: 0,
-          updatedAt: 0,
-          age: 28,
-          gender: 'female',
-          face: {
-            eyeShape: 'almond-shaped',
-            eyeColor: 'dark brown',
-            noseType: 'straight',
-            lipShape: 'full',
-            jawline: 'oval',
-            definingFeatures: 'small scar above left eyebrow',
+      characters: [
+        {
+          character: {
+            id: 'char-1',
+            name: 'Maya Chen',
+            role: 'protagonist',
+            description: '',
+            appearance: '',
+            personality: '',
+            costumes: [],
+            tags: [],
+            referenceImages: [],
+            loadouts: [],
+            defaultLoadoutId: '',
+            createdAt: 0,
+            updatedAt: 0,
+            age: 28,
+            gender: 'female',
+            face: {
+              eyeShape: 'almond-shaped',
+              eyeColor: 'dark brown',
+              noseType: 'straight',
+              lipShape: 'full',
+              jawline: 'oval',
+              definingFeatures: 'small scar above left eyebrow',
+            },
+            hair: {
+              color: 'jet black',
+              style: 'bob',
+              length: 'shoulder-length',
+              texture: 'straight',
+            },
+            skinTone: 'warm olive',
+            body: { height: '5\'6"', build: 'athletic' },
+            distinctTraits: ['silver nose stud'],
           },
-          hair: { color: 'jet black', style: 'bob', length: 'shoulder-length', texture: 'straight' },
-          skinTone: 'warm olive',
-          body: { height: "5'6\"", build: 'athletic' },
-          distinctTraits: ['silver nose stud'],
         },
-      }],
+      ],
     });
 
     expect(result.prompt).toContain('Maya Chen');
@@ -443,7 +489,15 @@ describe('compilePrompt', () => {
         lens: { category: 'lens', entries: [] },
         look: {
           category: 'look',
-          entries: [{ id: 'e1', category: 'look' as const, presetId: 'look:anime-cel', params: {}, order: 0 }],
+          entries: [
+            {
+              id: 'e1',
+              category: 'look' as const,
+              presetId: 'look:anime-cel',
+              params: {},
+              order: 0,
+            },
+          ],
         },
         scene: { category: 'scene', entries: [] },
         composition: { category: 'composition', entries: [] },
@@ -468,14 +522,26 @@ describe('compilePrompt', () => {
       presetLibrary: [],
       dialogueText: 'I will find you.',
       emotion: 'determined',
-      characters: [{
-        character: {
-          id: 'c1', name: 'Maya', role: 'protagonist', description: '', appearance: '',
-          personality: '', costumes: [], tags: [], referenceImages: [], loadouts: [],
-          defaultLoadoutId: '', createdAt: 0, updatedAt: 0,
-          vocalTraits: { pitch: 'alto', accent: 'British RP', cadence: 'measured' },
+      characters: [
+        {
+          character: {
+            id: 'c1',
+            name: 'Maya',
+            role: 'protagonist',
+            description: '',
+            appearance: '',
+            personality: '',
+            costumes: [],
+            tags: [],
+            referenceImages: [],
+            loadouts: [],
+            defaultLoadoutId: '',
+            createdAt: 0,
+            updatedAt: 0,
+            vocalTraits: { pitch: 'alto', accent: 'British RP', cadence: 'measured' },
+          },
         },
-      }],
+      ],
     });
 
     expect(result.prompt).toContain('alto voice');
@@ -516,16 +582,31 @@ describe('compilePrompt', () => {
       providerId: 'test',
       presetLibrary: [],
       sfxPlacement: 'close',
-      locations: [{
-        id: 'loc1', name: 'Dungeon',
-        description: '', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0,
-        atmosphereKeywords: ['echoing', 'damp'],
-      }],
-      equipmentItems: [{
-        id: 'eq1', name: 'Broadsword', type: 'weapon',
-        description: '', tags: [], referenceImages: [], createdAt: 0, updatedAt: 0,
-        material: 'forged steel',
-      }],
+      locations: [
+        {
+          id: 'loc1',
+          name: 'Dungeon',
+          description: '',
+          tags: [],
+          referenceImages: [],
+          createdAt: 0,
+          updatedAt: 0,
+          atmosphereKeywords: ['echoing', 'damp'],
+        },
+      ],
+      equipmentItems: [
+        {
+          id: 'eq1',
+          name: 'Broadsword',
+          type: 'weapon',
+          description: '',
+          tags: [],
+          referenceImages: [],
+          createdAt: 0,
+          updatedAt: 0,
+          material: 'forged steel',
+        },
+      ],
     });
 
     expect(result.prompt).toContain('sword clash');
@@ -540,7 +621,11 @@ describe('getCameraShot', () => {
   it('returns close-up for close-up preset IDs', () => {
     const tracks = makeTracks();
     tracks.camera.entries.push({
-      id: 'e', category: 'camera', presetId: 'extreme-close-up', params: {}, order: 0,
+      id: 'e',
+      category: 'camera',
+      presetId: 'extreme-close-up',
+      params: {},
+      order: 0,
     });
     expect(getCameraShot(tracks)).toBe('close-up');
   });
@@ -548,7 +633,11 @@ describe('getCameraShot', () => {
   it('returns wide for wide/establishing preset IDs', () => {
     const tracks = makeTracks();
     tracks.camera.entries.push({
-      id: 'e', category: 'camera', presetId: 'wide-establishing-shot', params: {}, order: 0,
+      id: 'e',
+      category: 'camera',
+      presetId: 'wide-establishing-shot',
+      params: {},
+      order: 0,
     });
     expect(getCameraShot(tracks)).toBe('wide');
   });
@@ -556,7 +645,11 @@ describe('getCameraShot', () => {
   it('returns medium for non-matching preset IDs', () => {
     const tracks = makeTracks();
     tracks.camera.entries.push({
-      id: 'e', category: 'camera', presetId: 'over-the-shoulder', params: {}, order: 0,
+      id: 'e',
+      category: 'camera',
+      presetId: 'over-the-shoulder',
+      params: {},
+      order: 0,
     });
     expect(getCameraShot(tracks)).toBe('medium');
   });

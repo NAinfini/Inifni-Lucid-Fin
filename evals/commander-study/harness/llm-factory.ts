@@ -16,7 +16,7 @@ export async function buildCodexAdapter(spec: CodexProviderSpec): Promise<LLMAda
   if (!apiKey) {
     throw new Error(
       `No API key in keychain for provider "${spec.name}" (id=${spec.id}). ` +
-      `Open Lucid Fin → Settings and (re-)paste the key.`,
+        `Open Lucid Fin → Settings and (re-)paste the key.`,
     );
   }
   const adapter = buildRuntimeLLMAdapter(toRuntimeConfig(spec));

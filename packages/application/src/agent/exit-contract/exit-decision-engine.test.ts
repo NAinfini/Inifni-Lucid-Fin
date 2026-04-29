@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { decide } from './exit-decision-engine.js';
-import type { CompletionContract, CompletionEvidence, ReadonlyCompletionEvidenceList, RunIntent } from './types.js';
+import type {
+  CompletionContract,
+  CompletionEvidence,
+  ReadonlyCompletionEvidenceList,
+  RunIntent,
+} from './types.js';
 import { infoAnswerContract } from './contracts/info-answer.js';
 
 function execContract(overrides: Partial<CompletionContract> = {}): CompletionContract {
@@ -16,9 +21,7 @@ function execContract(overrides: Partial<CompletionContract> = {}): CompletionCo
         description: 'Seed at least one scene node',
       },
     ],
-    acceptableSubstitutes: [
-      { toolName: 'canvas.addNode', description: 'Single-node fallback' },
-    ],
+    acceptableSubstitutes: [{ toolName: 'canvas.addNode', description: 'Single-node fallback' }],
     infoIntentExemption: false,
     blockingQuestionsAllowed: 3,
     ...overrides,
@@ -33,7 +36,13 @@ describe('exit-contract/decide', () => {
   describe('budget_exhausted precedence', () => {
     it('returns budget_exhausted even if other evidence exists', () => {
       const ledger: ReadonlyCompletionEvidenceList = [
-        { kind: 'mutation_commit', toolName: 'canvas.batchCreate', args: { nodes: [{}] }, resultOk: true, at: 1 },
+        {
+          kind: 'mutation_commit',
+          toolName: 'canvas.batchCreate',
+          args: { nodes: [{}] },
+          resultOk: true,
+          at: 1,
+        },
         { kind: 'budget_exhausted', metric: 'steps', at: 2 },
       ];
       const d = decide({ contract: execContract(), intent: execIntent, ledger });
@@ -74,7 +83,13 @@ describe('exit-contract/decide', () => {
   describe('satisfied', () => {
     it('returns satisfied when required commit matches', () => {
       const ledger: ReadonlyCompletionEvidenceList = [
-        { kind: 'mutation_commit', toolName: 'canvas.batchCreate', args: { nodes: [{ type: 'text' }] }, resultOk: true, at: 1 },
+        {
+          kind: 'mutation_commit',
+          toolName: 'canvas.batchCreate',
+          args: { nodes: [{ type: 'text' }] },
+          resultOk: true,
+          at: 1,
+        },
       ];
       const d = decide({ contract: execContract(), intent: execIntent, ledger });
       expect(d.outcome).toBe('satisfied');
@@ -94,7 +109,13 @@ describe('exit-contract/decide', () => {
 
     it('fails argPredicate — not satisfied', () => {
       const ledger: ReadonlyCompletionEvidenceList = [
-        { kind: 'mutation_commit', toolName: 'canvas.batchCreate', args: { nodes: [] }, resultOk: true, at: 1 },
+        {
+          kind: 'mutation_commit',
+          toolName: 'canvas.batchCreate',
+          args: { nodes: [] },
+          resultOk: true,
+          at: 1,
+        },
       ];
       const d = decide({ contract: execContract(), intent: execIntent, ledger });
       expect(d.outcome).toBe('unsatisfied');
@@ -102,7 +123,13 @@ describe('exit-contract/decide', () => {
 
     it('ignores failed mutations (resultOk=false)', () => {
       const ledger: ReadonlyCompletionEvidenceList = [
-        { kind: 'mutation_commit', toolName: 'canvas.batchCreate', args: { nodes: [{}] }, resultOk: false, at: 1 },
+        {
+          kind: 'mutation_commit',
+          toolName: 'canvas.batchCreate',
+          args: { nodes: [{}] },
+          resultOk: false,
+          at: 1,
+        },
       ];
       const d = decide({ contract: execContract(), intent: execIntent, ledger });
       expect(d.outcome).toBe('unsatisfied');
@@ -119,7 +146,13 @@ describe('exit-contract/decide', () => {
         ],
       });
       const ledger: ReadonlyCompletionEvidenceList = [
-        { kind: 'mutation_commit', toolName: 'canvas.batchCreate', args: { nodes: [{}] }, resultOk: true, at: 1 },
+        {
+          kind: 'mutation_commit',
+          toolName: 'canvas.batchCreate',
+          args: { nodes: [{}] },
+          resultOk: true,
+          at: 1,
+        },
       ];
       const d = decide({ contract, intent: execIntent, ledger });
       expect(d.outcome).toBe('unsatisfied');
@@ -130,14 +163,22 @@ describe('exit-contract/decide', () => {
         requiredCommits: [
           {
             toolName: 'canvas.batchCreate',
-            argPredicate: () => { throw new Error('buggy predicate'); },
+            argPredicate: () => {
+              throw new Error('buggy predicate');
+            },
             description: 'Seed scene',
           },
         ],
         acceptableSubstitutes: [], // no substitute
       });
       const ledger: ReadonlyCompletionEvidenceList = [
-        { kind: 'mutation_commit', toolName: 'canvas.batchCreate', args: { nodes: [{}] }, resultOk: true, at: 1 },
+        {
+          kind: 'mutation_commit',
+          toolName: 'canvas.batchCreate',
+          args: { nodes: [{}] },
+          resultOk: true,
+          at: 1,
+        },
       ];
       const d = decide({ contract, intent: execIntent, ledger });
       expect(d.outcome).toBe('unsatisfied');
@@ -147,7 +188,10 @@ describe('exit-contract/decide', () => {
   describe('informational_answered', () => {
     it('info intent + info-exempt contract → informational_answered', () => {
       const d = decide({ contract: infoAnswerContract, intent: infoIntent, ledger: [] });
-      expect(d).toEqual({ outcome: 'informational_answered', reason: 'informational intent; contract exempts' });
+      expect(d).toEqual({
+        outcome: 'informational_answered',
+        reason: 'informational intent; contract exempts',
+      });
     });
 
     it('browse intent + info-exempt contract → informational_answered', () => {
@@ -201,7 +245,10 @@ describe('exit-contract/decide', () => {
       });
       expect(d.outcome).toBe('unsatisfied');
       if (d.outcome === 'unsatisfied') {
-        expect(d.blocker).toEqual({ kind: 'empty_narration', lastAssistantText: 'I will help you with that.' });
+        expect(d.blocker).toEqual({
+          kind: 'empty_narration',
+          lastAssistantText: 'I will help you with that.',
+        });
       }
     });
 
@@ -212,7 +259,11 @@ describe('exit-contract/decide', () => {
       const d = decide({ contract: execContract(), intent: execIntent, ledger });
       expect(d.outcome).toBe('unsatisfied');
       if (d.outcome === 'unsatisfied') {
-        expect(d.blocker).toEqual({ kind: 'missing_commit', expected: ['canvas.batchCreate'], lastTool: 'canvas.getState' });
+        expect(d.blocker).toEqual({
+          kind: 'missing_commit',
+          expected: ['canvas.batchCreate'],
+          lastTool: 'canvas.getState',
+        });
       }
     });
   });
@@ -222,7 +273,13 @@ describe('exit-contract/decide', () => {
       const contract = execContract();
       const intent = execIntent;
       const ledger: CompletionEvidence[] = [
-        { kind: 'mutation_commit', toolName: 'canvas.batchCreate', args: { nodes: [{}] }, resultOk: true, at: 1 },
+        {
+          kind: 'mutation_commit',
+          toolName: 'canvas.batchCreate',
+          args: { nodes: [{}] },
+          resultOk: true,
+          at: 1,
+        },
       ];
       const d1 = decide({ contract, intent, ledger });
       const d2 = decide({ contract, intent, ledger });

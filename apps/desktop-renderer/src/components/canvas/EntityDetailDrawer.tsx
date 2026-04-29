@@ -38,7 +38,9 @@ export function EntityDetailDrawer({
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onOpenChange(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
@@ -61,9 +63,7 @@ export function EntityDetailDrawer({
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{title}</div>
-          {subtitle && (
-            <div className="truncate text-[11px] text-muted-foreground">{subtitle}</div>
-          )}
+          {subtitle && <div className="truncate text-[11px] text-muted-foreground">{subtitle}</div>}
         </div>
         <div className="flex items-center gap-1">
           {onSave && (

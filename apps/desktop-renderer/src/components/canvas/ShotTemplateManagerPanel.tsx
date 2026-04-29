@@ -1,7 +1,13 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { ChevronDown, Clapperboard, Eye, EyeOff, Plus, Search, Trash2, X } from 'lucide-react';
-import type { PresetCategory, PresetDefinition, PresetTrack, PresetTrackEntry, ShotTemplate } from '@lucid-fin/contracts';
+import type {
+  PresetCategory,
+  PresetDefinition,
+  PresetTrack,
+  PresetTrackEntry,
+  ShotTemplate,
+} from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
 import {
   addCustomTemplate,
@@ -12,10 +18,30 @@ import {
 } from '../../store/slices/shotTemplates.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizePresetName, localizePresetDescription, localizeShotTemplateName, localizeShotTemplateDescription } from '../../i18n.js';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/Dialog.js';
+import {
+  localizePresetName,
+  localizePresetDescription,
+  localizeShotTemplateName,
+  localizeShotTemplateDescription,
+} from '../../i18n.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/Dialog.js';
 
-const CATEGORIES: PresetCategory[] = ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'];
+const CATEGORIES: PresetCategory[] = [
+  'camera',
+  'lens',
+  'look',
+  'scene',
+  'composition',
+  'emotion',
+  'flow',
+  'technical',
+];
 
 function createCustomTemplateId(): string {
   return `custom-tmpl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -49,7 +75,16 @@ interface CategoryCellProps {
   currentTracks: ShotTemplate['tracks'];
 }
 
-function CategoryCell({ templateId: _templateId, category, track, presetsById, allPresets, hiddenPresetIds, onTracksChange, currentTracks }: CategoryCellProps) {
+function CategoryCell({
+  templateId: _templateId,
+  category,
+  track,
+  presetsById,
+  allPresets,
+  hiddenPresetIds,
+  onTracksChange,
+  currentTracks,
+}: CategoryCellProps) {
   const { t } = useI18n();
   const [modalOpen, setModalOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -103,7 +138,9 @@ function CategoryCell({ templateId: _templateId, category, track, presetsById, a
         )}
       >
         <div className="flex items-center justify-between gap-1 w-full">
-          <span className="text-[10px] font-semibold truncate">{t('presetCategory.' + category)}</span>
+          <span className="text-[10px] font-semibold truncate">
+            {t('presetCategory.' + category)}
+          </span>
           <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
         </div>
         {entries.length > 0 ? (
@@ -111,25 +148,40 @@ function CategoryCell({ templateId: _templateId, category, track, presetsById, a
             {entries.slice(0, 2).map((e) => {
               const p = presetsById[e.presetId];
               return (
-                <span key={e.id} className="rounded bg-primary/10 text-primary px-1 py-0.5 text-[9px] leading-none truncate max-w-full">
+                <span
+                  key={e.id}
+                  className="rounded bg-primary/10 text-primary px-1 py-0.5 text-[9px] leading-none truncate max-w-full"
+                >
                   {getPresetLabel(e.presetId, category, p?.name)}
                 </span>
               );
             })}
             {entries.length > 2 && (
-              <span className="rounded bg-muted text-muted-foreground px-1 py-0.5 text-[9px] leading-none">+{entries.length - 2}</span>
+              <span className="rounded bg-muted text-muted-foreground px-1 py-0.5 text-[9px] leading-none">
+                +{entries.length - 2}
+              </span>
             )}
           </div>
         ) : (
-          <span className="text-[9px] text-muted-foreground/60 leading-none">{t('inspector.empty')}</span>
+          <span className="text-[9px] text-muted-foreground/60 leading-none">
+            {t('inspector.empty')}
+          </span>
         )}
       </button>
 
-      <Dialog open={modalOpen} onOpenChange={(v) => { setModalOpen(v); if (!v) setSearch(''); }}>
+      <Dialog
+        open={modalOpen}
+        onOpenChange={(v) => {
+          setModalOpen(v);
+          if (!v) setSearch('');
+        }}
+      >
         <DialogContent className="max-w-sm max-h-[70vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{t('presetCategory.' + category)}</DialogTitle>
-            <DialogDescription className="sr-only">{t('presetCategory.' + category)}</DialogDescription>
+            <DialogDescription className="sr-only">
+              {t('presetCategory.' + category)}
+            </DialogDescription>
           </DialogHeader>
 
           {/* Current entries */}
@@ -138,9 +190,17 @@ function CategoryCell({ templateId: _templateId, category, track, presetsById, a
               {entries.map((entry) => {
                 const preset = presetsById[entry.presetId];
                 return (
-                  <div key={entry.id} className="flex items-center justify-between rounded border border-border/60 bg-card px-2 py-1">
-                    <span className="text-xs truncate">{getPresetLabel(entry.presetId, category, preset?.name)}</span>
-                    <button onClick={() => removeEntry(entry.id)} className="ml-2 text-muted-foreground hover:text-destructive shrink-0">
+                  <div
+                    key={entry.id}
+                    className="flex items-center justify-between rounded border border-border/60 bg-card px-2 py-1"
+                  >
+                    <span className="text-xs truncate">
+                      {getPresetLabel(entry.presetId, category, preset?.name)}
+                    </span>
+                    <button
+                      onClick={() => removeEntry(entry.id)}
+                      className="ml-2 text-muted-foreground hover:text-destructive shrink-0"
+                    >
                       <X className="w-3 h-3" />
                     </button>
                   </div>
@@ -167,11 +227,17 @@ function CategoryCell({ templateId: _templateId, category, track, presetsById, a
                 className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-muted"
               >
                 <div className="font-medium">{localizePresetName(p.name)}</div>
-                {p.description && <div className="text-[10px] text-muted-foreground truncate">{localizePresetDescription(category, p.name, p.description)}</div>}
+                {p.description && (
+                  <div className="text-[10px] text-muted-foreground truncate">
+                    {localizePresetDescription(category, p.name, p.description)}
+                  </div>
+                )}
               </button>
             ))}
             {filteredPresets.length === 0 && (
-              <div className="text-xs text-muted-foreground px-2 py-2">{t('inspector.noPresets')}</div>
+              <div className="text-xs text-muted-foreground px-2 py-2">
+                {t('inspector.noPresets')}
+              </div>
             )}
           </div>
         </DialogContent>
@@ -255,19 +321,25 @@ export function ShotTemplateManagerPanel() {
               <div className="flex items-start gap-1 pr-2">
                 <button
                   type="button"
-                  onClick={() => setExpandedId((current) => (current === template.id ? null : template.id))}
+                  onClick={() =>
+                    setExpandedId((current) => (current === template.id ? null : template.id))
+                  }
                   className="flex flex-1 items-start justify-between gap-3 px-3 py-2 text-left hover:bg-muted/30"
                   aria-expanded={expanded}
                 >
                   <div className="min-w-0 space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium truncate">
-                        {template.builtIn ? localizeShotTemplateName(template.id, template.name) : template.name}
+                        {template.builtIn
+                          ? localizeShotTemplateName(template.id, template.name)
+                          : template.name}
                       </span>
                       <span
                         className={cn(
                           'rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-wider',
-                          template.builtIn ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary',
+                          template.builtIn
+                            ? 'bg-muted text-muted-foreground'
+                            : 'bg-primary/10 text-primary',
                         )}
                       >
                         {template.builtIn ? t('shotTemplates.builtIn') : t('shotTemplates.custom')}
@@ -310,7 +382,12 @@ export function ShotTemplateManagerPanel() {
                       ) : (
                         <div className="space-y-2">
                           {trackEntries.map(([category, track]) => (
-                            <TrackSummary key={category} category={category} track={track} presetsById={presetsById} />
+                            <TrackSummary
+                              key={category}
+                              category={category}
+                              track={track}
+                              presetsById={presetsById}
+                            />
                           ))}
                         </div>
                       )}
@@ -346,14 +423,18 @@ export function ShotTemplateManagerPanel() {
                         <input
                           aria-label={t('presetManager.fields.name')}
                           value={template.name}
-                          onChange={(event) => handleUpdateTemplate(template.id, { name: event.target.value })}
+                          onChange={(event) =>
+                            handleUpdateTemplate(template.id, { name: event.target.value })
+                          }
                           className="w-full rounded bg-muted px-2 py-1 text-xs"
                           placeholder={t('presetManager.fields.name')}
                         />
                         <textarea
                           aria-label={t('presetManager.fields.description')}
                           value={template.description}
-                          onChange={(event) => handleUpdateTemplate(template.id, { description: event.target.value })}
+                          onChange={(event) =>
+                            handleUpdateTemplate(template.id, { description: event.target.value })
+                          }
                           className="w-full rounded bg-muted px-2 py-1 text-xs min-h-[72px]"
                           placeholder={t('presetManager.fields.description')}
                         />

@@ -14,20 +14,11 @@ import {
 import { useDispatch, useSelector } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store/index.js';
-import {
-  setActivePanel,
-  type LeftPanelId,
-  togglePanel,
-} from '../../store/slices/ui.js';
+import { setActivePanel, type LeftPanelId, togglePanel } from '../../store/slices/ui.js';
 import { toggleCommander } from '../../store/slices/commander.js';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../ui/Tooltip.js';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip.js';
 
 interface ToolbarButton {
   id: string;
@@ -43,7 +34,12 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { id: 'characters', icon: Users, label: 'toolbar.characters', panel: 'characters' },
   { id: 'equipment', icon: Package, label: 'toolbar.equipment', panel: 'equipment' },
   { id: 'locations', icon: MapPin, label: 'toolbar.locations', panel: 'locations' },
-  { id: 'shotTemplates', icon: Clapperboard, label: 'toolbar.shotTemplates', panel: 'shotTemplates' },
+  {
+    id: 'shotTemplates',
+    icon: Clapperboard,
+    label: 'toolbar.shotTemplates',
+    panel: 'shotTemplates',
+  },
   { id: 'presets', icon: SlidersHorizontal, label: 'toolbar.presets', panel: 'presets' },
   { id: 'canvases', icon: Layers, label: 'toolbar.canvases', panel: 'canvases' },
   { id: 'settings', icon: Settings, label: 'toolbar.settings', route: '/settings' },
@@ -57,10 +53,7 @@ export function LeftToolbar() {
   const commanderOpen = useSelector((state: RootState) => state.commander.open);
   const toolbarRef = useRef<HTMLElement>(null);
 
-  const anyActive =
-    activePanel !== null ||
-    commanderOpen ||
-    location.pathname === '/settings';
+  const anyActive = activePanel !== null || commanderOpen || location.pathname === '/settings';
 
   const handleToolbarKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (!toolbarRef.current) return;
@@ -94,7 +87,7 @@ export function LeftToolbar() {
             const Icon = button.icon;
             const active = Boolean(
               (button.panel && activePanel === button.panel) ||
-                (button.route && location.pathname === button.route),
+              (button.route && location.pathname === button.route),
             );
             const isDefaultFocusable = !anyActive && idx === 0;
 

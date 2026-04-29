@@ -87,35 +87,198 @@ interface BuiltInSeed {
 
 const BUILT_IN_SEEDS: BuiltInSeed[] = [
   // promptTemplate cohort (18)
-  { id: 'meta-prompt', name: 'Meta-Prompt (AI Instructor)', category: 'system', defaultContent: metaPrompt, source: 'promptTemplate' },
-  { id: 'prompt-structure', name: 'Prompt Structure & Fundamentals', category: 'core', defaultContent: promptStructure, source: 'promptTemplate', autoInject: true },
-  { id: 'camera-composition', name: 'Camera & Composition', category: 'visual', defaultContent: cameraComposition, source: 'promptTemplate' },
-  { id: 'lighting-atmosphere', name: 'Lighting & Atmosphere', category: 'visual', defaultContent: lightingAtmosphere, source: 'promptTemplate' },
-  { id: 'motion-emotion', name: 'Motion & Emotion', category: 'visual', defaultContent: motionEmotion, source: 'promptTemplate' },
-  { id: 'style-aesthetics', name: 'Style & Aesthetics', category: 'visual', defaultContent: styleAesthetics, source: 'promptTemplate' },
-  { id: 'workflow-methods', name: 'Workflow Methods', category: 'process', defaultContent: workflowMethods, source: 'promptTemplate' },
-  { id: 'model-adaptation', name: 'Model-Specific Adaptation', category: 'system', defaultContent: modelAdaptation, source: 'promptTemplate' },
-  { id: 'audio-prompting', name: 'Audio Prompting', category: 'audio', defaultContent: audioPrompting, source: 'promptTemplate' },
-  { id: 'style-transfer', name: 'Style Transfer', category: 'skill', defaultContent: styleTransferGuide, source: 'promptTemplate' },
-  { id: 'shot-list-from-script', name: 'Shot List from Script', category: 'skill', defaultContent: shotListFromScript, source: 'promptTemplate' },
-  { id: 'batch-re-prompt', name: 'Batch Re-Prompt', category: 'skill', defaultContent: batchRePrompt, source: 'promptTemplate' },
-  { id: 'continuity-check', name: 'Continuity Check', category: 'skill', defaultContent: continuityCheck, source: 'promptTemplate' },
-  { id: 'storyboard-export', name: 'Storyboard Export', category: 'skill', defaultContent: storyboardExport, source: 'promptTemplate' },
-  { id: 'video-clone', name: 'Video Clone & Scene Analysis', category: 'skill', defaultContent: videoCloneGuide, source: 'promptTemplate' },
-  { id: 'dual-prompt-strategy', name: 'Dual Prompt Strategy', category: 'skill', defaultContent: dualPromptGuide, source: 'promptTemplate' },
-  { id: 'emotion-voice-prompting', name: 'Emotion & Voice Prompting', category: 'audio', defaultContent: emotionVoiceGuide, source: 'promptTemplate' },
-  { id: 'lip-sync-workflow', name: 'Lip Sync Workflow', category: 'skill', defaultContent: lipSyncGuide, source: 'promptTemplate' },
+  {
+    id: 'meta-prompt',
+    name: 'Meta-Prompt (AI Instructor)',
+    category: 'system',
+    defaultContent: metaPrompt,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'prompt-structure',
+    name: 'Prompt Structure & Fundamentals',
+    category: 'core',
+    defaultContent: promptStructure,
+    source: 'promptTemplate',
+    autoInject: true,
+  },
+  {
+    id: 'camera-composition',
+    name: 'Camera & Composition',
+    category: 'visual',
+    defaultContent: cameraComposition,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'lighting-atmosphere',
+    name: 'Lighting & Atmosphere',
+    category: 'visual',
+    defaultContent: lightingAtmosphere,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'motion-emotion',
+    name: 'Motion & Emotion',
+    category: 'visual',
+    defaultContent: motionEmotion,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'style-aesthetics',
+    name: 'Style & Aesthetics',
+    category: 'visual',
+    defaultContent: styleAesthetics,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'workflow-methods',
+    name: 'Workflow Methods',
+    category: 'process',
+    defaultContent: workflowMethods,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'model-adaptation',
+    name: 'Model-Specific Adaptation',
+    category: 'system',
+    defaultContent: modelAdaptation,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'audio-prompting',
+    name: 'Audio Prompting',
+    category: 'audio',
+    defaultContent: audioPrompting,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'style-transfer',
+    name: 'Style Transfer',
+    category: 'skill',
+    defaultContent: styleTransferGuide,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'shot-list-from-script',
+    name: 'Shot List from Script',
+    category: 'skill',
+    defaultContent: shotListFromScript,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'batch-re-prompt',
+    name: 'Batch Re-Prompt',
+    category: 'skill',
+    defaultContent: batchRePrompt,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'continuity-check',
+    name: 'Continuity Check',
+    category: 'skill',
+    defaultContent: continuityCheck,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'storyboard-export',
+    name: 'Storyboard Export',
+    category: 'skill',
+    defaultContent: storyboardExport,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'video-clone',
+    name: 'Video Clone & Scene Analysis',
+    category: 'skill',
+    defaultContent: videoCloneGuide,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'dual-prompt-strategy',
+    name: 'Dual Prompt Strategy',
+    category: 'skill',
+    defaultContent: dualPromptGuide,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'emotion-voice-prompting',
+    name: 'Emotion & Voice Prompting',
+    category: 'audio',
+    defaultContent: emotionVoiceGuide,
+    source: 'promptTemplate',
+  },
+  {
+    id: 'lip-sync-workflow',
+    name: 'Lip Sync Workflow',
+    category: 'skill',
+    defaultContent: lipSyncGuide,
+    source: 'promptTemplate',
+  },
 
   // workflowDefinitions cohort (9)
-  { id: 'wf-novel-to-video', name: 'Novel/Book → Video', category: 'workflow', defaultContent: wfNovelToVideo, source: 'workflowSkill' },
-  { id: 'wf-video-clone', name: 'Video Clone → Remake', category: 'workflow', defaultContent: wfVideoCloneRemake, source: 'workflowSkill' },
-  { id: 'wf-style-transfer', name: 'Style Transfer Across Shots', category: 'workflow', defaultContent: wfStyleTransferSkill, source: 'workflowSkill' },
-  { id: 'sk-reverse-prompt', name: 'Reverse Prompt Inference', category: 'skill', defaultContent: skReversePrompt, source: 'workflowSkill' },
-  { id: 'sk-lip-sync', name: 'Lip Sync Video', category: 'skill', defaultContent: skLipSync, source: 'workflowSkill' },
-  { id: 'sk-srt-import', name: 'SRT Subtitle Import', category: 'skill', defaultContent: skSrtImport, source: 'workflowSkill' },
-  { id: 'sk-capcut-export', name: 'CapCut Export', category: 'skill', defaultContent: skCapcutExport, source: 'workflowSkill' },
-  { id: 'sk-semantic-search', name: 'Semantic Asset Search', category: 'skill', defaultContent: skSemanticSearch, source: 'workflowSkill' },
-  { id: 'sk-multi-view', name: 'Multi-View Canvas Editing', category: 'skill', defaultContent: skMultiView, source: 'workflowSkill' },
+  {
+    id: 'wf-novel-to-video',
+    name: 'Novel/Book → Video',
+    category: 'workflow',
+    defaultContent: wfNovelToVideo,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'wf-video-clone',
+    name: 'Video Clone → Remake',
+    category: 'workflow',
+    defaultContent: wfVideoCloneRemake,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'wf-style-transfer',
+    name: 'Style Transfer Across Shots',
+    category: 'workflow',
+    defaultContent: wfStyleTransferSkill,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'sk-reverse-prompt',
+    name: 'Reverse Prompt Inference',
+    category: 'skill',
+    defaultContent: skReversePrompt,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'sk-lip-sync',
+    name: 'Lip Sync Video',
+    category: 'skill',
+    defaultContent: skLipSync,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'sk-srt-import',
+    name: 'SRT Subtitle Import',
+    category: 'skill',
+    defaultContent: skSrtImport,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'sk-capcut-export',
+    name: 'CapCut Export',
+    category: 'skill',
+    defaultContent: skCapcutExport,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'sk-semantic-search',
+    name: 'Semantic Asset Search',
+    category: 'skill',
+    defaultContent: skSemanticSearch,
+    source: 'workflowSkill',
+  },
+  {
+    id: 'sk-multi-view',
+    name: 'Multi-View Canvas Editing',
+    category: 'skill',
+    defaultContent: skMultiView,
+    source: 'workflowSkill',
+  },
 
   // WORKFLOW_GUIDES cohort — Commander-facing multi-step guides. Phase 4
   // trimmed the set: video-clone + storyboard-export dropped (the tools
@@ -123,13 +286,57 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
   // batch-reprompt merged into continuity-check as a follow-up section;
   // lip-sync + emotion-voice merged into workflow-audio-production as
   // stage 1 / stage 2 of one pipeline.
-  { id: 'workflow-style-transfer', name: 'Style Transfer (Commander)', category: 'workflow', defaultContent: wfgStyleTransfer, source: 'workflowGuide' },
-  { id: 'workflow-shot-list', name: 'Shot List (Commander)', category: 'workflow', defaultContent: wfgShotList, source: 'workflowGuide' },
-  { id: 'workflow-continuity-check', name: 'Continuity Check + Batch Re-Prompt (Commander)', category: 'workflow', defaultContent: wfgContinuityCheck, source: 'workflowGuide' },
-  { id: 'workflow-image-analyze', name: 'Image Analyze (Commander)', category: 'workflow', defaultContent: wfgImageAnalyze, source: 'workflowGuide' },
-  { id: 'workflow-audio-production', name: 'Audio Production — Voice + Lip Sync (Commander)', category: 'workflow', defaultContent: wfgAudioProduction, source: 'workflowGuide' },
-  { id: 'workflow-story-to-video', name: 'Story to Video (Commander)', category: 'workflow', defaultContent: wfgStoryToVideo, source: 'workflowGuide', autoInject: true },
-  { id: 'workflow-style-plate', name: 'Style Plate Lock (Commander)', category: 'workflow', defaultContent: wfgStylePlate, source: 'workflowGuide', autoInject: true },
+  {
+    id: 'workflow-style-transfer',
+    name: 'Style Transfer (Commander)',
+    category: 'workflow',
+    defaultContent: wfgStyleTransfer,
+    source: 'workflowGuide',
+  },
+  {
+    id: 'workflow-shot-list',
+    name: 'Shot List (Commander)',
+    category: 'workflow',
+    defaultContent: wfgShotList,
+    source: 'workflowGuide',
+  },
+  {
+    id: 'workflow-continuity-check',
+    name: 'Continuity Check + Batch Re-Prompt (Commander)',
+    category: 'workflow',
+    defaultContent: wfgContinuityCheck,
+    source: 'workflowGuide',
+  },
+  {
+    id: 'workflow-image-analyze',
+    name: 'Image Analyze (Commander)',
+    category: 'workflow',
+    defaultContent: wfgImageAnalyze,
+    source: 'workflowGuide',
+  },
+  {
+    id: 'workflow-audio-production',
+    name: 'Audio Production — Voice + Lip Sync (Commander)',
+    category: 'workflow',
+    defaultContent: wfgAudioProduction,
+    source: 'workflowGuide',
+  },
+  {
+    id: 'workflow-story-to-video',
+    name: 'Story to Video (Commander)',
+    category: 'workflow',
+    defaultContent: wfgStoryToVideo,
+    source: 'workflowGuide',
+    autoInject: true,
+  },
+  {
+    id: 'workflow-style-plate',
+    name: 'Style Plate Lock (Commander)',
+    category: 'workflow',
+    defaultContent: wfgStylePlate,
+    source: 'workflowGuide',
+    autoInject: true,
+  },
 ];
 
 const BUILT_IN_ID_SET = new Set(BUILT_IN_SEEDS.map((s) => s.id));
@@ -164,7 +371,9 @@ function loadStorage(): SkillsStorage {
         customSkills: Array.isArray(parsed.customSkills) ? parsed.customSkills : [],
       };
     }
-  } catch { /* malformed — fall through to empty */ }
+  } catch {
+    /* malformed — fall through to empty */
+  }
 
   return {
     builtInCustoms: {},
@@ -203,7 +412,9 @@ function saveSkills(skills: SkillDefinition[]): void {
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 function buildInitialSkills(): SkillDefinition[] {

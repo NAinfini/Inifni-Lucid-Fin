@@ -75,10 +75,7 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         category: {
           type: 'string',
           description: 'The preset category to modify.',
-          enum: [
-            'camera', 'lens', 'look', 'scene',
-            'composition', 'emotion', 'flow', 'technical',
-          ],
+          enum: ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'],
         },
         intensity: {
           type: 'number',
@@ -254,7 +251,8 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
 
   const addPresetEntry: AgentTool = {
     name: 'canvas.addPresetEntry',
-    description: 'Add a preset entry to a specific preset track on image/video nodes. Supports batch via nodeIds.',
+    description:
+      'Add a preset entry to a specific preset track on image/video nodes. Supports batch via nodeIds.',
     context: CANVAS_CONTEXT,
     tier: 3,
     parameters: {
@@ -262,7 +260,11 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to update.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs.' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Batch: array of node IDs.',
+        },
         category: {
           type: 'string',
           description: 'The preset category.',
@@ -278,11 +280,17 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         const canvasId = requireString(args, 'canvasId');
         const category = requirePresetCategory(args);
         const presetId = requireString(args, 'presetId');
-        const nodeIds = Array.isArray(args.nodeIds) && args.nodeIds.length > 0
-          ? (args.nodeIds as string[]).map(String)
-          : [requireString(args, 'nodeId')];
+        const nodeIds =
+          Array.isArray(args.nodeIds) && args.nodeIds.length > 0
+            ? (args.nodeIds as string[]).map(String)
+            : [requireString(args, 'nodeId')];
 
-        const results: Array<{ nodeId: string; success: boolean; entry?: PresetTrackEntry; error?: string }> = [];
+        const results: Array<{
+          nodeId: string;
+          success: boolean;
+          entry?: PresetTrackEntry;
+          error?: string;
+        }> = [];
         for (const nodeId of nodeIds) {
           try {
             const { node } = await requireNode(deps, canvasId, nodeId);
@@ -301,11 +309,21 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
             await deps.setNodePresets(canvasId, nodeId, trackSet as PresetTrackSet);
             results.push({ nodeId, success: true, entry });
           } catch (error) {
-            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              nodeId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
-        if (results.length === 1) return ok({ nodeId: nodeIds[0], category, entry: results[0]?.entry });
-        return ok({ updated: results.filter((r) => r.success).length, total: nodeIds.length, category, results });
+        if (results.length === 1)
+          return ok({ nodeId: nodeIds[0], category, entry: results[0]?.entry });
+        return ok({
+          updated: results.filter((r) => r.success).length,
+          total: nodeIds.length,
+          category,
+          results,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -425,20 +443,29 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'Single node ID to apply the template to.' },
-        nodeIds: { type: 'array', items: { type: 'string', description: 'Node ID.' }, description: 'Batch: array of node IDs to apply the same template to.' },
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string', description: 'Node ID.' },
+          description: 'Batch: array of node IDs to apply the same template to.',
+        },
         templateName: {
           type: 'string',
-          description: 'The template name to search for (case-insensitive partial match). Used with nodeId/nodeIds.',
+          description:
+            'The template name to search for (case-insensitive partial match). Used with nodeId/nodeIds.',
         },
         nodes: {
           type: 'array',
-          description: 'Per-node template assignments with different templates. Each entry has nodeId + templateName.',
+          description:
+            'Per-node template assignments with different templates. Each entry has nodeId + templateName.',
           items: {
             type: 'object',
             description: 'A per-node template assignment.',
             properties: {
               nodeId: { type: 'string', description: 'Node ID.' },
-              templateName: { type: 'string', description: 'Template name for this node (case-insensitive partial match).' },
+              templateName: {
+                type: 'string',
+                description: 'Template name for this node (case-insensitive partial match).',
+              },
             },
           },
         },
@@ -468,26 +495,42 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
             templateName: String(entry.templateName ?? ''),
           }));
         } else {
-          const nodeIds = Array.isArray(args.nodeIds) && args.nodeIds.length > 0
-            ? (args.nodeIds as string[]).map(String)
-            : [requireString(args, 'nodeId')];
+          const nodeIds =
+            Array.isArray(args.nodeIds) && args.nodeIds.length > 0
+              ? (args.nodeIds as string[]).map(String)
+              : [requireString(args, 'nodeId')];
           const templateName = requireString(args, 'templateName');
           workItems = nodeIds.map((id) => ({ nodeId: id, templateName }));
         }
 
-        const results: Array<{ nodeId: string; success: boolean; templateName?: string; templateId?: string; appliedCategories?: string[]; error?: string }> = [];
+        const results: Array<{
+          nodeId: string;
+          success: boolean;
+          templateName?: string;
+          templateId?: string;
+          appliedCategories?: string[];
+          error?: string;
+        }> = [];
 
         for (const { nodeId, templateName } of workItems) {
           try {
             const match = findTemplate(templateName);
             if (!match) {
-              results.push({ nodeId, success: false, error: `Shot template "${templateName}" not found. Available: ${templates.map((t) => t.name).join(', ')}` });
+              results.push({
+                nodeId,
+                success: false,
+                error: `Shot template "${templateName}" not found. Available: ${templates.map((t) => t.name).join(', ')}`,
+              });
               continue;
             }
 
             const { node } = await requireNode(deps, canvasId, nodeId);
             if (node.type !== 'image' && node.type !== 'video') {
-              results.push({ nodeId, success: false, error: `Node type "${node.type}" does not support presets` });
+              results.push({
+                nodeId,
+                success: false,
+                error: `Node type "${node.type}" does not support presets`,
+              });
               continue;
             }
 
@@ -507,19 +550,40 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
               appliedShotTemplateId: match.id,
               appliedShotTemplateName: match.name,
             });
-            const appliedCategories = Object.keys(match.tracks).filter((k) => match.tracks[k as PresetCategory]);
-            results.push({ nodeId, success: true, templateName: match.name, templateId: match.id, appliedCategories });
+            const appliedCategories = Object.keys(match.tracks).filter(
+              (k) => match.tracks[k as PresetCategory],
+            );
+            results.push({
+              nodeId,
+              success: true,
+              templateName: match.name,
+              templateId: match.id,
+              appliedCategories,
+            });
           } catch (error) {
-            results.push({ nodeId, success: false, error: error instanceof Error ? error.message : String(error) });
+            results.push({
+              nodeId,
+              success: false,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
 
         if (results.length === 1) {
           const r = results[0];
           if (!r.success) return fail(r.error!);
-          return ok({ nodeId: r.nodeId, templateId: r.templateId, templateName: r.templateName, appliedCategories: r.appliedCategories });
+          return ok({
+            nodeId: r.nodeId,
+            templateId: r.templateId,
+            templateName: r.templateName,
+            appliedCategories: r.appliedCategories,
+          });
         }
-        return ok({ updated: results.filter((r) => r.success).length, total: workItems.length, results });
+        return ok({
+          updated: results.filter((r) => r.success).length,
+          total: workItems.length,
+          results,
+        });
       } catch (error) {
         return fail(error);
       }
@@ -533,14 +597,19 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Optional search query to filter templates by name (case-insensitive).' },
+        query: {
+          type: 'string',
+          description: 'Optional search query to filter templates by name (case-insensitive).',
+        },
       },
     },
     async execute(args) {
       try {
         const templates = await deps.listShotTemplates();
         const query = typeof args.query === 'string' ? args.query.toLowerCase() : '';
-        const filtered = query ? templates.filter((t) => t.name.toLowerCase().includes(query)) : templates;
+        const filtered = query
+          ? templates.filter((t) => t.name.toLowerCase().includes(query))
+          : templates;
         return ok({
           total: filtered.length,
           templates: filtered.map((t) => ({
@@ -549,7 +618,10 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
             description: t.description,
             builtIn: t.builtIn,
             categories: Object.keys(t.tracks),
-            entryCount: Object.values(t.tracks).reduce((sum, track) => sum + (track?.entries.length ?? 0), 0),
+            entryCount: Object.values(t.tracks).reduce(
+              (sum, track) => sum + (track?.entries.length ?? 0),
+              0,
+            ),
           })),
         });
       } catch (error) {
@@ -562,14 +634,19 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
   // Helper: build tracks from entries array
   // ---------------------------------------------------------------------------
 
-  const buildTracksFromEntries = (entries: Array<{ category: string; presetId: string; intensity?: number }>) => {
+  const buildTracksFromEntries = (
+    entries: Array<{ category: string; presetId: string; intensity?: number }>,
+  ) => {
     const tracks: Partial<Record<PresetCategory, PresetTrack>> = {};
     for (const entry of entries) {
       const cat = entry.category as PresetCategory;
       if (!PRESET_CATEGORIES.includes(cat)) {
-        throw new Error(`Invalid category "${entry.category}". Valid: ${PRESET_CATEGORIES.join(', ')}`);
+        throw new Error(
+          `Invalid category "${entry.category}". Valid: ${PRESET_CATEGORIES.join(', ')}`,
+        );
       }
-      const intensity = typeof entry.intensity === 'number' ? Math.max(0, Math.min(100, entry.intensity)) : 75;
+      const intensity =
+        typeof entry.intensity === 'number' ? Math.max(0, Math.min(100, entry.intensity)) : 75;
       if (!tracks[cat]) {
         tracks[cat] = { category: cat, entries: [], intensity };
       }
@@ -591,7 +668,8 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
 
   const createShotTemplate: AgentTool = {
     name: 'shotTemplate.create',
-    description: 'Create a new custom shot template — a reusable bundle of preset entries across categories.',
+    description:
+      'Create a new custom shot template — a reusable bundle of preset entries across categories.',
     tier: 2,
     parameters: {
       type: 'object',
@@ -604,7 +682,20 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
             type: 'object',
             description: 'A preset entry in the template.',
             properties: {
-              category: { type: 'string', description: 'Preset category.', enum: ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'] },
+              category: {
+                type: 'string',
+                description: 'Preset category.',
+                enum: [
+                  'camera',
+                  'lens',
+                  'look',
+                  'scene',
+                  'composition',
+                  'emotion',
+                  'flow',
+                  'technical',
+                ],
+              },
               presetId: { type: 'string', description: 'The preset ID to include.' },
               intensity: { type: 'number', description: 'Intensity 0-100. Default 75.' },
             },
@@ -619,9 +710,15 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
       try {
         const name = requireString(args, 'name');
         const description = requireString(args, 'description');
-        const entries = args.entries as Array<{ category: string; presetId: string; intensity?: number }>;
+        const entries = args.entries as Array<{
+          category: string;
+          presetId: string;
+          intensity?: number;
+        }>;
         if (!Array.isArray(entries) || entries.length === 0) {
-          throw new Error('entries must be a non-empty array of { category, presetId, intensity? }');
+          throw new Error(
+            'entries must be a non-empty array of { category, presetId, intensity? }',
+          );
         }
 
         const tracks = buildTracksFromEntries(entries);
@@ -640,7 +737,10 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
           name: saved.name,
           description: saved.description,
           categories: Object.keys(saved.tracks),
-          entryCount: Object.values(saved.tracks).reduce((sum, track) => sum + (track?.entries.length ?? 0), 0),
+          entryCount: Object.values(saved.tracks).reduce(
+            (sum, track) => sum + (track?.entries.length ?? 0),
+            0,
+          ),
         });
       } catch (error) {
         return fail(error);
@@ -668,7 +768,20 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
             type: 'object',
             description: 'A preset entry.',
             properties: {
-              category: { type: 'string', description: 'Preset category.', enum: ['camera', 'lens', 'look', 'scene', 'composition', 'emotion', 'flow', 'technical'] },
+              category: {
+                type: 'string',
+                description: 'Preset category.',
+                enum: [
+                  'camera',
+                  'lens',
+                  'look',
+                  'scene',
+                  'composition',
+                  'emotion',
+                  'flow',
+                  'technical',
+                ],
+              },
               presetId: { type: 'string', description: 'The preset ID.' },
               intensity: { type: 'number', description: 'Intensity 0-100. Default 75.' },
             },
@@ -692,7 +805,9 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
         if (typeof args.description === 'string') updated.description = args.description;
 
         if (Array.isArray(args.entries) && args.entries.length > 0) {
-          updated.tracks = buildTracksFromEntries(args.entries as Array<{ category: string; presetId: string; intensity?: number }>);
+          updated.tracks = buildTracksFromEntries(
+            args.entries as Array<{ category: string; presetId: string; intensity?: number }>,
+          );
         }
 
         const saved = await deps.saveShotTemplate(updated);
@@ -730,9 +845,16 @@ Overwrites preset tracks defined in the template; leaves other categories unchan
   };
 
   return [
-    readNodePresetTracks, writeNodePresetTracks, writePresetTracksBatch,
-    addPresetEntry, removePresetEntry, updatePresetEntry,
+    readNodePresetTracks,
+    writeNodePresetTracks,
+    writePresetTracksBatch,
+    addPresetEntry,
+    removePresetEntry,
+    updatePresetEntry,
     applyShotTemplate,
-    listShotTemplates, createShotTemplate, updateShotTemplate, deleteShotTemplate,
+    listShotTemplates,
+    createShotTemplate,
+    updateShotTemplate,
+    deleteShotTemplate,
   ];
 }

@@ -31,9 +31,7 @@ import type {
   CommanderBlockerPayload,
   CommanderExitDecisionPayload,
 } from './ipc/channels/batch-09.js';
-import {
-  commanderChatChannel,
-} from './ipc/channels/batch-09.js';
+import { commanderChatChannel } from './ipc/channels/batch-09.js';
 
 // ── HistoryEntry drift check ──────────────────────────────────────────────────
 // Mirror of `HistoryEntry` from `packages/application/src/agent/context-manager.ts`.
@@ -82,11 +80,16 @@ declare const _exitHasOutcome: _ExitHasOutcome;
 // that is never invoked at runtime, preventing ReferenceError on `declare const`
 // variables which are type-erased during transpilation.
 function _compileTimeChecksOnly(): void {
-  const _h: true = _hc; void _h;
-  const _ik: true = _intentHasKind; void _ik;
-  const _ea: true = _evidenceHasAt; void _ea;
-  const _bk: true = _blockerHasKind; void _bk;
-  const _eo: true = _exitHasOutcome; void _eo;
+  const _h: true = _hc;
+  void _h;
+  const _ik: true = _intentHasKind;
+  void _ik;
+  const _ea: true = _evidenceHasAt;
+  void _ea;
+  const _bk: true = _blockerHasKind;
+  void _bk;
+  const _eo: true = _exitHasOutcome;
+  void _eo;
 }
 void _compileTimeChecksOnly;
 
@@ -97,4 +100,3 @@ describe('drift checks', () => {
     // shapes are assignable. Vitest runs this as a no-op runtime test.
   });
 });
-

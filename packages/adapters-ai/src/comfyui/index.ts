@@ -7,7 +7,8 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class ComfyUIAdapter implements AIProviderAdapter {
   readonly id = 'comfyui-local';
@@ -20,14 +21,18 @@ export class ComfyUIAdapter implements AIProviderAdapter {
   private clientId = `lucid-${Date.now()}`;
 
   configure(_apiKey: string, options?: Record<string, unknown>): void {
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string, { allowLocalhost: true });
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   async validate(): Promise<boolean> {
     try {
       const res = await fetchWithTimeout(`${this.baseUrl}/system_stats`, { timeoutMs: 5000 });
       return res.ok;
-    } catch { /* network error — ComfyUI server unreachable, report as invalid */
+    } catch {
+      /* network error — ComfyUI server unreachable, report as invalid */
       return false;
     }
   }

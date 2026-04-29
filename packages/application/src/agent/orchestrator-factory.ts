@@ -32,10 +32,13 @@ import { randomUUID } from 'node:crypto';
  * `CanvasStore` and the harness's in-memory seed implement this structurally.
  */
 export interface CanvasLookup {
-  get: (canvasId: string) => {
-    nodes: ReadonlyArray<{ id: string; type: string }>;
-    settings?: { stylePlate?: string | null } | null | undefined;
-  } | null | undefined;
+  get: (canvasId: string) =>
+    | {
+        nodes: ReadonlyArray<{ id: string; type: string }>;
+        settings?: { stylePlate?: string | null } | null | undefined;
+      }
+    | null
+    | undefined;
 }
 
 export type OrchestratorVariant = 'production' | 'study-harness';
@@ -84,24 +87,20 @@ export interface OrchestratorFactoryInput {
  * factory (against the tool registry) — the hook here is for anything that
  * needs a hold on the constructed `AgentOrchestrator`.
  */
-export function createAgentOrchestratorForRun(
-  input: OrchestratorFactoryInput,
-): AgentOrchestrator {
-  const profile =
-    input.options?.profile ?? input.llmAdapter.profile;
+export function createAgentOrchestratorForRun(input: OrchestratorFactoryInput): AgentOrchestrator {
+  const profile = input.options?.profile ?? input.llmAdapter.profile;
 
-  const resolveProcessPromptTyped:
-    | ((key: ProcessCategory) => string | null)
-    | undefined = input.resolveProcessPrompt
-    ? (key: ProcessCategory) => {
-        // The process-prompt store indexes by free-form string, but the
-        // orchestrator's AgentOptions slot types it as ProcessCategory for
-        // historical reasons (the widened ProcessPromptKey union lives
-        // inside the orchestrator). Cast is narrowed here.
-        const raw = input.resolveProcessPrompt!(key as unknown as string);
-        return typeof raw === 'string' ? raw : null;
-      }
-    : undefined;
+  const resolveProcessPromptTyped: ((key: ProcessCategory) => string | null) | undefined =
+    input.resolveProcessPrompt
+      ? (key: ProcessCategory) => {
+          // The process-prompt store indexes by free-form string, but the
+          // orchestrator's AgentOptions slot types it as ProcessCategory for
+          // historical reasons (the widened ProcessPromptKey union lives
+          // inside the orchestrator). Cast is narrowed here.
+          const raw = input.resolveProcessPrompt!(key as unknown as string);
+          return typeof raw === 'string' ? raw : null;
+        }
+      : undefined;
 
   const canvasStore = input.canvasStore;
   const todoStore = new TodoRunStore({

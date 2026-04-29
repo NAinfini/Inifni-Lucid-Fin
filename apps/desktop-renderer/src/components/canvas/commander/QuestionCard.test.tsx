@@ -6,11 +6,11 @@ import { QuestionCard } from './QuestionCard.js';
 
 const t = (key: string): string =>
   (
-    {
+    ({
       'commander.question.title': 'Question Tool:',
       'commander.question.otherAnswer': 'Other answer...',
       'commander.question.submit': 'Submit',
-    } as Record<string, string>
+    }) as Record<string, string>
   )[key] ?? key;
 
 afterEach(() => {
@@ -37,11 +37,7 @@ describe('QuestionCard', () => {
     render(
       <QuestionCard
         question="Long question"
-        options={[
-          { label: '   ' },
-          { label: 'Yes' },
-          { label: '' },
-        ]}
+        options={[{ label: '   ' }, { label: 'Yes' }, { label: '' }]}
         onAnswer={() => {}}
         t={t}
       />,
@@ -57,10 +53,7 @@ describe('QuestionCard', () => {
     render(
       <QuestionCard
         question="Choose"
-        options={[
-          { label: 'Yes' },
-          { label: 'Yes' },
-        ]}
+        options={[{ label: 'Yes' }, { label: 'Yes' }]}
         onAnswer={() => {}}
         t={t}
       />,

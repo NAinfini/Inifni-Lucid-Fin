@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeContextUsage } from './context-usage.js';
-import type {
-  CommanderBackendContextUsage,
-  CommanderMessage,
-  CommanderToolCall,
-} from './types.js';
+import type { CommanderBackendContextUsage, CommanderMessage, CommanderToolCall } from './types.js';
 
 const userMsg = (content: string): CommanderMessage => ({
   id: 'u',

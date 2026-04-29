@@ -12,8 +12,9 @@ import {
   JobStatus,
   resolvePrimaryVideoConditioningImage,
 } from '@lucid-fin/contracts';
-import { fetchWithTimeout } from '../fetch-utils.js';
+import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { toKlingRequest, parseKlingResponse } from './mapper.js';
+import { validateProviderUrl } from '../url-policy.js';
 
 export class KlingAdapter implements AIProviderAdapter {
   readonly id = 'kling-v1';
@@ -30,19 +31,39 @@ export class KlingAdapter implements AIProviderAdapter {
     const [ak, sk] = apiKey.split(':');
     this.accessKeyId = ak ?? apiKey;
     this.secretKey = sk ?? '';
-    if (options?.baseUrl) this.baseUrl = options.baseUrl as string;
+    if (options?.baseUrl) {
+      validateProviderUrl(options.baseUrl as string);
+      this.baseUrl = options.baseUrl as string;
+    }
   }
 
   private async authHeader(): Promise<string> {
     if (!this.secretKey) return `Bearer ${this.accessKeyId}`;
     const encoder = new TextEncoder();
     const now = Math.floor(Date.now() / 1000);
-    const headerB64 = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
-    const payloadB64 = btoa(JSON.stringify({ iss: this.accessKeyId, exp: now + 1800, nbf: now - 5 })).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const headerB64 = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
+      .replace(/=+$/, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
+    const payloadB64 = btoa(
+      JSON.stringify({ iss: this.accessKeyId, exp: now + 1800, nbf: now - 5 }),
+    )
+      .replace(/=+$/, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
     const sigInput = `${headerB64}.${payloadB64}`;
-    const key = await crypto.subtle.importKey('raw', encoder.encode(this.secretKey), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(this.secretKey),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
     const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(sigInput));
-    const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
+      .replace(/=+$/, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_');
     return `Bearer ${sigInput}.${sigB64}`;
   }
 
@@ -53,7 +74,8 @@ export class KlingAdapter implements AIProviderAdapter {
         headers: { Authorization: await this.authHeader() },
       });
       return res.ok || res.status === 405;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }
@@ -103,7 +125,10 @@ export class KlingAdapter implements AIProviderAdapter {
       headers: { Authorization: auth },
     });
     if (!res.ok)
-      throw new LucidError(ErrorCode.ServiceUnavailable, `Kling status check failed: ${res.status}`);
+      throw new LucidError(
+        ErrorCode.ServiceUnavailable,
+        `Kling status check failed: ${res.status}`,
+      );
 
     const data = (await res.json()) as Record<string, unknown>;
     const parsed = parseKlingResponse(data);

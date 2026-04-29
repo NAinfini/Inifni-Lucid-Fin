@@ -70,9 +70,9 @@ function normalizeMetadata(
   const supportsReferenceImageByCapability =
     capabilities.includes('image-to-image') || capabilities.includes('image-to-video');
   const supportsReferenceImage =
-    provider.supportsReferenceImage
-    ?? defaults.supportsReferenceImage
-    ?? supportsReferenceImageByCapability;
+    provider.supportsReferenceImage ??
+    defaults.supportsReferenceImage ??
+    supportsReferenceImageByCapability;
 
   return {
     kind: provider.kind,
@@ -90,9 +90,7 @@ function normalizeMetadata(
   };
 }
 
-function createLLMProvider(
-  provider: ProviderDraft,
-): BuiltinProviderConfig {
+function createLLMProvider(provider: ProviderDraft): BuiltinProviderConfig {
   const runtime = normalizeLLMProviderRuntimeConfig({
     id: provider.id,
     name: provider.name,
@@ -283,7 +281,8 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       authStyle: 'bearer',
       contextWindow: 131_072,
       kind: 'official',
-      docsUrl: 'https://help.aliyun.com/zh/model-studio/developer-reference/use-qwen-by-calling-api',
+      docsUrl:
+        'https://help.aliyun.com/zh/model-studio/developer-reference/use-qwen-by-calling-api',
       keyUrl: 'https://bailian.console.aliyun.com/',
     }),
     createLLMProvider({

@@ -77,7 +77,9 @@ function createDragEvent({
 
 describe('createNodePayloadFromAsset', () => {
   it('creates correct node payloads for each supported asset type', () => {
-    expect(createNodePayloadFromAsset({ hash: 'image-hash', name: 'Image', type: 'image' })).toEqual(
+    expect(
+      createNodePayloadFromAsset({ hash: 'image-hash', name: 'Image', type: 'image' }),
+    ).toEqual(
       expect.objectContaining({
         type: 'image',
         title: 'Image',
@@ -89,14 +91,18 @@ describe('createNodePayloadFromAsset', () => {
       }),
     );
 
-    expect(createNodePayloadFromAsset({ hash: 'video-hash', name: 'Video', type: 'video' })).toEqual(
+    expect(
+      createNodePayloadFromAsset({ hash: 'video-hash', name: 'Video', type: 'video' }),
+    ).toEqual(
       expect.objectContaining({
         type: 'video',
         title: 'Video',
       }),
     );
 
-    expect(createNodePayloadFromAsset({ hash: 'audio-hash', name: 'Audio', type: 'audio' })).toEqual(
+    expect(
+      createNodePayloadFromAsset({ hash: 'audio-hash', name: 'Audio', type: 'audio' }),
+    ).toEqual(
       expect.objectContaining({
         type: 'audio',
         title: 'Audio',
@@ -120,11 +126,7 @@ describe('useCanvasDragDrop', () => {
 
   it('accepts supported drag types and sets copy drop effect', () => {
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(
-      () =>
-        useCanvasDragDrop({ current: null }),
-      { wrapper: Wrapper },
-    );
+    const { result } = renderHook(() => useCanvasDragDrop({ current: null }), { wrapper: Wrapper });
 
     const event = createDragEvent({ types: ['Files'] });
     result.current.handleDragOver(event as never);
@@ -172,9 +174,7 @@ describe('useCanvasDragDrop', () => {
     const { store, Wrapper } = createWrapper();
     const { result } = renderHook(
       () =>
-        useCanvasDragDrop(
-          createReactFlowRef(({ x, y }: { x: number; y: number }) => ({ x, y })),
-        ),
+        useCanvasDragDrop(createReactFlowRef(({ x, y }: { x: number; y: number }) => ({ x, y }))),
       { wrapper: Wrapper },
     );
 
@@ -207,9 +207,7 @@ describe('useCanvasDragDrop', () => {
     const { store, Wrapper } = createWrapper();
     const { result } = renderHook(
       () =>
-        useCanvasDragDrop(
-          createReactFlowRef(({ x, y }: { x: number; y: number }) => ({ x, y })),
-        ),
+        useCanvasDragDrop(createReactFlowRef(({ x, y }: { x: number; y: number }) => ({ x, y }))),
       { wrapper: Wrapper },
     );
 

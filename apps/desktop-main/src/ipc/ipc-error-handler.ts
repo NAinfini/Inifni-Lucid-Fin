@@ -61,10 +61,7 @@ type IpcHandler = (event: IpcMainInvokeEvent, ...args: any[]) => any;
  * Or use the convenience helper:
  *   safeHandle(ipcMain, 'channel', async (event, args) => { ... });
  */
-export function withIpcHandler(
-  channel: string,
-  handler: IpcHandler,
-): IpcHandler {
+export function withIpcHandler(channel: string, handler: IpcHandler): IpcHandler {
   return async (event, ...args) => {
     try {
       return await handler(event, ...args);
@@ -89,10 +86,6 @@ export function withIpcHandler(
  * With:
  *   safeHandle(ipcMain, 'channel', async (_e, args) => { ... });
  */
-export function safeHandle(
-  ipcMain: IpcMain,
-  channel: string,
-  handler: IpcHandler,
-): void {
+export function safeHandle(ipcMain: IpcMain, channel: string, handler: IpcHandler): void {
   ipcMain.handle(channel, withIpcHandler(channel, handler));
 }

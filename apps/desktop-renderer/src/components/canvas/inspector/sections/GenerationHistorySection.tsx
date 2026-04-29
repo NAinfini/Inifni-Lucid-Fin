@@ -46,9 +46,7 @@ export function GenerationHistorySection({ node, t }: InspectorSectionProps) {
                 className="rounded-md border border-border/40 bg-muted/20 px-2 py-1 text-[10px]"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium text-foreground truncate">
-                    {entry.providerId}
-                  </span>
+                  <span className="font-medium text-foreground truncate">{entry.providerId}</span>
                   <span className="text-muted-foreground">
                     {new Date(entry.createdAt).toLocaleTimeString(getLocale())}
                   </span>
@@ -59,7 +57,11 @@ export function GenerationHistorySection({ node, t }: InspectorSectionProps) {
                 </div>
                 {entry.cost != null && (
                   <span className="text-muted-foreground">
-                    {new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 3 }).format(entry.cost)}
+                    {new Intl.NumberFormat(getLocale(), {
+                      style: 'currency',
+                      currency: 'USD',
+                      minimumFractionDigits: 3,
+                    }).format(entry.cost)}
                   </span>
                 )}
               </div>

@@ -8,11 +8,7 @@ export interface RenderToolDeps {
     outputPath?: string,
   ) => Promise<{ renderId: string }>;
   cancelRender: (canvasId: string) => Promise<void>;
-  exportBundle: (
-    canvasId: string,
-    format: string,
-    outputPath: string,
-  ) => Promise<{ path: string }>;
+  exportBundle: (canvasId: string, format: string, outputPath: string) => Promise<{ path: string }>;
 }
 
 export function createRenderTools(deps: RenderToolDeps): AgentTool[] {

@@ -18,7 +18,7 @@ export function registerSeriesHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
       id: parseSeriesId(data.id),
       title: (data.title as string) ?? '',
       description: (data.description as string) ?? '',
-      styleGuide: (data.styleGuide as StyleGuide) ?? {} as StyleGuide,
+      styleGuide: (data.styleGuide as StyleGuide) ?? ({} as StyleGuide),
       episodeIds: Array.isArray(data.episodeIds) ? (data.episodeIds as string[]) : [],
       createdAt: (data.createdAt as number) ?? now,
       updatedAt: now,
@@ -62,16 +62,26 @@ export function registerSeriesHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
     log.info('Episode removed:', args.id);
   });
 
-  safeHandle(ipcMain, 'series:episodes:reorder', async (_e, args: { seriesId: string; ids: string[] }) => {
-    if (!args || typeof args.seriesId !== 'string') throw new Error('seriesId is required');
-    if (!Array.isArray(args.ids)) throw new Error('ids array is required');
-    const seriesId = parseSeriesId(args.seriesId);
-    const episodes = db.repos.series.listEpisodes(seriesId).rows;
-    for (let i = 0; i < args.ids.length; i++) {
-      const ep = episodes.find((e) => e.id === args.ids[i]);
-      if (ep) {
-        db.repos.series.upsertEpisode({ ...ep, id: parseEpisodeId(ep.id), seriesId, order: i, updatedAt: Date.now() });
+  safeHandle(
+    ipcMain,
+    'series:episodes:reorder',
+    async (_e, args: { seriesId: string; ids: string[] }) => {
+      if (!args || typeof args.seriesId !== 'string') throw new Error('seriesId is required');
+      if (!Array.isArray(args.ids)) throw new Error('ids array is required');
+      const seriesId = parseSeriesId(args.seriesId);
+      const episodes = db.repos.series.listEpisodes(seriesId).rows;
+      for (let i = 0; i < args.ids.length; i++) {
+        const ep = episodes.find((e) => e.id === args.ids[i]);
+        if (ep) {
+          db.repos.series.upsertEpisode({
+            ...ep,
+            id: parseEpisodeId(ep.id),
+            seriesId,
+            order: i,
+            updatedAt: Date.now(),
+          });
+        }
       }
-    }
-  });
+    },
+  );
 }

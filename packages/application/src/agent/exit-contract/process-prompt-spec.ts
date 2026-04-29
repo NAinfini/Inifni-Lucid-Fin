@@ -29,10 +29,12 @@ export interface ActivationContext {
     arguments: Record<string, unknown>;
   }>;
   /** Partial snapshot of canvas.settings that spec predicates consult. */
-  canvasSettings: {
-    stylePlate?: string | null;
-    [k: string]: unknown;
-  } | undefined;
+  canvasSettings:
+    | {
+        stylePlate?: string | null;
+        [k: string]: unknown;
+      }
+    | undefined;
   ledger: ReadonlyCompletionEvidenceList;
   /**
    * Step number (0-based) at which this evaluation is happening. Engines

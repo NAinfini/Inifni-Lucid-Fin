@@ -52,7 +52,9 @@ export function useCanvasKeyboard({
     const isEditableTarget = (target: EventTarget | null) => {
       const element = target as HTMLElement | null;
       if (!element) return false;
-      return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
+      return (
+        element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable
+      );
     };
 
     const handleCopy = async () => {
@@ -96,8 +98,8 @@ export function useCanvasKeyboard({
             if (dx === 0 && dy === 0) return;
             if (!canvas) return;
             const moves = selectedNodeIds
-              .map(id => {
-                const node = canvas.nodes.find(n => n.id === id);
+              .map((id) => {
+                const node = canvas.nodes.find((n) => n.id === id);
                 if (!node || node.locked) return null;
                 return { id, position: { x: node.position.x + dx, y: node.position.y + dy } };
               })
@@ -173,7 +175,8 @@ export function useCanvasKeyboard({
         case 'z':
           if (editable) return;
           event.preventDefault();
-          if (event.shiftKey) handleRedo(); else handleUndo();
+          if (event.shiftKey) handleRedo();
+          else handleUndo();
           return;
         case 'y':
           if (editable) return;
@@ -187,5 +190,17 @@ export function useCanvasKeyboard({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canvas, dispatch, handleNodeGenerate, handlePaste, handleUndo, handleRedo, selectedEdgeIds, selectedNodeIds, setConnectingFromNodeId, setDepHighlightLocked, buildClipboardPayload]);
+  }, [
+    canvas,
+    dispatch,
+    handleNodeGenerate,
+    handlePaste,
+    handleUndo,
+    handleRedo,
+    selectedEdgeIds,
+    selectedNodeIds,
+    setConnectingFromNodeId,
+    setDepHighlightLocked,
+    buildClipboardPayload,
+  ]);
 }

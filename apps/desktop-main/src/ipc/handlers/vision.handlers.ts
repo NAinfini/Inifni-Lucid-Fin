@@ -112,16 +112,14 @@ export async function describeImageAsset(
   const base64Data = imageBuffer.toString('base64');
   const mimeType = MIME_MAP[resolved.ext] ?? 'image/jpeg';
 
-  const result = await adapter.complete(
-    [
-      { role: 'system', content: systemPrompt },
-      {
-        role: 'user',
-        content: 'Describe this image.',
-        images: [{ data: base64Data, mimeType }],
-      },
-    ],
-  );
+  const result = await adapter.complete([
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: 'Describe this image.',
+      images: [{ data: base64Data, mimeType }],
+    },
+  ]);
 
   return result;
 }

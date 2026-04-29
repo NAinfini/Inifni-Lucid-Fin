@@ -7,6 +7,7 @@ import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import { assertWithinRoot } from '../validation.js';
+import { assertSafePath, getSafeRoots, assertSqliteHeader } from '../path-safety.js';
 
 const APP_ROOT = path.join(os.homedir(), '.lucid-fin');
 
@@ -74,7 +75,8 @@ export function registerStorageHandlers(
     const userDataLogs = (() => {
       try {
         return path.join(app.getPath('userData'), 'logs');
-      } catch { /* app.getPath failed in test/dev environment — fall back to local logs path */
+      } catch {
+        /* app.getPath failed in test/dev environment — fall back to local logs path */
         return logsPath;
       }
     })();
@@ -126,18 +128,20 @@ export function registerStorageHandlers(
     try {
       await fsp.access(args.path);
       shell.showItemInFolder(args.path);
-    } catch { /* path does not exist — nothing to show */ }
+    } catch {
+      /* path does not exist — nothing to show */
+    }
   });
 
   // --- Clear logs ---
   ipcMain.handle('storage:clearLogs', async () => {
     let cleared = 0;
-    const logDirs = [
-      path.join(APP_ROOT, 'logs'),
-    ];
+    const logDirs = [path.join(APP_ROOT, 'logs')];
     try {
       logDirs.push(path.join(app.getPath('userData'), 'logs'));
-    } catch { /* no-op */ }
+    } catch {
+      /* no-op */
+    }
 
     for (const logDir of logDirs) {
       let entries: string[];
@@ -184,7 +188,7 @@ export function registerStorageHandlers(
   // --- Database backup ---
   ipcMain.handle('storage:backupDatabase', async (_event, args: { destPath: string }) => {
     const dbPath = path.join(APP_ROOT, 'lucid-fin.db');
-    const resolvedDest = path.resolve(args.destPath);
+    const resolvedDest = assertSafePath(args.destPath, getSafeRoots());
     if (!resolvedDest || resolvedDest === dbPath) {
       return { success: false, error: 'Invalid destination path' };
     }
@@ -195,7 +199,9 @@ export function registerStorageHandlers(
         await fsp.access(promptsDb);
         const promptsDest = resolvedDest.replace(/\.db$/, '-prompts.db');
         await fsp.copyFile(promptsDb, promptsDest);
-      } catch { /* prompts.db does not exist — skip */ }
+      } catch {
+        /* prompts.db does not exist — skip */
+      }
       return { success: true };
     } catch (err) {
       log.warn('[storage] backup failed', { error: String(err) });
@@ -206,14 +212,24 @@ export function registerStorageHandlers(
   // --- Database restore ---
   ipcMain.handle('storage:restoreDatabase', async (_event, args: { sourcePath: string }) => {
     const dbPath = path.join(APP_ROOT, 'lucid-fin.db');
-    const resolvedSource = path.resolve(args.sourcePath);
+    const resolvedSource = assertSafePath(args.sourcePath, getSafeRoots());
     let sourceExists = false;
     try {
       await fsp.access(resolvedSource);
       sourceExists = true;
-    } catch { /* not accessible */ }
+    } catch {
+      /* not accessible */
+    }
     if (!resolvedSource || !sourceExists) {
       return { success: false, error: 'Source file not found' };
+    }
+    try {
+      await assertSqliteHeader(resolvedSource);
+    } catch (err) {
+      return {
+        success: false,
+        error: `Invalid database file: ${String(err instanceof Error ? err.message : err)}`,
+      };
     }
     try {
       const backupPath = dbPath + '.pre-restore-backup';
@@ -229,7 +245,7 @@ export function registerStorageHandlers(
   // --- File/folder pickers ---
   ipcMain.handle('storage:pickFolder', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-    return result.canceled ? null : result.filePaths[0] ?? null;
+    return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
   ipcMain.handle('storage:pickSaveFile', async (_event, args: { defaultName: string }) => {
@@ -237,7 +253,7 @@ export function registerStorageHandlers(
       defaultPath: args.defaultName,
       filters: [{ name: 'Database', extensions: ['db'] }],
     });
-    return result.canceled ? null : result.filePath ?? null;
+    return result.canceled ? null : (result.filePath ?? null);
   });
 
   ipcMain.handle('storage:pickOpenFile', async (_event, args: { extensions: string[] }) => {
@@ -245,6 +261,6 @@ export function registerStorageHandlers(
       filters: [{ name: 'Database', extensions: args.extensions }],
       properties: ['openFile'],
     });
-    return result.canceled ? null : result.filePaths[0] ?? null;
+    return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 }

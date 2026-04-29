@@ -38,7 +38,10 @@ import { buildCodexAdapter } from './llm-factory.js';
 
 // The desktop-main handler lives behind the electron shim; imported here
 // AFTER the shim has been registered at the run-all entrypoint.
-import { registerAllTools, mergePromptGuidesWithBuiltIns } from '../../../apps/desktop-main/src/ipc/handlers/commander-tool-deps.js';
+import {
+  registerAllTools,
+  mergePromptGuidesWithBuiltIns,
+} from '../../../apps/desktop-main/src/ipc/handlers/commander-tool-deps.js';
 import { buildContext } from '../../../apps/desktop-main/src/ipc/handlers/commander.handlers.js';
 
 export interface SessionResult {
@@ -77,15 +80,13 @@ export interface SessionResult {
   /** Phase D: full typed evidence ledger for post-hoc study analysis. */
   evidenceLedger: Array<{ kind: string; at: number; [k: string]: unknown }>;
   /** Phase D: last `exit_decision` emitted before the run terminated, or null. */
-  exitDecision:
-    | {
-        outcome: string;
-        contractId?: string;
-        reason?: string;
-        blocker?: unknown;
-        [k: string]: unknown;
-      }
-    | null;
+  exitDecision: {
+    outcome: string;
+    contractId?: string;
+    reason?: string;
+    blocker?: unknown;
+    [k: string]: unknown;
+  } | null;
   /**
    * Phase E: product-satisfaction signal. `true` when `exitDecision.outcome`
    * is `'satisfied'` or `'informational_answered'`. Drives the 70% headline
@@ -128,7 +129,10 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   } = options;
 
   fs.mkdirSync(outDir, { recursive: true });
-  const logFile = path.join(outDir, `${String(persona.index).padStart(2, '0')}-${persona.slug}.ndjson`);
+  const logFile = path.join(
+    outDir,
+    `${String(persona.index).padStart(2, '0')}-${persona.slug}.ndjson`,
+  );
   const logStream = fs.createWriteStream(logFile, { flags: 'w' });
   const logEvent = (rec: Record<string, unknown>) => {
     logStream.write(JSON.stringify({ t: Date.now(), ...rec }) + '\n');
@@ -187,7 +191,14 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     processKey: r.processKey,
     name: r.name,
   }));
-  const context: AgentContext = buildContext(canvas, [], [], env.db, promptGuides, processPromptKeys);
+  const context: AgentContext = buildContext(
+    canvas,
+    [],
+    [],
+    env.db,
+    promptGuides,
+    processPromptKeys,
+  );
 
   // Orchestrator — factory is the only supported construction path (Phase D).
   // Wiring `canvasStore` here is what the pre-Phase-D harness was missing,
@@ -201,8 +212,7 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     toolRegistry: registry,
     resolvePrompt: (code: string) => env.promptStore.resolve(code),
     canvasStore: env.canvasStore,
-    resolveProcessPrompt: (processKey) =>
-      env.processPromptStore.getEffectiveValue(processKey),
+    resolveProcessPrompt: (processKey) => env.processPromptStore.getEffectiveValue(processKey),
     options: {
       maxSteps,
       profile,
@@ -267,14 +277,16 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
       if (canonical === 'guide.get') {
         const args = (anyEvent.arguments ?? anyEvent.args) as Record<string, unknown> | undefined;
         const ids = args?.ids;
-        if (Array.isArray(ids)) for (const id of ids) if (typeof id === 'string') guideGetIds.push(id);
+        if (Array.isArray(ids))
+          for (const id of ids) if (typeof id === 'string') guideGetIds.push(id);
       }
     }
 
     if (kind === 'tool_result') {
       const toolCallId = anyEvent.toolCallId as string | undefined;
       const canonical = toolCallId
-        ? toolNameById.get(toolCallId) ?? normalizeToolName(anyEvent.toolName as string | undefined)
+        ? (toolNameById.get(toolCallId) ??
+          normalizeToolName(anyEvent.toolName as string | undefined))
         : normalizeToolName(anyEvent.toolName as string | undefined);
       const result = anyEvent.result as { success?: boolean; error?: string } | undefined;
       if (canonical) {
@@ -367,15 +379,15 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   const finalCanvas = env.canvasStore.get(canvasId);
   const finalNodeCount = finalCanvas?.nodes.length ?? 0;
   const finalEdgeCount = finalCanvas?.edges.length ?? 0;
-  const stylePlateLocked = typeof finalCanvas?.settings?.stylePlate === 'string' && finalCanvas.settings.stylePlate.trim().length > 0;
+  const stylePlateLocked =
+    typeof finalCanvas?.settings?.stylePlate === 'string' &&
+    finalCanvas.settings.stylePlate.trim().length > 0;
 
   await env.close();
   logStream.end();
 
-  const exitOutcome =
-    typeof exitDecision?.outcome === 'string' ? exitDecision.outcome : null;
-  const contractSatisfied =
-    exitOutcome === 'satisfied' || exitOutcome === 'informational_answered';
+  const exitOutcome = typeof exitDecision?.outcome === 'string' ? exitDecision.outcome : null;
+  const contractSatisfied = exitOutcome === 'satisfied' || exitOutcome === 'informational_answered';
   const blockerRaw = exitDecision?.blocker;
   const blocker =
     blockerRaw && typeof blockerRaw === 'object' && 'kind' in blockerRaw

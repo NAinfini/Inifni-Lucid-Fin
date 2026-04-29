@@ -106,7 +106,9 @@ function ProviderCard({
   // --- Draft state (local, not Redux) ---
   const [draftBaseUrl, setDraftBaseUrl] = useState(provider.baseUrl);
   const [draftModel, setDraftModel] = useState(provider.model);
-  const [draftProtocol, setDraftProtocol] = useState<LLMProviderProtocol | undefined>(provider.protocol);
+  const [draftProtocol, setDraftProtocol] = useState<LLMProviderProtocol | undefined>(
+    provider.protocol,
+  );
   const [draftName, setDraftName] = useState(provider.name);
   const [draftKey, setDraftKey] = useState('');
   const [loadedKey, setLoadedKey] = useState('');
@@ -135,17 +137,17 @@ function ProviderCard({
 
   // "Customized" badge: compare committed Redux state against registry defaults
   const isCustomized = Boolean(
-    providerDefaults
-    && (
-      provider.baseUrl !== providerDefaults.baseUrl
-      || provider.model !== providerDefaults.model
-      || provider.protocol !== providerDefaults.protocol
-      || provider.authStyle !== providerDefaults.authStyle
-    ),
+    providerDefaults &&
+    (provider.baseUrl !== providerDefaults.baseUrl ||
+      provider.model !== providerDefaults.model ||
+      provider.protocol !== providerDefaults.protocol ||
+      provider.authStyle !== providerDefaults.authStyle),
   );
 
   const displayName = provider.isCustom
-    ? (expanded ? draftName : provider.name)
+    ? expanded
+      ? draftName
+      : provider.name
     : translateOrFallback(`providerNames.${provider.id}`, provider.name);
   const KEY_LOAD_RETRY_DELAY_MS = 150;
   const MAX_KEY_LOAD_ATTEMPTS = 3;
@@ -155,19 +157,22 @@ function ProviderCard({
   }
 
   function getErrorDetail(error: unknown): string {
-    return error instanceof Error ? error.stack ?? error.message : String(error);
+    return error instanceof Error ? (error.stack ?? error.message) : String(error);
   }
 
-  const logProviderFailure = useCallback((message: string, error: unknown) => {
-    dispatch(
-      addLog({
-        level: 'error',
-        category: 'provider',
-        message,
-        detail: `${group}:${provider.id}\n${getErrorDetail(error)}`,
-      }),
-    );
-  }, [dispatch, group, provider.id]);
+  const logProviderFailure = useCallback(
+    (message: string, error: unknown) => {
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'provider',
+          message,
+          detail: `${group}:${provider.id}\n${getErrorDetail(error)}`,
+        }),
+      );
+    },
+    [dispatch, group, provider.id],
+  );
 
   useEffect(
     () => () => {
@@ -194,7 +199,8 @@ function ProviderCard({
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const loadKey = (attempt: number) => {
-      void api.keychain.get(provider.id)
+      void api.keychain
+        .get(provider.id)
         .then((storedKey) => {
           if (cancelled || !mountedRef.current) return;
           const value = storedKey ?? '';
@@ -349,9 +355,10 @@ function ProviderCard({
           level: 'error',
           category: 'provider',
           message: t('settings.providerCard.log.connectionFailed'),
-          detail: error instanceof Error
-            ? `${group}:${provider.id}\n${error.stack ?? error.message}`
-            : `${group}:${provider.id}\n${String(error)}`,
+          detail:
+            error instanceof Error
+              ? `${group}:${provider.id}\n${error.stack ?? error.message}`
+              : `${group}:${provider.id}\n${String(error)}`,
         }),
       );
       setTestResult('fail');
@@ -381,7 +388,9 @@ function ProviderCard({
               <span className="text-xs font-medium">{displayName}</span>
             )}
           </div>
-          <div className="truncate text-[10px] text-muted-foreground">{expanded ? draftBaseUrl : provider.baseUrl}</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {expanded ? draftBaseUrl : provider.baseUrl}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -399,7 +408,9 @@ function ProviderCard({
               <Check className="h-3 w-3" /> {t('settings.providerCard.keySet')}
             </span>
           ) : (
-            <span className="text-xs text-muted-foreground">{t('settings.providerCard.noKey')}</span>
+            <span className="text-xs text-muted-foreground">
+              {t('settings.providerCard.noKey')}
+            </span>
           )}
           <button
             type="button"
@@ -411,16 +422,21 @@ function ProviderCard({
               if (willExpand && !keyLoaded) {
                 const api = getAPI();
                 if (api) {
-                  void api.keychain.get(provider.id).then((storedKey) => {
-                    if (!mountedRef.current) return;
-                    const value = storedKey ?? '';
-                    setDraftKey(value);
-                    setLoadedKey(value);
-                    setKeyLoaded(true);
-                    if (storedKey && !provider.hasKey) {
-                      dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
-                    }
-                  }).catch(() => { /* keychain read failure — user can retry */ });
+                  void api.keychain
+                    .get(provider.id)
+                    .then((storedKey) => {
+                      if (!mountedRef.current) return;
+                      const value = storedKey ?? '';
+                      setDraftKey(value);
+                      setLoadedKey(value);
+                      setKeyLoaded(true);
+                      if (storedKey && !provider.hasKey) {
+                        dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: true }));
+                      }
+                    })
+                    .catch(() => {
+                      /* keychain read failure — user can retry */
+                    });
                 }
               }
             }}
@@ -571,7 +587,9 @@ function ProviderCard({
               disabled={saving || !isDirty}
               className={cn(
                 'rounded px-2 py-1 text-xs transition-colors disabled:opacity-50',
-                saved && !isDirty ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground',
+                saved && !isDirty
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-primary text-primary-foreground',
               )}
             >
               {saving
@@ -593,9 +611,7 @@ function ProviderCard({
             {isBuiltinProvider && isCustomized ? (
               <button
                 type="button"
-                onClick={() =>
-                  dispatch(resetProviderToDefaults({ group, provider: provider.id }))
-                }
+                onClick={() => dispatch(resetProviderToDefaults({ group, provider: provider.id }))}
                 className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted"
               >
                 {t('settings.providerCard.resetToDefaults')}
@@ -703,19 +719,22 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
     // Wait for IPC handlers to be registered before calling keychain
     const unsub = api.onReady(() => {
       for (const id of providerIds) {
-        void api.keychain.isConfigured(id).then((configured) => {
-          if (mounted) dispatch(setProviderHasKey({ group, provider: id, hasKey: configured }));
-        }).catch((error: unknown) => {
-          if (!mounted) return;
-          dispatch(
-            addLog({
-              level: 'error',
-              category: 'provider',
-              message: `Failed to check keychain for provider ${id}`,
-              detail: error instanceof Error ? error.stack ?? error.message : String(error),
-            }),
-          );
-        });
+        void api.keychain
+          .isConfigured(id)
+          .then((configured) => {
+            if (mounted) dispatch(setProviderHasKey({ group, provider: id, hasKey: configured }));
+          })
+          .catch((error: unknown) => {
+            if (!mounted) return;
+            dispatch(
+              addLog({
+                level: 'error',
+                category: 'provider',
+                message: `Failed to check keychain for provider ${id}`,
+                detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
+              }),
+            );
+          });
       }
     });
 

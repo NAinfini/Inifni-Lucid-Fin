@@ -64,7 +64,11 @@ describe('computeInverseAction', () => {
     const prevState = createCanvasState();
 
     expect(
-      computeInverseAction('canvas/addNode', { type: 'canvas/addNode', payload: { id: 'node-3' } }, prevState),
+      computeInverseAction(
+        'canvas/addNode',
+        { type: 'canvas/addNode', payload: { id: 'node-3' } },
+        prevState,
+      ),
     ).toEqual({
       type: 'canvas/removeNodes',
       payload: ['node-3'],
@@ -155,14 +159,20 @@ describe('computeInverseAction', () => {
       computeInverseAction('characters/unknownOp', { type: 'characters/unknownOp' }, {}),
     ).toBeNull();
     expect(
-      computeInverseAction('canvas/moveNode', { type: 'canvas/moveNode', payload: { id: 'missing' } }, {}),
+      computeInverseAction(
+        'canvas/moveNode',
+        { type: 'canvas/moveNode', payload: { id: 'missing' } },
+        {},
+      ),
     ).toBeNull();
   });
 });
 
 describe('estimateActionBytes', () => {
   it('measures JSON-serializable actions and falls back for cyclic data', () => {
-    expect(estimateActionBytes({ type: 'canvas/removeNodes', payload: ['node-1'] })).toBeGreaterThan(0);
+    expect(
+      estimateActionBytes({ type: 'canvas/removeNodes', payload: ['node-1'] }),
+    ).toBeGreaterThan(0);
 
     const cyclic = { type: 'cyclic' } as { type: string; self?: unknown };
     cyclic.self = cyclic;

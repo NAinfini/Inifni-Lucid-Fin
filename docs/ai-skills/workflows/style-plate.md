@@ -1,14 +1,17 @@
 # Style Plate Workflow (Commander)
 
 ## Purpose
+
 Locks the visual style of a canvas BEFORE any reference-image generation runs. A canvas-scoped style plate is a free-form style-description string that every downstream ref image re-references. Without it, two characters in the same story render in different art styles.
 
 ## When Commander must run this
+
 - First ref-image request for a canvas, if `canvas.getSettings` returns no `stylePlate`.
 - User says "switch the whole project to <style>" — rewrite the stylePlate, warn existing ref images now mismatch.
 - User explicitly asks to lock or change the visual style.
 
 ## Preconditions
+
 1. `canvas.getSettings(canvasId)` returned settings.
 2. Either:
    - `stylePlate` already set (non-empty string) → skip; report that the style is locked and proceed.
@@ -25,7 +28,7 @@ Locks the visual style of a canvas BEFORE any reference-image generation runs. A
    - Texture / material cue ("soft watercolor paper", "subsurface-scattered skin").
    - Lighting vocabulary ("flat even studio light, no harsh rim").
    - Era/cultural cue if named ("1990s Studio Ghibli", "Cartoon Saloon Irish indie", "Makoto Shinkai").
-   Do NOT include: character names, scene description, action, prop list. The plate is style only.
+     Do NOT include: character names, scene description, action, prop list. The plate is style only.
 3. **Present for confirmation.** Show the user the proposed string. Let them tweak.
 4. **Lock:** `canvas.setSettings({ canvasId, settings: { stylePlate: '<final string>' } })`.
 5. **Verify:** re-call `canvas.getSettings` and confirm `stylePlate` is the composed string.
@@ -38,13 +41,16 @@ Locks the visual style of a canvas BEFORE any reference-image generation runs. A
 - **`canvas.setSettings` fails** → surface the error. Do NOT silently continue to ref-image generation.
 
 ## Verification
+
 - After `canvas.setSettings`, re-call `canvas.getSettings` and confirm the string landed exactly.
 - Next `character.generateRefImage` / `equipment.generateRefImage` / `location.generateRefImage` call automatically prepends the plate via `buildPrompt(entity, view, stylePlate)` — no extra wiring needed.
 
 ## Word budget
+
 Keep user-facing explanation under 60 words per turn. Lock is 2–3 turns, not a lecture.
 
 ## Related
+
 - Process prompt: `style-plate-lock` (auto-injected as a session-start process prompt when canvas ref images exist with no plate).
 - Canvas settings surface: `canvas.getSettings` / `canvas.setSettings`.
 - See also: `workflow-story-to-video` (full pipeline), `style-transfer` (cross-shot style template), `style-aesthetics` (prompt vocabulary guide).

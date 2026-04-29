@@ -64,10 +64,7 @@ describe('style handlers', () => {
       sceneOverrides: {},
     };
     await handlers.get('style:save')!(null, guide);
-    expect(mockDb.repos.projectSettings.setJson).toHaveBeenCalledWith(
-      'styleGuide',
-      guide,
-    );
+    expect(mockDb.repos.projectSettings.setJson).toHaveBeenCalledWith('styleGuide', guide);
   });
 
   it('style:save then style:load round-trips the guide', async () => {
@@ -88,9 +85,9 @@ describe('style handlers', () => {
   });
 
   it('style:save throws on invalid payload', async () => {
-    await expect(
-      handlers.get('style:save')!(null, { invalid: true }),
-    ).rejects.toThrow('Invalid style guide payload');
+    await expect(handlers.get('style:save')!(null, { invalid: true })).rejects.toThrow(
+      'Invalid style guide payload',
+    );
   });
 
   it('loadStyleGuide reads from project settings', async () => {

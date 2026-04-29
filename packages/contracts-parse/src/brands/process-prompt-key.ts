@@ -22,6 +22,4 @@ export const parseProcessPromptKey = makeBrandParser<ProcessPromptKey, string>(
   'ProcessPromptKey',
 );
 
-export const tryProcessPromptKey = makeTryBrand<ProcessPromptKey, string>(
-  ProcessPromptKeySchema,
-);
+export const tryProcessPromptKey = makeTryBrand<ProcessPromptKey, string>(ProcessPromptKeySchema);

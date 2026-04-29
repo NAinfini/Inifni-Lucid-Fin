@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import type { ProcessPromptKey } from '@lucid-fin/contracts';
 import { ProcessPromptRepository } from './process-prompt-repository.js';
 
@@ -26,14 +23,18 @@ function openDb(): BetterSqlite3.Database {
   return db;
 }
 
-function seed(db: BetterSqlite3.Database, processKey: string, defaults: Partial<{
-  name: string;
-  description: string;
-  defaultValue: string;
-  customValue: string | null;
-  createdAt: number;
-  updatedAt: number;
-}> = {}): void {
+function seed(
+  db: BetterSqlite3.Database,
+  processKey: string,
+  defaults: Partial<{
+    name: string;
+    description: string;
+    defaultValue: string;
+    customValue: string | null;
+    createdAt: number;
+    updatedAt: number;
+  }> = {},
+): void {
   db.prepare(
     `INSERT INTO process_prompts
        (process_key, name, description, default_value, custom_value, created_at, updated_at)
@@ -94,10 +95,10 @@ describe('ProcessPromptRepository', () => {
 
   it('getEffectiveValue returns customValue when set, defaultValue otherwise', () => {
     seed(db, 'has-custom', { defaultValue: 'd1', customValue: 'c1' });
-    seed(db, 'no-custom',  { defaultValue: 'd2', customValue: null });
+    seed(db, 'no-custom', { defaultValue: 'd2', customValue: null });
     expect(repo.getEffectiveValue('has-custom' as ProcessPromptKey)).toBe('c1');
-    expect(repo.getEffectiveValue('no-custom'  as ProcessPromptKey)).toBe('d2');
-    expect(repo.getEffectiveValue('missing'    as ProcessPromptKey)).toBeNull();
+    expect(repo.getEffectiveValue('no-custom' as ProcessPromptKey)).toBe('d2');
+    expect(repo.getEffectiveValue('missing' as ProcessPromptKey)).toBeNull();
   });
 
   it('setCustom writes customValue + bumps updatedAt', async () => {

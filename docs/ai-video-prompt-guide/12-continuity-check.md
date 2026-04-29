@@ -12,13 +12,13 @@ Continuity checking compares nodes across a canvas to find breaks in character a
 
 ## Continuity Axes
 
-| Axis | What to check |
-|---|---|
-| Character | Hair, clothing, accessories, skin tone consistent across shots |
-| Lighting | Light source direction and color temperature consistent within a scene |
-| Color grade | Saturation, contrast, color palette consistent across scene |
-| Environment | Props, set dressing, time-of-day consistent within a scene |
-| Motion continuity | Character position/orientation matches between consecutive shots |
+| Axis              | What to check                                                          |
+| ----------------- | ---------------------------------------------------------------------- |
+| Character         | Hair, clothing, accessories, skin tone consistent across shots         |
+| Lighting          | Light source direction and color temperature consistent within a scene |
+| Color grade       | Saturation, contrast, color palette consistent across scene            |
+| Environment       | Props, set dressing, time-of-day consistent within a scene             |
+| Motion continuity | Character position/orientation matches between consecutive shots       |
 
 ---
 
@@ -53,12 +53,12 @@ Ignore minor variations that would not be noticeable in motion.
 
 ## Severity Levels
 
-| Level | Description | Action |
-|---|---|---|
-| Critical | Character wearing different clothes between shots | Must fix before generation |
-| Major | Light source switches sides between shots | Should fix |
-| Minor | Slight color temperature shift | Flag only |
-| Acceptable | Natural variation in handheld/organic shots | Ignore |
+| Level      | Description                                       | Action                     |
+| ---------- | ------------------------------------------------- | -------------------------- |
+| Critical   | Character wearing different clothes between shots | Must fix before generation |
+| Major      | Light source switches sides between shots         | Should fix                 |
+| Minor      | Slight color temperature shift                    | Flag only                  |
+| Acceptable | Natural variation in handheld/organic shots       | Ignore                     |
 
 ---
 

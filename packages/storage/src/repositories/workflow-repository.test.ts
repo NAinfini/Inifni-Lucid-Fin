@@ -10,10 +10,7 @@ import type {
   WorkflowStageRun,
   WorkflowTaskRun,
 } from '@lucid-fin/contracts';
-import {
-  setDegradeReporter,
-  type DegradeReporter,
-} from '@lucid-fin/contracts-parse';
+import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { SqliteIndex } from '../sqlite-index.js';
 import { WorkflowRepository } from './workflow-repository.js';
 
@@ -22,7 +19,9 @@ function tmpDb() {
   const index = new SqliteIndex(path.join(base, 'test.db'));
   // index.db isn't public; use a dedicated test getter by reaching through
   // the facade instead — we'll construct WorkflowRepository on the same path.
-  const repo = new WorkflowRepository((index as unknown as { db: import('better-sqlite3').Database }).db);
+  const repo = new WorkflowRepository(
+    (index as unknown as { db: import('better-sqlite3').Database }).db,
+  );
   return {
     index,
     repo,
@@ -56,7 +55,11 @@ function mkRun(id: string, overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   };
 }
 
-function mkStageRun(id: string, runId: string, overrides: Partial<WorkflowStageRun> = {}): WorkflowStageRun {
+function mkStageRun(
+  id: string,
+  runId: string,
+  overrides: Partial<WorkflowStageRun> = {},
+): WorkflowStageRun {
   return {
     id,
     workflowRunId: runId,
@@ -73,7 +76,12 @@ function mkStageRun(id: string, runId: string, overrides: Partial<WorkflowStageR
   };
 }
 
-function mkTaskRun(id: string, runId: string, stageRunId: string, overrides: Partial<WorkflowTaskRun> = {}): WorkflowTaskRun {
+function mkTaskRun(
+  id: string,
+  runId: string,
+  stageRunId: string,
+  overrides: Partial<WorkflowTaskRun> = {},
+): WorkflowTaskRun {
   return {
     id,
     workflowRunId: runId,
@@ -158,8 +166,18 @@ describe('WorkflowRepository', () => {
     ctx.repo.insertTaskRun(mkTaskRun('t2', 'r1', 's1'));
     ctx.repo.insertTaskDependency('t2' as WorkflowTaskId, 't1' as WorkflowTaskId);
 
-    expect(ctx.repo.listTaskRuns('r1' as WorkflowRunId).rows.map((r) => r.id).sort()).toEqual(['t1', 't2']);
-    expect(ctx.repo.listTaskRunsByStage('s1' as WorkflowStageId).rows.map((r) => r.id).sort()).toEqual(['t1', 't2']);
+    expect(
+      ctx.repo
+        .listTaskRuns('r1' as WorkflowRunId)
+        .rows.map((r) => r.id)
+        .sort(),
+    ).toEqual(['t1', 't2']);
+    expect(
+      ctx.repo
+        .listTaskRunsByStage('s1' as WorkflowStageId)
+        .rows.map((r) => r.id)
+        .sort(),
+    ).toEqual(['t1', 't2']);
     expect(ctx.repo.listTaskDependencies('t2' as WorkflowTaskId)).toEqual(['t1']);
     expect(ctx.repo.listTaskDependents('t1' as WorkflowTaskId)).toEqual(['t2']);
   });
@@ -221,7 +239,9 @@ describe('WorkflowRepository', () => {
       createdAt: 1,
     });
     expect(ctx.repo.listArtifacts('r1' as WorkflowRunId).map((a) => a.id)).toEqual(['a1']);
-    expect(ctx.repo.listArtifactsByTaskRun('t1' as WorkflowTaskId).map((a) => a.id)).toEqual(['a1']);
+    expect(ctx.repo.listArtifactsByTaskRun('t1' as WorkflowTaskId).map((a) => a.id)).toEqual([
+      'a1',
+    ]);
     expect(ctx.repo.listEntityArtifacts('character', 'char-1').map((a) => a.id)).toEqual(['a1']);
   });
 });

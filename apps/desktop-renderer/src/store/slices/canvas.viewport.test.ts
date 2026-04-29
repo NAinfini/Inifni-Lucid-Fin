@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Canvas } from '@lucid-fin/contracts';
-import {
-  canvasSlice,
-  setActiveCanvas,
-  setCanvases,
-  updateViewport,
-} from './canvas.js';
+import { canvasSlice, setActiveCanvas, setCanvases, updateViewport } from './canvas.js';
 
 function makeCanvas(id: string, viewport = { x: 0, y: 0, zoom: 1 }): Canvas {
   return {

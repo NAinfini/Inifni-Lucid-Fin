@@ -10,7 +10,12 @@ import {
 import { cn } from '../../lib/utils.js';
 import { CommitSlider } from '../ui/CommitSlider.js';
 import { useI18n } from '../../hooks/use-i18n.js';
-import { localizePresetName, localizePresetDescription, localizeParamLabel, localizeParamValue } from '../../i18n.js';
+import {
+  localizePresetName,
+  localizePresetDescription,
+  localizeParamLabel,
+  localizeParamValue,
+} from '../../i18n.js';
 import type {
   PresetCategory,
   PresetDefinition,
@@ -56,7 +61,7 @@ function PresetParamControl({
   const localizedLabel = localizeParamLabel(paramDef.key, paramDef.label);
 
   if (paramDef.type === 'intensity') {
-    const numValue = typeof value === 'number' ? value : paramDef.default as number;
+    const numValue = typeof value === 'number' ? value : (paramDef.default as number);
     const rawLabel = paramDef.levels ? resolveIntensityLabel(paramDef.levels, numValue) : '';
     const displayLabel = rawLabel ? localizeParamValue(rawLabel) : '';
     return (
@@ -81,7 +86,7 @@ function PresetParamControl({
   }
 
   if (paramDef.type === 'select' && paramDef.options) {
-    const strValue = typeof value === 'string' ? value : paramDef.default as string;
+    const strValue = typeof value === 'string' ? value : (paramDef.default as string);
     return (
       <div className="space-y-0.5">
         <span className="text-[10px] text-muted-foreground">{localizedLabel}</span>
@@ -101,7 +106,7 @@ function PresetParamControl({
   }
 
   if (paramDef.type === 'number') {
-    const numValue = typeof value === 'number' ? value : paramDef.default as number;
+    const numValue = typeof value === 'number' ? value : (paramDef.default as number);
     return (
       <div className="space-y-0.5">
         <span className="text-[10px] text-muted-foreground">{localizedLabel}</span>

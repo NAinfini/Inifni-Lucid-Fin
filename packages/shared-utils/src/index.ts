@@ -1,11 +1,6 @@
 export { assertNever } from './assert-never.js';
 export { match, matchKind, matchParams } from './match.js';
-export {
-  matchNode,
-  isGeneratableMedia,
-  isVisualMedia,
-  isMediaNode,
-} from './node-kinds.js';
+export { matchNode, isGeneratableMedia, isVisualMedia, isMediaNode } from './node-kinds.js';
 export {
   createEventBus,
   type EventBus,
@@ -13,15 +8,7 @@ export {
   type EventMap,
   type Unsubscribe,
 } from './event-bus.js';
-export {
-  ok,
-  err,
-  isOk,
-  isErr,
-  mapOk,
-  mapErr,
-  type Result,
-} from './result.js';
+export { ok, err, isOk, isErr, mapOk, mapErr, type Result } from './result.js';
 export {
   getToolCompactionCategory,
   getClassifiedToolNames,

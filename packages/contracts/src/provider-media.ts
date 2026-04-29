@@ -38,7 +38,15 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
   'runway-gen4': {
     type: 'video',
     aliases: ['runway'],
-    resolutions: ['1280x720', '1584x672', '1104x832', '720x1280', '832x1104', '672x1584', '960x960'],
+    resolutions: [
+      '1280x720',
+      '1584x672',
+      '1104x832',
+      '720x1280',
+      '832x1104',
+      '672x1584',
+      '960x960',
+    ],
     durationRange: [5, 10],
     notes: 'Image-to-video supports more aspect ratios than text-to-video.',
   },
@@ -70,7 +78,8 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     qualityTiers: ['std', 'pro'],
     aspectRatios: ['16:9', '9:16', '1:1'],
     durationRange: [5, 10],
-    notes: 'Audio generation requires enable_audio. Pro mode has higher quality but 2x cost. Supports camera motion controls.',
+    notes:
+      'Audio generation requires enable_audio. Pro mode has higher quality but 2x cost. Supports camera motion controls.',
   },
   'google-veo-2': {
     type: 'video',
@@ -78,7 +87,8 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     supportsAudio: true,
     aspectRatios: ['16:9'],
     durationRange: [5, 8],
-    notes: 'Audio via generateAudio parameter. Supports ambient, dialogue, and music layers in prompt.',
+    notes:
+      'Audio via generateAudio parameter. Supports ambient, dialogue, and music layers in prompt.',
   },
   'wan-2.1': {
     type: 'video',
@@ -107,7 +117,8 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     qualityTiers: ['standard', 'hd'],
     resolutions: ['1024x1024', '1024x1792', '1792x1024'],
     maxDimension: 4096,
-    notes: 'gpt-image-1: flexible sizes 256-4096 (multiples of 64). DALL-E 3 was limited to fixed sizes.',
+    notes:
+      'gpt-image-1: flexible sizes 256-4096 (multiples of 64). DALL-E 3 was limited to fixed sizes.',
   },
   ideogram: {
     type: 'image',
@@ -225,7 +236,9 @@ function cloneCapabilityProfile(
     qualityTiers: profile.qualityTiers ? [...profile.qualityTiers] : undefined,
     resolutions: profile.resolutions ? [...profile.resolutions] : undefined,
     aspectRatios: profile.aspectRatios ? [...profile.aspectRatios] : undefined,
-    durationRange: profile.durationRange ? [...profile.durationRange] as [number, number] : undefined,
+    durationRange: profile.durationRange
+      ? ([...profile.durationRange] as [number, number])
+      : undefined,
     styles: profile.styles ? [...profile.styles] : undefined,
   };
 }
@@ -250,9 +263,9 @@ export function listBuiltinVideoProvidersWithAudio(): string[] {
 export function listBuiltinAudioGenerationProviders(
   type?: BuiltinAudioGenerationType,
 ): BuiltinAudioGenerationProvider[] {
-  return BUILTIN_AUDIO_GENERATION_PROVIDERS
-    .filter((provider) => (type ? provider.type === type : true))
-    .map((provider) => ({ ...provider }));
+  return BUILTIN_AUDIO_GENERATION_PROVIDERS.filter((provider) =>
+    type ? provider.type === type : true,
+  ).map((provider) => ({ ...provider }));
 }
 
 export function getBuiltinVideoProviderRuntimeMetadata(
@@ -280,10 +293,7 @@ export function resolveVideoReferenceImageField(
   const normalizedProviderId = providerId?.trim().toLowerCase();
   const normalizedModel = model?.trim().toLowerCase();
 
-  if (
-    normalizedProviderId === 'replicate' ||
-    normalizedModel?.startsWith('openai/sora-2')
-  ) {
+  if (normalizedProviderId === 'replicate' || normalizedModel?.startsWith('openai/sora-2')) {
     if (normalizedModel?.startsWith('openai/sora-2')) {
       return 'input_reference';
     }

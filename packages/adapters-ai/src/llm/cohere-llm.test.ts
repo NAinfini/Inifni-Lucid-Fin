@@ -122,7 +122,8 @@ describe('CohereLLMAdapter', () => {
       adapter.configure('sk-cohere');
 
       await expect(
-        complete(adapter,
+        complete(
+          adapter,
           [
             { role: 'user', content: 'hello' },
             {

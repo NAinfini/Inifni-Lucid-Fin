@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Canvas, GenerationResult } from '@lucid-fin/contracts';
 import { deriveNodeStatus } from '@lucid-fin/contracts';
-import { BUILT_IN_PRESET_LIBRARY, createEmptyPresetTrackSet, type StyleGuide } from '@lucid-fin/contracts';
+import {
+  BUILT_IN_PRESET_LIBRARY,
+  createEmptyPresetTrackSet,
+  type StyleGuide,
+} from '@lucid-fin/contracts';
 import { CAS } from '../../../../../packages/storage/src/cas.js';
 
 const logger = vi.hoisted(() => ({
@@ -37,8 +41,14 @@ import { buildAdhocAdapter } from './generation-helpers.js';
  * via both the legacy flat keys AND via `db.repos.*`, so existing tests that
  * read/write the flat spies keep working.
  */
-function withEntityRepos<T extends Record<string, unknown>>(flat: T): T & {
-  repos: { entities: Record<string, unknown>; assets: Record<string, unknown>; projectSettings: Record<string, unknown> };
+function withEntityRepos<T extends Record<string, unknown>>(
+  flat: T,
+): T & {
+  repos: {
+    entities: Record<string, unknown>;
+    assets: Record<string, unknown>;
+    projectSettings: Record<string, unknown>;
+  };
 } {
   const insertAsset = flat.insertAsset as ReturnType<typeof vi.fn> | undefined;
   return {
@@ -141,12 +151,7 @@ describe('applyStyleGuideDefaultsToEmptyTracks', () => {
 
 describe('mergeGenerationParams', () => {
   it('merges explicit fps into base params', () => {
-    expect(
-      mergeGenerationParams(
-        { seedBehavior: 'locked' },
-        60,
-      ),
-    ).toEqual({
+    expect(mergeGenerationParams({ seedBehavior: 'locked' }, 60)).toEqual({
       seedBehavior: 'locked',
       fps: 60,
     });
@@ -195,7 +200,9 @@ function makeCanvas(nodeType: 'image' | 'video' | 'audio' = 'image'): Canvas {
                 variantCount: 1,
                 seedLocked: false,
                 ...(nodeType === 'image' ? { presetTracks: createEmptyPresetTrackSet() } : {}),
-                ...(nodeType === 'video' ? { duration: 5, presetTracks: createEmptyPresetTrackSet() } : {}),
+                ...(nodeType === 'video'
+                  ? { duration: 5, presetTracks: createEmptyPresetTrackSet() }
+                  : {}),
               },
         title: 'Hero Shot',
         status: 'idle',
@@ -215,45 +222,85 @@ function makeCanvas(nodeType: 'image' | 'video' | 'audio' = 'image'): Canvas {
 
 function makeDeps(
   canvas: Canvas,
-  adapter:
-    | {
-        generate: (req: import('@lucid-fin/contracts').GenerationRequest) => Promise<GenerationResult>;
-        subscribe?: import('@lucid-fin/contracts').AIProviderAdapter['subscribe'];
-      }
-    | null,
+  adapter: {
+    generate: (req: import('@lucid-fin/contracts').GenerationRequest) => Promise<GenerationResult>;
+    subscribe?: import('@lucid-fin/contracts').AIProviderAdapter['subscribe'];
+  } | null,
 ) {
   const save = vi.fn();
   return {
     deps: {
       adapterRegistry: {
-        get: vi.fn((id: string) => (adapter && id === 'mock-provider' ? {
-          id: 'mock-provider',
-          name: 'Mock Provider',
-          type: canvas.nodes[0]?.type === 'video' ? 'video' : canvas.nodes[0]?.type === 'audio' ? 'voice' : 'image',
-          capabilities: [canvas.nodes[0]?.type === 'video' ? 'text-to-video' : canvas.nodes[0]?.type === 'audio' ? 'text-to-voice' : 'text-to-image'],
-          maxConcurrent: 1,
-          configure: vi.fn(),
-          validate: vi.fn(async () => true),
-          generate: adapter.generate,
-          subscribe: adapter.subscribe,
-          estimateCost: vi.fn(() => ({ estimatedCost: 0, currency: 'USD', provider: 'mock-provider', unit: 'image' })),
-          checkStatus: vi.fn(async () => 'completed'),
-          cancel: vi.fn(async () => undefined),
-        } : undefined)),
-        list: vi.fn(() => (adapter ? [{
-          id: 'mock-provider',
-          name: 'Mock Provider',
-          type: canvas.nodes[0]?.type === 'video' ? 'video' : canvas.nodes[0]?.type === 'audio' ? 'voice' : 'image',
-          capabilities: [canvas.nodes[0]?.type === 'video' ? 'text-to-video' : canvas.nodes[0]?.type === 'audio' ? 'text-to-voice' : 'text-to-image'],
-          maxConcurrent: 1,
-          configure: vi.fn(),
-          validate: vi.fn(async () => true),
-          generate: adapter.generate,
-          subscribe: adapter.subscribe,
-          estimateCost: vi.fn(() => ({ estimatedCost: 0, currency: 'USD', provider: 'mock-provider', unit: 'image' })),
-          checkStatus: vi.fn(async () => 'completed'),
-          cancel: vi.fn(async () => undefined),
-        }] : [])),
+        get: vi.fn((id: string) =>
+          adapter && id === 'mock-provider'
+            ? {
+                id: 'mock-provider',
+                name: 'Mock Provider',
+                type:
+                  canvas.nodes[0]?.type === 'video'
+                    ? 'video'
+                    : canvas.nodes[0]?.type === 'audio'
+                      ? 'voice'
+                      : 'image',
+                capabilities: [
+                  canvas.nodes[0]?.type === 'video'
+                    ? 'text-to-video'
+                    : canvas.nodes[0]?.type === 'audio'
+                      ? 'text-to-voice'
+                      : 'text-to-image',
+                ],
+                maxConcurrent: 1,
+                configure: vi.fn(),
+                validate: vi.fn(async () => true),
+                generate: adapter.generate,
+                subscribe: adapter.subscribe,
+                estimateCost: vi.fn(() => ({
+                  estimatedCost: 0,
+                  currency: 'USD',
+                  provider: 'mock-provider',
+                  unit: 'image',
+                })),
+                checkStatus: vi.fn(async () => 'completed'),
+                cancel: vi.fn(async () => undefined),
+              }
+            : undefined,
+        ),
+        list: vi.fn(() =>
+          adapter
+            ? [
+                {
+                  id: 'mock-provider',
+                  name: 'Mock Provider',
+                  type:
+                    canvas.nodes[0]?.type === 'video'
+                      ? 'video'
+                      : canvas.nodes[0]?.type === 'audio'
+                        ? 'voice'
+                        : 'image',
+                  capabilities: [
+                    canvas.nodes[0]?.type === 'video'
+                      ? 'text-to-video'
+                      : canvas.nodes[0]?.type === 'audio'
+                        ? 'text-to-voice'
+                        : 'text-to-image',
+                  ],
+                  maxConcurrent: 1,
+                  configure: vi.fn(),
+                  validate: vi.fn(async () => true),
+                  generate: adapter.generate,
+                  subscribe: adapter.subscribe,
+                  estimateCost: vi.fn(() => ({
+                    estimatedCost: 0,
+                    currency: 'USD',
+                    provider: 'mock-provider',
+                    unit: 'image',
+                  })),
+                  checkStatus: vi.fn(async () => 'completed'),
+                  cancel: vi.fn(async () => undefined),
+                },
+              ]
+            : [],
+        ),
       },
       cas: {
         importAsset: vi.fn(async () => ({
@@ -288,7 +335,7 @@ function makeDeps(
   };
 }
 
-function createSender() {
+function createGateway() {
   const events: Array<{ channel: string; payload: unknown }> = [];
   let resolveDone: (() => void) | undefined;
   const done = new Promise<void>((resolve) => {
@@ -298,10 +345,13 @@ function createSender() {
   return {
     events,
     done,
-    sender: {
-      send(channel: string, payload: unknown) {
-        events.push({ channel, payload });
-        if (channel === 'canvas:generation:complete' || channel === 'canvas:generation:failed') {
+    gateway: {
+      emit(channelDef: { channel: string }, payload: unknown) {
+        events.push({ channel: channelDef.channel, payload });
+        if (
+          channelDef.channel === 'canvas:generation:complete' ||
+          channelDef.channel === 'canvas:generation:failed'
+        ) {
           resolveDone?.();
         }
       },
@@ -348,10 +398,10 @@ describe('startCanvasGeneration progress events', () => {
       }),
     };
     const { deps } = makeDeps(canvas, adapter);
-    const { sender, events, done } = createSender();
+    const { gateway, events, done } = createGateway();
 
     await startCanvasGeneration(
-      sender,
+      gateway,
       {
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -392,14 +442,18 @@ describe('startCanvasGeneration progress events', () => {
       })),
     };
     const { deps } = makeDeps(canvas, adapter);
-    const { sender, events, done } = createSender();
+    const { gateway, events, done } = createGateway();
 
-    await startCanvasGeneration(sender, {
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-      providerId: 'mock-provider',
-      variantCount: 2,
-    }, deps as never);
+    await startCanvasGeneration(
+      gateway,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        variantCount: 2,
+      },
+      deps as never,
+    );
 
     await done;
 
@@ -470,10 +524,10 @@ describe('startCanvasGeneration progress events', () => {
       })),
     };
     const { deps } = makeDeps(canvas, adapter);
-    const { sender, done } = createSender();
+    const { gateway, done } = createGateway();
 
     await startCanvasGeneration(
-      sender,
+      gateway,
       {
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -551,10 +605,10 @@ describe('startCanvasGeneration progress events', () => {
       provider: 'mock-provider',
     }));
     const save = vi.fn();
-    const { sender, done } = createSender();
+    const { gateway, done } = createGateway();
 
     await startCanvasGeneration(
-      sender,
+      gateway,
       {
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -629,7 +683,9 @@ describe('startCanvasGeneration progress events', () => {
             mood: 'tense',
             lighting: 'neon, dim',
             tags: [],
-            referenceImages: [{ slot: 'wide-establishing', assetHash: 'loc-ref-hash', isStandard: true }],
+            referenceImages: [
+              { slot: 'wide-establishing', assetHash: 'loc-ref-hash', isStandard: true },
+            ],
             createdAt: 0,
             updatedAt: 0,
           })),
@@ -737,10 +793,10 @@ describe('startCanvasGeneration progress events', () => {
       provider: 'mock-provider',
     }));
     const save = vi.fn();
-    const { sender, done } = createSender();
+    const { gateway, done } = createGateway();
 
     await startCanvasGeneration(
-      sender,
+      gateway,
       {
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -822,10 +878,12 @@ describe('startCanvasGeneration progress events', () => {
 
     const canvas = makeCanvas('image');
     const { deps } = makeDeps(canvas, null);
-    const { sender, events, done } = createSender();
-    const base64Png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9pZ+j9QAAAAASUVORK5CYII=';
+    const { gateway, events, done } = createGateway();
+    const base64Png =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9pZ+j9QAAAAASUVORK5CYII=';
 
-    const fetchMock = vi.fn()
+    const fetchMock = vi
+      .fn()
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ id: 'task-1', status_url: 'https://provider.example/tasks/task-1' }),
@@ -840,17 +898,21 @@ describe('startCanvasGeneration progress events', () => {
       });
     vi.stubGlobal('fetch', fetchMock);
 
-    await startCanvasGeneration(sender, {
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-      providerId: 'adhoc-provider',
-      variantCount: 1,
-      providerConfig: {
-        baseUrl: 'https://provider.example/generate',
-        model: 'demo-model',
-        apiKey: 'secret-key',
+    await startCanvasGeneration(
+      gateway,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'adhoc-provider',
+        variantCount: 1,
+        providerConfig: {
+          baseUrl: 'https://provider.example/generate',
+          model: 'demo-model',
+          apiKey: 'secret-key',
+        },
       },
-    }, deps as never);
+      deps as never,
+    );
 
     await vi.advanceTimersByTimeAsync(10000);
     await done;
@@ -944,10 +1006,10 @@ describe('startCanvasGeneration progress events', () => {
       cancel: vi.fn(async () => undefined),
     };
     const save = vi.fn();
-    const { sender, done } = createSender();
+    const { gateway, done } = createGateway();
 
     await startCanvasGeneration(
-      sender,
+      gateway,
       {
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -989,7 +1051,9 @@ describe('startCanvasGeneration progress events', () => {
           save,
         },
         keychain: {
-          getKey: vi.fn(async (provider: string) => (provider === 'openai-dalle' ? 'sk-openai' : null)),
+          getKey: vi.fn(async (provider: string) =>
+            provider === 'openai-dalle' ? 'sk-openai' : null,
+          ),
         },
       } as never,
     );
@@ -1039,11 +1103,11 @@ describe('startCanvasGeneration progress events', () => {
       checkStatus: vi.fn(async () => 'completed'),
       cancel: vi.fn(async () => undefined),
     };
-    const { sender, done } = createSender();
+    const { gateway, done } = createGateway();
 
     try {
       await startCanvasGeneration(
-        sender,
+        gateway,
         {
           canvasId: 'canvas-1',
           nodeId: 'node-1',
@@ -1056,7 +1120,9 @@ describe('startCanvasGeneration progress events', () => {
         },
         {
           adapterRegistry: {
-            get: vi.fn((id: string) => (id === 'replicate' ? incompatibleReplicateAdapter : undefined)),
+            get: vi.fn((id: string) =>
+              id === 'replicate' ? incompatibleReplicateAdapter : undefined,
+            ),
             list: vi.fn(() => [incompatibleReplicateAdapter]),
           },
           cas: {
@@ -1083,7 +1149,9 @@ describe('startCanvasGeneration progress events', () => {
             save,
           },
           keychain: {
-            getKey: vi.fn(async (provider: string) => (provider === 'replicate' ? 'sk-replicate' : null)),
+            getKey: vi.fn(async (provider: string) =>
+              provider === 'replicate' ? 'sk-replicate' : null,
+            ),
           },
         } as never,
       );
@@ -1125,10 +1193,10 @@ describe('startCanvasGeneration progress events', () => {
       getEquipment: vi.fn(() => undefined),
       getLocation: vi.fn(() => undefined),
     });
-    const { sender, events, done } = createSender();
+    const { gateway, events, done } = createGateway();
 
     await startCanvasGeneration(
-      sender,
+      gateway,
       {
         canvasId: 'canvas-1',
         nodeId: 'node-1',
@@ -1145,11 +1213,13 @@ describe('startCanvasGeneration progress events', () => {
             maxConcurrent: 1,
             configure: vi.fn(),
             validate: vi.fn(async () => true),
-            generate: vi.fn(async (): Promise<GenerationResult> => ({
-              assetHash: '',
-              assetPath,
-              provider: 'mock-provider',
-            })),
+            generate: vi.fn(
+              async (): Promise<GenerationResult> => ({
+                assetHash: '',
+                assetPath,
+                provider: 'mock-provider',
+              }),
+            ),
             estimateCost: vi.fn(() => ({
               estimatedCost: 0,
               currency: 'USD',
@@ -1202,14 +1272,18 @@ describe('startCanvasGeneration progress events', () => {
       }),
     };
     const { deps } = makeDeps(canvas, adapter);
-    const { sender, done } = createSender();
+    const { gateway, done } = createGateway();
 
-    await startCanvasGeneration(sender, {
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-      providerId: 'mock-provider',
-      variantCount: 1,
-    }, deps as never);
+    await startCanvasGeneration(
+      gateway,
+      {
+        canvasId: 'canvas-1',
+        nodeId: 'node-1',
+        providerId: 'mock-provider',
+        variantCount: 1,
+      },
+      deps as never,
+    );
 
     await done;
 

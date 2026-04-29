@@ -33,7 +33,9 @@ describe('createColorStyleTools', () => {
   it('lists styles with pagination', async () => {
     const deps = createDeps();
 
-    await expect(getTool('colorStyle.list', deps).execute({ offset: 1, limit: 1 })).resolves.toEqual({
+    await expect(
+      getTool('colorStyle.list', deps).execute({ offset: 1, limit: 1 }),
+    ).resolves.toEqual({
       success: true,
       data: {
         total: 2,

@@ -60,12 +60,15 @@ export interface UsageStats {
   totalGenerationTimeMs: number;
 
   // Provider
-  providerUsage: Record<string, {
-    requestCount: number;
-    errorCount: number;
-    avgLatencyMs: number;
-    lastUsed: string; // ISO date
-  }>;
+  providerUsage: Record<
+    string,
+    {
+      requestCount: number;
+      errorCount: number;
+      avgLatencyMs: number;
+      lastUsed: string; // ISO date
+    }
+  >;
 
   // Project activity
   nodesCreated: number;

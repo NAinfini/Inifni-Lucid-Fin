@@ -76,9 +76,9 @@ export class FolderRepository {
 
   get(kind: FolderKind, id: string): Folder | null {
     const table = FOLDER_TABLE[kind];
-    const row = this.db
-      .prepare(`SELECT * FROM ${table} WHERE id = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as
+      | Record<string, unknown>
+      | undefined;
     return row ? rowToFolder(kind, row) : null;
   }
 
@@ -205,9 +205,7 @@ export class FolderRepository {
       // a manual UPDATE is required and the order doesn't strictly matter,
       // but clearing first keeps the data consistent if anything fails mid-way).
       this.db
-        .prepare(
-          `UPDATE ${entityTable} SET folder_id = NULL WHERE folder_id IN (${placeholders})`,
-        )
+        .prepare(`UPDATE ${entityTable} SET folder_id = NULL WHERE folder_id IN (${placeholders})`)
         .run(...descendantIds);
 
       // Deleting the root triggers ON DELETE CASCADE on descendants.

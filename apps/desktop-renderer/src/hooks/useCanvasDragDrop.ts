@@ -88,9 +88,7 @@ export function createNodePayloadFromAsset(asset: DragAssetPayload): {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useCanvasDragDrop(
-  rfInstanceRef: RefObject<ReactFlowInstance | null>,
-) {
+export function useCanvasDragDrop(rfInstanceRef: RefObject<ReactFlowInstance | null>) {
   const dispatch = useDispatch();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
 
@@ -106,9 +104,18 @@ export function useCanvasDragDrop(
       const refImageRaw = event.dataTransfer.getData('application/x-lucid-ref-image');
       if (refImageRaw) {
         try {
-          const payload = JSON.parse(refImageRaw) as { assetHash: string; entityType: string; entityId: string; slot: string };
+          const payload = JSON.parse(refImageRaw) as {
+            assetHash: string;
+            entityType: string;
+            entityId: string;
+            slot: string;
+          };
           if (payload.assetHash) {
-            const nodePayload = createNodePayloadFromAsset({ hash: payload.assetHash, name: `${payload.entityType} ref`, type: 'image' });
+            const nodePayload = createNodePayloadFromAsset({
+              hash: payload.assetHash,
+              name: `${payload.entityType} ref`,
+              type: 'image',
+            });
             dispatch(
               addNode({
                 id: crypto.randomUUID(),
@@ -119,13 +126,17 @@ export function useCanvasDragDrop(
               }),
             );
           }
-        } catch { /* malformed payload */ }
+        } catch {
+          /* malformed payload */
+        }
         return;
       }
 
       // Handle asset drops from Asset Store or Canvas nodes (BEFORE OS files,
       // because dragging an image card also produces a native File entry)
-      const raw = event.dataTransfer.getData('application/x-lucid-asset') || event.dataTransfer.getData('application/x-lucid-node-asset');
+      const raw =
+        event.dataTransfer.getData('application/x-lucid-asset') ||
+        event.dataTransfer.getData('application/x-lucid-node-asset');
       if (raw) {
         try {
           const asset = JSON.parse(raw) as DragAssetPayload;
@@ -139,7 +150,9 @@ export function useCanvasDragDrop(
               position: rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
             }),
           );
-        } catch { /* malformed payload */ }
+        } catch {
+          /* malformed payload */
+        }
         return;
       }
 
@@ -157,17 +170,22 @@ export function useCanvasDragDrop(
           if (ext === 'txt' || ext === 'md') {
             const title = file.name.replace(/\.[^.]+$/, '');
             const pos = { x: basePos.x, y: basePos.y + offsetY };
-            void file.text().then((content) => {
-              dispatch(
-                addNode({
-                  id: crypto.randomUUID(),
-                  type: 'text' as NodeKind,
-                  title,
-                  data: { content },
-                  position: pos,
-                }),
-              );
-            }).catch(() => { /* text read failure is non-critical */ });
+            void file
+              .text()
+              .then((content) => {
+                dispatch(
+                  addNode({
+                    id: crypto.randomUUID(),
+                    type: 'text' as NodeKind,
+                    title,
+                    data: { content },
+                    position: pos,
+                  }),
+                );
+              })
+              .catch(() => {
+                /* text read failure is non-critical */
+              });
             offsetY += 180;
             handledAny = true;
           } else if (file.type.startsWith('image/')) {
@@ -179,22 +197,32 @@ export function useCanvasDragDrop(
               const importPromise = filePath
                 ? api.asset.import(filePath, 'image')
                 : api.asset.importBuffer
-                  ? file.arrayBuffer().then((buf) => api.asset.importBuffer!(buf, file.name, 'image'))
+                  ? file
+                      .arrayBuffer()
+                      .then((buf) => api.asset.importBuffer!(buf, file.name, 'image'))
                   : Promise.resolve(null);
-              void importPromise.then((ref: unknown) => {
-                const r = ref as { hash: string } | null;
-                if (!r?.hash) return;
-                const payload = createNodePayloadFromAsset({ hash: r.hash, name: title, type: 'image' });
-                dispatch(
-                  addNode({
-                    id: crypto.randomUUID(),
-                    type: payload.type,
-                    title: payload.title,
-                    data: payload.data,
-                    position: pos,
-                  }),
-                );
-              }).catch(() => { /* image import failure is non-critical */ });
+              void importPromise
+                .then((ref: unknown) => {
+                  const r = ref as { hash: string } | null;
+                  if (!r?.hash) return;
+                  const payload = createNodePayloadFromAsset({
+                    hash: r.hash,
+                    name: title,
+                    type: 'image',
+                  });
+                  dispatch(
+                    addNode({
+                      id: crypto.randomUUID(),
+                      type: payload.type,
+                      title: payload.title,
+                      data: payload.data,
+                      position: pos,
+                    }),
+                  );
+                })
+                .catch(() => {
+                  /* image import failure is non-critical */
+                });
             }
             offsetY += 220;
             handledAny = true;
@@ -207,22 +235,32 @@ export function useCanvasDragDrop(
               const importPromise = filePath
                 ? api.asset.import(filePath, 'video')
                 : api.asset.importBuffer
-                  ? file.arrayBuffer().then((buf) => api.asset.importBuffer!(buf, file.name, 'video'))
+                  ? file
+                      .arrayBuffer()
+                      .then((buf) => api.asset.importBuffer!(buf, file.name, 'video'))
                   : Promise.resolve(null);
-              void importPromise.then((ref: unknown) => {
-                const r = ref as { hash: string } | null;
-                if (!r?.hash) return;
-                const payload = createNodePayloadFromAsset({ hash: r.hash, name: title, type: 'video' });
-                dispatch(
-                  addNode({
-                    id: crypto.randomUUID(),
-                    type: payload.type,
-                    title: payload.title,
-                    data: payload.data,
-                    position: pos,
-                  }),
-                );
-              }).catch(() => { /* video import failure is non-critical */ });
+              void importPromise
+                .then((ref: unknown) => {
+                  const r = ref as { hash: string } | null;
+                  if (!r?.hash) return;
+                  const payload = createNodePayloadFromAsset({
+                    hash: r.hash,
+                    name: title,
+                    type: 'video',
+                  });
+                  dispatch(
+                    addNode({
+                      id: crypto.randomUUID(),
+                      type: payload.type,
+                      title: payload.title,
+                      data: payload.data,
+                      position: pos,
+                    }),
+                  );
+                })
+                .catch(() => {
+                  /* video import failure is non-critical */
+                });
             }
             offsetY += 220;
             handledAny = true;

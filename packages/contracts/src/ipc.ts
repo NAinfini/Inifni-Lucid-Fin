@@ -1,11 +1,7 @@
 import type { StyleGuide } from './dto/project.js';
 import type { AssetRef, AssetMeta, AssetType } from './dto/asset.js';
 import type { Job, GenerationRequest } from './dto/job.js';
-import type {
-  Character,
-  ReferenceImage,
-  EquipmentLoadout,
-} from './dto/character.js';
+import type { Character, ReferenceImage, EquipmentLoadout } from './dto/character.js';
 import type { Equipment } from './dto/equipment.js';
 import type { ScriptDocument, ParsedScene } from './dto/script.js';
 import type { ColorStyle } from './dto/color-style.js';
@@ -441,12 +437,10 @@ export interface IpcChannelMap {
 
   // --- Preset ---
   'preset:list': {
-    request:
-      | {
-          includeBuiltIn?: boolean;
-          category?: PresetCategory;
-        }
-      | void;
+    request: {
+      includeBuiltIn?: boolean;
+      category?: PresetCategory;
+    } | void;
     response: PresetDefinition[];
   };
   'preset:save': {
@@ -487,7 +481,12 @@ export interface IpcChannelMap {
     response: void;
   };
   'canvas:estimateCost': {
-    request: { canvasId: string; nodeId: string; providerId: string; providerConfig?: { baseUrl: string; model: string; apiKey?: string } };
+    request: {
+      canvasId: string;
+      nodeId: string;
+      providerId: string;
+      providerConfig?: { baseUrl: string; model: string; apiKey?: string };
+    };
     response: { estimatedCost: number; currency: string };
   };
   'canvas:generation:progress': {

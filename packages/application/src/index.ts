@@ -38,7 +38,10 @@ export { registerDefaultWorkflows } from './register-default-workflows.js';
 export { styleExtractWorkflow } from './workflows/style.extract.js';
 export { characterGenerateReferencesWorkflow } from './workflows/character.generate-references.js';
 export { locationGenerateReferencesWorkflow } from './workflows/location.generate-references.js';
-export { buildCharacterAppearancePrompt, buildCharacterRefImagePrompt } from './agent/tools/character-prompt.js';
+export {
+  buildCharacterAppearancePrompt,
+  buildCharacterRefImagePrompt,
+} from './agent/tools/character-prompt.js';
 export { buildLocationRefImagePrompt } from './agent/tools/location-prompt.js';
 export { AgentToolRegistry, type AgentTool, type ToolResult } from './agent/tool-registry.js';
 export { registerToolModule, type ToolModule } from './agent/tool-module.js';
@@ -88,10 +91,7 @@ export {
 // public identity; consumers should go through `contractRegistry`.
 import './agent/exit-contract/contracts/index.js';
 export { freshRunId } from './agent/agent-run-id.js';
-export {
-  coercePhaseNoteCode,
-  inferErrorCodeFromMessage,
-} from './agent/error-inference.js';
+export { coercePhaseNoteCode, inferErrorCodeFromMessage } from './agent/error-inference.js';
 export {
   ContextManager,
   selectContextualToolSet,
@@ -104,11 +104,19 @@ export { createLocationTools, type LocationToolDeps } from './agent/tools/locati
 export { createScriptTools, type ScriptToolDeps } from './agent/tools/script-tools.js';
 export { createJobTools, type JobToolDeps } from './agent/tools/job-tools.js';
 export { jobToolModule } from './agent/tools/job-tools.js';
-export { createSeriesTools, type SeriesToolDeps, type SeriesEpisode } from './agent/tools/series-tools.js';
+export {
+  createSeriesTools,
+  type SeriesToolDeps,
+  type SeriesEpisode,
+} from './agent/tools/series-tools.js';
 export { seriesToolModule } from './agent/tools/series-tools.js';
 export { createColorStyleTools, type ColorStyleToolDeps } from './agent/tools/color-style-tools.js';
 export { colorStyleToolModule } from './agent/tools/color-style-tools.js';
-export { createProviderTools, type ProviderToolDeps, type ProviderInfo } from './agent/tools/provider-tools.js';
+export {
+  createProviderTools,
+  type ProviderToolDeps,
+  type ProviderInfo,
+} from './agent/tools/provider-tools.js';
 export { createAssetTools, type AssetToolDeps } from './agent/tools/asset-tools.js';
 export {
   createPromptTools,
@@ -122,7 +130,10 @@ export { createWorkflowTools, type WorkflowToolDeps } from './agent/tools/workfl
 export { type PromptGuide } from './agent/tools/workflow-guides.js';
 export { createEquipmentTools, type EquipmentToolDeps } from './agent/tools/equipment-tools.js';
 export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';
-export { createCopywritingTools, type CopywritingToolDeps } from './agent/tools/copywriting-tools.js';
+export {
+  createCopywritingTools,
+  type CopywritingToolDeps,
+} from './agent/tools/copywriting-tools.js';
 export { createVisionTools, type VisionToolDeps } from './agent/tools/vision-tools.js';
 export { createSnapshotTools, type SnapshotToolDeps } from './agent/tools/snapshot-tools.js';
 export { snapshotToolModule } from './agent/tools/snapshot-tools.js';
@@ -137,7 +148,15 @@ export {
   type TodoSetInput,
   type TodoUpdateInput,
 } from './agent/tools/todo-run-store.js';
-export { ok, fail, requireString, requireNumber, requireStringArray, requireText, requireBoolean } from './agent/tools/tool-result-helpers.js';
+export {
+  ok,
+  fail,
+  requireString,
+  requireNumber,
+  requireStringArray,
+  requireText,
+  requireBoolean,
+} from './agent/tools/tool-result-helpers.js';
 export {
   getToolCompactionCategory,
   getClassifiedToolNames,

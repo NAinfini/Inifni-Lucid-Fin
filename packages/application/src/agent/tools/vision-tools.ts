@@ -10,21 +10,27 @@ export interface VisionToolDeps {
     providerId?: string,
   ) => Promise<{ prompt: string }>;
   getNodeAssetHash?: (nodeId: string, canvasId?: string) => Promise<string | null>;
-  writeNodeField?: (nodeId: string, field: string, value: string, canvasId?: string) => Promise<void>;
+  writeNodeField?: (
+    nodeId: string,
+    field: string,
+    value: string,
+    canvasId?: string,
+  ) => Promise<void>;
 }
 
 export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
   const describeImage: AgentTool = {
     name: 'vision.describeImage',
     description:
-      'Analyze a node\'s current image asset using a vision AI model and return a detailed text prompt describing its style, content, and cinematic qualities. Optionally write the result to a node field. Use provider.list(group=\'vision\') to see available providers.',
+      "Analyze a node's current image asset using a vision AI model and return a detailed text prompt describing its style, content, and cinematic qualities. Optionally write the result to a node field. Use provider.list(group='vision') to see available providers.",
     tier: 2,
     parameters: {
       type: 'object',
       properties: {
         canvasId: {
           type: 'string',
-          description: 'The canvas ID containing the node (for consistency — asset resolution is global).',
+          description:
+            'The canvas ID containing the node (for consistency — asset resolution is global).',
         },
         nodeId: {
           type: 'string',
@@ -44,8 +50,7 @@ export function createVisionTools(deps: VisionToolDeps): AgentTool[] {
         writeField: {
           type: 'string',
           enum: ['prompt'],
-          description:
-            'Optional: if set, writes the result back to the prompt field on the node.',
+          description: 'Optional: if set, writes the result back to the prompt field on the node.',
         },
       },
       required: ['nodeId'],

@@ -30,28 +30,33 @@ function getLipSyncSettings(): LipSyncSettings | null {
       cloudEndpoint: typeof obj['cloudEndpoint'] === 'string' ? obj['cloudEndpoint'] : undefined,
       localModelPath: typeof obj['localModelPath'] === 'string' ? obj['localModelPath'] : undefined,
     };
-  } catch { /* malformed lipsync config JSON — return null to use defaults */
+  } catch {
+    /* malformed lipsync config JSON — return null to use defaults */
     return null;
   }
 }
 
-export function findAudioAssetForVideoNode(canvas: Canvas, videoNode: CanvasNode): string | undefined {
-  const audioEdges: { edge: typeof canvas.edges[number]; node: CanvasNode }[] = [];
+export function findAudioAssetForVideoNode(
+  canvas: Canvas,
+  videoNode: CanvasNode,
+): string | undefined {
+  const audioEdges: { edge: (typeof canvas.edges)[number]; node: CanvasNode }[] = [];
   for (const edge of canvas.edges) {
     if (edge.target !== videoNode.id) continue;
-    const sourceNode = canvas.nodes.find(
-      (n) => n.id === edge.source && n.type === 'audio',
-    );
+    const sourceNode = canvas.nodes.find((n) => n.id === edge.source && n.type === 'audio');
     if (sourceNode) {
       audioEdges.push({ edge, node: sourceNode });
     }
   }
   if (audioEdges.length === 0) return undefined;
   if (audioEdges.length > 1) {
-    log.warn('[lipsync] multiple audio nodes connected to video node, using the last-connected one', {
-      videoNodeId: videoNode.id,
-      audioNodeIds: audioEdges.map((e) => e.node.id),
-    });
+    log.warn(
+      '[lipsync] multiple audio nodes connected to video node, using the last-connected one',
+      {
+        videoNodeId: videoNode.id,
+        audioNodeIds: audioEdges.map((e) => e.node.id),
+      },
+    );
   }
   const selected = audioEdges[audioEdges.length - 1];
   const audioData = selected.node.data as AudioNodeData;
@@ -142,12 +147,7 @@ export async function runLipSyncPostProcess(
 
     db.repos.assets.insert({
       ...meta,
-      tags: [
-        'canvas',
-        `canvas:${canvas.id}`,
-        `node:${node.id}`,
-        'lipsync',
-      ],
+      tags: ['canvas', `canvas:${canvas.id}`, `node:${node.id}`, 'lipsync'],
     });
 
     // Move current assetHash to variants, set lip-sync result as primary
@@ -174,28 +174,19 @@ export async function runLipSyncPostProcess(
   }
 }
 
-export function registerLipSyncHandlers(
-  ipcMain: IpcMain,
-  deps: LipSyncHandlerDeps,
-): void {
-  ipcMain.handle(
-    'lipsync:process',
-    async (
-      _event,
-      args: { canvasId: string; nodeId: string },
-    ) => {
-      const { canvasId, nodeId } = args;
-      const canvas = deps.canvasStore.get(canvasId);
-      if (!canvas) {
-        throw new Error(`Canvas not found: ${canvasId}`);
-      }
-      const node = canvas.nodes.find((n) => n.id === nodeId);
-      if (!node || node.type !== 'video') {
-        throw new Error(`Video node not found: ${nodeId}`);
-      }
-      await runLipSyncPostProcess(canvas, node, deps);
-    },
-  );
+export function registerLipSyncHandlers(ipcMain: IpcMain, deps: LipSyncHandlerDeps): void {
+  ipcMain.handle('lipsync:process', async (_event, args: { canvasId: string; nodeId: string }) => {
+    const { canvasId, nodeId } = args;
+    const canvas = deps.canvasStore.get(canvasId);
+    if (!canvas) {
+      throw new Error(`Canvas not found: ${canvasId}`);
+    }
+    const node = canvas.nodes.find((n) => n.id === nodeId);
+    if (!node || node.type !== 'video') {
+      throw new Error(`Video node not found: ${nodeId}`);
+    }
+    await runLipSyncPostProcess(canvas, node, deps);
+  });
 
   ipcMain.handle('lipsync:checkAvailability', async () => {
     const settings = getLipSyncSettings();

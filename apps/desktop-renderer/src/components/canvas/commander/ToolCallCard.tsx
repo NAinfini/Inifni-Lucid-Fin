@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, Loader2, Minus, RefreshCw } from 'lucide-react';
 import { cn } from '../../../lib/utils.js';
 import { annotateToolPayload } from './node-formatting.js';
-import { formatToolName, formatProductionToolName, summarizeToolAction } from './tool-formatting.js';
+import {
+  formatToolName,
+  formatProductionToolName,
+  summarizeToolAction,
+} from './tool-formatting.js';
 import { ArtifactPreview } from './ArtifactPreview.js';
 
 export interface ToolCallCardProps {
@@ -22,7 +26,14 @@ export interface ToolCallCardProps {
   onSendMessage?: (message: string) => void;
 }
 
-export function ToolCallCard({ toolCall, nodeTitlesById, resolveNodeAssetHash, t, onNodeClick, onSendMessage }: ToolCallCardProps) {
+export function ToolCallCard({
+  toolCall,
+  nodeTitlesById,
+  resolveNodeAssetHash,
+  t,
+  onNodeClick,
+  onSendMessage,
+}: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'summary' | 'artifacts' | 'inputs' | 'raw'>('summary');
 
@@ -97,7 +108,9 @@ export function ToolCallCard({ toolCall, nodeTitlesById, resolveNodeAssetHash, t
   // Human-readable summary for the Summary tab — deferred until expanded.
   const toolSummary = useMemo(
     () =>
-      expanded ? summarizeToolAction(toolCall.name, toolCall.arguments, t) : { action: '', detail: '' },
+      expanded
+        ? summarizeToolAction(toolCall.name, toolCall.arguments, t)
+        : { action: '', detail: '' },
     [expanded, toolCall.name, toolCall.arguments, t],
   );
 
@@ -166,9 +179,7 @@ export function ToolCallCard({ toolCall, nodeTitlesById, resolveNodeAssetHash, t
       ) : null}
       {/* Error summary in collapsed state */}
       {!expanded && displayStatus === 'error' && errorSummary && (
-        <div className="px-2.5 pb-1.5 text-[10px] text-amber-400/80 truncate">
-          {errorSummary}
-        </div>
+        <div className="px-2.5 pb-1.5 text-[10px] text-amber-400/80 truncate">{errorSummary}</div>
       )}
       {/* Post-action chips for completed tools */}
       {!expanded && postActions.length > 0 && onSendMessage ? (
@@ -251,11 +262,13 @@ export function ToolCallCard({ toolCall, nodeTitlesById, resolveNodeAssetHash, t
                   <>
                     <div className="mt-2 font-medium">
                       {t('commander.toolResult')}:{' '}
-                      <span className={cn(
-                        displayStatus === 'done' && 'text-emerald-400',
-                        displayStatus === 'error' && 'text-amber-400',
-                        displayStatus === 'skipped' && 'text-muted-foreground',
-                      )}>
+                      <span
+                        className={cn(
+                          displayStatus === 'done' && 'text-emerald-400',
+                          displayStatus === 'error' && 'text-amber-400',
+                          displayStatus === 'skipped' && 'text-muted-foreground',
+                        )}
+                      >
                         {displayStatus === 'error'
                           ? t('commander.toolStatus.error')
                           : displayStatus === 'skipped'
@@ -319,31 +332,56 @@ function getPostActions(
     const isVideo = nodeType === 'video' || (typeof r.type === 'string' && r.type === 'video');
     if (isVideo) {
       return [
-        { label: t('commander.postAction.regenerate'), message: `Regenerate the video for node ${resultNodeId}` },
-        { label: t('commander.postAction.extend'), message: `Extend the video for node ${resultNodeId}` },
+        {
+          label: t('commander.postAction.regenerate'),
+          message: `Regenerate the video for node ${resultNodeId}`,
+        },
+        {
+          label: t('commander.postAction.extend'),
+          message: `Extend the video for node ${resultNodeId}`,
+        },
       ];
     }
     return [
-      { label: t('commander.postAction.regenerate'), message: `Regenerate the image for node ${resultNodeId}` },
-      { label: t('commander.postAction.useAsVideoFrame'), message: `Use the image from node ${resultNodeId} as a video frame source` },
+      {
+        label: t('commander.postAction.regenerate'),
+        message: `Regenerate the image for node ${resultNodeId}`,
+      },
+      {
+        label: t('commander.postAction.useAsVideoFrame'),
+        message: `Use the image from node ${resultNodeId} as a video frame source`,
+      },
     ];
   }
 
   // character.create
   if (name.includes('character') && name.includes('create')) {
-    const charName = typeof args.name === 'string' ? args.name : typeof r.name === 'string' ? r.name : '';
+    const charName =
+      typeof args.name === 'string' ? args.name : typeof r.name === 'string' ? r.name : '';
     const charId = typeof r.id === 'string' ? r.id : '';
     return [
-      { label: t('commander.postAction.generateRefImage'), message: `Generate a reference image for character "${charName}" (${charId})` },
-      { label: t('commander.postAction.addCostume'), message: `Add a costume/loadout for character "${charName}" (${charId})` },
+      {
+        label: t('commander.postAction.generateRefImage'),
+        message: `Generate a reference image for character "${charName}" (${charId})`,
+      },
+      {
+        label: t('commander.postAction.addCostume'),
+        message: `Add a costume/loadout for character "${charName}" (${charId})`,
+      },
     ];
   }
 
   // canvas.batchCreate
   if (name.includes('canvas') && name.includes('batchcreate')) {
     return [
-      { label: t('commander.postAction.applyTemplates'), message: 'Apply shot templates to the newly created nodes' },
-      { label: t('commander.postAction.setRefs'), message: 'Set character and location references on the newly created nodes' },
+      {
+        label: t('commander.postAction.applyTemplates'),
+        message: 'Apply shot templates to the newly created nodes',
+      },
+      {
+        label: t('commander.postAction.setRefs'),
+        message: 'Set character and location references on the newly created nodes',
+      },
       { label: t('commander.postAction.generateAll'), message: 'Generate all newly created nodes' },
     ];
   }
@@ -364,7 +402,8 @@ function useGenerationPhase(
   startedAt: number | undefined,
   t: (key: string) => string,
 ): string | null {
-  const isGenerate = toolName.toLowerCase().includes('generate') && toolName.toLowerCase().includes('canvas');
+  const isGenerate =
+    toolName.toLowerCase().includes('generate') && toolName.toLowerCase().includes('canvas');
   const isPending = status === 'pending';
   const [now, setNow] = useState(Date.now());
 

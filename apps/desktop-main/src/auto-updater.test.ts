@@ -34,26 +34,19 @@ describe('auto-updater status pushes', () => {
   it('pushes updater:progress via typed gateway on checking-for-update', async () => {
     const emit = vi.fn();
 
-    await initAutoUpdater(
-      { webContents: { send: vi.fn() } } as never,
-      { emit } as never,
-    );
+    await initAutoUpdater({ webContents: { send: vi.fn() } } as never, { emit } as never);
 
     updaterListeners.get('checking-for-update')?.();
 
-    expect(emit).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'updater:progress' }),
-      { state: 'checking' },
-    );
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ channel: 'updater:progress' }), {
+      state: 'checking',
+    });
   });
 
   it('pushes updater:progress and updater:toast via typed gateway on update-available', async () => {
     const emit = vi.fn();
 
-    await initAutoUpdater(
-      { webContents: { send: vi.fn() } } as never,
-      { emit } as never,
-    );
+    await initAutoUpdater({ webContents: { send: vi.fn() } } as never, { emit } as never);
 
     updaterListeners.get('update-available')?.({
       version: '2.0.0',
@@ -64,24 +57,20 @@ describe('auto-updater status pushes', () => {
       ],
     });
 
-    expect(emit).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'updater:progress' }),
-      {
-        state: 'available',
-        info: {
-          version: '2.0.0',
-          releaseDate: '2026-04-26T00:00:00.000Z',
-          releaseNotes: [
-            { version: '2.0.0', note: 'Added typed updater push.' },
-            { version: '1.9.0', note: 'Previous maintenance release.' },
-          ],
-        },
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ channel: 'updater:progress' }), {
+      state: 'available',
+      info: {
+        version: '2.0.0',
+        releaseDate: '2026-04-26T00:00:00.000Z',
+        releaseNotes: [
+          { version: '2.0.0', note: 'Added typed updater push.' },
+          { version: '1.9.0', note: 'Previous maintenance release.' },
+        ],
       },
-    );
+    });
 
-    expect(emit).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'updater:toast' }),
-      { version: '2.0.0' },
-    );
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ channel: 'updater:toast' }), {
+      version: '2.0.0',
+    });
   });
 });

@@ -50,7 +50,9 @@ describe('RightToolbar', () => {
 
     expect(screen.getByRole('button', { name: t('toolbar.inspector') })).toBeTruthy();
     expect(screen.getByRole('button', { name: t('toolbar.queue') })).toBeTruthy();
-    expect(screen.getByRole('button', { name: t('toolbar.inspector') }).getAttribute('data-state')).toBe('closed');
+    expect(
+      screen.getByRole('button', { name: t('toolbar.inspector') }).getAttribute('data-state'),
+    ).toBe('closed');
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 

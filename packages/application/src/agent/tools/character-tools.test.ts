@@ -14,12 +14,31 @@ describe('createCharacterTools', () => {
     const deps = createDeps();
     const tools = createCharacterTools(deps);
 
-    expect(tools.find((tool) => tool.name === 'character.list')?.tags).toEqual(['character', 'read', 'search']);
-    expect(tools.find((tool) => tool.name === 'character.create')?.tags).toEqual(['character', 'mutate']);
-    expect(tools.find((tool) => tool.name === 'character.update')?.tags).toEqual(['character', 'mutate']);
-    expect(tools.find((tool) => tool.name === 'character.delete')?.tags).toEqual(['character', 'mutate']);
-    expect(tools.find((tool) => tool.name === 'character.setRefImage')?.tags).toEqual(['character', 'generation']);
-    expect(tools.find((tool) => tool.name === 'character.deleteRefImage')?.tags).toEqual(['character', 'generation']);
+    expect(tools.find((tool) => tool.name === 'character.list')?.tags).toEqual([
+      'character',
+      'read',
+      'search',
+    ]);
+    expect(tools.find((tool) => tool.name === 'character.create')?.tags).toEqual([
+      'character',
+      'mutate',
+    ]);
+    expect(tools.find((tool) => tool.name === 'character.update')?.tags).toEqual([
+      'character',
+      'mutate',
+    ]);
+    expect(tools.find((tool) => tool.name === 'character.delete')?.tags).toEqual([
+      'character',
+      'mutate',
+    ]);
+    expect(tools.find((tool) => tool.name === 'character.setRefImage')?.tags).toEqual([
+      'character',
+      'generation',
+    ]);
+    expect(tools.find((tool) => tool.name === 'character.deleteRefImage')?.tags).toEqual([
+      'character',
+      'generation',
+    ]);
   });
 
   it('returns tool names with split ref image tools', () => {
@@ -37,9 +56,51 @@ describe('createCharacterTools', () => {
 
   describe('character.list query filter', () => {
     const characters = [
-      { id: '1', name: 'Alice', role: 'protagonist', description: 'a brave hero', appearance: '', personality: '', costumes: [], referenceImages: [], loadouts: [], defaultLoadoutId: '', tags: [], createdAt: 0, updatedAt: 0 },
-      { id: '2', name: 'Bob', role: 'antagonist', description: 'a villain', appearance: '', personality: '', costumes: [], referenceImages: [], loadouts: [], defaultLoadoutId: '', tags: [], createdAt: 0, updatedAt: 0 },
-      { id: '3', name: 'Carol', role: 'supporting', description: 'a mentor figure', appearance: '', personality: '', costumes: [], referenceImages: [], loadouts: [], defaultLoadoutId: '', tags: [], createdAt: 0, updatedAt: 0 },
+      {
+        id: '1',
+        name: 'Alice',
+        role: 'protagonist',
+        description: 'a brave hero',
+        appearance: '',
+        personality: '',
+        costumes: [],
+        referenceImages: [],
+        loadouts: [],
+        defaultLoadoutId: '',
+        tags: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '2',
+        name: 'Bob',
+        role: 'antagonist',
+        description: 'a villain',
+        appearance: '',
+        personality: '',
+        costumes: [],
+        referenceImages: [],
+        loadouts: [],
+        defaultLoadoutId: '',
+        tags: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      {
+        id: '3',
+        name: 'Carol',
+        role: 'supporting',
+        description: 'a mentor figure',
+        appearance: '',
+        personality: '',
+        costumes: [],
+        referenceImages: [],
+        loadouts: [],
+        defaultLoadoutId: '',
+        tags: [],
+        createdAt: 0,
+        updatedAt: 0,
+      },
     ];
 
     function createDepsWithData() {
@@ -59,21 +120,30 @@ describe('createCharacterTools', () => {
       const deps = createDepsWithData();
       const tool = createCharacterTools(deps).find((t) => t.name === 'character.list')!;
       const result = await tool.execute({ query: 'alice' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, characters: [expect.objectContaining({ id: '1' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, characters: [expect.objectContaining({ id: '1' })] },
+      });
     });
 
     it('filters by role (OR logic)', async () => {
       const deps = createDepsWithData();
       const tool = createCharacterTools(deps).find((t) => t.name === 'character.list')!;
       const result = await tool.execute({ query: 'antagonist' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, characters: [expect.objectContaining({ id: '2' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, characters: [expect.objectContaining({ id: '2' })] },
+      });
     });
 
     it('filters by description (OR logic)', async () => {
       const deps = createDepsWithData();
       const tool = createCharacterTools(deps).find((t) => t.name === 'character.list')!;
       const result = await tool.execute({ query: 'mentor' });
-      expect(result).toMatchObject({ success: true, data: { total: 1, characters: [expect.objectContaining({ id: '3' })] } });
+      expect(result).toMatchObject({
+        success: true,
+        data: { total: 1, characters: [expect.objectContaining({ id: '3' })] },
+      });
     });
 
     it('returns empty when query matches nothing', async () => {
@@ -84,4 +154,3 @@ describe('createCharacterTools', () => {
     });
   });
 });
-

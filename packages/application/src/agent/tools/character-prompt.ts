@@ -76,7 +76,9 @@ export function buildCharacterAppearancePrompt(entity: Character): string {
   if (entity.costumes && entity.costumes.length > 0) {
     const costumeDescs = entity.costumes
       .filter((costume) => costume.description)
-      .map((costume) => (costume.name ? `${costume.name}: ${costume.description}` : costume.description));
+      .map((costume) =>
+        costume.name ? `${costume.name}: ${costume.description}` : costume.description,
+      );
     if (costumeDescs.length > 0) {
       parts.push(`Costume materials and textures: ${costumeDescs.join('; ')}`);
     }
@@ -126,9 +128,15 @@ function buildFullSheetPrompt(entity: Character, stylePlate?: string): string {
   // Compact layout block. Keep this short — long layout text cannibalizes
   // the model's attention and produces generic faces.
   segments.push('Layout: six panels on one sheet, two rows of three');
-  segments.push('Top row (taller, ~70% height) shows full-body turnaround: front, left profile, rear — head-to-toe, feet grounded, no crop');
-  segments.push('Bottom row (shorter, ~30% height) shows head-and-shoulders expressions: neutral, happy, angry');
-  segments.push('Solid white studio background, flat even lighting, single character, no props, no environment');
+  segments.push(
+    'Top row (taller, ~70% height) shows full-body turnaround: front, left profile, rear — head-to-toe, feet grounded, no crop',
+  );
+  segments.push(
+    'Bottom row (shorter, ~30% height) shows head-and-shoulders expressions: neutral, happy, angry',
+  );
+  segments.push(
+    'Solid white studio background, flat even lighting, single character, no props, no environment',
+  );
 
   return segments.join('. ') + '.';
 }
@@ -137,11 +145,7 @@ function buildFullSheetPrompt(entity: Character, stylePlate?: string): string {
  * Build a single extra-angle view — used for rare angles (three-quarter,
  * overhead, action pose, etc.) the full-sheet doesn't capture.
  */
-function buildExtraAnglePrompt(
-  entity: Character,
-  angle: string,
-  stylePlate?: string,
-): string {
+function buildExtraAnglePrompt(entity: Character, angle: string, stylePlate?: string): string {
   const appearance = buildCharacterAppearancePrompt(entity);
   const segments: string[] = [];
 
@@ -150,10 +154,14 @@ function buildExtraAnglePrompt(
   }
 
   segments.push(`Full-body ${angle} character reference`);
-  segments.push('Tall portrait composition, solid white background, even studio lighting, single character only');
+  segments.push(
+    'Tall portrait composition, solid white background, even studio lighting, single character only',
+  );
   segments.push(`Character: ${entity.name}`);
   if (appearance) segments.push(appearance);
-  segments.push('Frame the full figure cleanly so costume, body language, and silhouette read unambiguously');
+  segments.push(
+    'Frame the full figure cleanly so costume, body language, and silhouette read unambiguously',
+  );
 
   return segments.join('. ') + '.';
 }

@@ -39,10 +39,7 @@ export function defineTool<Name extends string, Params, Result>(config: {
   uiEffects?: readonly UiEffect[];
   params: ZodType<Params>;
   result: ZodType<Result>;
-  run: (
-    ctx: ToolRunContext,
-    params: Params,
-  ) => AsyncIterable<ToolEvent<Result>>;
+  run: (ctx: ToolRunContext, params: Params) => AsyncIterable<ToolEvent<Result>>;
 }): ToolDef<Name, Params, Result> {
   return {
     name: config.name,

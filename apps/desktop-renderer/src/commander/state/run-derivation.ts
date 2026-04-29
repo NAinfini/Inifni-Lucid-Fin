@@ -14,11 +14,7 @@
  * helpers on terminal events.
  */
 
-import type {
-  TimelineEvent,
-  ToolCallEvent,
-  ToolResultEvent,
-} from '@lucid-fin/contracts';
+import type { TimelineEvent, ToolCallEvent, ToolResultEvent } from '@lucid-fin/contracts';
 
 import { createMessageId, createSegmentId } from './helpers.js';
 import { buildRunSummary } from './run-summary.js';
@@ -54,11 +50,7 @@ function toolCallFromEvents(
   call: ToolCallEvent,
   result: ToolResultEvent | undefined,
 ): CommanderToolCall {
-  const status: CommanderToolCall['status'] = !result
-    ? 'pending'
-    : result.error
-      ? 'error'
-      : 'done';
+  const status: CommanderToolCall['status'] = !result ? 'pending' : result.error ? 'error' : 'done';
   return {
     name: canonicalToolName(call),
     id: call.toolCallId,
@@ -242,9 +234,7 @@ function foldEvents(
       case 'phase_note': {
         const note = phaseNoteToLegacy(e.note);
         const detail =
-          typeof e.params?.detail === 'string'
-            ? e.params.detail
-            : JSON.stringify(e.params ?? {});
+          typeof e.params?.detail === 'string' ? e.params.detail : JSON.stringify(e.params ?? {});
         segments.push({
           kind: 'phase_note',
           id: 'note-' + e.runId + '-' + e.seq,

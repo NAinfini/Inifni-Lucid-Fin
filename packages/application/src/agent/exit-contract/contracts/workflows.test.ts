@@ -11,11 +11,7 @@ import {
   styleTransferContract,
 } from './index.js';
 
-function commit(
-  toolName: string,
-  args: unknown,
-  resultOk = true,
-): CompletionEvidence {
+function commit(toolName: string, args: unknown, resultOk = true): CompletionEvidence {
   return { kind: 'mutation_commit', toolName, args, resultOk, at: 0 };
 }
 
@@ -63,9 +59,7 @@ describe('workflow contracts — satisfied paths', () => {
   });
 
   it('story-to-video: canvas.batchCreate with empty nodes does NOT satisfy', () => {
-    expectUnsatisfied('story-to-video', [
-      commit('canvas.batchCreate', { nodes: [] }),
-    ]);
+    expectUnsatisfied('story-to-video', [commit('canvas.batchCreate', { nodes: [] })]);
   });
 
   it('style-plate: canvas.setSettings with stylePlate key satisfies', () => {
@@ -81,9 +75,7 @@ describe('workflow contracts — satisfied paths', () => {
   });
 
   it('shot-list: canvas.batchCreate satisfies', () => {
-    expectSatisfied('shot-list', [
-      commit('canvas.batchCreate', { nodes: [{ type: 'shot' }] }),
-    ]);
+    expectSatisfied('shot-list', [commit('canvas.batchCreate', { nodes: [{ type: 'shot' }] })]);
   });
 
   it('shot-list: shotTemplate.create satisfies via substitute', () => {

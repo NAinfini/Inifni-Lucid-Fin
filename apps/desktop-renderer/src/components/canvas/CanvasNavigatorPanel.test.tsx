@@ -107,9 +107,7 @@ describe('CanvasNavigatorPanel', () => {
     });
     fireEvent.blur(screen.getByDisplayValue('Renamed Canvas'));
     expect(api.canvas.rename).toHaveBeenCalledWith('canvas-2', 'Renamed Canvas');
-    expect(store.getState().canvas.canvases.entities['canvas-2']?.name).toBe(
-      'Renamed Canvas',
-    );
+    expect(store.getState().canvas.canvases.entities['canvas-2']?.name).toBe('Renamed Canvas');
 
     fireEvent.click(screen.getByRole('button', { name: `${t('action.delete')} Renamed Canvas` }));
     fireEvent.click(await screen.findByRole('button', { name: t('action.confirm') }));

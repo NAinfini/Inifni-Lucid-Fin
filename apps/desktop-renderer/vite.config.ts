@@ -46,18 +46,22 @@ export function desktopRendererManualChunks(id: string) {
     return 'vendor-markdown';
   }
 
-  if (normalizedId.includes('/components/canvas/CommanderPanel.')
-    || normalizedId.includes('/hooks/useCommander.')
-    || normalizedId.includes('/components/canvas/commander/')) {
+  if (
+    normalizedId.includes('/components/canvas/CommanderPanel.') ||
+    normalizedId.includes('/hooks/useCommander.') ||
+    normalizedId.includes('/components/canvas/commander/')
+  ) {
     return 'panel-commander';
   }
-  if (normalizedId.includes('/components/canvas/AssetBrowserPanel.')
-    || normalizedId.includes('/components/canvas/asset-browser/')) {
+  if (
+    normalizedId.includes('/components/canvas/AssetBrowserPanel.') ||
+    normalizedId.includes('/components/canvas/asset-browser/')
+  ) {
     return 'panel-assets';
   }
   if (
-    normalizedId.includes('/components/canvas/Inspector')
-    || normalizedId.includes('/components/canvas/inspector-')
+    normalizedId.includes('/components/canvas/Inspector') ||
+    normalizedId.includes('/components/canvas/inspector-')
   ) {
     return 'panel-inspector';
   }
@@ -78,9 +82,12 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
     strictPort: true,
   },
-  define: mode === 'development' ? {
-    'process.env.NODE_ENV': '"development"',
-  } : undefined,
+  define:
+    mode === 'development'
+      ? {
+          'process.env.NODE_ENV': '"development"',
+        }
+      : undefined,
   build: {
     outDir: 'dist',
     emptyOutDir: true,

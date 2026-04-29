@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isRecord, isNodeReferenceKey, isNodeReferenceListKey, formatNodeReference, annotateToolPayload } from './node-formatting.js';
+import {
+  isRecord,
+  isNodeReferenceKey,
+  isNodeReferenceListKey,
+  formatNodeReference,
+  annotateToolPayload,
+} from './node-formatting.js';
 
 describe('isRecord', () => {
   it('returns true for plain objects', () => {

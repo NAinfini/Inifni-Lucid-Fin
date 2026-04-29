@@ -1,14 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { Layers, Plus } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
-import type { Canvas } from '@lucid-fin/contracts';
 import type { AppDispatch, RootState } from '../store/index.js';
-import {
-  addCanvas,
-  setActiveCanvas,
-  setCanvases,
-  setLoading,
-} from '../store/slices/canvas.js';
+import { addCanvas, setActiveCanvas, setCanvases, setLoading } from '../store/slices/canvas.js';
 import { selectAllCanvases, selectActiveCanvas } from '../store/slices/canvas-selectors.js';
 import { toggleCommander } from '../store/slices/commander.js';
 import { setPresets, setPresetsLoading } from '../store/slices/presets.js';
@@ -23,22 +17,74 @@ import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import { useClipboardWatcher } from '../hooks/useClipboardWatcher.js';
 
-const AddNodePanel = lazy(() => import('../components/canvas/AddNodePanel.js').then(m => ({ default: m.AddNodePanel })));
-const AssetBrowserPanel = lazy(() => import('../components/canvas/AssetBrowserPanel.js').then(m => ({ default: m.AssetBrowserPanel })));
-const CanvasNavigatorPanel = lazy(() => import('../components/canvas/CanvasNavigatorPanel.js').then(m => ({ default: m.CanvasNavigatorPanel })));
-const CanvasNotesPanel = lazy(() => import('../components/canvas/CanvasNotesPanel.js').then(m => ({ default: m.CanvasNotesPanel })));
-const CharacterManagerPanel = lazy(() => import('../components/canvas/CharacterManagerPanel.js').then(m => ({ default: m.CharacterManagerPanel })));
-const CommanderPanel = lazy(() => import('../components/canvas/CommanderPanel.js').then(m => ({ default: m.CommanderPanel })));
-const DependenciesPanel = lazy(() => import('../components/canvas/DependenciesPanel.js').then(m => ({ default: m.DependenciesPanel })));
-const EquipmentManagerPanel = lazy(() => import('../components/canvas/EquipmentManagerPanel.js').then(m => ({ default: m.EquipmentManagerPanel })));
-const LocationManagerPanel = lazy(() => import('../components/canvas/LocationManagerPanel.js').then(m => ({ default: m.LocationManagerPanel })));
-const ExportRenderPanel = lazy(() => import('../components/canvas/ExportRenderPanel.js').then(m => ({ default: m.ExportRenderPanel })));
-const GenerationQueuePanel = lazy(() => import('../components/canvas/GenerationQueuePanel.js').then(m => ({ default: m.GenerationQueuePanel })));
-const HistoryPanel = lazy(() => import('../components/canvas/HistoryPanel.js').then(m => ({ default: m.HistoryPanel })));
-const InspectorPanel = lazy(() => import('../components/canvas/InspectorPanel.js').then(m => ({ default: m.InspectorPanel })));
-const LoggerPanel = lazy(() => import('../components/canvas/LoggerPanel.js').then(m => ({ default: m.LoggerPanel })));
-const PresetManagerPanel = lazy(() => import('../components/canvas/PresetManagerPanel.js').then(m => ({ default: m.PresetManagerPanel })));
-const ShotTemplateManagerPanel = lazy(() => import('../components/canvas/ShotTemplateManagerPanel.js').then(m => ({ default: m.ShotTemplateManagerPanel })));
+const AddNodePanel = lazy(() =>
+  import('../components/canvas/AddNodePanel.js').then((m) => ({ default: m.AddNodePanel })),
+);
+const AssetBrowserPanel = lazy(() =>
+  import('../components/canvas/AssetBrowserPanel.js').then((m) => ({
+    default: m.AssetBrowserPanel,
+  })),
+);
+const CanvasNavigatorPanel = lazy(() =>
+  import('../components/canvas/CanvasNavigatorPanel.js').then((m) => ({
+    default: m.CanvasNavigatorPanel,
+  })),
+);
+const CanvasNotesPanel = lazy(() =>
+  import('../components/canvas/CanvasNotesPanel.js').then((m) => ({ default: m.CanvasNotesPanel })),
+);
+const CharacterManagerPanel = lazy(() =>
+  import('../components/canvas/CharacterManagerPanel.js').then((m) => ({
+    default: m.CharacterManagerPanel,
+  })),
+);
+const CommanderPanel = lazy(() =>
+  import('../components/canvas/CommanderPanel.js').then((m) => ({ default: m.CommanderPanel })),
+);
+const DependenciesPanel = lazy(() =>
+  import('../components/canvas/DependenciesPanel.js').then((m) => ({
+    default: m.DependenciesPanel,
+  })),
+);
+const EquipmentManagerPanel = lazy(() =>
+  import('../components/canvas/EquipmentManagerPanel.js').then((m) => ({
+    default: m.EquipmentManagerPanel,
+  })),
+);
+const LocationManagerPanel = lazy(() =>
+  import('../components/canvas/LocationManagerPanel.js').then((m) => ({
+    default: m.LocationManagerPanel,
+  })),
+);
+const ExportRenderPanel = lazy(() =>
+  import('../components/canvas/ExportRenderPanel.js').then((m) => ({
+    default: m.ExportRenderPanel,
+  })),
+);
+const GenerationQueuePanel = lazy(() =>
+  import('../components/canvas/GenerationQueuePanel.js').then((m) => ({
+    default: m.GenerationQueuePanel,
+  })),
+);
+const HistoryPanel = lazy(() =>
+  import('../components/canvas/HistoryPanel.js').then((m) => ({ default: m.HistoryPanel })),
+);
+const InspectorPanel = lazy(() =>
+  import('../components/canvas/InspectorPanel.js').then((m) => ({ default: m.InspectorPanel })),
+);
+const LoggerPanel = lazy(() =>
+  import('../components/canvas/LoggerPanel.js').then((m) => ({ default: m.LoggerPanel })),
+);
+const PresetManagerPanel = lazy(() =>
+  import('../components/canvas/PresetManagerPanel.js').then((m) => ({
+    default: m.PresetManagerPanel,
+  })),
+);
+const ShotTemplateManagerPanel = lazy(() =>
+  import('../components/canvas/ShotTemplateManagerPanel.js').then((m) => ({
+    default: m.ShotTemplateManagerPanel,
+  })),
+);
 
 const MIN_PANEL_WIDTH = 200;
 const MAX_PANEL_WIDTH = 500;
@@ -54,44 +100,47 @@ function DragHandle({
 }) {
   const lastX = useRef(0);
 
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    lastX.current = e.clientX;
-    let pendingWidth: number | null = null;
-    let rafId = 0;
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      lastX.current = e.clientX;
+      let pendingWidth: number | null = null;
+      let rafId = 0;
 
-    const flush = () => {
-      rafId = 0;
-      if (pendingWidth === null) return;
-      const w = pendingWidth;
-      pendingWidth = null;
-      widthRef.current = w;
-      if (panelRef.current) panelRef.current.style.width = `${w}px`;
-    };
+      const flush = () => {
+        rafId = 0;
+        if (pendingWidth === null) return;
+        const w = pendingWidth;
+        pendingWidth = null;
+        widthRef.current = w;
+        if (panelRef.current) panelRef.current.style.width = `${w}px`;
+      };
 
-    const onMouseMove = (ev: MouseEvent) => {
-      const delta = ev.clientX - lastX.current;
-      lastX.current = ev.clientX;
-      const signed = side === 'left' ? delta : -delta;
-      const base = pendingWidth ?? widthRef.current;
-      pendingWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, base + signed));
-      if (!rafId) rafId = requestAnimationFrame(flush);
-    };
+      const onMouseMove = (ev: MouseEvent) => {
+        const delta = ev.clientX - lastX.current;
+        lastX.current = ev.clientX;
+        const signed = side === 'left' ? delta : -delta;
+        const base = pendingWidth ?? widthRef.current;
+        pendingWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, base + signed));
+        if (!rafId) rafId = requestAnimationFrame(flush);
+      };
 
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      if (rafId) cancelAnimationFrame(rafId);
-      flush();
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        if (rafId) cancelAnimationFrame(rafId);
+        flush();
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
 
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  }, [panelRef, side, widthRef]);
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [panelRef, side, widthRef],
+  );
 
   return (
     <div
@@ -134,10 +183,7 @@ export function CanvasPage() {
         const listed = await api?.canvas.list();
         if (!Array.isArray(listed)) return;
 
-        const loaded: Canvas[] = [];
-        for (const item of listed) {
-          loaded.push(await api.canvas.load(item.id));
-        }
+        const loaded = await Promise.all(listed.map((item) => api.canvas.load(item.id)));
 
         if (cancelled) return;
         dispatch(setCanvases(loaded));
@@ -151,7 +197,7 @@ export function CanvasPage() {
               level: 'error',
               category: 'canvas',
               message: t('toast.error.canvasLoadFailed'),
-              detail: err instanceof Error ? err.stack ?? err.message : String(err),
+              detail: err instanceof Error ? (err.stack ?? err.message) : String(err),
             }),
           );
           dispatch(
@@ -234,7 +280,8 @@ export function CanvasPage() {
     });
 
     const unsubscribeReady = api.onReady(() => {
-      void api.logger.getRecent()
+      void api.logger
+        .getRecent()
         .then((entries) => {
           for (const entry of entries) {
             pushEntry(entry);
@@ -308,18 +355,36 @@ export function CanvasPage() {
   const renderActivePanel = () => {
     let Panel: React.ComponentType | null = null;
     switch (activePanel) {
-      case 'add': Panel = AddNodePanel; break;
-      case 'assets': Panel = AssetBrowserPanel; break;
-      case 'characters': Panel = CharacterManagerPanel; break;
-      case 'equipment': Panel = EquipmentManagerPanel; break;
-      case 'locations': Panel = LocationManagerPanel; break;
-      case 'shotTemplates': Panel = ShotTemplateManagerPanel; break;
-      case 'presets': Panel = PresetManagerPanel; break;
-      case 'canvases': Panel = CanvasNavigatorPanel; break;
+      case 'add':
+        Panel = AddNodePanel;
+        break;
+      case 'assets':
+        Panel = AssetBrowserPanel;
+        break;
+      case 'characters':
+        Panel = CharacterManagerPanel;
+        break;
+      case 'equipment':
+        Panel = EquipmentManagerPanel;
+        break;
+      case 'locations':
+        Panel = LocationManagerPanel;
+        break;
+      case 'shotTemplates':
+        Panel = ShotTemplateManagerPanel;
+        break;
+      case 'presets':
+        Panel = PresetManagerPanel;
+        break;
+      case 'canvases':
+        Panel = CanvasNavigatorPanel;
+        break;
     }
     return Panel ? (
-      <ErrorBoundary name="Asset Browser">
-        <Suspense fallback={null}><Panel /></Suspense>
+      <ErrorBoundary name={activePanel ?? undefined}>
+        <Suspense fallback={null}>
+          <Panel />
+        </Suspense>
       </ErrorBoundary>
     ) : null;
   };
@@ -327,17 +392,33 @@ export function CanvasPage() {
   const renderRightPanel = () => {
     let Panel: React.ComponentType | null = null;
     switch (rightPanel) {
-      case 'inspector': Panel = InspectorPanel; break;
-      case 'logger': Panel = LoggerPanel; break;
-      case 'dependencies': Panel = DependenciesPanel; break;
-      case 'queue': Panel = GenerationQueuePanel; break;
-      case 'history': Panel = HistoryPanel; break;
-      case 'notes': Panel = CanvasNotesPanel; break;
-      case 'export': Panel = ExportRenderPanel; break;
+      case 'inspector':
+        Panel = InspectorPanel;
+        break;
+      case 'logger':
+        Panel = LoggerPanel;
+        break;
+      case 'dependencies':
+        Panel = DependenciesPanel;
+        break;
+      case 'queue':
+        Panel = GenerationQueuePanel;
+        break;
+      case 'history':
+        Panel = HistoryPanel;
+        break;
+      case 'notes':
+        Panel = CanvasNotesPanel;
+        break;
+      case 'export':
+        Panel = ExportRenderPanel;
+        break;
     }
     return Panel ? (
-      <ErrorBoundary name="Inspector">
-        <Suspense fallback={null}><Panel /></Suspense>
+      <ErrorBoundary name={rightPanel ?? undefined}>
+        <Suspense fallback={null}>
+          <Panel />
+        </Suspense>
       </ErrorBoundary>
     ) : null;
   };
@@ -357,7 +438,9 @@ export function CanvasPage() {
               <Layers className="h-8 w-8" />
             </div>
             <div>
-              <div className="text-base font-medium text-foreground">{t('panels.emptyCanvasTitle')}</div>
+              <div className="text-base font-medium text-foreground">
+                {t('panels.emptyCanvasTitle')}
+              </div>
               <div className="mt-1 text-sm">{t('panels.emptyCanvasHint')}</div>
             </div>
             <button
@@ -371,31 +454,39 @@ export function CanvasPage() {
           </div>
         ) : (
           <ReactFlowProvider>
-          <div className="flex h-full w-full">
-            {activePanel ? (
-              <>
-                <div ref={leftPanelRef} className="h-full shrink-0 overflow-hidden" style={{ width: leftWidthRef.current }}>
-                  {renderActivePanel()}
-                </div>
-                <DragHandle side="left" panelRef={leftPanelRef} widthRef={leftWidthRef} />
-              </>
-            ) : null}
+            <div className="flex h-full w-full">
+              {activePanel ? (
+                <>
+                  <div
+                    ref={leftPanelRef}
+                    className="h-full shrink-0 overflow-hidden"
+                    style={{ width: leftWidthRef.current }}
+                  >
+                    {renderActivePanel()}
+                  </div>
+                  <DragHandle side="left" panelRef={leftPanelRef} widthRef={leftWidthRef} />
+                </>
+              ) : null}
 
-            <div className="flex-1 min-w-0 h-full">
-              <ErrorBoundary name="Canvas">
-                <CanvasWorkspace />
-              </ErrorBoundary>
+              <div className="flex-1 min-w-0 h-full">
+                <ErrorBoundary name="Canvas">
+                  <CanvasWorkspace />
+                </ErrorBoundary>
+              </div>
+
+              {rightPanel !== null ? (
+                <>
+                  <DragHandle side="right" panelRef={rightPanelRef} widthRef={rightWidthRef} />
+                  <div
+                    ref={rightPanelRef}
+                    className="h-full shrink-0 overflow-hidden"
+                    style={{ width: rightWidthRef.current }}
+                  >
+                    {renderRightPanel()}
+                  </div>
+                </>
+              ) : null}
             </div>
-
-            {rightPanel !== null ? (
-              <>
-                <DragHandle side="right" panelRef={rightPanelRef} widthRef={rightWidthRef} />
-                <div ref={rightPanelRef} className="h-full shrink-0 overflow-hidden" style={{ width: rightWidthRef.current }}>
-                  {renderRightPanel()}
-                </div>
-              </>
-            ) : null}
-          </div>
           </ReactFlowProvider>
         )}
       </div>

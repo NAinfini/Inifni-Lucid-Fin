@@ -34,8 +34,14 @@ const TAB_GROUPS: SettingsTabGroup[] = [
     labelKey: 'settings.nav.groupProgram',
     fallbackLabel: 'Application',
     tabs: [
-      'commander', 'providers', 'guides', 'processGuides',
-      'appearance', 'storage', 'usage', 'about',
+      'commander',
+      'providers',
+      'guides',
+      'processGuides',
+      'appearance',
+      'storage',
+      'usage',
+      'about',
     ],
   },
   {

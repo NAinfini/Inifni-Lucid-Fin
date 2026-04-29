@@ -16,8 +16,7 @@
  * force `askUser` on every response that happens to contain a list.
  */
 
-const OPTION_LINE_RE =
-  /^\s{0,3}(?:[A-Fa-f]|[1-9])\s*[.):|\-–—]\s+\S/gm;
+const OPTION_LINE_RE = /^\s{0,3}(?:[A-Fa-f]|[1-9])\s*[.):|\-–—]\s+\S/gm;
 
 export function detectOptionListMarkdown(text: string): boolean {
   if (!text || text.length < 10) return false;

@@ -114,14 +114,10 @@ describe('stitchVideos', () => {
     const cmd = makeCrossfadeCommandChain();
     createCommandMock.mockReturnValue(cmd);
 
-    await stitchVideos(
-      ['clip-a.mp4', 'clip-b.mp4', 'clip-c.mp4'],
-      'output.mp4',
-      {
-        crossfadeDuration: 1,
-        segmentDurations: [5, 7, 6],
-      },
-    );
+    await stitchVideos(['clip-a.mp4', 'clip-b.mp4', 'clip-c.mp4'], 'output.mp4', {
+      crossfadeDuration: 1,
+      segmentDurations: [5, 7, 6],
+    });
 
     expect(writeFileSyncMock).not.toHaveBeenCalled();
     expect(createCommandMock).toHaveBeenCalledWith();

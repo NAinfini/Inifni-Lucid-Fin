@@ -5,12 +5,7 @@ import type { RootState } from '../../store/index.js';
 import { toggleRightPanel, type RightPanelId } from '../../store/slices/ui.js';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../ui/Tooltip.js';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip.js';
 
 interface ToolbarButton {
   id: string;

@@ -9,11 +9,7 @@
  * returns the full envelope; consumers unwrap `envelope.event` as needed.
  */
 
-import type {
-  CommanderWireVersion,
-  TimelineEvent,
-  WireEnvelope,
-} from '@lucid-fin/contracts';
+import type { CommanderWireVersion, TimelineEvent, WireEnvelope } from '@lucid-fin/contracts';
 import type { LucidAPI } from '../../utils/api.js';
 
 type CommanderAPI = NonNullable<LucidAPI>['commander'];

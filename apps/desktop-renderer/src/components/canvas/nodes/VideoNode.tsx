@@ -13,12 +13,7 @@ import { NodeBorderHandles } from './node-border-handles.js';
 import { NodeResizeControls } from './node-resize-controls.js';
 import { useNodeCallbacks } from '../node-callbacks-context.js';
 import { useCanvasLodFromContext } from '../use-canvas-lod.js';
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from '../../ui/Dialog.js';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../ui/Dialog.js';
 
 export interface VideoNodeFlowData {
   nodeId: string;
@@ -64,7 +59,9 @@ function VideoPlayerModal({
   useEffect(() => {
     if (open && modalVideoRef.current && videoUrl) {
       modalVideoRef.current.currentTime = 0;
-      modalVideoRef.current.play().catch(() => { /* 404/missing asset: silent */ });
+      modalVideoRef.current.play().catch(() => {
+        /* 404/missing asset: silent */
+      });
     }
   }, [open, videoUrl]);
 
@@ -75,9 +72,7 @@ function VideoPlayerModal({
           <DialogTitle className="text-sm font-medium truncate">
             {title || t('node.video')}
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            {t('node.video')}
-          </DialogDescription>
+          <DialogDescription className="sr-only">{t('node.video')}</DialogDescription>
         </div>
         <div className="relative w-full min-h-[300px] bg-black flex items-center justify-center">
           {videoUrl ? (
@@ -125,7 +120,9 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
     const vid = previewRef.current;
     if (vid && videoUrl) {
       vid.currentTime = 0;
-      vid.play().catch(() => { /* 404/missing asset: silent */ });
+      vid.play().catch(() => {
+        /* 404/missing asset: silent */
+      });
     }
   }, [modalOpen, videoUrl]);
 
@@ -150,12 +147,7 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
   }, []);
 
   return (
-    <NodeContextMenu
-      nodeId={d.nodeId}
-      nodeType="video"
-      locked={d.locked}
-      colorTag={d.colorTag}
-    >
+    <NodeContextMenu nodeId={d.nodeId} nodeType="video" locked={d.locked} colorTag={d.colorTag}>
       <div ref={visibilityRef} className="relative h-full min-h-[140px] min-w-[200px] w-full">
         <NodeBorderHandles colorClassName="!bg-purple-500" />
         {lod === 'full' && (
@@ -177,9 +169,12 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
         >
           <NodeStatusBadge status={d.status} />
           {d.generationStatus === 'generating' && (
-            <div className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-purple-500 bg-purple-500/5" style={{
-              animation: 'border-glow-purple 2s ease-in-out infinite',
-            }} />
+            <div
+              className="pointer-events-none absolute inset-0 z-10 rounded-lg border-2 border-purple-500 bg-purple-500/5"
+              style={{
+                animation: 'border-glow-purple 2s ease-in-out infinite',
+              }}
+            />
           )}
 
           <div className="flex items-center gap-1.5 border-b border-purple-500/20 px-3 py-2">
@@ -187,7 +182,11 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             <span className="flex-1 truncate text-xs font-medium">
               {d.title || t('node.videoNode')}
             </span>
-            {lod === 'full' && d.providerId && <span className="text-[9px] text-muted-foreground/70">{getProviderDisplayName(d.providerId)}</span>}
+            {lod === 'full' && d.providerId && (
+              <span className="text-[9px] text-muted-foreground/70">
+                {getProviderDisplayName(d.providerId)}
+              </span>
+            )}
             {d.duration != null && (
               <span className="rounded bg-purple-500/10 px-1.5 text-[10px] text-purple-400">
                 {d.duration.toFixed(1)}s
@@ -207,13 +206,21 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
                 data-testid="video-media-viewport"
                 className="flex min-h-[80px] min-w-0 flex-1 items-center justify-center overflow-hidden px-3 py-3"
                 draggable={hasVideo && Boolean(activeHash)}
-                onDragStart={hasVideo && activeHash ? (e) => {
-                  e.dataTransfer.setData(
-                    'application/x-lucid-node-asset',
-                    JSON.stringify({ hash: activeHash, name: d.title || 'video', type: 'video' }),
-                  );
-                  e.dataTransfer.effectAllowed = 'copy';
-                } : undefined}
+                onDragStart={
+                  hasVideo && activeHash
+                    ? (e) => {
+                        e.dataTransfer.setData(
+                          'application/x-lucid-node-asset',
+                          JSON.stringify({
+                            hash: activeHash,
+                            name: d.title || 'video',
+                            type: 'video',
+                          }),
+                        );
+                        e.dataTransfer.effectAllowed = 'copy';
+                      }
+                    : undefined
+                }
               >
                 {hasVideo ? (
                   <div
@@ -270,7 +277,10 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
                   {d.generationStatus === 'generating' && typeof d.progress === 'number' && (
                     <div className="px-3 pb-1">
                       <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full bg-purple-500 transition-[width] duration-200" style={{ width: `${d.progress}%` }} />
+                        <div
+                          className="h-full bg-purple-500 transition-[width] duration-200"
+                          style={{ width: `${d.progress}%` }}
+                        />
                       </div>
                       <span className="text-[10px] text-muted-foreground">{d.progress}%</span>
                     </div>
@@ -278,7 +288,9 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
 
                   {d.generationStatus === 'failed' && d.error && (
                     <div className="px-3 pb-1 overflow-hidden">
-                      <span className="block text-[10px] text-destructive line-clamp-2">{d.error}</span>
+                      <span className="block text-[10px] text-destructive line-clamp-2">
+                        {d.error}
+                      </span>
                     </div>
                   )}
 
@@ -289,7 +301,9 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
                   {d.variants.length > 1 && (
                     <div className="border-t border-purple-500/10 px-3 py-1.5">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[9px] text-muted-foreground">{d.selectedVariantIndex + 1}/{d.variants.length}</span>
+                        <span className="text-[9px] text-muted-foreground">
+                          {d.selectedVariantIndex + 1}/{d.variants.length}
+                        </span>
                       </div>
                       <div className="overflow-x-auto">
                         <div className="flex min-w-max items-center gap-1">
@@ -339,7 +353,11 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
                         onContextMenu={(e) => e.preventDefault()}
                         aria-label={d.seedLocked ? 'Unlock seed' : 'Lock seed'}
                       >
-                        {d.seedLocked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                        {d.seedLocked ? (
+                          <Lock className="h-3 w-3" />
+                        ) : (
+                          <Unlock className="h-3 w-3" />
+                        )}
                       </button>
                     </span>
                   </div>
@@ -383,10 +401,14 @@ function FrameThumb({ hash, label }: { hash: string | undefined; label: string }
             src={url}
             alt={label}
             className="h-full w-full object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-[8px] text-muted-foreground">…</div>
+          <div className="flex h-full w-full items-center justify-center text-[8px] text-muted-foreground">
+            …
+          </div>
         )}
       </div>
       <span className="text-[9px] text-muted-foreground">{label}</span>
@@ -420,7 +442,9 @@ const VariantThumb = memo(function VariantThumb({
     <button
       className={cn(
         'h-10 w-10 shrink-0 overflow-hidden rounded border-2',
-        selected ? 'border-purple-500 ring-1 ring-purple-500/40' : 'border-transparent hover:border-purple-400/50',
+        selected
+          ? 'border-purple-500 ring-1 ring-purple-500/40'
+          : 'border-transparent hover:border-purple-400/50',
       )}
       onClick={onClick}
       onContextMenu={(e) => e.preventDefault()}

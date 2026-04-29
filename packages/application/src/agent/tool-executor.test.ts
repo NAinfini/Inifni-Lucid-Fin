@@ -11,20 +11,20 @@ import { AgentToolRegistry, type AgentTool } from './tool-registry.js';
 describe('needsConfirmation matrix', () => {
   const cases: Array<{ tier: 1 | 2 | 3 | 4; mode: string; expect: boolean }> = [
     // auto — only tier 4 asks (expensive/irreversible)
-    { tier: 1, mode: 'auto',   expect: false },
-    { tier: 2, mode: 'auto',   expect: false },
-    { tier: 3, mode: 'auto',   expect: false },
-    { tier: 4, mode: 'auto',   expect: true  },
+    { tier: 1, mode: 'auto', expect: false },
+    { tier: 2, mode: 'auto', expect: false },
+    { tier: 3, mode: 'auto', expect: false },
+    { tier: 4, mode: 'auto', expect: true },
     // normal — tiers 3 and 4 ask
     { tier: 1, mode: 'normal', expect: false },
     { tier: 2, mode: 'normal', expect: false },
-    { tier: 3, mode: 'normal', expect: true  },
-    { tier: 4, mode: 'normal', expect: true  },
+    { tier: 3, mode: 'normal', expect: true },
+    { tier: 4, mode: 'normal', expect: true },
     // strict — every tier asks
-    { tier: 1, mode: 'strict', expect: true  },
-    { tier: 2, mode: 'strict', expect: true  },
-    { tier: 3, mode: 'strict', expect: true  },
-    { tier: 4, mode: 'strict', expect: true  },
+    { tier: 1, mode: 'strict', expect: true },
+    { tier: 2, mode: 'strict', expect: true },
+    { tier: 3, mode: 'strict', expect: true },
+    { tier: 4, mode: 'strict', expect: true },
   ];
 
   for (const c of cases) {

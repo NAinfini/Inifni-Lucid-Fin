@@ -1,5 +1,16 @@
 import { useSelector } from 'react-redux';
-import { ListTodo, Loader2, CheckCircle2, XCircle, X, ChevronDown, ChevronRight, Trash2, ImageIcon, RotateCcw } from 'lucide-react';
+import {
+  ListTodo,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  X,
+  ChevronDown,
+  ChevronRight,
+  Trash2,
+  ImageIcon,
+  RotateCcw,
+} from 'lucide-react';
 import { useDispatch } from 'react-redux';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RootState } from '../../store/index.js';
@@ -51,10 +62,13 @@ export function GenerationQueuePanel() {
       ...(s.llm?.providers ?? []),
     ];
   });
-  const resolveProviderName = useCallback((id?: string) => {
-    if (!id) return undefined;
-    return allProviders.find((p) => p.id === id)?.name ?? id;
-  }, [allProviders]);
+  const resolveProviderName = useCallback(
+    (id?: string) => {
+      if (!id) return undefined;
+      return allProviders.find((p) => p.id === id)?.name ?? id;
+    },
+    [allProviders],
+  );
 
   // --- Ref image generation jobs (character/equipment/location ref images) ---
   interface RefImageJob {
@@ -76,44 +90,78 @@ export function GenerationQueuePanel() {
     const api = getAPI();
     if (!api?.refimage) return;
     const unsubs: Array<() => void> = [];
-    unsubs.push(api.refimage.onStart((data: { jobId: string; provider: string; width: number; height: number }) => {
-      setRefImageJobs((prev) => [
-        ...prev,
-        { id: data.jobId, status: 'generating', provider: data.provider, width: data.width, height: data.height, startedAt: Date.now() },
-      ]);
-    }));
-    unsubs.push(api.refimage.onComplete((data: { jobId: string }) => {
-      setRefImageJobs((prev) => prev.map((j) => j.id === data.jobId ? { ...j, status: 'done' as const } : j));
-    }));
-    unsubs.push(api.refimage.onFailed((data: { jobId: string; error: string }) => {
-      setRefImageJobs((prev) => prev.map((j) => j.id === data.jobId ? { ...j, status: 'failed' as const, error: data.error } : j));
-    }));
+    unsubs.push(
+      api.refimage.onStart(
+        (data: { jobId: string; provider: string; width: number; height: number }) => {
+          setRefImageJobs((prev) => [
+            ...prev,
+            {
+              id: data.jobId,
+              status: 'generating',
+              provider: data.provider,
+              width: data.width,
+              height: data.height,
+              startedAt: Date.now(),
+            },
+          ]);
+        },
+      ),
+    );
+    unsubs.push(
+      api.refimage.onComplete((data: { jobId: string }) => {
+        setRefImageJobs((prev) =>
+          prev.map((j) => (j.id === data.jobId ? { ...j, status: 'done' as const } : j)),
+        );
+      }),
+    );
+    unsubs.push(
+      api.refimage.onFailed((data: { jobId: string; error: string }) => {
+        setRefImageJobs((prev) =>
+          prev.map((j) =>
+            j.id === data.jobId ? { ...j, status: 'failed' as const, error: data.error } : j,
+          ),
+        );
+      }),
+    );
     return () => unsubs.forEach((u) => u());
   }, []);
 
   const canvasNodes = canvas?.nodes;
-  const generationNodes = useMemo(() => (canvasNodes ?? [])
-    .filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio')
-    .map((n) => {
-      const data = n.data as { status?: string; progress?: number; error?: string; providerId?: string; jobId?: string; currentStep?: string; estimatedCost?: number; cost?: number; generationTimeMs?: number };
-      return {
-        id: n.id,
-        title: n.title || n.type,
-        type: n.type,
-        status: data.status ?? 'empty',
-        progress: data.progress ?? 0,
-        error: data.error,
-        providerId: data.providerId,
-        providerName: resolveProviderName(data.providerId),
-        jobId: data.jobId,
-        currentStep: data.currentStep,
-        estimatedCost: data.estimatedCost,
-        cost: data.cost,
-        generationTimeMs: data.generationTimeMs,
-      };
-    })
-    .filter((n) => n.status !== 'empty'),
-  [canvasNodes, resolveProviderName]);
+  const generationNodes = useMemo(
+    () =>
+      (canvasNodes ?? [])
+        .filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio')
+        .map((n) => {
+          const data = n.data as {
+            status?: string;
+            progress?: number;
+            error?: string;
+            providerId?: string;
+            jobId?: string;
+            currentStep?: string;
+            estimatedCost?: number;
+            cost?: number;
+            generationTimeMs?: number;
+          };
+          return {
+            id: n.id,
+            title: n.title || n.type,
+            type: n.type,
+            status: data.status ?? 'empty',
+            progress: data.progress ?? 0,
+            error: data.error,
+            providerId: data.providerId,
+            providerName: resolveProviderName(data.providerId),
+            jobId: data.jobId,
+            currentStep: data.currentStep,
+            estimatedCost: data.estimatedCost,
+            cost: data.cost,
+            generationTimeMs: data.generationTimeMs,
+          };
+        })
+        .filter((n) => n.status !== 'empty'),
+    [canvasNodes, resolveProviderName],
+  );
 
   const { generating, completed, failed } = useMemo(() => {
     const gen: typeof generationNodes = [];
@@ -144,18 +192,21 @@ export function GenerationQueuePanel() {
     }
   };
 
-  const handleRetry = useCallback(async (nodeId: string) => {
-    if (!canvas) return;
-    dispatch(clearNodeGenerationStatus({ id: nodeId }));
-    try {
-      const api = getAPI();
-      if (api?.canvasGeneration) {
-        await api.canvasGeneration.generate(canvas.id, nodeId);
+  const handleRetry = useCallback(
+    async (nodeId: string) => {
+      if (!canvas) return;
+      dispatch(clearNodeGenerationStatus({ id: nodeId }));
+      try {
+        const api = getAPI();
+        if (api?.canvasGeneration) {
+          await api.canvasGeneration.generate(canvas.id, nodeId);
+        }
+      } catch (err) {
+        console.error('[GenerationQueue] retry failed', err);
       }
-    } catch (err) {
-      console.error('[GenerationQueue] retry failed', err);
-    }
-  }, [canvas, dispatch]);
+    },
+    [canvas, dispatch],
+  );
 
   return (
     <div className="h-full flex flex-col bg-card border-l border-border/60 overflow-auto">
@@ -178,7 +229,10 @@ export function GenerationQueuePanel() {
         aria-live="polite"
         aria-label={t('generation.queueStatus')}
       >
-        {generating.length === 0 && completed.length === 0 && failed.length === 0 && refImageJobs.length === 0 ? (
+        {generating.length === 0 &&
+        completed.length === 0 &&
+        failed.length === 0 &&
+        refImageJobs.length === 0 ? (
           <div className="text-[11px] text-muted-foreground text-center py-8">
             {t('generation.noJobs')}
           </div>
@@ -188,66 +242,91 @@ export function GenerationQueuePanel() {
         {refImageJobs.filter((j) => j.status === 'generating').length > 0 && (
           <div className="space-y-1">
             <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-              {t('generation.refImages')} ({refImageJobs.filter((j) => j.status === 'generating').length})
+              {t('generation.refImages')} (
+              {refImageJobs.filter((j) => j.status === 'generating').length})
             </div>
-            {refImageJobs.filter((j) => j.status === 'generating').map((job) => (
-              <div key={job.id} className="flex items-center gap-2 rounded-md border border-border/40 bg-card px-2.5 py-2">
-                <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-medium truncate flex items-center gap-1">
-                    <ImageIcon className="w-3 h-3 text-muted-foreground" />
-                    {t('generation.refImage')}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {resolveProviderName(job.provider) ?? job.provider} &middot; {job.width}&times;{job.height}
+            {refImageJobs
+              .filter((j) => j.status === 'generating')
+              .map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-center gap-2 rounded-md border border-border/40 bg-card px-2.5 py-2"
+                >
+                  <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-medium truncate flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3 text-muted-foreground" />
+                      {t('generation.refImage')}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {resolveProviderName(job.provider) ?? job.provider} &middot; {job.width}
+                      &times;{job.height}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         )}
 
         {/* Ref image failed */}
         {refImageJobs.filter((j) => j.status === 'failed').length > 0 && (
           <div className="space-y-1">
-            {refImageJobs.filter((j) => j.status === 'failed').map((job) => (
-              <div key={job.id} className="flex items-center gap-2 rounded-md border border-destructive/30 bg-card px-2.5 py-2">
-                <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-medium truncate flex items-center gap-1">
-                    <ImageIcon className="w-3 h-3 text-muted-foreground" />
-                    {t('generation.refImage')}
+            {refImageJobs
+              .filter((j) => j.status === 'failed')
+              .map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-center gap-2 rounded-md border border-destructive/30 bg-card px-2.5 py-2"
+                >
+                  <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-medium truncate flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3 text-muted-foreground" />
+                      {t('generation.refImage')}
+                    </div>
+                    {job.error && (
+                      <div className="text-[10px] text-destructive truncate">{job.error}</div>
+                    )}
                   </div>
-                  {job.error && <div className="text-[10px] text-destructive truncate">{job.error}</div>}
+                  <button
+                    onClick={() => removeRefJob(job.id)}
+                    className="p-0.5 rounded hover:bg-muted shrink-0"
+                  >
+                    <Trash2 className="w-3 h-3 text-muted-foreground" />
+                  </button>
                 </div>
-                <button onClick={() => removeRefJob(job.id)} className="p-0.5 rounded hover:bg-muted shrink-0">
-                  <Trash2 className="w-3 h-3 text-muted-foreground" />
-                </button>
-              </div>
-            ))}
+              ))}
           </div>
         )}
 
         {/* Ref image completed */}
         {refImageJobs.filter((j) => j.status === 'done').length > 0 && (
           <div className="space-y-1">
-            {refImageJobs.filter((j) => j.status === 'done').map((job) => (
-              <div key={job.id} className="flex items-center gap-2 rounded-md border border-border/40 bg-card px-2.5 py-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-medium truncate flex items-center gap-1">
-                    <ImageIcon className="w-3 h-3 text-muted-foreground" />
-                    {t('generation.refImage')}
+            {refImageJobs
+              .filter((j) => j.status === 'done')
+              .map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-center gap-2 rounded-md border border-border/40 bg-card px-2.5 py-2"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-medium truncate flex items-center gap-1">
+                      <ImageIcon className="w-3 h-3 text-muted-foreground" />
+                      {t('generation.refImage')}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {resolveProviderName(job.provider) ?? job.provider}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {resolveProviderName(job.provider) ?? job.provider}
-                  </div>
+                  <button
+                    onClick={() => removeRefJob(job.id)}
+                    className="p-0.5 rounded hover:bg-muted shrink-0"
+                  >
+                    <Trash2 className="w-3 h-3 text-muted-foreground" />
+                  </button>
                 </div>
-                <button onClick={() => removeRefJob(job.id)} className="p-0.5 rounded hover:bg-muted shrink-0">
-                  <Trash2 className="w-3 h-3 text-muted-foreground" />
-                </button>
-              </div>
-            ))}
+              ))}
           </div>
         )}
 
@@ -257,11 +336,7 @@ export function GenerationQueuePanel() {
               {t('generation.active')} ({generating.length})
             </div>
             {generating.map((node) => (
-              <TaskItem
-                key={node.id}
-                node={node}
-                onRemove={handleRemoveTask}
-              />
+              <TaskItem key={node.id} node={node} onRemove={handleRemoveTask} />
             ))}
           </div>
         )}
@@ -288,11 +363,7 @@ export function GenerationQueuePanel() {
               {t('generation.completed')} ({completed.length})
             </div>
             {completed.map((node) => (
-              <TaskItem
-                key={node.id}
-                node={node}
-                onRemove={handleRemoveTask}
-              />
+              <TaskItem key={node.id} node={node} onRemove={handleRemoveTask} />
             ))}
           </div>
         )}
@@ -308,7 +379,11 @@ function formatElapsed(seconds: number): string {
 }
 
 function formatCost(value: number): string {
-  return new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 3 }).format(value);
+  return new Intl.NumberFormat(getLocale(), {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 3,
+  }).format(value);
 }
 
 function TaskItem({
@@ -361,34 +436,39 @@ function TaskItem({
   const Icon = STATUS_ICON[node.status] ?? ListTodo;
   const colorClass = STATUS_COLOR[node.status];
   const localizedNodeType = matchNode(node.type as NodeKind, {
-    image:    () => t(`canvas.nodeType.${node.type}`),
-    video:    () => t(`canvas.nodeType.${node.type}`),
-    audio:    () => t(`canvas.nodeType.${node.type}`),
-    text:     () => t(`canvas.nodeType.${node.type}`),
+    image: () => t(`canvas.nodeType.${node.type}`),
+    video: () => t(`canvas.nodeType.${node.type}`),
+    audio: () => t(`canvas.nodeType.${node.type}`),
+    text: () => t(`canvas.nodeType.${node.type}`),
     backdrop: () => node.type,
   });
   const localizedStatus = STATUS_LABEL_KEY[node.status]
     ? t(STATUS_LABEL_KEY[node.status])
     : t('generationQueue.unknown');
 
-  const borderColor = node.status === 'generating'
-    ? 'border-blue-500/30 bg-blue-500/5'
-    : node.status === 'failed'
-    ? 'border-destructive/30 bg-destructive/5'
-    : 'border-emerald-500/30 bg-emerald-500/5';
+  const borderColor =
+    node.status === 'generating'
+      ? 'border-blue-500/30 bg-blue-500/5'
+      : node.status === 'failed'
+        ? 'border-destructive/30 bg-destructive/5'
+        : 'border-emerald-500/30 bg-emerald-500/5';
 
-  const removeLabel = node.status === 'generating'
-    ? t('generation.cancel')
-    : t('generation.remove');
+  const removeLabel =
+    node.status === 'generating' ? t('generation.cancel') : t('generation.remove');
 
-  const expandLabel = expanded
-    ? t('generation.collapse')
-    : t('generation.expand');
+  const expandLabel = expanded ? t('generation.collapse') : t('generation.expand');
 
   return (
     <div className={cn('rounded-md border p-2', borderColor)}>
       <div className="flex items-center gap-1.5">
-        <Icon className={cn('h-3 w-3 shrink-0', node.status === 'generating' && 'animate-spin', colorClass)} aria-hidden="true" />
+        <Icon
+          className={cn(
+            'h-3 w-3 shrink-0',
+            node.status === 'generating' && 'animate-spin',
+            colorClass,
+          )}
+          aria-hidden="true"
+        />
         <span className="flex-1 truncate text-[11px] font-medium">{node.title}</span>
         {node.status === 'generating' && (
           <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -436,7 +516,10 @@ function TaskItem({
           aria-label={t('generation.progressLabel')}
           className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-muted"
         >
-          <div className="h-full bg-blue-500 transition-[width] duration-200" style={{ width: `${node.progress}%` }} />
+          <div
+            className="h-full bg-blue-500 transition-[width] duration-200"
+            style={{ width: `${node.progress}%` }}
+          />
         </div>
       )}
 
@@ -453,8 +536,8 @@ function TaskItem({
           {node.estimatedCost != null && node.cost != null && node.estimatedCost !== node.cost
             ? `${t('generation.estimatedLabel')}: ${formatCost(node.estimatedCost)} → ${t('generation.actualLabel')}: ${formatCost(node.cost)}`
             : node.cost != null
-            ? `${t('generation.costLabel')}: ${formatCost(node.cost)}`
-            : `${t('generation.estimatedLabel')}: ${formatCost(node.estimatedCost!)}`}
+              ? `${t('generation.costLabel')}: ${formatCost(node.cost)}`
+              : `${t('generation.estimatedLabel')}: ${formatCost(node.estimatedCost!)}`}
         </div>
       )}
 
@@ -466,7 +549,9 @@ function TaskItem({
           </div>
           <div className="flex items-center justify-between text-[10px]">
             <span className="text-muted-foreground">{t('generation.nodeId')}:</span>
-            <span className="font-mono truncate max-w-[120px]" title={node.id}>{node.id.slice(0, 16)}...</span>
+            <span className="font-mono truncate max-w-[120px]" title={node.id}>
+              {node.id.slice(0, 16)}...
+            </span>
           </div>
           {node.providerId && (
             <div className="flex items-center justify-between text-[10px]">
@@ -477,7 +562,9 @@ function TaskItem({
           {node.jobId && (
             <div className="flex items-center justify-between text-[10px]">
               <span className="text-muted-foreground">{t('generation.jobId')}:</span>
-              <span className="font-mono truncate max-w-[120px]" title={node.jobId}>{node.jobId}</span>
+              <span className="font-mono truncate max-w-[120px]" title={node.jobId}>
+                {node.jobId}
+              </span>
             </div>
           )}
           {node.currentStep && (

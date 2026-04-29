@@ -1,5 +1,11 @@
 import type { LLMProviderAuthStyle, LLMProviderProtocol } from '@lucid-fin/contracts';
-import type { APIGroup, ProviderConfig, SettingsState, UsageStats, ProductionConfig } from './types.js';
+import type {
+  APIGroup,
+  ProviderConfig,
+  SettingsState,
+  UsageStats,
+  ProductionConfig,
+} from './types.js';
 import { getProviderDefaults } from './provider-defaults.js';
 
 // ---------------------------------------------------------------------------

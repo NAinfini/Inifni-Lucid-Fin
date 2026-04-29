@@ -12,9 +12,6 @@ const EpisodeIdSchema = z
   .transform((v) => v.trim())
   .refine((v) => v.length > 0, { message: 'episodeId must be non-empty after trim' });
 
-export const parseEpisodeId = makeBrandParser<EpisodeId, string>(
-  EpisodeIdSchema,
-  'EpisodeId',
-);
+export const parseEpisodeId = makeBrandParser<EpisodeId, string>(EpisodeIdSchema, 'EpisodeId');
 
 export const tryEpisodeId = makeTryBrand<EpisodeId, string>(EpisodeIdSchema);

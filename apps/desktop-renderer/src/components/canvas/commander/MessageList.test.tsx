@@ -8,7 +8,7 @@ import type { CommanderMessage } from '../../../store/slices/commander.js';
 
 const t = (key: string) =>
   (
-    {
+    ({
       'commander.copy': 'Copy',
       'commander.toolResult': 'Tool result',
       'commander.elapsed': 'Elapsed',
@@ -24,7 +24,7 @@ const t = (key: string) =>
       'commander.phaseNote.processPromptLoaded': 'Reloaded process prompt',
       'commander.phaseNote.compacted': 'Context compacted',
       'commander.phaseNote.llmRetry': 'LLM retry',
-    } as Record<string, string>
+    }) as Record<string, string>
   )[key] ?? key;
 
 afterEach(() => {
@@ -36,7 +36,8 @@ describe('MessageList run summaries', () => {
     const message = {
       id: 'assistant-run-2',
       role: 'assistant',
-      content: 'Need proper schemas first. I will read the current character, location, and node lists, then rewrite everything in one pass.',
+      content:
+        'Need proper schemas first. I will read the current character, location, and node lists, then rewrite everything in one pass.',
       timestamp: 456,
       runMeta: {
         status: 'failed',
@@ -44,7 +45,8 @@ describe('MessageList run summaries', () => {
         startedAt: 1000,
         completedAt: 151600,
         summary: {
-          excerpt: 'Need proper schemas first. I will read the current character, location, and node lists, then rewrite everything in one pass.',
+          excerpt:
+            'Need proper schemas first. I will read the current character, location, and node lists, then rewrite everything in one pass.',
           toolCount: 24,
           failedToolCount: 6,
           durationMs: 150600,
@@ -87,7 +89,8 @@ describe('MessageList run summaries', () => {
     const message = {
       id: 'assistant-run-1',
       role: 'assistant',
-      content: 'Planning the change.Created the requested layout and verified every connected node.',
+      content:
+        'Planning the change.Created the requested layout and verified every connected node.',
       segments: [
         { kind: 'text', id: 's1', content: 'Planning the change.' },
         {
@@ -103,7 +106,11 @@ describe('MessageList run summaries', () => {
             status: 'done',
           },
         },
-        { kind: 'text', id: 's3', content: 'Created the requested layout and verified every connected node.' },
+        {
+          kind: 'text',
+          id: 's3',
+          content: 'Created the requested layout and verified every connected node.',
+        },
       ],
       toolCalls: [
         {

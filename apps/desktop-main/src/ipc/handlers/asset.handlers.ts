@@ -9,6 +9,7 @@ import { parseAssetHash } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
 import { assertValidAssetType } from '../validation.js';
 import { generateEmbeddingForAsset } from './embedding.handlers.js';
+import { assertSafePath, getImportSafeRoots } from '../path-safety.js';
 
 const FALLBACK_EXTS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
@@ -16,21 +17,28 @@ const FALLBACK_EXTS: Record<string, string[]> = {
   audio: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'],
 };
 
-function findAssetFile(cas: CAS, hash: string, type: AssetType, requestedFormat?: string): string | null {
+function findAssetFile(
+  cas: CAS,
+  hash: string,
+  type: AssetType,
+  requestedFormat?: string,
+): string | null {
   // 1. Try meta.json for actual format
   let ext = requestedFormat || (type === 'video' ? 'mp4' : type === 'audio' ? 'mp3' : 'png');
   try {
     const metaPath = cas.getAssetPath(hash, type, 'meta.json');
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { format?: string };
     if (meta.format) ext = meta.format;
-  } catch { /* meta.json not found */ }
+  } catch {
+    /* meta.json not found */
+  }
 
   // 2. Try exact path
   const exactPath = cas.getAssetPath(hash, type, ext);
   if (fs.existsSync(exactPath)) return exactPath;
 
   // 3. Try fallback extensions for same type
-  for (const tryExt of (FALLBACK_EXTS[type] ?? [])) {
+  for (const tryExt of FALLBACK_EXTS[type] ?? []) {
     if (tryExt === ext) continue;
     const tryPath = cas.getAssetPath(hash, type, tryExt);
     if (fs.existsSync(tryPath)) return tryPath;
@@ -39,7 +47,7 @@ function findAssetFile(cas: CAS, hash: string, type: AssetType, requestedFormat?
   // 4. Try other asset type directories
   for (const tryType of ['image', 'video', 'audio'] as const) {
     if (tryType === type) continue;
-    for (const tryExt of (FALLBACK_EXTS[tryType] ?? [])) {
+    for (const tryExt of FALLBACK_EXTS[tryType] ?? []) {
       const tryPath = cas.getAssetPath(hash, tryType, tryExt);
       if (fs.existsSync(tryPath)) return tryPath;
     }
@@ -63,12 +71,18 @@ const ASSET_FILTERS: Record<string, Electron.FileFilter[]> = {
   ],
 };
 
-export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteIndex, keychain?: Keychain): void {
+export function registerAssetHandlers(
+  ipcMain: IpcMain,
+  cas: CAS,
+  db: SqliteIndex,
+  keychain?: Keychain,
+): void {
   ipcMain.handle('asset:import', async (_e, args: { filePath: string; type: AssetType }) => {
     if (!args.filePath || typeof args.filePath !== 'string')
       throw new Error('filePath is required');
     assertValidAssetType(args.type);
-    const { ref, meta } = await cas.importAsset(args.filePath, args.type);
+    const safePath = assertSafePath(args.filePath, getImportSafeRoots(cas.getAssetsRoot()));
+    const { ref, meta } = await cas.importAsset(safePath, args.type);
     db.repos.assets.insert({ ...meta });
     log.info('Asset imported', {
       category: 'asset',
@@ -78,32 +92,49 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     });
     if (args.type === 'image' && keychain) {
       void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
-        log.warn('Auto-embed failed after import', { category: 'embedding', hash: ref.hash, error: String(err) }),
+        log.warn('Auto-embed failed after import', {
+          category: 'embedding',
+          hash: ref.hash,
+          error: String(err),
+        }),
       );
     }
     return ref;
   });
 
-  ipcMain.handle('asset:importBuffer', async (_e, args: { buffer: ArrayBuffer; fileName: string; type: AssetType }) => {
-    if (!args.buffer || !args.fileName) throw new Error('buffer and fileName are required');
-    assertValidAssetType(args.type);
-    const buf = Buffer.from(args.buffer);
-    const { ref, meta } = await cas.importBuffer(buf, args.fileName, args.type);
-    db.repos.assets.insert({ ...meta });
-    log.info('Asset imported from buffer', {
-      category: 'asset',
-      type: args.type,
-      fileName: args.fileName,
-      hash: ref.hash,
-      size: buf.length,
-    });
-    if (args.type === 'image' && keychain) {
-      void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
-        log.warn('Auto-embed failed after buffer import', { category: 'embedding', hash: ref.hash, error: String(err) }),
-      );
-    }
-    return ref;
-  });
+  ipcMain.handle(
+    'asset:importBuffer',
+    async (_e, args: { buffer: ArrayBuffer; fileName: string; type: AssetType }) => {
+      if (!args.buffer || !args.fileName) throw new Error('buffer and fileName are required');
+      assertValidAssetType(args.type);
+      const MAX_BUFFER_BYTES = 100 * 1024 * 1024;
+      const buf = Buffer.from(args.buffer);
+      if (buf.length > MAX_BUFFER_BYTES) {
+        throw new Error(
+          `Buffer exceeds 100 MB limit (${(buf.length / 1024 / 1024).toFixed(1)} MB)`,
+        );
+      }
+      const { ref, meta } = await cas.importBuffer(buf, args.fileName, args.type);
+      db.repos.assets.insert({ ...meta });
+      log.info('Asset imported from buffer', {
+        category: 'asset',
+        type: args.type,
+        fileName: args.fileName,
+        hash: ref.hash,
+        size: buf.length,
+      });
+      if (args.type === 'image' && keychain) {
+        void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
+          log.warn('Auto-embed failed after buffer import', {
+            category: 'embedding',
+            hash: ref.hash,
+            error: String(err),
+          }),
+        );
+      }
+      return ref;
+    },
+  );
 
   ipcMain.handle('asset:pickFile', async (_e, args: { type: AssetType }) => {
     assertValidAssetType(args.type);
@@ -130,7 +161,11 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
     });
     if (args.type === 'image' && keychain) {
       void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
-        log.warn('Auto-embed failed after pick', { category: 'embedding', hash: ref.hash, error: String(err) }),
+        log.warn('Auto-embed failed after pick', {
+          category: 'embedding',
+          hash: ref.hash,
+          error: String(err),
+        }),
       );
     }
     return ref;
@@ -159,32 +194,31 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
       if (!args.hash || typeof args.hash !== 'string') throw new Error('hash is required');
       assertValidAssetType(args.type);
       const filePath = cas.getAssetPath(args.hash, args.type, args.ext || 'png');
+      // Verify the returned path stays within CAS assets root
+      assertSafePath(filePath, [cas.getAssetsRoot()]);
       return filePath;
     },
   );
 
-  ipcMain.handle(
-    'asset:delete',
-    async (_e, args: { hash: string }) => {
-      if (!args.hash || typeof args.hash !== 'string') throw new Error('hash is required');
-      try {
-        cas.deleteAsset(args.hash);
-        db.repos.assets.delete(parseAssetHash(args.hash));
-        log.info('Asset deleted', {
-          category: 'asset',
-          hash: args.hash,
-        });
-        return { success: true };
-      } catch (err) {
-        log.error('Failed to delete asset', {
-          category: 'asset',
-          hash: args.hash,
-          error: String(err),
-        });
-        throw err;
-      }
-    },
-  );
+  ipcMain.handle('asset:delete', async (_e, args: { hash: string }) => {
+    if (!args.hash || typeof args.hash !== 'string') throw new Error('hash is required');
+    try {
+      cas.deleteAsset(args.hash);
+      db.repos.assets.delete(parseAssetHash(args.hash));
+      log.info('Asset deleted', {
+        category: 'asset',
+        hash: args.hash,
+      });
+      return { success: true };
+    } catch (err) {
+      log.error('Failed to delete asset', {
+        category: 'asset',
+        hash: args.hash,
+        error: String(err),
+      });
+      throw err;
+    }
+  });
 
   ipcMain.handle(
     'asset:export',
@@ -198,7 +232,9 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
           throw new Error(`Asset file not found: ${args.hash}`);
         }
         const ext = path.extname(sourcePath).slice(1) || args.format;
-        const defaultName = args.name ? `${args.name.replace(/\.[^.]+$/, '')}.${ext}` : `${args.hash.slice(0, 12)}.${ext}`;
+        const defaultName = args.name
+          ? `${args.name.replace(/\.[^.]+$/, '')}.${ext}`
+          : `${args.hash.slice(0, 12)}.${ext}`;
         const filters = ASSET_FILTERS[args.type] ?? [{ name: 'All Files', extensions: ['*'] }];
         const result = await dialog.showSaveDialog({ defaultPath: defaultName, filters });
         if (result.canceled || !result.filePath) {
@@ -226,7 +262,7 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
           hash: args.hash,
           type: args.type,
           format: args.format,
-          detail: error instanceof Error ? error.stack ?? error.message : String(error),
+          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
         });
         throw error;
       }
@@ -255,7 +291,10 @@ export function registerAssetHandlers(ipcMain: IpcMain, cas: CAS, db: SqliteInde
         if (!sourcePath) continue;
 
         const ext = path.extname(sourcePath).slice(1) || 'bin';
-        const fileName = item.name ? `${item.name.replace(/\.[^.]+$/, '')}.${ext}` : `${item.hash.slice(0, 12)}.${ext}`;
+        const safeName = item.name ? item.name.replace(/[/\\:]/g, '_') : undefined;
+        const fileName = safeName
+          ? `${safeName.replace(/\.[^.]+$/, '')}.${ext}`
+          : `${item.hash.slice(0, 12)}.${ext}`;
         const destPath = path.join(outputDir, fileName);
         await fsp.copyFile(sourcePath, destPath);
         exported.push(destPath);

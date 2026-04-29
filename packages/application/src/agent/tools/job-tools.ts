@@ -14,13 +14,18 @@ export function createJobTools(deps: JobToolDeps): AgentTool[] {
 
   const list: AgentTool = {
     name: 'job.list',
-    description: 'List generation jobs and their statuses. Supports optional status filtering and offset/limit pagination.',
+    description:
+      'List generation jobs and their statuses. Supports optional status filtering and offset/limit pagination.',
     context,
     tier: 1,
     parameters: {
       type: 'object',
       properties: {
-        status: { type: 'string', description: 'Optional: filter jobs by status (e.g. "pending", "running", "done", "failed").' },
+        status: {
+          type: 'string',
+          description:
+            'Optional: filter jobs by status (e.g. "pending", "running", "done", "failed").',
+        },
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
       },
@@ -28,10 +33,15 @@ export function createJobTools(deps: JobToolDeps): AgentTool[] {
     async execute(args) {
       try {
         const allJobs = await deps.listJobs();
-        const status = typeof args.status === 'string' && args.status.trim().length > 0 ? args.status.trim() : undefined;
+        const status =
+          typeof args.status === 'string' && args.status.trim().length > 0
+            ? args.status.trim()
+            : undefined;
         const filtered = status ? allJobs.filter((j) => j.status === status) : allJobs;
-        const offset = typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-        const limit = typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+        const offset =
+          typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
+        const limit =
+          typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
         const jobs = filtered.slice(offset, offset + limit);
         return ok({ total: filtered.length, offset, limit, jobs });
       } catch (error) {
@@ -49,7 +59,11 @@ export function createJobTools(deps: JobToolDeps): AgentTool[] {
       type: 'object',
       properties: {
         jobId: { type: 'string', description: 'The job ID.' },
-        action: { type: 'string', description: 'Action to perform.', enum: ['cancel', 'pause', 'resume'] },
+        action: {
+          type: 'string',
+          description: 'Action to perform.',
+          enum: ['cancel', 'pause', 'resume'],
+        },
       },
       required: ['jobId', 'action'],
     },

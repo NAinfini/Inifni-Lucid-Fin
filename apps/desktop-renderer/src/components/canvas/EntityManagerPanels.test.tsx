@@ -22,7 +22,8 @@ vi.mock('../../utils/api.js', () => ({
 }));
 
 vi.mock('../ui/Dialog.js', () => ({
-  Dialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) => (open ? <>{children}</> : null),
+  Dialog: ({ open, children }: { open?: boolean; children: React.ReactNode }) =>
+    open ? <>{children}</> : null,
   DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -272,15 +273,16 @@ describe('Entity manager panels', () => {
       await renderAndOpenDetail(panel);
 
       await waitFor(() => {
-        expect(
-          screen.getByText(t('entity.fromAssets')),
-        ).toBeTruthy();
+        expect(screen.getByText(t('entity.fromAssets'))).toBeTruthy();
       });
 
       const referenceHeading = screen.getByText(t(referenceLabelKey));
       const fromAssetsButton = screen.getByText(t('entity.fromAssets'));
 
-      expect(referenceHeading.compareDocumentPosition(fromAssetsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(
+        referenceHeading.compareDocumentPosition(fromAssetsButton) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
     },
   );
 
@@ -366,9 +368,7 @@ describe('Entity manager panels', () => {
   ])(
     'positions the variant delete button fully inside the thumbnail in $name',
     async ({ panel, configureApi, renderOptions }) => {
-      vi.mocked(getAPI).mockReturnValue(
-        configureApi() as unknown as ReturnType<typeof getAPI>,
-      );
+      vi.mocked(getAPI).mockReturnValue(configureApi() as unknown as ReturnType<typeof getAPI>);
 
       await renderAndOpenDetail(panel, renderOptions);
 
@@ -593,5 +593,4 @@ describe('Entity manager panels', () => {
 
     expect(confirmSpy).not.toHaveBeenCalled();
   });
-
 });

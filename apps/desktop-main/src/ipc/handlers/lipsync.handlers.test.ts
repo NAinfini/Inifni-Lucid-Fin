@@ -23,7 +23,11 @@ vi.mock('./lipsync-registry.js', () => ({ getLipSyncAdapter: vi.fn() }));
 
 import { findAudioAssetForVideoNode } from './lipsync.handlers.js';
 
-function makeNode(id: string, type: CanvasNode['type'], data: Record<string, unknown> = {}): CanvasNode {
+function makeNode(
+  id: string,
+  type: CanvasNode['type'],
+  data: Record<string, unknown> = {},
+): CanvasNode {
   return {
     id,
     type,

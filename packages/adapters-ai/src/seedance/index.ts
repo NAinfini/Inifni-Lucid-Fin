@@ -7,7 +7,12 @@ import type {
   CostEstimate,
 } from '@lucid-fin/contracts';
 import { JobStatus } from '@lucid-fin/contracts';
-import { createPrediction, getPrediction, cancelPrediction, toJobStatus } from '../replicate/client.js';
+import {
+  createPrediction,
+  getPrediction,
+  cancelPrediction,
+  toJobStatus,
+} from '../replicate/client.js';
 import { toSeedanceInput } from './mapper.js';
 
 export class SeedanceAdapter implements AIProviderAdapter {
@@ -31,7 +36,8 @@ export class SeedanceAdapter implements AIProviderAdapter {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
       return res.ok;
-    } catch { /* network error — key cannot be validated, report as invalid */
+    } catch {
+      /* network error — key cannot be validated, report as invalid */
       return false;
     }
   }

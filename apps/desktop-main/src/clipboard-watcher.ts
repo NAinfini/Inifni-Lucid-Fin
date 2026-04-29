@@ -21,10 +21,7 @@ let intervalId: ReturnType<typeof setInterval> | null = null;
 let lastClipboardText = '';
 let enabled = true;
 
-export function startClipboardWatcher(
-  win: BrowserWindow,
-  pushGateway?: RendererPushGateway,
-): void {
+export function startClipboardWatcher(win: BrowserWindow, pushGateway?: RendererPushGateway): void {
   // Default-construct a local gateway bound to `win` when one isn't supplied
   // (e.g. tests, callers predating the Phase F split).
   const gateway = pushGateway ?? createRendererPushGateway({ getWindow: () => win });

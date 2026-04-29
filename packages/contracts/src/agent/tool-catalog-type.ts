@@ -30,11 +30,12 @@ type ToolsWithCategory<U, C> = U extends { readonly category: infer TC }
   : never;
 
 /** Extract the `name` of members of a union whose `category` matches `C`. */
-type NamesWithCategory<U, C> = ToolsWithCategory<U, C> extends {
-  readonly name: infer N;
-}
-  ? N
-  : never;
+type NamesWithCategory<U, C> =
+  ToolsWithCategory<U, C> extends {
+    readonly name: infer N;
+  }
+    ? N
+    : never;
 
 /**
  * Typed catalog over a readonly tuple of `ToolDefinitionType` members.
@@ -48,21 +49,12 @@ type NamesWithCategory<U, C> = ToolsWithCategory<U, C> extends {
  */
 export interface ToolCatalog<Tools extends readonly ToolDefinitionType[]> {
   readonly byKey: {
-    readonly [K in ElementOf<Tools>['name']]: Extract<
-      ElementOf<Tools>,
-      { readonly name: K }
-    >;
+    readonly [K in ElementOf<Tools>['name']]: Extract<ElementOf<Tools>, { readonly name: K }>;
   };
   readonly byProcess: {
-    readonly [P in ElementOf<Tools>['process']]: readonly ToolsWithProcess<
-      ElementOf<Tools>,
-      P
-    >[];
+    readonly [P in ElementOf<Tools>['process']]: readonly ToolsWithProcess<ElementOf<Tools>, P>[];
   };
-  readonly mutatingKeys: readonly NamesWithCategory<
-    ElementOf<Tools>,
-    'mutation'
-  >[];
+  readonly mutatingKeys: readonly NamesWithCategory<ElementOf<Tools>, 'mutation'>[];
   readonly metaKeys: readonly NamesWithCategory<ElementOf<Tools>, 'meta'>[];
   readonly uiEffectsByKey: {
     readonly [K in ElementOf<Tools>['name']]: readonly UiEffect[];
@@ -70,10 +62,8 @@ export interface ToolCatalog<Tools extends readonly ToolDefinitionType[]> {
 }
 
 /** The set of tool names (keys) of a given catalog. */
-export type ToolKey<T extends ToolCatalog<readonly ToolDefinitionType[]>> =
-  keyof T['byKey'];
+export type ToolKey<T extends ToolCatalog<readonly ToolDefinitionType[]>> = keyof T['byKey'];
 
 /** The set of process categories of a given catalog. */
-export type ProcessCategory<
-  T extends ToolCatalog<readonly ToolDefinitionType[]>,
-> = keyof T['byProcess'];
+export type ProcessCategory<T extends ToolCatalog<readonly ToolDefinitionType[]>> =
+  keyof T['byProcess'];

@@ -34,7 +34,9 @@ function fmtRelDate(iso: string): string {
     if (diff === 1) return 'Yesterday';
     if (diff < 30) return `${diff}d ago`;
     return new Date(iso).toLocaleDateString();
-  } catch { return iso; }
+  } catch {
+    return iso;
+  }
 }
 
 function dateRange(days: number): string[] {
@@ -67,10 +69,14 @@ const TIME_TABS: { value: TimeRange; labelKey: string; fallback: string }[] = [
 
 function getDays(range: TimeRange): number {
   switch (range) {
-    case '1d': return 1;
-    case '7d': return 7;
-    case '30d': return 30;
-    case 'all': return 365;
+    case '1d':
+      return 1;
+    case '7d':
+      return 7;
+    case '30d':
+      return 30;
+    case 'all':
+      return 365;
   }
 }
 
@@ -78,7 +84,12 @@ function getDays(range: TimeRange): number {
 // SVG Line Chart
 // ---------------------------------------------------------------------------
 
-function LineChart({ data, dates, color = 'hsl(var(--primary))', height = 120 }: {
+function LineChart({
+  data,
+  dates,
+  color = 'hsl(var(--primary))',
+  height = 120,
+}: {
   data: Record<string, number>;
   dates: string[];
   color?: string;
@@ -93,7 +104,10 @@ function LineChart({ data, dates, color = 'hsl(var(--primary))', height = 120 }:
 
   if (values.every((v) => v === 0)) {
     return (
-      <div className="flex items-center justify-center text-xs text-muted-foreground" style={{ height }}>
+      <div
+        className="flex items-center justify-center text-xs text-muted-foreground"
+        style={{ height }}
+      >
         {tr('settings.usage.noData', 'No data')}
       </div>
     );
@@ -110,30 +124,45 @@ function LineChart({ data, dates, color = 'hsl(var(--primary))', height = 120 }:
   return (
     <div className="relative" style={{ height }}>
       {/* Y-axis labels */}
-      <div className="absolute left-0 top-0 flex h-full flex-col justify-between text-[9px] text-muted-foreground tabular-nums" style={{ width: 40 }}>
+      <div
+        className="absolute left-0 top-0 flex h-full flex-col justify-between text-[9px] text-muted-foreground tabular-nums"
+        style={{ width: 40 }}
+      >
         <span>{fmtNum(max)}</span>
         <span>{fmtNum(yLabels[1])}</span>
         <span>0</span>
       </div>
       <div className="ml-10 relative h-full w-[calc(100%-40px)]">
-        <svg viewBox={viewBox} className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
+        <svg
+          viewBox={viewBox}
+          className="absolute inset-0 h-full w-full"
+          preserveAspectRatio="none"
+        >
           <polygon points={areaPoints} fill={color} opacity="0.1" />
-          <polyline points={points} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+          <polyline
+            points={points}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+          />
         </svg>
         {/* Data-point dots — rendered as DOM elements so they stay circular
             regardless of the SVG's non-uniform stretch. Positioned in % of the
             plot area, offset by half their pixel size to center on the point. */}
-        {values.map((v, i) => v > 0 ? (
-          <span
-            key={i}
-            className="pointer-events-none absolute block h-1.5 w-1.5 rounded-full"
-            style={{
-              backgroundColor: color,
-              left: `calc(${n === 1 ? 50 : (i / (n - 1)) * 100}% - 3px)`,
-              top: `calc(${(yOf(v) / height) * 100}% - 3px)`,
-            }}
-          />
-        ) : null)}
+        {values.map((v, i) =>
+          v > 0 ? (
+            <span
+              key={i}
+              className="pointer-events-none absolute block h-1.5 w-1.5 rounded-full"
+              style={{
+                backgroundColor: color,
+                left: `calc(${n === 1 ? 50 : (i / (n - 1)) * 100}% - 3px)`,
+                top: `calc(${(yOf(v) / height) * 100}% - 3px)`,
+              }}
+            />
+          ) : null,
+        )}
       </div>
       {/* X-axis labels */}
       <div className="ml-10 flex justify-between text-[9px] text-muted-foreground mt-1">
@@ -145,16 +174,25 @@ function LineChart({ data, dates, color = 'hsl(var(--primary))', height = 120 }:
   );
 }
 
-
 // ---------------------------------------------------------------------------
 // Stat Card
 // ---------------------------------------------------------------------------
 
-function StatCard({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
+function StatCard({
+  label,
+  value,
+  subtitle,
+}: {
+  label: string;
+  value: string | number;
+  subtitle?: string;
+}) {
   return (
     <div className="rounded-lg border border-border/60 bg-card p-3">
       <p className="text-[10px] text-muted-foreground">{label}</p>
-      <p className="text-xl font-semibold tabular-nums mt-0.5">{typeof value === 'number' ? fmtNum(value) : value}</p>
+      <p className="text-xl font-semibold tabular-nums mt-0.5">
+        {typeof value === 'number' ? fmtNum(value) : value}
+      </p>
       {subtitle && <p className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</p>}
     </div>
   );
@@ -177,7 +215,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // Tool Frequency Table
 // ---------------------------------------------------------------------------
 
-function ToolTable({ toolFrequency, toolErrors, totalCalls }: {
+function ToolTable({
+  toolFrequency,
+  toolErrors,
+  totalCalls,
+}: {
   toolFrequency: Record<string, number>;
   toolErrors: Record<string, number>;
   totalCalls: number;
@@ -203,7 +245,9 @@ function ToolTable({ toolFrequency, toolErrors, totalCalls }: {
   const shown = expanded ? entries : entries.slice(0, 15);
 
   if (entries.length === 0) {
-    return <p className="text-xs text-muted-foreground">{tr('settings.usage.noData', 'No data')}</p>;
+    return (
+      <p className="text-xs text-muted-foreground">{tr('settings.usage.noData', 'No data')}</p>
+    );
   }
 
   return (
@@ -212,13 +256,22 @@ function ToolTable({ toolFrequency, toolErrors, totalCalls }: {
         <thead>
           <tr className="border-b border-border/40 text-muted-foreground">
             <th className="py-1.5 text-left font-medium">#</th>
-            <th className="py-1.5 text-left font-medium cursor-pointer hover:text-foreground" onClick={() => setSortBy('name')}>
+            <th
+              className="py-1.5 text-left font-medium cursor-pointer hover:text-foreground"
+              onClick={() => setSortBy('name')}
+            >
               {tr('settings.usage.toolName', 'Tool')} {sortBy === 'name' ? '↑' : ''}
             </th>
-            <th className="py-1.5 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortBy('count')}>
+            <th
+              className="py-1.5 text-right font-medium cursor-pointer hover:text-foreground"
+              onClick={() => setSortBy('count')}
+            >
               {tr('settings.usage.calls', 'Calls')} {sortBy === 'count' ? '↓' : ''}
             </th>
-            <th className="py-1.5 text-right font-medium cursor-pointer hover:text-foreground" onClick={() => setSortBy('errors')}>
+            <th
+              className="py-1.5 text-right font-medium cursor-pointer hover:text-foreground"
+              onClick={() => setSortBy('errors')}
+            >
               {tr('settings.usage.errors', 'Errors')} {sortBy === 'errors' ? '↓' : ''}
             </th>
             <th className="py-1.5 text-right font-medium">{tr('settings.usage.share', 'Share')}</th>
@@ -231,11 +284,16 @@ function ToolTable({ toolFrequency, toolErrors, totalCalls }: {
               <td className="py-1.5 text-muted-foreground tabular-nums">{i + 1}</td>
               <td className="py-1.5 font-mono">{item.name}</td>
               <td className="py-1.5 text-right tabular-nums">{fmtNum(item.count)}</td>
-              <td className="py-1.5 text-right tabular-nums">{item.errors > 0 ? <span className="text-destructive">{item.errors}</span> : '0'}</td>
+              <td className="py-1.5 text-right tabular-nums">
+                {item.errors > 0 ? <span className="text-destructive">{item.errors}</span> : '0'}
+              </td>
               <td className="py-1.5 text-right tabular-nums">{item.pct.toFixed(1)}%</td>
               <td className="py-1.5 px-2">
                 <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${item.pct}%` }} />
+                  <div
+                    className="h-full rounded-full bg-primary"
+                    style={{ width: `${item.pct}%` }}
+                  />
                 </div>
               </td>
             </tr>
@@ -248,7 +306,9 @@ function ToolTable({ toolFrequency, toolErrors, totalCalls }: {
           onClick={() => setExpanded(!expanded)}
           className="mt-2 text-[10px] text-primary hover:underline"
         >
-          {expanded ? tr('settings.usage.showLess', 'Show less') : `${tr('settings.usage.showAll', 'Show all')} (${entries.length})`}
+          {expanded
+            ? tr('settings.usage.showLess', 'Show less')
+            : `${tr('settings.usage.showAll', 'Show all')} (${entries.length})`}
         </button>
       )}
     </div>
@@ -271,13 +331,25 @@ function ProviderTable({ usage }: { usage: UsageStats }) {
         <thead>
           <tr className="border-b border-border/40 text-muted-foreground">
             <th className="py-1.5 text-left font-medium">#</th>
-            <th className="py-1.5 text-left font-medium">{tr('settings.usage.provider', 'Provider')}</th>
-            <th className="py-1.5 text-right font-medium">{tr('settings.usage.requests', 'Requests')}</th>
-            <th className="py-1.5 text-right font-medium">{tr('settings.usage.totalTokens', 'Tokens')}</th>
-            <th className="py-1.5 text-right font-medium">{tr('settings.usage.avgLatency', 'Avg Latency')}</th>
-            <th className="py-1.5 text-right font-medium">{tr('settings.usage.errors', 'Errors')}</th>
+            <th className="py-1.5 text-left font-medium">
+              {tr('settings.usage.provider', 'Provider')}
+            </th>
+            <th className="py-1.5 text-right font-medium">
+              {tr('settings.usage.requests', 'Requests')}
+            </th>
+            <th className="py-1.5 text-right font-medium">
+              {tr('settings.usage.totalTokens', 'Tokens')}
+            </th>
+            <th className="py-1.5 text-right font-medium">
+              {tr('settings.usage.avgLatency', 'Avg Latency')}
+            </th>
+            <th className="py-1.5 text-right font-medium">
+              {tr('settings.usage.errors', 'Errors')}
+            </th>
             <th className="py-1.5 text-right font-medium">{tr('settings.usage.share', 'Share')}</th>
-            <th className="py-1.5 text-right font-medium">{tr('settings.usage.lastUsed', 'Last Used')}</th>
+            <th className="py-1.5 text-right font-medium">
+              {tr('settings.usage.lastUsed', 'Last Used')}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -299,14 +371,24 @@ function ProviderTable({ usage }: { usage: UsageStats }) {
                           ↑{fmtNum(tokens.input)} ↓{fmtNum(tokens.output)}
                         </span>
                       </span>
-                    ) : '-'}
+                    ) : (
+                      '-'
+                    )}
                   </td>
-                  <td className="py-1.5 text-right tabular-nums">{Math.round(stats.avgLatencyMs)}ms</td>
                   <td className="py-1.5 text-right tabular-nums">
-                    {stats.errorCount > 0 ? <span className="text-destructive">{stats.errorCount}</span> : '0'}
+                    {Math.round(stats.avgLatencyMs)}ms
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {stats.errorCount > 0 ? (
+                      <span className="text-destructive">{stats.errorCount}</span>
+                    ) : (
+                      '0'
+                    )}
                   </td>
                   <td className="py-1.5 text-right tabular-nums">{pct.toFixed(1)}%</td>
-                  <td className="py-1.5 text-right text-muted-foreground">{fmtRelDate(stats.lastUsed)}</td>
+                  <td className="py-1.5 text-right text-muted-foreground">
+                    {fmtRelDate(stats.lastUsed)}
+                  </td>
                 </tr>
               );
             })}
@@ -314,7 +396,9 @@ function ProviderTable({ usage }: { usage: UsageStats }) {
         {entries.length > 1 && (
           <tfoot>
             <tr className="border-t border-border/60 font-medium">
-              <td className="py-1.5" colSpan={2}>{tr('settings.usage.total', 'Total')}</td>
+              <td className="py-1.5" colSpan={2}>
+                {tr('settings.usage.total', 'Total')}
+              </td>
               <td className="py-1.5 text-right tabular-nums">{fmtNum(totalRequests)}</td>
               <td className="py-1.5 text-right tabular-nums">
                 {fmtNum(usage.totalInputTokens + usage.totalOutputTokens)}
@@ -323,9 +407,13 @@ function ProviderTable({ usage }: { usage: UsageStats }) {
                 </span>
               </td>
               <td className="py-1.5 text-right tabular-nums">
-                {totalRequests > 0 ? `${Math.round(entries.reduce((s, [, st]) => s + st.avgLatencyMs * st.requestCount, 0) / totalRequests)}ms` : '-'}
+                {totalRequests > 0
+                  ? `${Math.round(entries.reduce((s, [, st]) => s + st.avgLatencyMs * st.requestCount, 0) / totalRequests)}ms`
+                  : '-'}
               </td>
-              <td className="py-1.5 text-right tabular-nums">{entries.reduce((s, [, st]) => s + st.errorCount, 0)}</td>
+              <td className="py-1.5 text-right tabular-nums">
+                {entries.reduce((s, [, st]) => s + st.errorCount, 0)}
+              </td>
               <td className="py-1.5 text-right">100%</td>
               <td></td>
             </tr>
@@ -353,12 +441,18 @@ const CHART_TABS: { value: ChartMetric; labelKey: string; fallback: string }[] =
 
 function getChartData(usage: UsageStats, metric: ChartMetric): Record<string, number> {
   switch (metric) {
-    case 'toolCalls': return usage.dailyToolCalls;
-    case 'generations': return usage.dailyGenerations;
-    case 'sessions': return usage.dailySessions;
-    case 'prompts': return usage.dailyPrompts;
-    case 'tokens': return usage.dailyTokensUsed;
-    case 'active': return usage.dailyActiveMinutes;
+    case 'toolCalls':
+      return usage.dailyToolCalls;
+    case 'generations':
+      return usage.dailyGenerations;
+    case 'sessions':
+      return usage.dailySessions;
+    case 'prompts':
+      return usage.dailyPrompts;
+    case 'tokens':
+      return usage.dailyTokensUsed;
+    case 'active':
+      return usage.dailyActiveMinutes;
   }
 }
 
@@ -412,7 +506,9 @@ export function SettingsUsageSection() {
           />
           <StatCard
             label={tr('settings.usage.totalToolCalls', 'Tool Calls')}
-            value={timeRange === 'all' ? usage.totalToolCalls : sumDaily(usage.dailyToolCalls, dates)}
+            value={
+              timeRange === 'all' ? usage.totalToolCalls : sumDaily(usage.dailyToolCalls, dates)
+            }
             subtitle={`${tr('settings.usage.today', 'Today')}: ${todayTools}`}
           />
           <StatCard
@@ -421,12 +517,18 @@ export function SettingsUsageSection() {
           />
           <StatCard
             label={tr('settings.usage.totalTokens', 'Tokens')}
-            value={fmtNum(timeRange === 'all' ? totalTokens : sumDaily(usage.dailyTokensUsed, dates))}
+            value={fmtNum(
+              timeRange === 'all' ? totalTokens : sumDaily(usage.dailyTokensUsed, dates),
+            )}
             subtitle={`${tr('settings.usage.today', 'Today')}: ${fmtNum(todayTokens)}`}
           />
           <StatCard
             label={tr('settings.usage.usageTime', 'Usage Time')}
-            value={fmtDuration(timeRange === 'all' ? sumDaily(usage.dailyActiveMinutes, dateRange(365)) * 60_000 : sumDaily(usage.dailyActiveMinutes, dates) * 60_000)}
+            value={fmtDuration(
+              timeRange === 'all'
+                ? sumDaily(usage.dailyActiveMinutes, dateRange(365)) * 60_000
+                : sumDaily(usage.dailyActiveMinutes, dates) * 60_000,
+            )}
           />
         </div>
       </Section>
@@ -456,7 +558,6 @@ export function SettingsUsageSection() {
           </div>
           <LineChart data={getChartData(usage, chartMetric)} dates={dates} height={180} />
         </div>
-
       </div>
 
       {/* Provider Analytics */}
@@ -482,7 +583,11 @@ export function SettingsUsageSection() {
           <StatCard
             label={tr('settings.usage.totalPrompts', 'Prompts Written')}
             value={usage.totalPromptsWritten}
-            subtitle={usage.totalPromptsWritten > 0 ? `${tr('settings.usage.avgWords', 'Avg')}: ${Math.round(usage.totalPromptWords / usage.totalPromptsWritten)} ${tr('settings.usage.words', 'words')}` : undefined}
+            subtitle={
+              usage.totalPromptsWritten > 0
+                ? `${tr('settings.usage.avgWords', 'Avg')}: ${Math.round(usage.totalPromptWords / usage.totalPromptsWritten)} ${tr('settings.usage.words', 'words')}`
+                : undefined
+            }
           />
         </div>
         <ProviderTable usage={usage} />
@@ -505,23 +610,50 @@ export function SettingsUsageSection() {
             value={usage.sessionCount - usage.cancelledSessions - usage.failedSessions}
           />
           <StatCard label={tr('settings.usage.failed', 'Failed')} value={usage.failedSessions} />
-          <StatCard label={tr('settings.usage.cancelled', 'Cancelled')} value={usage.cancelledSessions} />
-          <StatCard label={tr('settings.usage.avgTurns', 'Avg Turns/Session')} value={usage.avgTurnsPerSession.toFixed(1)} />
-          <StatCard label={tr('settings.usage.avgTools', 'Avg Tools/Session')} value={usage.avgToolsPerSession.toFixed(1)} />
+          <StatCard
+            label={tr('settings.usage.cancelled', 'Cancelled')}
+            value={usage.cancelledSessions}
+          />
+          <StatCard
+            label={tr('settings.usage.avgTurns', 'Avg Turns/Session')}
+            value={usage.avgTurnsPerSession.toFixed(1)}
+          />
+          <StatCard
+            label={tr('settings.usage.avgTools', 'Avg Tools/Session')}
+            value={usage.avgToolsPerSession.toFixed(1)}
+          />
         </div>
       </Section>
 
       {/* Creation Activity */}
       <Section title={tr('settings.usage.canvasActivity', 'Creation Activity')}>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
-          <StatCard label={tr('settings.usage.shotsCreated', 'Shots')} value={usage.totalShotsCreated} />
-          <StatCard label={tr('settings.usage.scenesCreated', 'Scenes')} value={usage.totalScenesCreated} />
+          <StatCard
+            label={tr('settings.usage.shotsCreated', 'Shots')}
+            value={usage.totalShotsCreated}
+          />
+          <StatCard
+            label={tr('settings.usage.scenesCreated', 'Scenes')}
+            value={usage.totalScenesCreated}
+          />
           <StatCard label={tr('settings.usage.nodesCreated', 'Nodes')} value={usage.nodesCreated} />
           <StatCard label={tr('settings.usage.edgesCreated', 'Edges')} value={usage.edgesCreated} />
-          <StatCard label={tr('settings.usage.characters', 'Characters')} value={usage.charactersCreated} />
-          <StatCard label={tr('settings.usage.locations', 'Locations')} value={usage.locationsCreated} />
-          <StatCard label={tr('settings.usage.equipment', 'Equipment')} value={usage.equipmentCreated} />
-          <StatCard label={tr('settings.usage.entityEdits', 'Entity Edits')} value={usage.entityEdits} />
+          <StatCard
+            label={tr('settings.usage.characters', 'Characters')}
+            value={usage.charactersCreated}
+          />
+          <StatCard
+            label={tr('settings.usage.locations', 'Locations')}
+            value={usage.locationsCreated}
+          />
+          <StatCard
+            label={tr('settings.usage.equipment', 'Equipment')}
+            value={usage.equipmentCreated}
+          />
+          <StatCard
+            label={tr('settings.usage.entityEdits', 'Entity Edits')}
+            value={usage.entityEdits}
+          />
         </div>
       </Section>
 
@@ -530,9 +662,15 @@ export function SettingsUsageSection() {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <StatCard label={tr('settings.usage.undos', 'Undos')} value={usage.undoCount} />
           <StatCard label={tr('settings.usage.redos', 'Redos')} value={usage.redoCount} />
-          <StatCard label={tr('settings.usage.presetChanges', 'Preset Changes')} value={usage.presetChanges} />
+          <StatCard
+            label={tr('settings.usage.presetChanges', 'Preset Changes')}
+            value={usage.presetChanges}
+          />
           <StatCard label={tr('settings.usage.exports', 'Exports')} value={usage.totalExports} />
-          <StatCard label={tr('settings.usage.snapshotsUsed', 'Snapshots')} value={usage.snapshotsUsed} />
+          <StatCard
+            label={tr('settings.usage.snapshotsUsed', 'Snapshots')}
+            value={usage.snapshotsUsed}
+          />
         </div>
       </Section>
 
@@ -540,7 +678,8 @@ export function SettingsUsageSection() {
       {usage.firstUsedDate && (
         <div className="text-[10px] text-muted-foreground text-right">
           {tr('settings.usage.firstUsed', 'First used')}: {usage.firstUsedDate}
-          {usage.lastActiveDate && ` · ${tr('settings.usage.lastActive', 'Last active')}: ${usage.lastActiveDate}`}
+          {usage.lastActiveDate &&
+            ` · ${tr('settings.usage.lastActive', 'Last active')}: ${usage.lastActiveDate}`}
         </div>
       )}
     </div>

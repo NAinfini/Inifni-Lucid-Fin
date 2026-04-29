@@ -10,7 +10,11 @@ import {
   createSeriesTools,
   createWorkflowTools,
 } from '../../index.js';
-import { createEmptyPresetTrackSet, type Canvas, type PresetDefinition } from '@lucid-fin/contracts';
+import {
+  createEmptyPresetTrackSet,
+  type Canvas,
+  type PresetDefinition,
+} from '@lucid-fin/contracts';
 
 function createCanvas(): Canvas {
   return {
@@ -62,11 +66,13 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     cancelGeneration: vi.fn(async () => undefined),
     deleteNode: vi.fn(async () => undefined),
     deleteEdge: vi.fn(async () => undefined),
-    updateNodeData: vi.fn(async (_canvasId: string, nodeId: string, data: Record<string, unknown>) => {
-      const node = canvas.nodes.find((entry) => entry.id === nodeId);
-      if (!node) throw new Error(`Node not found: ${nodeId}`);
-      Object.assign(node.data as Record<string, unknown>, data);
-    }),
+    updateNodeData: vi.fn(
+      async (_canvasId: string, nodeId: string, data: Record<string, unknown>) => {
+        const node = canvas.nodes.find((entry) => entry.id === nodeId);
+        if (!node) throw new Error(`Node not found: ${nodeId}`);
+        Object.assign(node.data as Record<string, unknown>, data);
+      },
+    ),
     listPresets: vi.fn(async () => []),
     savePreset: vi.fn(async (preset: PresetDefinition) => preset),
     listShotTemplates: vi.fn(async () => []),
@@ -96,10 +102,9 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
   };
 }
 
-function getTool<T extends { name: string; execute: (args: Record<string, unknown>) => Promise<unknown> }>(
-  tools: T[],
-  name: string,
-): T {
+function getTool<
+  T extends { name: string; execute: (args: Record<string, unknown>) => Promise<unknown> },
+>(tools: T[], name: string): T {
   const tool = tools.find((entry) => entry.name === name);
   if (!tool) throw new Error(`Missing tool: ${name}`);
   return tool;
@@ -111,10 +116,12 @@ describe('new agent tool groups', () => {
     const deps = createCanvasDeps(canvas);
     const tools = createCanvasTools(deps);
 
-    await expect(getTool(tools, 'canvas.renameCanvas').execute({
-      canvasId: 'canvas-1',
-      name: 'Renamed Canvas',
-    })).resolves.toEqual({ success: true, data: { canvasId: 'canvas-1', name: 'Renamed Canvas' } });
+    await expect(
+      getTool(tools, 'canvas.renameCanvas').execute({
+        canvasId: 'canvas-1',
+        name: 'Renamed Canvas',
+      }),
+    ).resolves.toEqual({ success: true, data: { canvasId: 'canvas-1', name: 'Renamed Canvas' } });
     await getTool(tools, 'canvas.setNodeRefs').execute({
       canvasId: 'canvas-1',
       nodeId: 'image-1',
@@ -148,11 +155,15 @@ describe('new agent tool groups', () => {
       })),
     });
 
-    await expect(getTool(tools, 'script.import').execute({ path: '/tmp/test.fountain' })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'script.import').execute({ path: '/tmp/test.fountain' }),
+    ).resolves.toEqual({
       success: true,
       data: { path: '/tmp/test.fountain' },
     });
-    await expect(getTool(tools, 'script.import').execute({ content: 'INT. ROOM - DAY', format: 'fountain' })).resolves.toEqual({
+    await expect(
+      getTool(tools, 'script.import').execute({ content: 'INT. ROOM - DAY', format: 'fountain' }),
+    ).resolves.toEqual({
       success: true,
       data: {
         content: 'INT. ROOM - DAY',
@@ -198,19 +209,27 @@ describe('new agent tool groups', () => {
       retryWorkflow: vi.fn(async () => undefined),
     });
 
-    await expect(getTool(jobTools, 'job.control').execute({ jobId: 'job-1', action: 'cancel' })).resolves.toEqual({
+    await expect(
+      getTool(jobTools, 'job.control').execute({ jobId: 'job-1', action: 'cancel' }),
+    ).resolves.toEqual({
       success: true,
       data: { jobId: 'job-1', action: 'cancel' },
     });
-    await expect(getTool(renderTools, 'render.start').execute({ canvasId: 'canvas-1', format: 'mp4' })).resolves.toEqual({
+    await expect(
+      getTool(renderTools, 'render.start').execute({ canvasId: 'canvas-1', format: 'mp4' }),
+    ).resolves.toEqual({
       success: true,
       data: { renderId: 'render-1' },
     });
-    await expect(getTool(presetTools, 'preset.delete').execute({ presetId: 'preset-1' })).resolves.toEqual({
+    await expect(
+      getTool(presetTools, 'preset.delete').execute({ presetId: 'preset-1' }),
+    ).resolves.toEqual({
       success: true,
       data: { presetId: 'preset-1' },
     });
-    await expect(getTool(workflowTools, 'workflow.control').execute({ id: 'wf-1', action: 'retry' })).resolves.toEqual({
+    await expect(
+      getTool(workflowTools, 'workflow.control').execute({ id: 'wf-1', action: 'retry' }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'wf-1', action: 'retry' },
     });
@@ -225,7 +244,9 @@ describe('new agent tool groups', () => {
     });
 
     await expect(
-      getTool(workflowTools, 'workflow.expandIdea').execute({ prompt: 'samurai travels through time' }),
+      getTool(workflowTools, 'workflow.expandIdea').execute({
+        prompt: 'samurai travels through time',
+      }),
     ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
@@ -261,32 +282,33 @@ describe('new agent tool groups', () => {
       retryWorkflow: vi.fn(async () => undefined),
     });
 
-    await expect(getTool(workflowTools, 'workflow.expandIdea').execute({
-      prompt: 'samurai travels through time',
-      genre: 'anime',
-      actCount: 2,
-    }))
-      .resolves.toEqual({
-        success: true,
-        data: expect.objectContaining({
-          instructions: expect.stringContaining('anime story with 2 acts'),
-          outlineFormat: {
-            title: '<story title>',
-            genre: 'anime',
-            logline: '<one sentence summary>',
-            acts: [
-              {
-                name: 'Act 1',
-                scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
-              },
-              {
-                name: 'Act 2',
-                scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
-              },
-            ],
-          },
-        }),
-      });
+    await expect(
+      getTool(workflowTools, 'workflow.expandIdea').execute({
+        prompt: 'samurai travels through time',
+        genre: 'anime',
+        actCount: 2,
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({
+        instructions: expect.stringContaining('anime story with 2 acts'),
+        outlineFormat: {
+          title: '<story title>',
+          genre: 'anime',
+          logline: '<one sentence summary>',
+          acts: [
+            {
+              name: 'Act 1',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+            {
+              name: 'Act 2',
+              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
+            },
+          ],
+        },
+      }),
+    });
   });
 
   it('series and color style tools support compatible save/list/delete flows', async () => {
@@ -341,13 +363,17 @@ describe('new agent tool groups', () => {
       deleteColorStyle: vi.fn(async () => undefined),
     });
 
-    await expect(getTool(seriesTools, 'series.update').execute({
-      set: { title: 'Updated Series', description: 'Updated Desc' },
-    })).resolves.toEqual({
+    await expect(
+      getTool(seriesTools, 'series.update').execute({
+        set: { title: 'Updated Series', description: 'Updated Desc' },
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { ...currentSeries, title: 'Updated Series', description: 'Updated Desc' },
     });
-    await expect(getTool(seriesTools, 'series.removeEpisode').execute({ episodeId: 'episode-1' })).resolves.toEqual({
+    await expect(
+      getTool(seriesTools, 'series.removeEpisode').execute({ episodeId: 'episode-1' }),
+    ).resolves.toEqual({
       success: true,
       data: { episodeId: 'episode-1' },
     });
@@ -356,13 +382,17 @@ describe('new agent tool groups', () => {
       success: true,
       data: { total: 1, offset: 0, limit: 50, colorStyles: [{ id: 'style-1', name: 'Warm' }] },
     });
-    await expect(getTool(colorStyleTools, 'colorStyle.save').execute({
-      style: colorStyle,
-    })).resolves.toEqual({
+    await expect(
+      getTool(colorStyleTools, 'colorStyle.save').execute({
+        style: colorStyle,
+      }),
+    ).resolves.toEqual({
       success: true,
       data: { style: colorStyle },
     });
-    await expect(getTool(colorStyleTools, 'colorStyle.delete').execute({ id: 'style-2' })).resolves.toEqual({
+    await expect(
+      getTool(colorStyleTools, 'colorStyle.delete').execute({ id: 'style-2' }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'style-2' },
     });

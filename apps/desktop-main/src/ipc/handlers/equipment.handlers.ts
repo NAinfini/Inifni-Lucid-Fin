@@ -17,9 +17,8 @@ const VALID_TYPES: EquipmentType[] = [
 
 export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   ipcMain.handle('equipment:list', async (_e, args?: { type?: string } | void) => {
-    const typeFilter = args && typeof args === 'object' && typeof args.type === 'string'
-      ? args.type
-      : undefined;
+    const typeFilter =
+      args && typeof args === 'object' && typeof args.type === 'string' ? args.type : undefined;
     return db.repos.entities.listEquipment(typeFilter).rows;
   });
 
@@ -49,7 +48,9 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
         : (existing?.type ?? 'other');
 
     const equip: Equipment = {
-      id: existing?.id ?? (typeof args.id === 'string' && args.id ? parseEquipmentId(args.id) : randomUUID()),
+      id:
+        existing?.id ??
+        (typeof args.id === 'string' && args.id ? parseEquipmentId(args.id) : randomUUID()),
       name,
       type,
       subtype: typeof args.subtype === 'string' ? args.subtype : existing?.subtype,
@@ -59,7 +60,8 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       material: typeof args.material === 'string' ? args.material : existing?.material,
       color: typeof args.color === 'string' ? args.color : existing?.color,
       condition: typeof args.condition === 'string' ? args.condition : existing?.condition,
-      visualDetails: typeof args.visualDetails === 'string' ? args.visualDetails : existing?.visualDetails,
+      visualDetails:
+        typeof args.visualDetails === 'string' ? args.visualDetails : existing?.visualDetails,
       tags: Array.isArray(args.tags)
         ? args.tags.filter((t): t is string => typeof t === 'string')
         : (existing?.tags ?? []),
@@ -100,8 +102,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
       _e,
       args: { equipmentId: string; slot: string; assetHash: string; isStandard: boolean },
     ) => {
-      if (!args || typeof args.equipmentId !== 'string')
-        throw new Error('equipmentId is required');
+      if (!args || typeof args.equipmentId !== 'string') throw new Error('equipmentId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
       if (typeof args.assetHash !== 'string') throw new Error('assetHash is required');
 
@@ -132,8 +133,7 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
   ipcMain.handle(
     'equipment:removeRefImage',
     async (_e, args: { equipmentId: string; slot: string }) => {
-      if (!args || typeof args.equipmentId !== 'string')
-        throw new Error('equipmentId is required');
+      if (!args || typeof args.equipmentId !== 'string') throw new Error('equipmentId is required');
       if (typeof args.slot !== 'string') throw new Error('slot is required');
 
       const equip = db.repos.entities.getEquipment(parseEquipmentId(args.equipmentId));

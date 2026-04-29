@@ -43,12 +43,7 @@ import {
   type VisualGenerationNodeType,
   type ResolutionPresetValue,
 } from './inspector-generation-utils.js';
-import type {
-  CanvasNode,
-  ImageNodeData,
-  VideoNodeData,
-  AudioNodeData,
-} from '@lucid-fin/contracts';
+import type { CanvasNode, ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
 
 const VARIANT_OPTIONS = [1, 2, 4, 9];
 
@@ -57,9 +52,7 @@ type ResolutionPresetGroup = {
   options: ResolutionPreset[];
 };
 
-function groupResolutionPresets(
-  presets: readonly ResolutionPreset[],
-): ResolutionPresetGroup[] {
+function groupResolutionPresets(presets: readonly ResolutionPreset[]): ResolutionPresetGroup[] {
   return presets.reduce<ResolutionPresetGroup[]>((groups, preset) => {
     const existing = groups.find((group) => group.label === preset.groupLabel);
     if (existing) {
@@ -219,7 +212,9 @@ export function InspectorGenerationState({
     selectedNode.type === 'video' ? 'video' : selectedNode.type === 'audio' ? 'audio' : 'image';
   const pendingRandomSeedByNodeId = useRef<Record<string, number>>({});
 
-  const [resolutionSelectValue, setResolutionSelectValue] = useState<ResolutionPresetValue | null>(null);
+  const [resolutionSelectValue, setResolutionSelectValue] = useState<ResolutionPresetValue | null>(
+    null,
+  );
   const [durationSelectValue, setDurationSelectValue] = useState<string | null>(null);
   const [configuredProviders, setConfiguredProviders] = useState<ProviderConfig[]>([]);
   const [providerLoading, setProviderLoading] = useState(false);
@@ -276,7 +271,9 @@ export function InspectorGenerationState({
       }
     };
     void loadProviders();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [activeProviderId, dispatch, providerCandidates, selectedNode.id]);
 
   const selectedNodeId = selectedNode.id;
@@ -290,13 +287,24 @@ export function InspectorGenerationState({
       .estimateCost(activeCanvasId, selectedNodeId, activeProviderId, activeProviderConfig)
       .then((result) => {
         if (!cancelled)
-          dispatch(setNodeEstimatedCost({ id: selectedNodeId, estimatedCost: result.estimatedCost }));
+          dispatch(
+            setNodeEstimatedCost({ id: selectedNodeId, estimatedCost: result.estimatedCost }),
+          );
       })
       .catch(() => {
         if (!cancelled) dispatch(setNodeEstimatedCost({ id: selectedNodeId, estimatedCost: 0 }));
       });
-    return () => { cancelled = true; };
-  }, [activeCanvasId, activeProviderId, activeProviderConfig, activeVariantCount, dispatch, selectedNodeId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeCanvasId,
+    activeProviderId,
+    activeProviderConfig,
+    activeVariantCount,
+    dispatch,
+    selectedNodeId,
+  ]);
 
   // --- Handlers ---
 
@@ -330,7 +338,10 @@ export function InspectorGenerationState({
 
   const handleSeedInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      if (event.target.value === '') { handleSeedChange(undefined); return; }
+      if (event.target.value === '') {
+        handleSeedChange(undefined);
+        return;
+      }
       const nextSeed = event.target.valueAsNumber;
       if (!Number.isFinite(nextSeed)) return;
       handleSeedChange(Math.round(nextSeed));
@@ -355,13 +366,25 @@ export function InspectorGenerationState({
       setResolutionSelectValue(value);
       if (value === CUSTOM_RESOLUTION_VALUE) {
         if (typeof activeWidth === 'number' && typeof activeHeight === 'number') {
-          dispatch(setNodeResolution({ id: visualGenerationNode.id, width: activeWidth, height: activeHeight }));
+          dispatch(
+            setNodeResolution({
+              id: visualGenerationNode.id,
+              width: activeWidth,
+              height: activeHeight,
+            }),
+          );
         }
         return;
       }
       const preset = getResolutionPresetDimensions(value);
       if (!preset) return;
-      dispatch(setNodeResolution({ id: visualGenerationNode.id, width: preset.width, height: preset.height }));
+      dispatch(
+        setNodeResolution({
+          id: visualGenerationNode.id,
+          width: preset.width,
+          height: preset.height,
+        }),
+      );
     },
     [activeHeight, activeWidth, dispatch, visualGenerationNode],
   );
@@ -378,7 +401,13 @@ export function InspectorGenerationState({
       if (!visualGenerationNode) return;
       const nextWidth = event.target.valueAsNumber;
       if (!Number.isFinite(nextWidth) || nextWidth < 1) return;
-      dispatch(setNodeResolution({ id: visualGenerationNode.id, width: Math.round(nextWidth), height: activeHeight ?? defaultResolution?.height ?? 1024 }));
+      dispatch(
+        setNodeResolution({
+          id: visualGenerationNode.id,
+          width: Math.round(nextWidth),
+          height: activeHeight ?? defaultResolution?.height ?? 1024,
+        }),
+      );
     },
     [activeHeight, defaultResolution?.height, dispatch, visualGenerationNode],
   );
@@ -388,7 +417,13 @@ export function InspectorGenerationState({
       if (!visualGenerationNode) return;
       const nextHeight = event.target.valueAsNumber;
       if (!Number.isFinite(nextHeight) || nextHeight < 1) return;
-      dispatch(setNodeResolution({ id: visualGenerationNode.id, width: activeWidth ?? defaultResolution?.width ?? 1024, height: Math.round(nextHeight) }));
+      dispatch(
+        setNodeResolution({
+          id: visualGenerationNode.id,
+          width: activeWidth ?? defaultResolution?.width ?? 1024,
+          height: Math.round(nextHeight),
+        }),
+      );
     },
     [activeWidth, defaultResolution?.width, dispatch, visualGenerationNode],
   );
@@ -442,7 +477,11 @@ export function InspectorGenerationState({
     const api = getAPI();
     if (!api?.canvasGeneration) return;
     const randomSeed = createRandomSeed();
-    const seedRequest = resolveSeedRequest({ seed: activeSeed, seedLocked: activeSeedLocked, randomSeed });
+    const seedRequest = resolveSeedRequest({
+      seed: activeSeed,
+      seedLocked: activeSeedLocked,
+      randomSeed,
+    });
     if (typeof seedRequest.persistImmediately === 'number') {
       dispatch(setNodeSeed({ id: selectedNode.id, seed: seedRequest.persistImmediately }));
     }
@@ -454,7 +493,12 @@ export function InspectorGenerationState({
     dispatch(setNodeGenerating({ id: selectedNode.id, jobId: `pending-${Date.now()}` }));
     try {
       await api.canvasGeneration.generate(
-        activeCanvasId, selectedNode.id, activeProviderId, activeVariantCount, seedRequest.requestSeed, activeProviderConfig,
+        activeCanvasId,
+        selectedNode.id,
+        activeProviderId,
+        activeVariantCount,
+        seedRequest.requestSeed,
+        activeProviderConfig,
       );
     } catch (error) {
       delete pendingRandomSeedByNodeId.current[selectedNode.id];
@@ -463,17 +507,31 @@ export function InspectorGenerationState({
       const isProviderError = /no configured adapter|api.?key|provider.*not.*found/i.test(msg);
       const isProviderSettingsError =
         isProviderError || /replicate.*(422|rejected the request)|invalid[_ ]request/i.test(msg);
-      dispatch(enqueueToast({
-        title: t('generation.failed'),
-        message: isProviderError ? t('generation.noProviderHint') : msg,
-        variant: 'error',
-        ...(isProviderSettingsError && {
-          actionLabel: t('generation.openProviders'),
-          onAction: () => { window.location.hash = '#/settings'; },
+      dispatch(
+        enqueueToast({
+          title: t('generation.failed'),
+          message: isProviderError ? t('generation.noProviderHint') : msg,
+          variant: 'error',
+          ...(isProviderSettingsError && {
+            actionLabel: t('generation.openProviders'),
+            onAction: () => {
+              window.location.hash = '#/settings';
+            },
+          }),
         }),
-      }));
+      );
     }
-  }, [activeCanvasId, activeProviderConfig, activeProviderId, activeSeed, activeSeedLocked, activeVariantCount, dispatch, selectedNode.id, t]);
+  }, [
+    activeCanvasId,
+    activeProviderConfig,
+    activeProviderId,
+    activeSeed,
+    activeSeedLocked,
+    activeVariantCount,
+    dispatch,
+    selectedNode.id,
+    t,
+  ]);
 
   const handleCancelGeneration = useCallback(async () => {
     if (!activeCanvasId) return;
@@ -483,12 +541,16 @@ export function InspectorGenerationState({
   }, [activeCanvasId, selectedNode.id]);
 
   const handleSelectVariant = useCallback(
-    (index: number) => { dispatch(selectVariant({ id: selectedNode.id, index })); },
+    (index: number) => {
+      dispatch(selectVariant({ id: selectedNode.id, index }));
+    },
     [dispatch, selectedNode.id],
   );
 
   const handleDeleteVariant = useCallback(
-    (index: number) => { dispatch(deleteVariant({ id: selectedNode.id, index })); },
+    (index: number) => {
+      dispatch(deleteVariant({ id: selectedNode.id, index }));
+    },
     [dispatch, selectedNode.id],
   );
 
@@ -561,7 +623,9 @@ export function InspectorGenerationState({
       const filePath = (file as { path?: string }).path ?? '';
       const ref = filePath
         ? ((await api.asset.import(filePath, 'image')) as { hash: string } | null)
-        : ((await api.asset.importBuffer(await file.arrayBuffer(), file.name, 'image')) as { hash: string } | null);
+        : ((await api.asset.importBuffer(await file.arrayBuffer(), file.name, 'image')) as {
+            hash: string;
+          } | null);
       if (!ref?.hash) return;
       dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
     },
@@ -641,10 +705,15 @@ export function InspectorGenerationState({
       nodeType={selectedNode.type}
       resolutionGroups={
         visualGenerationNode
-          ? groupResolutionPresets(getResolutionPresetsForNodeType(visualGenerationNode.type)).map((group) => ({
-              label: t(`resolutionPresetGroups.${group.label.toLowerCase()}`),
-              options: group.options.map((preset) => ({ value: preset.value, label: preset.label })),
-            }))
+          ? groupResolutionPresets(getResolutionPresetsForNodeType(visualGenerationNode.type)).map(
+              (group) => ({
+                label: t(`resolutionPresetGroups.${group.label.toLowerCase()}`),
+                options: group.options.map((preset) => ({
+                  value: preset.value,
+                  label: preset.label,
+                })),
+              }),
+            )
           : undefined
       }
       resolutionValue={visualGenerationNode ? resolutionControlValue : undefined}
@@ -664,7 +733,9 @@ export function InspectorGenerationState({
       onFpsChange={selectedNode.type === 'video' ? handleFpsSelectChange : undefined}
       showAudioToggle={selectedNode.type === 'video'}
       audioEnabled={
-        selectedNode.type === 'video' ? ((selectedNode.data as VideoNodeData).audio ?? false) : false
+        selectedNode.type === 'video'
+          ? ((selectedNode.data as VideoNodeData).audio ?? false)
+          : false
       }
       onAudioChange={handleAudioChange}
       audioLabel={t('node.generateAudio')}
@@ -677,7 +748,9 @@ export function InspectorGenerationState({
       }
       showLipSyncToggle={selectedNode.type === 'video'}
       lipSyncEnabled={
-        selectedNode.type === 'video' ? ((selectedNode.data as VideoNodeData).lipSyncEnabled ?? false) : false
+        selectedNode.type === 'video'
+          ? ((selectedNode.data as VideoNodeData).lipSyncEnabled ?? false)
+          : false
       }
       onLipSyncChange={handleLipSyncChange}
       lipSyncLabel={t('inspector.lipSync.enable')}
@@ -688,7 +761,8 @@ export function InspectorGenerationState({
       qualityValue={
         selectedNode.type === 'video'
           ? ((selectedNode.data as VideoNodeData).quality ??
-            activeVideoProviderMetadata?.qualityTiers?.[0] ?? 'standard')
+            activeVideoProviderMetadata?.qualityTiers?.[0] ??
+            'standard')
           : undefined
       }
       onQualityChange={handleQualityChange}
@@ -696,9 +770,7 @@ export function InspectorGenerationState({
       showQualitySelector={selectedNode.type === 'video'}
       variantGrid={variantGrid}
       variantLabel={
-        visibleVariantCount > 0
-          ? `${selectedVariantIndex + 1} / ${visibleVariantCount}`
-          : undefined
+        visibleVariantCount > 0 ? `${selectedVariantIndex + 1} / ${visibleVariantCount}` : undefined
       }
       uploadHasAsset={
         selectedNode.type === 'image' || selectedNode.type === 'video'
@@ -706,18 +778,26 @@ export function InspectorGenerationState({
           : undefined
       }
       onUpload={
-        selectedNode.type === 'image' || selectedNode.type === 'video' ? handleUploadAsset : undefined
+        selectedNode.type === 'image' || selectedNode.type === 'video'
+          ? handleUploadAsset
+          : undefined
       }
       onClear={
-        selectedNode.type === 'image' || selectedNode.type === 'video' ? handleClearUploadedAsset : undefined
+        selectedNode.type === 'image' || selectedNode.type === 'video'
+          ? handleClearUploadedAsset
+          : undefined
       }
       noKeyWarning={
-        !providerLoading && configuredProviders.length > 0 && !configuredProviders.some((p) => p.hasKey)
+        !providerLoading &&
+        configuredProviders.length > 0 &&
+        !configuredProviders.some((p) => p.hasKey)
           ? t('generation.noKeyWarning')
           : undefined
       }
       noKeyActionLabel={t('generation.openProviders')}
-      onNoKeyAction={() => { window.location.hash = '#/settings'; }}
+      onNoKeyAction={() => {
+        window.location.hash = '#/settings';
+      }}
     />
   );
 
@@ -749,8 +829,10 @@ export function InspectorGenerationState({
     activeWidth,
     activeHeight,
     durationControlValue,
-    handleDurationSelectChange: selectedNode.type === 'video' ? handleDurationSelectChange : undefined,
-    handleDurationInputChange: selectedNode.type === 'video' ? handleDurationInputChange : undefined,
+    handleDurationSelectChange:
+      selectedNode.type === 'video' ? handleDurationSelectChange : undefined,
+    handleDurationInputChange:
+      selectedNode.type === 'video' ? handleDurationInputChange : undefined,
     activeDuration,
     handleFpsSelectChange: selectedNode.type === 'video' ? handleFpsSelectChange : undefined,
     activeFps,

@@ -1,9 +1,5 @@
 import { z, type ZodType } from 'zod';
-import type {
-  InvokeChannelType,
-  PushChannelType,
-  ReplyChannelType,
-} from '@lucid-fin/contracts';
+import type { InvokeChannelType, PushChannelType, ReplyChannelType } from '@lucid-fin/contracts';
 
 /**
  * Runtime schema bundle stored on each channel definition. Codegen and the
@@ -45,12 +41,7 @@ export interface ReplyChannelDef<
 
 // ── Factory functions ──────────────────────────────────────────
 
-export function defineInvokeChannel<
-  Channel extends string,
-  Req,
-  Res,
-  Evt = never,
->(config: {
+export function defineInvokeChannel<Channel extends string, Req, Res, Evt = never>(config: {
   channel: Channel;
   cancellable?: boolean;
   request: ZodType<Req>;

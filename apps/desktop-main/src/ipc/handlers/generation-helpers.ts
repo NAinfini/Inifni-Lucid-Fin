@@ -1,9 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type {
-  AdapterRegistry,
-} from '@lucid-fin/adapters-ai';
+import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
 import type { CompiledPrompt, PromptMode } from '@lucid-fin/application';
 import type {
   AIProviderAdapter,
@@ -137,7 +135,10 @@ export const DEFAULT_STYLE_GUIDE: StyleGuide = {
   sceneOverrides: {},
 };
 
-export const STYLE_GUIDE_LIGHTING_PRESETS: Record<StyleGuide['global']['lighting'], string | undefined> = {
+export const STYLE_GUIDE_LIGHTING_PRESETS: Record<
+  StyleGuide['global']['lighting'],
+  string | undefined
+> = {
   natural: undefined,
   studio: 'scene:high-key',
   dramatic: 'scene:low-key',
@@ -174,7 +175,7 @@ export function normalizePresetLookupValue(value: string | undefined): string {
  *
  * Returns `null` if no URL is found.
  */
-const URL_CHAR = "[A-Za-z0-9\\-._~:/?#\\[\\]@!$&*+;=%]";
+const URL_CHAR = '[A-Za-z0-9\\-._~:/?#\\[\\]@!$&*+;=%]';
 const MEDIA_URL_RE = new RegExp(
   `(https?://${URL_CHAR}+\\.(?:png|jpg|jpeg|webp|mp4|mov|webm)(?:${URL_CHAR}*)?)`,
   'i',
@@ -226,7 +227,8 @@ export function extensionFromUrl(url: string): string | undefined {
     const pathname = new URL(url).pathname;
     const ext = path.extname(pathname).slice(1).toLowerCase();
     return ext.length > 0 ? ext : undefined;
-  } catch { /* malformed URL — extension cannot be determined */
+  } catch {
+    /* malformed URL — extension cannot be determined */
     return undefined;
   }
 }
@@ -301,7 +303,9 @@ function assertExpectedResponseMediaType(
   sourceLabel: string,
 ): void {
   if (actualType !== expectedType) {
-    throw new Error(`Expected ${expectedType} response payload, received ${actualType} from ${sourceLabel}`);
+    throw new Error(
+      `Expected ${expectedType} response payload, received ${actualType} from ${sourceLabel}`,
+    );
   }
 }
 
@@ -427,12 +431,16 @@ function hasBinaryPrefix(buffer: Buffer, prefix: number[]): boolean {
 }
 
 function hasAsciiPrefix(buffer: Buffer, start: number, expected: string): boolean {
-  return buffer.toString('ascii', start, Math.min(buffer.length, start + expected.length)) === expected;
+  return (
+    buffer.toString('ascii', start, Math.min(buffer.length, start + expected.length)) === expected
+  );
 }
 
 function looksLikeWebm(buffer: Buffer): boolean {
-  return hasBinaryPrefix(buffer, [0x1a, 0x45, 0xdf, 0xa3]) &&
-    buffer.toString('ascii', 0, Math.min(buffer.length, 64)).toLowerCase().includes('webm');
+  return (
+    hasBinaryPrefix(buffer, [0x1a, 0x45, 0xdf, 0xa3]) &&
+    buffer.toString('ascii', 0, Math.min(buffer.length, 64)).toLowerCase().includes('webm')
+  );
 }
 
 function looksLikeAdtsAac(buffer: Buffer): boolean {
@@ -502,7 +510,11 @@ export async function materializeAsset(generated: {
   const assetPath = normalizeOptionalString(generated.assetPath);
   if (assetPath) {
     // Handle base64 data URLs (image, video, audio from OpenRouter etc.)
-    if (assetPath.startsWith('data:image/') || assetPath.startsWith('data:video/') || assetPath.startsWith('data:audio/')) {
+    if (
+      assetPath.startsWith('data:image/') ||
+      assetPath.startsWith('data:video/') ||
+      assetPath.startsWith('data:audio/')
+    ) {
       return decodeBase64DataUrl(assetPath);
     }
     if (isRemoteUrl(assetPath)) {
@@ -514,12 +526,17 @@ export async function materializeAsset(generated: {
     return { filePath: assetPath };
   }
 
-  const metadataUrl = normalizeOptionalString(generated.metadata?.url as string | undefined)
-    ?? normalizeOptionalString(generated.metadata?.video_url as string | undefined)
-    ?? normalizeOptionalString(generated.metadata?.output as string | undefined)
-    ?? normalizeOptionalString(generated.metadata?.download_url as string | undefined);
+  const metadataUrl =
+    normalizeOptionalString(generated.metadata?.url as string | undefined) ??
+    normalizeOptionalString(generated.metadata?.video_url as string | undefined) ??
+    normalizeOptionalString(generated.metadata?.output as string | undefined) ??
+    normalizeOptionalString(generated.metadata?.download_url as string | undefined);
   if (metadataUrl) {
-    if (metadataUrl.startsWith('data:image/') || metadataUrl.startsWith('data:video/') || metadataUrl.startsWith('data:audio/')) {
+    if (
+      metadataUrl.startsWith('data:image/') ||
+      metadataUrl.startsWith('data:video/') ||
+      metadataUrl.startsWith('data:audio/')
+    ) {
       return decodeBase64DataUrl(metadataUrl);
     }
     return downloadRemoteAsset(metadataUrl);
@@ -642,24 +659,25 @@ export function materializeGenerationRequest(
     ...request,
     sourceImagePath,
     frameReferenceImages:
-      frameReferenceImages?.first || frameReferenceImages?.last
-        ? frameReferenceImages
-        : undefined,
+      frameReferenceImages?.first || frameReferenceImages?.last ? frameReferenceImages : undefined,
     referenceImages,
-    params: hasExtra
-      ? { ...(request.params ?? {}), ...extraParams }
-      : request.params,
+    params: hasExtra ? { ...(request.params ?? {}), ...extraParams } : request.params,
   };
 }
 
-
-export async function buildAdhocAdapter(id: string, config: ProviderConfigOverride, keychain: Keychain, genType: GenerationType = 'image', cas?: CAS): Promise<AIProviderAdapter> {
+export async function buildAdhocAdapter(
+  id: string,
+  config: ProviderConfigOverride,
+  keychain: Keychain,
+  genType: GenerationType = 'image',
+  cas?: CAS,
+): Promise<AIProviderAdapter> {
   const { baseUrl, model } = config;
-  const apiKey = config.apiKey || await keychain.getKey(id) || '';
+  const apiKey = config.apiKey || (await keychain.getKey(id)) || '';
   // Send API key in all common header formats — provider ignores the ones it doesn't use
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${apiKey}`,
+    Authorization: `Bearer ${apiKey}`,
     'X-API-Key': apiKey,
     'api-key': apiKey,
     'Ocp-Apim-Subscription-Key': apiKey,
@@ -667,7 +685,12 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
 
   // Detect endpoint type from URL
   const isChatEndpoint = baseUrl.includes('/chat/completions');
-  const adapterType = genType === 'video' ? 'video' as const : genType === 'voice' || genType === 'music' || genType === 'sfx' ? 'voice' as const : 'image' as const;
+  const adapterType =
+    genType === 'video'
+      ? ('video' as const)
+      : genType === 'voice' || genType === 'music' || genType === 'sfx'
+        ? ('voice' as const)
+        : ('image' as const);
   const capabilities: Capability[] =
     genType === 'video'
       ? ['text-to-video', 'image-to-video']
@@ -725,7 +748,9 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       return buildTypedBase64DataUrl(dataArr[0].b64_json, genType, 'data[0].b64_json');
     }
 
-    const choices = json.choices as Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }> | undefined;
+    const choices = json.choices as
+      | Array<{ message?: { content?: string; images?: Array<{ image_url?: { url?: string } }> } }>
+      | undefined;
     const msg = choices?.[0]?.message;
     if (msg?.images?.[0]?.image_url?.url) {
       if (mapGenerationTypeToExpectedAssetType(genType) !== 'image') {
@@ -751,13 +776,21 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
 
     const videoUrl = normalizeOptionalString(json.video_url);
     if (videoUrl) {
-      assertExpectedResponseMediaType('video', mapGenerationTypeToExpectedAssetType(genType), 'video_url');
+      assertExpectedResponseMediaType(
+        'video',
+        mapGenerationTypeToExpectedAssetType(genType),
+        'video_url',
+      );
       return validateAssetUrlForGeneration(videoUrl, genType, 'video_url');
     }
 
     const audioUrl = normalizeOptionalString(json.audio_url);
     if (audioUrl) {
-      assertExpectedResponseMediaType('audio', mapGenerationTypeToExpectedAssetType(genType), 'audio_url');
+      assertExpectedResponseMediaType(
+        'audio',
+        mapGenerationTypeToExpectedAssetType(genType),
+        'audio_url',
+      );
       return validateAssetUrlForGeneration(audioUrl, genType, 'audio_url');
     }
 
@@ -799,19 +832,23 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
 
   async function submit(req: GenerationRequest): Promise<Record<string, unknown>> {
     const body = buildBody(req);
-    log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, { model, bodyKeys: Object.keys(body) });
+    log.info(`Ad-hoc adapter request: ${genType} to ${baseUrl}`, {
+      model,
+      bodyKeys: Object.keys(body),
+    });
     const res = await fetch(baseUrl, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!res.ok) {
       const errBody = await res.text().catch(() => '');
-      const hint = res.status === 404
-        ? ` (endpoint not found - check your base URL is correct for ${genType} generation)`
-        : res.status === 500
-          ? ` (server error - the model "${model}" may not support ${genType} generation)`
-          : '';
+      const hint =
+        res.status === 404
+          ? ` (endpoint not found - check your base URL is correct for ${genType} generation)`
+          : res.status === 500
+            ? ` (server error - the model "${model}" may not support ${genType} generation)`
+            : '';
       throw new Error(`Provider error ${res.status}${hint}: ${errBody.slice(0, 400)}`);
     }
 
-    const json = await res.json() as Record<string, unknown>;
+    const json = (await res.json()) as Record<string, unknown>;
     log.info(`Ad-hoc adapter response for ${genType}: ${JSON.stringify(json).slice(0, 1000)}`);
     return json;
   }
@@ -833,8 +870,8 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
 
       if (iteration >= maxIterations) {
         throw new Error(
-          `Polling timed out for task ${taskId} after ${iteration} iterations`
-          + ` (~${Math.round((iteration * intervalMs) / 1_000)}s)`,
+          `Polling timed out for task ${taskId} after ${iteration} iterations` +
+            ` (~${Math.round((iteration * intervalMs) / 1_000)}s)`,
         );
       }
 
@@ -844,11 +881,12 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
         throw new Error(`Provider status error ${res.status}: ${errBody.slice(0, 400)}`);
       }
 
-      const json = await res.json() as Record<string, unknown>;
+      const json = (await res.json()) as Record<string, unknown>;
       const status = normalizeOptionalString(json.status)?.toLowerCase() ?? 'processing';
-      const progress = typeof json.progress === 'number'
-        ? Math.round(json.progress <= 1 ? json.progress * 100 : json.progress)
-        : undefined;
+      const progress =
+        typeof json.progress === 'number'
+          ? Math.round(json.progress <= 1 ? json.progress * 100 : json.progress)
+          : undefined;
       const assetPath = extractAssetPath(json);
 
       if (status === 'queued' || status === 'pending') {
@@ -904,9 +942,15 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       webhook: false,
       cancellation: false,
     },
-    configure(key: string) { void key; },
-    async validate() { return true; },
-    async generate(req: GenerationRequest): Promise<import('@lucid-fin/contracts').GenerationResult> {
+    configure(key: string) {
+      void key;
+    },
+    async validate() {
+      return true;
+    },
+    async generate(
+      req: GenerationRequest,
+    ): Promise<import('@lucid-fin/contracts').GenerationResult> {
       const json = await submit(req);
       const assetPath = extractAssetPath(json);
       if (assetPath) {
@@ -915,12 +959,19 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
 
       const asyncSubmission = extractAsyncSubmission(json);
       if (asyncSubmission.taskId) {
-        throw new Error(`Generation submitted to provider (task: ${asyncSubmission.taskId}). Video is being generated on the provider's servers -- check your provider dashboard to download the result.`);
+        throw new Error(
+          `Generation submitted to provider (task: ${asyncSubmission.taskId}). Video is being generated on the provider's servers -- check your provider dashboard to download the result.`,
+        );
       }
 
-      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
+      throw new Error(
+        `Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`,
+      );
     },
-    async subscribe(req: GenerationRequest, callbacks: SubscribeCallbacks): Promise<import('@lucid-fin/contracts').GenerationResult> {
+    async subscribe(
+      req: GenerationRequest,
+      callbacks: SubscribeCallbacks,
+    ): Promise<import('@lucid-fin/contracts').GenerationResult> {
       const json = await submit(req);
       const assetPath = extractAssetPath(json);
       if (assetPath) {
@@ -947,13 +998,23 @@ export async function buildAdhocAdapter(id: string, config: ProviderConfigOverri
       }
 
       if (asyncSubmission.taskId) {
-        throw new Error(`Generation submitted to provider (task: ${asyncSubmission.taskId}). The provider did not return a status URL for subscribe polling.`);
+        throw new Error(
+          `Generation submitted to provider (task: ${asyncSubmission.taskId}). The provider did not return a status URL for subscribe polling.`,
+        );
       }
 
-      throw new Error(`Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`);
+      throw new Error(
+        `Could not extract media from response: ${JSON.stringify(json).slice(0, 500)}`,
+      );
     },
-    estimateCost(_req: GenerationRequest): import('@lucid-fin/contracts').CostEstimate { return { estimatedCost: 0, currency: 'USD', provider: id, unit: 'image' }; },
-    checkStatus(_jobId: string): Promise<JobStatus> { return Promise.resolve(JobStatus.Completed); },
-    cancel(_jobId: string): Promise<void> { return Promise.resolve(); },
+    estimateCost(_req: GenerationRequest): import('@lucid-fin/contracts').CostEstimate {
+      return { estimatedCost: 0, currency: 'USD', provider: id, unit: 'image' };
+    },
+    checkStatus(_jobId: string): Promise<JobStatus> {
+      return Promise.resolve(JobStatus.Completed);
+    },
+    cancel(_jobId: string): Promise<void> {
+      return Promise.resolve();
+    },
   };
 }

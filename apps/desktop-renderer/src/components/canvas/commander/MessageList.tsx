@@ -70,9 +70,7 @@ export const MessageList = memo(function MessageList({
           key={message.id}
           className={cn(
             'min-w-0 w-full text-sm',
-            message.role === 'user'
-              ? 'border-l-2 border-primary/40 pl-3 py-1.5'
-              : 'py-1.5',
+            message.role === 'user' ? 'border-l-2 border-primary/40 pl-3 py-1.5' : 'py-1.5',
           )}
         >
           {message.role === 'user' ? (
@@ -206,7 +204,9 @@ function RemainingToolCalls({
 }: RemainingToolCallsProps) {
   const segmentToolCallIds = new Set(
     (message.segments ?? [])
-      .filter((segment): segment is Extract<MessageSegment, { kind: 'tool' }> => segment.kind === 'tool')
+      .filter(
+        (segment): segment is Extract<MessageSegment, { kind: 'tool' }> => segment.kind === 'tool',
+      )
       .map((segment) => segment.toolCall.id),
   );
   const remainingToolCalls = (message.toolCalls ?? []).filter(
@@ -281,12 +281,13 @@ function RunSummaryCard({
   // The "final" text is the closing assistant reply. If the run failed or
   // produced no closing text, fall back to `message.content` so the user
   // still sees something actionable (error message / full content).
-  const finalText = finalSegments.length > 0
-    ? finalSegments
-        .filter((seg): seg is Extract<MessageSegment, { kind: 'text' }> => seg.kind === 'text')
-        .map((seg) => seg.content)
-        .join('')
-    : message.content;
+  const finalText =
+    finalSegments.length > 0
+      ? finalSegments
+          .filter((seg): seg is Extract<MessageSegment, { kind: 'text' }> => seg.kind === 'text')
+          .map((seg) => seg.content)
+          .join('')
+      : message.content;
 
   return (
     <div className="min-w-0">
@@ -334,11 +335,15 @@ function RunSummaryCard({
               <span>
                 {runMeta.summary.toolCount} {t('commander.runTools')}
               </span>
-              <span aria-hidden className="opacity-40">·</span>
+              <span aria-hidden className="opacity-40">
+                ·
+              </span>
               <span>{formatDuration(runMeta.summary.durationMs)}</span>
               {runMeta.summary.failedToolCount > 0 ? (
                 <>
-                  <span aria-hidden className="opacity-40">·</span>
+                  <span aria-hidden className="opacity-40">
+                    ·
+                  </span>
                   <span className="text-destructive">
                     {runMeta.summary.failedToolCount} {t('commander.runErrors')}
                   </span>
@@ -346,7 +351,9 @@ function RunSummaryCard({
               ) : null}
               {isFailed ? (
                 <>
-                  <span aria-hidden className="opacity-40">·</span>
+                  <span aria-hidden className="opacity-40">
+                    ·
+                  </span>
                   <span className="inline-flex items-center gap-1 text-destructive">
                     <AlertTriangle className="h-3 w-3" />
                     {t('commander.runFailed')}
@@ -402,7 +409,14 @@ interface ProcessSegmentsProps {
   onSendMessage?: (message: string) => void;
 }
 
-function ProcessSegments({ segments, nodeTitlesById, resolveNodeAssetHash, t, onNodeClick, onSendMessage }: ProcessSegmentsProps) {
+function ProcessSegments({
+  segments,
+  nodeTitlesById,
+  resolveNodeAssetHash,
+  t,
+  onNodeClick,
+  onSendMessage,
+}: ProcessSegmentsProps) {
   if (segments.length === 0) return null;
   return (
     <GroupedSegments
@@ -534,7 +548,14 @@ interface SegmentRendererProps {
 }
 
 /** Renders a segment in the "finished message" (history) context. */
-function SegmentRenderer({ seg, nodeTitlesById, resolveNodeAssetHash, onNodeClick, onSendMessage, t }: SegmentRendererProps) {
+function SegmentRenderer({
+  seg,
+  nodeTitlesById,
+  resolveNodeAssetHash,
+  onNodeClick,
+  onSendMessage,
+  t,
+}: SegmentRendererProps) {
   switch (seg.kind) {
     case 'text':
       return <Markdown content={seg.content} onNodeClick={onNodeClick} />;
@@ -607,7 +628,14 @@ function LiveSegmentRenderer({
 }
 
 /** Renders a segment inside the expanded "process" card of a completed run. */
-function ProcessSegmentRenderer({ seg, nodeTitlesById, resolveNodeAssetHash, onNodeClick, onSendMessage, t }: SegmentRendererProps) {
+function ProcessSegmentRenderer({
+  seg,
+  nodeTitlesById,
+  resolveNodeAssetHash,
+  onNodeClick,
+  onSendMessage,
+  t,
+}: SegmentRendererProps) {
   switch (seg.kind) {
     case 'text':
       return (

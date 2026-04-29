@@ -156,7 +156,8 @@ describe('useBootstrap', () => {
         return () => undefined;
       }),
       settings: {
-        load: vi.fn()
+        load: vi
+          .fn()
           .mockRejectedValueOnce(new Error('settings load failed'))
           .mockResolvedValueOnce(null),
       },

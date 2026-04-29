@@ -1,24 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  ipcHandleMock,
-  getBufferedLogsMock,
-  setLogForwarderMock,
-  logger,
-  markMock,
-} = vi.hoisted(() => ({
-  ipcHandleMock: vi.fn(),
-  getBufferedLogsMock: vi.fn(() => []),
-  setLogForwarderMock: vi.fn(),
-  logger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    fatal: vi.fn(),
-  },
-  markMock: vi.fn(),
-}));
+const { ipcHandleMock, getBufferedLogsMock, setLogForwarderMock, logger, markMock } = vi.hoisted(
+  () => ({
+    ipcHandleMock: vi.fn(),
+    getBufferedLogsMock: vi.fn(() => []),
+    setLogForwarderMock: vi.fn(),
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+    },
+    markMock: vi.fn(),
+  }),
+);
 
 vi.mock('electron', () => ({
   app: {
@@ -121,7 +117,14 @@ describe('electron startup observability', () => {
       'Registered early IPC handlers',
       expect.objectContaining({
         category: 'ipc',
-        channels: ['logger:getRecent', 'updater:*', 'app:version', 'ipc:ping', 'health:ping', 'app:restart'],
+        channels: [
+          'logger:getRecent',
+          'updater:*',
+          'app:version',
+          'ipc:ping',
+          'health:ping',
+          'app:restart',
+        ],
       }),
     );
   });

@@ -173,9 +173,13 @@ export function SettingsStorageSection() {
     setActionLoading('clearLogs');
     try {
       const result = await window.lucidAPI.storage.clearLogs();
-      showMessage('success', t('settings.storage.logsCleared').replace('{count}', String(result.cleared)));
+      showMessage(
+        'success',
+        t('settings.storage.logsCleared').replace('{count}', String(result.cleared)),
+      );
       void refresh();
-    } catch { /* IPC call failed — show generic error message */
+    } catch {
+      /* IPC call failed — show generic error message */
       showMessage('error', t('settings.storage.actionFailed'));
     } finally {
       setActionLoading(null);
@@ -188,7 +192,8 @@ export function SettingsStorageSection() {
       await window.lucidAPI.storage.clearEmbeddings();
       showMessage('success', t('settings.storage.embeddingsCleared'));
       void refresh();
-    } catch { /* IPC call failed — show generic error message */
+    } catch {
+      /* IPC call failed — show generic error message */
       showMessage('error', t('settings.storage.actionFailed'));
     } finally {
       setActionLoading(null);
@@ -201,7 +206,8 @@ export function SettingsStorageSection() {
       await window.lucidAPI.storage.vacuumDatabase();
       showMessage('success', t('settings.storage.vacuumDone'));
       void refresh();
-    } catch { /* IPC call failed — show generic error message */
+    } catch {
+      /* IPC call failed — show generic error message */
       showMessage('error', t('settings.storage.actionFailed'));
     } finally {
       setActionLoading(null);
@@ -287,9 +293,21 @@ export function SettingsStorageSection() {
           <div className="mb-3 text-lg font-bold">{formatBytes(overview.totalSize)}</div>
           <StorageBar
             items={[
-              { label: t('settings.storage.database'), size: overview.dbSize, color: 'bg-blue-500' },
-              { label: t('settings.storage.assets'), size: overview.globalAssetsSize, color: 'bg-purple-500' },
-              { label: t('settings.storage.logs'), size: overview.logsSize, color: 'bg-yellow-500' },
+              {
+                label: t('settings.storage.database'),
+                size: overview.dbSize,
+                color: 'bg-blue-500',
+              },
+              {
+                label: t('settings.storage.assets'),
+                size: overview.globalAssetsSize,
+                color: 'bg-purple-500',
+              },
+              {
+                label: t('settings.storage.logs'),
+                size: overview.logsSize,
+                color: 'bg-yellow-500',
+              },
             ]}
           />
         </div>
@@ -302,10 +320,26 @@ export function SettingsStorageSection() {
           {t('settings.storage.quickAccess')}
         </h3>
         <div className="space-y-1.5">
-          <PathRow label={t('settings.storage.appRoot')} path={overview.paths.appRoot} onOpen={handleOpenFolder} />
-          <PathRow label={t('settings.storage.databaseFile')} path={overview.paths.database} onOpen={(p) => window.lucidAPI.storage.showInFolder(p)} />
-          <PathRow label={t('settings.storage.globalAssets')} path={overview.paths.globalAssets} onOpen={handleOpenFolder} />
-          <PathRow label={t('settings.storage.logsFolder')} path={overview.paths.logs} onOpen={handleOpenFolder} />
+          <PathRow
+            label={t('settings.storage.appRoot')}
+            path={overview.paths.appRoot}
+            onOpen={handleOpenFolder}
+          />
+          <PathRow
+            label={t('settings.storage.databaseFile')}
+            path={overview.paths.database}
+            onOpen={(p) => window.lucidAPI.storage.showInFolder(p)}
+          />
+          <PathRow
+            label={t('settings.storage.globalAssets')}
+            path={overview.paths.globalAssets}
+            onOpen={handleOpenFolder}
+          />
+          <PathRow
+            label={t('settings.storage.logsFolder')}
+            path={overview.paths.logs}
+            onOpen={handleOpenFolder}
+          />
         </div>
       </div>
 
