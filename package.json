@@ -27,6 +27,7 @@
     "license:audit": "npx tsx scripts/license-audit.ts",
     "dist": "npm run build && npm run pack --workspace=apps/desktop-main",
     "audit:uncommitted": "npx tsx scripts/audit-uncommitted.ts",
+    "pretest:e2e": "npx @electron/rebuild -f -w better-sqlite3 -v 41.2.0",
     "test:e2e": "npx playwright test --config tests/e2e/playwright.config.ts"
   },
   "devDependencies": {

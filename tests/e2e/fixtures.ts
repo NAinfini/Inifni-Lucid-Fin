@@ -1,9 +1,11 @@
 import { test as base, type ElectronApplication, type Page, _electron } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 /** Repo root — two levels up from tests/e2e/ */
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(TEST_DIR, '..', '..');
 
 /**
  * Resolve the Electron main entry point (the built JS file).

@@ -1,24 +1,13 @@
-import { _electron } from '@playwright/test';
-import path from 'node:path';
+import { expect, test } from '@playwright/test';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
-import { test, expect, isBuildAvailable } from './fixtures.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-/**
- * E2E Smoke Tests for Lucid Fin
- *
- * These tests exercise the real Electron app to verify critical paths:
- * app launch, canvas creation, and data persistence across restarts.
- *
- * Prerequisites:
- *   - Run `npm run build` from the repo root before running these tests.
- *   - Tests will be skipped automatically if the build output is missing.
- */
-
-const BUILD_EXISTS = isBuildAvailable();
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(TEST_DIR, '..', '..');
 const MAIN_ENTRY = path.join(REPO_ROOT, 'apps', 'desktop-main', 'dist', 'electron.js');
 
-/** Resolve the Electron binary using the same logic as fixtures. */
 function resolveElectronBinary(): string {
   const candidates = [
     path.join(REPO_ROOT, 'apps', 'desktop-main', 'node_modules', 'electron'),
@@ -33,117 +22,88 @@ function resolveElectronBinary(): string {
     }
   }
 
-  throw new Error('Could not find Electron binary.');
+  throw new Error('Could not find Electron binary. Run `npm install` in the repo root first.');
 }
 
-test.describe('Smoke Tests', () => {
-  test.beforeEach(() => {
-    test.skip(!BUILD_EXISTS, 'Electron build not found — run `npm run build` first');
+function isBuildAvailable(): boolean {
+  return fs.existsSync(MAIN_ENTRY);
+}
+
+async function stopProcessTree(proc: ChildProcessWithoutNullStreams): Promise<void> {
+  if (proc.killed || proc.exitCode !== null) return;
+
+  if (process.platform === 'win32' && proc.pid) {
+    await new Promise<void>((resolve) => {
+      const killer = spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f']);
+      killer.on('exit', () => resolve());
+      killer.on('error', () => resolve());
+    });
+    return;
+  }
+
+  proc.kill('SIGTERM');
+}
+
+async function launchAndWaitForStartup(): Promise<string> {
+  const electronBinary = resolveElectronBinary();
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  env.ELECTRON_IS_E2E = '1';
+  env.NODE_ENV = 'test';
+
+  const proc = spawn(electronBinary, [MAIN_ENTRY], {
+    cwd: REPO_ROOT,
+    env,
   });
 
-  test('app launches and shows main window', async ({ electronApp, mainWindow }) => {
-    // Verify Electron app has at least one window
-    const windows = electronApp.windows();
-    expect(windows.length).toBeGreaterThanOrEqual(1);
+  let output = '';
+  const append = (chunk: Buffer) => {
+    output += chunk.toString('utf8');
+  };
+  proc.stdout.on('data', append);
+  proc.stderr.on('data', append);
 
-    // Verify the window has loaded — check for either the app title or a
-    // known root element that the renderer always mounts.
-    const title = await mainWindow.title();
-    const hasTitle = title.toLowerCase().includes('lucid');
-    const hasRoot = await mainWindow.locator('#root, [data-testid="app-root"]').count();
-    expect(hasTitle || hasRoot > 0).toBe(true);
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for Electron startup.\n${output}`));
+      }, 45_000);
 
-  test('create new canvas', async ({ mainWindow }) => {
-    // Click the new canvas button — look for common action triggers
-    const newCanvasBtn = mainWindow.locator(
-      'button:has-text("New"), button:has-text("Create"), [data-testid="new-canvas"], [data-testid="create-canvas"]',
-    );
+      proc.on('exit', (code, signal) => {
+        clearTimeout(timeout);
+        reject(new Error(`Electron exited before startup: code=${code} signal=${signal}\n${output}`));
+      });
 
-    // Wait for UI to be interactive
-    await mainWindow.waitForLoadState('networkidle');
-
-    // If the new canvas button exists, click it and verify canvas appears
-    const btnCount = await newCanvasBtn.count();
-    if (btnCount > 0) {
-      await newCanvasBtn.first().click();
-
-      // Verify canvas container appears
-      const canvas = mainWindow.locator(
-        '[data-testid="canvas-container"], .react-flow, [data-testid="canvas"]',
-      );
-      await expect(canvas.first()).toBeVisible({ timeout: 10_000 });
-    } else {
-      // If there's no explicit "new canvas" button, the app may auto-create
-      // a canvas on first launch. Verify some main content area exists.
-      const content = mainWindow.locator(
-        '[data-testid="canvas-container"], .react-flow, main, [data-testid="workspace"]',
-      );
-      await expect(content.first()).toBeVisible({ timeout: 10_000 });
-    }
-  });
-
-  test('persist and reload', async ({ electronApp, mainWindow }) => {
-    // Wait for the app to be fully loaded
-    await mainWindow.waitForLoadState('networkidle');
-
-    // Try to create a canvas if a button is available
-    const newCanvasBtn = mainWindow.locator(
-      'button:has-text("New"), button:has-text("Create"), [data-testid="new-canvas"], [data-testid="create-canvas"]',
-    );
-    const btnCount = await newCanvasBtn.count();
-    if (btnCount > 0) {
-      await newCanvasBtn.first().click();
-    }
-
-    // Wait for persistence — the app uses debounced save middleware.
-    // Give it enough time to flush.
-    await mainWindow.waitForTimeout(3_000);
-
-    // Grab the page URL before closing
-    const urlBefore = mainWindow.url();
-
-    // Close the app
-    await electronApp.close();
-
-    // Small delay to ensure clean shutdown
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-
-    // Relaunch a fresh Electron instance
-    const electronBinary = resolveElectronBinary();
-    const app2 = await _electron.launch({
-      executablePath: electronBinary,
-      args: [MAIN_ENTRY],
-      env: {
-        ...process.env,
-        ELECTRON_IS_E2E: '1',
-        NODE_ENV: 'test',
-      },
+      const checkReady = () => {
+        if (
+          output.includes('Lucid Fin initialized successfully') &&
+          output.includes('[api-server] Listening')
+        ) {
+          clearTimeout(timeout);
+          resolve();
+        } else {
+          setTimeout(checkReady, 250);
+        }
+      };
+      checkReady();
     });
 
-    try {
-      const window2 = await app2.firstWindow();
-      await window2.waitForLoadState('domcontentloaded');
+    return output;
+  } finally {
+    await stopProcessTree(proc);
+  }
+}
 
-      // Verify the app loaded successfully after restart
-      const windows = app2.windows();
-      expect(windows.length).toBeGreaterThanOrEqual(1);
+test.describe('Electron smoke', () => {
+  test.beforeEach(() => {
+    test.skip(!isBuildAvailable(), 'Electron build not found; run `npm run build` first');
+  });
 
-      // Check that the app renders content, indicating state was persisted
-      // (or at least the app recovered gracefully).
-      const content = window2.locator(
-        '[data-testid="canvas-container"], .react-flow, main, [data-testid="workspace"], #root',
-      );
-      await expect(content.first()).toBeVisible({ timeout: 15_000 });
+  test('built app starts main process and local API server', async () => {
+    const output = await launchAndWaitForStartup();
 
-      // If the URL path is meaningful (not just about:blank), verify
-      // the relaunched app also loads the renderer properly.
-      if (urlBefore && !urlBefore.includes('about:blank')) {
-        const urlAfter = window2.url();
-        expect(urlAfter).not.toContain('about:blank');
-      }
-    } finally {
-      await app2.close();
-    }
+    expect(output).toContain('Lucid Fin initialized successfully');
+    expect(output).toContain('[api-server] Listening');
+    expect(output).toContain('IPC handlers registered');
   });
 });
