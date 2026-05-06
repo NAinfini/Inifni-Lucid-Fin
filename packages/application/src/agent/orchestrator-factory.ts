@@ -72,7 +72,15 @@ export interface OrchestratorFactoryInput {
   resolveProcessPrompt?: (processKey: string) => string | null | undefined;
 
   /** Optional knob bag. Merged over the factory's defaults. */
-  options?: Pick<AgentOptions, 'maxSteps' | 'temperature' | 'maxTokens' | 'profile'>;
+  options?: Pick<
+    AgentOptions,
+    | 'maxSteps'
+    | 'temperature'
+    | 'maxTokens'
+    | 'profile'
+    | 'qualityGateBehavior'
+    | 'requireStylePlateBeforeRefImage'
+  >;
 
   /**
    * Harness-only hook. Called with the orchestrator instance after

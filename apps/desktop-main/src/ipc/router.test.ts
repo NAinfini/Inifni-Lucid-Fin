@@ -41,7 +41,16 @@ vi.mock('../logger.js', () => ({
 }));
 
 vi.mock('electron', () => ({
+  app: { getPath: vi.fn(() => '') },
+  dialog: {
+    showOpenDialog: vi.fn(),
+    showSaveDialog: vi.fn(),
+  },
   ipcMain: { handle: vi.fn() },
+  shell: {
+    openPath: vi.fn(),
+    showItemInFolder: vi.fn(),
+  },
 }));
 
 vi.mock('./handlers/asset.handlers.js', () => ({ registerAssetHandlers }));

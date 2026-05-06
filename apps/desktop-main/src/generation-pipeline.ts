@@ -6,6 +6,8 @@ import type { AIProviderAdapter, GenerationRequest } from '@lucid-fin/contracts'
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import log from './logger.js';
 import { sanitizePng } from './sanitize-png.js';
+import { providerHealth } from '@lucid-fin/adapters-ai';
+import { trackEvent } from './analytics.js';
 
 type MaterializedAsset = {
   filePath: string;
@@ -24,7 +26,15 @@ export async function generateAndImport(
   deps: { adapter: AIProviderAdapter; cas: CAS; db: SqliteIndex },
   options: GenerateAndImportOptions = {},
 ): Promise<{ hashes: string[]; cost: number }> {
-  const generated = await deps.adapter.generate(request);
+  let generated: Awaited<ReturnType<AIProviderAdapter['generate']>>;
+  try {
+    generated = await deps.adapter.generate(request);
+    providerHealth.recordSuccess(deps.adapter.id);
+    trackEvent('ai_generation', { provider: deps.adapter.id });
+  } catch (error) {
+    providerHealth.recordFailure(deps.adapter.id);
+    throw error;
+  }
 
   const materialized = await materializeAsset(generated);
   try {

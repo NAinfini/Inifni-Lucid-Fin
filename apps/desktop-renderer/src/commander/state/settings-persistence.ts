@@ -43,5 +43,7 @@ export function persistSettingsFromState(state: CommanderState): void {
     clipboardWatchIntervalMs: state.clipboardWatchIntervalMs,
     clipboardMinLength: state.clipboardMinLength,
     generationConcurrency: state.generationConcurrency,
+    qualityGateBehavior: state.qualityGateBehavior,
+    requireStylePlateBeforeRefImage: state.requireStylePlateBeforeRefImage,
   });
 }

@@ -80,6 +80,8 @@ function buildDeps(overrides: Partial<Parameters<typeof useCanvasKeyboard>[0]> =
       edges: [],
       copiedAt: 1,
     })),
+    focusedNodeId: null,
+    setFocusedNodeId: vi.fn(),
     ...overrides,
   };
 }

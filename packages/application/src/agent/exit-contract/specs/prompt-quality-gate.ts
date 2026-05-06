@@ -8,7 +8,10 @@ import type { ActivationContext, ProcessPromptSpec } from '../process-prompt-spe
  */
 export interface PromptQualityGateSpecDeps {
   resolvePromptText: (key: 'prompt-quality-gate') => string | null | undefined;
+  behavior?: QualityGateBehavior;
 }
+
+export type QualityGateBehavior = 'warn-only' | 'auto-expand' | 'block-generation';
 
 export function createPromptQualityGateSpec(deps: PromptQualityGateSpecDeps): ProcessPromptSpec {
   return {
@@ -16,7 +19,11 @@ export function createPromptQualityGateSpec(deps: PromptQualityGateSpecDeps): Pr
     displayName: 'Prompt Quality Gate',
     lifecycle: 'one-shot',
     activationPredicate: (ctx) => promptQualityGatePredicate(ctx),
-    content: () => deps.resolvePromptText('prompt-quality-gate')?.trim() ?? '',
+    content: () => {
+      const base = deps.resolvePromptText('prompt-quality-gate')?.trim() ?? '';
+      if (!base) return '';
+      return `${base}\n\n${qualityGateBehaviorInstruction(deps.behavior ?? 'auto-expand')}`;
+    },
   };
 }
 
@@ -30,4 +37,14 @@ export function promptQualityGatePredicate(ctx: ActivationContext): boolean {
     if (typeof prompt !== 'string') return true;
     return prompt.trim().length < MIN_PROMPT_LENGTH;
   });
+}
+
+function qualityGateBehaviorInstruction(behavior: QualityGateBehavior): string {
+  if (behavior === 'warn-only') {
+    return 'Configured behavior: warn only. If the prompt is weak, warn the user clearly but do not block generation.';
+  }
+  if (behavior === 'block-generation') {
+    return 'Configured behavior: block generation. If the prompt is weak, stop before generation and ask the user to approve or improve it.';
+  }
+  return 'Configured behavior: auto-expand. If the prompt is weak, expand it with node context, refs, and presets before generation.';
 }

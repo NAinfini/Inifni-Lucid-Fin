@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app } from 'electron';
 import type { IpcMain } from 'electron';
 import type { Canvas, CanvasNode, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import { getLipSyncAdapter, type LipSyncSettings } from './lipsync-registry.js';
 import type { CanvasStore } from './canvas.handlers.js';
+import { APP_SETTINGS_KEY } from './settings.handlers.js';
 
 export interface LipSyncHandlerDeps {
   cas: CAS;
@@ -15,25 +15,22 @@ export interface LipSyncHandlerDeps {
   db: SqliteIndex;
 }
 
-function getLipSyncSettings(): LipSyncSettings | null {
-  try {
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-    if (!fs.existsSync(settingsPath)) return null;
-    const raw = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
-    const s = raw['lipsync'];
-    if (!s || typeof s !== 'object') return null;
-    const obj = s as Record<string, unknown>;
-    const backend = obj['backend'];
-    if (backend !== 'cloud' && backend !== 'local') return null;
-    return {
-      backend,
-      cloudEndpoint: typeof obj['cloudEndpoint'] === 'string' ? obj['cloudEndpoint'] : undefined,
-      localModelPath: typeof obj['localModelPath'] === 'string' ? obj['localModelPath'] : undefined,
-    };
-  } catch {
-    /* malformed lipsync config JSON — return null to use defaults */
-    return null;
-  }
+function getLipSyncSettings(db: SqliteIndex): LipSyncSettings | null {
+  const rawSettings = db.repos.projectSettings.get(APP_SETTINGS_KEY);
+  if (rawSettings === undefined) return null;
+  const parsed = JSON.parse(rawSettings) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  const s = (parsed as Record<string, unknown>)['lipsync'];
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  const obj = s as Record<string, unknown>;
+  const backend = obj['backend'];
+  if (backend !== 'cloud' && backend !== 'local') return null;
+  return {
+    backend,
+    cloudEndpoint: typeof obj['cloudEndpoint'] === 'string' ? obj['cloudEndpoint'] : undefined,
+    localModelPath: typeof obj['localModelPath'] === 'string' ? obj['localModelPath'] : undefined,
+  };
 }
 
 export function findAudioAssetForVideoNode(
@@ -107,7 +104,7 @@ export async function runLipSyncPostProcess(
     return;
   }
 
-  const settings = getLipSyncSettings();
+  const settings = getLipSyncSettings(db);
   if (!settings) {
     log.warn('[lipsync] lip-sync settings not configured', { nodeId: node.id });
     return;
@@ -189,7 +186,7 @@ export function registerLipSyncHandlers(ipcMain: IpcMain, deps: LipSyncHandlerDe
   });
 
   ipcMain.handle('lipsync:checkAvailability', async () => {
-    const settings = getLipSyncSettings();
+    const settings = getLipSyncSettings(deps.db);
     if (!settings) {
       return { available: false, backend: '' };
     }

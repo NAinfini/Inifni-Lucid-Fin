@@ -10,6 +10,7 @@
  */
 import type { BrowserWindow, IpcMain } from 'electron';
 import log from '../../logger.js';
+import { trackEvent } from '../../analytics.js';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
 import {
   runningSessions,
@@ -42,6 +43,7 @@ import type {
   Character,
   Location,
   Equipment,
+  CommanderProcessBehaviorSettings,
 } from '@lucid-fin/contracts';
 import {
   DEFAULT_PROVIDER_PROFILE,
@@ -697,6 +699,7 @@ export function registerCommanderHandlers(
         temperature?: number;
         maxTokens?: number;
         defaultProviders?: Record<string, string>;
+        processSettings?: CommanderProcessBehaviorSettings;
       },
     ) => {
       if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
@@ -753,6 +756,8 @@ export function registerCommanderHandlers(
           permissionMode: args.permissionMode ?? 'normal',
         });
 
+        trackEvent('commander_session_started');
+
         const llmAdapter = await selectConfiguredAdapter(
           deps.llmRegistry,
           deps.keychain,
@@ -806,6 +811,9 @@ export function registerCommanderHandlers(
             temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
             maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
             profile: adapterProfile,
+            qualityGateBehavior: args.processSettings?.qualityGateBehavior,
+            requireStylePlateBeforeRefImage:
+              args.processSettings?.requireStylePlateBeforeRefImage,
           },
         });
         orchestrator = orchestratorInstance;

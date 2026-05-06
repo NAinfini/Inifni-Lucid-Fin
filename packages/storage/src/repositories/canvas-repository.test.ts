@@ -8,8 +8,6 @@ const SCHEMA = `
 CREATE TABLE canvases (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,
-  nodes                TEXT NOT NULL DEFAULT '[]',
-  edges                TEXT NOT NULL DEFAULT '[]',
   viewport             TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}',
   notes                TEXT NOT NULL DEFAULT '[]',
   style_plate          TEXT,
@@ -119,8 +117,8 @@ describe('CanvasRepository', () => {
     repo.upsert(mkCanvas('good'));
     // Inject a row with an invalid viewport JSON payload.
     db.prepare(
-      `INSERT INTO canvases (id, name, nodes, edges, viewport, notes, created_at, updated_at)
-       VALUES (?, 'bad', '[]', '[]', ?, '[]', 1, 1)`,
+      `INSERT INTO canvases (id, name, viewport, notes, created_at, updated_at)
+       VALUES (?, 'bad', ?, '[]', 1, 1)`,
     ).run('bad', '{"broken":');
     // Missing id lookup returns undefined after degrade
     const { rows, degradedCount } = repo.listFull();
@@ -134,8 +132,8 @@ describe('CanvasRepository', () => {
     repo.upsert(mkCanvas('good'));
     // Inject a row with a numeric viewport.zoom that parses JSON but fails the schema.
     db.prepare(
-      `INSERT INTO canvases (id, name, nodes, edges, viewport, notes, created_at, updated_at)
-       VALUES (?, ?, '[]', '[]', ?, '[]', ?, ?)`,
+      `INSERT INTO canvases (id, name, viewport, notes, created_at, updated_at)
+       VALUES (?, ?, ?, '[]', ?, ?)`,
     ).run('schema-bad', 'canvas bad', '{"x":"nope","y":0,"zoom":1}', 1, 1);
     const { rows, degradedCount } = repo.listFull();
     expect(degradedCount).toBe(1);
@@ -143,13 +141,12 @@ describe('CanvasRepository', () => {
     expect(reports.some((r) => r.schema === 'Canvas')).toBe(true);
   });
 
-  it('tolerates legacy empty-string body columns', () => {
-    // Pre-default-value rows may have '' for body columns instead of valid JSON.
+  it('tolerates empty-string document columns', () => {
     db.prepare(
-      `INSERT INTO canvases (id, name, nodes, edges, viewport, notes, created_at, updated_at)
-       VALUES (?, 'legacy', '', '', '', '', ?, ?)`,
-    ).run('legacy', 1, 1);
-    const got = repo.get('legacy' as CanvasId);
+      `INSERT INTO canvases (id, name, viewport, notes, created_at, updated_at)
+       VALUES (?, 'empty-docs', '', '', ?, ?)`,
+    ).run('empty-docs', 1, 1);
+    const got = repo.get('empty-docs' as CanvasId);
     expect(got).toBeDefined();
     expect(got!.nodes).toEqual([]);
     expect(got!.viewport).toEqual({ x: 0, y: 0, zoom: 1 });
@@ -219,8 +216,8 @@ describe('CanvasRepository', () => {
     // leak through — the rowToCanvas type guard should drop it.
     db.prepare(
       `INSERT INTO canvases
-         (id, name, nodes, edges, viewport, notes, aspect_ratio, created_at, updated_at)
-       VALUES ('legacy-ar', 'legacy', '[]', '[]', '{"x":0,"y":0,"zoom":1}', '[]', '5:4', 1, 1)`,
+         (id, name, viewport, notes, aspect_ratio, created_at, updated_at)
+       VALUES ('legacy-ar', 'legacy', '{"x":0,"y":0,"zoom":1}', '[]', '5:4', 1, 1)`,
     ).run();
     const got = repo.get('legacy-ar' as CanvasId);
     expect(got).toBeDefined();

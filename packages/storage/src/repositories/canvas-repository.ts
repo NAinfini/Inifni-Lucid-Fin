@@ -21,6 +21,8 @@ import type BetterSqlite3 from 'better-sqlite3';
 import type { Canvas, CanvasId, CanvasSettings, CanvasAspectRatio } from '@lucid-fin/contracts';
 import { CanvasesTable, CanvasSchema, parseOrDegrade } from '@lucid-fin/contracts-parse';
 import type { Tx } from '../transactions.js';
+import type { CanvasNodeRepository } from './canvas-node-repository.js';
+import type { CanvasEdgeRepository } from './canvas-edge-repository.js';
 
 /** Result shape for list reads that surface degraded-row counts. */
 export interface ListResult<T> {
@@ -38,8 +40,6 @@ export interface CanvasSummary {
 type RawRow = {
   id: string;
   name: string;
-  nodes: string;
-  edges: string;
   viewport: string;
   notes: string;
   style_plate: string | null;
@@ -65,8 +65,6 @@ const C = CanvasesTable.cols;
 const SELECT_COLS = [
   C.id.sqlName,
   C.name.sqlName,
-  C.nodes.sqlName,
-  C.edges.sqlName,
   C.viewport.sqlName,
   C.notes.sqlName,
   C.stylePlate.sqlName,
@@ -89,15 +87,40 @@ const SELECT_COLS = [
 const DEFAULT_VIEWPORT = '{"x":0,"y":0,"zoom":1}';
 
 export class CanvasRepository {
+  private nodeRepository?: CanvasNodeRepository;
+  private edgeRepository?: CanvasEdgeRepository;
+
   constructor(private readonly db: BetterSqlite3.Database) {}
 
+  setGraphRepositories(repos: {
+    nodes: CanvasNodeRepository;
+    edges: CanvasEdgeRepository;
+  }): void {
+    this.nodeRepository = repos.nodes;
+    this.edgeRepository = repos.edges;
+  }
+
+  setNodeRepository(repo: CanvasNodeRepository): void {
+    this.nodeRepository = repo;
+  }
+
+  setEdgeRepository(repo: CanvasEdgeRepository): void {
+    this.edgeRepository = repo;
+  }
+
   upsert(canvas: Canvas, tx?: Tx): void {
+    if (!tx && (this.nodeRepository || this.edgeRepository)) {
+      this.db.transaction(() => {
+        this.upsert(canvas, this.db);
+      })();
+      return;
+    }
+
     const d = tx ?? this.db;
     const s = canvas.settings ?? {};
     d.prepare(
       `INSERT INTO ${TBL}
-         (${C.id.sqlName}, ${C.name.sqlName}, ${C.nodes.sqlName}, ${C.edges.sqlName},
-          ${C.viewport.sqlName}, ${C.notes.sqlName},
+         (${C.id.sqlName}, ${C.name.sqlName}, ${C.viewport.sqlName}, ${C.notes.sqlName},
           ${C.stylePlate.sqlName}, ${C.negativePrompt.sqlName},
           ${C.refWidth.sqlName}, ${C.refHeight.sqlName},
           ${C.publishImageWidth.sqlName}, ${C.publishImageHeight.sqlName},
@@ -106,11 +129,9 @@ export class CanvasRepository {
           ${C.llmProviderId.sqlName}, ${C.imageProviderId.sqlName},
           ${C.videoProviderId.sqlName}, ${C.audioProviderId.sqlName},
           ${C.createdAt.sqlName}, ${C.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(${C.id.sqlName}) DO UPDATE SET
          ${C.name.sqlName}            = excluded.${C.name.sqlName},
-         ${C.nodes.sqlName}           = excluded.${C.nodes.sqlName},
-         ${C.edges.sqlName}           = excluded.${C.edges.sqlName},
          ${C.viewport.sqlName}        = excluded.${C.viewport.sqlName},
          ${C.notes.sqlName}           = excluded.${C.notes.sqlName},
          ${C.stylePlate.sqlName}      = excluded.${C.stylePlate.sqlName},
@@ -130,8 +151,6 @@ export class CanvasRepository {
     ).run(
       canvas.id,
       canvas.name,
-      JSON.stringify(canvas.nodes ?? []),
-      JSON.stringify(canvas.edges ?? []),
       JSON.stringify(canvas.viewport ?? { x: 0, y: 0, zoom: 1 }),
       JSON.stringify(canvas.notes ?? []),
       s.stylePlate ?? null,
@@ -150,6 +169,9 @@ export class CanvasRepository {
       canvas.createdAt,
       canvas.updatedAt,
     );
+
+    this.nodeRepository?.upsertMany(canvas.id, canvas.nodes ?? [], d);
+    this.edgeRepository?.upsertMany(canvas.id, canvas.edges ?? [], d);
   }
 
   /**
@@ -222,7 +244,7 @@ export class CanvasRepository {
       | RawRow
       | undefined;
     if (!row) return undefined;
-    const { rows } = parseRows([row]);
+    const { rows } = parseRows([row], this.nodeRepository, this.edgeRepository, d);
     return rows[0];
   }
 
@@ -252,19 +274,23 @@ export class CanvasRepository {
          ORDER BY ${C.updatedAt.sqlName} DESC`,
       )
       .all() as RawRow[];
-    return parseRows(rows);
+    return parseRows(rows, this.nodeRepository, this.edgeRepository, d);
   }
 
   delete(id: CanvasId, tx?: Tx): void {
     const d = tx ?? this.db;
+    this.nodeRepository?.deleteByCanvasId(id, d);
+    this.edgeRepository?.deleteByCanvasId(id, d);
     d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} = ?`).run(id);
   }
 }
 
-function rowToCanvas(row: RawRow): Canvas {
-  // Defensive against legacy empty-string body columns (pre-DEFAULT migrations).
-  const nodesJson = row.nodes && row.nodes.length > 0 ? row.nodes : '[]';
-  const edgesJson = row.edges && row.edges.length > 0 ? row.edges : '[]';
+function rowToCanvas(
+  row: RawRow,
+  nodeRepository: CanvasNodeRepository | undefined,
+  edgeRepository: CanvasEdgeRepository | undefined,
+  tx?: Tx,
+): Canvas {
   const viewportJson = row.viewport && row.viewport.length > 0 ? row.viewport : DEFAULT_VIEWPORT;
   const notesJson = row.notes && row.notes.length > 0 ? row.notes : '[]';
 
@@ -294,8 +320,8 @@ function rowToCanvas(row: RawRow): Canvas {
   const canvas: Canvas = {
     id: row.id,
     name: row.name,
-    nodes: JSON.parse(nodesJson) as Canvas['nodes'],
-    edges: JSON.parse(edgesJson) as Canvas['edges'],
+    nodes: nodeRepository?.getByCanvasId(row.id, tx) ?? [],
+    edges: edgeRepository?.getByCanvasId(row.id, tx) ?? [],
     viewport: JSON.parse(viewportJson) as Canvas['viewport'],
     notes: JSON.parse(notesJson) as Canvas['notes'],
     createdAt: row.created_at,
@@ -316,14 +342,19 @@ function isCanvasAspectRatio(value: string): value is CanvasAspectRatio {
   return (ASPECT_RATIO_VALUES as ReadonlySet<string>).has(value);
 }
 
-function parseRows(rows: RawRow[]): ListResult<Canvas> {
+function parseRows(
+  rows: RawRow[],
+  nodeRepository: CanvasNodeRepository | undefined,
+  edgeRepository: CanvasEdgeRepository | undefined,
+  tx?: Tx,
+): ListResult<Canvas> {
   const out: Canvas[] = [];
   let degradedCount = 0;
   const SENTINEL = Symbol('degraded');
   for (const row of rows) {
     let candidate: Canvas | RawRow;
     try {
-      candidate = rowToCanvas(row);
+      candidate = rowToCanvas(row, nodeRepository, edgeRepository, tx);
     } catch {
       // JSON parse failed — feed the raw row to parseOrDegrade so zod
       // rejects it and the degrade reporter fires (observability parity

@@ -10,13 +10,14 @@
  * Status pushes go through `updater:progress` (a dedicated push channel),
  * separate from the invoke-only `updater:status` polling endpoint.
  */
-import { BrowserWindow } from 'electron';
+import type { BrowserWindow } from 'electron';
 import { updaterToastChannel, updaterProgressChannel } from '@lucid-fin/contracts-parse';
 import { log } from './logger.js';
 import {
   createRendererPushGateway,
   type RendererPushGateway,
 } from './features/ipc/push-gateway.js';
+import { recordPreUpdateState } from './update-safety.js';
 
 // electron-updater is a runtime dependency — type-only import for build
 type AppUpdater = {
@@ -45,6 +46,7 @@ export interface UpdateStatus {
 
 let currentStatus: UpdateStatus = { state: 'idle' };
 let pushGateway: RendererPushGateway | null = null;
+let downloadedUpdateInfo: UpdateInfo | null = null;
 
 function notifyRenderer(): void {
   pushGateway?.emit(updaterProgressChannel, currentStatus);
@@ -55,6 +57,8 @@ export async function initAutoUpdater(
   gateway?: RendererPushGateway,
 ): Promise<void> {
   pushGateway = gateway ?? createRendererPushGateway({ getWindow: () => win });
+  currentStatus = { state: 'idle' };
+  downloadedUpdateInfo = null;
 
   try {
     // Dynamic import — electron-updater may not be available in dev
@@ -82,6 +86,7 @@ export async function initAutoUpdater(
   autoUpdater.on('update-available', (info: unknown) => {
     const updateInfo = info as UpdateInfo;
     currentStatus = { state: 'available', info: updateInfo };
+    downloadedUpdateInfo = null;
     log('info', 'Update available', { version: updateInfo.version });
     notifyRenderer();
     // Send toast notification to renderer via the typed push gateway.
@@ -90,6 +95,7 @@ export async function initAutoUpdater(
 
   autoUpdater.on('update-not-available', () => {
     currentStatus = { state: 'idle' };
+    downloadedUpdateInfo = null;
     log('info', 'No updates available');
     notifyRenderer();
   });
@@ -102,6 +108,7 @@ export async function initAutoUpdater(
 
   autoUpdater.on('update-downloaded', (info: unknown) => {
     const updateInfo = info as UpdateInfo;
+    downloadedUpdateInfo = updateInfo;
     currentStatus = { state: 'downloaded', info: updateInfo };
     log('info', 'Update downloaded', { version: updateInfo.version });
     notifyRenderer();
@@ -131,7 +138,17 @@ export async function downloadUpdate(): Promise<void> {
 }
 
 export function installUpdate(): void {
-  if (!autoUpdater) return;
+  if (!autoUpdater) {
+    currentStatus = { state: 'error', error: 'Auto updater is not available.' };
+    notifyRenderer();
+    return;
+  }
+  if (currentStatus.state !== 'downloaded' || !downloadedUpdateInfo?.version) {
+    currentStatus = { state: 'error', error: 'No downloaded update is ready to install.' };
+    notifyRenderer();
+    return;
+  }
+  recordPreUpdateState(downloadedUpdateInfo.version);
   autoUpdater.quitAndInstall();
 }
 

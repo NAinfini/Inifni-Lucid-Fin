@@ -44,6 +44,13 @@ import type { LLMProviderRuntimeConfig } from '../../llm-provider.js';
 import type { TimelineEvent } from '../../agent/timeline-event.js';
 import type { WireEnvelope } from '../../agent/wire-version.js';
 
+export type CommanderQualityGateBehavior = 'warn-only' | 'auto-expand' | 'block-generation';
+
+export interface CommanderProcessBehaviorSettings {
+  qualityGateBehavior?: CommanderQualityGateBehavior;
+  requireStylePlateBeforeRefImage?: boolean;
+}
+
 // ── commander:chat (invoke) ──────────────────────────────────
 export interface CommanderChatRequest {
   canvasId: string;
@@ -59,6 +66,7 @@ export interface CommanderChatRequest {
   temperature?: number;
   maxTokens?: number;
   defaultProviders?: Record<string, string>;
+  processSettings?: CommanderProcessBehaviorSettings;
 }
 export type CommanderChatResponse = void;
 

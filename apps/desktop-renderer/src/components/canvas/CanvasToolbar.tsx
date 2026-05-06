@@ -3,14 +3,9 @@ import {
   Download,
   Grid2X2,
   Map,
-  Maximize,
   Palette,
-  Redo2,
   Search,
-  Undo2,
   Upload,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
@@ -177,13 +172,6 @@ interface CanvasToolbarProps {
   onToggleSnapToGrid: () => void;
   onExportWorkflow: () => void;
   onImportWorkflow: () => void;
-  onUndo: () => void;
-  onRedo: () => void;
-  undoEnabled: boolean;
-  redoEnabled: boolean;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
-  onFitView?: () => void;
   styleGuide?: StyleGuideIndicatorProps;
 }
 
@@ -196,13 +184,6 @@ export function CanvasToolbar({
   onToggleSnapToGrid,
   onExportWorkflow,
   onImportWorkflow,
-  onUndo,
-  onRedo,
-  undoEnabled,
-  redoEnabled,
-  onZoomIn,
-  onZoomOut,
-  onFitView,
   styleGuide,
 }: CanvasToolbarProps) {
   const buttons = [
@@ -244,52 +225,6 @@ export function CanvasToolbar({
   return (
     <TooltipProvider delayDuration={120}>
       <div className="absolute right-3 top-3 z-30 flex items-center gap-1.5">
-        <div
-          role="toolbar"
-          aria-label={t('canvas.toolbar.undoRedo')}
-          className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm"
-        >
-          <ToolbarTriggerButton
-            disabled={!undoEnabled}
-            ariaLabel={t('canvas.undo')}
-            icon={<Undo2 className="h-3.5 w-3.5" />}
-            onClick={onUndo}
-            tooltip={t('canvas.undo')}
-          />
-          <ToolbarTriggerButton
-            disabled={!redoEnabled}
-            ariaLabel={t('canvas.redo')}
-            icon={<Redo2 className="h-3.5 w-3.5" />}
-            onClick={onRedo}
-            tooltip={t('canvas.redo')}
-          />
-        </div>
-        {onZoomIn && onZoomOut && onFitView && (
-          <div
-            role="toolbar"
-            aria-label={t('canvas.toolbar.zoom')}
-            className="flex items-center gap-0.5 rounded-md border border-border/60 bg-card/95 p-1.5 shadow-lg backdrop-blur-sm"
-          >
-            <ToolbarTriggerButton
-              ariaLabel={t('canvas.zoomIn')}
-              icon={<ZoomIn className="h-3.5 w-3.5" />}
-              onClick={onZoomIn}
-              tooltip={t('canvas.zoomIn')}
-            />
-            <ToolbarTriggerButton
-              ariaLabel={t('canvas.zoomOut')}
-              icon={<ZoomOut className="h-3.5 w-3.5" />}
-              onClick={onZoomOut}
-              tooltip={t('canvas.zoomOut')}
-            />
-            <ToolbarTriggerButton
-              ariaLabel={t('canvas.fitView')}
-              icon={<Maximize className="h-3.5 w-3.5" />}
-              onClick={onFitView}
-              tooltip={t('canvas.fitView')}
-            />
-          </div>
-        )}
         <div
           role="toolbar"
           aria-label={t('canvas.toolbar.canvasTools')}

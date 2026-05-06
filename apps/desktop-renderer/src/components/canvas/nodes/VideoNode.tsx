@@ -37,6 +37,7 @@ export interface VideoNodeFlowData {
   presetSummary?: string;
   firstFrameHash?: string;
   lastFrameHash?: string;
+  keyboardFocused?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -163,6 +164,7 @@ function VideoNodeComponent({ data, selected }: NodeProps) {
             'relative flex h-full min-h-[140px] min-w-[200px] w-full flex-col overflow-hidden rounded-md border bg-card shadow-sm',
             'transition-shadow',
             selected ? 'border-purple-400 ring-2 ring-purple-400/40' : 'border-purple-500/30',
+            d.keyboardFocused && !selected && 'ring-2 ring-sky-400/70',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}

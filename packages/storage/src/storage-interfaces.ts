@@ -3,6 +3,8 @@ import type { CommanderEventRepository } from './repositories/commander-event-re
 import type { JobRepository } from './repositories/job-repository.js';
 import type { AssetRepository } from './repositories/asset-repository.js';
 import type { CanvasRepository } from './repositories/canvas-repository.js';
+import type { CanvasNodeRepository } from './repositories/canvas-node-repository.js';
+import type { CanvasEdgeRepository } from './repositories/canvas-edge-repository.js';
 import type { EntityRepository } from './repositories/entity-repository.js';
 import type { FolderRepository } from './repositories/folder-repository.js';
 import type { SeriesRepository } from './repositories/series-repository.js';
@@ -26,6 +28,8 @@ export interface RepoBundle {
   jobs: JobRepository;
   assets: AssetRepository;
   canvases: CanvasRepository;
+  canvasNodes: CanvasNodeRepository;
+  canvasEdges: CanvasEdgeRepository;
   entities: EntityRepository;
   folders: FolderRepository;
   series: SeriesRepository;

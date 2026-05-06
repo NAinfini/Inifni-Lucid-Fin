@@ -35,6 +35,7 @@ export interface AudioNodeFlowData {
   variantCount?: number;
   progress?: number;
   error?: string;
+  keyboardFocused?: boolean;
 }
 
 const AUDIO_TYPE_LABELS: Record<string, string> = {
@@ -74,6 +75,7 @@ function AudioNodeComponent({ data, selected }: NodeProps) {
             'relative rounded-md border bg-card shadow-sm min-w-[200px]',
             'transition-shadow',
             selected ? 'border-green-400 ring-2 ring-green-400/40' : 'border-green-500/30',
+            d.keyboardFocused && !selected && 'ring-2 ring-sky-400/70',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}

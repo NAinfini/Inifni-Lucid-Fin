@@ -1,13 +1,15 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { app, dialog, shell } from 'electron';
+import * as electron from 'electron';
 import type { IpcMain } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import { assertWithinRoot } from '../validation.js';
 import { assertSafePath, getSafeRoots, assertSqliteHeader } from '../path-safety.js';
+
+const { app, dialog, shell } = electron;
 
 const APP_ROOT = path.join(os.homedir(), '.lucid-fin');
 

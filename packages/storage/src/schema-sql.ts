@@ -1,10 +1,8 @@
 /**
- * Inline SQL schema bootstrap used by `SqliteIndex` for fresh-install DBs.
+ * Inline SQL schema bootstrap used by `SqliteIndex`.
  *
- * `SqliteIndex` runs this only when `getCurrentVersion(db) === 0`. Existing
- * databases apply incremental migrations instead (see `./migrations/`).
- * Keep each `CREATE TABLE IF NOT EXISTS` idempotent — the same statement
- * also runs from `repair()` against a freshly-recreated file.
+ * This is the single schema source. Keep each `CREATE TABLE IF NOT EXISTS`
+ * idempotent so the same statement can run during normal boot and repair.
  */
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS assets (
@@ -77,6 +75,7 @@ CREATE TABLE IF NOT EXISTS characters (
   loadouts      TEXT DEFAULT '[]',
   default_loadout_id TEXT DEFAULT '',
   folder_id     TEXT,
+  deleted_at    TEXT,
   created_at    INTEGER,
   updated_at    INTEGER
 );
@@ -95,6 +94,7 @@ CREATE TABLE IF NOT EXISTS equipment (
   tags          TEXT DEFAULT '[]',
   reference_images TEXT DEFAULT '[]',
   folder_id     TEXT,
+  deleted_at    TEXT,
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL
 );
@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS locations (
   tags             TEXT DEFAULT '[]',
   reference_images TEXT DEFAULT '[]',
   folder_id        TEXT,
+  deleted_at       TEXT,
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 );
@@ -319,8 +320,6 @@ CREATE TABLE IF NOT EXISTS project_settings (
 CREATE TABLE IF NOT EXISTS canvases (
   id                   TEXT PRIMARY KEY,
   name                 TEXT NOT NULL,
-  nodes                TEXT NOT NULL DEFAULT '[]',
-  edges                TEXT NOT NULL DEFAULT '[]',
   viewport             TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}',
   notes                TEXT NOT NULL DEFAULT '[]',
   style_plate          TEXT,
@@ -342,6 +341,49 @@ CREATE TABLE IF NOT EXISTS canvases (
 
 CREATE INDEX IF NOT EXISTS idx_canvases_updated
   ON canvases(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS canvas_nodes (
+  id         TEXT PRIMARY KEY,
+  canvas_id  TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
+  type       TEXT NOT NULL,
+  position_x REAL NOT NULL DEFAULT 0,
+  position_y REAL NOT NULL DEFAULT 0,
+  width      REAL,
+  height     REAL,
+  data_json  TEXT NOT NULL DEFAULT '{}',
+  z_index    INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_canvas_nodes_canvas_id
+  ON canvas_nodes(canvas_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_nodes_type
+  ON canvas_nodes(type);
+CREATE INDEX IF NOT EXISTS idx_canvas_nodes_canvas_type
+  ON canvas_nodes(canvas_id, type);
+
+CREATE TABLE IF NOT EXISTS canvas_edges (
+  id            TEXT PRIMARY KEY,
+  canvas_id     TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
+  source        TEXT NOT NULL,
+  target        TEXT NOT NULL,
+  source_handle TEXT,
+  target_handle TEXT,
+  label         TEXT,
+  status        TEXT NOT NULL DEFAULT 'idle',
+  auto_label    INTEGER NOT NULL DEFAULT 0,
+  z_index       INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_canvas_edges_canvas_id
+  ON canvas_edges(canvas_id);
+CREATE INDEX IF NOT EXISTS idx_canvas_edges_source
+  ON canvas_edges(source);
+CREATE INDEX IF NOT EXISTS idx_canvas_edges_target
+  ON canvas_edges(target);
 
 CREATE TABLE IF NOT EXISTS custom_shot_templates (
   id          TEXT PRIMARY KEY,
@@ -422,10 +464,6 @@ CREATE TABLE IF NOT EXISTS snapshots (
 CREATE INDEX IF NOT EXISTS idx_snapshots_session
   ON snapshots(session_id, created_at DESC);
 
--- Phase E: commander timeline events. Additive — legacy
--- 'commander_sessions.messages' JSON column stays as the v1 snapshot;
--- v2 consumers hydrate from per-event rows here. 'payload' is a JSON
--- blob of the full event minus the columns we factor out.
 CREATE TABLE IF NOT EXISTS commander_events (
   session_id   TEXT    NOT NULL,
   run_id       TEXT    NOT NULL,

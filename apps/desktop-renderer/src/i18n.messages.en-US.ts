@@ -601,14 +601,6 @@ export const enUSMessages = {
     },
     entityStrip: {
       selected: '{count} selected',
-      characters: '{count} characters',
-      styleLocked: 'Style: locked',
-      styleNotSet: 'Style: not set',
-    },
-    composerChip: {
-      breakIntoShots: 'break into shots',
-      generateRefs: 'generate refs',
-      applyStyle: 'apply style',
     },
     firstSessionHint:
       'Try "/help" for commands, attach nodes with the pin icon, or just describe what you want to create.',
@@ -1620,6 +1612,14 @@ export const enUSMessages = {
       clipboardMinLengthDesc: 'Minimum text length to trigger clipboard detection.',
       generationConcurrency: 'Generation Concurrency',
       generationConcurrencyDesc: 'Max parallel API calls for media generation.',
+      qualityGateBehavior: 'Quality Gate',
+      qualityGateBehaviorDesc: 'Controls how Commander handles weak generation prompts.',
+      qualityGateWarnOnly: 'Warn only',
+      qualityGateAutoExpand: 'Auto-expand',
+      qualityGateBlock: 'Block generation',
+      requireStylePlateBeforeRefImage: 'Require style plate before reference images',
+      requireStylePlateBeforeRefImageDesc:
+        'Commander must lock a canvas style plate before character, location, or equipment reference images.',
     },
     storage: {
       title: 'Storage & Data',
@@ -1726,6 +1726,34 @@ export const enUSMessages = {
     modelExample: 'Example:',
     modelExampleEmpty: 'Enter model name',
     viewModels: 'View Models',
+    privacy: {
+      crashReporting: 'Crash Reporting',
+      crashReportingToggle: 'Send crash reports',
+      crashReportingDescription:
+        'Help us improve stability by sending anonymous crash reports when the app encounters an error.',
+      whatWeCollect: 'What we collect',
+      collectItems: {
+        stackTraces: 'Anonymous stack traces',
+        appVersion: 'App version',
+        osVersion: 'OS version',
+        electronVersion: 'Electron version',
+      },
+      whatWeNeverCollect: 'What we never collect',
+      neverCollectItems: {
+        canvasData: 'Your canvas data or content',
+        filePaths: 'File paths',
+        apiKeys: 'API keys',
+        identity: 'Personal identity',
+        history: 'Prompt or chat history',
+      },
+      perfTracingNote:
+        'Performance tracing is included with crash reports when enabled.',
+      learnMore: 'Learn more about what we collect',
+      analytics: 'Anonymous Usage Data',
+      analyticsToggle: 'Send anonymous usage data',
+      analyticsDescription:
+        'Help us understand which features are used most. Only aggregate counts are collected — never content, file paths, or personal data.',
+    },
     usage: {
       title: 'Usage Statistics',
       overview: 'Overview',
@@ -2449,6 +2477,11 @@ export const enUSMessages = {
     'snapshot-and-rollback': 'Snapshot And Rollback',
     'render-and-export': 'Render And Export',
     'workflow-orchestration': 'Workflow Orchestration',
+    'style-plate-lock': 'Style Plate Lock',
+    'entities-before-generation': 'Entities Before Generation',
+    'batch-create-guidance': 'Batch Create Guidance',
+    'prompt-quality-gate': 'Prompt Quality Gate',
+    'story-workflow-phase': 'Story Workflow Phase',
     'series-management': 'Series Management',
     'prompt-template-management': 'Prompt Template Management',
     'asset-library-management': 'Asset Library Management',
@@ -2488,6 +2521,16 @@ export const enUSMessages = {
       'Guidance for render execution, cancellation, and export handoff decisions.',
     'workflow-orchestration':
       'Guidance for controlling long-running workflows and expanding ideas into executable plans.',
+    'style-plate-lock':
+      'Requires a canvas style plate before reference image generation so entity visuals stay consistent.',
+    'entities-before-generation':
+      'Checks that referenced characters, locations, and equipment have reference images before scene generation.',
+    'batch-create-guidance':
+      'Adds structure guidance for large canvas batch creation operations.',
+    'prompt-quality-gate':
+      'Checks and expands thin node prompts before generation starts.',
+    'story-workflow-phase':
+      'Keeps story-to-video workflows moving through outline, entity, canvas, generation, and review phases.',
     'series-management': 'Guidance for series and episode planning work.',
     'prompt-template-management': 'Guidance for reusable prompt template maintenance.',
     'asset-library-management': 'Guidance for importing and locating project assets.',

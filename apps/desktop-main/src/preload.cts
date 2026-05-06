@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   Canvas,
+  CommanderProcessBehaviorSettings,
   TimelineEvent,
   WireEnvelope,
   LLMProviderRuntimeInput,
@@ -144,6 +145,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     save: (data: Record<string, unknown>) => typedInvoke('settings:save', data),
     onProviderKeyUpdated: (cb: (data: { providerId: string; hasKey: boolean }) => void) =>
       subscribe('settings:providerKeyUpdated', cb as Callback),
+    setAnalyticsEnabled: (enabled: boolean) =>
+      invoke<void>('settings:set-analytics-enabled', { enabled }),
   },
   app: {
     version: () => invoke<string>('app:version'),
@@ -390,6 +393,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       maxTokens?: number,
       sessionId?: string,
       defaultProviders?: Record<string, string>,
+      processSettings?: CommanderProcessBehaviorSettings,
     ) =>
       invoke<void>('commander:chat', {
         canvasId,
@@ -405,6 +409,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
         maxTokens,
         sessionId,
         defaultProviders,
+        processSettings,
       }),
     cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),
     cancelCurrentStep: (canvasId: string) =>
@@ -518,6 +523,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     return subscribe('app:ready', cb);
   },
   onInitError: (cb: Callback) => subscribe('app:init-error', cb),
+  onFlushBeforeQuit: (cb: Callback) => subscribe('app:flush-before-quit', cb),
+  sendFlushComplete: () => {
+    ipcRenderer.send('app:flush-complete');
+  },
 
   // Auto-updater
   updater: {

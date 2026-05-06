@@ -1,4 +1,5 @@
-import { ipcMain, type BrowserWindow } from 'electron';
+import * as electron from 'electron';
+import type { BrowserWindow } from 'electron';
 import log from '../logger.js';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { CAS, Keychain, type PromptStore, type ProcessPromptStore } from '@lucid-fin/storage';
@@ -34,6 +35,8 @@ import { registerSnapshotHandlers } from './handlers/snapshot.handlers.js';
 import { registerProcessPromptHandlers } from './handlers/process-prompt.handlers.js';
 import { registerFolderHandlers } from './handlers/folder.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
+
+const { ipcMain } = electron;
 
 export interface AppDeps {
   db: SqliteIndex;

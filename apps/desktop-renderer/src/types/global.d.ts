@@ -5,6 +5,7 @@ import type {
   Canvas,
   Character,
   CharacterGender,
+  CommanderProcessBehaviorSettings,
   ColorStyle,
   TimelineEvent,
   WireEnvelope,
@@ -231,6 +232,7 @@ declare global {
         onProviderKeyUpdated: (
           cb: (data: { providerId: string; hasKey: boolean }) => void,
         ) => () => void;
+        setAnalyticsEnabled: (enabled: boolean) => Promise<void>;
       };
       script: {
         parse: (content: string, format?: string) => Promise<unknown>;
@@ -408,6 +410,7 @@ declare global {
           maxTokens?: number,
           sessionId?: string,
           defaultProviders?: Record<string, string>,
+          processSettings?: CommanderProcessBehaviorSettings,
         ) => Promise<void>;
         cancel: (canvasId: string) => Promise<void>;
         cancelCurrentStep: (canvasId: string) => Promise<{ escalated: boolean }>;
@@ -480,6 +483,8 @@ declare global {
       };
       onReady: (cb: () => void) => () => void;
       onInitError: (cb: (error: string) => void) => () => void;
+      onFlushBeforeQuit: (cb: () => void) => () => void;
+      sendFlushComplete: () => void;
       updater: {
         check: () => Promise<void>;
         download: () => Promise<void>;

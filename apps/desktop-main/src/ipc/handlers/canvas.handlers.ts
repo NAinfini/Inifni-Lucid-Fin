@@ -1,10 +1,12 @@
 import type { IpcMain } from 'electron';
 import { randomUUID } from 'node:crypto';
 import log from '../../logger.js';
+import { startTrace } from '../../perf-trace.js';
 import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
 import { LRUCache } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { parseCanvasId } from '@lucid-fin/contracts-parse';
+import { trackEvent } from '../../analytics.js';
 
 interface CanvasPatch {
   canvasId: string;
@@ -113,8 +115,21 @@ export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): vo
 
   ipcMain.handle('canvas:load', async (_e, args: { id: string }) => {
     if (!args || typeof args.id !== 'string') throw new Error('id is required');
+
+    const trace = startTrace('canvas-load', { canvasId: args.id });
     const canvas = store.get(args.id);
-    if (!canvas) throw new Error(`Canvas not found: ${args.id}`);
+
+    if (!canvas) {
+      trace.finish({ error: 'not-found' });
+      throw new Error(`Canvas not found: ${args.id}`);
+    }
+
+    trace.addMeasurement('nodeCount', canvas.nodes.length);
+    trace.addMeasurement('edgeCount', canvas.edges.length);
+    trace.finish();
+
+    trackEvent('canvas_opened', { nodeCount: canvas.nodes.length });
+
     return canvas;
   });
 
@@ -142,6 +157,7 @@ export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): vo
     };
     store.save(canvas);
     log.info('Canvas created:', canvas.id, canvas.name);
+    trackEvent('canvas_created');
     return canvas;
   });
 

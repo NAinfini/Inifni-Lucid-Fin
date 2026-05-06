@@ -3,7 +3,7 @@ import fsp from 'node:fs/promises';
 import _path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IpcMain } from 'electron';
-import { dialog } from 'electron';
+import * as electron from 'electron';
 import archiver from 'archiver';
 import PDFDocument from 'pdfkit';
 import type { CAS } from '@lucid-fin/storage';
@@ -22,6 +22,8 @@ import {
 import { matchNode } from '@lucid-fin/shared-utils';
 import type { CanvasStore } from './canvas.handlers.js';
 import { assertSafePath, getSafeRoots, getImportSafeRoots } from '../path-safety.js';
+
+const { dialog } = electron;
 
 const FALLBACK_EXTS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],

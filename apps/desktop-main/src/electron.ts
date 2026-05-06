@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, Menu, protocol, net, shell } from 'electron';
+import electron from 'electron';
+import type { BrowserWindow } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -22,9 +23,9 @@ import { initApp, restoreAdapterKeys, selectConfiguredLLMAdapter } from './boots
 import { startApiServer, stopApiServer } from './api-server.js';
 import log, { getBufferedLogs, initLogger, setLogForwarder } from './logger.js';
 import { initCrashReporter } from './crash-reporter.js';
+import { startTrace } from './perf-trace.js';
 import { mark, logStartupMetrics } from './startup-metrics.js';
 import { configureUserDataPath } from './user-data-path.js';
-import { updateSettingsCache } from './ipc/settings-cache.js';
 import { createRendererPushGateway } from './features/ipc/push-gateway.js';
 import { registerInvoke } from './features/ipc/registrar.js';
 import {
@@ -42,7 +43,11 @@ import {
   installUpdate,
   getUpdateStatus,
 } from './auto-updater.js';
+import { initUpdateSafety, stopUpdateSafety } from './update-safety.js';
 import { startSessionCleanup, stopSessionCleanup } from './ipc/handlers/commander-registry.js';
+import { registerSettingsHandlers } from './ipc/handlers/settings.handlers.js';
+
+const { app, BrowserWindow: BrowserWindowCtor, ipcMain, Menu, protocol, net, shell } = electron;
 
 // Explicitly pin Electron userData to %APPDATA%\Lucid Fin and migrate legacy Electron data.
 configureUserDataPath(app);
@@ -50,6 +55,7 @@ configureUserDataPath(app);
 // Early init: logger + crash reporter (before anything else)
 initLogger(app.isPackaged ? 'info' : 'debug');
 initCrashReporter();
+initUpdateSafety();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -151,7 +157,7 @@ function createWindow(): BrowserWindow {
   // Hide the default menu bar — navigation is handled by the in-app Navbar
   Menu.setApplicationMenu(null);
 
-  const win = new BrowserWindow({
+  const win = new BrowserWindowCtor({
     width: 1400,
     height: 900,
     show: false,
@@ -218,10 +224,18 @@ registerEarlyIpcHandlers();
 app.whenReady().then(async () => {
   log.info('Lucid Fin starting...');
 
+  // Performance trace: measure total startup time (app.ready -> did-finish-load)
+  const startupTrace = startTrace('app-startup');
+
   // 1. Create window immediately (skeleton-first for <3s boot)
   mainWindow = createWindow();
   attachWindowLogForwarder(mainWindow);
   logWindowCreated();
+
+  // Finish startup trace when the renderer finishes loading
+  mainWindow.webContents.once('did-finish-load', () => {
+    startupTrace.finish();
+  });
 
   // Clipboard watcher — monitors clipboard when app is not focused
   startClipboardWatcher(mainWindow);
@@ -398,38 +412,18 @@ app.whenReady().then(async () => {
       return shell.openExternal(parsed.href);
     });
 
-    // Settings persistence (app-level, not project-level)
-    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
-    ipcMain.handle('settings:load', async () => {
-      try {
-        const raw = await fs.promises
-          .readFile(settingsPath, 'utf-8')
-          .catch((err: NodeJS.ErrnoException) => {
-            if (err.code === 'ENOENT') return null;
-            throw err;
-          });
-        if (raw === null) return null;
-        const loaded = JSON.parse(raw);
-        if (loaded && typeof loaded === 'object') {
-          updateSettingsCache(loaded as Record<string, unknown>);
+    registerSettingsHandlers(ipcMain, db);
+
+    ipcMain.handle(
+      'settings:set-analytics-enabled',
+      async (_e, args: { enabled: boolean }) => {
+        if (!args || typeof args.enabled !== 'boolean') {
+          throw new Error('enabled (boolean) is required');
         }
-        return loaded;
-      } catch (err) {
-        log.warn('Settings file corrupt, using defaults', { error: String(err) });
-      }
-      return null;
-    });
-    ipcMain.handle('settings:save', async (_e, data: unknown) => {
-      try {
-        await fs.promises.writeFile(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-        if (data && typeof data === 'object') {
-          updateSettingsCache(data as Record<string, unknown>);
-        }
-      } catch (err) {
-        log.error('Failed to save settings', { error: String(err) });
-        throw err;
-      }
-    });
+        const { setAnalyticsEnabled } = await import('./analytics.js');
+        setAnalyticsEnabled(args.enabled);
+      },
+    );
 
     // Notify renderer that backend is ready
     mark('fully-loaded');
@@ -446,6 +440,7 @@ app.on('window-all-closed', () => {
   stopClipboardWatcher();
   stopApiServer();
   stopSessionCleanup();
+  stopUpdateSafety();
   if (process.platform !== 'darwin') {
     if (appJobQueue) {
       appJobQueue.stop();
@@ -460,6 +455,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  stopUpdateSafety();
   if (appJobQueue) {
     appJobQueue.stop();
     appJobQueue = null;

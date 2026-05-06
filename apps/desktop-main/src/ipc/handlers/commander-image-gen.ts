@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import log from '../../logger.js';
 import { sanitizePng } from '../../sanitize-png.js';
-import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
+import { providerHealth, type AdapterRegistry } from '@lucid-fin/adapters-ai';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import { getBuiltinProviderCapabilityProfile } from '@lucid-fin/contracts';
 
@@ -92,6 +92,7 @@ export function makeGenerateImage(deps: {
           width: clamped.width,
           height: clamped.height,
         });
+        providerHealth.recordSuccess(adapter.id);
         const materialized = await materializeAsset(generated);
         try {
           const { ref } = await deps.cas.importAsset(materialized.filePath, 'image');
@@ -132,6 +133,7 @@ export function makeGenerateImage(deps: {
           }
         }
       } catch (genErr) {
+        providerHealth.recordFailure(adapter.id);
         deps.onFailed?.(jobId, genErr instanceof Error ? genErr.message : String(genErr));
         throw genErr;
       }

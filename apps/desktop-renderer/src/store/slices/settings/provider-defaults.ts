@@ -1127,6 +1127,8 @@ export function mergeSavedSettings(
     production: { ...initialState.production },
     styleGuide: { ...initialState.styleGuide },
     bootstrapped: false,
+    crashReporting: saved.crashReporting ?? false,
+    analyticsEnabled: saved.analyticsEnabled ?? false,
   };
 
   if (saved.production) {

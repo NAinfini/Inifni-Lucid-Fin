@@ -55,10 +55,13 @@ function makeService(overrides: ServiceOverrides = {}) {
       sessions: [],
       confirmAutoMode: 'none',
       permissionMode: 'normal',
+      phase: { kind: 'idle' },
       providerId: null,
       maxSteps: 50,
       temperature: 0.7,
       maxTokens: 200000,
+      qualityGateBehavior: 'auto-expand',
+      requireStylePlateBeforeRefImage: true,
       finalizedRunIds: [],
       ...overrides.commanderState,
     },
@@ -85,7 +88,7 @@ function makeService(overrides: ServiceOverrides = {}) {
       audio: {},
       ...overrides.settingsState,
     },
-    promptTemplates: { templates: [] },
+    skillDefinitions: { skills: [] },
     workflowDefinitions: { entries: [] },
   } as unknown as RootState;
 
@@ -369,6 +372,43 @@ describe('CommanderSessionService', () => {
     await service.start('hello');
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'commander/streamError' }),
+    );
+  });
+
+  it('start forwards process behavior settings to the commander transport', async () => {
+    const { service, commander } = makeService({
+      commanderState: {
+        activeCanvasId: 'canvas-1',
+        qualityGateBehavior: 'block-generation',
+        requireStylePlateBeforeRefImage: true,
+      },
+      canvasState: {
+        activeCanvasId: 'canvas-1',
+        canvases: { entities: { 'canvas-1': { id: 'canvas-1', settings: {}, viewport: {} } } },
+        selectedNodeIds: [],
+      } as never,
+    });
+
+    await service.start('generate');
+
+    expect(commander.chat).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(Array),
+      expect.any(Array),
+      expect.any(Array),
+      undefined,
+      'normal',
+      'en',
+      50,
+      0.7,
+      200000,
+      expect.any(String),
+      undefined,
+      {
+        qualityGateBehavior: 'block-generation',
+        requireStylePlateBeforeRefImage: true,
+      },
     );
   });
 });

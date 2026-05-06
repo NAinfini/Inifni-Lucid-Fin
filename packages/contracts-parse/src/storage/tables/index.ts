@@ -14,6 +14,8 @@ export * from './script.js';
 export * from './color-style.js';
 export * from './workflow.js';
 export * from './canvas.js';
+export * from './canvas-node.js';
+export * from './canvas-edge.js';
 export * from './shot-template.js';
 export * from './series.js';
 export * from './preset.js';

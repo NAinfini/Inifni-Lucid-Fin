@@ -22,4 +22,6 @@ export interface FlowVisualState {
   dependencyRole: 'upstream' | 'downstream' | 'focus' | null;
   dimmed: boolean;
   connectedToSelection?: boolean;
+  /** Whether this node has keyboard focus (distinct from selection). */
+  keyboardFocused?: boolean;
 }

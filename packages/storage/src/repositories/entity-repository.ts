@@ -196,6 +196,83 @@ function buildPartialUpdate(
 }
 
 // ---------------------------------------------------------------------------
+// Lite list column lists (exclude reference_images and loadouts to reduce
+// payload size — see R22 lazy-load PRD).
+// ---------------------------------------------------------------------------
+
+const CHAR_LITE_COLS = [
+  CHAR.id.sqlName,
+  CHAR.name.sqlName,
+  CHAR.role.sqlName,
+  CHAR.description.sqlName,
+  CHAR.appearance.sqlName,
+  CHAR.personality.sqlName,
+  CHAR.refImage.sqlName,
+  CHAR.costumes.sqlName,
+  CHAR.tags.sqlName,
+  CHAR.age.sqlName,
+  CHAR.gender.sqlName,
+  CHAR.voice.sqlName,
+  CHAR.face.sqlName,
+  CHAR.hair.sqlName,
+  CHAR.skinTone.sqlName,
+  CHAR.body.sqlName,
+  CHAR.distinctTraits.sqlName,
+  CHAR.vocalTraits.sqlName,
+  CHAR.defaultLoadoutId.sqlName,
+  CHAR.folderId.sqlName,
+  CHAR.createdAt.sqlName,
+  CHAR.updatedAt.sqlName,
+].join(', ');
+
+const EQUIP_LITE_COLS = [
+  EQUIP.id.sqlName,
+  EQUIP.name.sqlName,
+  EQUIP.type.sqlName,
+  EQUIP.subtype.sqlName,
+  EQUIP.description.sqlName,
+  EQUIP.functionDesc.sqlName,
+  EQUIP.material.sqlName,
+  EQUIP.color.sqlName,
+  EQUIP.condition.sqlName,
+  EQUIP.visualDetails.sqlName,
+  EQUIP.tags.sqlName,
+  EQUIP.folderId.sqlName,
+  EQUIP.createdAt.sqlName,
+  EQUIP.updatedAt.sqlName,
+].join(', ');
+
+const LOC_LITE_COLS = [
+  LOC.id.sqlName,
+  LOC.name.sqlName,
+  LOC.type.sqlName,
+  LOC.subLocation.sqlName,
+  LOC.description.sqlName,
+  LOC.timeOfDay.sqlName,
+  LOC.mood.sqlName,
+  LOC.weather.sqlName,
+  LOC.lighting.sqlName,
+  LOC.architectureStyle.sqlName,
+  LOC.dominantColors.sqlName,
+  LOC.keyFeatures.sqlName,
+  LOC.atmosphereKeywords.sqlName,
+  LOC.tags.sqlName,
+  LOC.folderId.sqlName,
+  LOC.createdAt.sqlName,
+  LOC.updatedAt.sqlName,
+].join(', ');
+
+/**
+ * Extract just the first reference image's assetHash from the JSON blob for
+ * thumbnail display in list views. Returns NULL when the column is empty or
+ * has no assetHash value. This avoids transferring the entire reference_images
+ * JSON array over IPC for list queries.
+ */
+function thumbnailExpr(col: string): string {
+  return `json_extract(${col}, '$[0].assetHash') as thumbnail_hash`;
+}
+
+// ---------------------------------------------------------------------------
 // Row → domain object mappers
 // ---------------------------------------------------------------------------
 
@@ -227,6 +304,43 @@ function rowToCharacter(row: Record<string, unknown>): Character {
   };
 }
 
+/**
+ * Map a lite SQL row (no reference_images/loadouts columns) to a Character.
+ * Injects a single-element referenceImages array when a thumbnail_hash is
+ * available so the list-view thumbnail code still works via
+ * `c.referenceImages[0]?.assetHash`.
+ */
+function rowToCharacterLite(row: Record<string, unknown>): Character {
+  const thumbnailHash = (row.thumbnail_hash as string | null) ?? undefined;
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    role: (row.role as Character['role']) ?? 'supporting',
+    description: (row.description as string) ?? '',
+    appearance: (row.appearance as string) ?? '',
+    personality: (row.personality as string) ?? '',
+    costumes: parseJsonArrayOrEmpty(row.costumes) as Character['costumes'],
+    tags: parseStringArrayOrEmpty(row.tags),
+    age: (row.age as number | null) ?? undefined,
+    gender: (row.gender as Character['gender']) ?? undefined,
+    voice: (row.voice as string | null) ?? undefined,
+    face: parseJsonObjectOrUndef(row.face) as CharacterFace | undefined,
+    hair: parseJsonObjectOrUndef(row.hair) as CharacterHair | undefined,
+    skinTone: (row.skin_tone as string | null) ?? undefined,
+    body: parseJsonObjectOrUndef(row.body) as CharacterBody | undefined,
+    distinctTraits: parseStringArrayOrUndef(row.distinct_traits),
+    vocalTraits: parseJsonObjectOrUndef(row.vocal_traits) as VocalTraits | undefined,
+    referenceImages: thumbnailHash
+      ? ([{ slot: 'main', assetHash: thumbnailHash, isStandard: true }] as Character['referenceImages'])
+      : ([] as Character['referenceImages']),
+    loadouts: [] as Character['loadouts'],
+    defaultLoadoutId: (row.default_loadout_id as string) ?? '',
+    folderId: (row.folder_id as string | null) ?? null,
+    createdAt: (row.created_at as number) ?? Date.now(),
+    updatedAt: (row.updated_at as number) ?? Date.now(),
+  };
+}
+
 function rowToEquipment(row: Record<string, unknown>): Equipment {
   return {
     id: row.id as string,
@@ -241,6 +355,29 @@ function rowToEquipment(row: Record<string, unknown>): Equipment {
     visualDetails: (row.visual_details as string | null) ?? undefined,
     tags: parseStringArrayOrEmpty(row.tags),
     referenceImages: parseJsonArrayOrEmpty(row.reference_images) as Equipment['referenceImages'],
+    folderId: (row.folder_id as string | null) ?? null,
+    createdAt: (row.created_at as number) ?? Date.now(),
+    updatedAt: (row.updated_at as number) ?? Date.now(),
+  };
+}
+
+function rowToEquipmentLite(row: Record<string, unknown>): Equipment {
+  const thumbnailHash = (row.thumbnail_hash as string | null) ?? undefined;
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    type: (row.type as Equipment['type']) ?? 'other',
+    subtype: (row.subtype as string | null) ?? undefined,
+    description: (row.description as string) ?? '',
+    function: (row.function_desc as string | null) ?? undefined,
+    material: (row.material as string | null) ?? undefined,
+    color: (row.color as string | null) ?? undefined,
+    condition: (row.condition as string | null) ?? undefined,
+    visualDetails: (row.visual_details as string | null) ?? undefined,
+    tags: parseStringArrayOrEmpty(row.tags),
+    referenceImages: thumbnailHash
+      ? ([{ slot: 'main', assetHash: thumbnailHash, isStandard: true }] as Equipment['referenceImages'])
+      : ([] as Equipment['referenceImages']),
     folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
     updatedAt: (row.updated_at as number) ?? Date.now(),
@@ -264,6 +401,32 @@ function rowToLocation(row: Record<string, unknown>): Location {
     atmosphereKeywords: parseStringArrayOrUndef(row.atmosphere_keywords),
     tags: parseStringArrayOrEmpty(row.tags),
     referenceImages: parseJsonArrayOrEmpty(row.reference_images) as Location['referenceImages'],
+    folderId: (row.folder_id as string | null) ?? null,
+    createdAt: (row.created_at as number) ?? Date.now(),
+    updatedAt: (row.updated_at as number) ?? Date.now(),
+  };
+}
+
+function rowToLocationLite(row: Record<string, unknown>): Location {
+  const thumbnailHash = (row.thumbnail_hash as string | null) ?? undefined;
+  return {
+    id: row.id as string,
+    name: row.name as string,
+    type: (row.type as Location['type']) ?? 'interior',
+    subLocation: (row.sub_location as string | null) ?? undefined,
+    description: (row.description as string) ?? '',
+    timeOfDay: (row.time_of_day as string | null) ?? undefined,
+    mood: (row.mood as string | null) ?? undefined,
+    weather: (row.weather as string | null) ?? undefined,
+    lighting: (row.lighting as string | null) ?? undefined,
+    architectureStyle: (row.architecture_style as string | null) ?? undefined,
+    dominantColors: parseStringArrayOrUndef(row.dominant_colors),
+    keyFeatures: parseStringArrayOrUndef(row.key_features),
+    atmosphereKeywords: parseStringArrayOrUndef(row.atmosphere_keywords),
+    tags: parseStringArrayOrEmpty(row.tags),
+    referenceImages: thumbnailHash
+      ? ([{ slot: 'main', assetHash: thumbnailHash, isStandard: true }] as Location['referenceImages'])
+      : ([] as Location['referenceImages']),
     folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
     updatedAt: (row.updated_at as number) ?? Date.now(),
@@ -383,9 +546,9 @@ export class EntityRepository {
 
   getCharacter(id: CharacterId, tx?: Tx): Character | undefined {
     const d = tx ?? this.db;
-    const row = d.prepare(`SELECT * FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+    const row = d
+      .prepare(`SELECT * FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ? AND deleted_at IS NULL`)
+      .get(id) as Record<string, unknown> | undefined;
     if (!row) return undefined;
     const parsed = parseOrDegrade(
       CharacterSchema,
@@ -399,7 +562,9 @@ export class EntityRepository {
   listCharacters(tx?: Tx): ListResult<Character> {
     const d = tx ?? this.db;
     const rows = d
-      .prepare(`SELECT * FROM ${CHAR_TBL} ORDER BY ${CHAR.name.sqlName}`)
+      .prepare(
+        `SELECT * FROM ${CHAR_TBL} WHERE deleted_at IS NULL ORDER BY ${CHAR.name.sqlName}`,
+      )
       .all() as Array<Record<string, unknown>>;
     const out: Character[] = [];
     let degradedCount = 0;
@@ -425,9 +590,105 @@ export class EntityRepository {
     return { rows: out, degradedCount };
   }
 
+  /**
+   * Lite character list for UI list views — excludes reference_images and
+   * loadouts JSON blobs from the SQL query to reduce payload size. Returns a
+   * thumbnail-only referenceImages array so list-view thumbnails still work.
+   */
+  listCharactersLite(tx?: Tx): ListResult<Character> {
+    const d = tx ?? this.db;
+    const rows = d
+      .prepare(
+        `SELECT ${CHAR_LITE_COLS}, ${thumbnailExpr(CHAR.referenceImages.sqlName)}
+         FROM ${CHAR_TBL}
+         WHERE deleted_at IS NULL
+         ORDER BY ${CHAR.name.sqlName}`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    const out: Character[] = [];
+    let degradedCount = 0;
+    for (const row of rows) {
+      let candidate: Character | Record<string, unknown>;
+      try {
+        candidate = rowToCharacterLite(row);
+      } catch {
+        candidate = row;
+      }
+      const parsed = parseOrDegrade(
+        CharacterSchema,
+        candidate,
+        CHARACTER_SENTINEL as unknown as Character,
+        { ctx: { name: 'Character' } },
+      );
+      if ((parsed as unknown) === CHARACTER_SENTINEL) {
+        degradedCount += 1;
+        continue;
+      }
+      out.push(parsed as Character);
+    }
+    return { rows: out, degradedCount };
+  }
+
   deleteCharacter(id: CharacterId, tx?: Tx): void {
     const d = tx ?? this.db;
-    d.prepare(`DELETE FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`).run(id);
+    d.prepare(
+      `UPDATE ${CHAR_TBL} SET deleted_at = datetime('now') WHERE ${CHAR.id.sqlName} = ? AND deleted_at IS NULL`,
+    ).run(id);
+  }
+
+  restoreCharacter(id: CharacterId, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${CHAR_TBL} SET deleted_at = NULL WHERE ${CHAR.id.sqlName} = ? AND deleted_at IS NOT NULL`,
+    ).run(id);
+  }
+
+  listDeletedCharacters(tx?: Tx): ListResult<Character> {
+    const d = tx ?? this.db;
+    const rows = d
+      .prepare(
+        `SELECT * FROM ${CHAR_TBL} WHERE deleted_at IS NOT NULL ORDER BY ${CHAR.name.sqlName}`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    const out: Character[] = [];
+    let degradedCount = 0;
+    for (const row of rows) {
+      let candidate: Character | Record<string, unknown>;
+      try {
+        candidate = rowToCharacter(row);
+      } catch {
+        candidate = row;
+      }
+      const parsed = parseOrDegrade(
+        CharacterSchema,
+        candidate,
+        CHARACTER_SENTINEL as unknown as Character,
+        { ctx: { name: 'Character' } },
+      );
+      if ((parsed as unknown) === CHARACTER_SENTINEL) {
+        degradedCount += 1;
+        continue;
+      }
+      out.push(parsed as Character);
+    }
+    return { rows: out, degradedCount };
+  }
+
+  purgeCharacter(id: CharacterId, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `DELETE FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ? AND deleted_at IS NOT NULL`,
+    ).run(id);
+  }
+
+  purgeCharactersOlderThan(days: number, tx?: Tx): number {
+    const d = tx ?? this.db;
+    const result = d
+      .prepare(
+        `DELETE FROM ${CHAR_TBL} WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', ?)`,
+      )
+      .run(`-${days} days`);
+    return result.changes;
   }
 
   // ── Equipment ──────────────────────────────────────────────────
@@ -508,9 +769,9 @@ export class EntityRepository {
 
   getEquipment(id: EquipmentId, tx?: Tx): Equipment | undefined {
     const d = tx ?? this.db;
-    const row = d.prepare(`SELECT * FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+    const row = d
+      .prepare(`SELECT * FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ? AND deleted_at IS NULL`)
+      .get(id) as Record<string, unknown> | undefined;
     if (!row) return undefined;
     const parsed = parseOrDegrade(
       EquipmentSchema,
@@ -525,10 +786,14 @@ export class EntityRepository {
     const d = tx ?? this.db;
     const rows = (
       type === undefined
-        ? d.prepare(`SELECT * FROM ${EQUIP_TBL} ORDER BY ${EQUIP.name.sqlName}`).all()
+        ? d
+            .prepare(
+              `SELECT * FROM ${EQUIP_TBL} WHERE deleted_at IS NULL ORDER BY ${EQUIP.name.sqlName}`,
+            )
+            .all()
         : d
             .prepare(
-              `SELECT * FROM ${EQUIP_TBL} WHERE ${EQUIP.type.sqlName} = ? ORDER BY ${EQUIP.name.sqlName}`,
+              `SELECT * FROM ${EQUIP_TBL} WHERE ${EQUIP.type.sqlName} = ? AND deleted_at IS NULL ORDER BY ${EQUIP.name.sqlName}`,
             )
             .all(type)
     ) as Array<Record<string, unknown>>;
@@ -556,9 +821,115 @@ export class EntityRepository {
     return { rows: out, degradedCount };
   }
 
+  /**
+   * Lite equipment list -- excludes reference_images JSON blob.
+   */
+  listEquipmentLite(type?: string, tx?: Tx): ListResult<Equipment> {
+    const d = tx ?? this.db;
+    const thumbExpr = thumbnailExpr(EQUIP.referenceImages.sqlName);
+    const rows = (
+      type === undefined
+        ? d
+            .prepare(
+              `SELECT ${EQUIP_LITE_COLS}, ${thumbExpr}
+               FROM ${EQUIP_TBL}
+               WHERE deleted_at IS NULL
+               ORDER BY ${EQUIP.name.sqlName}`,
+            )
+            .all()
+        : d
+            .prepare(
+              `SELECT ${EQUIP_LITE_COLS}, ${thumbExpr}
+               FROM ${EQUIP_TBL}
+               WHERE ${EQUIP.type.sqlName} = ? AND deleted_at IS NULL
+               ORDER BY ${EQUIP.name.sqlName}`,
+            )
+            .all(type)
+    ) as Array<Record<string, unknown>>;
+    const out: Equipment[] = [];
+    let degradedCount = 0;
+    for (const row of rows) {
+      let candidate: Equipment | Record<string, unknown>;
+      try {
+        candidate = rowToEquipmentLite(row);
+      } catch {
+        candidate = row;
+      }
+      const parsed = parseOrDegrade(
+        EquipmentSchema,
+        candidate,
+        EQUIPMENT_SENTINEL as unknown as Equipment,
+        { ctx: { name: 'Equipment' } },
+      );
+      if ((parsed as unknown) === EQUIPMENT_SENTINEL) {
+        degradedCount += 1;
+        continue;
+      }
+      out.push(parsed as Equipment);
+    }
+    return { rows: out, degradedCount };
+  }
+
   deleteEquipment(id: EquipmentId, tx?: Tx): void {
     const d = tx ?? this.db;
-    d.prepare(`DELETE FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`).run(id);
+    d.prepare(
+      `UPDATE ${EQUIP_TBL} SET deleted_at = datetime('now') WHERE ${EQUIP.id.sqlName} = ? AND deleted_at IS NULL`,
+    ).run(id);
+  }
+
+  restoreEquipment(id: EquipmentId, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${EQUIP_TBL} SET deleted_at = NULL WHERE ${EQUIP.id.sqlName} = ? AND deleted_at IS NOT NULL`,
+    ).run(id);
+  }
+
+  listDeletedEquipment(tx?: Tx): ListResult<Equipment> {
+    const d = tx ?? this.db;
+    const rows = d
+      .prepare(
+        `SELECT * FROM ${EQUIP_TBL} WHERE deleted_at IS NOT NULL ORDER BY ${EQUIP.name.sqlName}`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    const out: Equipment[] = [];
+    let degradedCount = 0;
+    for (const row of rows) {
+      let candidate: Equipment | Record<string, unknown>;
+      try {
+        candidate = rowToEquipment(row);
+      } catch {
+        candidate = row;
+      }
+      const parsed = parseOrDegrade(
+        EquipmentSchema,
+        candidate,
+        EQUIPMENT_SENTINEL as unknown as Equipment,
+        { ctx: { name: 'Equipment' } },
+      );
+      if ((parsed as unknown) === EQUIPMENT_SENTINEL) {
+        degradedCount += 1;
+        continue;
+      }
+      out.push(parsed as Equipment);
+    }
+    return { rows: out, degradedCount };
+  }
+
+  purgeEquipment(id: EquipmentId, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `DELETE FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ? AND deleted_at IS NOT NULL`,
+    ).run(id);
+  }
+
+  purgeEquipmentOlderThan(days: number, tx?: Tx): number {
+    const d = tx ?? this.db;
+    const result = d
+      .prepare(
+        `DELETE FROM ${EQUIP_TBL} WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', ?)`,
+      )
+      .run(`-${days} days`);
+    return result.changes;
   }
 
   // ── Locations ──────────────────────────────────────────────────
@@ -658,9 +1029,9 @@ export class EntityRepository {
 
   getLocation(id: LocationId, tx?: Tx): Location | undefined {
     const d = tx ?? this.db;
-    const row = d.prepare(`SELECT * FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+    const row = d
+      .prepare(`SELECT * FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ? AND deleted_at IS NULL`)
+      .get(id) as Record<string, unknown> | undefined;
     if (!row) return undefined;
     const parsed = parseOrDegrade(
       LocationSchema,
@@ -675,10 +1046,14 @@ export class EntityRepository {
     const d = tx ?? this.db;
     const rows = (
       type === undefined
-        ? d.prepare(`SELECT * FROM ${LOC_TBL} ORDER BY ${LOC.name.sqlName}`).all()
+        ? d
+            .prepare(
+              `SELECT * FROM ${LOC_TBL} WHERE deleted_at IS NULL ORDER BY ${LOC.name.sqlName}`,
+            )
+            .all()
         : d
             .prepare(
-              `SELECT * FROM ${LOC_TBL} WHERE ${LOC.type.sqlName} = ? ORDER BY ${LOC.name.sqlName}`,
+              `SELECT * FROM ${LOC_TBL} WHERE ${LOC.type.sqlName} = ? AND deleted_at IS NULL ORDER BY ${LOC.name.sqlName}`,
             )
             .all(type)
     ) as Array<Record<string, unknown>>;
@@ -706,9 +1081,115 @@ export class EntityRepository {
     return { rows: out, degradedCount };
   }
 
+  /**
+   * Lite location list -- excludes reference_images JSON blob.
+   */
+  listLocationsLite(type?: string, tx?: Tx): ListResult<Location> {
+    const d = tx ?? this.db;
+    const thumbExpr = thumbnailExpr(LOC.referenceImages.sqlName);
+    const rows = (
+      type === undefined
+        ? d
+            .prepare(
+              `SELECT ${LOC_LITE_COLS}, ${thumbExpr}
+               FROM ${LOC_TBL}
+               WHERE deleted_at IS NULL
+               ORDER BY ${LOC.name.sqlName}`,
+            )
+            .all()
+        : d
+            .prepare(
+              `SELECT ${LOC_LITE_COLS}, ${thumbExpr}
+               FROM ${LOC_TBL}
+               WHERE ${LOC.type.sqlName} = ? AND deleted_at IS NULL
+               ORDER BY ${LOC.name.sqlName}`,
+            )
+            .all(type)
+    ) as Array<Record<string, unknown>>;
+    const out: Location[] = [];
+    let degradedCount = 0;
+    for (const row of rows) {
+      let candidate: Location | Record<string, unknown>;
+      try {
+        candidate = rowToLocationLite(row);
+      } catch {
+        candidate = row;
+      }
+      const parsed = parseOrDegrade(
+        LocationSchema,
+        candidate,
+        LOCATION_SENTINEL as unknown as Location,
+        { ctx: { name: 'Location' } },
+      );
+      if ((parsed as unknown) === LOCATION_SENTINEL) {
+        degradedCount += 1;
+        continue;
+      }
+      out.push(parsed as Location);
+    }
+    return { rows: out, degradedCount };
+  }
+
   deleteLocation(id: LocationId, tx?: Tx): void {
     const d = tx ?? this.db;
-    d.prepare(`DELETE FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`).run(id);
+    d.prepare(
+      `UPDATE ${LOC_TBL} SET deleted_at = datetime('now') WHERE ${LOC.id.sqlName} = ? AND deleted_at IS NULL`,
+    ).run(id);
+  }
+
+  restoreLocation(id: LocationId, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `UPDATE ${LOC_TBL} SET deleted_at = NULL WHERE ${LOC.id.sqlName} = ? AND deleted_at IS NOT NULL`,
+    ).run(id);
+  }
+
+  listDeletedLocations(tx?: Tx): ListResult<Location> {
+    const d = tx ?? this.db;
+    const rows = d
+      .prepare(
+        `SELECT * FROM ${LOC_TBL} WHERE deleted_at IS NOT NULL ORDER BY ${LOC.name.sqlName}`,
+      )
+      .all() as Array<Record<string, unknown>>;
+    const out: Location[] = [];
+    let degradedCount = 0;
+    for (const row of rows) {
+      let candidate: Location | Record<string, unknown>;
+      try {
+        candidate = rowToLocation(row);
+      } catch {
+        candidate = row;
+      }
+      const parsed = parseOrDegrade(
+        LocationSchema,
+        candidate,
+        LOCATION_SENTINEL as unknown as Location,
+        { ctx: { name: 'Location' } },
+      );
+      if ((parsed as unknown) === LOCATION_SENTINEL) {
+        degradedCount += 1;
+        continue;
+      }
+      out.push(parsed as Location);
+    }
+    return { rows: out, degradedCount };
+  }
+
+  purgeLocation(id: LocationId, tx?: Tx): void {
+    const d = tx ?? this.db;
+    d.prepare(
+      `DELETE FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ? AND deleted_at IS NOT NULL`,
+    ).run(id);
+  }
+
+  purgeLocationsOlderThan(days: number, tx?: Tx): number {
+    const d = tx ?? this.db;
+    const result = d
+      .prepare(
+        `DELETE FROM ${LOC_TBL} WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', ?)`,
+      )
+      .run(`-${days} days`);
+    return result.changes;
   }
 
   // ── Folder assignments ─────────────────────────────────────────
@@ -732,5 +1213,40 @@ export class EntityRepository {
     d.prepare(
       `UPDATE ${LOC_TBL} SET ${LOC.folderId.sqlName} = ?, ${LOC.updatedAt.sqlName} = ? WHERE ${LOC.id.sqlName} = ?`,
     ).run(folderId, Date.now(), id);
+  }
+
+  // ── Reference-image on-demand fetch ────────────────────────────
+
+  /**
+   * Fetch only the reference_images JSON for a given entity, without loading
+   * the full row. Returns an empty array if the entity is not found.
+   */
+  getReferenceImages(
+    entityType: 'character' | 'equipment' | 'location',
+    entityId: string,
+    tx?: Tx,
+  ): unknown[] {
+    const d = tx ?? this.db;
+    let tbl: string;
+    let idCol: string;
+    let refCol: string;
+    if (entityType === 'character') {
+      tbl = CHAR_TBL;
+      idCol = CHAR.id.sqlName;
+      refCol = CHAR.referenceImages.sqlName;
+    } else if (entityType === 'equipment') {
+      tbl = EQUIP_TBL;
+      idCol = EQUIP.id.sqlName;
+      refCol = EQUIP.referenceImages.sqlName;
+    } else {
+      tbl = LOC_TBL;
+      idCol = LOC.id.sqlName;
+      refCol = LOC.referenceImages.sqlName;
+    }
+    const row = d
+      .prepare(`SELECT ${refCol} FROM ${tbl} WHERE ${idCol} = ? AND deleted_at IS NULL`)
+      .get(entityId) as Record<string, unknown> | undefined;
+    if (!row) return [];
+    return parseJsonArrayOrEmpty(row[refCol]);
   }
 }

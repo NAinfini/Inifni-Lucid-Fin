@@ -8,6 +8,7 @@ import type {
   TimelineExitDecisionMeta,
 } from '@lucid-fin/contracts';
 import { LucidError, DEFAULT_PROVIDER_PROFILE, parseCanonicalToolName } from '@lucid-fin/contracts';
+import { providerHealth } from '@lucid-fin/adapters-ai';
 import type { AgentToolRegistry } from './tool-registry.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import {
@@ -55,6 +56,7 @@ import {
   createPromptQualityGateSpec,
   createStoryWorkflowPhaseSpec,
   type ExitDecision,
+  type QualityGateBehavior,
   type ProcessPromptSpec,
   type RunIntent,
 } from './exit-contract/index.js';
@@ -113,6 +115,8 @@ export interface AgentOptions {
    * simply skipped — existing consumers keep their current behaviour.
    */
   resolveCanvasSettings?: (canvasId: string) => { stylePlate?: string | null } | null;
+  qualityGateBehavior?: QualityGateBehavior;
+  requireStylePlateBeforeRefImage?: boolean;
   todoStore?: TodoRunStore;
 }
 
@@ -309,6 +313,8 @@ export class AgentOrchestrator {
   private readonly resolveCanvasSettings?: (
     canvasId: string,
   ) => { stylePlate?: string | null } | null;
+  private readonly qualityGateBehavior: QualityGateBehavior;
+  private readonly requireStylePlateBeforeRefImage: boolean;
   private readonly todoStore?: TodoRunStore;
   private activeProcessPromptSteps = new Map<ProcessPromptKey, number>();
   /**
@@ -379,6 +385,8 @@ export class AgentOrchestrator {
     this.resolveProcessPrompt = opts?.resolveProcessPrompt;
     this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
     this.resolveCanvasSettings = opts?.resolveCanvasSettings;
+    this.qualityGateBehavior = opts?.qualityGateBehavior ?? 'auto-expand';
+    this.requireStylePlateBeforeRefImage = opts?.requireStylePlateBeforeRefImage ?? true;
     this.todoStore = opts?.todoStore;
 
     // Phase C: declarative process-prompt specs. Style-plate-lock is the
@@ -389,7 +397,9 @@ export class AgentOrchestrator {
     // the spec returns '' and `evaluateProcessPromptSpecs` filters it out.
     this.processPromptSpecs = [
       createStylePlateLockSpec({
+        referenceImagesOnly: true,
         resolvePromptText: (key) => {
+          if (!this.requireStylePlateBeforeRefImage) return null;
           if (!this.resolveProcessPrompt) return null;
           // resolveProcessPrompt is typed against ProcessCategory, but its
           // IPC implementation keys by free-form string (see router.ts).
@@ -411,6 +421,7 @@ export class AgentOrchestrator {
         },
       }),
       createPromptQualityGateSpec({
+        behavior: this.qualityGateBehavior,
         resolvePromptText: (key) => {
           if (!this.resolveProcessPrompt) return null;
           return this.resolveProcessPrompt(key as unknown as ProcessCategory);
@@ -1464,7 +1475,9 @@ export class AgentOrchestrator {
       const stepOpts = { ...opts, signal: combined };
       try {
         const stream = await this.adapter.completeWithTools(messages, stepOpts);
-        return await this.drainLLMStream(stream, wrappedEmit, isAborted);
+        const result = await this.drainLLMStream(stream, wrappedEmit, isAborted);
+        providerHealth.recordSuccess(this.adapter.id);
+        return result;
       } catch (err) {
         lastErr = err;
         // Step-cancel: a user-initiated step abort lands here as a
@@ -1476,7 +1489,10 @@ export class AgentOrchestrator {
           isStepCancel ||
           (err instanceof LucidError &&
             (err.code === 'SERVICE_UNAVAILABLE' || err.code === 'RATE_LIMITED'));
-        if (!isRetryable || i === maxRetries || isAborted()) throw err;
+        if (!isRetryable || i === maxRetries || isAborted()) {
+          providerHealth.recordFailure(this.adapter.id);
+          throw err;
+        }
         // Exponential backoff with full jitter per AWS guidance:
         //   cap   = min(MAX_MS, BASE_MS * 2^i)
         //   delay = random(0, cap)
@@ -1517,6 +1533,7 @@ export class AgentOrchestrator {
         if (delay > 0) await new Promise((r) => setTimeout(r, delay));
       }
     }
+    providerHealth.recordFailure(this.adapter.id);
     throw lastErr;
   }
 

@@ -154,6 +154,8 @@ export interface SettingsState {
   production: ProductionConfig;
   styleGuide: StyleGuide;
   bootstrapped: boolean;
+  crashReporting: boolean;
+  analyticsEnabled: boolean;
 }
 
 export interface PersistedSettingsState {
@@ -166,4 +168,6 @@ export interface PersistedSettingsState {
   usage?: Partial<UsageStats>;
   production?: Partial<ProductionConfig>;
   styleGuide?: StyleGuide;
+  crashReporting?: boolean;
+  analyticsEnabled?: boolean;
 }

@@ -8,6 +8,8 @@ import { CommanderEventRepository } from './repositories/commander-event-reposit
 import { JobRepository } from './repositories/job-repository.js';
 import { AssetRepository } from './repositories/asset-repository.js';
 import { CanvasRepository } from './repositories/canvas-repository.js';
+import { CanvasNodeRepository } from './repositories/canvas-node-repository.js';
+import { CanvasEdgeRepository } from './repositories/canvas-edge-repository.js';
 import { EntityRepository } from './repositories/entity-repository.js';
 import { FolderRepository } from './repositories/folder-repository.js';
 import { SeriesRepository } from './repositories/series-repository.js';
@@ -20,56 +22,9 @@ import { ColorStyleRepository } from './repositories/color-style-repository.js';
 import { DependencyRepository } from './repositories/dependency-repository.js';
 import { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
 import { SCHEMA_SQL } from './schema-sql.js';
-import { runSqliteMigrations } from './migrations/index.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
-
-/**
- * Idempotent column-add for the canvases table.
- *
- * SCHEMA_SQL's `CREATE TABLE IF NOT EXISTS canvases (...)` is a no-op on
- * an existing table, so new columns added to the schema definition don't
- * materialize on older databases. Rather than introduce a versioned
- * migration runner for a single table, probe `PRAGMA table_info` once at
- * boot and `ALTER TABLE ADD COLUMN` whichever columns are missing.
- *
- * Each entry here must match the column definition in SCHEMA_SQL exactly.
- * Per-canvas settings added 2026-04-19 for style plate / aspect ratio /
- * provider overrides. Dev mode: schema changes (renames/drops) are
- * handled by deleting the DB file; this list only covers additive drift.
- */
-const CANVAS_SETTINGS_COLUMNS: ReadonlyArray<{ name: string; ddl: string }> = [
-  { name: 'style_plate', ddl: 'ALTER TABLE canvases ADD COLUMN style_plate TEXT' },
-  { name: 'negative_prompt', ddl: 'ALTER TABLE canvases ADD COLUMN negative_prompt TEXT' },
-  { name: 'default_width', ddl: 'ALTER TABLE canvases ADD COLUMN default_width INTEGER' },
-  { name: 'default_height', ddl: 'ALTER TABLE canvases ADD COLUMN default_height INTEGER' },
-  { name: 'publish_width', ddl: 'ALTER TABLE canvases ADD COLUMN publish_width INTEGER' },
-  { name: 'publish_height', ddl: 'ALTER TABLE canvases ADD COLUMN publish_height INTEGER' },
-  {
-    name: 'publish_video_width',
-    ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_width INTEGER',
-  },
-  {
-    name: 'publish_video_height',
-    ddl: 'ALTER TABLE canvases ADD COLUMN publish_video_height INTEGER',
-  },
-  { name: 'aspect_ratio', ddl: 'ALTER TABLE canvases ADD COLUMN aspect_ratio TEXT' },
-  { name: 'llm_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN llm_provider_id TEXT' },
-  { name: 'image_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN image_provider_id TEXT' },
-  { name: 'video_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN video_provider_id TEXT' },
-  { name: 'audio_provider_id', ddl: 'ALTER TABLE canvases ADD COLUMN audio_provider_id TEXT' },
-];
-
-function addMissingCanvasColumns(db: BetterSqlite3.Database): void {
-  const existing = db.prepare("PRAGMA table_info('canvases')").all() as Array<{ name: string }>;
-  const present = new Set(existing.map((row) => row.name));
-  for (const { name, ddl } of CANVAS_SETTINGS_COLUMNS) {
-    if (!present.has(name)) {
-      db.exec(ddl);
-    }
-  }
-}
 
 export interface RepairResult {
   recoveredTables: string[];
@@ -84,6 +39,8 @@ export class SqliteIndex implements IStorageLayer {
   private jobs!: JobRepository;
   private assets!: AssetRepository;
   private canvases!: CanvasRepository;
+  private canvasNodes!: CanvasNodeRepository;
+  private canvasEdges!: CanvasEdgeRepository;
   private entities!: EntityRepository;
   private folders!: FolderRepository;
   private seriesRepo!: SeriesRepository;
@@ -109,6 +66,8 @@ export class SqliteIndex implements IStorageLayer {
       jobs: this.jobs,
       assets: this.assets,
       canvases: this.canvases,
+      canvasNodes: this.canvasNodes,
+      canvasEdges: this.canvasEdges,
       entities: this.entities,
       folders: this.folders,
       series: this.seriesRepo,
@@ -128,19 +87,17 @@ export class SqliteIndex implements IStorageLayer {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
 
-    // Dev-mode single source of truth: SCHEMA_SQL defines every table with
-    // CREATE TABLE IF NOT EXISTS, so running it unconditionally on every boot
-    // is idempotent — it fills in anything missing from a legacy DB and is a
-    // no-op for an already-complete one. No migration runner, no version
-    // bookkeeping.
+    // SCHEMA_SQL is the single source of truth for storage tables.
     this.db.exec(SCHEMA_SQL);
-    addMissingCanvasColumns(this.db);
 
     this.sessions = new SessionRepository(this.db);
     this.commanderEvents = new CommanderEventRepository(this.db);
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
+    this.canvasNodes = new CanvasNodeRepository(this.db);
+    this.canvasEdges = new CanvasEdgeRepository(this.db);
+    this.canvases.setGraphRepositories({ nodes: this.canvasNodes, edges: this.canvasEdges });
     this.entities = new EntityRepository(this.db);
     this.folders = new FolderRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);
@@ -154,6 +111,16 @@ export class SqliteIndex implements IStorageLayer {
     this.projectSettings = new ProjectSettingsRepository(this.db);
   }
 
+  /** Expose the raw better-sqlite3 instance for advanced operations. */
+  get rawDb(): BetterSqlite3.Database {
+    return this.db;
+  }
+
+  /** Absolute path of the database file. */
+  get dbPath(): string {
+    return this.db.name;
+  }
+
   close(): void {
     try {
       this.db.pragma('wal_checkpoint(TRUNCATE)');
@@ -161,11 +128,6 @@ export class SqliteIndex implements IStorageLayer {
       /* best-effort */
     }
     this.db.close();
-  }
-
-  /** Run pending versioned schema migrations (ALTER TABLE, new columns, etc.) */
-  migrate(): void {
-    runSqliteMigrations(this.db, this.db.name);
   }
 
   /** Run integrity check -- throws if DB is corrupted */
@@ -182,6 +144,9 @@ export class SqliteIndex implements IStorageLayer {
     this.jobs = new JobRepository(this.db);
     this.assets = new AssetRepository(this.db);
     this.canvases = new CanvasRepository(this.db);
+    this.canvasNodes = new CanvasNodeRepository(this.db);
+    this.canvasEdges = new CanvasEdgeRepository(this.db);
+    this.canvases.setGraphRepositories({ nodes: this.canvasNodes, edges: this.canvasEdges });
     this.entities = new EntityRepository(this.db);
     this.folders = new FolderRepository(this.db);
     this.seriesRepo = new SeriesRepository(this.db);

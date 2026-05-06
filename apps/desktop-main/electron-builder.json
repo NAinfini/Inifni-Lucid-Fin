@@ -24,7 +24,8 @@
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }],
     "icon": "build/icon.ico",
-    "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    "artifactName": "Lucid-Fin-${version}-win-${arch}.${ext}",
+    "signAndEditExecutable": false
   },
   "nsis": {
     "oneClick": false,

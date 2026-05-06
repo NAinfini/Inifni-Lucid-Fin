@@ -1,6 +1,6 @@
 {
   "name": "lucid-fin",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Lucid Fin – AI Movie Production Tool",
   "author": "Lucid Fin Team",
   "private": true,
@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build --workspaces --if-present && npm run build:dev --workspace=apps/desktop-renderer && npm run dev --workspace=apps/desktop-main",
+    "dev": "npm run build && npm run build:dev --workspace=apps/desktop-renderer && npm run dev --workspace=apps/desktop-main",
     "build": "npm run build --workspace=packages/contracts && npm run build --workspace=packages/shared-utils && npm run build --workspace=packages/contracts-parse && npm run build --workspace=packages/storage --workspace=packages/adapters-ai --workspace=packages/domain --workspace=packages/media-engine && npm run build --workspace=packages/application && npm run build --workspace=apps/desktop-renderer && npm run build --workspace=apps/desktop-main",
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
@@ -24,10 +24,14 @@
     "lint:contracts": "npx tsx scripts/lint-contract-drift.ts",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "dist": "npm run build && npm run pack --workspace=apps/desktop-main"
+    "license:audit": "npx tsx scripts/license-audit.ts",
+    "dist": "npm run build && npm run pack --workspace=apps/desktop-main",
+    "audit:uncommitted": "npx tsx scripts/audit-uncommitted.ts",
+    "test:e2e": "npx playwright test --config tests/e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.59.1",
     "@vitest/coverage-v8": "^4.1.4",
     "eslint": "^10.2.0",
     "eslint-plugin-react-hooks": "^7.1.0-canary-404b38c7-20260408",

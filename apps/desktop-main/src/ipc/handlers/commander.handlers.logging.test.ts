@@ -5,6 +5,7 @@ const {
   customAdapterCompleteWithTools,
   customAdapterInstances,
   buildRuntimeLLMAdapter,
+  providerHealth,
 } = vi.hoisted(() => {
   const configure = vi.fn();
   const completeWithTools = vi.fn(async () => {
@@ -30,6 +31,13 @@ const {
     customAdapterCompleteWithTools: completeWithTools,
     customAdapterInstances: instances,
     buildRuntimeLLMAdapter: build,
+    providerHealth: {
+      recordSuccess: vi.fn(),
+      recordFailure: vi.fn(),
+      getStatus: vi.fn(),
+      getAllStatuses: vi.fn(() => []),
+      setWarnLogger: vi.fn(),
+    },
   };
 });
 
@@ -58,6 +66,7 @@ vi.mock('../../logger.js', () => {
 
 vi.mock('@lucid-fin/adapters-ai', () => ({
   buildRuntimeLLMAdapter,
+  providerHealth,
   OpenAICompatibleLLM: class MockOpenAICompatibleLLM {
     id: string;
     name: string;

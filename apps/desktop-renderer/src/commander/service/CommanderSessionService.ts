@@ -14,6 +14,7 @@
 import {
   ENTITY_REFRESH_TOOL_ENTITY,
   normalizeLLMProviderRuntimeConfig,
+  type CommanderProcessBehaviorSettings,
 } from '@lucid-fin/contracts';
 
 import type { AppDispatch, RootState } from '../../store/index.js';
@@ -305,7 +306,17 @@ export class CommanderSessionService {
           })
         : undefined;
       const permissionMode = state.commander.permissionMode;
-      const { maxSteps, temperature, maxTokens } = state.commander;
+      const {
+        maxSteps,
+        temperature,
+        maxTokens,
+        qualityGateBehavior,
+        requireStylePlateBeforeRefImage,
+      } = state.commander;
+      const processSettings: CommanderProcessBehaviorSettings = {
+        qualityGateBehavior,
+        requireStylePlateBeforeRefImage,
+      };
 
       // Build default provider map from canvas settings
       const defaultProviders: Record<string, string> = {};
@@ -328,6 +339,7 @@ export class CommanderSessionService {
         maxTokens,
         sessionId,
         Object.keys(defaultProviders).length > 0 ? defaultProviders : undefined,
+        processSettings,
       );
     } catch (error) {
       const rawMsg = error instanceof Error ? error.message : String(error);

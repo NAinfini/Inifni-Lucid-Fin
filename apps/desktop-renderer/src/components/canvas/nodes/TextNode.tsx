@@ -18,6 +18,7 @@ export interface TextNodeFlowData {
   bypassed: boolean;
   locked: boolean;
   colorTag?: string;
+  keyboardFocused?: boolean;
 }
 
 function TextNodeComponent({ data, selected }: NodeProps) {
@@ -40,6 +41,7 @@ function TextNodeComponent({ data, selected }: NodeProps) {
             'relative flex flex-col rounded-md border bg-card shadow-sm h-full w-full min-w-[200px] min-h-[120px]',
             'transition-shadow',
             selected ? 'border-primary ring-2 ring-primary/40' : 'border-border',
+            d.keyboardFocused && !selected && 'ring-2 ring-sky-400/70',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}

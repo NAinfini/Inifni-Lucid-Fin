@@ -43,6 +43,7 @@ export interface BackdropNodeFlowData {
   borderStyle?: 'dashed' | 'solid' | 'dotted';
   titleSize?: 'sm' | 'md' | 'lg';
   childCount?: number;
+  keyboardFocused?: boolean;
 }
 
 function BackdropNodeComponent({ data, selected }: NodeProps) {
@@ -83,6 +84,7 @@ function BackdropNodeComponent({ data, selected }: NodeProps) {
           'rounded-2xl border shadow-inner transition-[height] duration-150',
           borderClass,
           selected ? 'border-primary ring-2 ring-primary/30' : 'border-muted-foreground/30',
+          d.keyboardFocused && !selected && 'ring-2 ring-sky-400/70',
         )}
         style={{
           width: d.width ?? 420,

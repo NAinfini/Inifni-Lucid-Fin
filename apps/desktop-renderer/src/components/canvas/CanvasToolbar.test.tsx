@@ -28,22 +28,17 @@ describe('CanvasToolbar', () => {
         onToggleSnapToGrid={vi.fn()}
         onExportWorkflow={vi.fn()}
         onImportWorkflow={vi.fn()}
-        onUndo={vi.fn()}
-        onRedo={vi.fn()}
-        undoEnabled
-        redoEnabled
       />,
     );
 
-    expect(screen.getByRole('button', { name: /undo/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /redo/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /search/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /undo/i }).getAttribute('data-state')).toBe('closed');
+    expect(screen.getByRole('button', { name: /search/i }).getAttribute('data-state')).toBe(
+      'closed',
+    );
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
   it('invokes button handlers', () => {
-    const onUndo = vi.fn();
     const onToggleSearch = vi.fn();
 
     render(
@@ -56,17 +51,11 @@ describe('CanvasToolbar', () => {
         onToggleSnapToGrid={vi.fn()}
         onExportWorkflow={vi.fn()}
         onImportWorkflow={vi.fn()}
-        onUndo={onUndo}
-        onRedo={vi.fn()}
-        undoEnabled
-        redoEnabled
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /undo/i }));
     fireEvent.click(screen.getByRole('button', { name: /search/i }));
 
-    expect(onUndo).toHaveBeenCalledOnce();
     expect(onToggleSearch).toHaveBeenCalledOnce();
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });

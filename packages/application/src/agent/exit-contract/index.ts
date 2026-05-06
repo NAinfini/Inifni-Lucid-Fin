@@ -74,6 +74,7 @@ export {
 export {
   createPromptQualityGateSpec,
   promptQualityGatePredicate,
+  type QualityGateBehavior,
 } from './specs/prompt-quality-gate.js';
 export {
   createStoryWorkflowPhaseSpec,

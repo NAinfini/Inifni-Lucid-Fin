@@ -28,6 +28,52 @@ export interface IpcErrorPayload {
   details?: Record<string, unknown>;
 }
 
+const REDACTED_VALUE = '[REDACTED]';
+const SENSITIVE_KEYS = new Set([
+  'apikey',
+  'api-key',
+  'authorization',
+  'password',
+  'secret',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'x-api-key',
+]);
+const OPENAI_KEY_PATTERN = /\bsk-[A-Za-z0-9_-]{12,}\b/g;
+
+function redactMessage(message: string): string {
+  return message.replace(OPENAI_KEY_PATTERN, 'sk-***');
+}
+
+function redactValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value == null) return value;
+  if (typeof value === 'string') {
+    return redactMessage(value);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(item, seen));
+  }
+  if (typeof value !== 'object') {
+    return String(value);
+  }
+  if (seen.has(value)) {
+    return '[Circular]';
+  }
+
+  seen.add(value);
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    out[key] = SENSITIVE_KEYS.has(key.toLowerCase())
+      ? REDACTED_VALUE
+      : redactValue(entry, seen);
+  }
+  return out;
+}
+
 /**
  * Convert any thrown value into the renderer-facing `IpcErrorPayload`
  * envelope. Shared between the typed registrar and legacy `safeHandle`.
@@ -35,11 +81,11 @@ export interface IpcErrorPayload {
 export function toIpcErrorPayload(error: unknown): IpcErrorPayload {
   const lucid =
     error instanceof LucidError ? error : LucidError.fromUnknown(error, ErrorCode.Unknown);
-  const details = lucid.details as Record<string, unknown> | undefined;
+  const details = redactValue(lucid.details) as Record<string, unknown> | undefined;
   return {
     __ipcError: true,
     code: lucid.code,
-    message: lucid.message,
+    message: redactMessage(lucid.message),
     retryable: details?.retryable === true,
     details,
   };

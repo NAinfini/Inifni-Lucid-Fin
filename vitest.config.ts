@@ -36,7 +36,7 @@ export default defineConfig({
   plugins: [ctsPlugin()],
   test: {
     pool: 'vmForks',
-    exclude: ['**/dist/**', '**/node_modules/**'],
+    exclude: ['**/dist/**', '**/node_modules/**', 'tests/e2e/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

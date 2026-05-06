@@ -33,6 +33,8 @@ export type {
   CommanderEvidencePayload,
   CommanderBlockerPayload,
   CommanderExitDecisionPayload,
+  CommanderProcessBehaviorSettings,
+  CommanderQualityGateBehavior,
 } from './ipc/channels/batch-09.js';
 
 // ── Phase A: Type Foundation ───────────────────────────────────

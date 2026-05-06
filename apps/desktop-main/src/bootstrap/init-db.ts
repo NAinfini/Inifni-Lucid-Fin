@@ -8,7 +8,6 @@ import log from '../logger.js';
 export function initDb(db: SqliteIndex): void {
   try {
     db.healthCheck();
-    db.migrate();
     log.info('SQLite database initialized');
   } catch (err) {
     log.error('Database health check failed, attempting repair:', err);

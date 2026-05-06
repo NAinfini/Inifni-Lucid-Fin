@@ -34,6 +34,8 @@ export interface SparseSettingsState {
   usage: UsageStats;
   production: ProductionConfig;
   styleGuide: import('@lucid-fin/contracts').StyleGuide;
+  crashReporting: boolean;
+  analyticsEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,5 +93,7 @@ export function buildSparseSettings(state: SettingsState): SparseSettingsState {
     usage: state.usage,
     production: state.production,
     styleGuide: state.styleGuide,
+    crashReporting: state.crashReporting,
+    analyticsEnabled: state.analyticsEnabled,
   } as SparseSettingsState;
 }

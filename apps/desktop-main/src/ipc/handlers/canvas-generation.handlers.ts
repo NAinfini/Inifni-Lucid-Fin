@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import type { IpcMain } from 'electron';
 import log from '../../logger.js';
+import { startTrace } from '../../perf-trace.js';
 import type {
   AudioNodeData,
   Canvas,
@@ -220,6 +221,14 @@ async function executeGeneration(args: {
   const variantHashes: string[] = [];
   let totalCost = 0;
 
+  // Performance trace for AI generation latency
+  const trace = startTrace('ai-generation', {
+    canvasId: runningJob.canvasId,
+    nodeId: runningJob.nodeId,
+    providerId: adapter.id,
+    generationType,
+  });
+
   try {
     for (let index = 0; index < variantCount; index += 1) {
       throwIfCancelled(runningJob);
@@ -395,6 +404,10 @@ async function executeGeneration(args: {
     });
 
     sendProgress(gateway, runningJob.canvasId, runningJob.nodeId, 100, 'completed');
+    trace.addMeasurement('variantCount', variantCount);
+    trace.addMeasurement('generatedAssetCount', variantHashes.length);
+    trace.addMeasurement('generationTimeMs', generationTimeMs);
+    trace.finish({ model: context.compiled?.params?.model as string | undefined });
     log.info('Canvas generation completed', {
       category: 'canvas-generation',
       canvasId: runningJob.canvasId,
@@ -422,6 +435,7 @@ async function executeGeneration(args: {
     });
   } catch (error) {
     const message = normalizeErrorMessage(error);
+    trace.finish({ error: message });
     log.error('Canvas generation failed', {
       category: 'canvas-generation',
       nodeId: runningJob.nodeId,

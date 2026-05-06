@@ -35,6 +35,8 @@ import {
   DEFAULT_MAX_SESSIONS,
   DEFAULT_MAX_STEPS,
   DEFAULT_MAX_TOKENS,
+  DEFAULT_QUALITY_GATE_BEHAVIOR,
+  DEFAULT_REQUIRE_STYLE_PLATE_BEFORE_REF_IMAGE,
   DEFAULT_TEMPERATURE,
   DEFAULT_UNDO_GROUP_WINDOW_MS,
   DEFAULT_UNDO_STACK_DEPTH,
@@ -118,6 +120,10 @@ const initialState: CommanderState = {
     persistedSettings.clipboardWatchIntervalMs ?? DEFAULT_CLIPBOARD_WATCH_INTERVAL_MS,
   clipboardMinLength: persistedSettings.clipboardMinLength ?? DEFAULT_CLIPBOARD_MIN_LENGTH,
   generationConcurrency: persistedSettings.generationConcurrency ?? DEFAULT_GENERATION_CONCURRENCY,
+  qualityGateBehavior: persistedSettings.qualityGateBehavior ?? DEFAULT_QUALITY_GATE_BEHAVIOR,
+  requireStylePlateBeforeRefImage:
+    persistedSettings.requireStylePlateBeforeRefImage ??
+    DEFAULT_REQUIRE_STYLE_PLATE_BEFORE_REF_IMAGE,
   pendingConfirmation: null,
   pendingQuestion: null,
   confirmAutoMode: 'none',
@@ -139,6 +145,16 @@ function commitPendingInjectedMessages(state: CommanderState): void {
     });
   }
   state.pendingInjectedMessages = [];
+}
+
+function finiteNumber(value: number): number | null {
+  return Number.isFinite(value) ? value : null;
+}
+
+function wholeNumberAtLeast(value: number, min: number): number | null {
+  const rounded = Math.round(value);
+  if (!Number.isFinite(rounded)) return null;
+  return Math.max(min, rounded);
 }
 
 export const commanderSlice = createSlice({
@@ -373,61 +389,89 @@ export const commanderSlice = createSlice({
       persistSettingsFromState(state);
     },
     setMaxSteps(state, action: PayloadAction<number>) {
-      state.maxSteps = Math.max(1, Math.min(200, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.maxSteps = next;
       persistSettingsFromState(state);
     },
     setTemperature(state, action: PayloadAction<number>) {
-      state.temperature = Math.max(0, Math.min(1, Math.round(action.payload * 10) / 10));
+      const next = finiteNumber(action.payload);
+      if (next === null) return;
+      state.temperature = Math.max(0, next);
       persistSettingsFromState(state);
     },
     setMaxTokens(state, action: PayloadAction<number>) {
-      state.maxTokens = Math.max(
-        1024,
-        Math.min(1_000_000, Math.round(action.payload / 1024) * 1024),
-      );
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.maxTokens = next;
       persistSettingsFromState(state);
     },
     setAutoSaveDelayMs(state, action: PayloadAction<number>) {
-      state.autoSaveDelayMs = Math.max(100, Math.min(5000, Math.round(action.payload / 100) * 100));
+      const next = wholeNumberAtLeast(action.payload, 0);
+      if (next === null) return;
+      state.autoSaveDelayMs = next;
       persistSettingsFromState(state);
     },
     setUndoGroupWindowMs(state, action: PayloadAction<number>) {
-      state.undoGroupWindowMs = Math.max(50, Math.min(1000, Math.round(action.payload / 50) * 50));
+      const next = wholeNumberAtLeast(action.payload, 0);
+      if (next === null) return;
+      state.undoGroupWindowMs = next;
       persistSettingsFromState(state);
     },
     setClipboardWatchIntervalMs(state, action: PayloadAction<number>) {
-      state.clipboardWatchIntervalMs = Math.max(
-        500,
-        Math.min(10000, Math.round(action.payload / 500) * 500),
-      );
+      const next = wholeNumberAtLeast(action.payload, 0);
+      if (next === null) return;
+      state.clipboardWatchIntervalMs = next;
       persistSettingsFromState(state);
     },
     setClipboardMinLength(state, action: PayloadAction<number>) {
-      state.clipboardMinLength = Math.max(10, Math.min(1000, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 0);
+      if (next === null) return;
+      state.clipboardMinLength = next;
       persistSettingsFromState(state);
     },
     setGenerationConcurrency(state, action: PayloadAction<number>) {
-      state.generationConcurrency = Math.max(1, Math.min(10, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.generationConcurrency = next;
+      persistSettingsFromState(state);
+    },
+    setQualityGateBehavior(state, action: PayloadAction<CommanderState['qualityGateBehavior']>) {
+      state.qualityGateBehavior = action.payload;
+      persistSettingsFromState(state);
+    },
+    setRequireStylePlateBeforeRefImage(state, action: PayloadAction<boolean>) {
+      state.requireStylePlateBeforeRefImage = action.payload;
       persistSettingsFromState(state);
     },
     setLlmRetries(state, action: PayloadAction<number>) {
-      state.llmRetries = Math.max(0, Math.min(10, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 0);
+      if (next === null) return;
+      state.llmRetries = next;
       persistSettingsFromState(state);
     },
     setMaxSessions(state, action: PayloadAction<number>) {
-      state.maxSessions = Math.max(5, Math.min(200, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.maxSessions = next;
       persistSettingsFromState(state);
     },
     setMaxMessagesPerSession(state, action: PayloadAction<number>) {
-      state.maxMessagesPerSession = Math.max(20, Math.min(1000, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.maxMessagesPerSession = next;
       persistSettingsFromState(state);
     },
     setUndoStackDepth(state, action: PayloadAction<number>) {
-      state.undoStackDepth = Math.max(10, Math.min(500, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.undoStackDepth = next;
       persistSettingsFromState(state);
     },
     setMaxLogEntries(state, action: PayloadAction<number>) {
-      state.maxLogEntries = Math.max(100, Math.min(5000, Math.round(action.payload)));
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.maxLogEntries = next;
       persistSettingsFromState(state);
     },
     setPendingConfirmation(state, action: PayloadAction<PendingConfirmation>) {
@@ -528,6 +572,9 @@ export const commanderSlice = createSlice({
         maxSteps: rest.maxSteps ?? DEFAULT_MAX_STEPS,
         temperature: rest.temperature ?? DEFAULT_TEMPERATURE,
         maxTokens: rest.maxTokens ?? DEFAULT_MAX_TOKENS,
+        qualityGateBehavior: rest.qualityGateBehavior ?? DEFAULT_QUALITY_GATE_BEHAVIOR,
+        requireStylePlateBeforeRefImage:
+          rest.requireStylePlateBeforeRefImage ?? DEFAULT_REQUIRE_STYLE_PLATE_BEFORE_REF_IMAGE,
         pendingConfirmation: null,
         pendingQuestion: null,
         confirmAutoMode: 'none',
@@ -645,6 +692,8 @@ export const {
   setClipboardWatchIntervalMs,
   setClipboardMinLength,
   setGenerationConcurrency,
+  setQualityGateBehavior,
+  setRequireStylePlateBeforeRefImage,
   setPendingConfirmation,
   clearPendingConfirmation,
   setConfirmAutoMode,

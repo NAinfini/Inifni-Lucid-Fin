@@ -240,6 +240,8 @@ export function toFlowNode(
     },
   };
 
+  const kbFocused = visualState.keyboardFocused ?? false;
+
   switch (n.type) {
     case 'text': {
       const td = n.data as TextNodeData;
@@ -253,6 +255,7 @@ export function toFlowNode(
           bypassed: n.bypassed,
           locked: n.locked,
           colorTag: n.colorTag,
+          keyboardFocused: kbFocused,
         },
       };
     }
@@ -284,6 +287,7 @@ export function toFlowNode(
           progress: id.progress,
           error: id.error,
           presetSummary: summary,
+          keyboardFocused: kbFocused,
         },
       };
     }
@@ -330,6 +334,7 @@ export function toFlowNode(
           presetSummary: summary,
           firstFrameHash,
           lastFrameHash,
+          keyboardFocused: kbFocused,
         },
       };
     }
@@ -357,6 +362,7 @@ export function toFlowNode(
           variantCount: ad.variantCount,
           progress: ad.progress,
           error: ad.error,
+          keyboardFocused: kbFocused,
         },
       };
     }
@@ -378,6 +384,7 @@ export function toFlowNode(
           borderStyle: backdrop.borderStyle,
           titleSize: backdrop.titleSize,
           childCount,
+          keyboardFocused: kbFocused,
         },
       };
     }

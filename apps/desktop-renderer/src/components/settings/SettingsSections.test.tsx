@@ -388,6 +388,63 @@ describe('settings extracted sections', () => {
     expect(screen.queryByText('Prompt compilation rules for image nodes.')).toBeNull();
   });
 
+  it('localizes process injection prompt titles and descriptions in zh-CN', async () => {
+    setLocale('zh-CN');
+    const prompts = [
+      {
+        processKey: 'style-plate-lock',
+        name: 'Style Plate Lock (ref-image precondition)',
+        description:
+          'Triggered when a canvas has ref-image entities but no stylePlate set. Forces Commander to lock a canvas-scoped style prompt before running character/equipment/location ref-image generation.',
+      },
+      {
+        processKey: 'entities-before-generation',
+        name: 'Entities Before Generation',
+        description:
+          'Triggered on early steps when a visual-generation tool is pending. Reminds Commander to verify that referenced entities have reference images before generating scene visuals.',
+      },
+      {
+        processKey: 'batch-create-guidance',
+        name: 'Batch Create Guidance',
+        description:
+          'Triggered when canvas.batchCreate is called with more than 5 nodes. Provides structural guidance for large batch operations.',
+      },
+      {
+        processKey: 'prompt-quality-gate',
+        name: 'Prompt Quality Gate',
+        description:
+          'Triggered when canvas.generate is called. Reminds Commander to verify and expand thin prompts before committing to generation.',
+      },
+      {
+        processKey: 'story-workflow-phase',
+        name: 'Story Workflow Phase',
+        description:
+          'Triggered when workflow-orchestration is active. Reinforces phase-gate discipline for the story-to-video pipeline.',
+      },
+    ].map((prompt) => ({
+      ...prompt,
+      defaultValue: 'Default rules',
+      customValue: null,
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+    const api = {
+      processPrompt: {
+        list: vi.fn(async () => prompts),
+        setCustom: vi.fn(async () => undefined),
+        reset: vi.fn(async () => undefined),
+      },
+    };
+
+    render(<SettingsProcessPromptsSection api={api.processPrompt as never} />);
+
+    await screen.findByText((content) => content.length > 0 && content !== prompts[0]!.name);
+    for (const prompt of prompts) {
+      expect(screen.queryByText(prompt.name)).toBeNull();
+      expect(screen.queryByText(prompt.description)).toBeNull();
+    }
+  });
+
   it('renders split ref-image process prompts as separate cards', async () => {
     setLocale('en-US');
     const api = {

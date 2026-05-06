@@ -156,6 +156,29 @@ export interface PresetLibraryExportPayload {
   presets: PresetDefinition[];
 }
 
+export interface ExportedPreset {
+  name: string;
+  category: PresetCategory;
+  values: Record<string, unknown>;
+  intensity?: number;
+  tags?: string[];
+}
+
+export interface PresetExportV1 {
+  schemaVersion: 1;
+  exportedAt: string;
+  appVersion: string;
+  presets: ExportedPreset[];
+}
+
+export type ImportResult =
+  | { ok: true; presets: ExportedPreset[] }
+  | {
+      ok: false;
+      code: 'INVALID_FORMAT' | 'VERSION_MISMATCH' | 'VALIDATION_ERROR';
+      message: string;
+    };
+
 export type PresetResetScope = 'prompt' | 'params' | 'all';
 
 export interface PresetResetRequest {

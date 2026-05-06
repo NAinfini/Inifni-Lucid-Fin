@@ -44,6 +44,7 @@ import {
   LLMRegistry,
   buildRuntimeLLMAdapter,
   listBuiltinLLMProviderPresets,
+  providerHealth,
 } from '@lucid-fin/adapters-ai';
 import { AgentToolRegistry } from '@lucid-fin/application';
 import type { LLMAdapter } from '@lucid-fin/contracts';
@@ -100,6 +101,9 @@ export function createLLMRegistry(): LLMRegistry {
 }
 
 export function initApp() {
+  // Wire provider health tracker warn logger
+  providerHealth.setWarnLogger((message, meta) => log.warn(message, meta));
+
   // Ensure app directory exists before DB/assets creation
   if (!fs.existsSync(APP_DIR)) {
     fs.mkdirSync(APP_DIR, { recursive: true });

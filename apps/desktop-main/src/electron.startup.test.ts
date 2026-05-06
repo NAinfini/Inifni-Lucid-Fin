@@ -15,25 +15,33 @@ const { ipcHandleMock, getBufferedLogsMock, setLogForwarderMock, logger, markMoc
     markMock: vi.fn(),
   }),
 );
+const updateSafetyMock = vi.hoisted(() => ({
+  initUpdateSafety: vi.fn(),
+  stopUpdateSafety: vi.fn(),
+}));
 
-vi.mock('electron', () => ({
-  app: {
+vi.mock('electron', () => {
+  const electronMock = {
+    app: {
     isPackaged: false,
     whenReady: vi.fn(() => ({ then: vi.fn() })),
     on: vi.fn(),
     getPath: vi.fn(() => 'C:/temp'),
     quit: vi.fn(),
-  },
-  BrowserWindow: vi.fn(),
-  Menu: { setApplicationMenu: vi.fn() },
-  ipcMain: { handle: ipcHandleMock },
-  protocol: {
+    },
+    BrowserWindow: vi.fn(),
+    Menu: { setApplicationMenu: vi.fn() },
+    ipcMain: { handle: ipcHandleMock },
+    protocol: {
     registerSchemesAsPrivileged: vi.fn(),
     handle: vi.fn(),
-  },
-  net: { fetch: vi.fn() },
-  shell: { openExternal: vi.fn() },
-}));
+    },
+    net: { fetch: vi.fn() },
+    shell: { openExternal: vi.fn() },
+    clipboard: { readText: vi.fn(() => '') },
+  };
+  return { ...electronMock, default: electronMock };
+});
 
 vi.mock('./logger.js', () => ({
   default: logger,
@@ -91,6 +99,11 @@ vi.mock('./auto-updater.js', () => ({
   getUpdateStatus: vi.fn(),
 }));
 
+vi.mock('./update-safety.js', () => ({
+  initUpdateSafety: updateSafetyMock.initUpdateSafety,
+  stopUpdateSafety: updateSafetyMock.stopUpdateSafety,
+}));
+
 vi.mock('@lucid-fin/application', () => ({
   AgentOrchestrator: class {},
   JobQueue: class {},
@@ -127,6 +140,12 @@ describe('electron startup observability', () => {
         ],
       }),
     );
+  });
+
+  it('initializes update safety on module load for production update health tracking', async () => {
+    await loadModule();
+
+    expect(updateSafetyMock.initUpdateSafety).toHaveBeenCalledOnce();
   });
 
   it('logs and marks when the main window is created', async () => {

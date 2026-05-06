@@ -22,6 +22,7 @@ export interface StylePlateLockSpecDeps {
    * `resolveProcessPrompt('style-plate-lock')`.
    */
   resolvePromptText: (key: 'style-plate-lock') => string | null | undefined;
+  referenceImagesOnly?: boolean;
 }
 
 export function createStylePlateLockSpec(deps: StylePlateLockSpecDeps): ProcessPromptSpec {
@@ -29,15 +30,22 @@ export function createStylePlateLockSpec(deps: StylePlateLockSpecDeps): ProcessP
     key: 'style-plate-lock',
     displayName: 'Style Plate Lock',
     lifecycle: 'sticky',
-    activationPredicate: (ctx) => stylePlateLockPredicate(ctx),
+    activationPredicate: (ctx) =>
+      stylePlateLockPredicate(ctx, { referenceImagesOnly: deps.referenceImagesOnly ?? false }),
     content: () => deps.resolvePromptText('style-plate-lock')?.trim() ?? '',
   };
 }
 
-export function stylePlateLockPredicate(ctx: ActivationContext): boolean {
+export function stylePlateLockPredicate(
+  ctx: ActivationContext,
+  options: { referenceImagesOnly?: boolean } = {},
+): boolean {
   if (!ctx.canvasId) return false;
   if (ctx.pendingToolCalls.length === 0) return false;
-  if (!ctx.pendingToolCalls.some((tc) => isGenerationTool(tc.name, tc.arguments))) {
+  const hasMatchingTool = options.referenceImagesOnly
+    ? ctx.pendingToolCalls.some((tc) => isReferenceImageTool(tc.name))
+    : ctx.pendingToolCalls.some((tc) => isGenerationTool(tc.name, tc.arguments));
+  if (!hasMatchingTool) {
     return false;
   }
 
@@ -50,6 +58,14 @@ export function stylePlateLockPredicate(ctx: ActivationContext): boolean {
   const stylePlate = ctx.canvasSettings?.stylePlate;
   const plateUnset = typeof stylePlate !== 'string' || stylePlate.trim() === '';
   return plateUnset;
+}
+
+function isReferenceImageTool(name: string): boolean {
+  return (
+    name === 'character.generateRefImage' ||
+    name === 'location.generateRefImage' ||
+    name === 'equipment.generateRefImage'
+  );
 }
 
 /**

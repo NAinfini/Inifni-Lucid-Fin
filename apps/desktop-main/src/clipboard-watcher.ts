@@ -10,7 +10,8 @@
  * being sent — a payload drift becomes a loud main-process throw instead
  * of a silent renderer-side parse failure.
  */
-import { clipboard, type BrowserWindow } from 'electron';
+import * as electron from 'electron';
+import type { BrowserWindow } from 'electron';
 import { clipboardAiDetectedChannel } from '@lucid-fin/contracts-parse';
 import {
   createRendererPushGateway,
@@ -20,6 +21,7 @@ import {
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let lastClipboardText = '';
 let enabled = true;
+const { clipboard } = electron;
 
 export function startClipboardWatcher(win: BrowserWindow, pushGateway?: RendererPushGateway): void {
   // Default-construct a local gateway bound to `win` when one isn't supplied

@@ -1,4 +1,5 @@
 import type { LLMProviderProtocol, LLMProviderAuthStyle } from '@lucid-fin/contracts';
+import { setCrashReportEnabled } from '../crash-reporter.js';
 
 interface ProviderInfo {
   id: string;
@@ -25,6 +26,11 @@ const VALID_GROUPS = new Set<string>(['llm', 'image', 'video', 'audio', 'vision'
 let cache: SettingsCache | null = null;
 
 export function updateSettingsCache(settings: Record<string, unknown>): void {
+  // Sync crash-reporter opt-in flag so perf-trace can check it
+  if (typeof settings.crashReporting === 'boolean') {
+    setCrashReportEnabled(settings.crashReporting);
+  }
+
   cache = {
     llm: extractProviderGroup(settings, 'llm'),
     image: extractProviderGroup(settings, 'image'),

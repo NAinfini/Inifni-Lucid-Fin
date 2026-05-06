@@ -1440,6 +1440,16 @@ describe('AgentOrchestrator', () => {
       });
     }
 
+    function registerCharacterRefImage() {
+      toolRegistry.register({
+        name: 'character.generateRefImage',
+        description: 'Generate a character reference image',
+        tier: 1,
+        parameters: { type: 'object', properties: {}, required: [] },
+        execute: vi.fn(async () => ({ success: true, data: { hash: 'h1' } })),
+      });
+    }
+
     it('Bug A — opener-time style-plate-lock in initialProcessPrompts reaches the LLM', async () => {
       const adapter = createMockAdapter([{ content: 'done', toolCalls: [], finishReason: 'stop' }]);
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
@@ -1466,16 +1476,16 @@ describe('AgentOrchestrator', () => {
     });
 
     it('Bug B — injects style-plate-lock pre-flight when canvas.batchCreate includes an image node and stylePlate is empty', async () => {
-      registerBatchCreate();
+      registerCharacterRefImage();
 
       const adapter = createMockAdapter([
         {
           content: '',
           toolCalls: [
             {
-              id: 'tc-create',
-              name: 'canvas.batchCreate',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+              id: 'tc-ref',
+              name: 'character.generateRefImage',
+              arguments: { canvasId: 'c1', characterId: 'char-1' },
             },
           ],
           finishReason: 'tool_calls',
@@ -1586,7 +1596,7 @@ describe('AgentOrchestrator', () => {
     });
 
     it('does NOT re-inject once style-plate-lock has already been primed this session', async () => {
-      registerBatchCreate();
+      registerCharacterRefImage();
 
       const adapter = createMockAdapter([
         {
@@ -1594,8 +1604,8 @@ describe('AgentOrchestrator', () => {
           toolCalls: [
             {
               id: 'tc-img-1',
-              name: 'canvas.batchCreate',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
+              name: 'character.generateRefImage',
+              arguments: { canvasId: 'c1', characterId: 'char-1' },
             },
           ],
           finishReason: 'tool_calls',
@@ -1605,8 +1615,8 @@ describe('AgentOrchestrator', () => {
           toolCalls: [
             {
               id: 'tc-img-2',
-              name: 'canvas.batchCreate',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'villain' }] },
+              name: 'character.generateRefImage',
+              arguments: { canvasId: 'c1', characterId: 'char-2' },
             },
           ],
           finishReason: 'tool_calls',

@@ -1,6 +1,6 @@
 {
   "name": "@lucid-fin/desktop-main",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Lucid Fin – Electron main process",
   "author": {
     "name": "NAinfini",
@@ -11,7 +11,7 @@
   "type": "module",
   "main": "dist/electron.js",
   "scripts": {
-    "dev": "tsc && tsc -p tsconfig.preload.json && electron dist/electron.js",
+    "dev": "tsc && tsc -p tsconfig.preload.json && node -e \"const { spawn } = require('node:child_process'); delete process.env.ELECTRON_RUN_AS_NODE; const child = spawn(require('electron'), ['dist/electron.js'], { stdio: 'inherit', env: process.env }); child.on('exit', (code, signal) => process.exit(code ?? (signal ? 1 : 0)));\"",
     "build": "tsc && tsc -p tsconfig.preload.json",
     "pack:renderer": "npm run build --prefix ../desktop-renderer",
     "pack": "npm run build && npm run pack:renderer && electron-builder --config electron-builder.json",

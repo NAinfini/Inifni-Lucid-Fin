@@ -1,0 +1,64 @@
+{
+  "version": "7.1",
+  "license": "LGPL",
+  "licenseNote": "Using LGPL builds as conservative default. See R48 (ffmpeg-licensing) for final GPL vs LGPL decision.",
+  "sourceUrls": {
+    "win32-x64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-04-01-14-18/ffmpeg-n7.1-37-g194813a674-win64-lgpl-shared-7.1.zip",
+    "darwin-x64": "https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip",
+    "darwin-arm64": "https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip",
+    "linux-x64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-04-01-14-18/ffmpeg-n7.1-37-g194813a674-linux64-lgpl-shared-7.1.tar.xz"
+  },
+  "binaries": {
+    "win32-x64": {
+      "ffmpeg": {
+        "filename": "ffmpeg.exe",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      },
+      "ffprobe": {
+        "filename": "ffprobe.exe",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      }
+    },
+    "darwin-x64": {
+      "ffmpeg": {
+        "filename": "ffmpeg",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      },
+      "ffprobe": {
+        "filename": "ffprobe",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      }
+    },
+    "darwin-arm64": {
+      "ffmpeg": {
+        "filename": "ffmpeg",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      },
+      "ffprobe": {
+        "filename": "ffprobe",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      }
+    },
+    "linux-x64": {
+      "ffmpeg": {
+        "filename": "ffmpeg",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      },
+      "ffprobe": {
+        "filename": "ffprobe",
+        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      }
+    }
+  },
+  "upgradePlaybook": [
+    "1. Download new FFmpeg binaries for all platforms from the source URLs (or update URLs for new version).",
+    "2. Place binaries in resources/bin/<platform>/ (e.g., resources/bin/win32-x64/ffmpeg.exe).",
+    "3. Run: npx tsx scripts/fetch-ffmpeg.ts --compute-checksums to generate SHA-256 hashes.",
+    "4. Update this file: bump 'version', replace all sha256 values with computed hashes.",
+    "5. Run: npx tsx scripts/fetch-ffmpeg.ts --verify to confirm checksums match.",
+    "6. Run smoke test: npm test -- --grep ffmpeg-binary to verify binary responds to -version.",
+    "7. Test video/audio processing features (probe, thumbnail, transcode, render).",
+    "8. If build flags changed (GPL vs LGPL), update licenseNote and sourceUrls.",
+    "9. Commit all changes including updated checksums and binaries."
+  ]
+}

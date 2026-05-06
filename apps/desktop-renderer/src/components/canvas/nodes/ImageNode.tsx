@@ -32,6 +32,7 @@ export interface ImageNodeFlowData {
   progress?: number;
   error?: string;
   presetSummary?: string;
+  keyboardFocused?: boolean;
 }
 
 function ImageNodeComponent({ data, selected }: NodeProps) {
@@ -65,6 +66,7 @@ function ImageNodeComponent({ data, selected }: NodeProps) {
             'relative flex h-full min-h-[140px] min-w-[200px] w-full flex-col overflow-hidden rounded-md border bg-card shadow-sm',
             'transition-shadow',
             selected ? 'border-blue-400 ring-2 ring-blue-400/40' : 'border-blue-500/30',
+            d.keyboardFocused && !selected && 'ring-2 ring-sky-400/70',
             d.bypassed && 'opacity-40',
           )}
           style={d.colorTag ? { boxShadow: `0 0 0 2px ${d.colorTag}` } : undefined}

@@ -60,3 +60,11 @@ export {
   resolveErrorCode,
 } from './llm/llm-error-builder.js';
 export { withRetry, type RetryOptions } from './llm/llm-retry.js';
+
+// Provider health tracking
+export {
+  ProviderHealthTracker,
+  providerHealth,
+  type ProviderHealthStatus,
+  type ProviderHealthStatusValue,
+} from './provider-health.js';

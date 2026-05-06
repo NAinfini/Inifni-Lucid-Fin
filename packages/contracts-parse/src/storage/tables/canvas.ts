@@ -14,8 +14,6 @@ import { defineTable, col } from '../../tables.js';
 export const CanvasesTable = defineTable('canvases', {
   id: col<CanvasId>('id'),
   name: col<string>('name'),
-  nodes: col<string>('nodes'),
-  edges: col<string>('edges'),
   viewport: col<string>('viewport'),
   notes: col<string>('notes'),
   stylePlate: col<string | null>('style_plate'),

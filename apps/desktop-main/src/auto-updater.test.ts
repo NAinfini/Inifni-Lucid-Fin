@@ -12,6 +12,7 @@ const autoUpdaterMock = vi.hoisted(() => ({
   autoInstallOnAppQuit: false,
 }));
 const logger = vi.hoisted(() => ({ log: vi.fn() }));
+const updateSafety = vi.hoisted(() => ({ recordPreUpdateState: vi.fn() }));
 
 vi.mock('electron-updater', () => ({
   autoUpdater: autoUpdaterMock,
@@ -21,7 +22,17 @@ vi.mock('./logger.js', () => ({
   log: logger.log,
 }));
 
-import { initAutoUpdater } from './auto-updater.js';
+vi.mock('./update-safety.js', () => ({
+  recordPreUpdateState: updateSafety.recordPreUpdateState,
+}));
+
+import {
+  checkForUpdates,
+  downloadUpdate,
+  getUpdateStatus,
+  initAutoUpdater,
+  installUpdate,
+} from './auto-updater.js';
 
 describe('auto-updater status pushes', () => {
   beforeEach(() => {
@@ -71,6 +82,50 @@ describe('auto-updater status pushes', () => {
 
     expect(emit).toHaveBeenCalledWith(expect.objectContaining({ channel: 'updater:toast' }), {
       version: '2.0.0',
+    });
+  });
+
+  it('checkForUpdates delegates to electron-updater in production updater mode', async () => {
+    await initAutoUpdater({ webContents: { send: vi.fn() } } as never, { emit: vi.fn() } as never);
+
+    await checkForUpdates();
+
+    expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledOnce();
+  });
+
+  it('downloadUpdate delegates to electron-updater after an update is available', async () => {
+    await initAutoUpdater({ webContents: { send: vi.fn() } } as never, { emit: vi.fn() } as never);
+    updaterListeners.get('update-available')?.({ version: '2.0.0' });
+
+    await downloadUpdate();
+
+    expect(autoUpdaterMock.downloadUpdate).toHaveBeenCalledOnce();
+  });
+
+  it('installUpdate records rollback metadata and calls quitAndInstall after download', async () => {
+    await initAutoUpdater({ webContents: { send: vi.fn() } } as never, { emit: vi.fn() } as never);
+    updaterListeners.get('update-downloaded')?.({ version: '2.0.0' });
+
+    installUpdate();
+
+    expect(updateSafety.recordPreUpdateState).toHaveBeenCalledWith('2.0.0');
+    expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
+  it('installUpdate exposes an error instead of installing before download is ready', async () => {
+    const emit = vi.fn();
+    await initAutoUpdater({ webContents: { send: vi.fn() } } as never, { emit } as never);
+
+    installUpdate();
+
+    expect(autoUpdaterMock.quitAndInstall).not.toHaveBeenCalled();
+    expect(getUpdateStatus()).toEqual({
+      state: 'error',
+      error: 'No downloaded update is ready to install.',
+    });
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ channel: 'updater:progress' }), {
+      state: 'error',
+      error: 'No downloaded update is ready to install.',
     });
   });
 });

@@ -11,6 +11,7 @@ out/
 
 # Electron packager output
 release/
+release-updater-check-final/
 *.exe
 *.dmg
 *.AppImage
@@ -59,6 +60,9 @@ npm-debug.log*
 .claude
 .trellis
 AGENTS.md
+
+# Generated reports
+license-audit-report.json
 
 # Misc
 *.orig

@@ -54,7 +54,6 @@ import {
   recordShotCreate,
   recordProjectActivity,
 } from '../../store/slices/settings.js';
-import { canUndo, canRedo } from '../../store/middleware/undo.js';
 import { enqueueToast } from '../../store/slices/toast.js';
 import type { NodeKind } from '@lucid-fin/contracts';
 
@@ -135,6 +134,7 @@ export function CanvasWorkspace() {
   const [depHighlightLocked, setDepHighlightLocked] = useState(false);
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null);
   const [videoCloneOpen, setVideoCloneOpen] = useState(false);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   // Track whether the user is actively panning/zooming. Uses a ref instead
   // of state to avoid re-rendering the entire component tree on every pan
   // start/end. The MiniMap is hidden via CSS (visibility) rather than unmounted.
@@ -181,7 +181,7 @@ export function CanvasWorkspace() {
 
   // Flow data: DTO→ReactFlow mapping, caching, search, dependency graph
   const { appliedNodes, appliedEdges, setAppliedNodes, matchingNodeIds, matchedNodeIdsArray } =
-    useFlowData({ dependencyFocusNodeId });
+    useFlowData({ dependencyFocusNodeId, keyboardFocusedNodeId: focusedNodeId });
 
   // Keep a ref to the current canvas so event handlers can read it without
   // being in the dependency array of every callback.
@@ -402,11 +402,13 @@ export function CanvasWorkspace() {
   const onPaneClick = useCallback(() => {
     hoveredNodeIdRef.current = null;
     setConnectingFromNodeId(null);
+    setFocusedNodeId(null);
     requestAnimationFrame(() => dispatch(clearSelection()));
   }, [dispatch]);
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
+      setFocusedNodeId(null);
       if (connectingFromNodeId) {
         if (node.id === connectingFromNodeId) {
           setConnectingFromNodeId(null);
@@ -534,13 +536,6 @@ export function CanvasWorkspace() {
     dispatch(recordRedo());
   }, [dispatch]);
 
-  // canUndo/canRedo read module-level stacks. They update whenever any
-  // tracked action dispatches through the undo middleware. Since those
-  // actions also mutate the canvas slice, the component re-renders and
-  // picks up the fresh values here automatically.
-  const undoEnabled = canUndo();
-  const redoEnabled = canRedo();
-
   // ---- Keyboard shortcuts ---------------------------------------------------
 
   const handleNodeGenerate = useCallback(
@@ -562,6 +557,8 @@ export function CanvasWorkspace() {
     handleUndo,
     handleRedo,
     buildClipboardPayload,
+    focusedNodeId,
+    setFocusedNodeId,
   });
 
   // ---- Node alignment -------------------------------------------------------
@@ -813,13 +810,6 @@ export function CanvasWorkspace() {
             onToggleSnapToGrid={() => dispatch(toggleSnapToGrid())}
             onExportWorkflow={handleExportWorkflow}
             onImportWorkflow={handleOpenWorkflowImport}
-            onUndo={handleUndo}
-            onRedo={handleRedo}
-            undoEnabled={undoEnabled}
-            redoEnabled={redoEnabled}
-            onZoomIn={() => reactFlow.zoomIn()}
-            onZoomOut={() => reactFlow.zoomOut()}
-            onFitView={() => reactFlow.fitView({ padding: 0.15 })}
             styleGuide={{
               artStyle: projectStyleGuide?.global?.artStyle,
               lighting: projectStyleGuide?.global?.lighting,

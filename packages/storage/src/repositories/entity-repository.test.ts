@@ -19,6 +19,7 @@ CREATE TABLE characters (
   description TEXT,
   appearance TEXT,
   personality TEXT,
+  ref_image TEXT,
   costumes TEXT,
   tags TEXT,
   age INTEGER,
@@ -35,7 +36,8 @@ CREATE TABLE characters (
   default_loadout_id TEXT,
   folder_id TEXT,
   created_at INTEGER,
-  updated_at INTEGER
+  updated_at INTEGER,
+  deleted_at TEXT
 );
 CREATE TABLE equipment (
   id TEXT PRIMARY KEY,
@@ -52,7 +54,8 @@ CREATE TABLE equipment (
   reference_images TEXT,
   folder_id TEXT,
   created_at INTEGER,
-  updated_at INTEGER
+  updated_at INTEGER,
+  deleted_at TEXT
 );
 CREATE TABLE locations (
   id TEXT PRIMARY KEY,
@@ -72,7 +75,8 @@ CREATE TABLE locations (
   reference_images TEXT,
   folder_id TEXT,
   created_at INTEGER,
-  updated_at INTEGER
+  updated_at INTEGER,
+  deleted_at TEXT
 );
 `;
 

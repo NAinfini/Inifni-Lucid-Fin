@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createPromptQualityGateSpec,
   createStylePlateLockSpec,
   stylePlateLockPredicate,
   isGenerationTool,
@@ -161,5 +162,56 @@ describe('evaluateProcessPromptSpecs', () => {
     };
     const result = evaluateProcessPromptSpecs([bad], ctx(), new Set());
     expect(result.activated).toHaveLength(0);
+  });
+});
+
+describe('configurable process prompt specs', () => {
+  it('limits style plate lock to reference-image tools when configured', () => {
+    const spec = createStylePlateLockSpec({
+      resolvePromptText: () => 'Lock the style plate before reference images.',
+      referenceImagesOnly: true,
+    });
+
+    const canvasGenerate = evaluateProcessPromptSpecs(
+      [
+        spec,
+      ],
+      ctx({
+        pendingToolCalls: [{ name: 'canvas.generate', arguments: {} }],
+        canvasSettings: { stylePlate: '' },
+      }),
+      new Set(),
+    );
+    const refImageGenerate = evaluateProcessPromptSpecs(
+      [
+        spec,
+      ],
+      ctx({
+        pendingToolCalls: [{ name: 'character.generateRefImage', arguments: {} }],
+        canvasSettings: { stylePlate: '' },
+      }),
+      new Set(),
+    );
+
+    expect(canvasGenerate.activated).toHaveLength(0);
+    expect(refImageGenerate.activated).toHaveLength(1);
+  });
+
+  it('adds quality gate behavior instructions to the resolved prompt', () => {
+    const spec = createPromptQualityGateSpec({
+      resolvePromptText: () => 'Before generating, inspect the prompt.',
+      behavior: 'block-generation',
+    });
+    const result = evaluateProcessPromptSpecs(
+      [
+        spec,
+      ],
+      ctx({
+        pendingToolCalls: [{ name: 'canvas.generate', arguments: { prompt: '' } }],
+      }),
+      new Set(),
+    );
+
+    expect(result.activated[0]?.content).toContain('Configured behavior: block generation');
   });
 });

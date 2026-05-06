@@ -25,6 +25,9 @@ export type {
   PresetLibraryImportPayload,
   PresetLibraryExportRequest,
   PresetLibraryExportPayload,
+  ExportedPreset,
+  PresetExportV1,
+  ImportResult,
   PresetResetScope,
   PresetResetRequest,
 } from './core.js';

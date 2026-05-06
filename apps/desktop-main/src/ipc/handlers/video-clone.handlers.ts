@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { BrowserWindow, IpcMain } from 'electron';
-import { dialog } from 'electron';
+import * as electron from 'electron';
 import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
 import type { CAS } from '@lucid-fin/storage';
 import { detectScenes, extractFrameAtTime } from '@lucid-fin/media-engine';
@@ -15,6 +15,8 @@ import {
 import type { CanvasStore } from './canvas.handlers.js';
 import log from '../../logger.js';
 import { assertSafePath, getSafeRoots } from '../path-safety.js';
+
+const { dialog } = electron;
 
 interface VideoCloneProgress {
   step: 'detect' | 'extract' | 'describe' | 'build';

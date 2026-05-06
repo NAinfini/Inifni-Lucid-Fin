@@ -2,9 +2,11 @@
  * Structured logger for the main process.
  * Writes to file + console with log levels and rotation.
  */
-import { app } from 'electron';
+import * as electron from 'electron';
 import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'fs';
 import { join } from 'path';
+
+const { app } = electron;
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 export interface LoggerEntry {

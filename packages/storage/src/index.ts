@@ -44,6 +44,8 @@ export { AssetRepository } from './repositories/asset-repository.js';
 
 // ── Phase G1-2.5: CanvasRepository ─────────────────────────────
 export { CanvasRepository } from './repositories/canvas-repository.js';
+export { CanvasNodeRepository } from './repositories/canvas-node-repository.js';
+export { CanvasEdgeRepository } from './repositories/canvas-edge-repository.js';
 export type { CanvasSummary } from './repositories/canvas-repository.js';
 
 // ── Phase G1-2.6: EntityRepository ─────────────────────────────
@@ -89,3 +91,17 @@ export type { Dependent } from './repositories/dependency-repository.js';
 
 // ── Project settings KV store ─────────────────────────────────
 export { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
+
+// Backup and restore helpers
+export {
+  createBackup,
+  listBackups,
+  restoreBackup,
+  purgeAllBackups,
+} from './backup.js';
+export type {
+  BackupManifestEntry,
+  BackupManifest,
+  BackupResult,
+  BackupFailure,
+} from './backup.js';

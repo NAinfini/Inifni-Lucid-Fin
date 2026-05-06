@@ -78,6 +78,11 @@ const PromptGuideShape = z.object({
   content: z.string(),
 });
 
+const CommanderProcessBehaviorSettingsShape = z.object({
+  qualityGateBehavior: z.enum(['warn-only', 'auto-expand', 'block-generation']).optional(),
+  requireStylePlateBeforeRefImage: z.boolean().optional(),
+});
+
 // ── commander:chat (invoke) ──────────────────────────────────
 const CommanderChatRequest = z
   .object({
@@ -94,6 +99,7 @@ const CommanderChatRequest = z
     temperature: z.number().optional(),
     maxTokens: z.number().optional(),
     defaultProviders: z.record(z.string(), z.string()).optional(),
+    processSettings: CommanderProcessBehaviorSettingsShape.optional(),
   })
   .passthrough();
 const CommanderChatResponse = z.void();

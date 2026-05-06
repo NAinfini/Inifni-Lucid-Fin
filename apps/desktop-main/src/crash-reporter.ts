@@ -6,6 +6,16 @@ import { log } from './logger.js';
 
 let crashReportEnabled = false;
 
+/** Returns whether crash reporting (and performance tracing) is currently enabled. */
+export function isCrashReportEnabled(): boolean {
+  return crashReportEnabled;
+}
+
+/** Update the crash-report opt-in flag at runtime (e.g. when settings are loaded/saved). */
+export function setCrashReportEnabled(enabled: boolean): void {
+  crashReportEnabled = enabled;
+}
+
 export function initCrashReporter(optIn = false): void {
   crashReportEnabled = optIn;
 

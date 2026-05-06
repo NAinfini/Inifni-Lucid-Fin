@@ -35,6 +35,8 @@ export interface UseFlowDataParams {
   /** Node id for dependency highlighting. Derived from depHighlightLocked
    *  + selectedNodeIds in CanvasWorkspace. */
   dependencyFocusNodeId: string | null;
+  /** Node id that currently has keyboard focus (arrow-key navigation). */
+  keyboardFocusedNodeId?: string | null;
 }
 
 export interface FlowDataResult {
@@ -61,7 +63,7 @@ export interface FlowDataResult {
 // ---------------------------------------------------------------------------
 
 export function useFlowData(params: UseFlowDataParams): FlowDataResult {
-  const { dependencyFocusNodeId } = params;
+  const { dependencyFocusNodeId, keyboardFocusedNodeId } = params;
 
   // ---- Redux selectors ----
   const canvas = useSelector(selectActiveCanvas);
@@ -161,10 +163,11 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
       const dimmed =
         (searchActive && !matchingNodeIds.has(node.id)) ||
         (!!dependencyFocusNodeId && dependencyRole === null && node.id !== dependencyFocusNodeId);
+      const kbFocused = keyboardFocusedNodeId === node.id;
       const rfNode = toFlowNode(
         node,
         presetById,
-        { dependencyRole, dimmed },
+        { dependencyRole, dimmed, keyboardFocused: kbFocused },
         allCanvasNodes,
         backdropChildCounts,
       );
@@ -193,6 +196,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
     dependencyState.downstream,
     dependencyState.upstream,
     hoveredDependencyNodeId,
+    keyboardFocusedNodeId,
     matchingNodeIds,
     presetById,
     searchActive,

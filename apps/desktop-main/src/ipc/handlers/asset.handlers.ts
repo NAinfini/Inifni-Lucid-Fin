@@ -1,5 +1,5 @@
 import type { IpcMain } from 'electron';
-import { dialog } from 'electron';
+import * as electron from 'electron';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -10,6 +10,8 @@ import log from '../../logger.js';
 import { assertValidAssetType } from '../validation.js';
 import { generateEmbeddingForAsset } from './embedding.handlers.js';
 import { assertSafePath, getImportSafeRoots } from '../path-safety.js';
+
+const { dialog } = electron;
 
 const FALLBACK_EXTS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],

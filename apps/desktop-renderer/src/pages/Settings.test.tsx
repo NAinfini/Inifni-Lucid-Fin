@@ -952,6 +952,64 @@ describe('Settings updater UI', () => {
     });
   });
 
+  it('commits manual commander setting values beyond slider range', async () => {
+    setLocale('en-US');
+
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Commander AI' }));
+
+    const input = await screen.findByRole('spinbutton', { name: 'Max Steps value' });
+    fireEvent.change(input, { target: { value: '350' } });
+    fireEvent.blur(input);
+
+    expect(store.getState().commander.maxSteps).toBe(350);
+    expect((screen.getByRole('slider', { name: 'Max Steps' }) as HTMLInputElement).value).toBe(
+      '200',
+    );
+  });
+
+  it('updates commander process behavior settings', async () => {
+    setLocale('en-US');
+
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = renderSettings();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Commander AI' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Block generation' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Require style plate before reference images' }));
+
+    expect(store.getState().commander.qualityGateBehavior).toBe('block-generation');
+    expect(store.getState().commander.requireStylePlateBeforeRefImage).toBe(false);
+  });
+
   it('localizes provider hub helper text in zh-CN', async () => {
     setLocale('zh-CN');
 

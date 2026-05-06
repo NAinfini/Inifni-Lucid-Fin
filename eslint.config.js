@@ -9,6 +9,8 @@ const ignores = [
   '**/out/**',
   '**/build/**',
   '**/coverage/**',
+  '**/release/**',
+  '**/release-updater-check-final/**',
   '**/.vite/**',
   '**/.turbo/**',
   '**/*.d.ts',
@@ -125,6 +127,14 @@ export default tseslint.config(
       globals: {
         ...globals.vitest,
       },
+    },
+  },
+
+  // E2E tests use Playwright's `use()` fixture API — not React hooks
+  {
+    files: ['tests/e2e/**/*.ts'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
     },
   },
 );

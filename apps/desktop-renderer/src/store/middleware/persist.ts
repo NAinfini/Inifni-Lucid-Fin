@@ -34,9 +34,10 @@ const DEBOUNCE_MS = 500;
 
 let canvasTimer: ReturnType<typeof setTimeout> | null = null;
 let settingsTimer: ReturnType<typeof setTimeout> | null = null;
-// Guard: don't persist settings until the initial restore from disk has run.
+let flushPendingSettingsSaveRunner: (() => void) | null = null;
+// Guard: don't persist settings until the initial SQL restore has run.
 // Without this, early settings/* actions (usage tracking, daily active, etc.)
-// would save default/empty provider state, overwriting the real settings.json.
+// would save default/empty provider state over the restored app settings.
 let settingsRestoredFromDisk = false;
 
 /**
@@ -111,6 +112,18 @@ export function flushPendingCanvasSave(): boolean {
   // Clear flushPendingSave so a later interaction-end flush doesn't double-run.
   flushPendingSave = null;
   pendingSave = false;
+  run();
+  return true;
+}
+
+export function flushPendingSettingsSave(): boolean {
+  if (settingsTimer) {
+    clearTimeout(settingsTimer);
+    settingsTimer = null;
+  }
+  if (!flushPendingSettingsSaveRunner) return false;
+  const run = flushPendingSettingsSaveRunner;
+  flushPendingSettingsSaveRunner = null;
   run();
   return true;
 }
@@ -241,8 +254,7 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
       // early usage-tracking dispatches would overwrite saved provider keys.
       if (settingsRestoredFromDisk) {
         if (settingsTimer) clearTimeout(settingsTimer);
-        settingsTimer = setTimeout(() => {
-          settingsTimer = null;
+        flushPendingSettingsSaveRunner = (): void => {
           const currentState = store.getState() as RootState;
           const sparse = buildSparseSettings(currentState.settings);
           getAPI()
@@ -257,6 +269,12 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
                 }),
               );
             });
+        };
+        settingsTimer = setTimeout(() => {
+          settingsTimer = null;
+          const run = flushPendingSettingsSaveRunner;
+          flushPendingSettingsSaveRunner = null;
+          run?.();
         }, DEBOUNCE_MS);
       }
     }

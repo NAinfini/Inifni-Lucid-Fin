@@ -1,3 +1,5 @@
+import type { CommanderQualityGateBehavior } from '@lucid-fin/contracts';
+
 /**
  * `commander/state/types.ts` — Phase E split-1.
  *
@@ -190,6 +192,8 @@ export interface CommanderState {
   clipboardWatchIntervalMs: number;
   clipboardMinLength: number;
   generationConcurrency: number;
+  qualityGateBehavior: CommanderQualityGateBehavior;
+  requireStylePlateBeforeRefImage: boolean;
   pendingConfirmation: PendingConfirmation | null;
   pendingQuestion: PendingQuestion | null;
   confirmAutoMode: 'none' | 'approve' | 'skip';
@@ -216,4 +220,6 @@ export interface PersistedSettings {
   clipboardWatchIntervalMs?: number;
   clipboardMinLength?: number;
   generationConcurrency?: number;
+  qualityGateBehavior?: CommanderQualityGateBehavior;
+  requireStylePlateBeforeRefImage?: boolean;
 }

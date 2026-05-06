@@ -72,6 +72,8 @@ function createInitialState(): SettingsState {
       sceneOverrides: {},
     },
     bootstrapped: false,
+    crashReporting: false,
+    analyticsEnabled: false,
   };
 }
 
@@ -135,6 +137,12 @@ export const settingsSlice = createSlice({
     setBootstrapped(state) {
       state.bootstrapped = true;
     },
+    setCrashReporting(state, action: PayloadAction<boolean>) {
+      state.crashReporting = action.payload;
+    },
+    setAnalyticsEnabled(state, action: PayloadAction<boolean>) {
+      state.analyticsEnabled = action.payload;
+    },
 
     restore(_state, action: PayloadAction<PersistedSettingsState>) {
       return mergeSavedSettings(action.payload, initialState);
@@ -180,5 +188,7 @@ export const {
   updateProduction,
   setStyleGuide,
   setBootstrapped,
+  setCrashReporting,
+  setAnalyticsEnabled,
   restore,
 } = settingsSlice.actions;

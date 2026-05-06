@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Bot, Cog, Database, RotateCcw } from 'lucide-react';
 import type { RootState } from '../store/index.js';
@@ -16,8 +17,12 @@ import {
   setClipboardWatchIntervalMs,
   setClipboardMinLength,
   setGenerationConcurrency,
+  setQualityGateBehavior,
+  setRequireStylePlateBeforeRefImage,
 } from '../store/slices/commander.js';
 import { t } from '../i18n.js';
+import { cn } from '../lib/utils.js';
+import type { CommanderQualityGateBehavior } from '@lucid-fin/contracts';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -26,6 +31,11 @@ import { t } from '../i18n.js';
 function tr(key: string, fallback: string): string {
   const v = t(key);
   return v === key ? fallback : v;
+}
+
+function clampSliderValue(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +105,7 @@ function SliderInput({
   step,
   onChange,
   formatValue,
+  label,
 }: {
   value: number;
   min: number;
@@ -102,21 +113,108 @@ function SliderInput({
   step: number;
   onChange: (v: number) => void;
   formatValue?: (v: number) => string;
+  label: string;
 }) {
+  const [inputValue, setInputValue] = useState(String(value));
+  const sliderValue = clampSliderValue(value, min, max);
+
+  useEffect(() => {
+    setInputValue(String(value));
+  }, [value]);
+
+  const commitInputValue = () => {
+    const nextValue = Number(inputValue);
+    if (!Number.isFinite(nextValue)) {
+      setInputValue(String(value));
+      return;
+    }
+    onChange(nextValue);
+  };
+
   return (
     <div className="flex items-center gap-2">
       <CommitSlider
         min={min}
         max={max}
         step={step}
-        value={value}
+        value={sliderValue}
         onCommit={onChange}
+        aria-label={label}
         className="h-1.5 w-28 cursor-pointer accent-primary"
       />
-      <span className="w-14 text-right text-xs font-mono text-muted-foreground">
-        {formatValue ? formatValue(value) : value}
-      </span>
+      <input
+        type="number"
+        aria-label={`${label} value`}
+        value={inputValue}
+        step={step}
+        onChange={(event) => setInputValue(event.target.value)}
+        onBlur={commitInputValue}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.currentTarget.blur();
+          }
+          if (event.key === 'Escape') {
+            setInputValue(String(value));
+            event.currentTarget.blur();
+          }
+        }}
+        className="h-7 w-20 rounded border border-border/60 bg-background px-1.5 text-right font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        title={formatValue ? formatValue(value) : String(value)}
+      />
     </div>
+  );
+}
+
+function SegmentedInput<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex rounded-md border border-border/60 bg-background p-0.5">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cn(
+            'rounded px-2 py-1 text-[11px] transition-colors',
+            value === option.value
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ToggleInput({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs">
+      <input
+        type="checkbox"
+        aria-label={label}
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 accent-primary"
+      />
+    </label>
   );
 }
 
@@ -148,6 +246,8 @@ export function SettingsCommanderSection() {
     dispatch(setClipboardWatchIntervalMs(1500));
     dispatch(setClipboardMinLength(100));
     dispatch(setGenerationConcurrency(1));
+    dispatch(setQualityGateBehavior('auto-expand'));
+    dispatch(setRequireStylePlateBeforeRefImage(true));
   };
 
   return (
@@ -171,6 +271,7 @@ export function SettingsCommanderSection() {
             max={200}
             step={1}
             onChange={(v) => dispatch(setMaxSteps(v))}
+            label={tr('settings.commander.maxSteps', 'Max Steps')}
           />
         </SettingRow>
         <SettingRow
@@ -187,6 +288,7 @@ export function SettingsCommanderSection() {
             step={0.1}
             onChange={(v) => dispatch(setTemperature(v))}
             formatValue={(v) => v.toFixed(1)}
+            label={tr('settings.commander.temperature', 'Temperature')}
           />
         </SettingRow>
         <SettingRow
@@ -203,6 +305,7 @@ export function SettingsCommanderSection() {
             step={1024}
             onChange={(v) => dispatch(setMaxTokens(v))}
             formatValue={(v) => `${(v / 1000).toFixed(0)}K`}
+            label={tr('settings.commander.contextWindow', 'Context Window')}
           />
         </SettingRow>
         <SettingRow
@@ -218,6 +321,7 @@ export function SettingsCommanderSection() {
             max={10}
             step={1}
             onChange={(v) => dispatch(setLlmRetries(v))}
+            label={tr('settings.commander.llmRetries', 'LLM Retries')}
           />
         </SettingRow>
       </SectionCard>
@@ -241,6 +345,7 @@ export function SettingsCommanderSection() {
             max={200}
             step={5}
             onChange={(v) => dispatch(setMaxSessions(v))}
+            label={tr('settings.commander.maxSessions', 'Max Sessions')}
           />
         </SettingRow>
         <SettingRow
@@ -256,6 +361,7 @@ export function SettingsCommanderSection() {
             max={1000}
             step={20}
             onChange={(v) => dispatch(setMaxMessagesPerSession(v))}
+            label={tr('settings.commander.maxMessagesPerSession', 'Messages/Session')}
           />
         </SettingRow>
         <SettingRow
@@ -268,6 +374,7 @@ export function SettingsCommanderSection() {
             max={500}
             step={10}
             onChange={(v) => dispatch(setUndoStackDepth(v))}
+            label={tr('settings.commander.undoStackDepth', 'Undo Depth')}
           />
         </SettingRow>
         <SettingRow
@@ -283,6 +390,7 @@ export function SettingsCommanderSection() {
             max={5000}
             step={100}
             onChange={(v) => dispatch(setMaxLogEntries(v))}
+            label={tr('settings.commander.maxLogEntries', 'Log Entries')}
           />
         </SettingRow>
       </SectionCard>
@@ -307,6 +415,7 @@ export function SettingsCommanderSection() {
             step={100}
             onChange={(v) => dispatch(setAutoSaveDelayMs(v))}
             formatValue={(v) => `${v}ms`}
+            label={tr('settings.commander.autoSaveDelay', 'Auto-Save Delay')}
           />
         </SettingRow>
         <SettingRow
@@ -323,6 +432,7 @@ export function SettingsCommanderSection() {
             step={50}
             onChange={(v) => dispatch(setUndoGroupWindowMs(v))}
             formatValue={(v) => `${v}ms`}
+            label={tr('settings.commander.undoGroupWindow', 'Undo Group Window')}
           />
         </SettingRow>
         <SettingRow
@@ -339,6 +449,7 @@ export function SettingsCommanderSection() {
             step={500}
             onChange={(v) => dispatch(setClipboardWatchIntervalMs(v))}
             formatValue={(v) => `${(v / 1000).toFixed(1)}s`}
+            label={tr('settings.commander.clipboardInterval', 'Clipboard Watch')}
           />
         </SettingRow>
         <SettingRow
@@ -354,6 +465,7 @@ export function SettingsCommanderSection() {
             max={1000}
             step={10}
             onChange={(v) => dispatch(setClipboardMinLength(v))}
+            label={tr('settings.commander.clipboardMinLength', 'Clipboard Min Length')}
           />
         </SettingRow>
         <SettingRow
@@ -369,6 +481,52 @@ export function SettingsCommanderSection() {
             max={10}
             step={1}
             onChange={(v) => dispatch(setGenerationConcurrency(v))}
+            label={tr('settings.commander.generationConcurrency', 'Generation Concurrency')}
+          />
+        </SettingRow>
+        <SettingRow
+          label={tr('settings.commander.qualityGateBehavior', 'Quality Gate')}
+          description={tr(
+            'settings.commander.qualityGateBehaviorDesc',
+            'Controls how Commander handles weak generation prompts.',
+          )}
+        >
+          <SegmentedInput<CommanderQualityGateBehavior>
+            value={state.qualityGateBehavior}
+            options={[
+              {
+                value: 'warn-only',
+                label: tr('settings.commander.qualityGateWarnOnly', 'Warn only'),
+              },
+              {
+                value: 'auto-expand',
+                label: tr('settings.commander.qualityGateAutoExpand', 'Auto-expand'),
+              },
+              {
+                value: 'block-generation',
+                label: tr('settings.commander.qualityGateBlock', 'Block generation'),
+              },
+            ]}
+            onChange={(v) => dispatch(setQualityGateBehavior(v))}
+          />
+        </SettingRow>
+        <SettingRow
+          label={tr(
+            'settings.commander.requireStylePlateBeforeRefImage',
+            'Require style plate before reference images',
+          )}
+          description={tr(
+            'settings.commander.requireStylePlateBeforeRefImageDesc',
+            'Commander must lock a canvas style plate before character, location, or equipment reference images.',
+          )}
+        >
+          <ToggleInput
+            label={tr(
+              'settings.commander.requireStylePlateBeforeRefImage',
+              'Require style plate before reference images',
+            )}
+            checked={state.requireStylePlateBeforeRefImage}
+            onChange={(checked) => dispatch(setRequireStylePlateBeforeRefImage(checked))}
           />
         </SettingRow>
       </SectionCard>

@@ -556,8 +556,6 @@ export function CommanderPanel() {
           the textarea. Users see phase status where their eye is already
           resting — at the input field, not the top of the panel. */}
 
-      {/* 3K: Entity context strip */}
-      <EntityContextStrip t={t} />
 
       {/* 3I: Film pipeline rail — renders when todo snapshot is active */}
       <PipelineRail snapshot={todoSnapshot} isStreaming={isStreaming} t={t} />
@@ -744,6 +742,7 @@ export function CommanderPanel() {
                     />
                     <button
                       type="button"
+                      aria-label={t('action.confirm')}
                       onClick={() => {
                         dispatch(editQueuedMessage({ index: i, content: editingQueueText }));
                         setEditingQueueIndex(null);
@@ -770,6 +769,7 @@ export function CommanderPanel() {
                     )}
                     <button
                       type="button"
+                      aria-label={t('action.rename')}
                       onClick={() => {
                         setEditingQueueIndex(i);
                         setEditingQueueText(msg.content);
@@ -780,6 +780,7 @@ export function CommanderPanel() {
                     </button>
                     <button
                       type="button"
+                      aria-label={t('action.remove')}
                       onClick={() => dispatch(removeQueuedMessage(i))}
                       className="text-muted-foreground hover:text-destructive"
                     >
@@ -821,14 +822,7 @@ export function CommanderPanel() {
               ))}
             </div>
           )}
-          {/* 3L: Contextual composer chips */}
-          <ComposerChips
-            t={t}
-            onTemplate={(msg) => {
-              setInput(msg);
-              inputRef.current?.focus();
-            }}
-          />
+          <ComposerChips t={t} />
           {/* Textarea */}
           <textarea
             ref={inputRef}
@@ -996,6 +990,7 @@ export function CommanderPanel() {
                       <TooltipTrigger asChild>
                         <button
                           type="button"
+                          aria-label={`${t('commander.contextBreakdown.context')}: ${used}/${total}`}
                           onClick={() => void triggerCompact()}
                           className="shrink-0 rounded p-0.5 hover:bg-muted transition-colors"
                         >
@@ -1216,120 +1211,19 @@ export function CommanderPanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 3K: Entity Context Strip
-// ---------------------------------------------------------------------------
-
-interface EntityContextStripProps {
-  t: (key: string) => string;
-}
-
-function EntityContextStrip({ t }: EntityContextStripProps) {
-  const activeCanvas = useSelector((state: RootState) => {
-    const id = state.canvas.activeCanvasId;
-    if (!id) return undefined;
-    return state.canvas.canvases.entities[id];
-  });
-  const selectedCount = useSelector((state: RootState) => state.canvas.selectedNodeIds.length);
-  const characterCount = useSelector((state: RootState) => state.characters.items.length);
-
-  // Heuristic: check if any node has preset tracks with a color-style entry
-  const hasStylePlate = useMemo(() => {
-    if (!activeCanvas?.nodes) return false;
-    return activeCanvas.nodes.some((node) => {
-      const data = node.data as Record<string, unknown>;
-      const tracks = data.presetTracks;
-      if (!tracks || typeof tracks !== 'object') return false;
-      return Object.values(tracks as Record<string, unknown>).some(
-        (track) =>
-          Array.isArray(track) &&
-          track.some(
-            (entry) =>
-              entry &&
-              typeof entry === 'object' &&
-              'category' in entry &&
-              (entry as Record<string, unknown>).category === 'colorStyle',
-          ),
-      );
-    });
-  }, [activeCanvas?.nodes]);
-
-  const canvasName = activeCanvas?.name ?? t('commander.noActiveCanvas');
-
-  return (
-    <div className="flex items-center gap-3 border-b border-border/40 px-3 py-1 text-[10px] text-muted-foreground">
-      <span className="truncate font-medium">{canvasName}</span>
-      {selectedCount > 0 ? (
-        <span>{t('commander.entityStrip.selected').replace('{count}', String(selectedCount))}</span>
-      ) : null}
-      <span>
-        {t('commander.entityStrip.characters').replace('{count}', String(characterCount))}
-      </span>
-      <span className={cn(hasStylePlate ? 'text-emerald-400' : 'text-amber-400')}>
-        {hasStylePlate
-          ? t('commander.entityStrip.styleLocked')
-          : t('commander.entityStrip.styleNotSet')}
-      </span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 3L: Contextual Composer Chips
-// ---------------------------------------------------------------------------
-
 interface ComposerChipsProps {
   t: (key: string) => string;
-  onTemplate: (message: string) => void;
 }
 
-function ComposerChips({ t, onTemplate }: ComposerChipsProps) {
+function ComposerChips({ t }: ComposerChipsProps) {
   const selectedCount = useSelector((state: RootState) => state.canvas.selectedNodeIds.length);
-
-  const templates = useMemo(
-    () => [
-      {
-        key: 'breakIntoShots',
-        label: t('commander.composerChip.breakIntoShots'),
-        message:
-          'Break the selected content into individual shots with camera and lighting presets',
-        show: true,
-      },
-      {
-        key: 'generateRefs',
-        label: t('commander.composerChip.generateRefs'),
-        message: 'Generate reference images for all characters that are missing them',
-        show: true,
-      },
-      {
-        key: 'applyStyle',
-        label: t('commander.composerChip.applyStyle'),
-        message: 'Apply the current style plate to all selected nodes',
-        show: true,
-      },
-    ],
-    [t],
-  );
+  if (selectedCount === 0) return null;
 
   return (
     <div className="flex flex-wrap gap-1 px-3 pt-1.5">
-      {selectedCount > 0 ? (
-        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
-          {t('commander.entityStrip.selected').replace('{count}', String(selectedCount))}
-        </span>
-      ) : null}
-      {templates
-        .filter((tmpl) => tmpl.show)
-        .map((tmpl) => (
-          <button
-            key={tmpl.key}
-            type="button"
-            className="rounded-full border border-border/40 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
-            onClick={() => onTemplate(tmpl.message)}
-          >
-            {tmpl.label}
-          </button>
-        ))}
+      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
+        {t('commander.entityStrip.selected').replace('{count}', String(selectedCount))}
+      </span>
     </div>
   );
 }
@@ -1355,6 +1249,7 @@ function FirstSessionHint({ show, t }: { show: boolean; t: (key: string) => stri
       <span className="flex-1">{t('commander.firstSessionHint')}</span>
       <button
         type="button"
+        aria-label={t('action.close')}
         className="shrink-0 text-muted-foreground hover:text-foreground"
         onClick={() => {
           setDismissed(true);
