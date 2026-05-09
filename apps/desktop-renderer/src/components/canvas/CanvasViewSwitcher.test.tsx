@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n.js';
-import { canvasSlice } from '../../store/slices/canvas.js';
+import { canvasSlice } from '../../store/slices/canvas/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
 import { uiSlice } from '../../store/slices/ui.js';

@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest';
 // We need to test the middleware in isolation
 // Import directly to test the module's exported functions
 import { undoMiddleware, canUndo, canRedo, getUndoLabel, getUndoStackSize } from './undo.js';
-import type { CanvasSliceState } from '../slices/canvas.js';
-import { canvasAdapter } from '../slices/canvas.js';
+import type { CanvasSliceState } from '../slices/canvas/canvas.js';
+import { canvasAdapter } from '../slices/canvas/canvas.js';
 
 function createMockStore(initialState: Record<string, unknown> = {}) {
   let state = initialState;

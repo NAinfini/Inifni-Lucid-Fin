@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { selectEntityUsageCounts } from '../../store/slices/canvas-selectors.js';
-import { removeEntityRefsFromAllCanvases } from '../../store/slices/canvas.js';
+import { selectEntityUsageCounts } from '../../store/slices/canvas/canvas-selectors.js';
+import { removeEntityRefsFromAllCanvases } from '../../store/slices/canvas/canvas.js';
 import { enqueueToast } from '../../store/slices/toast.js';
 import {
   setCharacters,

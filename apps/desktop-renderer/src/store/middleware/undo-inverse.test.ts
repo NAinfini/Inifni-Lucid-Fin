@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { CanvasSliceState } from '../slices/canvas.js';
-import { canvasAdapter } from '../slices/canvas.js';
+import type { CanvasSliceState } from '../slices/canvas/canvas.js';
+import { canvasAdapter } from '../slices/canvas/canvas.js';
 import { computeInverseAction, estimateActionBytes } from './undo-inverse.js';
 
 function createCanvasState(): CanvasSliceState {

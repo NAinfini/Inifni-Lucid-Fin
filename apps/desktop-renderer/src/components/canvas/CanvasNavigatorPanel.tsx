@@ -7,8 +7,8 @@ import {
   removeCanvas,
   renameCanvas,
   setActiveCanvas,
-} from '../../store/slices/canvas.js';
-import { selectCanvasMetadataList } from '../../store/slices/canvas-selectors.js';
+} from '../../store/slices/canvas/canvas.js';
+import { selectCanvasMetadataList } from '../../store/slices/canvas/canvas-selectors.js';
 import { getAPI } from '../../utils/api.js';
 import { cn } from '../../lib/utils.js';
 import { t, getLocale } from '../../i18n.js';

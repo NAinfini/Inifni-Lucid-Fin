@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import type { RootState } from '../../store/index.js';
 import { setTheme, setOnboardingComplete } from '../../store/slices/ui.js';
-import { addCanvas, setActiveCanvas } from '../../store/slices/canvas.js';
+import { addCanvas, setActiveCanvas } from '../../store/slices/canvas/canvas.js';
 import { t } from '../../i18n.js';
 import { getAPI } from '../../utils/api.js';
 

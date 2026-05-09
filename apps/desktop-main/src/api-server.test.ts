@@ -4,15 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   createServerMock,
   randomUUIDMock,
-  writeFileSyncMock,
-  readFileSyncMock,
+  writeFileMock,
+  readFileMock,
   tmpdirMock,
   logger,
 } = vi.hoisted(() => ({
   createServerMock: vi.fn(),
   randomUUIDMock: vi.fn(() => 'test-token'),
-  writeFileSyncMock: vi.fn(),
-  readFileSyncMock: vi.fn(() => JSON.stringify({ version: '0.0.4' })),
+  writeFileMock: vi.fn(),
+  readFileMock: vi.fn(() => JSON.stringify({ version: '0.0.4' })),
   tmpdirMock: vi.fn(() => 'C:/temp'),
   logger: {
     debug: vi.fn(),
@@ -34,13 +34,13 @@ vi.mock('node:crypto', () => ({
   randomUUID: randomUUIDMock,
 }));
 
-vi.mock('node:fs', () => ({
+vi.mock('node:fs/promises', () => ({
   default: {
-    writeFileSync: writeFileSyncMock,
-    readFileSync: readFileSyncMock,
+    writeFile: writeFileMock,
+    readFile: readFileMock,
   },
-  writeFileSync: writeFileSyncMock,
-  readFileSync: readFileSyncMock,
+  writeFile: writeFileMock,
+  readFile: readFileMock,
 }));
 
 vi.mock('node:os', () => ({
@@ -295,7 +295,7 @@ describe('api server', () => {
       }),
     });
 
-    expect(writeFileSyncMock).toHaveBeenCalledWith(
+    expect(writeFileMock).toHaveBeenCalledWith(
       'C:\\temp\\lucid-export-1700000000000.json',
       JSON.stringify(
         {

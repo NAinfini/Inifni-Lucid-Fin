@@ -7,7 +7,7 @@ import { Provider } from 'react-redux';
 import { describe, expect, it, vi } from 'vitest';
 import { CanvasPage } from './CanvasPage.js';
 import { getAPI } from '../utils/api.js';
-import { canvasReducer } from '../store/slices/canvas.js';
+import { canvasReducer } from '../store/slices/canvas/canvas.js';
 import { uiSlice } from '../store/slices/ui.js';
 import { settingsSlice, setBootstrapped } from '../store/slices/settings.js';
 import { presetsSlice } from '../store/slices/presets.js';

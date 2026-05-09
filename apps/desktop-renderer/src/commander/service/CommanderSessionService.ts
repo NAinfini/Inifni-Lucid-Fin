@@ -42,7 +42,7 @@ import {
   renameNode,
   updateEdge,
   updateNodeData,
-} from '../../store/slices/canvas.js';
+} from '../../store/slices/canvas/canvas.js';
 import { setCharacters } from '../../store/slices/characters.js';
 import { setEquipment } from '../../store/slices/equipment.js';
 import { setLocations } from '../../store/slices/locations.js';

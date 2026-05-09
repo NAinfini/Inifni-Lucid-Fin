@@ -6,7 +6,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react';
 import type { Canvas, CanvasNode } from '@lucid-fin/contracts';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { canvasSlice, setActiveCanvas } from '../store/slices/canvas.js';
+import { canvasSlice, setActiveCanvas } from '../store/slices/canvas/canvas.js';
 import { loggerSlice } from '../store/slices/logger.js';
 import { settingsSlice, setProviderBaseUrl, setProviderModel } from '../store/slices/settings.js';
 import { getAPI } from '../utils/api.js';

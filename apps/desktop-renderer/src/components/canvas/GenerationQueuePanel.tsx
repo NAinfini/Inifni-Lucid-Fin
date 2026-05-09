@@ -15,7 +15,7 @@ import { useDispatch } from 'react-redux';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RootState } from '../../store/index.js';
 import { setRightPanel } from '../../store/slices/ui.js';
-import { clearNodeGenerationStatus } from '../../store/slices/canvas.js';
+import { clearNodeGenerationStatus } from '../../store/slices/canvas/canvas.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { getLocale } from '../../i18n.js';

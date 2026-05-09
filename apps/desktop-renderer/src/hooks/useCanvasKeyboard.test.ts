@@ -12,7 +12,7 @@ import {
   setSelection,
   toggleBypass,
   toggleLock,
-} from '../store/slices/canvas.js';
+} from '../store/slices/canvas/canvas.js';
 import { setSearchPanelOpen } from '../store/slices/ui.js';
 import { useCanvasKeyboard } from './useCanvasKeyboard.js';
 

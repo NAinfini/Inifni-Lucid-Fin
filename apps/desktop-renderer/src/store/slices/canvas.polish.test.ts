@@ -9,7 +9,7 @@ import {
   pasteNodes,
   setActiveCanvas,
   setCanvases,
-} from './canvas.js';
+} from './canvas/canvas.js';
 import { t } from '../../i18n.js';
 
 function makeCanvas(id = 'canvas-1', name = 'Main'): Canvas {

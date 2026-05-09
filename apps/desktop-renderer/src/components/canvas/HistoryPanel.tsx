@@ -28,7 +28,7 @@ import type { TimelineEvent } from '@lucid-fin/contracts';
 import { setCharacters } from '../../store/slices/characters.js';
 import { setEquipment } from '../../store/slices/equipment.js';
 import { setLocations } from '../../store/slices/locations.js';
-import { setCanvases } from '../../store/slices/canvas.js';
+import { setCanvases } from '../../store/slices/canvas/canvas.js';
 import { enqueueToast } from '../../store/slices/toast.js';
 import { useConfirm } from '../ui/ConfirmDialog.js';
 import { cn } from '../../lib/utils.js';

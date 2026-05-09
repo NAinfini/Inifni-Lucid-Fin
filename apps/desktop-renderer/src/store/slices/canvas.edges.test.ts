@@ -8,7 +8,7 @@ import {
   reconnectCanvasEdge,
   setActiveCanvas,
   setCanvases,
-} from './canvas.js';
+} from './canvas/canvas.js';
 
 function makeCanvas(): Canvas {
   return {

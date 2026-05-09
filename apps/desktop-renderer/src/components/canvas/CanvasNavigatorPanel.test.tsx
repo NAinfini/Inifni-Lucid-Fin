@@ -6,7 +6,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n.js';
-import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas.js';
+import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
 import { uiSlice } from '../../store/slices/ui.js';

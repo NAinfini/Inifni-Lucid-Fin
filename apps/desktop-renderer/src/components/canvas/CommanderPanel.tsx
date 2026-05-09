@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+// extracted sub-components / hooks
+import { useAutoScroll } from './commander/useAutoScroll.js';
+import { ComposerChips, FirstSessionHint } from './commander/CommanderHints.js';
 import { useDispatch, useSelector, shallowEqual } from 'react-redux';
 import {
   Check,
@@ -58,7 +61,7 @@ import { MessageList } from './commander/MessageList.js';
 import { LiveActivityBar } from './commander/LiveActivityBar.js';
 import { PipelineRail } from './commander/PipelineRail.js';
 import { computeContextUsage } from '../../commander/state/context-usage.js';
-import { selectActiveCanvasNodes, selectNodesById } from '../../store/slices/canvas-selectors.js';
+import { selectActiveCanvasNodes, selectNodesById } from '../../store/slices/canvas/canvas-selectors.js';
 
 const SAFE_Y = 56;
 
@@ -156,8 +159,10 @@ export function CommanderPanel() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
   const [editingQueueText, setEditingQueueText] = useState('');
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const userScrolledUpRef = useRef(false);
+  const { scrollRef, userScrolledUpRef } = useAutoScroll({
+    open,
+    deps: [currentStreamContent, currentToolCalls, messages],
+  });
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const wasDraggingRef = useRef(false);
 
@@ -265,28 +270,6 @@ export function CommanderPanel() {
       void sendMessage(next.content);
     }
   }, [isStreaming, messageQueue, dispatch, sendMessage]);
-
-  // Track whether user has manually scrolled up
-  useEffect(() => {
-    const target = scrollRef.current;
-    if (!target) return;
-    const handleScroll = () => {
-      const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-      userScrolledUpRef.current = distanceFromBottom > 80;
-    };
-    target.addEventListener('scroll', handleScroll, { passive: true });
-    return () => target.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Only auto-scroll if user is near the bottom
-  useEffect(() => {
-    if (!open) return;
-    const target = scrollRef.current;
-    if (!target) return;
-    if (!userScrolledUpRef.current) {
-      target.scrollTop = target.scrollHeight;
-    }
-  }, [currentStreamContent, currentToolCalls, messages, open]);
 
   const sectionRef = useRef<HTMLElement>(null);
 
@@ -1208,60 +1191,5 @@ export function CommanderPanel() {
       />
       {ConfirmDialog}
     </section>
-  );
-}
-
-interface ComposerChipsProps {
-  t: (key: string) => string;
-}
-
-function ComposerChips({ t }: ComposerChipsProps) {
-  const selectedCount = useSelector((state: RootState) => state.canvas.selectedNodeIds.length);
-  if (selectedCount === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-1 px-3 pt-1.5">
-      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">
-        {t('commander.entityStrip.selected').replace('{count}', String(selectedCount))}
-      </span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 3G: First-session toast hint
-// ---------------------------------------------------------------------------
-
-const LS_KEY_FIRST_SESSION = 'lucid-commander-first-session-seen';
-
-function FirstSessionHint({ show, t }: { show: boolean; t: (key: string) => string }) {
-  const [dismissed, setDismissed] = useState(() => {
-    try {
-      return localStorage.getItem(LS_KEY_FIRST_SESSION) === '1';
-    } catch {
-      return false;
-    }
-  });
-  if (!show || dismissed) return null;
-  return (
-    <div className="mb-2 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-      <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-      <span className="flex-1">{t('commander.firstSessionHint')}</span>
-      <button
-        type="button"
-        aria-label={t('action.close')}
-        className="shrink-0 text-muted-foreground hover:text-foreground"
-        onClick={() => {
-          setDismissed(true);
-          try {
-            localStorage.setItem(LS_KEY_FIRST_SESSION, '1');
-          } catch {
-            /* noop */
-          }
-        }}
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
   );
 }

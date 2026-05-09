@@ -15,7 +15,7 @@ import {
   updateNodeEquipmentRef,
   addNodeLocationRef,
   removeNodeLocationRef,
-} from '../../store/slices/canvas.js';
+} from '../../store/slices/canvas/canvas.js';
 import type {
   CanvasNode,
   CharacterRef,

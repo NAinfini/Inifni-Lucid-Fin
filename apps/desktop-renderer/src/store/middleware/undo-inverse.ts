@@ -1,6 +1,6 @@
 import type { UnknownAction } from '@reduxjs/toolkit';
 import type { CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
-import type { CanvasSliceState } from '../slices/canvas.js';
+import type { CanvasSliceState } from '../slices/canvas/canvas.js';
 
 /**
  * Attempts to compute a minimal inverse action for a given forward action.

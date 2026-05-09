@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { visualizer } from 'rollup-plugin-visualizer';
 
 export function desktopRendererManualChunks(id: string) {
   const normalizedId = id.replaceAll('\\', '/');
@@ -77,7 +78,13 @@ export function desktopRendererManualChunks(id: string) {
 
 export default defineConfig(({ mode }) => ({
   base: './',
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    ...(mode === 'production'
+      ? [visualizer({ filename: 'dist/bundle-stats.html', gzipSize: true, template: 'treemap' })]
+      : []),
+  ],
   server: {
     port: 5173,
     strictPort: true,

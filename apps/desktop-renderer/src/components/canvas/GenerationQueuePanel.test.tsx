@@ -8,7 +8,7 @@ import { deriveNodeStatus } from '@lucid-fin/contracts';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale, t } from '../../i18n.js';
-import { canvasSlice, setActiveCanvas, addCanvas } from '../../store/slices/canvas.js';
+import { canvasSlice, setActiveCanvas, addCanvas } from '../../store/slices/canvas/canvas.js';
 import { uiSlice } from '../../store/slices/ui.js';
 import { addCustomProvider, settingsSlice } from '../../store/slices/settings.js';
 import { getAPI } from '../../utils/api.js';

@@ -16,7 +16,7 @@ import {
 import { useCommander } from '../../../hooks/useCommander.js';
 import { useI18n } from '../../../hooks/use-i18n.js';
 import { computeContextUsage } from '../../../commander/state/context-usage.js';
-import { selectActiveCanvasNodes, selectNodesById } from '../../../store/slices/canvas-selectors.js';
+import { selectActiveCanvasNodes, selectNodesById } from '../../../store/slices/canvas/canvas-selectors.js';
 import { usePanelDrag } from './usePanelDrag.js';
 import { useSlashCommands } from './useSlashCommands.js';
 import { MessageList } from './MessageList.js';

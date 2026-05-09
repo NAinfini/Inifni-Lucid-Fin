@@ -5,7 +5,7 @@ import {
   selectActiveCanvas,
   selectSingleSelectedNode,
   selectNodesById,
-} from '../../store/slices/canvas-selectors.js';
+} from '../../store/slices/canvas/canvas-selectors.js';
 import { useInspectorEntityRefs } from './useInspectorEntityRefs.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 import {
@@ -18,7 +18,7 @@ import {
   setBackdropTitleSize,
   setBackdropLockChildren,
   moveNode,
-} from '../../store/slices/canvas.js';
+} from '../../store/slices/canvas/canvas.js';
 import { inspectorRegistry } from './inspector/inspector-registry.js';
 // Side-effect import: registers all default inspector section plugins
 import './inspector/default-sections.js';

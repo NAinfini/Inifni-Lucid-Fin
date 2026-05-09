@@ -16,7 +16,7 @@ import {
   type AudioNodeData,
 } from '@lucid-fin/contracts';
 import { isGeneratableMedia } from '@lucid-fin/shared-utils';
-import { t } from '../../i18n.js';
+import { t } from '../../../i18n.js';
 import type { CanvasClipboardPayload, CanvasSliceState } from './canvas.js';
 
 // ---------------------------------------------------------------------------

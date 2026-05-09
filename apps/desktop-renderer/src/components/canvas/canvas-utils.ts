@@ -21,10 +21,10 @@ import type {
 } from '@lucid-fin/contracts';
 import { deriveNodeStatus } from '@lucid-fin/contracts';
 import { isGeneratableMedia } from '@lucid-fin/shared-utils';
-import type { CanvasClipboardPayload } from '../../store/slices/canvas.js';
+import type { CanvasClipboardPayload } from '../../store/slices/canvas/canvas.js';
 import type { LinkEdgeData } from './edges/LinkEdge.js';
 import type { FlowVisualState, PresetTrackNodeData } from './canvas-flow-types.js';
-import { getDefaultNodeFrame } from '../../store/slices/canvas-helpers.js';
+import { getDefaultNodeFrame } from '../../store/slices/canvas/canvas-helpers.js';
 import { t } from '../../i18n.js';
 
 // ---------------------------------------------------------------------------

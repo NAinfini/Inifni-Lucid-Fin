@@ -9,7 +9,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import { useSelector, useDispatch, shallowEqual } from 'react-redux';
 
 import type { AppDispatch, RootState } from '../../store/index.js';
-import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
+import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
 import {
   removeNodes,
   renameNode,
@@ -23,8 +23,8 @@ import {
   toggleBackdropCollapse,
   setBackdropOpacity,
   pasteNodes as pasteNodesAction,
-} from '../../store/slices/canvas.js';
-import { duplicateNode, disconnectNode } from '../../store/slices/canvas.js';
+} from '../../store/slices/canvas/canvas.js';
+import { duplicateNode, disconnectNode } from '../../store/slices/canvas/canvas.js';
 import type { NodeCallbacks } from './node-callbacks-context.js';
 import {
   buildClipboardPayload,

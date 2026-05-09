@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Download, Film, FileText } from 'lucide-react';
 import { getAPI } from '../../utils/api.js';
-import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
+import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { recordExport } from '../../store/slices/settings.js';

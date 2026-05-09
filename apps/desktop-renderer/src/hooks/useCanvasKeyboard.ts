@@ -12,7 +12,7 @@ import {
   clearSelection,
   moveNodes,
   type CanvasClipboardPayload,
-} from '../store/slices/canvas.js';
+} from '../store/slices/canvas/canvas.js';
 import { setSearchPanelOpen, setRightPanel } from '../store/slices/ui.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import { flushPendingCanvasSave } from '../store/middleware/persist.js';

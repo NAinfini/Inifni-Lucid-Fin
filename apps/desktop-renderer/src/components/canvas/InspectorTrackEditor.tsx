@@ -6,7 +6,7 @@ import {
   moveNodePresetTrackEntry,
   removeNodePresetTrackEntry,
   updateNodePresetTrackEntry,
-} from '../../store/slices/canvas.js';
+} from '../../store/slices/canvas/canvas.js';
 import { cn } from '../../lib/utils.js';
 import { CommitSlider } from '../ui/CommitSlider.js';
 import { useI18n } from '../../hooks/use-i18n.js';

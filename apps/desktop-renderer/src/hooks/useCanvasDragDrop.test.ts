@@ -7,7 +7,7 @@ import type { Canvas } from '@lucid-fin/contracts';
 import type { ReactFlowInstance } from '@xyflow/react';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { canvasReducer, setActiveCanvas, setCanvases } from '../store/slices/canvas.js';
+import { canvasReducer, setActiveCanvas, setCanvases } from '../store/slices/canvas/canvas.js';
 import { getAPI } from '../utils/api.js';
 import { createNodePayloadFromAsset, useCanvasDragDrop } from './useCanvasDragDrop.js';
 

@@ -15,7 +15,7 @@ import * as matchers from 'vitest-axe/matchers';
 import type { Canvas } from '@lucid-fin/contracts';
 
 import { CommanderPanel } from '../components/canvas/CommanderPanel.js';
-import { canvasSlice, setActiveCanvas } from '../store/slices/canvas.js';
+import { canvasSlice, setActiveCanvas } from '../store/slices/canvas/canvas.js';
 import { charactersSlice } from '../store/slices/characters.js';
 import { commanderSlice, type CommanderMessage } from '../store/slices/commander.js';
 import { commanderTimelineSlice } from '../commander/state/commander-timeline-slice.js';

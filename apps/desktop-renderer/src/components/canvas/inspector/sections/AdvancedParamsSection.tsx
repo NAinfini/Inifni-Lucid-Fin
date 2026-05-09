@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { setNodeAdvancedParams } from '../../../../store/slices/canvas.js';
+import { setNodeAdvancedParams } from '../../../../store/slices/canvas/canvas.js';
 import { LazyDetails } from '../../LazyDetails.js';
 import { CommitSlider } from '../../../ui/CommitSlider.js';
 import type { InspectorSectionProps } from '../inspector-registry.js';

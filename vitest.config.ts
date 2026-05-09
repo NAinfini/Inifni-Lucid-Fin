@@ -43,6 +43,10 @@ export default defineConfig({
       reportsDirectory: './coverage',
       all: true,
       thresholds: {
+        statements: 40,
+        branches: 30,
+        functions: 30,
+        lines: 40,
         'apps/desktop-main/src/logger.ts': {
           statements: 65,
           branches: 60,

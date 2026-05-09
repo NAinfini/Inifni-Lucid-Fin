@@ -8,7 +8,7 @@ import {
   removeNodes,
   setActiveCanvas,
   setCanvases,
-} from '../slices/canvas.js';
+} from '../slices/canvas/canvas.js';
 import { loggerSlice } from '../slices/logger.js';
 import {
   settingsSlice,

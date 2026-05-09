@@ -7,7 +7,7 @@ import type { Canvas, CanvasNode } from '@lucid-fin/contracts';
 import { Provider } from 'react-redux';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CommanderPanel } from './CommanderPanel.js';
-import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas.js';
+import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas/canvas.js';
 import { charactersSlice } from '../../store/slices/characters.js';
 import { commanderSlice, type CommanderMessage } from '../../store/slices/commander.js';
 import { commanderTimelineSlice } from '../../commander/state/commander-timeline-slice.js';

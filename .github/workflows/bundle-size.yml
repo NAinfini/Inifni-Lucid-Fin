@@ -24,3 +24,14 @@ jobs:
             exit 1
           fi
           echo "✓ Renderer chunk is zod-free."
+      - name: Check total renderer bundle size
+        shell: bash
+        run: |
+          TOTAL=$(du -sb apps/desktop-renderer/dist/assets/ | cut -f1)
+          MAX_BYTES=8388608
+          echo "Total renderer bundle: $TOTAL bytes (budget: $MAX_BYTES)"
+          if [ "$TOTAL" -gt "$MAX_BYTES" ]; then
+            echo "::error::Renderer bundle exceeds 8MB budget ($TOTAL bytes)"
+            exit 1
+          fi
+          echo "Bundle size within budget."

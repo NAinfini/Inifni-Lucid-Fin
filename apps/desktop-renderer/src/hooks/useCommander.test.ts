@@ -3,7 +3,7 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { setCanvases, setActiveCanvas } from '../store/slices/canvas.js';
+import { setCanvases, setActiveCanvas } from '../store/slices/canvas/canvas.js';
 import {
   clearHistory,
   deleteSession,

@@ -15,7 +15,7 @@ import { useSelector, shallowEqual } from 'react-redux';
 import { applyNodeChanges, type Node, type Edge } from '@xyflow/react';
 
 import type { RootState } from '../../store/index.js';
-import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
+import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
 import type { BackdropNodeData } from '@lucid-fin/contracts';
 import { deriveNodeStatus } from '@lucid-fin/contracts';
 import {

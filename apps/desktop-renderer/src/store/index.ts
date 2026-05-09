@@ -11,7 +11,7 @@ import { uiSlice } from './slices/ui.js';
 import { settingsSlice } from './slices/settings.js';
 import { toastSlice } from './slices/toast.js';
 import { loggerSlice } from './slices/logger.js';
-import { canvasReducer } from './slices/canvas.js';
+import { canvasReducer } from './slices/canvas/index.js';
 import { presetsSlice } from './slices/presets.js';
 import { commanderSlice } from './slices/commander.js';
 import { commanderTimelineSlice } from '../commander/state/commander-timeline-slice.js';

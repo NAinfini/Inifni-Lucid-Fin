@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useReactFlow } from '@xyflow/react';
 import type { NodeKind } from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
-import { addNode } from '../../store/slices/canvas.js';
+import { addNode } from '../../store/slices/canvas/canvas.js';
 import { setActivePanel } from '../../store/slices/ui.js';
 import { t } from '../../i18n.js';
 

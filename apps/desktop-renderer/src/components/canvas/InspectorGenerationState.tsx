@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
+import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
 import { enqueueToast } from '../../store/slices/toast.js';
 import {
   setNodeSeed,
@@ -23,7 +23,7 @@ import {
   toggleSeedLock,
   setVideoFrameNode,
   setVideoFrameAsset,
-} from '../../store/slices/canvas.js';
+} from '../../store/slices/canvas/canvas.js';
 import { getAPI } from '../../utils/api.js';
 import { getProviderMetadata, type ProviderConfig } from '../../store/slices/settings.js';
 import { InspectorGenerationBar } from './InspectorGenerationBar.js';

@@ -10,7 +10,7 @@ import {
   setActiveCanvas,
   setCanvases,
   updateNodePresetTrackEntry,
-} from './canvas.js';
+} from './canvas/canvas.js';
 
 function makeCanvas(): Canvas {
   return {

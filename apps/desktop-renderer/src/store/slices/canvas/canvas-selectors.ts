@@ -1,6 +1,6 @@
 import { createSelector } from '@reduxjs/toolkit';
 import type { ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
-import type { RootState } from '../index.js';
+import type { RootState } from '../../index.js';
 import { canvasAdapter } from './canvas.js';
 
 // Adapter selectors scoped to the `state.canvas.canvases` entity sub-state

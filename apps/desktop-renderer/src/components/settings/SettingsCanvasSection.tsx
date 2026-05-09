@@ -3,7 +3,7 @@ import type { CanvasAspectRatio, CanvasSettings } from '@lucid-fin/contracts';
 import { useDispatch, useSelector } from 'react-redux';
 import { Palette, Image as ImageIcon, Layers } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
-import { updateCanvasSettings } from '../../store/slices/canvas.js';
+import { updateCanvasSettings } from '../../store/slices/canvas/canvas.js';
 import { t } from '../../i18n.js';
 import { Input } from '../ui/Input.js';
 import { Textarea } from '../ui/Textarea.js';

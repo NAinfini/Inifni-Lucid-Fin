@@ -1,7 +1,7 @@
 import electron from 'electron';
 import type { BrowserWindow } from 'electron';
 import path from 'node:path';
-import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   startClipboardWatcher,
@@ -83,12 +83,12 @@ function registerEarlyIpcHandlers(): void {
   ipcMain.handle('updater:download', () => downloadUpdate());
   ipcMain.handle('updater:install', () => installUpdate());
   ipcMain.handle('updater:status', () => getUpdateStatus());
-  ipcMain.handle('app:version', () => {
+  ipcMain.handle('app:version', async () => {
     // app.getVersion() returns Electron version in dev; read package.json directly
     try {
       const pkgPath = path.join(__dirname, '..', 'package.json');
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-      return pkg.version ?? app.getVersion();
+      const raw = await fsp.readFile(pkgPath, 'utf-8');
+      return (JSON.parse(raw) as { version?: string }).version ?? app.getVersion();
     } catch {
       return app.getVersion();
     }
@@ -258,6 +258,15 @@ app.whenReady().then(async () => {
     initDb(db);
 
     // Register custom protocol to serve assets from CAS
+    async function fileExists(filePath: string): Promise<boolean> {
+      try {
+        await fsp.access(filePath);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     protocol.handle('lucid-asset', async (request) => {
       try {
         const url = new URL(request.url);
@@ -270,7 +279,7 @@ app.whenReady().then(async () => {
         let ext = requestedExt;
         try {
           const metaPath = cas.getAssetPath(hash, assetType, 'meta.json');
-          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { format?: string };
+          const meta = JSON.parse(await fsp.readFile(metaPath, 'utf-8')) as { format?: string };
           if (meta.format) ext = meta.format;
         } catch {
           /* meta.json not found or unreadable — use the originally requested extension */
@@ -278,7 +287,7 @@ app.whenReady().then(async () => {
         }
 
         let filePath = cas.getAssetPath(hash, assetType, ext);
-        if (!fs.existsSync(filePath)) {
+        if (!(await fileExists(filePath))) {
           // Fallback: try common extensions for this asset type
           const fallbackExts: Record<string, string[]> = {
             image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
@@ -290,7 +299,7 @@ app.whenReady().then(async () => {
           for (const tryExt of candidates) {
             if (tryExt === ext) continue;
             const tryPath = cas.getAssetPath(hash, assetType, tryExt);
-            if (fs.existsSync(tryPath)) {
+            if (await fileExists(tryPath)) {
               filePath = tryPath;
               found = true;
               break;
@@ -303,7 +312,7 @@ app.whenReady().then(async () => {
               const tryExts = fallbackExts[tryType] ?? [];
               for (const tryExt of tryExts) {
                 const tryPath = cas.getAssetPath(hash, tryType, tryExt);
-                if (fs.existsSync(tryPath)) {
+                if (await fileExists(tryPath)) {
                   filePath = tryPath;
                   found = true;
                   break;

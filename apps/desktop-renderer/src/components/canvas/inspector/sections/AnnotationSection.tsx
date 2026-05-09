@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { setNodeAnnotation } from '../../../../store/slices/canvas.js';
+import { setNodeAnnotation } from '../../../../store/slices/canvas/canvas.js';
 import { LazyDetails } from '../../LazyDetails.js';
 import type { InspectorSectionProps } from '../inspector-registry.js';
 import type { ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,19 @@ import { parseCanvasId } from '@lucid-fin/contracts-parse';
 import log from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+let cachedVersion: string | null = null;
+async function getAppVersion(): Promise<string> {
+  if (cachedVersion) return cachedVersion;
+  try {
+    const pkgPath = path.join(__dirname, '..', 'package.json');
+    const raw = await fsp.readFile(pkgPath, 'utf-8');
+    cachedVersion = (JSON.parse(raw) as { version?: string }).version ?? 'unknown';
+  } catch {
+    cachedVersion = 'unknown';
+  }
+  return cachedVersion;
+}
 
 export interface ApiServerDeps {
   db: SqliteIndex;
@@ -68,15 +81,8 @@ function readBody(req: http.IncomingMessage): Promise<unknown> {
 
 // ── route handlers ────────────────────────────────────────────────────────────
 
-function handleHealth(res: http.ServerResponse): void {
-  let version = 'unknown';
-  try {
-    const pkgPath = path.join(__dirname, '..', 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-    version = pkg.version ?? version;
-  } catch {
-    /* fallback */
-  }
+async function handleHealth(res: http.ServerResponse): Promise<void> {
+  const version = await getAppVersion();
   send(res, 200, { status: 'ok', version });
 }
 
@@ -132,7 +138,7 @@ async function handleExportMetadata(
   const fileName = `lucid-export-${Date.now()}.json`;
   const filePath = path.join(tmpDir, fileName);
 
-  fs.writeFileSync(filePath, JSON.stringify({ format, nodes, projectTitle }, null, 2), 'utf-8');
+  await fsp.writeFile(filePath, JSON.stringify({ format, nodes, projectTitle }, null, 2), 'utf-8');
   send(res, 200, { path: filePath });
 }
 
@@ -153,7 +159,7 @@ function createRequestHandler(deps: ApiServerDeps) {
 
       // GET /api/health
       if (method === 'GET' && pathname === '/api/health') {
-        handleHealth(res);
+        await handleHealth(res);
         return;
       }
 

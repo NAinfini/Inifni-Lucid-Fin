@@ -6,7 +6,7 @@ import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { AppShell } from './AppShell.js';
 import { uiSlice } from '../../store/slices/ui.js';
-import { canvasSlice } from '../../store/slices/canvas.js';
+import { canvasSlice } from '../../store/slices/canvas/canvas.js';
 import { settingsSlice } from '../../store/slices/settings.js';
 import { jobsSlice } from '../../store/slices/jobs.js';
 

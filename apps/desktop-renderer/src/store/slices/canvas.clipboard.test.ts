@@ -10,7 +10,7 @@ import {
   setCanvases,
   setClipboard,
   setSelection,
-} from './canvas.js';
+} from './canvas/canvas.js';
 
 function makeCanvas(): Canvas {
   return {

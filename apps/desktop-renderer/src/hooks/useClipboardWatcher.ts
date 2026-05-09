@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../store/index.js';
-import { addNode } from '../store/slices/canvas.js';
+import { addNode } from '../store/slices/canvas/canvas.js';
 import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import { getAPI } from '../utils/api.js';

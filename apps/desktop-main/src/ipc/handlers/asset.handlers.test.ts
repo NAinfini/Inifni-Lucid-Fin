@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -344,13 +343,15 @@ describe('registerAssetHandlers', () => {
       canceled: false,
       filePath: 'C:\\exports\\hero.jpg',
     });
-    vi.spyOn(fs, 'readFileSync').mockImplementation((target) => {
+    vi.spyOn(fsp, 'readFile').mockImplementation(async (target) => {
       if (String(target).endsWith('meta.json')) {
         return JSON.stringify({ format: 'jpg' });
       }
       throw new Error(`unexpected read: ${String(target)}`);
     });
-    vi.spyOn(fs, 'existsSync').mockImplementation((target) => String(target).endsWith('.jpg'));
+    vi.spyOn(fsp, 'access').mockImplementation(async (target) => {
+      if (!String(target).endsWith('.jpg')) throw new Error('ENOENT');
+    });
     vi.spyOn(fsp, 'copyFile').mockImplementation(async () => undefined);
 
     const cas = {
@@ -397,10 +398,8 @@ describe('registerAssetHandlers', () => {
       canceled: false,
       filePath: 'C:\\exports\\missing.png',
     });
-    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
-      throw new Error('meta missing');
-    });
-    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
+    vi.spyOn(fsp, 'readFile').mockRejectedValue(new Error('meta missing'));
+    vi.spyOn(fsp, 'access').mockRejectedValue(new Error('ENOENT'));
 
     const cas = {
       importAsset: vi.fn(),
@@ -434,12 +433,10 @@ describe('registerAssetHandlers', () => {
       canceled: false,
       filePaths: ['C:\\exports'],
     });
-    vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
-      throw new Error('meta missing');
+    vi.spyOn(fsp, 'readFile').mockRejectedValue(new Error('meta missing'));
+    vi.spyOn(fsp, 'access').mockImplementation(async (target) => {
+      if (!String(target).includes('hash-1.png')) throw new Error('ENOENT');
     });
-    vi.spyOn(fs, 'existsSync').mockImplementation((target) =>
-      String(target).includes('hash-1.png'),
-    );
     vi.spyOn(fsp, 'copyFile').mockImplementation(async () => undefined);
 
     const cas = {

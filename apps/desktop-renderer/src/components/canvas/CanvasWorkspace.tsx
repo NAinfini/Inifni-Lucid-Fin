@@ -22,7 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import type { AppDispatch, RootState } from '../../store/index.js';
-import { selectActiveCanvas } from '../../store/slices/canvas-selectors.js';
+import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
 import {
   addNode,
   removeNodes,
@@ -41,7 +41,7 @@ import {
   reconnectCanvasEdge,
   setCanvases,
   addCanvas,
-} from '../../store/slices/canvas.js';
+} from '../../store/slices/canvas/canvas.js';
 import {
   setRightPanel,
   toggleMinimapVisible,

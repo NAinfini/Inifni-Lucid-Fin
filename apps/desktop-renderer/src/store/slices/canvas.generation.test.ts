@@ -22,7 +22,7 @@ import {
   setVideoFrameNode,
   setNodeVariantCount,
   toggleSeedLock,
-} from './canvas.js';
+} from './canvas/canvas.js';
 
 function makeCanvas(): Canvas {
   return {

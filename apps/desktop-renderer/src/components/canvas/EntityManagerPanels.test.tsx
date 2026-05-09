@@ -11,7 +11,7 @@ import { getAPI } from '../../utils/api.js';
 import { charactersSlice } from '../../store/slices/characters.js';
 import { equipmentSlice } from '../../store/slices/equipment.js';
 import { locationsSlice } from '../../store/slices/locations.js';
-import { canvasReducer } from '../../store/slices/canvas.js';
+import { canvasReducer } from '../../store/slices/canvas/canvas.js';
 import { assetsSlice } from '../../store/slices/assets.js';
 import { CharacterManagerPanel } from './CharacterManagerPanel.js';
 import { EquipmentManagerPanel } from './EquipmentManagerPanel.js';

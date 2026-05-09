@@ -1,8 +1,8 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { GitBranch } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
-import { selectActiveCanvas, selectNodesById } from '../../store/slices/canvas-selectors.js';
-import { setSelection } from '../../store/slices/canvas.js';
+import { selectActiveCanvas, selectNodesById } from '../../store/slices/canvas/canvas-selectors.js';
+import { setSelection } from '../../store/slices/canvas/canvas.js';
 import { setHoveredDependencyNodeId } from '../../store/slices/ui.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 

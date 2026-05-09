@@ -7,7 +7,7 @@ import {
   setNodeGenerationFailed,
   setNodeGenerating,
   setNodeProgress,
-} from '../store/slices/canvas.js';
+} from '../store/slices/canvas/canvas.js';
 import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import { setAssets, type Asset } from '../store/slices/assets.js';

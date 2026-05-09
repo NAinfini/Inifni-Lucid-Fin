@@ -16,7 +16,7 @@ import {
   type ImageNodeData,
   type VideoNodeData,
 } from '@lucid-fin/contracts';
-import { addNode } from '../store/slices/canvas.js';
+import { addNode } from '../store/slices/canvas/canvas.js';
 import { getAPI } from '../utils/api.js';
 
 // ---------------------------------------------------------------------------

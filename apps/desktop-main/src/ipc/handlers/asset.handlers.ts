@@ -1,6 +1,5 @@
 import type { IpcMain } from 'electron';
 import * as electron from 'electron';
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { CAS, SqliteIndex, Keychain } from '@lucid-fin/storage';
@@ -19,17 +18,18 @@ const FALLBACK_EXTS: Record<string, string[]> = {
   audio: ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'],
 };
 
-function findAssetFile(
+async function findAssetFile(
   cas: CAS,
   hash: string,
   type: AssetType,
   requestedFormat?: string,
-): string | null {
+): Promise<string | null> {
   // 1. Try meta.json for actual format
   let ext = requestedFormat || (type === 'video' ? 'mp4' : type === 'audio' ? 'mp3' : 'png');
   try {
     const metaPath = cas.getAssetPath(hash, type, 'meta.json');
-    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { format?: string };
+    const raw = await fsp.readFile(metaPath, 'utf-8');
+    const meta = JSON.parse(raw) as { format?: string };
     if (meta.format) ext = meta.format;
   } catch {
     /* meta.json not found */
@@ -37,13 +37,13 @@ function findAssetFile(
 
   // 2. Try exact path
   const exactPath = cas.getAssetPath(hash, type, ext);
-  if (fs.existsSync(exactPath)) return exactPath;
+  try { await fsp.access(exactPath); return exactPath; } catch { /* not found */ }
 
   // 3. Try fallback extensions for same type
   for (const tryExt of FALLBACK_EXTS[type] ?? []) {
     if (tryExt === ext) continue;
     const tryPath = cas.getAssetPath(hash, type, tryExt);
-    if (fs.existsSync(tryPath)) return tryPath;
+    try { await fsp.access(tryPath); return tryPath; } catch { /* not found */ }
   }
 
   // 4. Try other asset type directories
@@ -51,7 +51,7 @@ function findAssetFile(
     if (tryType === type) continue;
     for (const tryExt of FALLBACK_EXTS[tryType] ?? []) {
       const tryPath = cas.getAssetPath(hash, tryType, tryExt);
-      if (fs.existsSync(tryPath)) return tryPath;
+      try { await fsp.access(tryPath); return tryPath; } catch { /* not found */ }
     }
   }
 
@@ -229,7 +229,7 @@ export function registerAssetHandlers(
       assertValidAssetType(args.type);
 
       try {
-        const sourcePath = findAssetFile(cas, args.hash, args.type, args.format);
+        const sourcePath = await findAssetFile(cas, args.hash, args.type, args.format);
         if (!sourcePath) {
           throw new Error(`Asset file not found: ${args.hash}`);
         }
@@ -289,7 +289,7 @@ export function registerAssetHandlers(
       const exported: string[] = [];
       for (const item of args.items) {
         assertValidAssetType(item.type);
-        const sourcePath = findAssetFile(cas, item.hash, item.type);
+        const sourcePath = await findAssetFile(cas, item.hash, item.type);
         if (!sourcePath) continue;
 
         const ext = path.extname(sourcePath).slice(1) || 'bin';
