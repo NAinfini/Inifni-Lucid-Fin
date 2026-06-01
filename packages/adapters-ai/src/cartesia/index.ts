@@ -9,7 +9,7 @@ import type {
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
 import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateProviderUrl } from '../url-policy.js';
@@ -51,7 +51,7 @@ export class CartesiaSonicAdapter implements AIProviderAdapter {
 
   async generate(req: GenerationRequest): Promise<GenerationResult> {
     const voiceId = (req.params?.voiceId as string) ?? 'a0e99841-438c-4a64-b679-ae501e7d6091';
-    const modelId = (req.params?.modelId as string) ?? 'sonic-2';
+    const modelId = (req.params?.modelId as string) ?? 'sonic-3';
 
     const res = await fetchWithTimeout(`${this.baseUrl}/tts/bytes`, {
       method: 'POST',
@@ -79,7 +79,7 @@ export class CartesiaSonicAdapter implements AIProviderAdapter {
     const buffer = Buffer.from(await res.arrayBuffer());
     const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
     const outPath = join(tmpdir(), `tts-cartesia-${hash}.mp3`);
-    writeFileSync(outPath, buffer);
+    await writeFile(outPath, buffer);
 
     return {
       assetHash: hash,

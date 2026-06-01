@@ -513,6 +513,68 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
     opener: '为某国产新能源汽车拍一个20秒品牌 teaser，硬派工业风，16:9。',
     followUps: ['5 shots。', '工业金属风格卡。', '生成图。', '你定。'],
   },
+
+  // === minimal-input stress tests (10) ===
+  {
+    archetype: 'minimal',
+    slug: 'bare-video',
+    opener: 'Make me a video.',
+    followUps: ['You decide.', 'Sure.', 'OK.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'single-word-go',
+    opener: 'Go.',
+    followUps: ['Anything.', 'Yes.', 'OK.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'blank-slate',
+    opener: ' ',
+    followUps: ['Make something.', 'Yes.', 'OK.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'just-emoji',
+    opener: '🎬',
+    followUps: ['Yes.', 'Go ahead.', 'OK.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'question-only',
+    opener: '?',
+    followUps: ['A video.', 'Any topic.', 'Yes.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'zh-minimal',
+    opener: '视频。',
+    followUps: ['随便。', '好。', '行。', '你定。'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'no-details',
+    opener: 'I want something cool.',
+    followUps: ['You pick.', 'Sure.', 'Go.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'ellipsis',
+    opener: '...',
+    followUps: ['Just make a video.', 'Anything.', 'OK.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'hi-thats-all',
+    opener: 'Hi.',
+    followUps: ['Make a video.', 'Anything.', 'Yes.', 'You decide.'],
+  },
+  {
+    archetype: 'minimal',
+    slug: 'numbers-only',
+    opener: '30',
+    followUps: ['30 second video.', 'Any topic.', 'OK.', 'You decide.'],
+  },
 ];
 
 export function buildPersonas(): Persona[] {

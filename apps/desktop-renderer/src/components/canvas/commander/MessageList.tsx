@@ -715,7 +715,11 @@ function PhaseNoteSegment({ seg, t }: PhaseNoteSegmentProps) {
       ? 'commander.phaseNote.processPromptLoaded'
       : seg.note === 'compacted'
         ? 'commander.phaseNote.compacted'
-        : 'commander.phaseNote.llmRetry';
+        : seg.note === 'tool_skipped_dedup'
+          ? 'commander.phaseNote.toolSkippedDedup'
+          : seg.note === 'llm_retry'
+            ? 'commander.phaseNote.llmRetry'
+            : 'commander.phaseNote.compacted';
   const label = t(labelKey);
   return (
     <div className="my-1 italic text-[10px] text-muted-foreground/70">
@@ -729,7 +733,7 @@ function PhaseNoteSegment({ seg, t }: PhaseNoteSegmentProps) {
 // 3D: Changeset grouping helpers
 // ---------------------------------------------------------------------------
 
-/** Extract the domain from a tool name (e.g. "canvas.addNode" -> "canvas"). */
+/** Extract the domain from a tool name (e.g. "canvas.createNodes" -> "canvas"). */
 function extractDomain(toolName: string): string {
   if (toolName.includes('.')) return toolName.split('.')[0] ?? '';
   const idx = toolName.indexOf('_');

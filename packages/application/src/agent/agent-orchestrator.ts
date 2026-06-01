@@ -23,7 +23,6 @@ import {
   measureMessageChars,
   compactNamedToolDefinitions,
   adaptiveToolCompaction,
-  truncateOldToolResults,
   safeStringify,
   selectContextualToolSet,
 } from './context-manager.js';
@@ -60,13 +59,16 @@ import {
   type RunIntent,
 } from './exit-contract/index.js';
 import {
+  type Scratchpad,
+  createEmptyScratchpad,
+  serializeScratchpad,
+} from './run-context.js';
+import {
   type OrchestratorCompletion,
-  type ProcessPromptKey,
   stripInjectedParamsFromTool,
   destructResponse,
   isProcessCategory,
   isProcessPromptKey,
-  getStandaloneDisplayName,
   extractEntityIdFromArgs,
 } from './orchestrator-utils.js';
 
@@ -83,9 +85,8 @@ export interface AgentOptions {
   temperature?: number;
   maxTokens?: number;
   profile?: ProviderProfile;
-  resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
   /**
-   * Optional canvas node-type lookup used to dispatch `canvas.generate`
+   * Optional canvas node-type lookup used to dispatch `canvas.generation`
    * process-prompt injection by the real node type on the canvas, rather
    * than trusting the LLM's optional `nodeType` argument. When the LLM
    * omits `nodeType` and this resolver returns 'video' or 'audio', the
@@ -111,7 +112,7 @@ export interface AgentOptions {
 export interface AgentExecutionOptions {
   history?: HistoryEntry[];
   isAborted?: () => boolean;
-  permissionMode?: 'auto' | 'normal' | 'strict';
+  permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
   onLLMRequest?: (diagnostics: AgentLLMRequestDiagnostics) => void;
   /** Pre-seed tools into the active set (e.g. from a resumed session). */
   discoveredTools?: string[];
@@ -191,7 +192,6 @@ export class AgentOrchestrator {
   private toolCallKeyToOriginStep = new Map<string, number>();
 
   private injectedMessageCount = 0;
-  private readonly resolveProcessPrompt?: (processKey: ProcessCategory) => string | null;
   private readonly resolveCanvasNodeType?: (
     canvasId: string,
     nodeId: string,
@@ -202,7 +202,6 @@ export class AgentOrchestrator {
   private readonly qualityGateBehavior: QualityGateBehavior;
   private readonly requireStylePlateBeforeRefImage: boolean;
   private readonly todoStore?: TodoRunStore;
-  private activeProcessPromptSteps = new Map<ProcessPromptKey, number>();
   /**
    * Declarative process-prompt specs evaluated each turn. Seeded in the
    * constructor. Adding a new spec is "append to this list" — no other
@@ -222,6 +221,11 @@ export class AgentOrchestrator {
    */
   private lastAskUserAnsweredStep: number | null = null;
 
+  private lastMutationStep = 0;
+  private static readonly STALL_THRESHOLD = 5;
+  private static readonly RETRY_LOOP_THRESHOLD = 3;
+  private toolValidationErrors = new Map<string, number>();
+
   /**
    * Phase B — Shadow exit-contract state. The ledger records typed
    * evidence for the current run; `currentIntent` and `lastAssistantText`
@@ -234,15 +238,11 @@ export class AgentOrchestrator {
    * as the return value.
    */
   private evidenceLedger: EvidenceLedger = new EvidenceLedger();
-  private currentIntent: RunIntent = { kind: 'mixed' };
+  private currentIntent: RunIntent = { kind: 'execution' };
   private lastAssistantText = '';
 
-  // ── Scratchpad (2C) ────────────────────────────────────────────
-  /** Accumulated scratchpad sections. Updated after each tool batch. */
-  private scratchpadTodos: string[] = [];
-  private scratchpadDecisions: string[] = [];
-  private scratchpadFailures: string[] = [];
-  private static readonly SCRATCHPAD_MAX_CHARS = 500;
+  // ── Scratchpad (v2 — structured with [context] section) ────────
+  private scratchpad: Scratchpad = createEmptyScratchpad();
 
   /**
    * G2-5: graph-only items carried across sessions via SessionRepository.
@@ -268,58 +268,15 @@ export class AgentOrchestrator {
     this.temperature = opts?.temperature ?? 0.7;
     this.maxTokens = opts?.maxTokens ?? 200000;
     this.profile = opts?.profile ?? DEFAULT_PROVIDER_PROFILE;
-    this.resolveProcessPrompt = opts?.resolveProcessPrompt;
     this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
     this.resolveCanvasSettings = opts?.resolveCanvasSettings;
     this.qualityGateBehavior = opts?.qualityGateBehavior ?? 'auto-expand';
     this.requireStylePlateBeforeRefImage = opts?.requireStylePlateBeforeRefImage ?? true;
     this.todoStore = opts?.todoStore;
 
-    // Phase C: declarative process-prompt specs. Style-plate-lock is the
-    // only standalone spec so far; adding new specs here (or — Phase F —
-    // via a public registry) is all that's required to wire a new gate.
-    // The spec captures `resolveProcessPrompt` by closure so the predicate
-    // can emit a non-empty content body; if the host didn't provide one,
-    // the spec returns '' and `evaluateProcessPromptSpecs` filters it out.
-    this.processPromptSpecs = [
-      createStylePlateLockSpec({
-        referenceImagesOnly: true,
-        resolvePromptText: (key) => {
-          if (!this.requireStylePlateBeforeRefImage) return null;
-          if (!this.resolveProcessPrompt) return null;
-          // resolveProcessPrompt is typed against ProcessCategory, but its
-          // IPC implementation keys by free-form string (see router.ts).
-          // Cast is safe for standalone keys whose presence in the store
-          // is asserted by STANDALONE_SPEC_KEYS.
-          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
-        },
-      }),
-      createEntitiesBeforeGenerationSpec({
-        resolvePromptText: (key) => {
-          if (!this.resolveProcessPrompt) return null;
-          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
-        },
-      }),
-      createBatchCreateGuidanceSpec({
-        resolvePromptText: (key) => {
-          if (!this.resolveProcessPrompt) return null;
-          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
-        },
-      }),
-      createPromptQualityGateSpec({
-        behavior: this.qualityGateBehavior,
-        resolvePromptText: (key) => {
-          if (!this.resolveProcessPrompt) return null;
-          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
-        },
-      }),
-      createStoryWorkflowPhaseSpec({
-        resolvePromptText: (key) => {
-          if (!this.resolveProcessPrompt) return null;
-          return this.resolveProcessPrompt(key as unknown as ProcessCategory);
-        },
-      }),
-    ];
+    // Phase C spec infrastructure stays intact but dormant — no specs registered.
+    // Re-enable individual guardrails by adding specs back here if needed.
+    this.processPromptSpecs = [];
 
     this.contextManager = new ContextManager(adapter, resolvePrompt);
     this.toolExecutor = new ToolExecutor(tools);
@@ -412,6 +369,9 @@ export class AgentOrchestrator {
   ): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
     return this.contextManager.compactNow(this.activeMessages, instructions);
   }
+
+  /** Current step counter. */
+  private _currentStep = 0;
 
   injectMessage(content: string): void {
     const trimmed = content.trim();
@@ -506,13 +466,13 @@ export class AgentOrchestrator {
       });
     }
 
-    this.activeProcessPromptSteps.clear();
+    this._currentStep = 0;
     this.lastAskUserAnsweredStep = null;
+    this.lastMutationStep = 0;
+    this.toolValidationErrors.clear();
 
     // 2C: Reset scratchpad state for new run.
-    this.scratchpadTodos = [];
-    this.scratchpadDecisions = [];
-    this.scratchpadFailures = [];
+    this.scratchpad = createEmptyScratchpad();
     this.contextManager.setScratchpad(null);
 
     // Phase B — reset exit-contract shadow state and classify intent
@@ -594,11 +554,10 @@ export class AgentOrchestrator {
       }
     }
 
-    this.activateInitialProcessPrompts(messages, context);
     this.activeMessages = messages;
 
-    // Compact history on load
-    truncateOldToolResults(messages);
+    // NOTE: no longer compacting history on load — the serializer enforces
+    // context budget, and eager truncation causes re-read loops for bulk ops.
     this.injectedMessageCount = 0;
     this._cancelled = false;
     this._abortController = new AbortController();
@@ -638,22 +597,6 @@ export class AgentOrchestrator {
       permissionMode: options?.permissionMode,
       contextGraph: this.contextGraph,
       canvasId,
-      // `tool.get` responses already carry the process guide inline (see
-      // meta-tools `attachProcessGuide`). That inline payload is an
-      // immediate hint the model sees at discovery time, but it is NOT a
-      // substitute for the system-message injection: the tool-result can
-      // be compacted, dropped, or re-written on long sessions, and even
-      // within the same run the model frequently skips discovery and
-      // jumps straight to the action tool. We therefore do NOT mark the
-      // category as primed on inline discovery — the pre-flight defer
-      // (`primeProcessPromptsForToolCalls`) still runs when the model
-      // calls the actual process tool, and the system message goes in
-      // unconditionally (dedup is handled by `isProcessPromptMessage`
-      // scanning `messages[]`, so no double-injection risk).
-      //
-      // This was the root cause of "process prompt never injected when
-      // the tool is called": a prior `tool.get` suppressed the backstop
-      // even when the guide was no longer in context.
     });
 
     try {
@@ -675,43 +618,21 @@ export class AgentOrchestrator {
         }
 
         steps++;
-        this.stripInactiveProcessPrompts(messages, steps);
+        this._currentStep = steps;
 
-        // 1I: Consolidate process-prompt system messages into the system
-        // prompt before rebuilding. This reduces message count and makes
-        // compaction behavior predictable.
-        const activeProcessPromptData = this.consolidateProcessPrompts(messages);
-
-        // Rebuild system prompt with step-aware abbreviation (saves tokens after step 5)
-        // and consolidated process prompts as a structured section.
+        // Rebuild system prompt with step-aware abbreviation (saves tokens after step 5).
         if (steps > 1) {
           systemPrompt = this.contextManager.buildSystemPrompt(
             context,
             steps,
-            activeProcessPromptData,
-          );
-          if (messages.length > 0 && messages[0].role === 'system') {
-            messages[0] = { ...messages[0], content: systemPrompt };
-          }
-        } else if (activeProcessPromptData.length > 0) {
-          // Step 1: initial system prompt was already built, but process
-          // prompts may have been injected by activateInitialProcessPrompts.
-          // Rebuild to include them as a section.
-          systemPrompt = this.contextManager.buildSystemPrompt(
-            context,
-            steps,
-            activeProcessPromptData,
           );
           if (messages.length > 0 && messages[0].role === 'system') {
             messages[0] = { ...messages[0], content: systemPrompt };
           }
         }
 
-        // Predictive pre-compaction based on utilization ratio from previous step
-        // (first step still uses the old totalChars > budget check)
-        if (steps === 1) {
-          await this.contextManager.compactWithLLM(messages, inLoopCharBudget);
-        }
+        // NOTE: removed unconditional step-1 compaction — utilization-based
+        // check at end-of-step handles compaction when genuinely needed.
 
         // Merge tool sets
         const activeToolNames = new Set(loadedToolNames);
@@ -904,71 +825,16 @@ export class AgentOrchestrator {
           return { ...lastResult, exitDecision: decision, exitIntent: intent };
         }
 
-        // Pre-flight process-prompt injection.
-        // If any of the model's requested tool calls maps to a process
-        // category we have not yet primed this session, inject the guide
-        // as a system message and loop — the model gets to re-plan with
-        // the guide visible BEFORE we execute anything. Costs one extra
-        // model step per first-use of a category, bounded by the number
-        // of distinct process categories.
-        //
-        // We detect on the tool call itself (not on user message text),
-        // so this works in any language and across any tool the catalog
-        // knows about. The same `detectProcess` map drives runtime
-        // activation below, so there is a single source of truth.
-        //
-        // style-plate-lock is a canvas-state-dependent gate that is NOT
-        // tool-process-derived — it fires when the model is about to run
-        // a generation tool on a canvas whose stylePlate is empty.
-        // Injected ahead of the regular preflight so both can defer in
-        // the same turn.
-        const primedSpecKeys = this.primeProcessPromptSpecs(
-          messages,
-          lastResult.toolCalls,
-          canvasId,
-          steps,
-          wrappedEmit,
-        );
-        const deferredCategories = this.primeProcessPromptsForToolCalls(
-          messages,
-          lastResult.toolCalls,
-          steps,
-        );
-        const deferredLabels: string[] = [
-          ...primedSpecKeys.map((key) => getStandaloneDisplayName(key, this.processPromptSpecs)),
-          ...deferredCategories.map((key) => getProcessCategoryName(key)),
-        ];
-        if (deferredLabels.length > 0) {
-          // The assistant turn gets dropped — we haven't pushed it yet,
-          // so next iteration the model re-plans with the guide in
-          // context and produces a fresh tool_calls set.
-          //
-          // The UI already received `tool_call` events for every call in
-          // this turn (emitted live from the LLM stream). Close those
-          // cards with a synthetic `tool_result` so they don't hang on
-          // the spinner forever. Renderer localizes the error code via
-          // `commander.errorCode.RUN_ENDED_BEFORE_RESULT`.
-          for (const tc of lastResult.toolCalls) {
-            wrappedEmit({
-              kind: 'tool_result',
-              toolCallId: tc.id,
-              error: {
-                code: 'RUN_ENDED_BEFORE_RESULT',
-                params: {},
-              },
-              durationMs: 0,
-            });
-          }
-          continue;
-        }
-
         messages.push({
           role: 'assistant',
           content: lastResult.content,
           toolCalls: lastResult.toolCalls,
         });
 
-        this.activateProcessPrompts(messages, lastResult.toolCalls, steps);
+        // v2: Post-execution guide inject (fallback path).
+        // If a mutation tool is about to execute but its guide is not yet
+        // active in Layer 3, inject it now. The guide will be visible on
+        // Process prompt injection removed — guides now discoverable via guide.get.
 
         // Register tool calls in transcript index (O(1) lookups later)
         this.transcriptIndex.registerAssistantToolCalls(messages.length - 1, lastResult.toolCalls);
@@ -996,6 +862,19 @@ export class AgentOrchestrator {
           if (!prior) {
             callsToExecute.push(tc);
             continue;
+          }
+          // If the prior result was successful but its tool message has been
+          // trimmed out of the wire payload (serializer budget enforcement),
+          // let the call through — the model can't "see that tool_result" if
+          // it was trimmed, so skipping would cause an infinite re-read loop.
+          if (!prior.wasError) {
+            const priorStillVisible = messages.some(
+              (m) => m.role === 'tool' && (m as { toolCallId?: string }).toolCallId === prior.toolCallId,
+            );
+            if (!priorStillVisible) {
+              callsToExecute.push(tc);
+              continue;
+            }
           }
           wrappedEmit({
             kind: 'phase_note',
@@ -1031,13 +910,13 @@ export class AgentOrchestrator {
           });
         }
 
-        // Intercept todo.set / todo.update — run them locally via TodoRunStore
+        // Intercept todo.manage — run them locally via TodoRunStore
         // and emit structured snapshots. These never reach the ToolExecutor.
         const todoStore = this.todoStore;
         const todoCallIds = new Set<string>();
         if (todoStore) {
           for (const tc of callsToExecute) {
-            if (tc.name !== 'todo.set' && tc.name !== 'todo.update') continue;
+            if (tc.name !== 'todo.manage') continue;
             todoCallIds.add(tc.id);
             const args = (tc.arguments ?? {}) as Record<string, unknown>;
             const startedAt = Date.now();
@@ -1049,7 +928,7 @@ export class AgentOrchestrator {
             });
             try {
               let result: unknown;
-              if (tc.name === 'todo.set') {
+              if (args.action === 'set') {
                 const snapshot = todoStore.set({
                   items: (Array.isArray(args.items) ? args.items : []) as Array<{ label: string }>,
                 });
@@ -1137,7 +1016,7 @@ export class AgentOrchestrator {
           const args = (tc.arguments as Record<string, unknown>) ?? {};
           const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === tc.id);
           const content = resultMsg?.content ?? '';
-          const wasError = content.includes('"success":false') || /"error"\s*:/.test(content);
+          const wasError = content.includes('"success":false');
           toolCallDeduplicator.register(toolRef, args, {
             toolCallId: tc.id,
             step: steps,
@@ -1151,6 +1030,20 @@ export class AgentOrchestrator {
         // Phase G — skipped-by-dedup calls never ran, so they can't
         // produce evidence; restrict to `callsToExecute`.
         this.recordEvidenceForStep(messages, callsToExecute);
+
+        // Progress stall detection: if execution-intent and no successful
+        // mutation for STALL_THRESHOLD consecutive steps, emit evidence.
+        if (
+          this.currentIntent.kind === 'execution' &&
+          steps - this.lastMutationStep >= AgentOrchestrator.STALL_THRESHOLD &&
+          this.lastMutationStep > 0
+        ) {
+          this.appendEvidence({
+            kind: 'progress_stall',
+            stepsSinceLastMutation: steps - this.lastMutationStep,
+            at: Date.now(),
+          });
+        }
 
         // 2C: Update scratchpad after each tool execution batch.
         this.updateScratchpad(messages, callsToExecute);
@@ -1241,9 +1134,9 @@ export class AgentOrchestrator {
               batchHints.push(
                 `[Efficiency: You called ${name} ${count} times. Use canvas.updateNodes with an array for batch updates.]`,
               );
-            } else if (name === 'canvas.addNode') {
+            } else if (name === 'canvas.createNodes') {
               batchHints.push(
-                `[Efficiency: You called ${name} ${count} times. Use canvas.batchCreate for bulk node creation.]`,
+                `[Efficiency: You called ${name} ${count} times. Pass multiple nodes in a single canvas.createNodes call.]`,
               );
             } else if (name === 'canvas.getNode') {
               batchHints.push(
@@ -1269,13 +1162,15 @@ export class AgentOrchestrator {
           messages.push({ role: 'system', content: batchHints.join('\n') });
         }
 
-        // Predictive pre-compaction: trigger BEFORE next LLM call based on utilization
+        // Predictive pre-compaction: trigger BEFORE next LLM call based on utilization.
+        // Thresholds raised to avoid premature compaction during bulk operations
+        // (e.g. 24-node rewrites) that need earlier tool results in context.
         const ctxTokens = effectiveCtx ?? 200000;
         const utilizationRatio = estimatedTokensUsed / ctxTokens;
-        if (utilizationRatio > 0.9) {
+        if (utilizationRatio > 0.95) {
           // Critical: full compaction (Phase 1 + Phase 2 LLM summarization)
           await this.contextManager.compactWithLLM(messages, inLoopCharBudget);
-        } else if (utilizationRatio > 0.8) {
+        } else if (utilizationRatio > 0.9) {
           // Proactive: fast rule-based compaction only
           this.contextManager.compactPhase1(messages);
         }
@@ -1539,10 +1434,10 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Resolve `canvas.generate` process category using the real node type on
+   * Resolve `canvas.generation` process category using the real node type on
    * the canvas when the LLM's `nodeType` arg is missing. Other tools pass
    * through unchanged. This eliminates the image-node-generation default
-   * bias when the model calls `canvas.generate` on a video or audio node
+   * bias when the model calls `canvas.generation` on a video or audio node
    * without spelling out nodeType.
    */
   private detectProcessForToolCall(
@@ -1550,7 +1445,7 @@ export class AgentOrchestrator {
     args?: Record<string, unknown>,
   ): ProcessCategory | null {
     if (
-      name === 'canvas.generate' &&
+      name === 'canvas.generation' &&
       this.resolveCanvasNodeType &&
       args &&
       typeof args.nodeType !== 'string' &&
@@ -1563,294 +1458,6 @@ export class AgentOrchestrator {
       }
     }
     return detectProcess(name, args);
-  }
-
-  private activateProcessPrompts(
-    messages: LLMMessage[],
-    toolCalls: ReadonlyArray<LLMToolCall>,
-    step: number,
-  ): void {
-    if (!this.resolveProcessPrompt || toolCalls.length === 0) return;
-
-    const seen = new Set<ProcessCategory>();
-    for (const toolCall of toolCalls) {
-      const processKey = this.detectProcessForToolCall(toolCall.name, toolCall.arguments);
-      if (!processKey || seen.has(processKey)) continue;
-      seen.add(processKey);
-      this.activeProcessPromptSteps.set(processKey, step);
-
-      if (messages.some((message) => this.isProcessPromptMessage(message, processKey))) {
-        continue;
-      }
-
-      const prompt = this.resolveProcessPrompt(processKey);
-      if (!prompt?.trim()) continue;
-      messages.push({
-        role: 'system',
-        content: this.buildProcessPromptMessage(processKey, prompt.trim()),
-      });
-    }
-  }
-
-  /**
-   * Pre-flight guidance injection. Scans the model's pending tool calls,
-   * finds any process category whose guide has not yet been injected this
-   * session, and pushes those guides as system messages. The caller loops
-   * back to the LLM so the model re-plans with the guide visible BEFORE
-   * any tool call executes.
-   *
-   * Returns the list of process categories newly primed. An empty return
-   * means every requested tool either has no process mapping or its guide
-   * was already injected — the normal execution path should proceed.
-   *
-   * The same `detectProcess` map drives `activateProcessPrompts` below, so
-   * once this method primes a category, the retroactive activator skips it
-   * on subsequent turns (prevents double-injection).
-   */
-  /**
-   * Pre-flight evaluation of the declarative process-prompt specs.
-   *
-   * Walks `this.processPromptSpecs` and for each spec whose predicate
-   * fires AND whose content resolves non-empty, injects a system message
-   * and records `process_prompt_activated` evidence. Idempotent: a key
-   * already in `activeProcessPromptSteps` is skipped, matching the
-   * session-wide dedup the pre-Phase-C method provided.
-   *
-   * Returns the list of keys freshly primed this call. The caller uses
-   * it to decide whether to defer the assistant turn (so the model
-   * re-plans with the guidance in context) and to render a UI label.
-   */
-  private primeProcessPromptSpecs(
-    messages: LLMMessage[],
-    toolCalls: ReadonlyArray<LLMToolCall>,
-    canvasId: string | undefined,
-    step: number,
-    _emit: StreamEmit,
-  ): Array<Exclude<ProcessPromptKey, ProcessCategory>> {
-    if (!this.resolveProcessPrompt) return [];
-    if (this.processPromptSpecs.length === 0) return [];
-
-    const alreadyActivated = new Set<string>();
-    for (const [key] of this.activeProcessPromptSteps) alreadyActivated.add(key);
-    // Messages may already carry a prior-turn copy of the spec prompt
-    // (e.g. mid-run resume). Treat those as "already activated" so we
-    // don't double-inject.
-    for (const spec of this.processPromptSpecs) {
-      if (messages.some((m) => this.isProcessPromptMessage(m, spec.key as ProcessPromptKey))) {
-        alreadyActivated.add(spec.key);
-        this.activeProcessPromptSteps.set(spec.key as ProcessPromptKey, step);
-      }
-    }
-
-    const result = evaluateProcessPromptSpecs(
-      this.processPromptSpecs,
-      {
-        canvasId,
-        pendingToolCalls: toolCalls.map((tc) => ({
-          name: tc.name,
-          arguments: tc.arguments,
-        })),
-        canvasSettings:
-          canvasId && this.resolveCanvasSettings
-            ? (this.resolveCanvasSettings(canvasId) ?? undefined)
-            : undefined,
-        ledger: this.evidenceLedger.entries(),
-        step,
-      },
-      alreadyActivated,
-    );
-
-    const primed: Array<Exclude<ProcessPromptKey, ProcessCategory>> = [];
-    for (const { spec, content } of result.activated) {
-      const key = spec.key as Exclude<ProcessPromptKey, ProcessCategory>;
-      this.activeProcessPromptSteps.set(key as ProcessPromptKey, step);
-      messages.push({
-        role: 'system',
-        content: this.buildProcessPromptMessage(key as ProcessPromptKey, content),
-      });
-      this.appendEvidence({
-        kind: 'process_prompt_activated',
-        key: spec.key,
-        reason: `spec-predicate-fired@step-${step}`,
-        at: Date.now(),
-      });
-      primed.push(key);
-    }
-    return primed;
-  }
-
-  private primeProcessPromptsForToolCalls(
-    messages: LLMMessage[],
-    toolCalls: ReadonlyArray<LLMToolCall>,
-    step: number,
-  ): ProcessCategory[] {
-    if (!this.resolveProcessPrompt || toolCalls.length === 0) return [];
-
-    const primed: ProcessCategory[] = [];
-    const seen = new Set<ProcessCategory>();
-    for (const toolCall of toolCalls) {
-      const processKey = this.detectProcessForToolCall(toolCall.name, toolCall.arguments);
-      if (!processKey || seen.has(processKey)) continue;
-      seen.add(processKey);
-
-      // Already primed earlier this session — no re-inject, no defer.
-      if (this.activeProcessPromptSteps.has(processKey)) continue;
-      if (messages.some((message) => this.isProcessPromptMessage(message, processKey))) {
-        this.activeProcessPromptSteps.set(processKey, step);
-        continue;
-      }
-
-      const prompt = this.resolveProcessPrompt(processKey);
-      if (!prompt?.trim()) continue;
-
-      this.activeProcessPromptSteps.set(processKey, step);
-      messages.push({
-        role: 'system',
-        content: this.buildProcessPromptMessage(processKey, prompt.trim()),
-      });
-      primed.push(processKey);
-    }
-    return primed;
-  }
-
-  private activateInitialProcessPrompts(messages: LLMMessage[], context: AgentContext): void {
-    if (!this.resolveProcessPrompt) return;
-
-    const requested = (context.extra as { initialProcessPrompts?: unknown } | undefined)
-      ?.initialProcessPrompts;
-    if (!Array.isArray(requested) || requested.length === 0) return;
-
-    for (const entry of requested) {
-      if (!isProcessPromptKey(entry)) continue;
-      if (messages.some((message) => this.isProcessPromptMessage(message, entry))) continue;
-      // resolveProcessPrompt is typed as (ProcessCategory) but the IPC
-      // implementation keys by free-form string — see `router.ts:110`. The
-      // cast is safe for standalone keys whose presence in the store is
-      // asserted by STANDALONE_SPEC_KEYS.
-      const prompt = this.resolveProcessPrompt(entry as ProcessCategory);
-      if (!prompt?.trim()) continue;
-      this.activeProcessPromptSteps.set(entry, 0);
-      messages.splice(1, 0, {
-        role: 'system',
-        content: this.buildProcessPromptMessage(entry, prompt.trim()),
-      });
-    }
-  }
-
-  /**
-   * Process categories that act as load-bearing phase rails for the
-   * story-to-video pipeline. These are pinned once active for the rest of
-   * the session — stripping them mid-phase caused the LLM to forget the
-   * phase contract and re-plan from scratch on every third step.
-   */
-  private static readonly PHASE_CRITICAL_PROCESS_KEYS: ReadonlySet<ProcessPromptKey> =
-    new Set<ProcessPromptKey>([
-      'workflow-orchestration',
-      'character-ref-image-generation',
-      'location-ref-image-generation',
-      'equipment-ref-image-generation',
-      'image-node-generation',
-      'video-node-generation',
-      'render-and-export',
-      // Style-plate lock is a gate that must remain in context until the plate
-      // is actually locked. Stripping it mid-session would regress the very
-      // behaviour this prompt enforces (no ref-image before plate).
-      'style-plate-lock',
-      // Entities-before-generation is a sticky early-session gate reminding
-      // the LLM to verify ref-image status. Must not be stripped while active.
-      'entities-before-generation',
-      // Story workflow phase is a sticky guide that reinforces phase gates
-      // once workflow-orchestration is active. Must not be stripped mid-phase.
-      'story-workflow-phase',
-    ]);
-
-  private stripInactiveProcessPrompts(messages: LLMMessage[], step: number): void {
-    if (this.activeProcessPromptSteps.size === 0) return;
-
-    const staleKeys: ProcessPromptKey[] = [];
-    for (const [processKey, lastUsedStep] of this.activeProcessPromptSteps) {
-      if (AgentOrchestrator.PHASE_CRITICAL_PROCESS_KEYS.has(processKey)) continue;
-      if (step - lastUsedStep > 3) {
-        staleKeys.push(processKey);
-      }
-    }
-
-    if (staleKeys.length === 0) return;
-
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const message = messages[index];
-      if (message.role !== 'system') continue;
-      if (staleKeys.some((processKey) => this.isProcessPromptMessage(message, processKey))) {
-        messages.splice(index, 1);
-      }
-    }
-
-    for (const processKey of staleKeys) {
-      this.activeProcessPromptSteps.delete(processKey);
-    }
-  }
-
-  private buildProcessPromptMessage(processKey: ProcessPromptKey, prompt: string): string {
-    const displayName = isProcessCategory(processKey)
-      ? getProcessCategoryName(processKey)
-      : getStandaloneDisplayName(processKey, this.processPromptSpecs);
-    return `[[process-prompt:${processKey}]]\n[Process Guide: ${displayName}]\n${prompt}`;
-  }
-
-  private isProcessPromptMessage(message: LLMMessage, processKey: ProcessPromptKey): boolean {
-    return (
-      message.role === 'system' && message.content.startsWith(`[[process-prompt:${processKey}]]`)
-    );
-  }
-
-  /**
-   * 1I: Collect all active process prompt contents from the messages array,
-   * remove those separate system messages, and return the data needed to
-   * inject them as a structured section in the system prompt. This is called
-   * before each LLM call to consolidate process prompts.
-   */
-  private consolidateProcessPrompts(
-    messages: LLMMessage[],
-  ): Array<{ key: string; displayName: string; content: string }> {
-    const result: Array<{ key: string; displayName: string; content: string }> = [];
-    const indicesToRemove: number[] = [];
-    const processPromptPrefix = '[[process-prompt:';
-
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.role !== 'system') continue;
-      if (!msg.content.startsWith(processPromptPrefix)) continue;
-      // Skip messages[0] (the main system prompt)
-      if (i === 0) continue;
-
-      // Parse the key from the marker: [[process-prompt:KEY]]
-      const endBracket = msg.content.indexOf(']]');
-      if (endBracket === -1) continue;
-      const key = msg.content.slice(processPromptPrefix.length, endBracket);
-
-      // Parse the display name from [Process Guide: NAME]
-      const guidePrefix = '[Process Guide: ';
-      const guideLine = msg.content.slice(endBracket + 3); // skip ]]\n
-      let displayName = key;
-      let content = guideLine;
-      if (guideLine.startsWith(guidePrefix)) {
-        const nameEnd = guideLine.indexOf(']');
-        if (nameEnd !== -1) {
-          displayName = guideLine.slice(guidePrefix.length, nameEnd);
-          content = guideLine.slice(nameEnd + 2); // skip ]\n
-        }
-      }
-
-      result.push({ key, displayName, content });
-      indicesToRemove.push(i);
-    }
-
-    // Remove from messages in reverse order to preserve indices
-    for (let i = indicesToRemove.length - 1; i >= 0; i--) {
-      messages.splice(indicesToRemove[i], 1);
-    }
-
-    return result;
   }
 
   /**
@@ -2152,56 +1759,15 @@ export class AgentOrchestrator {
   // ──────────────────────────────────────────────────────────────────
 
   /**
-   * Build the scratchpad content string from accumulated sections.
-   * Budget: ~500 chars max. Truncates oldest entries first.
+   * Build the scratchpad content string from the structured Scratchpad.
    */
   private buildScratchpadContent(): string {
-    const maxChars = AgentOrchestrator.SCRATCHPAD_MAX_CHARS;
-    const parts: string[] = [];
-
-    if (this.scratchpadTodos.length > 0) {
-      parts.push(`TODO: ${this.scratchpadTodos.join('; ')}`);
-    }
-    if (this.scratchpadDecisions.length > 0) {
-      parts.push(`DECISIONS: ${this.scratchpadDecisions.join('; ')}`);
-    }
-    if (this.scratchpadFailures.length > 0) {
-      parts.push(`FAILURES: ${this.scratchpadFailures.join('; ')}`);
-    }
-
-    let content = parts.join('\n');
-
-    // Truncate oldest entries (from each section) while over budget.
-    while (content.length > maxChars) {
-      if (this.scratchpadFailures.length > 1) {
-        this.scratchpadFailures.shift();
-      } else if (this.scratchpadDecisions.length > 1) {
-        this.scratchpadDecisions.shift();
-      } else if (this.scratchpadTodos.length > 1) {
-        this.scratchpadTodos.shift();
-      } else {
-        content = content.slice(content.length - maxChars);
-        break;
-      }
-      const rebuilt: string[] = [];
-      if (this.scratchpadTodos.length > 0) {
-        rebuilt.push(`TODO: ${this.scratchpadTodos.join('; ')}`);
-      }
-      if (this.scratchpadDecisions.length > 0) {
-        rebuilt.push(`DECISIONS: ${this.scratchpadDecisions.join('; ')}`);
-      }
-      if (this.scratchpadFailures.length > 0) {
-        rebuilt.push(`FAILURES: ${this.scratchpadFailures.join('; ')}`);
-      }
-      content = rebuilt.join('\n');
-    }
-
-    return content;
+    return serializeScratchpad(this.scratchpad);
   }
 
   /**
    * Update the scratchpad after a tool execution batch. Extracts:
-   * - Todo state from `todo.set` / `todo.update` results
+   * - Todo state from `todo.manage` results
    * - Creative decisions from `commander.askUser` responses where user picked an option
    * - Failure traces from tool results with errors
    */
@@ -2213,8 +1779,8 @@ export class AgentOrchestrator {
       const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === tc.id);
       const content = resultMsg?.content ?? '';
 
-      // Extract todo state from todo.set / todo.update.
-      if (tc.name === 'todo.set' || tc.name === 'todo.update') {
+      // Extract todo state from todo.manage.
+      if (tc.name === 'todo.manage') {
         try {
           const parsed = JSON.parse(content) as { success?: boolean; data?: unknown };
           if (parsed.success !== false) {
@@ -2222,7 +1788,7 @@ export class AgentOrchestrator {
               items?: Array<{ text?: string; status?: string }>;
             } | null;
             if (Array.isArray(args?.items)) {
-              this.scratchpadTodos = args!.items
+              this.scratchpad.todos = args!.items
                 .filter((item) => item.text)
                 .map((item) => `${item.text}: ${item.status ?? 'pending'}`);
             }
@@ -2249,7 +1815,7 @@ export class AgentOrchestrator {
           } catch {
             answer = content.slice(0, 60);
           }
-          this.scratchpadDecisions.push(`${question} -> ${answer}`);
+          this.scratchpad.decisions.push(`${question} -> ${answer}`);
         }
         continue;
       }
@@ -2264,7 +1830,7 @@ export class AgentOrchestrator {
         } catch {
           errorText = 'parse error';
         }
-        this.scratchpadFailures.push(`${tc.name}: ${errorText}`);
+        this.scratchpad.failures.push(`${tc.name}: ${errorText}`);
       }
     }
 
@@ -2371,7 +1937,7 @@ export class AgentOrchestrator {
    *    `lastAskUserAnsweredStep` flips)
    *  - `guide_loaded` on guide.get successful returns
    *  - `settings_write` on canvas.setSettings (canvas ref image / plate)
-   *  - `generation_started` on canvas.generate / *.generateRefImage
+   *  - `generation_started` on canvas.generation / *.generateRefImage
    *
    * Each recorded evidence also gets a mirror `evidence_appended` stream
    * event so the harness and renderer see it in real time.
@@ -2410,11 +1976,21 @@ export class AgentOrchestrator {
 
       if (!ok && errorText) {
         this.appendEvidence({ kind: 'validation_error', toolName: tc.name, errorText, at: now });
+        const count = (this.toolValidationErrors.get(tc.name) ?? 0) + 1;
+        this.toolValidationErrors.set(tc.name, count);
+        if (count >= AgentOrchestrator.RETRY_LOOP_THRESHOLD) {
+          this.appendEvidence({
+            kind: 'tool_retry_loop',
+            toolName: tc.name,
+            attempts: count,
+            at: now,
+          });
+        }
         continue;
       }
 
       // Non-meta successful calls are mutation candidates. We filter out
-      // pure reads (tool.*, guide.*, canvas.getState, canvas.listNodes,
+      // pure reads (tool.*, guide.*, canvas.getInfo, canvas.listNodes,
       // canvas.getNode, *.list) since those can't satisfy a contract.
       if (ok && !this.isReadOnlyTool(tc.name)) {
         this.appendEvidence({
@@ -2424,6 +2000,7 @@ export class AgentOrchestrator {
           resultOk: true,
           at: now,
         });
+        this.lastMutationStep = this._currentStep;
       }
 
       // Side-effects for specific tools — surface them as their own
@@ -2444,7 +2021,7 @@ export class AgentOrchestrator {
             : [];
         this.appendEvidence({ kind: 'settings_write', canvasId, keys, at: now });
       }
-      if (ok && (tc.name === 'canvas.generate' || /\.generateRefImage$/.test(tc.name))) {
+      if (ok && (tc.name === 'canvas.generation' || /\.generateRefImage$/.test(tc.name))) {
         const rawArgs = tc.arguments as { nodeId?: unknown } | null;
         const nodeId = typeof rawArgs?.nodeId === 'string' ? rawArgs.nodeId : 'unknown';
         this.appendEvidence({ kind: 'generation_started', nodeId, at: now });
@@ -2498,7 +2075,7 @@ export class AgentOrchestrator {
   // Narrow tool-result-is-ok check. Our result shape is
   // `{ success: boolean, data? | error?, errorClass? }`. Anything else
   // (non-JSON, different shape) is treated as OK so read tools like
-  // `canvas.getState` still count as success.
+  // `canvas.getInfo` still count as success.
   private isToolResultOk(parsed: unknown): boolean {
     if (parsed === null || typeof parsed !== 'object') return true;
     const obj = parsed as { success?: unknown };

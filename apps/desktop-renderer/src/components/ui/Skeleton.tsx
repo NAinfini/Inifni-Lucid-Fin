@@ -19,3 +19,14 @@ export function SkeletonList({ count = 5 }: { count?: number }) {
     </div>
   );
 }
+
+export function SkeletonPage() {
+  return (
+    <div className="flex h-full flex-col gap-4 p-6">
+      <Skeleton className="h-6 w-1/3" />
+      <Skeleton className="h-4 w-2/3" />
+      <Skeleton className="h-4 w-1/2" />
+      <Skeleton className="h-32 w-full" />
+    </div>
+  );
+}

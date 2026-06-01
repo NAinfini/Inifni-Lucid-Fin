@@ -17,7 +17,7 @@ export interface PipelineRailProps {
  * workflow matches story-to-video. Always visible during streaming,
  * collapsible via chevron. Disappears when no todo is active.
  */
-export function PipelineRail({ snapshot, isStreaming, t }: PipelineRailProps) {
+export function PipelineRail({ snapshot, t }: PipelineRailProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (!snapshot || snapshot.items.length === 0) return null;
@@ -25,9 +25,6 @@ export function PipelineRail({ snapshot, isStreaming, t }: PipelineRailProps) {
   const total = snapshot.items.length;
   const done = snapshot.items.filter((item) => item.status === 'done').length;
   const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-
-  // During streaming, the rail stays expanded to show progress
-  const isCollapsed = collapsed && !isStreaming;
 
   return (
     <div className="border-b border-border/40 bg-muted/10">
@@ -52,12 +49,12 @@ export function PipelineRail({ snapshot, isStreaming, t }: PipelineRailProps) {
           <ChevronDown
             className={cn(
               'h-3 w-3 text-muted-foreground transition-transform',
-              isCollapsed && '-rotate-90',
+              collapsed && '-rotate-90',
             )}
           />
         </div>
       </button>
-      {!isCollapsed ? (
+      {!collapsed ? (
         <div className="px-3 pb-2 space-y-0.5">
           {snapshot.items.map((item) => (
             <div

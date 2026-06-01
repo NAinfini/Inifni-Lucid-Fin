@@ -1,10 +1,13 @@
 import type { Middleware } from '@reduxjs/toolkit';
 import { getAPI } from '../../utils/api.js';
 import { addLog } from '../slices/logger.js';
+import { t } from '../../i18n.js';
+import { enqueueToast } from '../slices/toast.js';
 import type { RootState } from '../index.js';
 import type { Canvas } from '@lucid-fin/contracts';
 import { diffCanvas, shouldUsePatch } from './canvas-differ.js';
 import { buildSparseSettings } from '../slices/settings.js';
+import { withRetry } from '../../utils/ipc-retry.js';
 // eslint-disable-next-line no-restricted-imports -- Phase C (LRUCache relocation to shared-utils) will fix this
 import { LRUCache } from '@lucid-fin/application/dist/lru-cache.js';
 
@@ -98,7 +101,7 @@ export function setCanvasInteracting(value: boolean): void {
 /**
  * Cancel any debounced canvas save and run it synchronously now. Used by
  * the Commander before sending a user message — we need the main-process
- * canvas cache to reflect the very latest Redux state so `canvas.getState`
+ * canvas cache to reflect the very latest Redux state so `canvas.getInfo`
  * and friends don't read stale data the user already sees on screen.
  * Returns true if a save was flushed, false if nothing was pending.
  */
@@ -200,14 +203,34 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
         };
 
         const doFullSave = (): Promise<void> =>
-          api.canvas
-            .save(canvasToSave)
+          withRetry(async () => {
+            try {
+              await api.canvas.save(canvasToSave);
+            } catch (error: unknown) {
+              onError(error, 'Canvas save failed');
+              throw error;
+            }
+          })
             .then(onSuccess)
-            .catch((error: unknown) => onError(error, 'Canvas save failed'));
+            .catch((error: unknown) => {
+              store.dispatch(
+                enqueueToast({
+                  variant: 'error',
+                  title: t('persistence.saveFailed'),
+                  message: error instanceof Error ? error.message : undefined,
+                }),
+              );
+            });
 
         if (patch && shouldUsePatch(patch, canvasToSave)) {
-          saveInFlight = api.canvas
-            .patch({ canvasId: canvas.id, patch })
+          saveInFlight = withRetry(async () => {
+            try {
+              await api.canvas.patch({ canvasId: canvas.id, patch });
+            } catch (error: unknown) {
+              onError(error, 'Canvas patch failed');
+              throw error;
+            }
+          })
             .then(onSuccess)
             .catch((error: unknown) => {
               store.dispatch(

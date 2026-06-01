@@ -123,7 +123,7 @@ describe('createAdapterRegistry', () => {
       'openai-tts-1-hd',
       'pika-v2',
       'playht-3',
-      'recraft-v3',
+      'recraft-v4',
       'replicate',
       'runway-gen4',
       'sd-webui-local',
@@ -160,7 +160,7 @@ describe('restoreAdapterKeys', () => {
     const openaiImageAdapter = registry.get('openai-dalle');
     const googleImageAdapter = registry.get('google-imagen3');
     const googleVideoAdapter = registry.get('google-veo-2');
-    const recraftAdapter = registry.get('recraft-v3');
+    const recraftAdapter = registry.get('recraft-v4');
     const elevenlabsAdapter = registry.get('elevenlabs-v2');
     const openAITtsAdapter = registry.get('openai-tts-1-hd');
     const deepSeekAdapter = llmRegistry.get('deepseek');
@@ -188,7 +188,7 @@ describe('restoreAdapterKeys', () => {
             'openai-dalle': 'sk-openai-image',
             'google-imagen3': 'sk-google-image',
             'google-veo-2': 'sk-google-video',
-            'recraft-v3': 'sk-recraft',
+            'recraft-v4': 'sk-recraft',
             'elevenlabs-v2': 'sk-elevenlabs',
             'openai-tts-1-hd': 'sk-openai-tts',
             deepseek: 'sk-deepseek',

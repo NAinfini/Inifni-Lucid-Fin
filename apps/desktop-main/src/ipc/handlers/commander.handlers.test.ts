@@ -270,7 +270,6 @@ describe('buildContext', () => {
     ]);
 
     const extra = context.extra as Record<string, unknown>;
-    expect(extra.initialProcessPrompts).toEqual(expect.arrayContaining(['image-node-generation']));
     expect(extra.selectedNodes).toEqual([
       {
         id: 'image-1',
@@ -293,15 +292,11 @@ describe('buildContext', () => {
     expect(JSON.stringify(extra.selectedNodes)).not.toContain('"equipmentRefs"');
   });
 
-  it('primes workflow-orchestration on an empty canvas and does not infer ref-image guides from text alone', () => {
+  it('empty canvas does not set initialProcessPrompts (injection paths removed)', () => {
     const db = makeDb();
     const context = buildContext(makeCanvas(0), [], [], db, []);
 
     const extra = context.extra as Record<string, unknown>;
-    // With an empty canvas + no selection, the pipeline seeds
-    // workflow-orchestration so Commander knows the overall 6-phase flow.
-    // Ref-image guides stay out — those are only primed pre-flight when the
-    // model actually requests a ref-image tool.
-    expect(extra.initialProcessPrompts).toEqual(['workflow-orchestration']);
+    expect(extra.initialProcessPrompts).toBeUndefined();
   });
 });

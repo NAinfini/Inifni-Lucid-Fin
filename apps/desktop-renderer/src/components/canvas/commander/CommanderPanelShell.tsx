@@ -27,6 +27,7 @@ import { CommanderHeader } from './CommanderHeader.js';
 import { CommanderInputBar } from './CommanderInputBar.js';
 import { CommanderStreamView } from './CommanderStreamView.js';
 import type { Attachment } from './CommanderInputBar.js';
+import { CommanderContext } from './CommanderContext.js';
 import { markQuestionResolvedLocally } from '../../../commander/state/commander-timeline-slice.js';
 import { getAPI } from '../../../utils/api.js';
 
@@ -389,6 +390,69 @@ export function CommanderPanelShell() {
     [position],
   );
 
+  const commanderContextValue = useMemo(
+    () => ({
+      input,
+      setInput,
+      inputRef,
+      attachments,
+      setAttachments,
+      modelPickerOpen,
+      setModelPickerOpen,
+      permPickerOpen,
+      setPermPickerOpen,
+      nodePickerOpen,
+      setNodePickerOpen,
+      editingQueueIndex,
+      setEditingQueueIndex,
+      editingQueueText,
+      setEditingQueueText,
+      slashMenuRef,
+      slashMenuOpen,
+      slashMenuIndex,
+      setSlashMenuIndex,
+      filteredSlashItems,
+      executeSlashCommand,
+      SLASH_COMMANDS,
+      canvasNodes: canvasNodes ?? undefined,
+      contextUsage,
+      triggerCompact,
+      userScrolledUpRef,
+      isBackendReady,
+      t,
+    }),
+    [
+      input,
+      setInput,
+      inputRef,
+      attachments,
+      setAttachments,
+      modelPickerOpen,
+      setModelPickerOpen,
+      permPickerOpen,
+      setPermPickerOpen,
+      nodePickerOpen,
+      setNodePickerOpen,
+      editingQueueIndex,
+      setEditingQueueIndex,
+      editingQueueText,
+      setEditingQueueText,
+      slashMenuRef,
+      slashMenuOpen,
+      slashMenuIndex,
+      setSlashMenuIndex,
+      filteredSlashItems,
+      executeSlashCommand,
+      SLASH_COMMANDS,
+      canvasNodes,
+      contextUsage,
+      triggerCompact,
+      userScrolledUpRef,
+      isBackendReady,
+      t,
+    ],
+  );
+
   if (!open) return null;
 
   if (minimized) {
@@ -455,115 +519,89 @@ export function CommanderPanelShell() {
   }
 
   return (
-    <section
-      ref={sectionRef}
-      aria-label={t('commander.commanderAI')}
-      className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl backdrop-blur-sm"
-      style={{
-        left: position.x,
-        top: position.y,
-        width: size.width,
-        height: size.height,
-      }}
-    >
-      <CommanderHeader onMouseDown={handleHeaderMouseDown} t={t} />
-
-      <PipelineRail snapshot={todoSnapshot} isStreaming={isStreaming} t={t} />
-
-      <div
-        ref={scrollRef}
-        data-testid="commander-message-scroll"
-        className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-2 pb-3"
+    <CommanderContext.Provider value={commanderContextValue}>
+      <section
+        ref={sectionRef}
+        aria-label={t('commander.commanderAI')}
+        className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl backdrop-blur-sm"
+        style={{
+          left: position.x,
+          top: position.y,
+          width: size.width,
+          height: size.height,
+        }}
       >
-        <FirstSessionHint show={messages.length === 0 && !liveMessage} t={t} />
-        <MessageList
-          messages={messages}
-          liveMessage={liveMessage}
-          currentSegments={currentSegments}
-          pendingInjectedMessages={pendingInjectedMessages}
-          showTextCursor={showTextCursor}
-          error={error}
-          nodeTitlesById={nodeTitlesById}
-          resolveNodeAssetHash={resolveNodeAssetHash}
-          t={t}
-          emptyLabel={t('commander.thinking')}
-          onNodeClick={handleNodeClick}
-          onSendMessage={(msg) => void sendMessage(msg)}
-        />
-      </div>
+        <CommanderHeader onMouseDown={handleHeaderMouseDown} t={t} />
 
-      <CommanderStreamView
-        pendingConfirmation={pendingConfirmation}
-        consecutiveConfirmCount={consecutiveConfirmCount}
-        t={t}
-      />
+        <div
+          ref={scrollRef}
+          data-testid="commander-message-scroll"
+          aria-live="polite"
+          aria-relevant="additions"
+          className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-2 pb-3"
+        >
+          <FirstSessionHint show={messages.length === 0 && !liveMessage} t={t} />
+          <MessageList
+            messages={messages}
+            liveMessage={liveMessage}
+            currentSegments={currentSegments}
+            pendingInjectedMessages={pendingInjectedMessages}
+            showTextCursor={showTextCursor}
+            error={error}
+            nodeTitlesById={nodeTitlesById}
+            resolveNodeAssetHash={resolveNodeAssetHash}
+            t={t}
+            emptyLabel={t('commander.thinking')}
+            onNodeClick={handleNodeClick}
+            onSendMessage={(msg) => void sendMessage(msg)}
+          />
+        </div>
 
-      <div className="relative shrink-0">
-        <LiveActivityBar
-          maxSteps={maxSteps}
-          t={t}
-          onCancelCurrentStep={() => void cancelCurrentStep()}
-        />
-        {/* Question card overlay — absolute so it covers the input area */}
-        {pendingQuestion && (
-          <div className="absolute inset-x-0 bottom-0 z-10 bg-card/95 backdrop-blur-[2px] rounded-b-lg border-t border-blue-500/30">
-            <QuestionCard
-              question={pendingQuestion.question}
-              options={pendingQuestion.options}
-              onAnswer={(answer) => {
-                const api = getAPI();
-                const canvasId = activeCanvasIdRef.current;
-                if (api?.commander && canvasId) {
-                  void api.commander.answerQuestion(
-                    canvasId,
-                    pendingQuestion.toolCallId,
-                    answer,
-                  );
-                }
-                dispatch(markQuestionResolvedLocally(pendingQuestion.toolCallId));
-                dispatch(resolveQuestion({ answer }));
-              }}
-              t={t}
-            />
-          </div>
-        )}
-        <CommanderInputBar
-          input={input}
-          setInput={setInput}
-          inputRef={inputRef}
-          attachments={attachments}
-          setAttachments={setAttachments}
-          modelPickerOpen={modelPickerOpen}
-          setModelPickerOpen={setModelPickerOpen}
-          permPickerOpen={permPickerOpen}
-          setPermPickerOpen={setPermPickerOpen}
-          nodePickerOpen={nodePickerOpen}
-          setNodePickerOpen={setNodePickerOpen}
-          editingQueueIndex={editingQueueIndex}
-          setEditingQueueIndex={setEditingQueueIndex}
-          editingQueueText={editingQueueText}
-          setEditingQueueText={setEditingQueueText}
-          contextUsage={contextUsage}
-          triggerCompact={triggerCompact}
-          slashMenuRef={slashMenuRef}
-          slashMenuOpen={slashMenuOpen}
-          slashMenuIndex={slashMenuIndex}
-          setSlashMenuIndex={setSlashMenuIndex}
-          filteredSlashItems={filteredSlashItems}
-          executeSlashCommand={executeSlashCommand}
-          SLASH_COMMANDS={SLASH_COMMANDS}
-          canvasNodes={canvasNodes ?? undefined}
-          userScrolledUpRef={userScrolledUpRef}
-          isBackendReady={isBackendReady}
+        <CommanderStreamView
+          pendingConfirmation={pendingConfirmation}
+          consecutiveConfirmCount={consecutiveConfirmCount}
           t={t}
         />
-      </div>
 
-      {/* Resize handle — memory-safe: AbortController aborted in cleanup effect */}
-      <div
-        className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize"
-        onMouseDown={handleResizeMouseDown}
-      />
-    </section>
+        <div className="relative shrink-0">
+          <LiveActivityBar
+            maxSteps={maxSteps}
+            t={t}
+            onCancelCurrentStep={() => void cancelCurrentStep()}
+          />
+          {/* Question card overlay — absolute so it covers the input area */}
+          {pendingQuestion && (
+            <div className="absolute inset-x-0 bottom-0 z-10 bg-card/95 backdrop-blur-[2px] rounded-b-lg border-t border-blue-500/30">
+              <QuestionCard
+                question={pendingQuestion.question}
+                options={pendingQuestion.options}
+                onAnswer={(answer) => {
+                  const api = getAPI();
+                  const canvasId = activeCanvasIdRef.current;
+                  if (api?.commander && canvasId) {
+                    void api.commander.answerQuestion(
+                      canvasId,
+                      pendingQuestion.toolCallId,
+                      answer,
+                    );
+                  }
+                  dispatch(markQuestionResolvedLocally(pendingQuestion.toolCallId));
+                  dispatch(resolveQuestion({ answer }));
+                }}
+                t={t}
+              />
+            </div>
+          )}
+          <PipelineRail snapshot={todoSnapshot} isStreaming={isStreaming} t={t} />
+          <CommanderInputBar />
+        </div>
+
+        {/* Resize handle — memory-safe: AbortController aborted in cleanup effect */}
+        <div
+          className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize"
+          onMouseDown={handleResizeMouseDown}
+        />
+      </section>
+    </CommanderContext.Provider>
   );
 }

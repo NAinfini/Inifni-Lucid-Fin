@@ -7,6 +7,7 @@
 import type { SessionResult } from './run-single.js';
 import type { CodexProviderSpec } from './provider-config.js';
 import { MOCKED_TOOL_NAMES } from './mock-generation.js';
+import { renderQualitySnippet } from './quality-scoring.js';
 
 interface ReportOptions {
   totalMs: number;
@@ -35,6 +36,8 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   let totalNodes = 0;
   let plateLocked = 0;
   let totalPromptTokens = 0;
+  const gradeHistogram: Record<string, number> = {};
+  let totalComposite = 0;
 
   for (const r of results) {
     outcome[r.outcome] = (outcome[r.outcome] ?? 0) + 1;
@@ -73,6 +76,11 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
     totalNodes += r.finalNodeCount;
     if (r.stylePlateLocked) plateLocked++;
     totalPromptTokens += r.promptTokensEstimated;
+    if (r.qualityReport) {
+      const grade = r.qualityReport.grade;
+      gradeHistogram[grade] = (gradeHistogram[grade] ?? 0) + 1;
+      totalComposite += r.qualityReport.composite;
+    }
     for (const call of r.toolCalls) {
       if (!call.ok && call.errorMessage) {
         const key = call.errorMessage.split('\n')[0].slice(0, 80);
@@ -130,6 +138,25 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push(
     `| avg estimated prompt tokens peak | ${Math.round(totalPromptTokens / Math.max(1, n))} |`,
   );
+  lines.push(
+    `| avg quality score | ${(totalComposite / Math.max(1, n)).toFixed(1)} / 100 |`,
+  );
+  lines.push('');
+  // Quality score breakdown.
+  lines.push('## Quality scores');
+  lines.push('');
+  if (Object.keys(gradeHistogram).length === 0) {
+    lines.push('_(No quality reports available.)_');
+  } else {
+    lines.push(`Average composite: **${(totalComposite / Math.max(1, n)).toFixed(1)} / 100**`);
+    lines.push('');
+    lines.push('| grade | sessions | % |');
+    lines.push('|---|---|---|');
+    for (const grade of ['A', 'B', 'C', 'D', 'F'] as const) {
+      const count = gradeHistogram[grade] ?? 0;
+      if (count > 0) lines.push(`| ${grade} | ${count} | ${pct(count, n)} |`);
+    }
+  }
   lines.push('');
   // Phase E — product satisfaction (headline breakdown).
   lines.push('## Product satisfaction (Phase E)');
@@ -254,12 +281,14 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('');
   lines.push('## Per-session summary');
   lines.push('');
-  lines.push('| # | archetype | slug | outcome | steps | nodes | plate | askUser | tools | ms |');
-  lines.push('|---|---|---|---|---|---|---|---|---|---|');
+  lines.push('| # | archetype | slug | outcome | steps | nodes | plate | askUser | tools | score | grade | ms |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of results) {
     const tools = Object.keys(r.toolCallCounts).length;
+    const score = r.qualityReport?.composite ?? '-';
+    const grade = r.qualityReport?.grade ?? '-';
     lines.push(
-      `| ${r.personaIndex} | ${r.archetype} | ${r.personaSlug} | ${r.outcome}${r.error ? ` _(${r.error.slice(0, 40)})_` : ''} | ${r.steps} | ${r.finalNodeCount} | ${r.stylePlateLocked ? 'Y' : 'N'} | ${r.askUserCount} | ${tools} | ${r.ms} |`,
+      `| ${r.personaIndex} | ${r.archetype} | ${r.personaSlug} | ${r.outcome}${r.error ? ` _(${r.error.slice(0, 40)})_` : ''} | ${r.steps} | ${r.finalNodeCount} | ${r.stylePlateLocked ? 'Y' : 'N'} | ${r.askUserCount} | ${tools} | ${score} | ${grade} | ${r.ms} |`,
     );
   }
   lines.push('');

@@ -158,7 +158,7 @@ describe('registerCommanderMetaHandlers', () => {
     } as never);
 
     const tools = [
-      { name: 'canvas.addNode', description: 'Add node', tags: ['canvas'], tier: 1 },
+      { name: 'canvas.createNodes', description: 'Add node', tags: ['canvas'], tier: 1 },
       { name: 'guide.get', description: 'Fetch guide', tags: ['guide'], tier: 0 },
     ];
     setLastToolRegistry({

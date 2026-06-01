@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
@@ -13,7 +13,7 @@ import { join, resolve, sep } from 'node:path';
  * @param precomputedHash - Optional pre-computed hash to avoid redundant SHA-256.
  * @returns Absolute path to the written file, always inside os.tmpdir().
  */
-export function writeTmpAudioFile(buffer: Buffer, prefix: string, ext = 'mp3', precomputedHash?: string): string {
+export async function writeTmpAudioFile(buffer: Buffer, prefix: string, ext = 'mp3', precomputedHash?: string): Promise<string> {
   const hash = precomputedHash ?? createHash('sha256').update(buffer).digest('hex').slice(0, 16);
   const filename = `${prefix}-${hash}.${ext}`;
   const outPath = join(tmpdir(), filename);
@@ -25,6 +25,6 @@ export function writeTmpAudioFile(buffer: Buffer, prefix: string, ext = 'mp3', p
     throw new Error(`Unsafe audio tmp path: ${resolved}`);
   }
 
-  writeFileSync(outPath, buffer);
+  await writeFile(outPath, buffer);
   return outPath;
 }

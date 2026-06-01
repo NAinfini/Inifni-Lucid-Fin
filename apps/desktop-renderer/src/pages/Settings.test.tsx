@@ -132,36 +132,18 @@ describe('Settings updater UI', () => {
       processPrompt: {
         list: vi.fn().mockResolvedValue([
           {
-            processKey: 'character-ref-image-generation',
-            name: 'Character Reference Image Generation',
-            description: 'Guidance for character reference image creation.',
+            processKey: 'entity-ref-image-generation',
+            name: 'Entity Reference Image Generation',
+            description: 'Guidance for entity (character, location, equipment) reference image creation.',
             defaultValue: 'Default rules',
             customValue: null,
             createdAt: 1,
             updatedAt: 1,
           },
           {
-            processKey: 'location-ref-image-generation',
-            name: 'Location Reference Image Generation',
-            description: 'Guidance for location reference image creation.',
-            defaultValue: 'Default rules',
-            customValue: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-          {
-            processKey: 'equipment-ref-image-generation',
-            name: 'Equipment Reference Image Generation',
-            description: 'Guidance for equipment reference image creation.',
-            defaultValue: 'Default rules',
-            customValue: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-          {
-            processKey: 'character-management',
-            name: 'Character Management',
-            description: 'Guidance for character CRUD work.',
+            processKey: 'entity-management',
+            name: 'Entity Management',
+            description: 'Guidance for entity (character, location, equipment) CRUD work.',
             defaultValue: 'Default rules',
             customValue: null,
             createdAt: 1,
@@ -206,19 +188,23 @@ describe('Settings updater UI', () => {
     await waitFor(() => {
       expect(screen.getAllByText('Process Injection').length).toBeGreaterThan(0);
       expect(screen.getByText(t('settings.processGuides.subtitle'))).toBeTruthy();
-      expect(screen.getByText('Character Reference Image Generation')).toBeTruthy();
-      expect(screen.getByText('Location Reference Image Generation')).toBeTruthy();
-      expect(screen.getByText('Equipment Reference Image Generation')).toBeTruthy();
-      expect(screen.getByText('Character Management')).toBeTruthy();
+    });
+
+    // Expand groups to see individual prompts
+    fireEvent.click(screen.getByText('Generation'));
+    fireEvent.click(screen.getByText('Entities'));
+    fireEvent.click(screen.getByText('Configuration'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Entity Reference Image Generation')).toBeTruthy();
+      expect(screen.getByText('Entity Management')).toBeTruthy();
       expect(screen.getByText('Node Preset Tracks')).toBeTruthy();
       expect(screen.getByText('Provider Management')).toBeTruthy();
-      expect(screen.getAllByText(t('settings.processGuides.triggeredBy'))).toHaveLength(6);
-      expect(screen.getByText('character.generateRefImage')).toBeTruthy();
-      expect(screen.getByText('location.generateRefImage')).toBeTruthy();
-      expect(screen.getByText('equipment.generateRefImage')).toBeTruthy();
-      expect(screen.getByText('character.create')).toBeTruthy();
-      expect(screen.getByText('canvas.writePresetTracksBatch')).toBeTruthy();
-      expect(screen.getByText('provider.list')).toBeTruthy();
+      expect(screen.getAllByText(t('settings.processGuides.triggeredBy'))).toHaveLength(4);
+      expect(screen.getByText('entity.generateRefImage')).toBeTruthy();
+      expect(screen.getByText('entity.create')).toBeTruthy();
+      expect(screen.getByText('canvas.presetTracks')).toBeTruthy();
+      expect(screen.getByText('provider.manage')).toBeTruthy();
     });
   });
 
@@ -256,6 +242,12 @@ describe('Settings updater UI', () => {
     renderSettings();
 
     fireEvent.click(screen.getByRole('button', { name: 'Process Injection' }));
+
+    // Wait for data to load, then expand the group
+    await waitFor(() => {
+      expect(screen.getByText('Generation')).toBeTruthy();
+    });
+    fireEvent.click(screen.getByText('Generation'));
 
     await waitFor(() => {
       expect(screen.getByText('Image Node Generation')).toBeTruthy();

@@ -48,6 +48,7 @@ import {
   type GenerationRenderProps,
 } from './InspectorGenerationState.js';
 import { hasTracks, isGenerationNode } from './inspector/guardTypes.js';
+import { BACKDROP_SWATCHES } from '../../lib/color-tokens.js';
 import type {
   CanvasNode,
   NodeKind,
@@ -487,16 +488,7 @@ export function InspectorPanel() {
     selectedNode.type === 'backdrop'
       ? {
           data: selectedNode.data as BackdropNodeData,
-          swatches: [
-            '#334155',
-            '#1e3a5f',
-            '#3b1f5e',
-            '#5c1a1a',
-            '#1a4d2e',
-            '#4a3728',
-            '#4b5563',
-            '#0f766e',
-          ],
+          swatches: [...BACKDROP_SWATCHES],
           onColorChange: handleBackdropColorChange,
           onColorInputChange: handleBackdropColorInputChange,
           onOpacityChange: handleBackdropOpacityChange,

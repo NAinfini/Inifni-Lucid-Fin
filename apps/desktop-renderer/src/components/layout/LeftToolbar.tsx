@@ -98,6 +98,7 @@ export function LeftToolbar() {
                     type="button"
                     aria-label={label}
                     aria-pressed={active}
+                    aria-current={active ? 'page' : undefined}
                     tabIndex={active || isDefaultFocusable ? 0 : -1}
                     onClick={() => {
                       if (button.panel) {
@@ -161,6 +162,7 @@ export function LeftToolbar() {
                   type="button"
                   aria-label={label}
                   aria-pressed={active}
+                  aria-current={active ? 'page' : undefined}
                   tabIndex={active ? 0 : -1}
                   onClick={() => {
                     if (button.route) {

@@ -30,34 +30,26 @@ afterEach(() => {
 describe('ProcessPromptStore', () => {
   it('ships compact, substantive defaults for every process category', () => {
     const expectedSnippets: Record<string, string[]> = {
-      'character-ref-image-generation': ['full-sheet', 'anti-collapse'],
-      'location-ref-image-generation': ['bible', 'no characters, no people'],
-      'equipment-ref-image-generation': ['ortho-grid', 'silhouette'],
+      'entity-ref-image-generation': ['full-sheet', 'anti-collapse', 'ortho-grid', 'bible'],
       'image-node-generation': ['five elements', 'canvas.setNodeRefs'],
       'video-node-generation': ['three-part', 'canvas.setVideoFrames'],
-      'audio-voice': ['emotionVector', 'bracketed'],
-      'audio-music': ['Genre anchor', 'BPM'],
-      'audio-sfx': ['Environment acoustics', 'seamless loop'],
-      'node-preset-tracks': ['canvas.writePresetTracksBatch', 'category'],
-      'preset-definition-management': ['preset.create', 'category'],
-      'shot-template-management': ['canvas.applyShotTemplate', 'shotTemplate.create'],
-      'color-style-management': ['colorStyle.save', 'palette'],
-      'character-management': ['character.create', 'durable identity'],
-      'location-management': ['location.create', 'durable place identity'],
-      'equipment-management': ['equipment.create', 'durable object identity'],
-      'canvas-structure': ['canvas.addNode', 'canvas.batchCreate'],
+      'audio-generation': ['emotionVector', 'bracketed', 'Genre anchor', 'BPM', 'Environment acoustics', 'seamless loop'],
+      'node-preset-tracks': ['canvas.presetTracks', 'category'],
+      'preset-definition-management': ['preset.manage', 'category'],
+      'shot-template-management': ['canvas.presetTracks', 'shotTemplate.manage'],
+      'color-style-management': ['colorStyle.manage', 'palette'],
+      'entity-management': ['entity.list', 'durable identity'],
+      'canvas-structure': ['canvas.createNodes'],
       'canvas-graph-and-layout': ['canvas.connectNodes', 'Left-to-right'],
       'canvas-node-editing': ['canvas.updateNodes', 'canvas.setNodeRefs'],
-      'provider-management': ['provider.list', 'provider.getCapabilities'],
-      'node-provider-selection': ['canvas.setNodeProvider', 'providerId'],
-      'image-config': ['canvas.setImageParams', 'width'],
-      'video-config': ['canvas.setVideoParams', 'duration'],
-      'audio-config': ['canvas.setAudioParams', 'emotionVector'],
-      'script-development': ['script.write', 'Fountain'],
-      'vision-analysis': ['vision.describeImage', 'intent'],
+      'provider-management': ['provider.manage'],
+      'node-provider-selection': ['canvas.configureNode', 'providerId'],
+      'media-config': ['canvas.setMediaParams', 'width', 'duration', 'emotionVector'],
+      'script-development': ['script.manage', 'Fountain'],
+      'vision-analysis': ['text.analyze', 'intent'],
       'snapshot-and-rollback': ['snapshot.restore', 'commander.askUser'],
       'render-and-export': ['render.start', 'render.exportBundle'],
-      'workflow-orchestration': ['workflow.expandIdea', 'workflow.control'],
+      'workflow-orchestration': ['workflow.manage'],
       'series-management': ['series.update', 'episode'],
       'prompt-template-management': ['prompt.setCustom', 'process-prompt store'],
       'asset-library-management': ['asset.import', 'asset.list'],
@@ -66,9 +58,10 @@ describe('ProcessPromptStore', () => {
       'batch-create-guidance': ['batch-creating', 'backdrops'],
       'prompt-quality-gate': ['canvas.getNode', 'canvas.previewPrompt'],
       'story-workflow-phase': ['phase gates', 'ref images'],
+      'canvas-settings': ['canvas.getInfo', 'stylePlate'],
     };
 
-    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(37);
+    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(30);
 
     for (const entry of PROCESS_PROMPT_DEFAULTS) {
       expect(entry.defaultValue.length).toBeGreaterThan(220);

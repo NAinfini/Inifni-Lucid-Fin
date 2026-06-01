@@ -17,6 +17,9 @@ describe('presets DTO', () => {
       'emotion',
       'flow',
       'technical',
+      'voice-style',
+      'music-genre',
+      'sfx-environment',
     ]);
     expect(new Set(PRESET_CATEGORIES).size).toBe(PRESET_CATEGORIES.length);
   });
@@ -54,7 +57,7 @@ describe('presets DTO', () => {
   });
 
   it('builds a complete built-in preset library with unique ids', () => {
-    expect(BUILT_IN_PRESET_LIBRARY).toHaveLength(186);
+    expect(BUILT_IN_PRESET_LIBRARY).toHaveLength(216);
 
     const ids = BUILT_IN_PRESET_LIBRARY.map((preset) => preset.id);
     expect(new Set(ids).size).toBe(ids.length);

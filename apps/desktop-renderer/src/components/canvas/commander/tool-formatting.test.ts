@@ -33,10 +33,10 @@ describe('formatToolName', () => {
   it('uses i18n for domain', () => {
     const t = (key: string) => {
       if (key === 'commander.toolDomain.canvas') return 'Canvas';
-      if (key === 'commander.toolAction.addNode') return 'Add Node';
+      if (key === 'commander.toolAction.createNodes') return 'Create Nodes';
       return key;
     };
-    expect(formatToolName('canvas.addNode', t)).toBe('Canvas: Add Node');
+    expect(formatToolName('canvas.createNodes', t)).toBe('Canvas: Create Nodes');
   });
 
   it('normalizes LLM wire-format snake_case tool names', () => {

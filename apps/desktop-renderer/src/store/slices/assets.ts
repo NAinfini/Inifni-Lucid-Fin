@@ -240,3 +240,15 @@ export const selectFilteredAssets = createSelector(
     return filteredItems;
   },
 );
+
+/**
+ * Memoized selector: assets filtered by folder ID.
+ * Avoids re-renders when unrelated assets change in other folders.
+ */
+export const selectAssetsByFolder = createSelector(
+  [selectAssetItems, (_state: { assets: AssetsState }, folderId: string | null) => folderId],
+  (items, folderId) =>
+    items.filter((asset) =>
+      folderId === null ? !asset.folderId : asset.folderId === folderId,
+    ),
+);

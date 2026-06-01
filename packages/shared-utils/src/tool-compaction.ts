@@ -10,7 +10,7 @@
  *   - **log**:      Returns log/history entries. Paginate to N most recent.
  *   - **mutation**: One-shot write operations. Summarize as a one-liner and discard result.
  *   - **meta**:     Infrastructure tools (tool.get, commander.askUser). Lightweight, no special compaction.
- *   - **query**:    Stateless transforms (text.transform, vision.describeImage). Treat like get: deep-trim result.
+ *   - **query**:    Stateless transforms (text.transform, text.analyze). Treat like get: deep-trim result.
  *
  * When a new tool is added but not listed here, it falls through to the
  * deep-trim step (step 4) which is always safe. A dev-mode console.warn
@@ -21,29 +21,18 @@ export type ToolCompactionCategory = 'list' | 'get' | 'log' | 'mutation' | 'meta
 
 const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   // ── List tools ──────────────────────────────────────────────
-  'character.list': 'list',
-  'equipment.list': 'list',
-  'location.list': 'list',
-  'preset.list': 'list',
+  'entity.list': 'list',
   'asset.list': 'list',
-  'provider.list': 'list',
-  'shotTemplate.list': 'list',
   'canvas.listNodes': 'list',
   'canvas.listEdges': 'list',
-  'colorStyle.list': 'list',
 
   // ── Get / read tools ───────────────────────────────────────
   'canvas.getNode': 'get',
-  'canvas.getState': 'get',
-  'canvas.readNodePresetTracks': 'get',
-  'preset.get': 'get',
+  'canvas.getInfo': 'get',
   'prompt.get': 'get',
   'guide.get': 'get',
   'series.get': 'get',
   'series.listEpisodes': 'list',
-  'provider.getActive': 'get',
-  'provider.getCapabilities': 'get',
-  'script.read': 'get',
 
   // ── Log / history tools ────────────────────────────────────
   'logger.list': 'log',
@@ -54,17 +43,24 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'tool.get': 'meta',
   'tool.compact': 'meta',
   'commander.askUser': 'meta',
+  'todo.manage': 'meta',
 
   // ── Query / stateless transforms ───────────────────────────
-  'text.transform': 'query',
-  'vision.describeImage': 'query',
-  'workflow.expandIdea': 'query',
-  'canvas.estimateCost': 'query',
+  'text.analyze': 'query',
+  'canvas.previewPrompt': 'query',
+
+  // ── Manage tools (mixed read/write — compacted as mutation) ─
+  'preset.manage': 'mutation',
+  'colorStyle.manage': 'mutation',
+  'provider.manage': 'mutation',
+  'script.manage': 'mutation',
+  'workflow.manage': 'mutation',
+  'shotTemplate.manage': 'mutation',
+  'canvas.presetTracks': 'mutation',
 
   // ── Mutation tools ─────────────────────────────────────────
   // Canvas mutations
-  'canvas.addNode': 'mutation',
-  'canvas.batchCreate': 'mutation',
+  'canvas.createNodes': 'mutation',
   'canvas.connectNodes': 'mutation',
   'canvas.deleteCanvas': 'mutation',
   'canvas.deleteNode': 'mutation',
@@ -72,88 +68,59 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'canvas.duplicateNodes': 'mutation',
   'canvas.layout': 'mutation',
   'canvas.moveNode': 'mutation',
-  'canvas.renameCanvas': 'mutation',
+  'canvas.manage': 'mutation',
   'canvas.setColorTag': 'mutation',
   'canvas.toggleSeedLock': 'mutation',
   'canvas.updateNodeData': 'mutation',
   'canvas.updateNodePresets': 'mutation',
-  'canvas.writeNodePresetTracks': 'mutation',
-  'canvas.writePresetTracksBatch': 'mutation',
-  'canvas.addPresetEntry': 'mutation',
-  'canvas.removePresetEntry': 'mutation',
-  'canvas.updatePresetEntry': 'mutation',
-  'canvas.applyShotTemplate': 'mutation',
   'canvas.exportWorkflow': 'mutation',
   'canvas.importWorkflow': 'mutation',
-  'canvas.generate': 'mutation',
-  'canvas.cancelGeneration': 'mutation',
+  'canvas.generation': 'mutation',
   'canvas.updateNodes': 'mutation',
   'canvas.setNodeLayout': 'mutation',
-  'canvas.setNodeProvider': 'mutation',
-  'canvas.setImageParams': 'mutation',
-  'canvas.setVideoParams': 'mutation',
-  'canvas.setAudioParams': 'mutation',
+  'canvas.configureNode': 'mutation',
+  'canvas.setMediaParams': 'mutation',
   'canvas.selectVariant': 'mutation',
   'canvas.addNote': 'mutation',
   'canvas.updateNote': 'mutation',
   'canvas.deleteNote': 'mutation',
   'canvas.undo': 'mutation',
   'canvas.redo': 'mutation',
-  'canvas.deleteEdge': 'mutation',
-  'canvas.swapEdgeDirection': 'mutation',
-  'canvas.disconnectNode': 'mutation',
-  'canvas.updateBackdrop': 'mutation',
+  'canvas.manageEdge': 'mutation',
   'canvas.setNodeRefs': 'mutation',
   'canvas.setVideoFrames': 'mutation',
+  'canvas.setSettings': 'mutation',
 
   // Entity mutations
-  'character.create': 'mutation',
-  'character.update': 'mutation',
-  'character.delete': 'mutation',
-  'character.refImages': 'mutation',
-  'equipment.create': 'mutation',
-  'equipment.update': 'mutation',
-  'equipment.delete': 'mutation',
-  'location.create': 'mutation',
-  'location.update': 'mutation',
-  'location.delete': 'mutation',
+  'entity.create': 'mutation',
+  'entity.update': 'mutation',
+  'entity.delete': 'mutation',
+  'entity.generateRefImage': 'mutation',
+  'entity.setRefImage': 'mutation',
+  'entity.deleteRefImage': 'mutation',
+  'entity.setRefImageFromNode': 'mutation',
 
-  // Preset / template mutations
-  'preset.create': 'mutation',
-  'preset.update': 'mutation',
-  'preset.delete': 'mutation',
-  'preset.reset': 'mutation',
-  'shotTemplate.create': 'mutation',
-  'shotTemplate.update': 'mutation',
-  'shotTemplate.delete': 'mutation',
-
-  // Provider mutations
-  'provider.setActive': 'mutation',
+  // Provider admin mutations (excluded from Commander AI)
   'provider.setKey': 'mutation',
   'provider.update': 'mutation',
   'provider.addCustom': 'mutation',
   'provider.removeCustom': 'mutation',
 
-  // Render / generation
+  // Render / generation (excluded from Commander AI)
   'render.start': 'mutation',
   'render.cancel': 'mutation',
   'render.exportBundle': 'mutation',
 
-  // Script
+  // Script (excluded from Commander AI)
   'script.import': 'mutation',
-  'script.write': 'mutation',
 
   // Prompt
   'prompt.setCustom': 'mutation',
 
-  // Asset
+  // Asset (excluded from Commander AI)
   'asset.import': 'mutation',
 
-  // Color style
-  'colorStyle.save': 'mutation',
-  'colorStyle.delete': 'mutation',
-
-  // Series
+  // Series (excluded from Commander AI)
   'series.update': 'mutation',
   'series.addEpisode': 'mutation',
   'series.removeEpisode': 'mutation',
@@ -163,8 +130,7 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'snapshot.create': 'mutation',
   'snapshot.restore': 'mutation',
 
-  // Workflow / job
-  'workflow.control': 'mutation',
+  // Job (excluded from Commander AI)
   'job.control': 'mutation',
 };
 

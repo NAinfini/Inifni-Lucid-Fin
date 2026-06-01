@@ -60,7 +60,7 @@ export interface CommanderChatRequest {
   selectedNodeIds: string[];
   promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
   customLLMProvider?: LLMProviderRuntimeConfig;
-  permissionMode?: 'auto' | 'normal' | 'strict';
+  permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
   locale?: string;
   maxSteps?: number;
   temperature?: number;
@@ -162,9 +162,7 @@ export type CommanderToolSearchResponse = Array<{
  */
 export type CommanderIntentPayload =
   | { kind: 'informational' }
-  | { kind: 'browse' }
-  | { kind: 'execution'; workflow?: string }
-  | { kind: 'mixed'; workflow?: string };
+  | { kind: 'execution'; workflow?: string };
 
 export type CommanderEvidencePayload =
   | { kind: 'guide_loaded'; guideId: string; at: number }
@@ -172,7 +170,7 @@ export type CommanderEvidencePayload =
   | { kind: 'ask_user_answered'; answer: string; at: number }
   | { kind: 'mutation_commit'; toolName: string; args: unknown; resultOk: boolean; at: number }
   | { kind: 'validation_error'; toolName: string; errorText: string; at: number }
-  | { kind: 'process_prompt_activated'; key: string; reason: string; at: number }
+  | { kind: 'guide_activated'; key: string; reason: string; at: number }
   | { kind: 'generation_started'; nodeId: string; at: number }
   | { kind: 'settings_write'; canvasId: string; keys: string[]; at: number }
   | { kind: 'user_refused'; message: string; at: number }

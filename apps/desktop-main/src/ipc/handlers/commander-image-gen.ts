@@ -48,6 +48,21 @@ function clampDimensions(
   return { width: clampedW, height: clampedH };
 }
 
+/**
+ * Resolve dimensions to the provider's maximum square when no explicit
+ * width/height is given. Used for reference images where we want the
+ * highest resolution the provider supports.
+ */
+function resolveProviderMaxDimensions(
+  providerId: string,
+): { width: number; height: number } {
+  const profile = getBuiltinProviderCapabilityProfile(providerId);
+  const max = profile?.maxDimension ?? 1024;
+  // Round down to nearest 8 for alignment safety
+  const dim = Math.floor(max / 8) * 8;
+  return { width: dim, height: dim };
+}
+
 // ---------------------------------------------------------------------------
 // Public factory
 // ---------------------------------------------------------------------------
@@ -68,8 +83,8 @@ export function makeGenerateImage(deps: {
     options?: { providerId?: string; width?: number; height?: number },
   ) => {
     const providerId = options?.providerId;
-    const width = options?.width ?? 1024;
-    const height = options?.height ?? 1024;
+    const explicitWidth = options?.width;
+    const explicitHeight = options?.height;
     const jobId = crypto.randomUUID();
     const candidates = providerId
       ? deps.adapterRegistry.list('image').filter((adapter) => adapter.id === providerId)
@@ -81,7 +96,17 @@ export function makeGenerateImage(deps: {
       }
 
       const actualProviderId = providerId ?? adapter.id;
-      const clamped = clampDimensions(width, height, actualProviderId);
+
+      // When no explicit dimensions are given, resolve to the provider's
+      // maximum supported resolution instead of falling back to a fixed default.
+      let clamped: { width: number; height: number };
+      if (explicitWidth != null && explicitHeight != null) {
+        clamped = clampDimensions(explicitWidth, explicitHeight, actualProviderId);
+      } else if (explicitWidth != null || explicitHeight != null) {
+        clamped = clampDimensions(explicitWidth ?? 1024, explicitHeight ?? 1024, actualProviderId);
+      } else {
+        clamped = resolveProviderMaxDimensions(actualProviderId);
+      }
 
       deps.onStart?.(jobId, actualProviderId, clamped.width, clamped.height);
       try {

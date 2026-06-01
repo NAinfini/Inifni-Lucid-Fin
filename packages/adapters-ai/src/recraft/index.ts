@@ -11,8 +11,8 @@ import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { validateProviderUrl } from '../url-policy.js';
 
 export class RecraftAdapter implements AIProviderAdapter {
-  readonly id = 'recraft-v3';
-  readonly name = 'Recraft V3';
+  readonly id = 'recraft-v4';
+  readonly name = 'Recraft V4';
   readonly type: AdapterType = 'image';
   readonly capabilities: Capability[] = ['text-to-image'];
   readonly maxConcurrent = 3;

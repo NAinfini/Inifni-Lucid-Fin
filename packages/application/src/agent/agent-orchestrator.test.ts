@@ -232,7 +232,7 @@ describe('AgentOrchestrator', () => {
 
   it('compacts tool definitions before sending them to the LLM', async () => {
     toolRegistry.register({
-      name: 'canvas.addNode',
+      name: 'canvas.createNodes',
       description:
         'Add a new node to the current canvas at a specific position with very verbose explanation text.',
       tier: 1,
@@ -267,7 +267,7 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     await agent.execute('add node', { page: 'canvas' }, () => {}, {
-      discoveredTools: ['canvas.addNode'],
+      discoveredTools: ['canvas.createNodes'],
     });
 
     const opts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
@@ -510,7 +510,7 @@ describe('AgentOrchestrator', () => {
   it('preserves mutation results under hard limit and trims oversized ones', async () => {
     // Generate a mutation result that exceeds RESULT_HARD_LIMIT (20000 chars)
     toolRegistry.register({
-      name: 'canvas.setNodeProvider',
+      name: 'canvas.configureNode',
       description: 'Set node provider',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
@@ -529,7 +529,7 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-mutation-summary', name: 'canvas.setNodeProvider', arguments: {} }],
+        toolCalls: [{ id: 'tc-mutation-summary', name: 'canvas.configureNode', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -541,7 +541,7 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     await agent.execute('set provider', {}, () => {}, {
-      discoveredTools: ['canvas.setNodeProvider'],
+      discoveredTools: ['canvas.configureNode'],
     });
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
@@ -698,7 +698,7 @@ describe('AgentOrchestrator', () => {
       execute: vi.fn(async () => ({ success: true, data: null })),
     });
     toolRegistry.register({
-      name: 'canvas.getState',
+      name: 'canvas.getInfo',
       description: 'Get canvas state',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
@@ -756,7 +756,7 @@ describe('AgentOrchestrator', () => {
     const firstToolNames = firstOpts.tools.map((t) => t.name);
     expect(firstToolNames).not.toContain('series.addEpisode');
     expect(firstToolNames).toContain('tool.get');
-    expect(firstToolNames).toContain('canvas.getState');
+    expect(firstToolNames).toContain('canvas.getInfo');
 
     // Second call: series.addEpisode now available after tool.get
     const secondOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][1] as {
@@ -830,10 +830,10 @@ describe('AgentOrchestrator', () => {
     expect(err?.params?.message).toContain('tool.get');
   });
 
-  it('injects a process-bound system prompt after a matching tool call', async () => {
+  it('process-bound system prompt injection removed — tool call does not inject guides', async () => {
     toolRegistry.register({
-      name: 'character.generateRefImage',
-      description: 'Generate a character reference image',
+      name: 'entity.generateRefImage',
+      description: 'Generate an entity reference image',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true, data: { assetHash: 'asset-1' } })),
@@ -842,7 +842,7 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-ref', name: 'character.generateRefImage', arguments: {} }],
+        toolCalls: [{ id: 'tc-ref', name: 'entity.generateRefImage', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -852,13 +852,10 @@ describe('AgentOrchestrator', () => {
       },
     ]);
 
-    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-      resolveProcessPrompt: (processKey) =>
-        processKey === 'character-ref-image-generation' ? 'Ref image rules go here.' : null,
-    });
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
     await agent.execute('generate ref', {}, () => {}, {
-      discoveredTools: ['character.generateRefImage'],
+      discoveredTools: ['entity.generateRefImage'],
     });
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
@@ -867,20 +864,14 @@ describe('AgentOrchestrator', () => {
       content: string;
     }>;
 
-    // 1I: Process prompts are now consolidated into the system prompt
-    // (messages[0]) rather than injected as separate system messages.
     const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-    expect(systemPrompt).toContain('character-ref-image-generation');
-    expect(systemPrompt).toContain('Character Reference Image Generation');
-    expect(systemPrompt).toContain('Ref image rules go here.');
+    expect(systemPrompt).not.toContain('entity-ref-image-generation');
+    expect(systemPrompt).not.toContain('Active Process Guides');
   });
 
-  it('injects initial process prompts before the first LLM call when context requests them', async () => {
+  it('initialProcessPrompts in context is ignored (injection paths removed)', async () => {
     const adapter = createMockAdapter([{ content: 'done', toolCalls: [], finishReason: 'stop' }]);
-    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-      resolveProcessPrompt: (processKey) =>
-        processKey === 'image-node-generation' ? 'Image prompt rules.' : null,
-    });
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
     await agent.execute(
       'rewrite the prompt',
@@ -894,64 +885,27 @@ describe('AgentOrchestrator', () => {
       content: string;
     }>;
 
-    // 1I: Process prompts are now consolidated into the system prompt.
     const systemPrompt = firstCallMessages.find((m) => m.role === 'system')?.content ?? '';
-    expect(systemPrompt).toContain('image-node-generation');
-    expect(systemPrompt).toContain('Image prompt rules.');
+    expect(systemPrompt).not.toContain('Image prompt rules.');
   });
 
-  it('deduplicates and later strips inactive process prompts', async () => {
-    // Uses canvas.renameCanvas (process: canvas-structure) because it is not
-    // a phase-critical process. Phase-critical process prompts
-    // (workflow-orchestration, *-ref-image-generation, image/video node
-    // generation, render-and-export) are pinned once active and intentionally
-    // not stripped — see AgentOrchestrator.PHASE_CRITICAL_PROCESS_KEYS.
+  it('process prompt injection removed — system prompt has no Active Process Guides section', async () => {
     const renameTool = vi.fn(async () => ({ success: true, data: { canvasId: 'c1' } }));
-    const noopTool = vi.fn(async () => ({ success: true, data: { ok: true } }));
 
     toolRegistry.register({
-      name: 'canvas.renameCanvas',
+      name: 'canvas.manage',
       description: 'Rename canvas',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: renameTool,
-    });
-    toolRegistry.register({
-      name: 'noop.tool',
-      description: 'No-op',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: noopTool,
     });
 
     const adapter = createMockAdapter([
       {
         content: '',
         toolCalls: [
-          { id: 'tc-1', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'a' } },
+          { id: 'tc-1', name: 'canvas.manage', arguments: { canvasId: 'c1', name: 'a' } },
         ],
-        finishReason: 'tool_calls',
-      },
-      {
-        content: '',
-        toolCalls: [
-          { id: 'tc-2', name: 'canvas.renameCanvas', arguments: { canvasId: 'c1', name: 'b' } },
-        ],
-        finishReason: 'tool_calls',
-      },
-      {
-        content: '',
-        toolCalls: [{ id: 'tc-3', name: 'noop.tool', arguments: {} }],
-        finishReason: 'tool_calls',
-      },
-      {
-        content: '',
-        toolCalls: [{ id: 'tc-4', name: 'noop.tool', arguments: {} }],
-        finishReason: 'tool_calls',
-      },
-      {
-        content: '',
-        toolCalls: [{ id: 'tc-5', name: 'noop.tool', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -961,33 +915,19 @@ describe('AgentOrchestrator', () => {
       },
     ]);
 
-    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-      resolveProcessPrompt: (processKey) =>
-        processKey === 'canvas-structure' ? 'Canvas structure rules.' : null,
-    });
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
     await agent.execute('run workflow', {}, () => {}, {
-      discoveredTools: ['canvas.renameCanvas', 'noop.tool'],
+      discoveredTools: ['canvas.manage'],
     });
 
-    const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-      .calls[2][0] as Array<{
+    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[1][0] as Array<{
       role: string;
       content: string;
     }>;
-    // 1I: Process prompt is now consolidated into the system prompt.
-    const thirdSystemPrompt = thirdCallMessages.find((m) => m.role === 'system')?.content ?? '';
-    expect(thirdSystemPrompt).toContain('canvas-structure');
-    expect(thirdSystemPrompt).toContain('Canvas structure rules.');
-
-    const sixthCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-      .calls[5][0] as Array<{
-      role: string;
-      content: string;
-    }>;
-    // After inactivity, the process prompt should be stripped.
-    const sixthSystemPrompt = sixthCallMessages.find((m) => m.role === 'system')?.content ?? '';
-    expect(sixthSystemPrompt).not.toContain('canvas-structure');
+    const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
+    expect(systemPrompt).not.toContain('Active Process Guides');
   });
 
   // ── ContextGraph path (openai adapter) ───
@@ -1429,33 +1369,20 @@ describe('AgentOrchestrator', () => {
     });
   });
 
-  describe('style-plate-lock injection (04-19 fake-user-study fix)', () => {
-    function registerBatchCreate() {
+  describe('style-plate-lock injection (dormant — specs removed)', () => {
+    function registerEntityRefImage() {
       toolRegistry.register({
-        name: 'canvas.batchCreate',
-        description: 'Create nodes and edges atomically',
-        tier: 1,
-        parameters: { type: 'object', properties: {}, required: [] },
-        execute: vi.fn(async () => ({ success: true, data: { nodeIds: ['n1'] } })),
-      });
-    }
-
-    function registerCharacterRefImage() {
-      toolRegistry.register({
-        name: 'character.generateRefImage',
-        description: 'Generate a character reference image',
+        name: 'entity.generateRefImage',
+        description: 'Generate an entity reference image',
         tier: 1,
         parameters: { type: 'object', properties: {}, required: [] },
         execute: vi.fn(async () => ({ success: true, data: { hash: 'h1' } })),
       });
     }
 
-    it('Bug A — opener-time style-plate-lock in initialProcessPrompts reaches the LLM', async () => {
+    it('Bug A — initialProcessPrompts no longer injects into system prompt (injection paths removed)', async () => {
       const adapter = createMockAdapter([{ content: 'done', toolCalls: [], finishReason: 'stop' }]);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveProcessPrompt: (processKey) =>
-          processKey === ('style-plate-lock' as never) ? 'Lock the plate before ref-images.' : null,
-      });
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
       await agent.execute(
         'start a new story',
@@ -1469,14 +1396,12 @@ describe('AgentOrchestrator', () => {
         content: string;
       }>;
 
-      // 1I: Process prompts are now consolidated into the system prompt.
       const systemPrompt = firstCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).toContain('style-plate-lock');
-      expect(systemPrompt).toContain('Lock the plate before ref-images.');
+      expect(systemPrompt).not.toContain('Lock the plate before ref-images.');
     });
 
-    it('Bug B — injects style-plate-lock pre-flight when canvas.batchCreate includes an image node and stylePlate is empty', async () => {
-      registerCharacterRefImage();
+    it('Bug B — spec infrastructure dormant, no style-plate-lock injection on entity.generateRefImage', async () => {
+      registerEntityRefImage();
 
       const adapter = createMockAdapter([
         {
@@ -1484,7 +1409,7 @@ describe('AgentOrchestrator', () => {
           toolCalls: [
             {
               id: 'tc-ref',
-              name: 'character.generateRefImage',
+              name: 'entity.generateRefImage',
               arguments: { canvasId: 'c1', characterId: 'char-1' },
             },
           ],
@@ -1498,105 +1423,22 @@ describe('AgentOrchestrator', () => {
       ]);
 
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveProcessPrompt: (processKey) =>
-          processKey === ('style-plate-lock' as never) ? 'Lock the plate.' : null,
         resolveCanvasSettings: () => ({ stylePlate: null }),
       });
 
       await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
 
-      // Pre-flight defers the assistant turn, so the SECOND LLM call is where
-      // the system message should appear.
       const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
         .calls[1][0] as Array<{
         role: string;
         content: string;
       }>;
-      // 1I: Process prompts are now consolidated into the system prompt.
       const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).toContain('style-plate-lock');
-      expect(systemPrompt).toContain('Lock the plate.');
+      expect(systemPrompt).not.toContain('style-plate-lock');
     });
 
-    it('does NOT inject when canvas.batchCreate payload has only text nodes', async () => {
-      registerBatchCreate();
-
-      const adapter = createMockAdapter([
-        {
-          content: '',
-          toolCalls: [
-            {
-              id: 'tc-text',
-              name: 'canvas.batchCreate',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'text', label: 'note' }] },
-            },
-          ],
-          finishReason: 'tool_calls',
-        },
-        {
-          content: 'done',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
-      const resolveProcessPromptMock = vi.fn((processKey: ProcessCategory) =>
-        processKey === ('style-plate-lock' as never) ? 'Lock the plate.' : null,
-      );
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveProcessPrompt: resolveProcessPromptMock,
-        resolveCanvasSettings: () => ({ stylePlate: null }),
-      });
-
-      await agent.execute('add a caption', { extra: { canvasId: 'c1' } }, () => {});
-
-      // resolveProcessPrompt should never have been called with style-plate-lock.
-      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
-        (args) => args[0] === ('style-plate-lock' as never),
-      );
-      expect(stylePlateCalls).toHaveLength(0);
-    });
-
-    it('does NOT inject when stylePlate is already set', async () => {
-      registerBatchCreate();
-
-      const adapter = createMockAdapter([
-        {
-          content: '',
-          toolCalls: [
-            {
-              id: 'tc-img',
-              name: 'canvas.batchCreate',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-            },
-          ],
-          finishReason: 'tool_calls',
-        },
-        {
-          content: 'done',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
-      const resolveProcessPromptMock = vi.fn(() => null);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveProcessPrompt: resolveProcessPromptMock,
-        resolveCanvasSettings: () => ({ stylePlate: 'neo-noir watercolor' }),
-      });
-
-      await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
-
-      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
-        (args) => args[0] === ('style-plate-lock' as never),
-      );
-      expect(stylePlateCalls).toHaveLength(0);
-    });
-
-    it('does NOT re-inject once style-plate-lock has already been primed this session', async () => {
-      registerCharacterRefImage();
+    it('no-op when two generation tool calls in same session (specs dormant)', async () => {
+      registerEntityRefImage();
 
       const adapter = createMockAdapter([
         {
@@ -1604,7 +1446,7 @@ describe('AgentOrchestrator', () => {
           toolCalls: [
             {
               id: 'tc-img-1',
-              name: 'character.generateRefImage',
+              name: 'entity.generateRefImage',
               arguments: { canvasId: 'c1', characterId: 'char-1' },
             },
           ],
@@ -1615,7 +1457,7 @@ describe('AgentOrchestrator', () => {
           toolCalls: [
             {
               id: 'tc-img-2',
-              name: 'character.generateRefImage',
+              name: 'entity.generateRefImage',
               arguments: { canvasId: 'c1', characterId: 'char-2' },
             },
           ],
@@ -1628,38 +1470,26 @@ describe('AgentOrchestrator', () => {
         },
       ]);
 
-      const resolveProcessPromptMock = vi.fn((processKey: ProcessCategory) =>
-        processKey === ('style-plate-lock' as never) ? 'Lock the plate.' : null,
-      );
-
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveProcessPrompt: resolveProcessPromptMock,
         resolveCanvasSettings: () => ({ stylePlate: null }),
       });
 
       await agent.execute('build two scenes', { extra: { canvasId: 'c1' } }, () => {});
 
-      // Prompt resolution for style-plate-lock happens exactly once across
-      // the whole run, despite two generation-tool calls.
-      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
-        (args) => args[0] === ('style-plate-lock' as never),
-      );
-      expect(stylePlateCalls).toHaveLength(1);
+      const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+        .calls[2][0] as Array<{
+        role: string;
+        content: string;
+      }>;
+      const systemPrompt = thirdCallMessages.find((m) => m.role === 'system')?.content ?? '';
+      expect(systemPrompt).not.toContain('style-plate-lock');
     });
 
     it('is a no-op when resolveCanvasSettings is not provided', async () => {
-      registerBatchCreate();
-
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [
-            {
-              id: 'tc-img',
-              name: 'canvas.batchCreate',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-            },
-          ],
+          toolCalls: [{ id: 'tc-1', name: 'entity.generateRefImage', arguments: {} }],
           finishReason: 'tool_calls',
         },
         {
@@ -1669,19 +1499,18 @@ describe('AgentOrchestrator', () => {
         },
       ]);
 
-      const resolveProcessPromptMock = vi.fn(() => null);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveProcessPrompt: resolveProcessPromptMock,
-        // resolveCanvasSettings intentionally omitted.
-      });
+      registerEntityRefImage();
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
       await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
 
-      const stylePlateCalls = resolveProcessPromptMock.mock.calls.filter(
-        (args) => args[0] === ('style-plate-lock' as never),
-      );
-      expect(stylePlateCalls).toHaveLength(0);
+      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+        .calls[1][0] as Array<{
+        role: string;
+        content: string;
+      }>;
+      const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
+      expect(systemPrompt).not.toContain('style-plate-lock');
     });
   });
 

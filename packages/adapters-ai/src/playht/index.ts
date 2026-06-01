@@ -9,14 +9,14 @@ import type {
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
 import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateProviderUrl } from '../url-policy.js';
 
 export class PlayHTAdapter implements AIProviderAdapter {
   readonly id = 'playht-3';
-  readonly name = 'PlayHT 3.0';
+  readonly name = 'PlayHT';
   readonly type: AdapterType = 'voice';
   readonly capabilities: Capability[] = ['text-to-voice'];
   readonly maxConcurrent = 5;
@@ -65,7 +65,7 @@ export class PlayHTAdapter implements AIProviderAdapter {
         text: req.prompt,
         voice: voiceId,
         output_format: 'mp3',
-        voice_engine: 'Play3.0-mini',
+        voice_engine: 'PlayDialog',
       }),
       timeoutMs: 60_000,
     });
@@ -80,7 +80,7 @@ export class PlayHTAdapter implements AIProviderAdapter {
     const buffer = Buffer.from(await res.arrayBuffer());
     const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
     const outPath = join(tmpdir(), `tts-playht-${hash}.mp3`);
-    writeFileSync(outPath, buffer);
+    await writeFile(outPath, buffer);
 
     return {
       assetHash: hash,

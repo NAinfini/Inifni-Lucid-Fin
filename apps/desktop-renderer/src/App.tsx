@@ -10,6 +10,7 @@ import { useBootstrap } from './hooks/use-bootstrap.js';
 import { useDailyActiveTracker } from './hooks/useDailyActiveTracker.js';
 import { lazyPage } from './utils/performance.js';
 import type { RootState } from './store/index.js';
+import { SkeletonPage } from './components/ui/Skeleton.js';
 
 const CanvasPage = lazyPage(async () => {
   const module = await import('./pages/CanvasPage.js');
@@ -47,13 +48,7 @@ export function App() {
         <CommandPalette />
         <ToastViewport />
         <AppShell>
-          <Suspense
-            fallback={
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                Loading...
-              </div>
-            }
-          >
+          <Suspense fallback={<SkeletonPage />}>
             <Routes>
               <Route path="/" element={<CanvasPage />} />
               <Route path="/settings" element={<Settings />} />

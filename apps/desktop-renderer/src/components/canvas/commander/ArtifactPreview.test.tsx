@@ -5,9 +5,9 @@ import { extractChanges } from './ArtifactPreview.js';
 describe('extractChanges', () => {
   const titles: Record<string, string> = { n1: 'My Node', n2: 'Other Node' };
 
-  it('extracts added nodes from batchCreate result', () => {
+  it('extracts added nodes from createNodes result', () => {
     const result = { success: true, nodes: [{ id: 'n1', title: 'My Node' }] };
-    const changes = extractChanges('canvas.batchCreate', result, titles);
+    const changes = extractChanges('canvas.createNodes', result, titles);
     expect(changes).toHaveLength(1);
     expect(changes[0]).toEqual({ type: 'added', label: 'My Node', id: 'n1' });
   });
@@ -41,7 +41,7 @@ describe('extractChanges', () => {
   });
 
   it('returns empty for null result', () => {
-    expect(extractChanges('canvas.addNode', null, titles)).toEqual([]);
+    expect(extractChanges('canvas.createNodes', null, titles)).toEqual([]);
   });
 
   it('handles generic success with nodeId', () => {

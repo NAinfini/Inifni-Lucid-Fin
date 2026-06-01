@@ -28,13 +28,13 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Electron-35-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
+  <img src="https://img.shields.io/badge/Electron-41-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
-  <img src="https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite">
+  <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite">
   <img src="https://img.shields.io/badge/SQLite-3-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite">
   <img src="https://img.shields.io/badge/FFmpeg-7-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
-  <img src="https://img.shields.io/badge/Node-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
+  <img src="https://img.shields.io/badge/Node-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
 </p>
 
 </div>
@@ -205,10 +205,10 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
 
 ```mermaid
 graph TB
-    subgraph Desktop["Desktop App (Electron 35)"]
-        subgraph Renderer["Renderer — React 19 + Vite 6"]
+    subgraph Desktop["Desktop App (Electron 41)"]
+        subgraph Renderer["Renderer — React 19 + Vite 8"]
             UI["Canvas Workspace<br/>Inspector &middot; Commander AI"]
-            Store["Redux Store<br/>21 slices"]
+            Store["Redux Store<br/>18 slices"]
         end
 
         subgraph Main["Main Process"]
@@ -263,14 +263,16 @@ apps/
 
 packages/
   contracts/            Shared TypeScript types, DTOs, IPC channel definitions
+  contracts-parse/      Zod schemas for runtime validation of contracts
+  shared-utils/         Pure utility functions shared across layers
   storage/              SQLite database, content-addressable asset store, OS keychain
   adapters-ai/          AI provider adapters (image, video, audio, LLM, vision)
   application/          Commander AI orchestrator, 170+ agent tools, prompt compiler
   domain/               Script parser, prompt assembler, cascade logic
   media-engine/         FFmpeg utilities, Ken Burns, stitcher, NLE export
 
+evals/                  Commander evaluation harness
 .github/workflows/     CI pipeline — type check, test, lint on every push/PR
-e2e/                    Playwright end-to-end tests
 docs/                   AI prompt guides, planning docs
 ```
 
@@ -303,9 +305,9 @@ npm run build
 
 | Requirement | Version                     |
 | ----------- | --------------------------- |
-| Node.js     | >= 20                       |
+| Node.js     | >= 22.12.0                  |
 | npm         | >= 10                       |
-| FFmpeg      | >= 6 (for video processing) |
+| FFmpeg      | >= 7 (for video processing) |
 | OS          | Windows / macOS / Linux     |
 
 </details>
@@ -349,7 +351,7 @@ See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full config.
 
 ## License
 
-Proprietary — All rights reserved.
+MIT — see [LICENSE](LICENSE) for details.
 
 ---
 

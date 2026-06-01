@@ -5,6 +5,7 @@ import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.j
 import { addCanvasNote, updateCanvasNote, deleteCanvasNote } from '../../store/slices/canvas/canvas.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
+import { EmptyState } from '../ui/EmptyState.js';
 
 function NoteTextarea({
   noteId,
@@ -60,9 +61,7 @@ export function CanvasNotesPanel() {
 
       <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
         {notes.length === 0 ? (
-          <div className="text-xs text-muted-foreground/50 text-center py-8">
-            {t('canvasNotes.empty')}
-          </div>
+          <EmptyState icon={StickyNote} title={t('canvasNotes.empty')} />
         ) : (
           notes.map((note) => (
             <div

@@ -188,6 +188,11 @@ async function main() {
           preflightDecisions: [],
           evidenceLedger: [],
           exitDecision: null,
+          contractSatisfied: false,
+          exitOutcome: null,
+          blocker: null,
+          finalCanvas: null,
+          qualityReport: { composite: 0, grade: 'F', dimensions: [], flags: [{ severity: 'critical', code: 'SESSION_ERROR', message: err instanceof Error ? err.message : String(err) }] },
           logFile: '(no log)',
           ms: Date.now() - t0,
         };

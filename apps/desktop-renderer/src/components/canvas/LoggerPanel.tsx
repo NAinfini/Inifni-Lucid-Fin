@@ -6,6 +6,7 @@ import { clearLogs, type LogLevel } from '../../store/slices/logger.js';
 import { setRightPanel } from '../../store/slices/ui.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { EmptyState } from '../ui/EmptyState.js';
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
   debug: 'text-gray-400 bg-gray-500/10',
@@ -168,6 +169,9 @@ export function LoggerPanel() {
       </div>
 
       <div ref={listRef} className="flex-1 overflow-y-auto px-2.5 py-2 space-y-1.5">
+        {filteredEntries.length === 0 ? (
+          <EmptyState icon={ScrollText} title="No log entries" />
+        ) : null}
         {filteredEntries.map((entry) => {
           const expandable = Boolean(entry.detail);
           const expanded = expandedIds.includes(entry.id);

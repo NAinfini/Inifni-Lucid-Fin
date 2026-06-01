@@ -506,4 +506,9 @@ CREATE TRIGGER IF NOT EXISTS assets_au AFTER UPDATE ON assets BEGIN
   INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
   INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
 END;
+
+-- Soft-delete GC indexes
+CREATE INDEX IF NOT EXISTS idx_characters_deleted_at ON characters(deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_equipment_deleted_at ON equipment(deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_locations_deleted_at ON locations(deleted_at) WHERE deleted_at IS NOT NULL;
 `;

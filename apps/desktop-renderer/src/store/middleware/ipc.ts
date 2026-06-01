@@ -4,6 +4,7 @@ import { t } from '../../i18n.js';
 import { enqueueToast } from '../slices/toast.js';
 import { addLog } from '../slices/logger.js';
 import type { GenerationRequest } from '@lucid-fin/contracts';
+import { withRetry } from '../../utils/ipc-retry.js';
 import {
   cancelWorkflow,
   loadWorkflowStages,
@@ -36,31 +37,9 @@ function logIpcError(store: Parameters<Middleware>[0], message: string, error: u
 /** Tracks in-flight IPC requests to prevent duplicates */
 const inflight = new Map<string, Promise<unknown>>();
 
-const MAX_RETRIES = 2;
-const BASE_DELAY_MS = 500;
-
 function dedupeKey(actionType: string, payload: unknown): string {
   if (typeof payload === 'string') return `${actionType}:${payload}`;
   return actionType;
-}
-
-function isRetryable(error: unknown): boolean {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return msg.includes('timeout') || msg.includes('network') || msg.includes('econnrefused');
-  }
-  return false;
-}
-
-async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt >= retries || !isRetryable(error)) throw error;
-      await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
-    }
-  }
 }
 
 async function deduped(key: string, fn: () => Promise<unknown>): Promise<unknown> {

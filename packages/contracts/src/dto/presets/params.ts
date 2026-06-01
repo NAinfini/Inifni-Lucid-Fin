@@ -207,6 +207,42 @@ export const PRESET_NAME_LIBRARY = {
     'max-detail',
     'turbo-preview',
   ],
+  'voice-style': [
+    'narrator-warm',
+    'narrator-authoritative',
+    'conversational',
+    'dramatic-reading',
+    'whisper',
+    'announcer',
+    'child-like',
+    'elderly',
+    'robotic',
+    'breathy',
+  ],
+  'music-genre': [
+    'cinematic-orchestral',
+    'ambient-electronic',
+    'jazz-smooth',
+    'rock-driving',
+    'hip-hop-boom-bap',
+    'classical-piano',
+    'lo-fi-chill',
+    'epic-trailer',
+    'folk-acoustic',
+    'synthwave-retro',
+  ],
+  'sfx-environment': [
+    'indoor-room',
+    'outdoor-nature',
+    'urban-street',
+    'underwater',
+    'cave-reverb',
+    'stadium-crowd',
+    'forest-dense',
+    'desert-wind',
+    'rain-heavy',
+    'mechanical-factory',
+  ],
 } as const satisfies Record<PresetCategory, readonly string[]>;
 
 export const CATEGORY_PROMPT_HINT: Record<PresetCategory, string> = {
@@ -218,6 +254,9 @@ export const CATEGORY_PROMPT_HINT: Record<PresetCategory, string> = {
   emotion: 'emotional tone, expressive body language, and atmosphere',
   flow: 'rhythm, cuts, transitions, and narrative cadence',
   technical: 'render quality, frame ratio, and output configuration',
+  'voice-style': 'vocal delivery, tone, pacing, and character voice',
+  'music-genre': 'musical genre, mood, instrumentation, and tempo',
+  'sfx-environment': 'sound environment, spatial acoustics, and ambience',
 };
 
 export const INTENSITY_PARAM: PresetParamDefinition = {
@@ -342,6 +381,37 @@ export const CATEGORY_PARAM_DEFS: Record<PresetCategory, PresetParamDefinition[]
     { key: 'cfg', label: 'CFG', type: 'number', min: 1, max: 20, defaultValue: 7 },
     INTENSITY_PARAM,
   ],
+  'voice-style': [
+    {
+      key: 'pace',
+      label: 'Pace',
+      type: 'enum',
+      options: ['slow', 'moderate', 'fast'],
+      defaultValue: 'moderate',
+    },
+    INTENSITY_PARAM,
+  ],
+  'music-genre': [
+    {
+      key: 'tempo',
+      label: 'Tempo',
+      type: 'enum',
+      options: ['slow', 'moderate', 'fast', 'variable'],
+      defaultValue: 'moderate',
+    },
+    INTENSITY_PARAM,
+  ],
+  'sfx-environment': [
+    {
+      key: 'reverb',
+      label: 'Reverb',
+      type: 'number',
+      min: 0,
+      max: 100,
+      defaultValue: 40,
+    },
+    INTENSITY_PARAM,
+  ],
 };
 
 export const CATEGORY_DEFAULTS: Record<PresetCategory, PresetParamMap> = {
@@ -353,6 +423,9 @@ export const CATEGORY_DEFAULTS: Record<PresetCategory, PresetParamMap> = {
   emotion: { emotionIntensity: 50, stability: 60, intensity: 100 },
   flow: { tempo: 5, durationMs: 900, softness: 40, intensity: 100 },
   technical: { ratio: '16:9', quality: 'medium', steps: 20, cfg: 7, intensity: 100 },
+  'voice-style': { pace: 'moderate', intensity: 100 },
+  'music-genre': { tempo: 'moderate', intensity: 100 },
+  'sfx-environment': { reverb: 40, intensity: 100 },
 };
 
 export const ASPECT_RATIO_BY_NAME: Record<string, string> = {

@@ -105,3 +105,12 @@ export type {
   BackupResult,
   BackupFailure,
 } from './backup.js';
+
+// Schema migration system
+export { runMigrations, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './migrations.js';
+export type { Migration } from './migrations.js';
+
+// ── Soft-delete GC ─────────────────────────────────────────────
+export { purgeSoftDeleted } from './gc.js';
+export type { GcResult } from './gc.js';
+

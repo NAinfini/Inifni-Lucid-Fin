@@ -8,5 +8,12 @@
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../contracts" }, { "path": "../storage" }, { "path": "../adapters-ai" }]
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../shared-utils" },
+    { "path": "../storage" },
+    { "path": "../adapters-ai" },
+    { "path": "../workflows" },
+    { "path": "../agent" }
+  ]
 }

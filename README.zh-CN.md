@@ -28,13 +28,13 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Electron-35-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
+  <img src="https://img.shields.io/badge/Electron-41-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
-  <img src="https://img.shields.io/badge/TypeScript-5.8-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite">
+  <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite">
   <img src="https://img.shields.io/badge/SQLite-3-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite">
   <img src="https://img.shields.io/badge/FFmpeg-7-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
-  <img src="https://img.shields.io/badge/Node-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
+  <img src="https://img.shields.io/badge/Node-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
 </p>
 
 </div>
@@ -93,11 +93,13 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
 
 - **双提示词系统** — 每个节点支持独立的图像提示词和视频提示词
 - **角色与装备管理** — 参考图、结构化外观字段，确保角色一致性
+- **场景管理** — 结构化场景位置，含氛围、天气、灯光、参考图和节点使用追踪
 - **口型同步** — 视频生成后自动口型同步，支持云端 API 和本地 Wav2Lip
 - **自适应工具执行** — 基于成功率自动调节并发度（1-8 路并行调用）
 - **上下文压缩** — 借鉴 Codex/Claude Code 的 handoff 式摘要，附带防循环保护
 - **镜头模板** — 预定义镜头设置一键应用到多个节点
 - **批量工具操作** — 大部分画布工具支持多节点批量执行
+- **快照与回滚** — Time Machine 式分级保留，支持手动和自动快照
 - **国际化** — 完整的中英文本地化
 
 </details>
@@ -192,10 +194,10 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
 
 ```mermaid
 graph TB
-    subgraph Desktop["桌面应用 (Electron 35)"]
-        subgraph Renderer["渲染进程 — React 19 + Vite 6"]
+    subgraph Desktop["桌面应用 (Electron 41)"]
+        subgraph Renderer["渲染进程 — React 19 + Vite 8"]
             UI["画布工作区<br/>检查器 &middot; 梦鱼 AI"]
-            Store["Redux 状态管理<br/>21 个切片"]
+            Store["Redux 状态管理<br/>18 个切片"]
         end
 
         subgraph Main["主进程"]
@@ -250,14 +252,16 @@ apps/
 
 packages/
   contracts/            共享 TypeScript 类型、DTO、IPC 通道定义
+  contracts-parse/      Zod 运行时校验 Schema
+  shared-utils/         跨层共享的纯工具函数
   storage/              SQLite 数据库、内容寻址资产存储、系统钥匙串
   adapters-ai/          AI 提供方适配器（图像、视频、音频、LLM、视觉）
   application/          梦鱼 AI 编排器、170+ 个代理工具、提示编译器
   domain/               剧本解析器、提示组装器、级联逻辑
   media-engine/         FFmpeg 工具、Ken Burns 效果、拼接器、NLE 导出
 
+evals/                  Commander 评估测试套件
 .github/workflows/     CI 管线 — 每次 push/PR 自动类型检查、测试、代码规范
-e2e/                    Playwright 端到端测试
 docs/                   AI 视频提示词指南、规划文档
 ```
 
@@ -288,12 +292,12 @@ npm run build
 <details>
 <summary><strong>环境要求</strong></summary>
 
-| 要求     | 版本                    |
-| -------- | ----------------------- |
-| Node.js  | >= 20                   |
-| npm      | >= 10                   |
-| FFmpeg   | >= 6（视频处理需要）    |
-| 操作系统 | Windows / macOS / Linux |
+| 要求     | 版本                      |
+| -------- | ------------------------- |
+| Node.js  | >= 22.12.0                |
+| npm      | >= 10                     |
+| FFmpeg   | >= 7（视频处理需要）      |
+| 操作系统 | Windows / macOS / Linux   |
 
 </details>
 
@@ -336,7 +340,7 @@ npm run build
 
 ## 许可证
 
-专有软件 — 版权所有。
+MIT — 详见 [LICENSE](LICENSE)。
 
 ---
 

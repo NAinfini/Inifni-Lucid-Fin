@@ -6,16 +6,18 @@ import { useDispatch, useSelector, shallowEqual } from 'react-redux';
 import {
   Check,
   ChevronDown,
+  Flame,
   Image as ImageIcon,
+  Lock,
   MapPin,
   Minus,
   Paperclip,
   Pencil,
   Play,
   SendHorizonal,
-  Shield,
-  ShieldAlert,
+  ShieldCheck,
   Slash,
+  Sparkles,
   Trash2,
   X,
   Zap,
@@ -540,9 +542,6 @@ export function CommanderPanel() {
           resting — at the input field, not the top of the panel. */}
 
 
-      {/* 3I: Film pipeline rail — renders when todo snapshot is active */}
-      <PipelineRail snapshot={todoSnapshot} isStreaming={isStreaming} t={t} />
-
       <div
         ref={scrollRef}
         data-testid="commander-message-scroll"
@@ -633,6 +632,8 @@ export function CommanderPanel() {
           )}
         </div>
       )}
+
+      <PipelineRail snapshot={todoSnapshot} isStreaming={isStreaming} t={t} />
 
       <footer className="relative shrink-0 border-t border-border/60 bg-card">
         <LiveActivityBar
@@ -1096,20 +1097,24 @@ export function CommanderPanel() {
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => setPermPickerOpen((v) => !v)}
               >
-                {permissionMode === 'auto' && <Zap className="h-2.5 w-2.5 text-emerald-400" />}
-                {permissionMode === 'normal' && <Shield className="h-2.5 w-2.5 text-amber-400" />}
-                {permissionMode === 'strict' && (
-                  <ShieldAlert className="h-2.5 w-2.5 text-red-400" />
+                {permissionMode === 'danger' && (
+                  <Flame className="h-2.5 w-2.5 text-red-400" />
                 )}
+                {permissionMode === 'auto' && <Sparkles className="h-2.5 w-2.5 text-sky-400" />}
+                {permissionMode === 'normal' && (
+                  <ShieldCheck className="h-2.5 w-2.5 text-emerald-400" />
+                )}
+                {permissionMode === 'strict' && <Lock className="h-2.5 w-2.5 text-amber-400" />}
                 <span>{t(`commander.permissionMode.${permissionMode}`)}</span>
                 <ChevronDown className="h-2.5 w-2.5" />
               </button>
               {permPickerOpen && (
                 <div className="absolute bottom-7 right-0 z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
                   {[
-                    { value: 'auto' as const, icon: Zap, color: 'text-emerald-400' },
-                    { value: 'normal' as const, icon: Shield, color: 'text-amber-400' },
-                    { value: 'strict' as const, icon: ShieldAlert, color: 'text-red-400' },
+                    { value: 'danger' as const, icon: Flame, color: 'text-red-400' },
+                    { value: 'auto' as const, icon: Sparkles, color: 'text-sky-400' },
+                    { value: 'normal' as const, icon: ShieldCheck, color: 'text-emerald-400' },
+                    { value: 'strict' as const, icon: Lock, color: 'text-amber-400' },
                   ].map((m) => {
                     const Icon = m.icon;
                     return (

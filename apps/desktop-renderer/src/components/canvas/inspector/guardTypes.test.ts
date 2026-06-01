@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hasTracks, isGenerationNode } from './guardTypes.js';
 import type { CanvasNode } from '@lucid-fin/contracts';
+import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 
 function makeNode(overrides: Partial<CanvasNode>): CanvasNode {
   return {
@@ -48,16 +49,7 @@ describe('hasTracks', () => {
         status: 'empty',
         variants: [],
         selectedVariantIndex: 0,
-        presetTracks: {
-          camera: { category: 'camera', entries: [] },
-          lens: { category: 'lens', entries: [] },
-          look: { category: 'look', entries: [] },
-          scene: { category: 'scene', entries: [] },
-          composition: { category: 'composition', entries: [] },
-          emotion: { category: 'emotion', entries: [] },
-          flow: { category: 'flow', entries: [] },
-          technical: { category: 'technical', entries: [] },
-        },
+        presetTracks: createEmptyPresetTrackSet(),
       },
     });
     expect(hasTracks(node)).toBe(true);
@@ -70,16 +62,7 @@ describe('hasTracks', () => {
         status: 'empty',
         variants: [],
         selectedVariantIndex: 0,
-        presetTracks: {
-          camera: { category: 'camera', entries: [] },
-          lens: { category: 'lens', entries: [] },
-          look: { category: 'look', entries: [] },
-          scene: { category: 'scene', entries: [] },
-          composition: { category: 'composition', entries: [] },
-          emotion: { category: 'emotion', entries: [] },
-          flow: { category: 'flow', entries: [] },
-          technical: { category: 'technical', entries: [] },
-        },
+        presetTracks: createEmptyPresetTrackSet(),
       },
     });
     expect(hasTracks(node)).toBe(true);

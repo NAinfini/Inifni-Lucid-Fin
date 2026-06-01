@@ -9,7 +9,7 @@ import type {
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
 import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { validateProviderUrl } from '../url-policy.js';
@@ -69,7 +69,7 @@ export class FishAudioAdapter implements AIProviderAdapter {
       requestedPath && resolve(requestedPath).startsWith(tmpBase + sep)
         ? requestedPath
         : defaultPath;
-    writeFileSync(outPath, buffer);
+    await writeFile(outPath, buffer);
 
     return { assetHash: hash, assetPath: outPath, provider: this.id, metadata: { voiceId } };
   }

@@ -21,17 +21,18 @@ import {
   Unplug,
 } from 'lucide-react';
 import { useNodeCallbacks } from './node-callbacks-context.js';
+import { COLOR_TAG_VALUES } from '../../lib/color-tokens.js';
 
 const ITEM =
   'flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer outline-none hover:bg-accent hover:text-accent-foreground';
 
 const COLOR_TAGS = [
-  { label: () => t('colors.red'), color: '#ef4444' },
-  { label: () => t('colors.orange'), color: '#f97316' },
-  { label: () => t('colors.yellow'), color: '#eab308' },
-  { label: () => t('colors.green'), color: '#22c55e' },
-  { label: () => t('colors.blue'), color: '#3b82f6' },
-  { label: () => t('colors.purple'), color: '#a855f7' },
+  { label: () => t('colors.red'), color: COLOR_TAG_VALUES.red },
+  { label: () => t('colors.orange'), color: COLOR_TAG_VALUES.orange },
+  { label: () => t('colors.yellow'), color: COLOR_TAG_VALUES.yellow },
+  { label: () => t('colors.green'), color: COLOR_TAG_VALUES.green },
+  { label: () => t('colors.blue'), color: COLOR_TAG_VALUES.blue },
+  { label: () => t('colors.purple'), color: COLOR_TAG_VALUES.purple },
 ] as const;
 
 interface NodeContextMenuProps {

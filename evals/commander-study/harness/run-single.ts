@@ -27,7 +27,7 @@ import {
   type AgentContext,
   type StampedStreamEvent,
 } from '@lucid-fin/application';
-import { DEFAULT_PROVIDER_PROFILE, type LLMAdapter } from '@lucid-fin/contracts';
+import { DEFAULT_PROVIDER_PROFILE, type LLMAdapter, type Canvas } from '@lucid-fin/contracts';
 
 import { createTestEnv, type TestEnvWithCanvas } from './test-env.js';
 import { loadBuiltinPromptGuides } from './guide-loader.js';
@@ -35,13 +35,14 @@ import { installMockGeneration, type MockStats } from './mock-generation.js';
 import { type Persona } from './personas.js';
 import type { CodexProviderSpec } from './provider-config.js';
 import { buildCodexAdapter } from './llm-factory.js';
+import { scoreSession, type QualityReport } from './quality-scoring.js';
 
 // The desktop-main handler lives behind the electron shim; imported here
 // AFTER the shim has been registered at the run-all entrypoint.
 import {
   registerAllTools,
   mergePromptGuidesWithBuiltIns,
-} from '../../../apps/desktop-main/src/ipc/handlers/commander-tool-deps.js';
+} from '../../../apps/desktop-main/src/ipc/handlers/commander-tool-deps/index.js';
 import { buildContext } from '../../../apps/desktop-main/src/ipc/handlers/commander.handlers.js';
 
 export interface SessionResult {
@@ -66,7 +67,7 @@ export interface SessionResult {
   /**
    * Phase D: now authoritative. Populated from the
    * `evidence_appended` stream event filtered on
-   * `evidence.kind === 'process_prompt_activated'`. The pre-Phase-D
+   * `evidence.kind === 'guide_activated'`. The pre-Phase-D
    * grep-based heuristic (`process_prompt_injected` / `process_prompts_primed`
    * events) was a dead listener — the orchestrator never emitted those.
    */
@@ -101,6 +102,10 @@ export interface SessionResult {
    * blocker reasons per archetype.
    */
   blocker: string | null;
+  /** Full canvas snapshot at session end for structural validation. */
+  finalCanvas: Canvas | null;
+  /** Post-session quality report — composite score, grade, dimension breakdown. */
+  qualityReport: QualityReport;
   logFile: string;
   ms: number;
 }
@@ -174,11 +179,6 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     promptGuides,
     undefined,
     sessionId,
-    undefined,
-    undefined,
-    // resolveProcessPrompt — delegate to the harness env's store so the
-    // same process prompts the production app sees get injected.
-    (processKey: string) => env.processPromptStore.getEffectiveValue(processKey),
   );
 
   // Mock generation tools AFTER registerAllTools so Map.set() overrides win.
@@ -187,17 +187,12 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   // Build context the same way commander.handlers does.
   const canvas = env.canvasStore.get(canvasId);
   if (!canvas) throw new Error('seed canvas missing — harness bug');
-  const processPromptKeys = env.processPromptStore.list().map((r) => ({
-    processKey: r.processKey,
-    name: r.name,
-  }));
   const context: AgentContext = buildContext(
     canvas,
     [],
     [],
     env.db,
     promptGuides,
-    processPromptKeys,
   );
 
   // Orchestrator — factory is the only supported construction path (Phase D).
@@ -212,7 +207,6 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     toolRegistry: registry,
     resolvePrompt: (code: string) => env.promptStore.resolve(code),
     canvasStore: env.canvasStore,
-    resolveProcessPrompt: (processKey) => env.processPromptStore.getEffectiveValue(processKey),
     options: {
       maxSteps,
       profile,
@@ -245,7 +239,7 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   const processPromptsInjected: string[] = [];
   const preflightDecisions: SessionResult['preflightDecisions'] = [];
   const evidenceLedger: SessionResult['evidenceLedger'] = [];
-  let exitDecision: SessionResult['exitDecision'] = null;
+  let exitDecision: Record<string, unknown> | null = null;
 
   const emit = (event: StampedStreamEvent) => {
     logEvent({ kind: 'stream', event });
@@ -303,13 +297,13 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     // (`process_prompt_injected`, `process_prompts_primed`). The
     // orchestrator never emitted those; they produced silent empty
     // arrays. The authoritative signal is `evidence_appended` with
-    // `evidence.kind === 'process_prompt_activated'`, handled below.
+    // `evidence.kind === 'guide_activated'`, handled below.
 
     if (kind === 'evidence_appended') {
       const ev = anyEvent.evidence as { kind?: string; [k: string]: unknown } | undefined;
       if (ev && typeof ev === 'object') {
         evidenceLedger.push({ ...(ev as { kind: string; at: number }) });
-        if (ev.kind === 'process_prompt_activated') {
+        if (ev.kind === 'guide_activated') {
           const key = (ev as { key?: unknown }).key;
           if (typeof key === 'string') processPromptsInjected.push(key);
         }
@@ -386,15 +380,18 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   await env.close();
   logStream.end();
 
-  const exitOutcome = typeof exitDecision?.outcome === 'string' ? exitDecision.outcome : null;
+  // TypeScript infers `exitDecision` as `never` after the emit closure because
+  // the variable is reassigned inside a callback. Cast to recover the type.
+  const exitSnapshot = exitDecision as Record<string, unknown> | null;
+  const exitOutcome = typeof exitSnapshot?.outcome === 'string' ? exitSnapshot.outcome : null;
   const contractSatisfied = exitOutcome === 'satisfied' || exitOutcome === 'informational_answered';
-  const blockerRaw = exitDecision?.blocker;
+  const blockerRaw = exitSnapshot?.blocker;
   const blocker =
     blockerRaw && typeof blockerRaw === 'object' && 'kind' in blockerRaw
       ? String((blockerRaw as { kind?: unknown }).kind ?? '')
       : null;
 
-  return {
+  const result: SessionResult = {
     personaIndex: persona.index,
     personaSlug: persona.slug,
     archetype: persona.archetype,
@@ -416,11 +413,17 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     processPromptsInjected,
     preflightDecisions,
     evidenceLedger,
-    exitDecision,
+    exitDecision: exitSnapshot as SessionResult['exitDecision'],
     contractSatisfied,
     exitOutcome,
     blocker,
+    finalCanvas: finalCanvas ?? null,
+    qualityReport: null!,
     logFile,
     ms: Date.now() - started,
   };
+
+  result.qualityReport = scoreSession(result, finalCanvas ?? null);
+
+  return result;
 }

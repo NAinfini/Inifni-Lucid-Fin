@@ -96,9 +96,9 @@ const builtInPresetLibrary = PRESET_CATEGORIES.flatMap((category) => {
   });
 });
 
-if (builtInPresetLibrary.length !== 186) {
+if (builtInPresetLibrary.length !== 216) {
   throw new Error(
-    `BUILT_IN_PRESET_LIBRARY must contain 186 presets, got ${builtInPresetLibrary.length}`,
+    `BUILT_IN_PRESET_LIBRARY must contain 216 presets, got ${builtInPresetLibrary.length}`,
   );
 }
 

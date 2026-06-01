@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
+    "build": "rimraf dist tsconfig.tsbuildinfo && tsc",
     "dev": "tsc --watch"
   },
   "dependencies": {
@@ -14,7 +15,9 @@
     "@lucid-fin/contracts-parse": "*",
     "@lucid-fin/shared-utils": "*",
     "@lucid-fin/storage": "*",
-    "@lucid-fin/adapters-ai": "*"
+    "@lucid-fin/adapters-ai": "*",
+    "@lucid-fin/workflows": "*",
+    "@lucid-fin/agent": "*"
   },
   "optionalDependencies": {
     "js-tiktoken": "^1.0.18"

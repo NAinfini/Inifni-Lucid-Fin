@@ -42,10 +42,11 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'ContextManager',
   'selectContextualToolSet',
   'registerAgentTools',
+  'registerFiltered',
+  'EXCLUDED_TOOLS',
   // Tool factories
   'createCanvasTools',
-  'createCharacterTools',
-  'createLocationTools',
+  'createEntityTools',
   'createScriptTools',
   'createJobTools',
   'jobToolModule',
@@ -59,10 +60,10 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'createRenderTools',
   'createPresetTools',
   'createWorkflowTools',
-  'createEquipmentTools',
   'createMetaTools',
   'createCopywritingTools',
   'createVisionTools',
+  'createTextAnalyzeTools',
   'createSnapshotTools',
   'snapshotToolModule',
   'createTodoTools',
@@ -86,6 +87,10 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'classifyIntent',
   'evaluateProcessPromptSpecs',
   'createStylePlateLockSpec',
+  // RunContext (Phase P3)
+  'SCRATCHPAD_MAX_CHARS',
+  'createEmptyScratchpad',
+  'serializeScratchpad',
 ];
 
 describe('public surface', () => {
@@ -101,13 +106,8 @@ describe('public surface', () => {
       'stylePlateLockPredicate',
       'isGenerationTool',
       'infoAnswerContract',
-      'storyToVideoContract',
-      'stylePlateContract',
-      'shotListContract',
-      'continuityCheckContract',
-      'imageAnalyzeContract',
-      'audioProductionContract',
-      'styleTransferContract',
+      'mutationExecutionContract',
+      'workflowExecutionContract',
     ];
     for (const name of forbidden) {
       expect(pkg).not.toHaveProperty(name);

@@ -26,6 +26,8 @@ import type { LinkEdgeData } from './edges/LinkEdge.js';
 import type { FlowVisualState, PresetTrackNodeData } from './canvas-flow-types.js';
 import { getDefaultNodeFrame } from '../../store/slices/canvas/canvas-helpers.js';
 import { t } from '../../i18n.js';
+import { NODE_MINIMAP_COLORS } from '../../lib/color-tokens.js';
+import { Z } from '../../lib/z-index.js';
 
 // ---------------------------------------------------------------------------
 // Preset helpers
@@ -236,7 +238,7 @@ export function toFlowNode(
             : visualState.dependencyRole === 'focus'
               ? '0 0 14px 3px rgba(168, 85, 247, 0.5)'
               : undefined,
-      zIndex: n.type === 'backdrop' ? 0 : 10,
+      zIndex: n.type === 'backdrop' ? Z.BACKDROP_NODE : Z.CONTENT_NODE,
     },
   };
 
@@ -422,18 +424,5 @@ export function toFlowEdge(
 
 /** Stable module-scope function — no closure, no re-creation per render. */
 export function minimapNodeColor(node: { type?: string }): string {
-  switch (node.type) {
-    case 'text':
-      return '#ffffff';
-    case 'image':
-      return '#3b82f6';
-    case 'video':
-      return '#a855f7';
-    case 'audio':
-      return '#22c55e';
-    case 'backdrop':
-      return '#334155';
-    default:
-      return 'hsl(var(--muted-foreground))';
-  }
+  return NODE_MINIMAP_COLORS[node.type ?? ''] ?? 'hsl(var(--muted-foreground))';
 }

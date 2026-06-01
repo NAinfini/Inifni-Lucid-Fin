@@ -94,6 +94,11 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     'prompt-enhance',
   ];
   readonly profile: ProviderProfile;
+  contextWindow?: number;
+  userContextWindow?: number;
+  get effectiveContextWindow(): number | undefined {
+    return this.userContextWindow ?? this.contextWindow;
+  }
 
   private apiKey = '';
   private baseUrl: string;
@@ -120,6 +125,9 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       this.baseUrl = normalizeClaudeBaseUrl(options.baseUrl as string);
     }
     if (options?.model) this.model = options.model as string;
+    if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
+      this.userContextWindow = options.contextWindow as number;
+    }
   }
 
   async validate(): Promise<boolean> {

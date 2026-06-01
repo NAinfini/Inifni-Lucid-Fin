@@ -15,6 +15,7 @@ import { cn } from '../../../lib/utils.js';
 import { t } from '../../../i18n.js';
 import type { NodeKind, EdgeStatus } from '@lucid-fin/contracts';
 import { useEdgeCallbacks } from '../edge-callbacks-context.js';
+import { EDGE_STATUS_COLORS, DEPENDENCY_ROLE_COLORS } from '../../../lib/color-tokens.js';
 
 export interface LinkEdgeData {
   label?: string;
@@ -23,13 +24,6 @@ export interface LinkEdgeData {
   dimmed?: boolean;
   connectedToSelection?: boolean;
 }
-
-const EDGE_COLORS: Record<EdgeStatus, string> = {
-  idle: '#4b5563', // gray-600 — subtler
-  generating: '#d97706', // amber-600
-  done: '#16a34a', // green-600
-  failed: '#dc2626', // red-600
-};
 
 const DEFAULT_EDGE_DATA: LinkEdgeData = { status: 'idle' };
 
@@ -71,12 +65,12 @@ function LinkEdgeComponent({
 
   const strokeColor =
     edgeData.dependencyRole === 'upstream'
-      ? '#f59e0b'
+      ? DEPENDENCY_ROLE_COLORS.upstream
       : edgeData.dependencyRole === 'downstream'
-        ? '#38bdf8'
+        ? DEPENDENCY_ROLE_COLORS.downstream
         : edgeData.dependencyRole === 'focus'
-          ? '#a855f7'
-          : (EDGE_COLORS[edgeData.status] ?? EDGE_COLORS.idle);
+          ? DEPENDENCY_ROLE_COLORS.focus
+          : (EDGE_STATUS_COLORS[edgeData.status] ?? EDGE_STATUS_COLORS.idle);
 
   const handleDelete = useCallback(() => {
     cb.onDelete(id);

@@ -164,7 +164,6 @@ export async function buildGenerationContext(
     log.debug('[prompt] compilation summary', {
       category: 'prompt-compiler',
       wordCount: compiled.wordCount,
-      budget: compiled.budget,
       segmentCount: compiled.segments.length,
       diagnosticCount: compiled.diagnostics.length,
     });

@@ -9,7 +9,7 @@ import type {
 import { LucidError, ErrorCode, JobStatus } from '@lucid-fin/contracts';
 import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validateProviderUrl } from '../url-policy.js';
@@ -70,7 +70,7 @@ export class ElevenLabsSFXAdapter implements AIProviderAdapter {
     const buffer = Buffer.from(await res.arrayBuffer());
     const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
     const outPath = join(tmpdir(), `sfx-11labs-${hash}.mp3`);
-    writeFileSync(outPath, buffer);
+    await writeFile(outPath, buffer);
 
     return {
       assetHash: hash,

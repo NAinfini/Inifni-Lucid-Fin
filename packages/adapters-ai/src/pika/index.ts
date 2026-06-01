@@ -13,13 +13,13 @@ import { validateProviderUrl } from '../url-policy.js';
 
 export class PikaAdapter implements AIProviderAdapter {
   readonly id = 'pika-v2';
-  readonly name = 'Pika 2.0';
+  readonly name = 'Pika 2.5';
   readonly type: AdapterType = 'video';
   readonly capabilities: Capability[] = ['text-to-video', 'image-to-video'];
   readonly maxConcurrent = 3;
 
   private apiKey = '';
-  private baseUrl = 'https://api.pika.art/v2';
+  private baseUrl = 'https://api.pika.art/v1';
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;

@@ -19,6 +19,7 @@ export function resolveLLMProviderRuntimeConfig(
     model: config.model ?? preset?.model ?? '',
     protocol: config.protocol ?? preset?.protocol,
     authStyle: config.authStyle ?? preset?.authStyle,
+    contextWindow: config.contextWindow,
   });
 }
 

@@ -727,7 +727,7 @@ describe('registerCommanderHandlers logging', () => {
         emit({
           kind: 'tool_call',
           toolCallId: 'call-1',
-          toolRef: { domain: 'canvas', action: 'addNode' },
+          toolRef: { domain: 'canvas', action: 'createNodes' },
           args: { canvasId: 'canvas-1', nodeId: 'node-1' },
         });
         emit({
@@ -739,7 +739,7 @@ describe('registerCommanderHandlers logging', () => {
         emit({
           kind: 'tool_confirm_prompt',
           toolCallId: 'call-2',
-          toolRef: { domain: 'character', action: 'create' },
+          toolRef: { domain: 'entity', action: 'create' },
           args: { name: 'Hero' },
           tier: 3,
         });
@@ -753,7 +753,7 @@ describe('registerCommanderHandlers logging', () => {
         emit({
           kind: 'tool_call',
           toolCallId: 'call-4',
-          toolRef: { domain: 'character', action: 'create' },
+          toolRef: { domain: 'entity', action: 'create' },
           args: { name: 'Hero' },
         });
         emit({
@@ -765,7 +765,7 @@ describe('registerCommanderHandlers logging', () => {
         emit({
           kind: 'tool_call',
           toolCallId: 'call-5',
-          toolRef: { domain: 'character', action: 'explode' },
+          toolRef: { domain: 'entity', action: 'explode' },
           args: {},
         });
         emit({
@@ -851,7 +851,7 @@ describe('registerCommanderHandlers logging', () => {
         event: expect.objectContaining({
           kind: 'tool_call',
           toolCallId: 'call-1',
-          toolRef: { domain: 'canvas', action: 'addNode' },
+          toolRef: { domain: 'canvas', action: 'createNodes' },
         }),
       }),
     );
@@ -907,7 +907,7 @@ describe('registerCommanderHandlers logging', () => {
     expect(send).toHaveBeenCalledWith(
       'commander:entities:updated',
       expect.objectContaining({
-        toolName: 'character.create',
+        toolName: 'entity.create',
       }),
     );
     expect(logger.debug).toHaveBeenCalledWith(
@@ -919,18 +919,18 @@ describe('registerCommanderHandlers logging', () => {
       }),
     );
     expect(logger.debug).toHaveBeenCalledWith(
-      'Tool: canvas.addNode',
+      'Tool: canvas.createNodes',
       expect.objectContaining({
         category: 'commander',
-        toolName: 'canvas.addNode',
+        toolName: 'canvas.createNodes',
         toolCallId: 'call-1',
       }),
     );
     expect(logger.debug).toHaveBeenCalledWith(
-      'Result: canvas.addNode',
+      'Result: canvas.createNodes',
       expect.objectContaining({
         category: 'commander',
-        toolName: 'canvas.addNode',
+        toolName: 'canvas.createNodes',
         toolCallId: 'call-1',
       }),
     );

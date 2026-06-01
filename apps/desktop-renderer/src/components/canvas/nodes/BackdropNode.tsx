@@ -6,8 +6,9 @@ import { t } from '../../../i18n.js';
 import { NodeContextMenu } from '../NodeContextMenu.js';
 import { NodeResizeControls } from './node-resize-controls.js';
 import { useNodeCallbacks } from '../node-callbacks-context.js';
+import { BACKDROP_DEFAULT_COLOR } from '../../../lib/color-tokens.js';
 
-const DEFAULT_COLOR = '#334155';
+const DEFAULT_COLOR = BACKDROP_DEFAULT_COLOR;
 const DEFAULT_OPACITY = 0.14;
 const COLLAPSED_HEIGHT = 44;
 

@@ -93,13 +93,13 @@ function buildLongBrief(topic: string): string {
 const STORY_FREE = [
   'Go with your recommendation and create the scene nodes on canvas now.',
   'Approved. Build all the shot nodes on canvas.',
-  'Yes, proceed. Create the nodes with canvas.addNodes.',
+  'Yes, proceed. Create the nodes with canvas.createNodes.',
 ];
 const POWER_FREE = [
   'Proceed — create the nodes on canvas now.',
   'Approved. Build it on canvas, not just in text.',
   'Yes, go ahead and commit to canvas.',
-  'Continue, use canvas.addNodes for the next step.',
+  'Continue, use canvas.createNodes for the next step.',
 ];
 const EDGE_FREE = [
   'Go with whatever works — put it on canvas.',

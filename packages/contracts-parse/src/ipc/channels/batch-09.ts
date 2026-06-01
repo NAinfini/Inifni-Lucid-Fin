@@ -93,7 +93,7 @@ const CommanderChatRequest = z
     selectedNodeIds: z.array(z.string()),
     promptGuides: z.array(PromptGuideShape).optional(),
     customLLMProvider: LLMProviderRuntimeConfigShape.optional(),
-    permissionMode: z.enum(['auto', 'normal', 'strict']).optional(),
+    permissionMode: z.enum(['danger', 'auto', 'normal', 'strict']).optional(),
     locale: z.string().optional(),
     maxSteps: z.number().optional(),
     temperature: z.number().optional(),
@@ -257,9 +257,7 @@ export type CommanderToolSearchResponse = z.infer<typeof CommanderToolSearchResp
 // by shape. Phase D+ adds a drift-detection check.
 const CommanderIntentPayload = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('informational') }),
-  z.object({ kind: z.literal('browse') }),
   z.object({ kind: z.literal('execution'), workflow: z.string().optional() }),
-  z.object({ kind: z.literal('mixed'), workflow: z.string().optional() }),
 ]);
 
 const CommanderEvidencePayload = z.discriminatedUnion('kind', [
@@ -280,7 +278,7 @@ const CommanderEvidencePayload = z.discriminatedUnion('kind', [
     at: z.number(),
   }),
   z.object({
-    kind: z.literal('process_prompt_activated'),
+    kind: z.literal('guide_activated'),
     key: z.string(),
     reason: z.string(),
     at: z.number(),

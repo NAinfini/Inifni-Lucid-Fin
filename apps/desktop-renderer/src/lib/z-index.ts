@@ -1,4 +1,6 @@
 export const Z = {
+  BACKDROP_NODE: 0,
+  CONTENT_NODE: 10,
   CANVAS_LABEL: 30,
   CANVAS_ACTION: 40,
   CONTEXT_MENU: 50,

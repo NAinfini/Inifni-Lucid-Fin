@@ -59,7 +59,6 @@ describe('compilePrompt', () => {
     expect(Array.isArray(result.diagnostics)).toBe(true);
     expect(result.segments).toBeDefined();
     expect(typeof result.wordCount).toBe('number');
-    expect(typeof result.budget).toBe('number');
   });
 
   it('stacks preset fragments in the required order', () => {
@@ -121,7 +120,7 @@ describe('compilePrompt', () => {
     );
   });
 
-  it('trims prompt to model-specific word budget', () => {
+  it('passes long prompts through without trimming', () => {
     const longPrompt = Array.from({ length: 200 }, (_, i) => `word${i + 1}`).join(' ');
 
     const result = compilePrompt({
@@ -132,7 +131,7 @@ describe('compilePrompt', () => {
       presetLibrary: [],
     });
 
-    expect(result.prompt.split(/\s+/).length).toBe(150);
+    expect(result.prompt.split(/\s+/).length).toBe(200);
   });
 
   it('strips non-motion context in image-to-video mode', () => {
@@ -384,6 +383,9 @@ describe('compilePrompt', () => {
         emotion: { category: 'emotion', entries: [] },
         flow: { category: 'flow', entries: [] },
         technical: { category: 'technical', entries: [] },
+        'voice-style': { category: 'voice-style', entries: [] },
+        'music-genre': { category: 'music-genre', entries: [] },
+        'sfx-environment': { category: 'sfx-environment', entries: [] },
       },
     });
 
@@ -504,6 +506,9 @@ describe('compilePrompt', () => {
         emotion: { category: 'emotion', entries: [] },
         flow: { category: 'flow', entries: [] },
         technical: { category: 'technical', entries: [] },
+        'voice-style': { category: 'voice-style', entries: [] },
+        'music-genre': { category: 'music-genre', entries: [] },
+        'sfx-environment': { category: 'sfx-environment', entries: [] },
       },
       styleGuide: {
         artStyle: 'cinematic-realism',
@@ -698,11 +703,8 @@ describe('tokenizeForWordCount', () => {
   });
 });
 
-describe('compilePrompt — CJK word budget', () => {
-  it('trims a CJK-only prompt to the model-specific word budget', () => {
-    // 200 Chinese ideographs — old code treated this as 1 "word", budget
-    // never triggered, prompt was never trimmed. After the tokenizer fix
-    // every ideograph counts as one token.
+describe('compilePrompt — CJK tokenization', () => {
+  it('passes CJK prompts through without trimming', () => {
     const longCjk = '的'.repeat(200);
 
     const result = compilePrompt({
@@ -713,8 +715,6 @@ describe('compilePrompt — CJK word budget', () => {
       presetLibrary: [],
     });
 
-    // Runway budget is 150; wordCount should match the trimmed length, not
-    // the untrimmed 200.
-    expect(tokenizeForWordCount(result.prompt).length).toBe(150);
+    expect(tokenizeForWordCount(result.prompt).length).toBe(200);
   });
 });

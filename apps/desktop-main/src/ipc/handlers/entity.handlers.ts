@@ -4,6 +4,7 @@ import type { ReferenceImage } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import { parseCharacterId, parseEquipmentId, parseLocationId } from '@lucid-fin/contracts-parse';
 import { generateAndImport } from '../../generation-pipeline.js';
+import { getIpcRateLimiter, rateLimitedError } from '../rate-limiter.js';
 
 type EntityGenerationDeps = {
   adapterRegistry: AdapterRegistry;
@@ -22,6 +23,10 @@ type GenerateArgs = {
 
 export function registerEntityHandlers(ipcMain: IpcMain, deps: EntityGenerationDeps): void {
   ipcMain.handle('entity:generateReferenceImage', async (_event, args: GenerateArgs) => {
+    const rl = getIpcRateLimiter().consume('entity:generateReferenceImage');
+    if (!rl.allowed) {
+      throw rateLimitedError('entity:generateReferenceImage', rl.retryAfterMs ?? 0);
+    }
     const { entityType, entityId, description, provider, variantCount = 1, seed } = args;
 
     if (!entityId || !entityType) throw new Error('entityId and entityType are required');

@@ -11,6 +11,7 @@ import type {
   ShotTemplate,
   VideoNodeData,
 } from '@lucid-fin/contracts';
+import { BACKDROP_DEFAULT_COLOR } from '../../lib/color-tokens.js';
 
 type Translate = (key: string) => string;
 type LocalizeTemplateName = (id: string, name: string) => string;
@@ -326,16 +327,16 @@ export const InspectorCreativeTab = memo(function InspectorCreativeTab({
               <div className="flex items-center gap-2">
                 <input
                   type="color"
-                  value={backdropControls.data.color ?? '#334155'}
+                  value={backdropControls.data.color ?? BACKDROP_DEFAULT_COLOR}
                   onChange={(event) => backdropControls.onColorChange(event.target.value)}
                   className="h-6 w-6 shrink-0 cursor-pointer rounded-md border border-border/60 bg-transparent p-0"
                 />
                 <input
                   type="text"
-                  value={backdropControls.data.color ?? '#334155'}
+                  value={backdropControls.data.color ?? BACKDROP_DEFAULT_COLOR}
                   onChange={(event) => backdropControls.onColorInputChange(event.target.value)}
                   className="w-18 bg-muted px-1.5 py-0.5 rounded-md text-[11px] font-mono"
-                  placeholder="#334155"
+                  placeholder={BACKDROP_DEFAULT_COLOR}
                 />
               </div>
               <div className="flex items-center gap-1">

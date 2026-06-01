@@ -51,6 +51,14 @@ export interface ResolvedCharacter {
   costume?: string;
 }
 
+export interface PromptExpanderContext {
+  prompt: string;
+  providerId: string;
+  mode: PromptMode;
+}
+
+export type PromptExpander = (ctx: PromptExpanderContext) => Promise<string>;
+
 export interface PromptCompilerInput {
   nodeType: 'image' | 'video' | 'audio';
   /** User-written scene text / prompt */
@@ -71,7 +79,7 @@ export interface PromptCompilerInput {
   connectedTextContent?: string[];
   /** Optional pre-resolved reference image hashes */
   referenceImages?: string[];
-  /** Provider ID for model-specific word budgets */
+  /** Provider ID */
   providerId: string;
   mode: PromptMode;
   /** Full preset library so we can resolve preset IDs to prompt text */
@@ -94,10 +102,12 @@ export interface PromptCompilerInput {
   sfxPlacement?: 'close' | 'mid' | 'far';
   /** Duration hint for audio generation */
   durationSeconds?: number;
+  /** Optional LLM expander for prompt enrichment */
+  expandWithLLM?: PromptExpander;
 }
 
 export interface PromptDiagnostic {
-  type: 'conflict' | 'duplicate' | 'budget_warning' | 'trimmed' | 'info';
+  type: 'conflict' | 'duplicate' | 'trimmed' | 'info';
   severity: 'warning' | 'info';
   message: string;
   source?: string;
@@ -117,5 +127,20 @@ export interface CompiledPrompt {
   diagnostics: PromptDiagnostic[];
   segments: PromptSegment[];
   wordCount: number;
-  budget: number;
+  /** LLM-enhanced version of the prompt (populated when expandWithLLM is provided) */
+  enhancedPrompt?: string;
+}
+
+export interface PromptCompilationMetrics {
+  providerId: string;
+  mode: PromptMode;
+  promptHash: string;
+  wordCount: number;
+  segmentSources: string[];
+  referenceImageCount: number;
+  diagnosticCounts: Record<string, number>;
+  hadSynergyBonus: boolean;
+  hadEnhancedPrompt: boolean;
+  trimmedSegmentCount: number;
+  timestamp: number;
 }

@@ -126,9 +126,9 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     maxDimension: 2048,
     notes: 'Supports negative prompt and seed. Good at text rendering in images.',
   },
-  'recraft-v3': {
+  'recraft-v4': {
     type: 'image',
-    aliases: ['recraft', 'recraft-v4'],
+    aliases: ['recraft'],
     styles: ['realistic_image', 'digital_illustration', 'digital_art', 'vector_illustration'],
     maxDimension: 2048,
     notes: 'Style-based API. Max 16MP total pixels, max single dimension 4096px.',

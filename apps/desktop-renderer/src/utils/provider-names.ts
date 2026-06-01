@@ -24,7 +24,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   seedance: 'Seedance',
   'hunyuan-video': 'Hunyuan',
   hunyuan: 'Hunyuan',
-  'recraft-v3': 'Recraft',
+  'recraft-v4': 'Recraft',
   recraft: 'Recraft',
   flux: 'FLUX',
   ideogram: 'Ideogram',

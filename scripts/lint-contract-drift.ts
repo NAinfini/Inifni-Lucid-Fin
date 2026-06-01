@@ -15,7 +15,7 @@
  *     section. (The reverse check — guide mentions ⊆ contract — is not
  *     enforced, because guides legitimately name tools in negative
  *     contexts like "never use `canvas.updateNodes` for lip-sync" or
- *     "verify via `canvas.getSettings`" that shouldn't be terminals.)
+ *     "verify via `canvas.getInfo`" that shouldn't be terminals.)
  *  4. On mismatch: print a readable diff and exit non-zero.
  *
  * Invoke via `npm run lint:contracts`. CI wires this into the main lint
@@ -26,17 +26,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { contractRegistry } from '@lucid-fin/application';
 
-// Map workflow contract id → guide file basename. Not every contract has a
-// guide (info-answer is the fallback); those are skipped.
-const GUIDE_BY_CONTRACT_ID: Record<string, string> = {
-  'story-to-video': 'story-to-video.md',
-  'style-plate': 'style-plate.md',
-  'shot-list': 'shot-list.md',
-  'continuity-check': 'continuity-check.md',
-  'image-analyze': 'image-analyze.md',
-  'audio-production': 'audio-production.md',
-  'style-transfer': 'style-transfer.md',
-};
+// Map workflow contract id → guide file basename. The new unified contracts
+// ('mutation-execution', 'workflow-execution') use wildcard '*' toolNames so
+// there is nothing to drift-check against; only contracts with specific tool
+// names need a guide entry here.
+const GUIDE_BY_CONTRACT_ID: Record<string, string> = {};
 
 interface DriftReport {
   contractId: string;
@@ -55,7 +49,7 @@ async function readTerminalCommitmentSection(guidePath: string): Promise<string 
 
 function extractToolNamesFromProse(section: string): Set<string> {
   const names = new Set<string>();
-  // Pattern: dotted identifier like `canvas.batchCreate`. Backtick is the
+  // Pattern: dotted identifier like `canvas.createNodes`. Backtick is the
   // canonical rendering in the guides.
   const reBacktick = /`([a-zA-Z]+(?:\.[a-zA-Z]+)+)`/g;
   for (let m: RegExpExecArray | null; (m = reBacktick.exec(section)); ) {

@@ -1,5 +1,5 @@
 import { createSelector } from '@reduxjs/toolkit';
-import type { ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
+import type { CanvasNode, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
 import type { RootState } from '../../index.js';
 import { canvasAdapter } from './canvas.js';
 
@@ -123,4 +123,25 @@ export const selectEntityUsageCounts = createSelector(
     }
     return { character, equipment, location };
   },
+);
+
+/**
+ * Memoized selector: active canvas nodes grouped by type.
+ * Avoids re-filtering in components that only care about one node type.
+ */
+export const selectActiveCanvasNodesByType = createSelector(
+  [selectActiveCanvasNodes],
+  (nodes): Record<string, CanvasNode[]> => {
+    const byType: Record<string, CanvasNode[]> = {};
+    for (const node of nodes ?? []) {
+      (byType[node.type] ??= []).push(node);
+    }
+    return byType;
+  },
+);
+
+/** Memoized selector: active canvas edges. */
+export const selectActiveCanvasEdges = createSelector(
+  [selectActiveCanvas],
+  (canvas) => canvas?.edges,
 );

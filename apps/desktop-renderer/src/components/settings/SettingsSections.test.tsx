@@ -334,12 +334,20 @@ describe('settings extracted sections', () => {
 
     render(<SettingsProcessPromptsSection api={api.processPrompt as never} />);
 
-    expect(await screen.findByText('Node Preset Tracks')).toBeTruthy();
+    // Wait for data to load — group headers become visible
+    expect(await screen.findByText('Entities')).toBeTruthy();
+
+    // Expand all groups that contain our test prompts
+    fireEvent.click(screen.getByText('Entities'));
+    fireEvent.click(screen.getByText('Configuration'));
+    fireEvent.click(screen.getByText('Content'));
+
+    expect(screen.getByText('Node Preset Tracks')).toBeTruthy();
     expect(screen.getByText('Provider Management')).toBeTruthy();
     expect(screen.getByText('Series Management')).toBeTruthy();
     expect(screen.getAllByText('Triggered by')).toHaveLength(3);
-    expect(screen.getByText('canvas.writePresetTracksBatch')).toBeTruthy();
-    expect(screen.getByText('provider.list')).toBeTruthy();
+    expect(screen.getByText('canvas.presetTracks')).toBeTruthy();
+    expect(screen.getByText('provider.manage')).toBeTruthy();
     expect(screen.getByText('series.addEpisode')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]!);
     fireEvent.change(screen.getByRole('textbox'), {
@@ -407,13 +415,13 @@ describe('settings extracted sections', () => {
         processKey: 'batch-create-guidance',
         name: 'Batch Create Guidance',
         description:
-          'Triggered when canvas.batchCreate is called with more than 5 nodes. Provides structural guidance for large batch operations.',
+          'Triggered when canvas.createNodes is called with more than 5 nodes. Provides structural guidance for large batch operations.',
       },
       {
         processKey: 'prompt-quality-gate',
         name: 'Prompt Quality Gate',
         description:
-          'Triggered when canvas.generate is called. Reminds Commander to verify and expand thin prompts before committing to generation.',
+          'Triggered when canvas.generation is called. Reminds Commander to verify and expand thin prompts before committing to generation.',
       },
       {
         processKey: 'story-workflow-phase',
@@ -445,33 +453,15 @@ describe('settings extracted sections', () => {
     }
   });
 
-  it('renders split ref-image process prompts as separate cards', async () => {
+  it('renders unified entity ref-image process prompt as a single card', async () => {
     setLocale('en-US');
     const api = {
       processPrompt: {
         list: vi.fn(async () => [
           {
-            processKey: 'character-ref-image-generation',
-            name: 'Character Reference Image Generation',
-            description: 'Guidance for character reference image creation.',
-            defaultValue: 'Default rules',
-            customValue: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-          {
-            processKey: 'location-ref-image-generation',
-            name: 'Location Reference Image Generation',
-            description: 'Guidance for location reference image creation.',
-            defaultValue: 'Default rules',
-            customValue: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-          {
-            processKey: 'equipment-ref-image-generation',
-            name: 'Equipment Reference Image Generation',
-            description: 'Guidance for equipment reference image creation.',
+            processKey: 'entity-ref-image-generation',
+            name: 'Entity Reference Image Generation',
+            description: 'Guidance for entity (character, location, equipment) reference image creation.',
             defaultValue: 'Default rules',
             customValue: null,
             createdAt: 1,
@@ -485,16 +475,18 @@ describe('settings extracted sections', () => {
 
     render(<SettingsProcessPromptsSection api={api.processPrompt as never} />);
 
-    expect(await screen.findByText('Character Reference Image Generation')).toBeTruthy();
-    expect(screen.getByText('Location Reference Image Generation')).toBeTruthy();
-    expect(screen.getByText('Equipment Reference Image Generation')).toBeTruthy();
-    expect(screen.getAllByText('Triggered by')).toHaveLength(3);
-    expect(screen.getByText('character.generateRefImage')).toBeTruthy();
-    expect(screen.getByText('character.setRefImage')).toBeTruthy();
-    expect(screen.getByText('location.generateRefImage')).toBeTruthy();
-    expect(screen.getByText('location.setRefImageFromNode')).toBeTruthy();
-    expect(screen.getByText('equipment.generateRefImage')).toBeTruthy();
-    expect(screen.getByText('equipment.deleteRefImage')).toBeTruthy();
+    // Wait for data to load — group headers become visible
+    expect(await screen.findByText('Generation')).toBeTruthy();
+
+    // Expand the Generation group to see the entity ref-image card
+    fireEvent.click(screen.getByText('Generation'));
+
+    expect(screen.getByText('Entity Reference Image Generation')).toBeTruthy();
+    expect(screen.getAllByText('Triggered by')).toHaveLength(1);
+    expect(screen.getByText('entity.generateRefImage')).toBeTruthy();
+    expect(screen.getByText('entity.setRefImage')).toBeTruthy();
+    expect(screen.getByText('entity.deleteRefImage')).toBeTruthy();
+    expect(screen.getByText('entity.setRefImageFromNode')).toBeTruthy();
   });
 
   it('retries process guide loading until the preload API becomes available', async () => {
@@ -528,7 +520,11 @@ describe('settings extracted sections', () => {
       { timeout: 1500 },
     );
 
-    expect(await screen.findByText('Image Node Generation')).toBeTruthy();
+    // Group header should be visible after load
+    expect(await screen.findByText('Generation')).toBeTruthy();
+    // Expand the Generation group to see the item
+    fireEvent.click(screen.getByText('Generation'));
+    expect(screen.getByText('Image Node Generation')).toBeTruthy();
     expect(screen.queryByText(t('settings.processGuides.unavailable'))).toBeNull();
     expect(currentApi.processPrompt.list).toHaveBeenCalledTimes(1);
   });

@@ -43,7 +43,7 @@ Reports land in `evals/commander-study/reports/<timestamp>/`:
   Lucid Fin app settings with a valid API key. The harness resolves provider
   ids + base URL + model straight from `%APPDATA%/Lucid Fin/settings.json` and
   reads keys from the OS keychain under service name `lucid-fin`.
-- Node ≥ 20 (we use Node 24 locally).
+- Node ≥ 22.12.0 (we use Node 24 locally).
 - `better-sqlite3` must be compiled for the **Node** you're running tsx under,
   not for Electron. Swap with:
 

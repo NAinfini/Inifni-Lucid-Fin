@@ -144,7 +144,7 @@ describe('SessionRepository', () => {
         kind: 'tool-result',
         itemId: 'item-2' as import('@lucid-fin/contracts').ContextItemId,
         producedAtStep: 1,
-        toolKey: 'canvas.getState' as ToolKey,
+        toolKey: 'canvas.getInfo' as ToolKey,
         paramsHash: '{}',
         content: { success: true },
         schemaVersion: 1,

@@ -66,6 +66,8 @@ function phaseNoteToLegacy(note: string): PhaseNoteKind {
   if (note === 'prompt_loaded') return 'process_prompt_loaded';
   if (note === 'compacted') return 'compacted';
   if (note === 'llm_retry') return 'llm_retry';
+  if (note === 'tool_skipped_dedup') return 'tool_skipped_dedup';
+  if (note === 'force_ask_user') return 'force_ask_user';
   return 'compacted';
 }
 

@@ -258,7 +258,7 @@ function checkProcessPromptDuplicateActivation(
     if (eventKind(event) !== 'evidence_appended') continue;
     const evidence = asRecord(event).evidence;
     const evidenceRec = asRecord(evidence);
-    if (evidenceRec.kind !== 'process_prompt_activated') continue;
+    if (evidenceRec.kind !== 'guide_activated') continue;
     const key = typeof evidenceRec.key === 'string' ? evidenceRec.key : null;
     if (!key) continue;
     counts.set(key, (counts.get(key) ?? 0) + 1);

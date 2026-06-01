@@ -60,7 +60,7 @@ function StatusIcon({ status, prevStatus }: StatusIconProps) {
  * Bottom-sticky todo list card for an active Commander run. Rendered
  * directly above the footer so the user sees it at the same eyeline as
  * the input and tool-call cards. In-place updates animate; a full
- * `todo.set` replacement swaps the whole body because the `todoId`
+ * `todo.manage { action: 'set' }` replacement swaps the whole body because the `todoId`
  * changes.
  */
 export function TodoListCard({ snapshot, t }: TodoListCardProps) {

@@ -350,8 +350,6 @@ app.whenReady().then(async () => {
           llmAdapter,
           toolRegistry,
           resolvePrompt: (code: string) => promptStore.resolve(code),
-          resolveProcessPrompt: (processKey: string) =>
-            processPromptStore.getEffectiveValue(processKey),
           // No canvasStore here: this is the non-canvas AI orchestrator
           // consumed by `registerAiHandlers`. Canvas-aware resolvers stay
           // dormant; canvas-state-driven ProcessPromptSpecs are a no-op.

@@ -11,6 +11,9 @@ export const PRESET_CATEGORIES = [
   'emotion',
   'flow',
   'technical',
+  'voice-style',
+  'music-genre',
+  'sfx-environment',
 ] as const;
 
 export type PresetCategory = (typeof PRESET_CATEGORIES)[number];
@@ -136,6 +139,9 @@ export function createEmptyPresetTrackSet(): PresetTrackSet {
     emotion: { category: 'emotion', entries: [] },
     flow: { category: 'flow', entries: [] },
     technical: { category: 'technical', entries: [] },
+    'voice-style': { category: 'voice-style', entries: [] },
+    'music-genre': { category: 'music-genre', entries: [] },
+    'sfx-environment': { category: 'sfx-environment', entries: [] },
   };
 }
 

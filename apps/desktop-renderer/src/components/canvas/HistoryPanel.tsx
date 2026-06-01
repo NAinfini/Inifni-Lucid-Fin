@@ -33,6 +33,7 @@ import { enqueueToast } from '../../store/slices/toast.js';
 import { useConfirm } from '../ui/ConfirmDialog.js';
 import { cn } from '../../lib/utils.js';
 import { getAPI } from '../../utils/api.js';
+import { EmptyState } from '../ui/EmptyState.js';
 
 /** Snapshot metadata returned from the IPC layer (no heavy data blob). */
 interface SnapshotMeta {
@@ -353,8 +354,11 @@ export function HistoryPanel() {
       </div>
 
       {filteredSessions.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground px-3 text-center">
-          {searchQuery.trim() ? t('history.noResults') : t('history.empty')}
+        <div className="flex-1 flex items-center justify-center">
+          <EmptyState
+            icon={History}
+            title={searchQuery.trim() ? t('history.noResults') : t('history.empty')}
+          />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">

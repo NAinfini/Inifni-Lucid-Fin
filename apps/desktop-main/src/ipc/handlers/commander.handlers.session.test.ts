@@ -62,20 +62,17 @@ describe('registerCommanderHandlers session wiring', () => {
         };
         return {
           AgentOrchestrator: OrchestratorCtor,
-          // Phase D: commander.handlers constructs via the factory. The real
-          // factory folds `resolveProcessPrompt` + canvas-aware resolvers into
-          // the orchestrator's options arg, so the mock mirrors that contract
-          // closely enough for the assertions on the constructor's 4th arg.
+          // Phase D: commander.handlers constructs via the factory.
+          // Process prompt injection paths have been removed — the factory
+          // no longer accepts or forwards `resolveProcessPrompt`.
           createAgentOrchestratorForRun: (input: {
             llmAdapter: unknown;
             toolRegistry: unknown;
             resolvePrompt: unknown;
-            resolveProcessPrompt?: unknown;
             options?: Record<string, unknown>;
           }) => {
             const mergedOptions = {
               ...(input.options ?? {}),
-              resolveProcessPrompt: input.resolveProcessPrompt,
             };
             return new OrchestratorCtor(
               input.llmAdapter,
@@ -89,7 +86,7 @@ describe('registerCommanderHandlers session wiring', () => {
         };
       });
 
-      vi.doMock('./commander-tool-deps.js', () => ({
+      vi.doMock('./commander-tool-deps/index.js', () => ({
         requireCanvas: requireCanvasMock,
         registerAllTools: registerAllToolsMock,
       }));
@@ -181,21 +178,13 @@ describe('registerCommanderHandlers session wiring', () => {
         'session-7',
         undefined,
         expect.anything(),
-        expect.any(Function),
+        expect.anything(),
       );
       expect(agentConstructor).toHaveBeenCalledWith(
         selectedAdapter,
         expect.anything(),
         expect.any(Function),
-        expect.objectContaining({
-          resolveProcessPrompt: expect.any(Function),
-        }),
-      );
-      const constructorOptions = agentConstructor.mock.calls[0]?.[3] as {
-        resolveProcessPrompt: (processKey: string) => string | null;
-      };
-      expect(constructorOptions.resolveProcessPrompt('image-node-generation')).toBe(
-        'process:image-node-generation',
+        expect.any(Object),
       );
     },
   );

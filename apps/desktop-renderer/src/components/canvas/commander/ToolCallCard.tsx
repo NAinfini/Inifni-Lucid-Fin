@@ -74,7 +74,6 @@ export function ToolCallCard({
     if (toolCall.status === 'retrying') return 'retrying';
     if (toolCall.status === 'skipped') return 'skipped';
     if (toolCall.status === 'error') {
-      // RUN_ENDED_BEFORE_RESULT is a benign "run stopped" signal, not a real error.
       const r = toolCall.result as Record<string, unknown> | null | undefined;
       if (r && typeof r === 'object' && r.errorCode === 'RUN_ENDED_BEFORE_RESULT') return 'skipped';
       return 'error';
@@ -88,6 +87,15 @@ export function ToolCallCard({
     if (displayStatus !== 'error') return null;
     const r = toolCall.result as Record<string, unknown> | null | undefined;
     if (r && typeof r === 'object') {
+      // CommanderError shape: { code: CommanderErrorCode, params: { message, ... } }
+      if (typeof r.code === 'string') {
+        const i18nKey = `commander.errorCode.${r.code}`;
+        const translated = t(i18nKey);
+        if (translated !== i18nKey) return translated;
+        const params = r.params as Record<string, unknown> | undefined;
+        if (params && typeof params.message === 'string') return params.message.slice(0, 120);
+        return r.code;
+      }
       const msg = r.error ?? r.message ?? r.errorCode;
       if (typeof msg === 'string') return msg.slice(0, 120);
     }
@@ -114,6 +122,11 @@ export function ToolCallCard({
     [expanded, toolCall.name, toolCall.arguments, t],
   );
 
+  const skippedMessage = useMemo(() => {
+    if (displayStatus !== 'skipped') return null;
+    return t('commander.toolStatus.skipped');
+  }, [displayStatus, t]);
+
   // 3E: Post-action chips for completed tool calls.
   const postActions = useMemo(
     () => getPostActions(toolCall.name, toolCall.arguments, toolCall.result, displayStatus, t),
@@ -130,7 +143,7 @@ export function ToolCallCard({
         displayStatus === 'pending' && 'border-amber-500/40 animate-pulse',
         displayStatus === 'done' && 'border-emerald-500/30',
         displayStatus === 'skipped' && 'border-border/60',
-        displayStatus === 'error' && 'border-amber-500/30',
+        displayStatus === 'error' && 'border-red-500/30',
         displayStatus === 'retrying' && 'border-amber-500/30',
       )}
     >
@@ -144,15 +157,15 @@ export function ToolCallCard({
         )}
         {displayStatus === 'done' && <Check className="h-3.5 w-3.5 text-emerald-400" />}
         {displayStatus === 'skipped' && <Minus className="h-3.5 w-3.5 text-muted-foreground" />}
-        {displayStatus === 'error' && <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />}
+        {displayStatus === 'error' && <AlertTriangle className="h-3.5 w-3.5 text-red-400" />}
         {displayStatus === 'retrying' && (
           <RefreshCw className="h-3.5 w-3.5 animate-spin text-amber-400" />
         )}
         <span className="flex-1 text-left">
           {displayName}
-          {displayStatus === 'skipped' && (
-            <span className="ml-1.5 text-[10px] text-muted-foreground">
-              {t('commander.toolStatus.skipped')}
+          {displayStatus === 'skipped' && skippedMessage && (
+            <span className="ml-1.5 text-[10px] text-muted-foreground/70">
+              {skippedMessage}
             </span>
           )}
           {displayStatus === 'retrying' && (
@@ -179,7 +192,7 @@ export function ToolCallCard({
       ) : null}
       {/* Error summary in collapsed state */}
       {!expanded && displayStatus === 'error' && errorSummary && (
-        <div className="px-2.5 pb-1.5 text-[10px] text-amber-400/80 truncate">{errorSummary}</div>
+        <div className="px-2.5 pb-1.5 text-[10px] text-red-400/80 truncate">{errorSummary}</div>
       )}
       {/* Post-action chips for completed tools */}
       {!expanded && postActions.length > 0 && onSendMessage ? (
@@ -221,15 +234,26 @@ export function ToolCallCard({
           </div>
           <div className="max-h-60 overflow-y-auto px-2.5 py-2">
             {activeTab === 'summary' && (
-              <div className="space-y-1">
-                <div className="font-medium">{toolSummary.action}</div>
-                <div className="text-muted-foreground">{toolSummary.detail}</div>
+              <div className="space-y-1.5">
+                <div className="font-medium text-foreground">{toolSummary.action}</div>
+                {toolSummary.detail && toolSummary.detail !== toolCall.name.split('.').pop() && (
+                  <div className="text-muted-foreground">{toolSummary.detail}</div>
+                )}
                 {displayStatus === 'done' && toolCall.result !== undefined ? (
-                  <div className="mt-1 text-emerald-400 text-[10px]">
-                    {t('commander.runCompleted')}
+                  <div className="mt-1.5 flex items-center gap-1.5 text-emerald-400 text-[10px]">
+                    <Check className="h-3 w-3" />
+                    <span>{t('commander.runCompleted')}</span>
+                  </div>
+                ) : displayStatus === 'skipped' && skippedMessage ? (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-muted-foreground text-[10px]">
+                    <Minus className="h-3 w-3" />
+                    <span>{skippedMessage}</span>
                   </div>
                 ) : displayStatus === 'error' && errorSummary ? (
-                  <div className="mt-1 text-amber-400 text-[10px]">{errorSummary}</div>
+                  <div className="mt-1.5 flex items-center gap-1.5 text-red-400 text-[10px]">
+                    <AlertTriangle className="h-3 w-3" />
+                    <span>{errorSummary}</span>
+                  </div>
                 ) : null}
               </div>
             )}
@@ -244,6 +268,10 @@ export function ToolCallCard({
                     t={t}
                     onNodeClick={onNodeClick}
                   />
+                ) : displayStatus === 'skipped' ? (
+                  <div className="text-muted-foreground italic">
+                    {skippedMessage ?? t('commander.toolStatus.skipped')}
+                  </div>
                 ) : (
                   <div className="text-muted-foreground italic">
                     {toolCall.result === undefined
@@ -265,7 +293,7 @@ export function ToolCallCard({
                       <span
                         className={cn(
                           displayStatus === 'done' && 'text-emerald-400',
-                          displayStatus === 'error' && 'text-amber-400',
+                          displayStatus === 'error' && 'text-red-400',
                           displayStatus === 'skipped' && 'text-muted-foreground',
                         )}
                       >
@@ -371,7 +399,7 @@ function getPostActions(
     ];
   }
 
-  // canvas.batchCreate
+  // canvas.createNodes
   if (name.includes('canvas') && name.includes('batchcreate')) {
     return [
       {

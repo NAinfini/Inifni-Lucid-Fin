@@ -23,12 +23,16 @@ export type {
   PromptDiagnostic,
   PromptSegment,
   CompiledPrompt,
+  PromptExpander,
+  PromptExpanderContext,
+  PromptCompilationMetrics,
 } from './prompt-compiler-types.js';
 
 import type {
   CameraShot,
   CompiledPrompt,
   PromptCompilerInput,
+  PromptCompilationMetrics,
   PromptDiagnostic,
   PromptMode,
   PromptSegment,
@@ -37,37 +41,86 @@ import type {
 } from './prompt-compiler-types.js';
 
 // ---------------------------------------------------------------------------
-// Model-specific word budgets (from docs/ai-video-prompt-guide/07)
+// Temporal ordering for video modes
 // ---------------------------------------------------------------------------
 
-interface WordBudget {
-  positive: number;
-  negative: number;
+type SourcePriority = string;
+
+const VIDEO_TEMPORAL_ORDER: SourcePriority[] = [
+  'location:',
+  'preset:scene',
+  'preset:look',
+  'preset:lens',
+  'character:',
+  'equipment:',
+  'user-text',
+  'connected-text',
+  'preset:emotion',
+  'preset:camera',
+  'preset:flow',
+  'preset:composition',
+  'preset:technical',
+  'style-guide',
+];
+
+function findSourcePriority(source: string, order: SourcePriority[]): number {
+  for (let i = 0; i < order.length; i++) {
+    if (source === order[i] || source.startsWith(order[i])) return i;
+  }
+  return order.length;
 }
 
-const MODEL_BUDGETS: Record<string, WordBudget> = {
-  kling: { positive: 300, negative: 50 },
-  runway: { positive: 150, negative: 40 },
-  luma: { positive: 250, negative: 40 },
-  ray: { positive: 250, negative: 40 },
-  wan: { positive: 250, negative: 50 },
-  minimax: { positive: 250, negative: 40 },
-  hailuo: { positive: 250, negative: 40 },
-  pika: { positive: 150, negative: 50 },
-  seedance: { positive: 200, negative: 40 },
-  hunyuan: { positive: 300, negative: 60 },
-  cogvideo: { positive: 300, negative: 60 },
-  sora: { positive: 250, negative: 40 },
-  veo: { positive: 250, negative: 40 },
-  default: { positive: 300, negative: 60 },
-};
+function reorderForVideo(segments: PromptSegment[], mode: PromptMode): PromptSegment[] {
+  if (mode !== 'text-to-video' && mode !== 'image-to-video') return segments;
+  return [...segments].sort((a, b) => {
+    const aPriority = findSourcePriority(a.source, VIDEO_TEMPORAL_ORDER);
+    const bPriority = findSourcePriority(b.source, VIDEO_TEMPORAL_ORDER);
+    return aPriority - bPriority;
+  });
+}
 
-function getBudget(providerId: string): WordBudget {
-  const key = providerId.toLowerCase();
-  for (const [prefix, budget] of Object.entries(MODEL_BUDGETS)) {
-    if (prefix !== 'default' && key.includes(prefix)) return budget;
+// ---------------------------------------------------------------------------
+// Preset synergy detection — bonus phrases when specific presets combine
+// ---------------------------------------------------------------------------
+
+interface SynergyRule {
+  presetA: string;
+  presetB: string;
+  bonus: string;
+}
+
+const SYNERGY_PAIRS: SynergyRule[] = [
+  { presetA: 'scene:fog', presetB: 'lens:telephoto', bonus: 'atmospheric depth compression through fog layers' },
+  { presetA: 'scene:golden-hour', presetB: 'look:cinematic-realism', bonus: 'warm golden rim light with cinematic color separation' },
+  { presetA: 'scene:rain', presetB: 'scene:neon-noir', bonus: 'neon reflections scattered across wet surfaces' },
+  { presetA: 'camera:dolly-in', presetB: 'emotion:tension', bonus: 'building tension through approaching perspective' },
+  { presetA: 'scene:low-key', presetB: 'look:cinematic-realism', bonus: 'deep shadow detail with filmic highlight rolloff' },
+  { presetA: 'lens:ultra-wide', presetB: 'scene:fog', bonus: 'exaggerated atmospheric perspective with depth fog' },
+  { presetA: 'camera:orbit', presetB: 'flow:smooth', bonus: 'fluid continuous reveal around subject' },
+  { presetA: 'scene:snow', presetB: 'scene:moonlit-night', bonus: 'moonlit snow with blue-white ambient glow' },
+  { presetA: 'lens:macro', presetB: 'scene:rim-light', bonus: 'backlit micro-detail with luminous edge separation' },
+  { presetA: 'camera:static-hold', presetB: 'emotion:calm', bonus: 'contemplative stillness with grounded composition' },
+  { presetA: 'look:anime-cel', presetB: 'scene:high-key', bonus: 'bright cel-shaded fill with clean line contrast' },
+  { presetA: 'camera:handheld', presetB: 'emotion:anxiety', bonus: 'uneasy handheld shake amplifying nervous energy' },
+];
+
+function detectSynergies(activePresetIds: Set<string>): string[] {
+  const bonuses: string[] = [];
+  for (const rule of SYNERGY_PAIRS) {
+    const matchA = matchPresetPattern(rule.presetA, activePresetIds);
+    const matchB = matchPresetPattern(rule.presetB, activePresetIds);
+    if (matchA && matchB) {
+      bonuses.push(rule.bonus);
+    }
   }
-  return MODEL_BUDGETS.default;
+  return bonuses;
+}
+
+function matchPresetPattern(pattern: string, activeIds: Set<string>): boolean {
+  for (const id of activeIds) {
+    if (id === pattern || id.startsWith(pattern + '-') || id.startsWith(pattern + ':')) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,11 +320,11 @@ function buildPresetMap(library: PresetDefinition[]): Record<string, PresetDefin
 }
 
 /**
- * Tokenize text for word-budget measurement and phrase diagnostics.
+ * Tokenize text for word counting and phrase diagnostics.
  * English/ASCII words split on whitespace; runs of CJK ideographs and
  * Japanese kana are split character-by-character. Without the CJK
- * fallback `"身材高大肤色古铜色"` counts as 1 "word" — budgets never
- * trigger and duplicate-phrase 3-grams never form. Casing is preserved
+ * fallback `"身材高大肤色古铜色"` counts as 1 "word" — word counts
+ * become misleading and duplicate-phrase 3-grams never form. Casing is preserved
  * at this layer; callers lowercase where appropriate.
  */
 export function tokenizeForWordCount(text: string): string[] {
@@ -299,67 +352,6 @@ export function tokenizeForWordCount(text: string): string[] {
     if (buffer) tokens.push(buffer);
   }
   return tokens;
-}
-
-function trimToWordBudget(text: string, maxWords: number): string {
-  const tokens = tokenizeForWordCount(text);
-  if (tokens.length <= maxWords) return text;
-  // Reconstruct: join ASCII tokens with spaces, but when the trimmed prefix
-  // ends on an ideograph sequence the spaces between individual CJK tokens
-  // are visually wrong. Rebuild by walking the original text and tracking
-  // token boundaries instead — stop once we've consumed `maxWords` tokens.
-  let tokenCount = 0;
-  let cutIndex = 0;
-  let inCjkRun = false;
-  let inWord = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charAt(i);
-    const code = text.codePointAt(i) ?? 0;
-    const isWhitespace = /\s/.test(ch);
-    const isCjk =
-      (code >= 0x3400 && code <= 0x9fff) ||
-      (code >= 0x20000 && code <= 0x2ffff) ||
-      (code >= 0x3040 && code <= 0x30ff);
-    if (isWhitespace) {
-      inCjkRun = false;
-      inWord = false;
-      continue;
-    }
-    if (isCjk) {
-      if (inWord && !inCjkRun) {
-        inWord = false;
-      }
-      tokenCount += 1;
-      inCjkRun = true;
-      if (tokenCount === maxWords) {
-        cutIndex = i + 1;
-        break;
-      }
-    } else {
-      if (!inWord) {
-        tokenCount += 1;
-        inWord = true;
-        if (tokenCount === maxWords) {
-          // Consume the rest of this ASCII word to avoid mid-word cuts.
-          let j = i + 1;
-          while (j < text.length) {
-            const nch = text.charAt(j);
-            const ncode = text.codePointAt(j) ?? 0;
-            const ncjk =
-              (ncode >= 0x3400 && ncode <= 0x9fff) ||
-              (ncode >= 0x20000 && ncode <= 0x2ffff) ||
-              (ncode >= 0x3040 && ncode <= 0x30ff);
-            if (/\s/.test(nch) || ncjk) break;
-            j += 1;
-          }
-          cutIndex = j;
-          break;
-        }
-      }
-      inCjkRun = false;
-    }
-  }
-  return cutIndex === 0 ? text : text.slice(0, cutIndex).trimEnd();
 }
 
 /**
@@ -1232,6 +1224,7 @@ function applyStyleGuideDefaults(
 // ---------------------------------------------------------------------------
 
 function compileVoice(input: PromptCompilerInput): CompiledPrompt {
+  const presetMap = buildPresetMap(input.presetLibrary);
   const segments: PromptSegment[] = [];
 
   // Character vocal traits
@@ -1244,6 +1237,18 @@ function compileVoice(input: PromptCompilerInput): CompiledPrompt {
     if (vt.cadence) traitParts.push(`${vt.cadence} cadence`);
     if (traitParts.length) {
       segments.push({ source: 'character:vocal', text: traitParts.join(', '), trimmed: false });
+    }
+  }
+
+  // Voice-style presets
+  const voiceTrack = input.presetTracks?.['voice-style'];
+  if (voiceTrack?.entries?.length) {
+    for (const entry of voiceTrack.entries) {
+      if (entry.enabled === false) continue;
+      const fragment = resolveEntryPrompt(entry, presetMap);
+      if (fragment) {
+        segments.push({ source: `preset:${entry.presetId}`, text: fragment, trimmed: false });
+      }
     }
   }
 
@@ -1270,16 +1275,28 @@ function compileVoice(input: PromptCompilerInput): CompiledPrompt {
     diagnostics: [],
     segments,
     wordCount: tokenizeForWordCount(prompt).length,
-    budget: 0,
   };
 }
 
 function compileMusic(input: PromptCompilerInput): CompiledPrompt {
+  const presetMap = buildPresetMap(input.presetLibrary);
   const segments: PromptSegment[] = [];
 
   // User prompt
   if (input.prompt?.trim()) {
     segments.push({ source: 'user-text', text: input.prompt.trim(), trimmed: false });
+  }
+
+  // Music-genre presets
+  const genreTrack = input.presetTracks?.['music-genre'];
+  if (genreTrack?.entries?.length) {
+    for (const entry of genreTrack.entries) {
+      if (entry.enabled === false) continue;
+      const fragment = resolveEntryPrompt(entry, presetMap);
+      if (fragment) {
+        segments.push({ source: `preset:${entry.presetId}`, text: fragment, trimmed: false });
+      }
+    }
   }
 
   // Genre
@@ -1343,16 +1360,28 @@ function compileMusic(input: PromptCompilerInput): CompiledPrompt {
     diagnostics: [],
     segments,
     wordCount: tokenizeForWordCount(prompt).length,
-    budget: 0,
   };
 }
 
 function compileSfx(input: PromptCompilerInput): CompiledPrompt {
+  const presetMap = buildPresetMap(input.presetLibrary);
   const segments: PromptSegment[] = [];
 
   // User prompt (action/sound description)
   if (input.prompt?.trim()) {
     segments.push({ source: 'user-text', text: input.prompt.trim(), trimmed: false });
+  }
+
+  // SFX environment presets
+  const sfxTrack = input.presetTracks?.['sfx-environment'];
+  if (sfxTrack?.entries?.length) {
+    for (const entry of sfxTrack.entries) {
+      if (entry.enabled === false) continue;
+      const fragment = resolveEntryPrompt(entry, presetMap);
+      if (fragment) {
+        segments.push({ source: `preset:${entry.presetId}`, text: fragment, trimmed: false });
+      }
+    }
   }
 
   // Environment from location
@@ -1405,7 +1434,6 @@ function compileSfx(input: PromptCompilerInput): CompiledPrompt {
     diagnostics: [],
     segments,
     wordCount: tokenizeForWordCount(prompt).length,
-    budget: 0,
   };
 }
 
@@ -1419,7 +1447,7 @@ function compileCharacterSheet(
 ): CompiledPrompt {
   const character = input.characters?.[0]?.character;
   if (!character) {
-    return { prompt: '', diagnostics: [], segments: [], wordCount: 0, budget: 0 };
+    return { prompt: '', diagnostics: [], segments: [], wordCount: 0 };
   }
 
   const resolved = input.characters![0];
@@ -1578,7 +1606,6 @@ High resolution, 4K or higher`);
     diagnostics: [],
     segments: [{ source: 'character-sheet', text: sections.join('\n'), trimmed: false }],
     wordCount: tokenizeForWordCount(sections.join('\n')).length,
-    budget: 0, // no budget for character sheets
   };
 }
 
@@ -1588,7 +1615,6 @@ High resolution, 4K or higher`);
 
 export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const presetMap = buildPresetMap(input.presetLibrary);
-  const budget = getBudget(input.providerId);
 
   if (input.mode === 'character-sheet') {
     return compileCharacterSheet(input, presetMap);
@@ -1709,6 +1735,22 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
+  // 4b. Detect preset synergies and inject bonus phrases
+  {
+    const activePresetIds = new Set<string>();
+    for (const category of PRESET_STACK_ORDER) {
+      const track = effectivePresetTracks?.[category];
+      if (!track?.entries) continue;
+      for (const entry of track.entries) {
+        if (entry.enabled !== false) activePresetIds.add(entry.presetId);
+      }
+    }
+    const synergies = detectSynergies(activePresetIds);
+    for (const bonus of synergies) {
+      trackedSegments.push({ source: 'synergy', text: bonus, trimmed: false });
+    }
+  }
+
   // 5. Collect negative prompts from node text and presets
   if (input.negativePrompt?.trim()) {
     negativeSegments.push(input.negativePrompt.trim());
@@ -1749,8 +1791,11 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
-  // 6. Assemble final prompt with word budget trimming
+  // 6. Assemble final prompt
   const diagnostics: PromptDiagnostic[] = [];
+
+  // Always pass negative prompt through
+  const negativePrompt = Array.from(new Set(negativeSegments)).join(', ') || undefined;
 
   // Conflict detection
   diagnostics.push(...detectConflicts(effectivePresetTracks, presetMap));
@@ -1758,33 +1803,15 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   // Duplicate detection
   diagnostics.push(...detectDuplicatePhrases(trackedSegments));
 
-  // Budget pre-check
-  const rawPrompt = trackedSegments
+  // Apply temporal ordering for video modes
+  const orderedSegments = reorderForVideo(trackedSegments, input.mode);
+
+  const prompt = orderedSegments
     .map((s) => normalizeTextSegment(s.text))
     .filter(Boolean)
     .join('. ')
     .replace(/\.\s*\./g, '. ');
-  const wordCount = tokenizeForWordCount(rawPrompt).length;
-  if (wordCount > budget.positive) {
-    diagnostics.push({
-      type: 'budget_warning',
-      severity: 'warning',
-      message: `Prompt has ${wordCount} words, budget is ${budget.positive}. ${wordCount - budget.positive} words will be trimmed.`,
-    });
-  }
-  const prompt = trimToWordBudget(rawPrompt, budget.positive);
-
-  // Mark trimmed segments
-  const promptWords = tokenizeForWordCount(prompt).length;
-  let runningWords = 0;
-  for (const seg of trackedSegments) {
-    const segWords = tokenizeForWordCount(seg.text).length;
-    runningWords += segWords;
-    seg.trimmed = runningWords > promptWords;
-  }
-
-  const rawNegative = Array.from(new Set(negativeSegments)).join(', ');
-  const negativePrompt = rawNegative ? trimToWordBudget(rawNegative, budget.negative) : undefined;
+  const wordCount = tokenizeForWordCount(prompt).length;
 
   const params = Object.keys(adapterParams).length > 0 ? adapterParams : undefined;
 
@@ -1794,8 +1821,74 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
     params,
     diagnostics,
-    segments: trackedSegments,
+    segments: orderedSegments,
     wordCount,
-    budget: budget.positive,
+  };
+}
+
+export async function compilePromptWithExpansion(
+  input: PromptCompilerInput,
+): Promise<CompiledPrompt> {
+  const result = compilePrompt(input);
+
+  if (!input.expandWithLLM || !result.prompt) {
+    return result;
+  }
+
+  try {
+    const enhanced = await input.expandWithLLM({
+      prompt: result.prompt,
+      providerId: input.providerId,
+      mode: input.mode,
+    });
+    if (enhanced && enhanced.trim()) {
+      result.enhancedPrompt = enhanced.trim();
+    }
+  } catch {
+    result.diagnostics.push({
+      type: 'info',
+      severity: 'info',
+      message: 'LLM prompt expansion failed; using compiled prompt as-is',
+    });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Prompt quality feedback metrics
+// ---------------------------------------------------------------------------
+
+function simpleHash(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    hash = ((hash << 5) - hash + char) | 0;
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+export function extractCompilationMetrics(
+  result: CompiledPrompt,
+  providerId: string,
+  mode: PromptMode,
+): PromptCompilationMetrics {
+  const diagnosticCounts: Record<string, number> = {};
+  for (const d of result.diagnostics) {
+    diagnosticCounts[d.type] = (diagnosticCounts[d.type] ?? 0) + 1;
+  }
+
+  return {
+    providerId,
+    mode,
+    promptHash: simpleHash(result.prompt),
+    wordCount: result.wordCount,
+    segmentSources: result.segments.map((s) => s.source),
+    referenceImageCount: result.referenceImages?.length ?? 0,
+    diagnosticCounts,
+    hadSynergyBonus: result.segments.some((s) => s.source === 'synergy'),
+    hadEnhancedPrompt: !!result.enhancedPrompt,
+    trimmedSegmentCount: result.segments.filter((s) => s.trimmed).length,
+    timestamp: Date.now(),
   };
 }

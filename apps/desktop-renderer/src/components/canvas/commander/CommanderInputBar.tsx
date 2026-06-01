@@ -2,17 +2,18 @@ import { useDispatch, useSelector } from 'react-redux';
 import {
   Check,
   ChevronDown,
+  Flame,
   Image as ImageIcon,
+  Lock,
   MapPin,
   Paperclip,
   Pencil,
   Play,
   SendHorizonal,
-  Shield,
-  ShieldAlert,
+  ShieldCheck,
   Slash,
+  Sparkles,
   X,
-  Zap,
 } from 'lucide-react';
 import type { RootState } from '../../../store/index.js';
 import {
@@ -28,9 +29,7 @@ import { useCommander } from '../../../hooks/useCommander.js';
 import { cn } from '../../../lib/utils.js';
 import { getAPI } from '../../../utils/api.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../ui/Tooltip.js';
-import type { ContextUsage } from '../../../commander/state/context-usage.js';
-import type { SlashCommand } from './useSlashCommands.js';
-import type { CanvasNode } from '@lucid-fin/contracts';
+import { useCommanderCtx } from './CommanderContext.js';
 
 interface FileAttachment {
   type: 'file';
@@ -44,67 +43,37 @@ interface NodeAttachment {
 }
 export type Attachment = FileAttachment | NodeAttachment;
 
-interface CommanderInputBarProps {
-  input: string;
-  setInput: (value: string) => void;
-  inputRef: React.RefObject<HTMLTextAreaElement | null>;
-  attachments: Attachment[];
-  setAttachments: React.Dispatch<React.SetStateAction<Attachment[]>>;
-  modelPickerOpen: boolean;
-  setModelPickerOpen: (open: boolean) => void;
-  permPickerOpen: boolean;
-  setPermPickerOpen: (open: boolean) => void;
-  nodePickerOpen: boolean;
-  setNodePickerOpen: (open: boolean) => void;
-  editingQueueIndex: number | null;
-  setEditingQueueIndex: (index: number | null) => void;
-  editingQueueText: string;
-  setEditingQueueText: (text: string) => void;
-  contextUsage: ContextUsage | null;
-  triggerCompact: () => Promise<void>;
-  slashMenuRef: React.RefObject<HTMLDivElement | null>;
-  slashMenuOpen: boolean;
-  slashMenuIndex: number;
-  setSlashMenuIndex: (index: number | ((prev: number) => number)) => void;
-  filteredSlashItems: SlashCommand[];
-  executeSlashCommand: (name: string) => Promise<void>;
-  SLASH_COMMANDS: SlashCommand[];
-  canvasNodes: CanvasNode[] | undefined;
-  userScrolledUpRef: React.RefObject<boolean>;
-  isBackendReady: boolean;
-  t: (key: string) => string;
-}
-
-export function CommanderInputBar({
-  input,
-  setInput,
-  inputRef,
-  attachments,
-  setAttachments,
-  modelPickerOpen,
-  setModelPickerOpen,
-  permPickerOpen,
-  setPermPickerOpen,
-  nodePickerOpen,
-  setNodePickerOpen,
-  editingQueueIndex,
-  setEditingQueueIndex,
-  editingQueueText,
-  setEditingQueueText,
-  contextUsage,
-  triggerCompact,
-  slashMenuRef,
-  slashMenuOpen,
-  slashMenuIndex,
-  setSlashMenuIndex,
-  filteredSlashItems,
-  executeSlashCommand,
-  SLASH_COMMANDS,
-  canvasNodes,
-  userScrolledUpRef,
-  isBackendReady,
-  t,
-}: CommanderInputBarProps) {
+export function CommanderInputBar() {
+  const {
+    input,
+    setInput,
+    inputRef,
+    attachments,
+    setAttachments,
+    modelPickerOpen,
+    setModelPickerOpen,
+    permPickerOpen,
+    setPermPickerOpen,
+    nodePickerOpen,
+    setNodePickerOpen,
+    editingQueueIndex,
+    setEditingQueueIndex,
+    editingQueueText,
+    setEditingQueueText,
+    contextUsage,
+    triggerCompact,
+    slashMenuRef,
+    slashMenuOpen,
+    slashMenuIndex,
+    setSlashMenuIndex,
+    filteredSlashItems,
+    executeSlashCommand,
+    SLASH_COMMANDS,
+    canvasNodes,
+    userScrolledUpRef,
+    isBackendReady,
+    t,
+  } = useCommanderCtx();
   const dispatch = useDispatch();
   const { sendMessage, cancel, isStreaming } = useCommander();
   const providerId = useSelector((state: RootState) => state.commander.providerId);
@@ -615,20 +584,24 @@ export function CommanderInputBar({
               className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => setPermPickerOpen(!permPickerOpen)}
             >
-              {permissionMode === 'auto' && <Zap className="h-2.5 w-2.5 text-emerald-400" />}
-              {permissionMode === 'normal' && <Shield className="h-2.5 w-2.5 text-amber-400" />}
-              {permissionMode === 'strict' && (
-                <ShieldAlert className="h-2.5 w-2.5 text-red-400" />
+              {permissionMode === 'danger' && (
+                <Flame className="h-2.5 w-2.5 text-red-400" />
               )}
+              {permissionMode === 'auto' && <Sparkles className="h-2.5 w-2.5 text-sky-400" />}
+              {permissionMode === 'normal' && (
+                <ShieldCheck className="h-2.5 w-2.5 text-emerald-400" />
+              )}
+              {permissionMode === 'strict' && <Lock className="h-2.5 w-2.5 text-amber-400" />}
               <span>{t(`commander.permissionMode.${permissionMode}`)}</span>
               <ChevronDown className="h-2.5 w-2.5" />
             </button>
             {permPickerOpen && (
               <div className="absolute bottom-7 right-0 z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
                 {[
-                  { value: 'auto' as const, icon: Zap, color: 'text-emerald-400' },
-                  { value: 'normal' as const, icon: Shield, color: 'text-amber-400' },
-                  { value: 'strict' as const, icon: ShieldAlert, color: 'text-red-400' },
+                  { value: 'danger' as const, icon: Flame, color: 'text-red-400' },
+                  { value: 'auto' as const, icon: Sparkles, color: 'text-sky-400' },
+                  { value: 'normal' as const, icon: ShieldCheck, color: 'text-emerald-400' },
+                  { value: 'strict' as const, icon: Lock, color: 'text-amber-400' },
                 ].map((m) => {
                   const Icon = m.icon;
                   return (

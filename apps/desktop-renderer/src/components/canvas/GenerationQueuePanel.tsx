@@ -22,6 +22,7 @@ import { getLocale } from '../../i18n.js';
 import { getAPI } from '../../utils/api.js';
 import { matchNode } from '@lucid-fin/shared-utils';
 import type { NodeKind } from '@lucid-fin/contracts';
+import { EmptyState } from '../ui/EmptyState.js';
 
 const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   empty: ListTodo,
@@ -233,9 +234,7 @@ export function GenerationQueuePanel() {
         completed.length === 0 &&
         failed.length === 0 &&
         refImageJobs.length === 0 ? (
-          <div className="text-[11px] text-muted-foreground text-center py-8">
-            {t('generation.noJobs')}
-          </div>
+          <EmptyState icon={ListTodo} title={t('generation.noJobs')} />
         ) : null}
 
         {/* Ref image generation jobs */}

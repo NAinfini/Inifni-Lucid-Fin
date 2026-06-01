@@ -36,6 +36,11 @@ export default defineConfig({
   plugins: [ctsPlugin()],
   test: {
     pool: 'vmForks',
+    poolMatchGlobs: [
+      ['packages/storage/**', 'forks'],
+      ['apps/desktop-main/src/ipc/__tests__/integration/**', 'forks'],
+      ['apps/desktop-main/src/workflow/**', 'forks'],
+    ],
     exclude: ['**/dist/**', '**/node_modules/**', 'tests/e2e/**'],
     coverage: {
       provider: 'v8',

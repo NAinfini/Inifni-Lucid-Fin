@@ -15,10 +15,8 @@ export interface MockStats {
 
 /** Names of tools that get mocked. Kept here so reports can flag coverage. */
 export const MOCKED_TOOL_NAMES = [
-  'canvas.generate',
-  'character.generateRefImage',
-  'location.generateRefImage',
-  'equipment.generateRefImage',
+  'canvas.generation',
+  'entity.generateRefImage',
   'canvas.previewPrompt',
 ] as const;
 
@@ -54,10 +52,10 @@ export function installMockGeneration(registry: AgentToolRegistry): MockStats {
 
   const register = (t: AgentTool) => registry.register(t);
 
-  // canvas.generate — returns immediately with a fake jobId.
+  // canvas.generation — returns immediately with a fake jobId.
   register(
     stubTool(
-      'canvas.generate',
+      'canvas.generation',
       'Trigger media generation for a node.',
       3,
       (args) => {
@@ -73,33 +71,26 @@ export function installMockGeneration(registry: AgentToolRegistry): MockStats {
     ),
   );
 
-  // Reference-image tools (character/location/equipment).
-  for (const entity of ['character', 'location', 'equipment']) {
-    const name = `${entity}.generateRefImage`;
-    register(
-      stubTool(
-        name,
-        `Generate reference image for a ${entity}.`,
-        3,
-        (args) => {
-          const entityId =
-            typeof args.id === 'string'
-              ? args.id
-              : typeof args[`${entity}Id`] === 'string'
-                ? (args[`${entity}Id`] as string)
-                : 'unknown';
-          return {
-            jobId: `mock-ref-${randomUUID().slice(0, 8)}`,
-            entity,
-            entityId,
-            assetHash: `sha256:mock${randomUUID().replace(/-/g, '').slice(0, 40)}`,
-            message: 'MOCK: reference image generation accepted (no render performed)',
-          };
-        },
-        stats,
-      ),
-    );
-  }
+  // entity.generateRefImage — unified mock for all entity types.
+  register(
+    stubTool(
+      'entity.generateRefImage',
+      'Generate reference image for an entity (character/location/equipment).',
+      3,
+      (args) => {
+        const entityId =
+          typeof args.id === 'string' ? args.id : 'unknown';
+        return {
+          jobId: `mock-ref-${randomUUID().slice(0, 8)}`,
+          entity: typeof args.type === 'string' ? args.type : 'unknown',
+          entityId,
+          assetHash: `sha256:mock${randomUUID().replace(/-/g, '').slice(0, 40)}`,
+          message: 'MOCK: reference image generation accepted (no render performed)',
+        };
+      },
+      stats,
+    ),
+  );
 
   // canvas.previewPrompt — real impl hits the generation pipeline (adapter
   // required). Stub returns a plausible preview so Commander can still

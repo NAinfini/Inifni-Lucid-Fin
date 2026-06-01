@@ -4,7 +4,7 @@ import { parseAdapterError } from '../error-utils.js';
 export function toElevenLabsRequest(req: GenerationRequest): Record<string, unknown> {
   return {
     text: req.prompt,
-    model_id: 'eleven_multilingual_v2',
+    model_id: 'eleven_v3',
     voice_settings: {
       stability: 0.5,
       similarity_boost: 0.75,

@@ -22,6 +22,8 @@ import { ColorStyleRepository } from './repositories/color-style-repository.js';
 import { DependencyRepository } from './repositories/dependency-repository.js';
 import { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
 import { SCHEMA_SQL } from './schema-sql.js';
+import { runMigrations } from './migrations.js';
+import { purgeSoftDeleted, type GcResult } from './gc.js';
 
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3') as typeof BetterSqlite3;
@@ -89,6 +91,7 @@ export class SqliteIndex implements IStorageLayer {
 
     // SCHEMA_SQL is the single source of truth for storage tables.
     this.db.exec(SCHEMA_SQL);
+    runMigrations(this.db);
 
     this.sessions = new SessionRepository(this.db);
     this.commanderEvents = new CommanderEventRepository(this.db);
@@ -271,6 +274,10 @@ export class SqliteIndex implements IStorageLayer {
 
   vacuum(): void {
     this.db.exec('VACUUM');
+  }
+
+  gc(retentionMs?: number): GcResult {
+    return purgeSoftDeleted(this.db, retentionMs);
   }
 
   clearEmbeddings(): void {

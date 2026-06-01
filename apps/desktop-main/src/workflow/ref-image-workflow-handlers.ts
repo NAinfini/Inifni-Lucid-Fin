@@ -77,9 +77,6 @@ function readCanvasSettings(
   }
 }
 
-const DEFAULT_REF_IMAGE_WIDTH = 2048;
-const DEFAULT_REF_IMAGE_HEIGHT = 1360;
-
 function applyNegativePrompt(prompt: string, negativePrompt: string | undefined): string {
   const trimmed = negativePrompt?.trim();
   return trimmed ? `${prompt}\n\nAvoid: ${trimmed}` : prompt;
@@ -160,9 +157,14 @@ export function createRefImageWorkflowHandlers(options: {
           buildCharacterRefImagePrompt(character, view, stylePlate),
           canvasSettings?.negativePrompt,
         );
-        const width = canvasSettings?.refResolution?.width ?? DEFAULT_REF_IMAGE_WIDTH;
-        const height = canvasSettings?.refResolution?.height ?? DEFAULT_REF_IMAGE_HEIGHT;
-        const result = await generateImage(prompt, { width, height });
+        const width = canvasSettings?.refResolution?.width;
+        const height = canvasSettings?.refResolution?.height;
+        const providerId = canvasSettings?.imageProviderId ?? undefined;
+        const result = await generateImage(prompt, {
+          ...(width !== undefined && { width }),
+          ...(height !== undefined && { height }),
+          ...(providerId !== undefined && { providerId }),
+        });
 
         return {
           status: TaskRunStatus.Completed,
@@ -310,9 +312,14 @@ export function createRefImageWorkflowHandlers(options: {
           buildLocationRefImagePrompt(location, view, stylePlate),
           canvasSettings?.negativePrompt,
         );
-        const width = canvasSettings?.refResolution?.width ?? DEFAULT_REF_IMAGE_WIDTH;
-        const height = canvasSettings?.refResolution?.height ?? DEFAULT_REF_IMAGE_HEIGHT;
-        const result = await generateImage(prompt, { width, height });
+        const width = canvasSettings?.refResolution?.width;
+        const height = canvasSettings?.refResolution?.height;
+        const providerId = canvasSettings?.imageProviderId ?? undefined;
+        const result = await generateImage(prompt, {
+          ...(width !== undefined && { width }),
+          ...(height !== undefined && { height }),
+          ...(providerId !== undefined && { providerId }),
+        });
 
         return {
           status: TaskRunStatus.Completed,

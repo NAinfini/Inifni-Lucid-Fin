@@ -35,162 +35,83 @@ function defineProcessPrompt(
 
 export const PROCESS_PROMPT_DEFAULTS: ProcessPromptDefault[] = [
   defineProcessPrompt(
-    'character-ref-image-generation',
-    'Character Reference Image Generation',
-    'Guidance for character reference image creation.',
-    `Character reference images are durable identity assets the whole pipeline trusts. They are not hero posters. Your job is to build a sheet the generator and downstream prompts can reuse across every shot.
+    'entity-ref-image-generation',
+    'Entity Reference Image Generation',
+    'Guidance for entity (character, location, equipment) reference image creation.',
+    `Entity reference images are durable identity assets the whole pipeline trusts. They are not hero posters or dramatic one-off frames. Your job is to build sheets the generator and downstream prompts can reuse across every shot.
 
-Workflow — always, in order:
-1. Call \`character.list\` (if you do not yet know the character) or rely on the ID Commander already gave you.
-2. Also read the existing reference images on the character record — know whether the current sheet is usable before regenerating.
-3. Each character has ONE reference-image slot: \`full-sheet\`. It packs the full-body turnaround AND a small expression strip on a single image. Rare custom angles (overhead, action pose, specific hero close-up) live under \`extra-angle\` with a free-form angle string; they do not replace the full-sheet.
-4. Call \`character.generateRefImage\` with \`{ characterId }\` (the view defaults to \`full-sheet\`). If the caller passes a custom \`prompt\`, it overrides the auto-built fallback — only do that when you need direction the entity record does not capture. Otherwise omit and let \`buildCharacterRefImagePrompt\` compile from the record.
-5. Wait for success. Call ONE at a time. Verify the returned asset before triggering any follow-up.
+Shared workflow — always, in order:
+1. Read the entity record and its existing reference images. Know whether the current sheet is usable before regenerating.
+2. Call the entity's \`.generateRefImage\` tool with the entity ID. The composite prompt (entity appearance/description + canvas style plate + layout) is ALWAYS generated automatically. If you pass a custom \`prompt\`, it is appended as supplementary instructions after the composite — use it only for this-sheet-only guidance the entity record does not capture (e.g. anti-collapse language, scale indicator, specific camera tweak). Otherwise omit.
+3. Call ONE at a time. Verify the returned asset before triggering any follow-up.
 
-Sheet layout (what the generator produces and what any custom prompt must respect):
-- One landscape image, two rows, six panels total. Row heights are NOT equal.
-- Top row (~70% of sheet height): three full-body panels at identical scale — front, left profile, rear. Head-to-toe, feet grounded, no crop, arms slightly away from the body so the silhouette reads.
-- Bottom row (~30% of sheet height): three head-and-shoulders expression panels — neutral, happy, angry. Same face, same hair, same lighting as the turnaround row.
-- Solid white background, flat even studio lighting, single character only, no props unless part of the costume, no environment, no cast shadows.
-- Total panel count stays at six. Do not ask for more panels; 10-panel layouts (4 full-body + 6 expressions) collapse and drop the full-body row.
-
-When to regenerate vs leave alone:
-- Wrong costume, hair, proportions, or the full-body row collapsed to portraits → regenerate.
-- Costume changed on the character record → regenerate, then re-run any downstream nodes that depended on the old look.
-- Expression range feels thin → do NOT cram more expression panels into the same sheet. Generate an \`extra-angle\` with an expression-close-up angle string instead, or accept the base three.
-- Sheet is clean → leave it alone. This slot is the identity anchor; gratuitous regeneration churns downstream consistency.
+When to regenerate vs leave alone (all entity types):
+- Identity mismatch (wrong costume, wrong architecture, wrong silhouette, panels collapsed) → regenerate.
+- Record just changed (appearance, material, condition) → regenerate, then re-run downstream nodes.
+- Need a custom angle not on the canonical sheet → generate an \`extra-angle\`, do NOT regenerate the primary sheet.
+- Sheet reads clean → leave it alone. It is the identity anchor; gratuitous regeneration churns downstream consistency.
 
 What to write (custom prompt) vs what to let the record carry:
-- Put enduring identity in the entity record (face, hair, body, skinTone, distinctTraits, costume). \`buildCharacterAppearancePrompt\` assembles these automatically.
-- Custom prompt text is for this-sheet-only guidance: alternate expression set, extra anti-collapse language, prop held for scale.
-- Do NOT repeat record fields inside a custom prompt. Doubled descriptions fight with the auto-compiled appearance line.
-- Do NOT bury scene, environment, or story context in a ref-image prompt. Ref images are studio-neutral.
+- Durable identity → entity record fields. The \`buildPrompt\` function assembles them automatically.
+- Custom prompt → this-sheet-only guidance: extra anti-collapse language, scale indicator, camera tweak.
+- Do NOT repeat record fields in the custom prompt (doubled descriptions fight auto-compiled text).
+- Do NOT write scene, environment, story context, or characters into ref images. Ref images are studio-neutral / empty-scene.
 
 Quality language — prefer process vocabulary over adjective piles:
-- Materials: "brushed wool", "oiled leather", "chipped enamel edge", "linen weave", "knurled metal grip". Not "high-detail fabric".
-- Lighting: "even studio softbox", "3-point neutral setup, no cinematic rim". Not "beautiful lighting".
-- Framing: "head-to-toe, no cropped feet", "head-and-shoulders framing, shoulders included". Not "good framing".
-- Forbidden in ref-image prompts: "cinematic", "dramatic", "epic", "masterpiece", "8k", "hyperdetailed". These destroy identity stability.
+- Materials: "brushed wool", "oiled leather", "chipped enamel edge", "cracked plaster", "rain-darkened wood".
+- Lighting: "even studio softbox", "3-point neutral setup", "overcast north-facing skylight".
+- Framing: "head-to-toe, no cropped feet", "true orthographic, no vanishing points".
+- Forbidden in all ref-image prompts: "cinematic", "dramatic", "epic", "masterpiece", "8k", "hyperdetailed".
 
-Word budget (custom prompt, if any): 40-120 words. Beyond that you are duplicating the entity record or drifting into style decoration.
+--- Characters ---
 
-Common pitfalls — stop and fix if you catch any:
-- Sheet collapses to only the expression row (six faces, no full body) → reinforce "two rows, TOP row full-body at 70% height, BOTTOM row expressions at 30% height, do NOT drop the full-body row, do NOT return expressions only".
-- Top row cropped at waist → add "head-to-toe, feet visible, no waist crop, top row needs vertical space".
-- Face drifts between expression panels → add "same face shape, same hairstyle, same colors, same lighting in every panel".
-- Shadows mistaken for facial structure → demand "flat even studio lighting, no harsh rim, no deep cast shadows".
-- Random background appears → demand "solid white background, no environment, no props unless required for scale".
-- Extra character in the panel → demand "single character only, solo subject".
+Slots: \`full-sheet\` (primary identity anchor) and \`extra-angle\` (custom views).
 
-After generation:
-- Promote the best result via \`character.setRefImageFromNode\` if it came from a canvas node, or \`character.setRefImage\` if the user picked a variant.
-- If none of the variants hold up, describe what failed in one line ("full-body row collapsed, only expressions returned"), then regenerate with corrective language targeting that specific failure. Do not retry blindly.
-- Never silently accept a broken sheet. If the main turnaround is broken, downstream identity across the whole project will drift.`,
-  ),
-  defineProcessPrompt(
-    'location-ref-image-generation',
-    'Location Reference Image Generation',
-    'Guidance for location reference image creation.',
-    `Location reference images lock durable place identity — geography, landmarks, atmosphere, repeatable camera angles. They are concept-art model sheets, not dramatic one-off frames.
+Full-sheet layout — one landscape image, two rows, six panels:
+- Top row (~70% height): three full-body panels at identical scale — front, left profile, rear. Head-to-toe, feet grounded, arms slightly away from the body.
+- Bottom row (~30% height): three head-and-shoulders expression panels — neutral, happy, angry. Same face, same hair, same lighting.
+- Solid white background, flat even studio lighting, single character only, no props unless part of the costume.
+- Keep panel count at six. 10-panel layouts collapse and drop the full-body row.
 
-Workflow — always, in order:
-1. Read the location record and its existing reference images. Know whether the current sheets still match the record's architecture, mood, weather, and lighting.
-2. Each location has two canonical reference-image slots (plus \`extra-angle\` for rare custom needs):
-   - \`bible\` — a composite model-sheet bundling a wide establishing shot, an interior / architectural detail, an atmosphere study, and two repeatable key camera angles on a single image. This is the identity anchor; most locations need only this one.
-   - \`fake-360\` — eight panels at 45° intervals stitched into a pseudo-panorama. Use this ONLY when shots will move around the space and you need every compass direction locked. Most scenes do not need it.
-   - \`extra-angle\` — free-form custom view (overhead, blocking plan, specific hero angle) when neither canonical slot fits.
-   The legacy per-slot names (\`main\`, \`wide-establishing\`, \`interior-detail\`, \`atmosphere\`, \`key-angle-1\`, \`key-angle-2\`, \`overhead\`) survive only as DB-migration aliases — do not request them.
-3. Call \`location.generateRefImage\` with \`{ locationId }\` (view defaults to \`bible\`) or \`{ locationId, view: { kind: 'fake-360' } }\` / \`{ kind: 'extra-angle', angle: '…' }\`. Pass a custom \`prompt\` only when the record fields do not capture a specific camera choice you need. Otherwise let \`buildLocationRefImagePrompt\` compile from the record.
-4. Call ONE at a time. Verify success before triggering any follow-up.
+Call: \`entity.generateRefImage\` with \`{ type: "character", id: characterId }\` (view defaults to \`full-sheet\`).
+Promote: \`entity.setRefImageFromNode\` or \`entity.setRefImage\`.
 
-Sheet layouts (what the generator produces and what any custom prompt must respect):
-- \`bible\` — one image, five tiles on a controlled grid: large wide-establishing panel on the top half; bottom half split into four equal tiles for interior detail, atmosphere study, key angle 1, key angle 2. Each tile is clearly separated by neutral gutters. No single tile dominates the whole frame.
-- \`fake-360\` — one image, eight equal panels (2 rows × 4 columns), compass order left-to-right top-to-bottom: 0°, 45°, 90°, 135° (top row); 180°, 225°, 270°, 315° (bottom row). Matching eye-level, matching time-of-day, matching weather.
-- \`extra-angle\` — a single panel honoring the angle string; no grid.
-- All slots: empty scene, no characters, no people, no figures (\`buildLocationRefImagePrompt\` enforces this).
+Pitfalls: sheet collapses to only expressions (reinforce "two rows, TOP row full-body at 70%"), top row cropped at waist, face drifts between panels, random background appears, extra character in panel.
 
-When to regenerate vs leave alone:
-- Bible reads clean → leave it alone. It is the identity anchor; regenerating churns every downstream shot.
-- Wrong architecture, wrong palette, wrong time-of-day → regenerate \`bible\`, then re-run any downstream nodes that lean on the old look.
-- Scenes will move around the space (dolly, pan, walk-through) → add \`fake-360\` once; do NOT repeatedly regenerate \`bible\` to chase different angles.
-- Need a blocking diagram or a very specific hero angle → use \`extra-angle\`, not a bible regeneration.
+--- Locations ---
 
-What to write (custom prompt) vs what to let the record carry:
-- Put durable place identity in the record: architecture, mood, weather tendencies, lighting logic, landmark structure, palette anchors.
-- Custom prompt is for extra camera language ("eye-level, 35mm equivalent, slight upward tilt revealing ceiling beams"), extra anti-collapse language, or a tile-ordering reminder.
-- Do NOT write actor blocking, weather of a specific scene, or one-shot props into the ref image. That belongs on a node prompt, not on the location record.
-- Do NOT write characters, figures, or people into any location ref. Location sheets are empty — keep any custom prompt aligned with that rule.
+Slots: \`bible\` (primary identity anchor), \`fake-360\` (pseudo-panorama), \`extra-angle\`.
 
-Quality language — prefer process vocabulary:
-- Surface: "cracked plaster", "lichen-stained stone", "rain-darkened wood", "sun-bleached concrete". Not "weathered".
-- Light: "low-angle afternoon sun slicing through louvers", "overcast north-facing skylight", "sodium streetlamp pooling on wet asphalt". Not "moody lighting".
-- Depth: "foreground planter, midground doorway, background corridor receding left". Not "depth".
-- Forbidden words in ref images: "epic", "dramatic", "breathtaking", "cinematic masterpiece", "8k", "hyperdetailed".
+Bible layout — one image, five tiles:
+- Top half: large wide-establishing panel. Bottom half: four equal tiles (interior detail, atmosphere study, key angle 1, key angle 2). Clearly separated by neutral gutters.
+- All slots: empty scene, no characters, no people, no figures.
 
-Word budget (custom prompt, if any): 40-120 words.
+Fake-360 layout — one image, 2x4 grid (eight panels), compass order 0°-315° at 45° intervals. Matching eye-level, time-of-day, weather.
 
-Common pitfalls — stop and fix if you catch any:
-- Bible collapses to a single wide shot → reinforce "five tiles on one sheet, top half wide-establishing, bottom half four equal tiles, clearly separated".
-- fake-360 drifts in time-of-day / weather between panels → lock \`timeOfDay\` + \`weather\` on the record and echo in the custom prompt.
-- Random character appears → add "no characters, no people, no figures" and run \`location.deleteRefImage\` on the bad sheet before retrying.
-- Wide-establishing tile shows only a hero wall → add "full environment visible, reveal entry path and far boundary".
-- Atmosphere tile becomes a realistic wide → add "atmosphere tile: light and weather are the subject, environment recedes".
+Call: \`entity.generateRefImage\` with \`{ type: "location", id: locationId }\` (defaults to \`bible\`) or \`{ type: "location", id: locationId, view: { kind: 'fake-360' } }\`.
+Promote: \`entity.setRefImageFromNode\` or \`entity.setRefImage\`.
 
-After generation:
-- Promote the best result via \`location.setRefImageFromNode\` (from a canvas node) or \`location.setRefImage\` (from a variant).
-- If results miss, describe the failure in one line and regenerate with corrective language. Do not retry blindly.
-- When re-architecting a location (palette shift, renovation story beat), update the record first with \`location.update\`, then regenerate \`bible\`. Re-run \`fake-360\` / \`extra-angle\` only if they now mismatch.`,
-  ),
-  defineProcessPrompt(
-    'equipment-ref-image-generation',
-    'Equipment Reference Image Generation',
-    'Guidance for equipment reference image creation.',
-    `Equipment reference images prove the object's silhouette, controls, materials, and handling. Treat the item as the subject. Environment mood never buries the form.
+Pitfalls: bible collapses to a single wide shot, fake-360 drifts in time-of-day between panels, random character appears, atmosphere tile becomes a realistic wide.
 
-Workflow — always, in order:
-1. Read the equipment record and its existing reference image.
-2. Each equipment entry has ONE reference-image slot: \`ortho-grid\`. There is no separate \`main\`, \`front\`, \`back\`, or per-side slot — the single sheet bundles every orthographic view plus a detail callout into one composite. Rare custom needs (action shot, macro of a specific part) live under \`extra-angle\` with a free-form angle string; they do not replace the ortho-grid.
-3. Call \`equipment.generateRefImage\` with \`{ equipmentId }\` (the view defaults to \`ortho-grid\`). Omit \`prompt\` and let \`buildPrompt\` compile from \`description\`, \`function\`, \`material\`, \`color\`, \`condition\`, \`visualDetails\`, \`subtype\`, \`tags\` unless the record lacks a specific piece of info you need.
-4. Call ONE at a time. Verify success before triggering any follow-up.
+--- Equipment ---
 
-Sheet layout (what the generator produces and what any custom prompt must respect):
-- Exactly two rows × two columns = four panels, plus one optional fifth inset for a detail close-up. All panels at identical scale.
-- True orthographic projection in every panel — no perspective vanishing points, no camera tilt.
-- Panels: top-left front, top-right back, bottom-left left profile, bottom-right right profile. Optional detail-closeup inset overlaps the bottom-right corner only if the record's \`visualDetails\` calls for it.
-- Solid white background, flat even studio lighting, single object, no environment, no hand/body unless needed for scale (use an anonymous neutral silhouette if scale is genuinely ambiguous).
-- Keep the panel count at four (plus the optional inset). Asking for six or more panels collapses to a single hero render.
+Slots: \`ortho-grid\` (primary identity anchor) and \`extra-angle\`.
 
-When to regenerate vs leave alone:
-- Silhouette is wrong, proportions drifted, wrong color palette, or a panel is missing → regenerate.
-- Record just changed (material, condition, subtype) → regenerate so downstream nodes see the new identity.
-- Pipeline needs a contextual action shot or a macro not captured on the ortho-grid → generate an \`extra-angle\` sheet, do NOT regenerate the ortho-grid.
-- Ortho-grid reads clean → leave it alone. It is the identity anchor.
+Ortho-grid layout — two rows x two columns = four panels, plus optional fifth inset for detail close-up:
+- True orthographic projection in every panel — no perspective vanishing points.
+- Panels: top-left front, top-right back, bottom-left left profile, bottom-right right profile.
+- Solid white background, flat even studio lighting, single object. No hand/body unless needed for scale (use anonymous neutral silhouette).
+- Keep panel count at four (plus optional inset). Six+ panels collapses to a single hero render.
 
-What to write (custom prompt) vs what to let the record carry:
-- Put durable object identity in the record: \`function\`, \`material\`, \`color\`, \`condition\`, \`visualDetails\`, \`subtype\`, \`tags\`. \`buildPrompt\` appends them automatically.
-- Custom prompt is for extra anti-collapse language, a scale indicator, or a specific camera/lighting tweak.
-- Do NOT write story context, owner identity, or environment drama into a ref image. Those belong on the node prompt for scene shots.
-- Do NOT copy record fields into the custom prompt text — \`buildPrompt\` has already appended them.
+Call: \`entity.generateRefImage\` with \`{ type: "equipment", id: equipmentId }\` (defaults to \`ortho-grid\`).
+Promote: \`entity.setRefImageFromNode\` or \`entity.setRefImage\`.
 
-Quality language — prefer process vocabulary:
-- Material: "brushed steel", "anodized aluminum", "oiled walnut stock", "chipped enamel edge", "powder-coated matte black", "knurled grip". Not "cool material".
-- Wear: "factory-new with shipping film still present", "field-used with oil rings on the grip", "battle-damaged with hairline cracks near the muzzle". Not "weathered".
-- Joinery: "visible tig weld bead at the seam", "inset phillips fasteners at four corners", "hidden magnetic latch at the rear". Not "well-made".
-- Forbidden in ref images: "epic", "dramatic", "masterpiece", "cinematic", "8k", "hyperdetailed". These turn product shots into concept-art collage.
+Pitfalls: sheet collapses to a single hero render, background leaks in, multiple objects appear, orthographic shots show perspective distortion, scale unclear.
 
-Word budget (custom prompt, if any): 40-120 words.
-
-Common pitfalls — stop and fix if you catch any:
-- Sheet collapses to a single hero render → reinforce "two rows, two columns, four orthographic panels, do NOT merge into one image".
-- Background leaks in → demand "solid white background, no environment, no scene".
-- Multiple objects appear → demand "single object, solo subject".
-- Orthographic shots show perspective distortion → demand "true orthographic projection, no vanishing points, no camera perspective".
-- Scale unclear → add "anonymous neutral silhouette at known scale beside the front panel, keep item as the subject".
-
-After generation:
-- Promote via \`equipment.setRefImageFromNode\` or \`equipment.setRefImage\`.
-- If silhouette is broken, regenerate the ortho-grid before triggering downstream node generations. Every scene shot leans on this sheet reading correctly.
-- If the failure is a specific macro detail, generate an \`extra-angle\` close-up rather than regenerating the whole ortho-grid.`,
+After generation (all entity types):
+- Promote the best result via the entity's \`.setRefImageFromNode\` or \`.setRefImage\`.
+- If results miss, describe the failure in one line and regenerate with corrective language targeting that specific failure. Do not retry blindly.
+- Never silently accept a broken sheet. Downstream identity across the project depends on the primary sheet reading correctly.`,
   ),
   defineProcessPrompt(
     'image-node-generation',
@@ -200,12 +121,12 @@ After generation:
 
 Workflow — always, in order:
 1. Call \`canvas.getNode\` on the target node. Read the current \`prompt\`, attached \`characterRefs\`, \`equipmentRefs\`, \`locationRefs\`, and any incoming text edges.
-2. Call \`canvas.getState\` (once per session, not per node) if you need the full edge map. Use that to find connected text nodes that feed context into this image node.
-3. Call \`canvas.readNodePresetTracks\` on this node to see what camera, lighting, style, and quality direction the preset system is already carrying. Do not duplicate those into the compiled prompt text.
+2. Call \`canvas.getInfo\` (once per session, not per node) if you need the full edge map. Use that to find connected text nodes that feed context into this image node.
+3. Call \`canvas.presetTracks { action: 'read' }\` on this node to see what camera, lighting, style, and quality direction the preset system is already carrying. Do not duplicate those into the compiled prompt text.
 4. If character / location / equipment refs are missing, stale, or wrong entity, fix them with \`canvas.setNodeRefs\` before generation. Generating against missing refs produces identity drift that is hard to correct later.
 5. Compile one unified prompt that covers the five elements below. Order them however the provider and scene read best — the five elements are the checklist, not a rigid sequence.
-6. If the user has not clarified a significant creative choice (style direction, mood shift, alternate costume), call \`commander.askUser\` BEFORE calling \`canvas.generate\`. Technical execution proceeds autonomously; creative direction does not.
-7. Call \`canvas.generate\` with \`{ canvasId, nodeId, nodeType: 'image' }\`. Always pass \`nodeType: 'image'\` — this routes the process prompt correctly. Set \`wait=false\` for fire-and-forget; set \`wait=true\` only when the next tool call depends on the output.
+6. If the user has not clarified a significant creative choice (style direction, mood shift, alternate costume), call \`commander.askUser\` BEFORE calling \`canvas.generation\`. Technical execution proceeds autonomously; creative direction does not.
+7. Call \`canvas.generation\` with \`{ nodeId, nodeType: 'image' }\`. Always pass \`nodeType: 'image'\` — this routes the process prompt correctly. Set \`wait=false\` for fire-and-forget; set \`wait=true\` only when the next tool call depends on the output.
 8. Verify result. If generation fails or drifts, correct the specific failure, do not retry blindly.
 
 Five elements (every compiled prompt should cover all five; order by what the frame needs to communicate first):
@@ -215,16 +136,13 @@ Five elements (every compiled prompt should cover all five; order by what the fr
 - Lighting: describe light as something that moves through and interacts with the scene. "Low-angle afternoon sun slicing through louvers, warm bounce off pale walls" beats "dramatic lighting".
 - Composition: framing, camera distance, lens feel, focal anchor. "Medium close, 50mm feel, subject centered, midground doorway recedes left".
 
-Provider hints for ordering:
-- Flow-matching / SD-family models → lead with the subject so it stays prioritized.
-- Midjourney-style providers → subject + composition early, style modifiers late.
-- Edit / inpaint models → start with the change you want, since the base image already carries most elements.
-- Follow the actual provider doc when specified. These are hints, not rules.
+Provider ordering:
+- Generally lead with the subject so it stays prioritized, then composition, then style modifiers. Adjust based on what the frame needs to communicate first.
 
 What to put in the compiled prompt vs where else it lives:
 - Subject identity, costume, face → already carried by attached character refs. Do not re-describe. Just call the character by name and state what is different this shot (pose, injury, expression).
 - Location geography, architecture → already carried by location refs. State only the part actually in the frame.
-- Camera style (lens, film grain, grade, tone) → preset tracks carry this. Check \`canvas.readNodePresetTracks\` first; do not duplicate into prompt text.
+- Camera style (lens, film grain, grade, tone) → preset tracks carry this. Check \`canvas.presetTracks { action: 'read' }\` first; do not duplicate into prompt text.
 - Scene-specific context (what the character is doing, what just happened, where the light is coming from) → THIS is what the compiled prompt is for.
 
 Decision tree — which context shapes the prompt most?
@@ -233,19 +151,19 @@ Decision tree — which context shapes the prompt most?
 - Node has no text edges but rich entity refs → let refs carry identity; focus compiled prompt on action + environment + lighting.
 - Refs missing, no text edges → STOP. Call \`canvas.setNodeRefs\` or ask the user what they want. Do not generate blind.
 
-Anti-quality-stacking rules:
-- Do NOT pile adjectives ("epic cinematic masterpiece, 8k, hyperdetailed, breathtaking, award-winning"). These destroy control.
-- Do NOT repeat identity fields already carried by refs. That creates conflicts.
-- Do NOT describe what is NOT in the frame (most modern image models actively include what you negate; use positive phrasing).
-- Do NOT write style words that collide with preset tracks.
+Quality guidelines:
+- Avoid piling adjectives ("epic cinematic masterpiece, 8k, hyperdetailed, breathtaking, award-winning"). These destroy control and push models toward generic output.
+- Do not repeat identity fields already carried by refs. That creates conflicts.
+- Do not write style words that collide with preset tracks.
+- Use the negative prompt field for things you want to avoid — it is always passed through to the provider.
 
-Word budget: compiled prompt 30-80 words. Hard stop at 120 — above that, models lose subject priority.
+Prompt length: aim for clarity over brevity. A well-written 30-word prompt can outperform a 100-word one, but do not artificially truncate when the scene requires detail. Let the scene complexity drive the length.
 
 Common pitfalls — stop and fix if you catch any:
-- Subject drifts from ref → check \`canvas.readNodePresetTracks\` for a conflicting style preset that is overriding ref; remove or update with \`canvas.updatePresetEntry\` / \`canvas.removePresetEntry\`.
+- Subject drifts from ref → check \`canvas.presetTracks { action: 'read' }\` for a conflicting style preset that is overriding ref; remove or update with \`canvas.presetTracks { action: 'updateEntry' | 'removeEntry' }\`.
 - Environment ignores location ref → ensure the location ref is attached AND the compiled prompt names at least one concrete landmark from the location record.
 - Too-flat lighting → add directional light language.
-- Style collapses to generic "digital art" look → apply a shot template or color style via \`canvas.applyShotTemplate\` instead of stuffing style words in the prompt.
+- Style collapses to generic "digital art" look → apply a shot template or color style via \`canvas.presetTracks { action: 'applyTemplate' }\` instead of stuffing style words in the prompt.
 
 After generation:
 - If multiple variants, call \`canvas.selectVariant\` to promote the chosen one. Do not silently leave variant[0] if it is wrong.
@@ -260,12 +178,12 @@ After generation:
 
 Workflow — always, in order:
 1. Call \`canvas.getNode\` on the target node. Read \`prompt\`, attached \`characterRefs\` / \`equipmentRefs\` / \`locationRefs\`, and the node's first-frame / last-frame anchors if present.
-2. Call \`canvas.getState\` (if not already cached) to find incoming text edges and connected image nodes that might be first-frame or last-frame references.
-3. Call \`canvas.readNodePresetTracks\` to see what camera, lens, and motion direction presets are already carrying.
+2. Call \`canvas.getInfo\` (if not already cached) to find incoming text edges and connected image nodes that might be first-frame or last-frame references.
+3. Call \`canvas.presetTracks { action: 'read' }\` to see what camera, lens, and motion direction presets are already carrying.
 4. If the clip depends on continuity images (first-frame image or last-frame image), verify them with \`canvas.setVideoFrames\`. First-frame and last-frame roles MUST be explicit — a video model that guesses direction from ambiguous anchors will drift.
-5. Compile ONE shot using the three-part thinking model below (stage, describe, land). Write it as natural prose — no SCENE/ACTION/BEAT labels. 40-100 words.
+5. Compile ONE shot using the three-part thinking model below (stage, describe, land). Write it as natural prose — no SCENE/ACTION/BEAT labels.
 6. If the user has not approved a significant creative or motion choice (pacing, cut strategy, alternate action), call \`commander.askUser\` first.
-7. Call \`canvas.generate\` with \`{ canvasId, nodeId, nodeType: 'video' }\`. Pass \`nodeType: 'video'\` always so process routing stays correct. Set \`wait=true\` only when the next call depends on the output.
+7. Call \`canvas.generation\` with \`{ nodeId, nodeType: 'video' }\`. Pass \`nodeType: 'video'\` always so process routing stays correct. Set \`wait=true\` only when the next call depends on the output.
 8. Verify result. Short duration first — generate a 3-5s version to lock motion, then expand only when motion is right.
 
 Three-part structure (think the shot this way; write it as natural prose without labels):
@@ -297,7 +215,7 @@ Duration strategy:
 - 8-10s — only when a single continuous beat needs it (oner). Most models degrade beyond 8s.
 - If the action is more than one beat, SPLIT into two video nodes and connect as last→first frame.
 
-Word budget: part 1 ~10-15 words, part 2 25-70 words, part 3 ~5-15 words. Total 40-100 words as one flowing paragraph. Hard stop at 150.
+Prompt length: aim for one flowing paragraph that covers all three parts. Let the scene complexity drive the length — a simple tracking shot may need 40 words, a complex oner may need 120. Write what the shot needs, no more.
 
 Common pitfalls:
 - The shot description reads like a paragraph summary instead of what's on screen → rewrite with concrete verbs and camera-first sentences.
@@ -312,173 +230,78 @@ After generation:
 - If result needs a re-pass, describe the specific failure ("Anna's coat ignored motion") and regenerate — not blind retry.`,
   ),
   defineProcessPrompt(
-    'audio-voice',
-    'Audio Voice Generation',
-    'Guidance for spoken-line voice generation.',
-    `Voice nodes produce a single spoken line or short vocal delivery. The prompt IS the line; the emotion is structured data, not prose. Stay inside your provider's voice control capabilities.
+    'audio-generation',
+    'Audio Generation',
+    'Guidance for all audio generation (voice, music, SFX).',
+    `Audio nodes produce voice lines, music cues, or sound effects. The \`audioType\` field (\`voice\` / \`music\` / \`sfx\`) routes the entire generation pipeline, so set it first.
 
-Workflow — always, in order:
-1. Call \`canvas.getNode\` on the target audio node. Read \`prompt\`, current \`audioType\`, \`emotionVector\`, attached refs, duration, providerId.
-2. Call \`canvas.setAudioParams\` with \`{ audioType: 'voice' }\` if audioType is not already 'voice'. This also locks downstream process routing.
-3. If the node is attached to a character ref, confirm the character ref is on the node. Some providers use it for voice cloning; without it they fall back to a generic voice.
-4. Set \`emotionVector\` via \`canvas.setAudioParams\`. Fields: \`happy\`, \`sad\`, \`angry\`, \`fearful\`, \`surprised\`, \`disgusted\`, \`contemptuous\`, \`neutral\`. Each is 0-1. One dominant value (0.5-0.7) + small secondaries beats maxing one or spreading flat across all.
-5. Write the \`prompt\` as the exact spoken text. No narration, no scene description.
-6. Check provider capability (advanced emotion vector + voice cloning support varies by provider) via \`provider.list\` or provider settings before assuming.
-7. Call \`canvas.generate\` with \`{ canvasId, nodeId, nodeType: 'audio', audioType: 'voice' }\`. Pass \`audioType\` explicitly so the process routes to voice-specific guidance.
-8. Always listen to the result; voice failures are silent in transcript.
+Shared workflow:
+1. Call \`canvas.getNode\` on the target audio node. Read \`prompt\`, current \`audioType\`, duration, providerId, and any attached refs.
+2. Call \`canvas.setMediaParams\` with the correct \`audioType\` if not already set.
+3. Check provider capability via \`provider.manage { action: 'getCapabilities' }\` (emotion-vector support, sample rate, duration limits, voice cloning, seamless loops).
+4. Write the \`prompt\` following the type-specific anatomy below.
+5. Call \`canvas.generation\` with \`{ nodeId, nodeType: 'audio', audioType: '<type>' }\`. Pass \`audioType\` explicitly.
+6. Always listen to the result — audio failures are silent in transcript.
 
-Voice prompt anatomy:
+--- Voice ---
+
+Voice nodes produce a single spoken line. The prompt IS the line; emotion is structured data.
+
+Prompt anatomy:
 - Spoken text — verbatim, exactly as the character says it.
 - Bracketed delivery cues inline: "[whispered] I know you're there. [louder, half-turning] You can come out now."
-- Audible cues as bracket annotations only if the provider supports it: \`[breathy]\`, \`[cracks]\`, \`[long pause]\`, \`[sigh]\`.
-- NOT in the prompt: "she sounds sad", "angrily", "with a smirk". Emotion goes in the emotion vector, not in prose.
-- NOT in the prompt: scene context, who is speaking to whom, what came before. The model voices the text.
+- NOT in the prompt: "she sounds sad", "angrily" — emotion goes in the \`emotionVector\`, not prose.
+- NOT in the prompt: scene context, who is speaking to whom. The model voices the text.
 
-Emotion vector guidance:
-- Single emotion (calm delivery): one field at 0.5-0.7, others at 0. E.g. \`happy: 0.6\`.
-- Single emotion (intense delivery): one field at 0.7-0.9, \`neutral: 0.1-0.2\`. E.g. \`angry: 0.8, neutral: 0.1\`.
-- Conflicted emotion (most interesting): two mid values + neutral fill. E.g. \`angry: 0.4, sad: 0.4, neutral: 0.2\`.
-- Flat neutral narration: \`neutral: 0.9\`, everything else 0.
-- Do NOT max all fields to 1.0. Delivery becomes manic or unstable.
-- Sum does not need to equal 1.0, but keep total under ~1.2.
+Emotion vector (\`canvas.setMediaParams\`): eight fields (\`happy\`, \`sad\`, \`angry\`, \`fearful\`, \`surprised\`, \`disgusted\`, \`contemptuous\`, \`neutral\`), each 0-1.
+- Calm delivery: one field 0.5-0.7, others 0. Intense: one field 0.7-0.9, neutral 0.1-0.2.
+- Conflicted (most interesting): two mid values + neutral fill. Flat narration: neutral 0.9.
+- Do NOT max all fields to 1.0 (manic). Keep sum under ~1.2.
+- Some providers ignore the vector silently — check capabilities. When unsupported, pre-bake emotion via bracketed cues.
 
-Character voice continuity:
-- If the character's prior lines used a specific provider and voiceId, keep them. Switching voice providers mid-project breaks identity.
-- Store recurring voice facts on the character record (voice description, cadence baseline) rather than in every prompt.
+Character voice continuity: lock provider + voiceId on first clip, reuse across the project. Store recurring voice facts on the character record, not in every prompt.
+Provider gates: voice cloning, long-form (>30s), and advanced emotion vary by provider.
 
-Provider capability gates (check before assuming):
-- Advanced emotion vector: honored by some providers, silently ignored by others. When unsupported, vector is dropped — pre-bake emotion into text via bracketed cues instead.
-- Voice cloning from image/audio: provider-specific, check capabilities.
-- Long-form delivery (>30s continuous): most voice providers degrade. Split into multiple audio nodes.
+--- Music ---
 
-Word budget:
-- Prompt text: whatever the line is. No cap; that is the line.
-- Bracketed cues: keep to 1-3 per line; more becomes noise.
+Music nodes produce structural audio — a bed, a theme, a transition. The prompt describes structure and role, not story synopsis.
 
-Common pitfalls:
-- Prompt describes the scene, not the line → rewrite to verbatim spoken text.
-- Emotion in prose instead of vector → move to \`emotionVector\` via \`canvas.setAudioParams\`.
-- Every vector field near 1.0 → back down to one dominant.
-- Line length exceeds provider's continuous duration → split across multiple nodes.
-- Character voice shifts across clips → lock provider + voiceId on first clip, reuse.
+Prompt anatomy:
+- Genre anchor: "Indie folk", "Synth-heavy cinematic score". One tag, not five.
+- Structure: "Intro pad 8 bars, vocal enters bar 9, chorus at bar 17, outro fades from bar 33".
+- BPM + key when known: "85 BPM, A minor".
+- Texture and mix role: "sparse, vocals forward, bed underneath" or "dense, wall-of-sound, no single lead".
+- Instrumentation: "fingerpicked acoustic guitar, upright bass, brushed snare, no piano".
+- Vocal direction if applicable: "breathy female vocal, lower register, no harmonies" or "instrumental only".
+- Scene mood → hint only ("music for a quiet goodbye"), not a story synopsis.
 
-After generation:
-- Listen. Voice failures are inaudible in transcript.
-- If delivery is wrong, adjust \`emotionVector\` or bracketed cues — do not just reword the text.
-- Promote selected variants via \`canvas.selectVariant\`.`,
-  ),
-  defineProcessPrompt(
-    'audio-music',
-    'Audio Music Generation',
-    'Guidance for music / score generation.',
-    `Music nodes produce structural audio — a bed, a theme, a transition. The prompt describes structure and role, not story synopsis. Length and genre choice depend on provider capability.
+Duration: 15-30s short cue, 30-60s standard, 60-120s multi-section (degrades), 120s+ split into sections. Set via \`canvas.setMediaParams\`, not prose.
 
-Workflow — always, in order:
-1. Call \`canvas.getNode\` on the target audio node. Read \`prompt\`, current \`audioType\`, duration, providerId.
-2. Call \`canvas.setAudioParams\` with \`{ audioType: 'music' }\` if not already set. This locks downstream process routing.
-3. Check provider capability via \`provider.list\`. Some providers produce vocals + structure; most others do instrumental only.
-4. Write the \`prompt\` using the music prompt anatomy below. 40-120 words.
-5. Call \`canvas.generate\` with \`{ canvasId, nodeId, nodeType: 'audio', audioType: 'music' }\`. Pass \`audioType\` explicitly.
-6. Always listen. Music failures (off-key, wrong genre, bad mix) are silent in transcript.
+--- SFX ---
 
-Music prompt anatomy (40-120 words):
-- Genre anchor: "Indie folk", "Synth-heavy cinematic score", "Bossa nova". One tag, not five. Genre stacking confuses most music models.
-- Structure: "Intro pad 8 bars, vocal enters bar 9, chorus at bar 17, outro fades from bar 33". Structure beats mood for models that listen to structure.
-- BPM + key when known: "85 BPM, A minor". Providers that honor these produce tighter mixes.
-- Texture and mix role: "sparse, vocals forward, bed underneath", "dense, wall-of-sound, no single lead". Tells the model where it sits in the final film mix.
-- Instrumentation: "fingerpicked acoustic guitar, upright bass, brushed snare, no piano". Explicit omissions prevent the model from stuffing in unwanted elements.
-- Vocal direction (if applicable): "breathy female vocal, lower register, no harmonies" or "instrumental only, no vocals".
+SFX nodes produce physical sound events or ambience loops. Layers beat blobs.
 
-What to write vs where else it lives:
-- Scene mood / narrative tone → hint, don't paste. "Music for a quiet goodbye" is a hint; "Music for the third-act reunion where Anna finally tells Ben she's leaving" is a story synopsis, which confuses the model.
-- Duration → set via \`canvas.setAudioParams\` or the node's duration field, not in prose.
-- Provider choice → set via \`canvas.setNodeProvider\` (only when user has requested a specific provider) or rely on the canvas default.
+Prompt anatomy:
+- Object: "Heavy wooden door". Action: "Slams closed". Environment acoustics: "Stone corridor with long reverb tail".
+- Layer list (optional but powerful): comma-separated sub-events in time order. "Metal on metal impact, short metallic ring, debris skitter aftermath".
+- Mix role: "foreground hit, no music bed" or "background ambience bed, seamless loop".
 
-Duration and loop strategy:
-- 15-30s: short cue, sting, transition.
-- 30-60s: standard cue, A-section + B-section possible.
-- 60-120s: multi-section, verse-chorus-verse likely to degrade.
-- 120s+: most music models produce loop-stitch artifacts. Split into sections as separate nodes or use a longer-form provider.
+Foley vs ambience: single event (hit, footstep) → foley (3-8s, layers matter). Continuous environment (room tone, forest) → ambience (15-30s, looped). Character-made sound → foley with character ref. Non-diegetic (whoosh, riser) → foley, dry environment.
 
-Genre pairing with provider:
-- Orchestral / cinematic → providers with orchestral training. Avoid providers that default to EDM.
-- Vocal-forward pop / indie → providers with vocal + lyric training.
-- Synth / electronic → most providers handle well.
-- Jazz / classical → quality varies widely. Test before committing.
+Environment acoustics vocabulary: dry/anechoic, small room (~0.3s reverb), large room (~0.8-1.5s), cathedral (2-4s+), outdoor (no reflections, wind bed), underwater (muffled, high frequencies absent).
+Duration: foley hits 1-5s, sustained 5-15s, ambience loops 15-30s. Over 30s most providers degrade — layer two clips.
 
-Word budget: 40-120 words. Above 150 and most music models lose the plot.
-
-Common pitfalls:
-- Prompt is a story synopsis → rewrite around structure, BPM, texture.
-- Genre stacked ("indie folk meets cinematic orchestral with ambient pad") → pick one primary genre + one texture hint.
-- Requested vocals on an instrumental-only provider → switch provider or rewrite as instrumental.
-- Duration exceeds provider capability → split or switch provider.
-- Mix role unclear → add "bed underneath dialogue", "foreground cue, no dialogue".
+Common pitfalls (all audio types):
+- Voice: prompt describes the scene instead of the line → rewrite to verbatim spoken text. Emotion in prose instead of vector → move to \`emotionVector\`. Line exceeds provider duration → split across nodes.
+- Music: prompt is a story synopsis → rewrite around structure, BPM, texture. Genre stacking → pick one primary genre + one texture hint. Requested vocals on instrumental-only provider → switch provider.
+- SFX: one-word prompt ("footsteps") → expand with surface, weight, environment, layers. Emotional adjectives ("scary") → describe physical sound instead. Wrong acoustic environment → lock environment first.
+- All: always listen. If delivery or mix is wrong, adjust params/prompt targeting the specific failure — do not retry blindly.
 
 After generation:
-- Listen with the intended dialogue/video bed in mind. Music that is great solo can fight dialogue.
-- If mix is wrong, regenerate with corrected mix-role language.
-- Promote selected variants via \`canvas.selectVariant\`.`,
-  ),
-  defineProcessPrompt(
-    'audio-sfx',
-    'Audio SFX Generation',
-    'Guidance for sound-effect and ambience generation.',
-    `SFX nodes produce physical sound events or ambience loops. The prompt names the object, the action, and the acoustic environment. Layers beat blobs.
-
-Workflow — always, in order:
-1. Call \`canvas.getNode\` on the target audio node. Read \`prompt\`, current \`audioType\`, duration, providerId.
-2. Call \`canvas.setAudioParams\` with \`{ audioType: 'sfx' }\` if not already set.
-3. Check provider capability. Some providers support long seamless loops and high sample rates; others do not.
-4. Write the \`prompt\` using the SFX anatomy below. 20-80 words.
-5. Call \`canvas.generate\` with \`{ canvasId, nodeId, nodeType: 'audio', audioType: 'sfx' }\`. Pass \`audioType\` explicitly.
-6. Listen to result; SFX failures (wrong layer, misread object, wrong acoustics) are silent in transcript.
-
-SFX prompt anatomy (20-80 words):
-- Object: what makes the sound. "Heavy wooden door", "brass zipper", "dropped ceramic mug".
-- Action: what happens. "Slams closed", "unzips slowly", "shatters on tile floor".
-- Environment acoustics: what room this is in. "Stone corridor with long reverb tail", "dry padded studio", "open field, no reflections".
-- Layer list (optional but powerful): comma-separated sub-events in time order. "Metal on metal impact, short metallic ring, debris skitter aftermath" beats "metal impact".
-- Mix role: "foreground hit, no music bed", "background ambience bed, seamless loop".
-
-Foley vs ambience decision:
-- Single event (hit, footstep, crash) → foley. Short clip (3-8s). Layers matter.
-- Continuous environment (room tone, forest ambience, city street) → ambience. Long clip (15-30s), looped. Density matters.
-- Character-made sound (breathing, clothing rustle, weapon handling) → foley, attached character ref useful.
-- Non-diegetic sound (whoosh, riser, impact) → foley, environment = dry.
-
-Environment acoustics vocabulary:
-- Dry / anechoic → studio foley, no reverb.
-- Small room → carpet, plaster, soft reverb ~0.3s.
-- Large room → wood, stone, medium reverb ~0.8-1.5s.
-- Cathedral / cavern → long reverb 2-4s+.
-- Outdoor → no reflections, wind bed, distance cues.
-- Underwater → low-pass filter language: "muffled, high frequencies absent".
-
-Layer language:
-- Comma-separated, time-ordered: "Ignition spark, low rumble build, bass impact, crackling sustain".
-- Specify timing when needed: "Sharp attack at 0s, body at 0.2s, decay over 1.5s".
-- Foreground vs background per layer: "foreground ceramic shatter, background crowd reaction".
-
-Duration:
-- Foley hits: 1-5s. Keep it short; padding becomes noise.
-- Foley sustained (machinery, engine): 5-15s.
-- Ambience loops: 15-30s. Ask provider to produce seamless loop if supported.
-- Over 30s: most SFX providers degrade. Layer two 20s clips instead.
-
-Word budget: 20-80 words. SFX usually needs less prose than voice or music.
-
-Common pitfalls:
-- Prompt is one word ("footsteps") → expand to surface + weight + environment + layers: "Heavy boots on wet cobblestones, slow pace, puddle splash on every third step, reverb tail ~0.5s".
-- Emotional adjectives ("scary", "creepy") → describe physical sound instead: "Low drone at 40Hz, rising to 80Hz over 3s, metallic scrape layered on top".
-- Wrong acoustic environment → lock environment first; downstream sound will fight if it mismatches neighboring shots.
-- Loop stitches audible → request "seamless loop" explicitly and check provider capability; otherwise crossfade in post.
-- Multiple unrelated events in one prompt → split into multiple SFX nodes, mix in post.
-
-After generation:
-- Listen for acoustic match with neighboring shots. A dry foley in a reverberant scene breaks immersion.
-- Listen for layer legibility — if layers overlap too much, re-prompt with explicit timing.
-- Promote selected variants via \`canvas.selectVariant\`.`,
+- Promote selected variants via \`canvas.selectVariant\`.
+- Voice failures → adjust \`emotionVector\` or bracketed cues before rewriting text.
+- Music mix fights dialogue → regenerate with corrected mix-role language.
+- SFX acoustic mismatch with neighboring shots → re-prompt with correct environment.`,
   ),
   defineProcessPrompt(
     'node-preset-tracks',
@@ -487,17 +310,17 @@ After generation:
     `Preset tracks carry reusable cinematic grammar on each node — camera, lens, look, scene, composition, emotion, flow, technical. The goal is a readable category stack downstream compilation can trust without duplicating prompt text. Scene-specific facts never belong on a preset track.
 
 Workflow — always, in order:
-1. Call \`canvas.readNodePresetTracks\` on the node first. Know what is already there before changing anything. Never overwrite blind.
+1. Call \`canvas.presetTracks { action: 'read' }\` on the node first. Know what is already there before changing anything. Never overwrite blind.
 2. Identify which of the 8 categories you need to touch: \`camera\`, \`lens\`, \`look\`, \`scene\`, \`composition\`, \`emotion\`, \`flow\`, \`technical\`. Stay inside these — any other category name is invalid.
 3. Decide whether this is a surgical edit (one or two entries inside one category) or a grouped rewrite (multiple categories moving together).
 4. Pick the right tool:
-   - \`canvas.addPresetEntry\` — add one entry to one category.
-   - \`canvas.updatePresetEntry\` — modify one existing entry inside a category.
-   - \`canvas.removePresetEntry\` — remove one entry.
-   - \`canvas.writeNodePresetTracks\` — overwrite the full track set for one node, one or more categories at once.
-   - \`canvas.writePresetTracksBatch\` — overwrite track sets on multiple nodes at once with the same payload (use for sequence-wide decisions).
+   - \`canvas.presetTracks { action: 'addEntry' }\` — add one entry to one category.
+   - \`canvas.presetTracks { action: 'updateEntry' }\` — modify one existing entry inside a category.
+   - \`canvas.presetTracks { action: 'removeEntry' }\` — remove one entry.
+   - \`canvas.presetTracks { action: 'write' }\` — overwrite the full track set for one node, one or more categories at once.
+   - \`canvas.presetTracks { action: 'writeBatch' }\` — overwrite track sets on multiple nodes at once with the same payload (use for sequence-wide decisions).
 5. Execute. For batch operations, verify the node list is correct before calling — these writes are not easily reversed.
-6. Call \`canvas.readNodePresetTracks\` again after write if downstream reasoning depends on the final state.
+6. Call \`canvas.presetTracks { action: 'read' }\` again after write if downstream reasoning depends on the final state.
 
 Category quick reference:
 - \`camera\` — viewpoint, movement, direction (front, over-shoulder, tracking-behind, dutch-angle). Not lens details.
@@ -510,17 +333,17 @@ Category quick reference:
 - \`technical\` — hard technical constraints (resolution override, aspect-ratio override, negative-prompt patches). Not style.
 
 Surgical vs grouped decision tree:
-- Fixing one wrong entry in one category → \`canvas.updatePresetEntry\` or \`canvas.removePresetEntry\`.
-- Adding a new preset reference inside an existing stack → \`canvas.addPresetEntry\`.
-- Rewriting a single category wholesale (e.g. swapping all camera entries) → \`canvas.writeNodePresetTracks\` with just that category.
-- Applying the same camera+lens+look decision to 12 shots in a row → \`canvas.writePresetTracksBatch\`. Faster and atomic.
-- Replacing the entire track set across categories → \`canvas.writeNodePresetTracks\` with all affected categories.
+- Fixing one wrong entry in one category → \`canvas.presetTracks { action: 'updateEntry' }\` or \`canvas.presetTracks { action: 'removeEntry' }\`.
+- Adding a new preset reference inside an existing stack → \`canvas.presetTracks { action: 'addEntry' }\`.
+- Rewriting a single category wholesale (e.g. swapping all camera entries) → \`canvas.presetTracks { action: 'write' }\` with just that category.
+- Applying the same camera+lens+look decision to 12 shots in a row → \`canvas.presetTracks { action: 'writeBatch' }\`. Faster and atomic.
+- Replacing the entire track set across categories → \`canvas.presetTracks { action: 'write' }\` with all affected categories.
 
 What goes on tracks vs elsewhere:
 - Reusable camera/lens/look/composition grammar → tracks. These are the point of the system.
 - Subject identity (who, what they wear, their face) → character / location / equipment refs, not tracks.
 - Scene-specific action (what happens in THIS shot) → the node prompt, not tracks.
-- Color palette and grade behavior → color-style record, referenced by \`look\` track entry or \`colorStyle.save\`.
+- Color palette and grade behavior → color-style record, referenced by \`look\` track entry or \`colorStyle.manage\`.
 - Shot structure (composition + camera + lens as a bundle) → shot template, not repeated per-node.
 
 Category-stack hygiene — keep it readable:
@@ -546,14 +369,14 @@ After writing:
     `Preset definitions are reusable building blocks in the preset library — one record per preset, typed to one category, composable with other presets on any node. Treat them as durable cinematic grammar, not one-off prompt dumps.
 
 Workflow — always, in order:
-1. Call \`preset.list\` to see existing presets in the relevant category before creating. Filter or scan the output so you do not duplicate an existing entry.
-2. If editing, call \`preset.get\` first to read the current state. Do not write blind.
+1. Call \`preset.manage\` to see existing presets in the relevant category before creating. Filter or scan the output so you do not duplicate an existing entry.
+2. If editing, call \`preset.manage\` first to read the current state. Do not write blind.
 3. Make the change:
-   - \`preset.create\` — add a new definition. Confirm the pattern is durable (recurs across shots), not a one-scene exception.
-   - \`preset.update\` — modify an existing entry. Keep the category stable; migrating a preset across categories is its own decision.
-   - \`preset.delete\` — remove an unused or superseded entry. Confirm no node currently references it (check preset track entries) before deleting.
-   - \`preset.reset\` — restore a built-in preset to its factory defaults. Use when a user has edited a built-in and wants the original back.
-4. Verify by calling \`preset.get\` on the edited preset, or \`preset.list\` to confirm the library list is correct.
+   - \`preset.manage { action: 'create' }\` — add a new definition. Confirm the pattern is durable (recurs across shots), not a one-scene exception.
+   - \`preset.manage { action: 'update' }\` — modify an existing entry. Keep the category stable; migrating a preset across categories is its own decision.
+   - \`preset.manage { action: 'delete' }\` — remove an unused or superseded entry. Confirm no node currently references it (check preset track entries) before deleting.
+   - \`preset.manage { action: 'reset' }\` — restore a built-in preset to its factory defaults. Use when a user has edited a built-in and wants the original back.
+4. Verify by calling \`preset.manage\` on the edited preset, or \`preset.manage\` to confirm the library list is correct.
 
 Good preset definitions share these traits:
 - Compact. One focused intent per entry. "Morning-side 45-degree sun, warm bounce" beats "Cinematic morning feel with nice light".
@@ -578,14 +401,14 @@ Review-before-create checklist:
 - Does the wording read as cinematic grammar or scene narration? Rewrite until it is grammar.
 - Is the category choice the cleanest fit? If two categories feel plausible, the preset is probably too broad — split into two focused presets.
 
-Preset body word budget: 20-80 words. Under 20 is usually too vague; over 80 is usually scene-specific content leaking in.
+Preset body length: keep presets focused on their category concern. Very short presets tend to be too vague; very long presets usually contain scene-specific content that should live in the node prompt instead.
 
 Common pitfalls:
 - Near-duplicate of an existing preset → refine the existing one instead of adding another; library bloat makes selection harder.
 - Category drift (updating a \`look\` entry to include camera-direction text) → split into two presets.
 - Scene-specific body text ("the warehouse scene's moody light") → rewrite into reusable grammar ("warehouse-style moody light: low-angle sodium source, long shadows, dust haze").
 - Deleting a preset that is still referenced on nodes → broken node tracks; always check references first.
-- Using \`preset.reset\` on a user-created preset (the tool only resets built-ins) → wrong tool; use \`preset.update\` to restore an older version.
+- Using \`preset.manage { action: 'reset' }\` on a user-created preset (the tool only resets built-ins) → wrong tool; use \`preset.manage { action: 'update' }\` to restore an older version.
 
 After editing:
 - If downstream nodes reference this preset, they will use the new version on next generation. Existing generated assets do NOT retro-update — regenerate if the change must land.`,
@@ -597,14 +420,14 @@ After editing:
     `Shot templates package a bundle of preset grammar (camera + lens + composition, sometimes look and flow) that can be applied across nodes with one call. They accelerate shot planning by injecting reusable framing + motion structure while leaving node-specific subject and action untouched.
 
 Workflow — always, in order:
-1. Call \`shotTemplate.list\` to see existing templates before creating. Confirm there is not already a template that covers 80% of this pattern.
+1. Call \`shotTemplate.manage { action: 'list' }\` to see existing templates before creating. Confirm there is not already a template that covers 80% of this pattern.
 2. If editing, call the list or detail read to see the current bundle.
 3. Make the change:
    - \`shotTemplate.create\` — add a new template. Confirm the bundle represents a durable, recurring pattern across shots.
    - \`shotTemplate.update\` — modify an existing template's bundled tracks.
    - \`shotTemplate.delete\` — remove a template. Verify it is not the only source of a recurring framing before deleting.
-4. To apply: call \`canvas.applyShotTemplate\` on a single node or on a \`nodes\` array for batch application. The template's track set overlays onto the node; node-specific subject, action, and entity refs are preserved.
-5. Verify by calling \`canvas.readNodePresetTracks\` on an affected node to confirm the template's tracks landed where expected.
+4. To apply: call \`canvas.presetTracks { action: 'applyTemplate' }\` on a single node or on a \`nodes\` array for batch application. The template's track set overlays onto the node; node-specific subject, action, and entity refs are preserved.
+5. Verify by calling \`canvas.presetTracks { action: 'read' }\` on an affected node to confirm the template's tracks landed where expected.
 
 Good shot templates share these traits:
 - Bundle cinematic grammar, not subject identity. Camera angle, lens feel, composition pattern, flow into neighboring shots — yes. Character description, location specifics, scene context — no.
@@ -620,19 +443,19 @@ What to bundle vs what to leave out:
 
 Template naming and discoverability:
 - Name by shot grammar, not by scene. "Medium-close over-shoulder, 50mm, push-in" beats "Act 2 confrontation shot".
-- Include the primary camera decision in the name so \`shotTemplate.list\` is scannable.
+- Include the primary camera decision in the name so \`shotTemplate.manage { action: 'list' }\` is scannable.
 
 Apply-vs-write decision tree:
-- Same 4-5 shots share a framing pattern → one \`shotTemplate.create\` + one \`canvas.applyShotTemplate\` per shot (or batch via \`nodes\` array).
-- One-off shot with a unique framing → do not create a template. Write tracks directly with \`canvas.writeNodePresetTracks\`.
-- Need to tweak a template for one shot after applying → apply the template, then \`canvas.updatePresetEntry\` on the node for the local change. Do not fork the template for one deviation.
-- Template needs to replace a whole bundle across 12+ nodes → batch apply via \`canvas.applyShotTemplate\` with a \`nodes\` array is atomic and safer than 12 sequential calls.
+- Same 4-5 shots share a framing pattern → one \`shotTemplate.create\` + one \`canvas.presetTracks { action: 'applyTemplate' }\` per shot (or batch via \`nodes\` array).
+- One-off shot with a unique framing → do not create a template. Write tracks directly with \`canvas.presetTracks { action: 'write' }\`.
+- Need to tweak a template for one shot after applying → apply the template, then \`canvas.presetTracks { action: 'updateEntry' }\` on the node for the local change. Do not fork the template for one deviation.
+- Template needs to replace a whole bundle across 12+ nodes → batch apply via \`canvas.presetTracks { action: 'applyTemplate' }\` with a \`nodes\` array is atomic and safer than 12 sequential calls.
 
 Common pitfalls:
 - Template bundles character or scene identity → strip to grammar-only; identity belongs on entity records.
 - Template owns too many categories → split into two narrower templates or keep as node-level edits.
 - Name is scene-specific → rename to grammar-first so it is reusable and discoverable.
-- Applying a template that conflicts with a pre-existing node edit → the application overwrites matching categories; check \`canvas.readNodePresetTracks\` before applying if the node has custom edits you want to preserve.
+- Applying a template that conflicts with a pre-existing node edit → the application overwrites matching categories; check \`canvas.presetTracks { action: 'read' }\` before applying if the node has custom edits you want to preserve.
 - Deleting a template referenced in an active template-apply workflow → breaks that workflow; check usage first.
 
 After applying:
@@ -645,9 +468,9 @@ After applying:
     `Color styles own palette logic, contrast behavior, material response, and grade direction in reusable form. They are the project's visual continuity layer — one style per look family, referenced by nodes via preset \`look\` entries or directly by generation pipelines that support it.
 
 Workflow — always, in order:
-1. Call \`colorStyle.list\` to see existing styles before creating. Confirm there is not already a style that covers 80% of this look direction.
-2. To create or update: use \`colorStyle.save\`. The tool upserts by id (create if new, update if existing).
-3. To delete: use \`colorStyle.delete\`. Verify no active nodes or templates reference the style before removing.
+1. Call \`colorStyle.manage\` to see existing styles before creating. Confirm there is not already a style that covers 80% of this look direction.
+2. To create or update: use \`colorStyle.manage\`. The tool upserts by id (create if new, update if existing).
+3. To delete: use \`colorStyle.manage\`. Verify no active nodes or templates reference the style before removing.
 4. Verify by listing again, or by applying to a test node and generating a single image.
 
 Good color styles describe relationships, not taste words:
@@ -673,7 +496,7 @@ Style library hygiene:
 - Compact. 80-200 words per style body. Over 300 and scene content is leaking in.
 
 Decision tree — new style vs extend existing?
-- Look covers 80%+ of an existing style's description → extend the existing style via \`colorStyle.save\` (update path).
+- Look covers 80%+ of an existing style's description → extend the existing style via \`colorStyle.manage\` (update path).
 - Look is a variant of an existing style (warmer / cooler version) → create as new style; name it to reveal the relationship (e.g. "Warehouse noir — dawn variant").
 - Look is a one-shot experiment not expected to recur → keep it on the node prompt instead. Do not clutter the library.
 - Look is for a specific character (e.g. dream sequences) → create as new style; name it after the grammar, not the character or sequence.
@@ -689,125 +512,60 @@ After editing:
 - Existing generated assets do NOT retro-update. Regenerate affected shots if the new style must land.`,
   ),
   defineProcessPrompt(
-    'character-management',
-    'Character Management',
-    'Guidance for character CRUD work.',
-    `Character records are durable identity sources. The whole pipeline reads from them — ref-image generation, node prompt compilation, voice direction, continuity checks. Write them with care, because fixing identity drift after 50 generated assets is painful.
+    'entity-management',
+    'Entity Management',
+    'Guidance for entity (character, location, equipment) CRUD work.',
+    `Entity records are durable identity sources. The whole pipeline reads from them — ref-image generation, node prompt compilation, voice direction, continuity checks. Write them with care, because fixing identity drift after many generated assets is painful.
 
-Workflow — always, in order:
-1. Call \`character.list\` first to see what already exists. Look for near-duplicates by name, role, or description before creating a new record.
-2. For edits, call \`character.list\` (or \`canvas.getNode\` if the context surfaced the id) to read the current record. Never write blind.
-3. For the actual write, pick the right tool:
-   - \`character.create\` — new character.
-   - \`character.update\` — modify an existing record. Surgical field edits are fine; large rewrites need user direction.
-   - \`character.delete\` — remove a character. Verify no node currently references this character (check canvas refs) before deleting.
-4. For reference images on this character, use the ref-image tools (\`character.generateRefImage\`, \`character.setRefImage\`, \`character.deleteRefImage\`, \`character.setRefImageFromNode\`) — see the character-ref-image-generation process guidance.
+Shared workflow — always, in order:
+1. Call \`entity.list\` with the appropriate \`type\` (character/location/equipment) to see what already exists. Look for near-duplicates by name, role, type, or subtype before creating.
+2. For edits, read the current record first (via list or context-surfaced id). Never write blind.
+3. Pick the right tool: \`.create\` (new entity), \`.update\` (modify existing — surgical field edits are fine; large rewrites need user direction), \`.delete\` (remove — verify no node or loadout references it first).
+4. For reference images, use the entity's ref-image tools (\`.generateRefImage\`, \`.setRefImage\`, \`.deleteRefImage\`, \`.setRefImageFromNode\`) — see the entity-ref-image-generation process guidance.
 
-Field-placement rules — put facts where they belong:
-- Durable identity (role, description, appearance, personality, face, hair, skinTone, body, distinctTraits, vocalTraits) → character record. These recur across every shot.
-- Costume system (reusable outfits and equipment loadouts) → \`costumes\` array + \`loadouts\` array on the record. Keep costume descriptions compact and structured.
-- One-shot pose, lighting, or camera angle → node prompt. Never bake transient state into the character record.
-- Reference images (turnaround, profiles, face closeups) → \`referenceImages\` array, populated via the ref-image tools.
-- Recurring emotional baseline (e.g. "stoic, rarely smiles") → \`personality\` field. Shot-level emotion goes on the node prompt.
+Shared field-placement rules:
+- Durable identity → entity record. One-shot pose, blocking, transient weather, or specific camera angle → node prompt. Never bake transient state into the record.
+- Reference images → \`referenceImages\` array on the record, populated via ref-image tools.
+- Fill structured fields whenever info exists — downstream ref-image compilation reads them. Empty structured fields weaken ref-image quality.
+- Use explicit, concrete language. Process vocabulary beats taste words.
 
-Field-filling best practices:
-- Use explicit, concrete language. "Warm amber eyes, heavy brow, asymmetric jawline" beats "striking face".
-- Fill structured fields (face/hair/body) whenever you have the info — downstream ref-image compilation reads them. Empty structured fields weaken ref-image quality.
-- \`description\` vs \`appearance\`: description is who they are in the story; appearance is how they look. Do not mix.
-- \`personality\` is behavior grammar, not a monologue. "Stoic under pressure, dry humor, loyal to a fault" beats a two-paragraph backstory.
-- \`distinctTraits\` should be image-visible and stable. "Prosthetic left hand" yes; "believes in fate" no (belongs in personality).
-- \`loadouts\` link to equipment records; \`defaultLoadoutId\` is used when a node attaches this character without a specific loadout.
+--- Character-specific ---
 
-Common pitfalls:
-- Writing personality as story synopsis → rewrite as behavioral grammar.
-- Baking one-shot pose or emotion into the record → move to node prompt.
-- Skipping structured fields when info exists → fill them in; the ref-image system uses them.
-- Near-duplicate of an existing character → check \`character.list\` output carefully; consolidate rather than fork.
-- Deleting a character referenced by active nodes → node refs become orphans. Check canvas refs first.
+Key fields: role, description, appearance, personality, face, hair, skinTone, body, distinctTraits, vocalTraits, costumes, loadouts.
+- \`description\` is who they are in the story; \`appearance\` is how they look. Do not mix.
+- \`personality\` is behavior grammar ("stoic under pressure, dry humor"), not a backstory monologue.
+- \`distinctTraits\` must be image-visible and stable. "Prosthetic left hand" yes; "believes in fate" no.
+- Costumes → \`costumes\` array. Equipment loadouts → \`loadouts\` array. \`defaultLoadoutId\` applies when no specific loadout is set on a node.
+- Recurring emotional baseline → \`personality\`. Shot-level emotion → node prompt.
 
-After editing:
-- Existing generated assets do NOT retro-update. If the change affects identity, regenerate affected nodes (or at minimum, regenerate the character \`main\` ref-image before re-running shots).
-- If costume or equipment loadout changed, node refs that use this character may need their \`loadoutId\` reviewed.`,
-  ),
-  defineProcessPrompt(
-    'location-management',
-    'Location Management',
-    'Guidance for location CRUD work.',
-    `Location records preserve durable place identity — architecture, layout, weather tendencies, lighting logic, landmark structure. They are the project's geographic continuity layer. Ref-image workflow is covered by the location-ref-image-generation process; this process handles the record itself.
+--- Location-specific ---
 
-Workflow — always, in order:
-1. Call \`location.list\` to see what already exists. Look for near-duplicates by name, type, or subLocation before creating.
-2. For edits, read the current record (via list or the context-surfaced id). Never write blind.
-3. For the actual write, pick the right tool:
-   - \`location.create\` — new location.
-   - \`location.update\` — modify an existing record.
-   - \`location.delete\` — remove a location. Verify no node currently references it before deleting.
-4. For reference images, use the ref-image tools (\`location.generateRefImage\`, \`location.setRefImage\`, \`location.deleteRefImage\`, \`location.setRefImageFromNode\`) — see the location-ref-image-generation process guidance.
+Key fields: type (interior/exterior/int-ext), subLocation, description, architectureStyle, mood, weather, lighting, timeOfDay, dominantColors, keyFeatures, atmosphereKeywords.
+- Set \`type\` — ref-image defaults read layout from it.
+- \`description\` is narrative role; \`mood\` is emotional grammar; \`atmosphereKeywords\` are short evocative tags. Keep them distinct.
+- \`keyFeatures\` must be image-identifiable landmarks. "Stained glass window above the entrance" yes; "history of conflict" no.
+- Repeat camera angles → captured as key-angle ref slots, not in presets.
 
-Field-placement rules:
-- Durable place identity (type, subLocation, description, architectureStyle, mood, weather, lighting, timeOfDay, dominantColors, keyFeatures, atmosphereKeywords) → location record.
-- One-shot actor blocking, transient weather, specific camera angle → node prompt. Never bake single-shot state into the record.
-- Reference images (wide establishing, interior detail, atmosphere, key angles, overhead) → \`referenceImages\` array, populated via the ref-image tools.
-- Repeat camera angles the project uses consistently → captured as key-angle ref slots on this record, not in presets.
+--- Equipment-specific ---
 
-Field-filling best practices:
-- Concrete language, not taste words. "Cracked plaster walls, rain-darkened wood beams, flickering sodium bulb" beats "atmospheric".
-- Fill structured fields (\`lighting\`, \`weather\`, \`architectureStyle\`, \`keyFeatures\`) whenever info exists — downstream ref-image compilation reads them.
-- \`description\` is narrative role ("this is where Anna lost her sister"); \`mood\` is emotional grammar ("tense, unresolved"); \`atmosphereKeywords\` are short evocative tags. Keep them distinct.
-- \`keyFeatures\` are image-identifiable landmarks. "Stained glass window above the entrance" yes; "history of conflict" no (belongs in description).
-- Set \`type\` (\`interior\` / \`exterior\` / \`int-ext\`) — ref-image defaults read the layout from it.
-
-Common pitfalls:
-- Baking one-shot weather or blocking into the record → move to node prompt.
-- Vague taste-word fields ("nice atmosphere") → rewrite with concrete architectural / lighting detail.
-- Near-duplicate of an existing location → consolidate; prefer \`subLocation\` to capture variants of the same place.
-- Deleting a location referenced by active nodes → node refs become orphans. Check canvas refs first.
-- Forgetting to set \`type\` → ref-image defaults misread the layout; always set it.
-
-After editing:
-- Existing generated assets do NOT retro-update. If the change affects architecture or palette, regenerate affected nodes (or at minimum regenerate the \`main\` / \`wide-establishing\` ref-image first).
-- If lighting or weather changed substantially, scenes that depend on continuity may need a coordinated regeneration pass.`,
-  ),
-  defineProcessPrompt(
-    'equipment-management',
-    'Equipment Management',
-    'Guidance for equipment CRUD work.',
-    `Equipment records preserve durable object identity — function, material, condition, surface details. They plug into character loadouts and get attached as node refs. The whole pipeline reads from them for prop continuity.
-
-Workflow — always, in order:
-1. Call \`equipment.list\` to see what exists. Look for near-duplicates by name, type, or subtype before creating.
-2. For edits, read the current record first. Never write blind.
-3. For the actual write, pick the right tool:
-   - \`equipment.create\` — new piece.
-   - \`equipment.update\` — modify an existing record.
-   - \`equipment.delete\` — remove equipment. Verify no character loadout or node ref uses it before deleting.
-4. For reference images, use the ref-image tools (\`equipment.generateRefImage\`, \`equipment.setRefImage\`, \`equipment.deleteRefImage\`, \`equipment.setRefImageFromNode\`) — see the equipment-ref-image-generation process guidance.
-
-Field-placement rules:
-- Durable object identity (type, subtype, description, function, material, color, condition, visualDetails) → equipment record.
-- One-shot handling, a specific scene's damage state, a single shot's lighting → node prompt. Never bake transient state into the record.
-- Reference images (front/back/profiles/detail/in-use) → \`referenceImages\` array, populated via the ref-image tools.
-- Character association (who owns this, who carries it) → character record's \`loadouts\` array, not on the equipment record.
-
-Field-filling best practices:
-- Concrete material language, not taste words. "Knurled steel grip" beats "cool weapon".
-- Fill structured fields whenever info exists — the ref-image system reads them.
-- \`function\` is mechanical ("fires via gas-operated bolt"); \`description\` is narrative ("the rifle Anna took from her father"); do not mix.
-- \`visualDetails\` are image-identifiable, small, stable. "Chipped enamel on the bolt" yes; "hand-made by her father" no (belongs in description).
-- \`condition\` is baseline wear, not a story beat. If it changes across the story, use node-prompt language for the specific shots, not repeated record edits.
+Key fields: type, subtype, description, function, material, color, condition, visualDetails, tags.
 - Set \`type\` — ref-image defaults read the object category from it.
+- \`function\` is mechanical ("fires via gas-operated bolt"); \`description\` is narrative ("the rifle Anna took from her father"). Do not mix.
+- \`visualDetails\` must be image-identifiable and stable. "Chipped enamel on the bolt" yes; "hand-made by her father" no.
+- \`condition\` is baseline wear, not a story beat. Per-shot damage goes on the node prompt.
+- Character association → character record's \`loadouts\` array, not on the equipment record.
 
-Common pitfalls:
-- Baking one-shot damage or handling into the record → move to node prompt.
-- Vague material fields ("high-quality metal") → rewrite with concrete surface language.
-- Missing \`function\` field → downstream prompts struggle to convey what the object does in use shots.
-- Near-duplicate of existing equipment → consolidate; use \`subtype\` or \`tags\` to distinguish variants of the same piece.
-- Deleting equipment referenced by character loadouts → loadouts break. Check character records first.
-- Forgetting to set \`type\` → ref-image defaults misread the object; always set it.
+Common pitfalls (all entity types):
+- Baking one-shot state into the record → move to node prompt.
+- Vague taste-word fields → rewrite with concrete detail.
+- Near-duplicates → check list output carefully; consolidate rather than fork.
+- Deleting an entity referenced by active nodes or loadouts → orphan refs. Check first.
+- Skipping structured fields when info exists → fill them; the ref-image system uses them.
+- Missing \`type\` on locations and equipment → ref-image defaults misread; always set it.
 
 After editing:
-- Existing generated assets do NOT retro-update. If material or condition changed, regenerate affected nodes (or at minimum regenerate the \`main\` ref-image first).
-- If this equipment is in a character loadout used by multiple shots, coordinate regeneration across those shots for continuity.`,
+- Existing generated assets do NOT retro-update. If a change affects identity, regenerate affected nodes (or at minimum regenerate the entity's primary ref-image first).
+- If a character costume/loadout changed, review node refs that use this character. If location lighting/weather changed, coordinate regeneration across dependent scenes. If equipment in a shared loadout changed, coordinate across shots.`,
   ),
   defineProcessPrompt(
     'canvas-structure',
@@ -816,19 +574,19 @@ After editing:
     `Canvas structure covers the canvas itself and the nodes on it — creating nodes, batch-creating whole subgraphs, duplicating, renaming, deleting, adding notes and backdrops, importing and exporting workflows. This is the skeleton of the film.
 
 Workflow — always, in order:
-1. Call \`canvas.getState\` once per session (metadata + edges) to orient. Use \`canvas.listNodes\` for paginated node scans (filterable by type or query). Use \`canvas.getNode\` for full detail, single id or batch \`nodeIds\` array.
+1. Call \`canvas.getInfo\` once per session (metadata + edges) to orient. Use \`canvas.listNodes\` for paginated node scans (filterable by type or query). Use \`canvas.getNode\` for full detail, single id or batch \`nodeIds\` array.
 2. Decide single-node vs batch before calling tools:
-   - One node → \`canvas.addNode\`.
-   - Multiple nodes with edges → \`canvas.batchCreate\` in one call (atomic, faster, fewer round-trips).
+   - One node → \`canvas.createNodes\`.
+   - Multiple nodes with edges → \`canvas.createNodes\` in one call (atomic, faster, fewer round-trips).
    - Copy an existing structure → \`canvas.duplicateNodes\` (returns new ids).
-3. For canvas-level ops: \`canvas.renameCanvas\` (rename), \`canvas.deleteCanvas\` (destructive — verify before calling), \`canvas.importWorkflow\` / \`canvas.exportWorkflow\` (subgraph I/O).
-4. For annotations: \`canvas.addNote\`, \`canvas.updateNote\`, \`canvas.deleteNote\`, \`canvas.updateBackdrop\`.
-5. Verify by re-reading \`canvas.getState\` or \`canvas.listNodes\` when downstream reasoning depends on the final state.
+3. For canvas-level ops: \`canvas.manage\` (rename), \`canvas.deleteCanvas\` (destructive — verify before calling), \`canvas.importWorkflow\` / \`canvas.exportWorkflow\` (subgraph I/O).
+4. For annotations: \`canvas.addNote\`, \`canvas.updateNote\`, \`canvas.deleteNote\`, \`canvas.manage { action: 'updateBackdrop' }\`.
+5. Verify by re-reading \`canvas.getInfo\` or \`canvas.listNodes\` when downstream reasoning depends on the final state.
 
 Single-node vs batch decision tree:
-- Creating one image node for a quick test → \`canvas.addNode\`.
-- Creating a full scene (text brief + image + video chain) → \`canvas.batchCreate\` with nodes + edges in one payload. Atomic. Fewer failure modes.
-- Creating 12 shots with identical structure → \`canvas.batchCreate\` once; do NOT loop 12 \`canvas.addNode\` calls.
+- Creating one image node for a quick test → \`canvas.createNodes\`.
+- Creating a full scene (text brief + image + video chain) → \`canvas.createNodes\` with nodes + edges in one payload. Atomic. Fewer failure modes.
+- Creating 12 shots with identical structure → \`canvas.createNodes\` once; do NOT loop 12 \`canvas.createNodes\` calls.
 - Duplicating an existing shot structure for a new scene → \`canvas.duplicateNodes\` with the source \`nodeIds\`; faster than reconstructing.
 - Importing a known workflow template → \`canvas.importWorkflow\`.
 
@@ -840,7 +598,7 @@ Scene assembly patterns (batchCreate):
 
 Notes and backdrops:
 - \`canvas.addNote\` — freeform text annotation; useful for director notes, reminders, TODO markers. Notes do NOT participate in generation.
-- \`canvas.updateBackdrop\` — visual grouping behind nodes; change color, padding, opacity, border, title size, lock-children. Use for act breaks, scene groups, workflow sections.
+- \`canvas.manage { action: 'updateBackdrop' }\` — visual grouping behind nodes; change color, padding, opacity, border, title size, lock-children. Use for act breaks, scene groups, workflow sections.
 - Backdrops are structural grouping, not generation context. Nodes inside a backdrop are not automatically connected to each other.
 
 Workflow import/export:
@@ -854,14 +612,14 @@ Destructive-op gates:
 - Mass batchCreate with wrong providerId or wrong refs → many broken nodes to clean up. Verify a smaller batch first if you are unsure.
 
 Common pitfalls:
-- Using \`canvas.addNode\` in a loop when \`canvas.batchCreate\` would do it in one call → slow, more failure modes, less atomic.
-- Creating nodes without edges and then forgetting to connect them → orphan nodes the video pipeline cannot use. Prefer \`canvas.batchCreate\` so edges are declared together.
+- Using \`canvas.createNodes\` in a loop when \`canvas.createNodes\` would do it in one call → slow, more failure modes, less atomic.
+- Creating nodes without edges and then forgetting to connect them → orphan nodes the video pipeline cannot use. Prefer \`canvas.createNodes\` so edges are declared together.
 - Forgetting to set refs after node creation → generation falls back to naive prompt-only; set refs with \`canvas.setNodeRefs\` as part of the setup pass.
 - Deleting a canvas thinking it was a node → \`canvas.deleteCanvas\` is project-level; \`canvas.deleteNode\` is node-level. Do not confuse.
-- Importing a workflow into the wrong canvas → verify the target canvasId before importing.
+- Importing a workflow into the wrong canvas → verify you are on the correct canvas before importing.
 
 After structural changes:
-- Re-read state if downstream decisions depend on final node ids — \`canvas.batchCreate\` returns ids, but multi-step flows should still confirm with \`canvas.listNodes\` or \`canvas.getState\`.
+- Re-read state if downstream decisions depend on final node ids — \`canvas.createNodes\` returns ids, but multi-step flows should still confirm with \`canvas.listNodes\` or \`canvas.getInfo\`.
 - If the change removes nodes that were referenced by character loadouts or entity refs, those refs may now be orphans — audit afterwards.`,
   ),
   defineProcessPrompt(
@@ -871,15 +629,15 @@ After structural changes:
     `Canvas graph-and-layout covers edges between nodes, layout positioning, and video frame anchors. This is the wiring of the film — how shots connect, how footage flows, how the graph is arranged for human readability.
 
 Workflow — always, in order:
-1. Call \`canvas.getState\` or \`canvas.listEdges\` (paginated) to see the current edge set.
+1. Call \`canvas.getInfo\` or \`canvas.listEdges\` (paginated) to see the current edge set.
 2. For edges: pick the right tool:
    - \`canvas.connectNodes\` — add an edge from source to target.
-   - \`canvas.deleteEdge\` — remove one edge.
-   - \`canvas.swapEdgeDirection\` — flip the direction of an existing edge.
-   - \`canvas.disconnectNode\` — remove all edges attached to one node in one call. Faster than multiple \`deleteEdge\` calls.
+   - \`canvas.manageEdge { action: 'delete' }\` — remove one edge.
+   - \`canvas.manageEdge { action: 'swap' }\` — flip the direction of an existing edge.
+   - \`canvas.manageEdge { action: 'disconnect' }\` — remove all edges attached to one node in one call. Faster than multiple \`deleteEdge\` calls.
 3. For video-specific frame anchoring: \`canvas.setVideoFrames\` locks the first-frame and last-frame image roles on a video node. Always use explicit roles — a video model that guesses direction from an ambiguous edge will drift.
-4. For layout: \`canvas.layout\` runs the auto-layout on the canvas (or a subset). Call when the graph has grown disorganized or after a large \`canvas.batchCreate\`.
-5. Verify by re-reading \`canvas.getState\` or \`canvas.listEdges\` when reasoning depends on the final state.
+4. For layout: \`canvas.layout\` runs the auto-layout on the canvas (or a subset). Call when the graph has grown disorganized or after a large \`canvas.createNodes\`.
+5. Verify by re-reading \`canvas.getInfo\` or \`canvas.listEdges\` when reasoning depends on the final state.
 
 Edge semantics — know what each direction means:
 - Text → image: the text feeds scene brief into image generation.
@@ -903,17 +661,17 @@ Layout patterns:
 Connection hygiene:
 - Every node should have a reason to exist on the canvas. Orphan nodes (no edges) that are not intentional drafts are noise.
 - Edges carry context; missing edges mean the downstream node falls back to naive prompt-only generation. Audit edge coverage before generating a sequence.
-- \`canvas.swapEdgeDirection\` is rarely needed and often means the original edge was created in the wrong direction — prefer to delete and re-create cleanly.
+- \`canvas.manageEdge { action: 'swap' }\` is rarely needed and often means the original edge was created in the wrong direction — prefer to delete and re-create cleanly.
 
 Common pitfalls:
 - Video node with ambiguous first/last frame roles → always call \`canvas.setVideoFrames\` explicitly even when the edge topology "looks obvious". Models do not see the edge semantics.
-- Disconnecting one edge at a time when \`canvas.disconnectNode\` would clear all → slower, more failure modes.
+- Disconnecting one edge at a time when \`canvas.manageEdge { action: 'disconnect' }\` would clear all → slower, more failure modes.
 - Running \`canvas.layout\` before the graph is structurally complete → layout re-runs can be needed after further edits; batch layout after major structural work.
 - Leaving video chains without last-frame anchors → continuity breaks between clips.
 - Creating edges between incompatible node types (audio → image, backdrop → anything) → pipeline ignores or errors; check the type pair before connecting.
 
 After edge changes:
-- Re-read \`canvas.getState\` if downstream generation depends on the edge topology.
+- Re-read \`canvas.getInfo\` if downstream generation depends on the edge topology.
 - Changes to video frame anchors do NOT retroactively re-render existing video nodes. Regenerate affected video nodes after re-anchoring.`,
   ),
   defineProcessPrompt(
@@ -985,16 +743,16 @@ After edits:
     `Provider management covers the global provider registry — listing available providers, reading active selections, setting API keys, registering custom endpoints. This is project-wide infrastructure, not per-node configuration.
 
 Workflow — always, in order:
-1. Call \`provider.list\` to see which providers are currently registered and their id strings.
-2. Call \`provider.getActive\` to see which provider is the current default for a given capability (image, video, audio). The active provider is what nodes use when no explicit provider is set.
-3. Call \`provider.getCapabilities\` with a specific providerId to learn what that provider can actually do — resolutions, durations, lip-sync support, emotion vector support, max variant counts, cost tiers. Always call this BEFORE assuming a capability exists.
+1. Call \`provider.manage { action: 'list' }\` to see which providers are currently registered and their id strings.
+2. Call \`provider.manage { action: 'getActive' }\` to see which provider is the current default for a given capability (image, video, audio). The active provider is what nodes use when no explicit provider is set.
+3. Call \`provider.manage { action: 'getCapabilities' }\` with a specific providerId to learn what that provider can actually do — resolutions, durations, lip-sync support, emotion vector support, max variant counts, cost tiers. Always call this BEFORE assuming a capability exists.
 4. Pick the right write tool:
-   - \`provider.setActive\` — change the default provider for a capability (image / video / audio).
+   - \`provider.manage { action: 'setActive' }\` — change the default provider for a capability (image / video / audio).
    - \`provider.setKey\` — store an API key for a provider. Never write plaintext keys into tool-output logs or chat.
    - \`provider.update\` — modify settings on an existing registered provider.
    - \`provider.addCustom\` — register a custom or self-hosted provider endpoint.
    - \`provider.removeCustom\` — unregister a custom provider.
-5. After credential or provider changes, re-verify via \`provider.list\` or \`provider.getCapabilities\` before running generations.
+5. After credential or provider changes, re-verify via \`provider.manage { action: 'list' }\` or \`provider.manage { action: 'getCapabilities' }\` before running generations.
 
 Capability checks — always query before assuming:
 - Lip-sync: provider-specific. Many audio providers generate voice without lip-sync; only combined video+voice providers sync.
@@ -1016,25 +774,25 @@ Custom provider registration:
 
 Active provider vs node-level provider:
 - Active provider (this process) is the project-wide DEFAULT.
-- Per-node provider overrides (set via \`canvas.setNodeProvider\`) are for specific shots that need a different provider from the active default — see the node-provider-selection process.
+- Per-node provider overrides (set via \`canvas.configureNode\`) are for specific shots that need a different provider from the active default — see the node-provider-selection process.
 - Changing the active provider does NOT update nodes that already have explicit overrides.
 
 Decision tree — when to change the active provider:
-- The project is committing to a new primary provider for all image generation → \`provider.setActive\` for the image capability. Existing nodes with no override will pick up the new default on next generation.
-- One specific shot needs a different provider → do NOT change active. Use \`canvas.setNodeProvider\` on that node only.
+- The project is committing to a new primary provider for all image generation → \`provider.manage { action: 'setActive' }\` for the image capability. Existing nodes with no override will pick up the new default on next generation.
+- One specific shot needs a different provider → do NOT change active. Use \`canvas.configureNode\` on that node only.
 - Switching providers mid-project → warn the user; style and identity may drift across the boundary. Consider regenerating reference images under the new provider to lock identity.
-- Testing a new provider → register with \`provider.addCustom\` (if not built-in), run a test node with explicit \`canvas.setNodeProvider\`, evaluate, then decide whether to promote to active.
+- Testing a new provider → register with \`provider.addCustom\` (if not built-in), run a test node with explicit \`canvas.configureNode\`, evaluate, then decide whether to promote to active.
 
 Common pitfalls:
-- Setting API key and immediately generating without calling \`provider.getCapabilities\` first → can mis-assume a feature exists.
+- Setting API key and immediately generating without calling \`provider.manage { action: 'getCapabilities' }\` first → can mis-assume a feature exists.
 - Changing the active provider mid-sequence without coordinating regeneration → identity and style drift between early and late shots.
 - Printing or echoing API keys back to the user → security leak.
-- Using \`provider.removeCustom\` on a built-in providerId → silently rejected; verify the provider is custom first with \`provider.list\`.
-- Forgetting that existing nodes with explicit \`canvas.setNodeProvider\` overrides do not follow active-provider changes → audit overrides when switching defaults.
+- Using \`provider.removeCustom\` on a built-in providerId → silently rejected; verify the provider is custom first with \`provider.manage { action: 'list' }\`.
+- Forgetting that existing nodes with explicit \`canvas.configureNode\` overrides do not follow active-provider changes → audit overrides when switching defaults.
 
 After provider changes:
 - If the active provider changed and existing shots were generated under the old provider, a coordinated regeneration pass may be needed for visual consistency.
-- Capabilities assumed earlier in the session may no longer match — re-check \`provider.getCapabilities\` after any provider swap.`,
+- Capabilities assumed earlier in the session may no longer match — re-check \`provider.manage { action: 'getCapabilities' }\` after any provider swap.`,
   ),
   defineProcessPrompt(
     'node-provider-selection',
@@ -1044,14 +802,14 @@ After provider changes:
 
 Workflow — always, in order:
 1. Call \`canvas.getNode\` to read the current node state — current \`providerId\`, any seed, current params.
-2. Call \`provider.list\` and/or \`provider.getCapabilities\` if you do not already know what the candidate provider can do.
+2. Call \`provider.manage { action: 'list' }\` and/or \`provider.manage { action: 'getCapabilities' }\` if you do not already know what the candidate provider can do.
 3. Decide if overriding the active provider is actually needed:
    - Shot requires a capability the active provider lacks (higher resolution, lip-sync, longer duration) → override is justified.
    - Shot is a style experiment needing a specific provider → override is justified.
    - Shot is a normal shot in the middle of a sequence → do NOT override; use the active default for consistency.
-4. For override: \`canvas.setNodeProvider\` with the target providerId and optional seed. Use seed to lock reproducibility when you need deterministic regeneration.
-5. For cost preview: \`canvas.estimateCost\` returns the provider-side cost estimate for generating this node with current params. Always use BEFORE batch-generating many nodes; cost surprises are avoidable.
-6. Proceed to generation via \`canvas.generate\` — the node's overridden providerId takes effect.
+4. For override: \`canvas.configureNode\` with the target providerId and optional seed. Use seed to lock reproducibility when you need deterministic regeneration.
+5. For cost preview: \`canvas.generation { action: 'estimate' }\` returns the provider-side cost estimate for generating this node with current params. Always use BEFORE batch-generating many nodes; cost surprises are avoidable.
+6. Proceed to generation via \`canvas.generation\` — the node's overridden providerId takes effect.
 
 Override-vs-default decision tree:
 - Active provider covers the capability and style → no override. Leave \`providerId\` unset so the node inherits the active default.
@@ -1068,194 +826,110 @@ Seed usage:
 - Seed is stored as \`seed\` + \`seedLocked\` — check both before assuming reproducibility.
 
 Cost estimation patterns:
-- Single-shot estimate → call \`canvas.estimateCost\` on the target node, read the number, report to the user before generating.
-- Batch sequence estimate → call \`canvas.estimateCost\` on a representative node, then multiply by the batch count for a rough total. For mixed-param batches, sum per-node estimates.
-- Tier comparisons → \`canvas.estimateCost\` reads the node's current \`providerId\` and params; costs reflect those exact settings. Change params and re-estimate if you are comparing options.
+- Single-shot estimate → call \`canvas.generation { action: 'estimate' }\` on the target node, read the number, report to the user before generating.
+- Batch sequence estimate → call \`canvas.generation { action: 'estimate' }\` on a representative node, then multiply by the batch count for a rough total. For mixed-param batches, sum per-node estimates.
+- Tier comparisons → \`canvas.generation { action: 'estimate' }\` reads the node's current \`providerId\` and params; costs reflect those exact settings. Change params and re-estimate if you are comparing options.
 
 Per-node params interaction:
-- Node provider override and node params (image/video/audio config) are independent. Setting a new provider does NOT reset params — but params may now be out-of-range for the new provider. Re-validate with \`provider.getCapabilities\` after override.
+- Node provider override and node params (image/video/audio config) are independent. Setting a new provider does NOT reset params — but params may now be out-of-range for the new provider. Re-validate with \`provider.manage { action: 'getCapabilities' }\` after override.
 - Clamped values: if a set param exceeds the provider's capability, the pipeline may clamp silently. Always cross-check capability before assuming the param you set is what will be used.
 
 Common pitfalls:
-- Override set but capabilities mismatch the new provider (e.g. asking for lip-sync on a pure text-to-speech provider) → generation fails or silently drops the feature. Always \`provider.getCapabilities\` on the target first.
-- Forgetting \`canvas.estimateCost\` before a 50-node batch → user gets surprise bill. Estimate first, present, confirm.
+- Override set but capabilities mismatch the new provider (e.g. asking for lip-sync on a pure text-to-speech provider) → generation fails or silently drops the feature. Always \`provider.manage { action: 'getCapabilities' }\` on the target first.
+- Forgetting \`canvas.generation { action: 'estimate' }\` before a 50-node batch → user gets surprise bill. Estimate first, present, confirm.
 - Seed left locked when iterating creatively → generations become stuck in one aesthetic lane. Unlock seed to explore.
 - Seed unlocked during QA iteration → cannot reproduce the problem because seed changes each run. Lock during debugging.
 - Override on every node "just in case" → defeats the point of active provider; maintenance burden grows.
 
 After override:
 - Verify with a test generation if capability mismatch is possible.
-- If the override is promoted to project-wide later, consider \`provider.setActive\` and clear the per-node override for maintainability.`,
+- If the override is promoted to project-wide later, consider \`provider.manage { action: 'setActive' }\` and clear the per-node override for maintainability.`,
   ),
   defineProcessPrompt(
-    'image-config',
-    'Image Config',
-    'Guidance for image parameter configuration.',
-    `Image-config covers image-specific generation parameters via \`canvas.setImageParams\` — width, height, steps, cfgScale, scheduler. Set these per image node to control resolution, sampling effort, and style strength.
+    'media-config',
+    'Media Config',
+    'Guidance for media parameter configuration (image, video, audio).',
+    `Media-config covers per-node generation parameters for image, video, and audio nodes. Each media type has its own \`canvas.set*Params\` call. Always read the node first, check provider capabilities, then write params.
 
-Workflow — always, in order:
-1. Call \`canvas.getNode\` to read the node's current image params.
-2. Call \`provider.getCapabilities\` on the node's active provider to learn valid ranges (min/max width, min/max height, supported schedulers, steps range, expected cfgScale range).
-3. Decide what to change. Image params usually change for one of these reasons:
-   - Resolution for final delivery (poster, print) needs higher width/height.
-   - Aspect ratio needs to match a shot template or color-style decision.
-   - Steps need tuning (higher = slower but more detail; lower = faster but can be undercooked).
-   - cfgScale (classifier-free guidance) needs tuning: higher = more prompt adherence, lower = more creative drift.
-   - Scheduler choice affects texture, sharpness, and behavior under low steps.
-4. Call \`canvas.setImageParams\` with the target node and new params. Omit fields you do not want to change.
+Shared workflow:
+1. Call \`canvas.getNode\` to read current params.
+2. Call \`provider.manage { action: 'getCapabilities' }\` on the node's active provider to learn valid ranges and supported features.
+3. Decide what to change (see media-specific sections below).
+4. Call the appropriate setter (\`canvas.setMediaParams\`, \`canvas.setMediaParams\`, or \`canvas.setMediaParams\`). Omit fields you do not want to change.
 5. Verify via \`canvas.getNode\` if downstream reasoning depends on final state.
 
-Parameter guidance:
-- \`width\` / \`height\` — in pixels. Stick to multiples of 8 or 16; most image models quantize to those. Very small (<512) loses detail; very large (>2048 on consumer GPUs) risks OOM or long waits.
-- \`steps\` — sampling iterations. Default 20-30 is safe for most providers. More steps beyond the provider's sweet spot often add little or degrade (over-cooking). Always check the provider's recommended range.
-- \`cfgScale\` — how strictly the model follows the prompt. Flow-matching models (the newer class) expect low cfgScale (roughly 1-4); classic diffusion models expect higher cfgScale (roughly 6-12). Too high = burnt / saturated / overdetermined; too low = ignoring prompt. Always check the provider's documented range before guessing.
-- \`scheduler\` — sampler choice. Euler, DPM++ 2M, DDIM, UniPC are common. Different schedulers produce different textures; some are faster per step but need more steps for equal quality.
+--- Image params (\`canvas.setMediaParams\`) ---
 
-Aspect-ratio-by-shot patterns:
-- Cinema 2.39:1 → width:height ~1880:790 or scaled to provider limits.
-- Standard widescreen 16:9 → 1920:1080, 1280:720.
-- Portrait / mobile 9:16 → 1080:1920, 720:1280.
-- Square 1:1 → 1024:1024, 768:768. Common for social / album art.
-- Reference images → 3:2 or 2:3 depending on slot (character main = 3:2 landscape, equipment = 2:3 portrait).
+Parameters:
+- \`width\` / \`height\` — pixels, multiples of 8 or 16. <512 loses detail; >2048 risks OOM.
+- \`steps\` — sampling iterations. 20-30 default; beyond the provider's sweet spot adds little or degrades.
+- \`cfgScale\` — prompt adherence. Flow-matching models expect 1-4; classic diffusion expects 6-12. Always check the provider's range.
+- \`scheduler\` — Euler, DPM++ 2M, DDIM, UniPC, etc. Affects texture and speed.
 
-Steps vs cfgScale tuning:
-- Image looks undercooked (vague, noisy, unresolved) → raise steps first; if already high, check scheduler.
-- Image looks over-saturated / burnt / over-detailed → lower cfgScale.
-- Image ignores prompt elements → raise cfgScale (modest).
-- Image matches prompt but feels flat → try a different scheduler or lower cfgScale slightly to let the model breathe.
+Aspect-ratio patterns:
+- Cinema 2.39:1 → ~1880:790. Widescreen 16:9 → 1920:1080 / 1280:720. Portrait 9:16 → 1080:1920. Square → 1024:1024.
+- Reference images → 3:2 or 2:3 depending on entity type.
 
-Common pitfalls:
-- Cranking steps to 100+ expecting better results → mostly wasted compute past the provider's sweet spot.
-- Using a classic-diffusion cfgScale on a flow-matching model (or vice versa) → burnt or undercooked outputs. Always match cfgScale to the model family.
-- Setting dimensions not divisible by 8/16 → provider quantizes or errors.
-- Changing params without checking capabilities → silent clamping. Always \`provider.getCapabilities\` first.
-- Scheduler drift across a sequence → neighboring shots generated with different schedulers feel visually mismatched. Lock scheduler at sequence level unless deliberately varying.
+Tuning:
+- Undercooked (noisy, vague) → raise steps first, then check scheduler.
+- Over-saturated / burnt → lower cfgScale.
+- Ignoring prompt → raise cfgScale modestly.
+- Flat but prompt-faithful → try a different scheduler or lower cfgScale slightly.
+- Cranking steps to 100+ rarely helps. Match cfgScale to the model family. Keep dimensions divisible by 8/16.
+- Lock scheduler at sequence level; drift between neighboring shots causes visual mismatch.
 
-After param changes:
-- Existing generated assets do NOT retro-update. Regenerate affected nodes to pick up new params.
-- If changing resolution, downstream video nodes that expected the previous resolution may need re-framing.`,
-  ),
-  defineProcessPrompt(
-    'video-config',
-    'Video Config',
-    'Guidance for video parameter configuration.',
-    `Video-config covers video-specific generation parameters via \`canvas.setVideoParams\` — duration, audio, quality tier, lipSyncEnabled. Set these per video node to control clip length, audio embedding, render tier, and lip-sync behavior.
+--- Video params (\`canvas.setMediaParams\`) ---
 
-Workflow — always, in order:
-1. Call \`canvas.getNode\` to read the current video params.
-2. Call \`provider.getCapabilities\` on the node's active provider to learn duration limits, lip-sync support, and available quality tiers.
-3. Decide what to change. Video params usually move for one of these reasons:
-   - Clip duration needs to match a beat or match a connected audio node.
-   - Quality tier needs adjustment (lower tier for iteration, higher tier for final).
-   - Lip-sync toggle when embedding a voice onto a character video.
-   - Audio parameter when the video must carry an audio bed (provider-dependent).
-4. Call \`canvas.setVideoParams\` with the target node and new params. Omit fields you do not want to change.
-5. Verify via \`canvas.getNode\`.
+Parameters:
+- \`duration\` — seconds. 3-8s reliable; 8-10s risky; 10s+ split into multiple nodes via first/last-frame anchors.
+- \`audio\` — embed audio alongside video (provider-dependent).
+- \`quality\` — tier selection. Lower tier for iteration; higher tier for locked final renders.
+- \`lipSyncEnabled\` — sync mouth to attached voice node. Requires provider support.
 
-Parameter guidance:
-- \`duration\` — clip length in seconds. Most video providers produce reliable results 3-8s; 8-10s is risky; beyond 10s, degrade is likely. Split longer beats into multiple video nodes connected via first/last-frame anchors.
-- \`audio\` — whether to embed audio alongside the video (provider-dependent). Some providers generate video with audio baked in; others require a separate audio node.
-- \`quality\` — tier selection. Provider-dependent (tier names and costs vary). In general: pick the lower tier for iteration (motion tests, prompt tuning, debugging) and the higher tier for final renders once motion is locked. Check \`provider.getCapabilities\` for the actual tier labels and relative costs.
-- \`lipSyncEnabled\` — turn on when the video must sync mouth movement to an attached voice node. Requires provider support (\`provider.getCapabilities\` → lipSync).
+Duration strategy: 3-5s motion test, 5-8s final shot sweet spot, 10s+ split. Match video duration to audio duration when voice-driven.
 
-Duration strategy:
-- 3-5s → motion test. Lock action arc quickly without spending high-tier budget.
-- 5-8s → final shot for most cuts. Sweet spot for reliable motion and controlled costs.
-- 8-10s → only for one-beat oners. Models degrade; expect more failure retries.
-- 10s+ → generally split into two video nodes connected via last→first frame anchor (see canvas-graph-and-layout).
-- Audio-driven duration (voice line is 7s) → match video duration to audio duration, or split if audio exceeds model limits.
+Quality tier strategy: iterate at low tier, promote to high tier once motion locks. Do NOT start at highest tier.
 
-Quality tier strategy:
-- Iteration phase → lower tier. Motion tests, prompt tuning, ref-attachment debugging. Burn cost on learning, not on final frames.
-- Approval phase → move up a tier once motion is locked. Regenerate the locked shot at the final tier.
-- Final delivery pass → highest tier the project justifies. Cost is justified because the shot ships.
-- Do NOT jump to the highest tier before motion is locked — expensive mistakes.
+Lip-sync: enable only when a character is speaking on-screen and the voice node is attached. Disable for VO or silent characters (avoids twitchy mouths). Verify provider supports it via \`provider.manage { action: 'getCapabilities' }\`.
 
-Lip-sync toggle:
-- Enable when the shot is a character speaking and the voice is a known audio node. Provider must support combined video+voice; query \`provider.getCapabilities\`.
-- Disable when the shot has no on-screen dialogue or the voice is VO (off-screen). Lip-sync processing on silent characters can produce twitchy mouths.
-- After enabling, verify the audio node is actually attached (usually via edge or first-frame link per the provider's convention).
+--- Audio params (\`canvas.setMediaParams\`) ---
 
-Common pitfalls:
-- \`lipSyncEnabled: true\` on a provider that does not support it → flag is silently dropped or generation errors.
-- Highest tier used throughout iteration → budget burn; use a lower tier until motion locks.
-- Duration set beyond provider capability → clamped, or generation fails. Always capability-check first.
-- Audio embedded vs audio as separate node confusion → know which your provider prefers; mixed assumptions cause sync issues.
-- Changing \`duration\` without checking the connected first/last-frame anchors → anchor positioning may be wrong for the new duration.
+Parameters:
+- \`audioType\` (\`voice\` / \`music\` / \`sfx\`) — set FIRST; routes the downstream process prompt. Changing mid-flight can leave prompts stale.
+- \`emotionVector\` — voice only, when provider supports it. Eight fields (\`happy\`, \`sad\`, \`angry\`, \`fearful\`, \`surprised\`, \`disgusted\`, \`contemptuous\`, \`neutral\`), each 0-1.
+- Sample rate / duration — capability-dependent. Voice: 24kHz typical, 30-60s limit. Music: 44.1-48kHz, 30-120s. SFX: 44.1-48kHz, 5-30s.
 
-After param changes:
-- Existing generated video does NOT retro-update. Regenerate to pick up new params.
-- Duration changes affect downstream audio sync and edit-timeline assumptions; notify the user or adjust connected audio nodes.`,
-  ),
-  defineProcessPrompt(
-    'audio-config',
-    'Audio Config',
-    'Guidance for audio parameter configuration.',
-    `Audio-config covers audio-specific generation parameters via \`canvas.setAudioParams\` — audioType, emotionVector, sample rate, expressive controls. This process is about parameter plumbing; prompt/content guidance lives in the audio-voice, audio-music, and audio-sfx processes respectively.
+audioType selection:
+- Character with spoken text → \`voice\`. Music structure (genre, BPM) → \`music\`. Physical sound event or ambience → \`sfx\`. Ambiguous → ask the user.
 
-Workflow — always, in order:
-1. Call \`canvas.getNode\` to read the current audio params.
-2. Call \`provider.getCapabilities\` on the node's active provider to learn emotion-vector support, sample rate options, duration limits, lip-sync compatibility.
-3. Decide what to change:
-   - \`audioType\` (\`voice\` / \`music\` / \`sfx\`) — set FIRST. This also routes the process prompt for downstream work. Changing audioType on a node mid-flight can leave prompts stale.
-   - \`emotionVector\` — for voice only (and only when the provider supports it). Eight fields: \`happy\`, \`sad\`, \`angry\`, \`fearful\`, \`surprised\`, \`disgusted\`, \`contemptuous\`, \`neutral\`. Each 0-1.
-   - Sample rate / duration / other provider-specific params — capability-dependent.
-4. Call \`canvas.setAudioParams\` with the target node and new params. Omit fields you do not want to change.
-5. Verify via \`canvas.getNode\`.
+Emotion vector patterns:
+- Calm: one field 0.5-0.7, others 0. Intense: one field 0.7-0.9, neutral 0.1-0.2. Conflicted: two mid values + neutral fill. Flat narration: neutral 0.9. Do NOT max all fields to 1.0. Keep sum under ~1.2.
 
-audioType selection — set this first:
-- Node is attached to a character with spoken text → \`audioType: 'voice'\`. Routes to audio-voice process guidance.
-- Node describes music structure (genre, BPM, instrumentation) → \`audioType: 'music'\`. Routes to audio-music process guidance.
-- Node describes a physical sound event, impact, or ambience → \`audioType: 'sfx'\`. Routes to audio-sfx process guidance.
-- Ambiguous → ask the user with \`commander.askUser\`; the audioType routes the entire downstream pipeline.
-
-Emotion vector patterns (voice only):
-- Single emotion, calm: one field at 0.5-0.7, others 0. Example: \`happy: 0.6\`.
-- Single emotion, intense: one field at 0.7-0.9, \`neutral: 0.1-0.2\`. Example: \`angry: 0.8, neutral: 0.1\`.
-- Conflicted emotion: two mid values + neutral fill. Example: \`angry: 0.4, sad: 0.4, neutral: 0.2\`. Most interesting for dramatic lines.
-- Flat neutral narration: \`neutral: 0.9\`, others 0.
-- Do NOT max all fields to 1.0. Delivery becomes manic or unstable.
-- Sum target: under ~1.2 total. Keeping the total modest preserves delivery stability.
-
-Provider capability notes:
-- Emotion vector: some providers honor the full eight-dimension vector, others ignore it entirely (values stored but not applied). Check \`provider.getCapabilities\`.
-- Sample rate: 24kHz standard for most voice; 44.1kHz or 48kHz for music and professional SFX. Some providers are fixed-rate.
-- Duration: voice providers usually limit single-clip to 30-60s. Music providers 30-120s. SFX providers 5-30s.
-
-Interaction with generation:
-- \`canvas.setAudioParams\` does not generate — it only sets params. Call \`canvas.generate\` with \`nodeType: 'audio', audioType: <value>\` afterwards.
-- Changing params after generation does NOT retro-update the generated asset. Regenerate to pick up new params.
-- Emotion vector set but provider does not honor it → the audio generates normally but the emotion is ignored. No error. Always capability-check if the vector matters.
-
-Common pitfalls:
-- Setting emotion vector then using a provider that ignores it → silent drop. \`provider.getCapabilities\` first.
-- Changing \`audioType\` mid-flow without regenerating and without updating the prompt → prompt still reflects the old type; new generation produces the wrong shape of audio.
-- Vector fields all at 1.0 → manic or unstable delivery. Back down.
-- Setting audioType to \`music\` on a character-attached node with a spoken-text prompt → the character ref and spoken prompt conflict with music generation; unset the character ref or switch audioType back to voice.
-- Sample rate mismatch with the final mix → conversion artifacts. Lock the rate at the project's target rate early.
-
-After param changes:
-- Existing generated audio does NOT retro-update. Regenerate to apply new params.
-- Emotion vector changes are low-cost to iterate — often cheaper to tune the vector and regenerate than to rewrite the prompt text.`,
+Common pitfalls (all media types):
+- Changing params without \`provider.manage { action: 'getCapabilities' }\` → silent clamping or errors.
+- Existing generated assets do NOT retro-update after param changes — regenerate to apply.
+- Image: wrong cfgScale family (flow vs diffusion) → burnt or undercooked. Dimensions not divisible by 8/16 → quantize errors.
+- Video: \`lipSyncEnabled\` on unsupported provider → silently dropped. Duration beyond provider limit → clamped or fails. Changing duration without checking first/last-frame anchors → wrong anchor positions.
+- Audio: emotion vector on unsupported provider → silently ignored. Changing audioType without updating prompt → wrong audio shape. Setting music on a character-attached voice node → conflict. Sample rate mismatch → conversion artifacts.`,
   ),
   defineProcessPrompt(
     'script-development',
     'Script Development',
     'Guidance for reading, writing, and importing scripts.',
-    `Script development covers reading, writing, and importing screenplay text — \`script.read\`, \`script.write\`, \`script.import\`. Scripts are the narrative spine of a Lucid Fin project; breaking them down into canvas nodes is a separate workflow step.
+    `Script development covers reading, writing, and importing screenplay text — \`script.manage\`, \`script.manage\`, \`script.import\`. Scripts are the narrative spine of a Lucid Fin project; breaking them down into canvas nodes is a separate workflow step.
 
 Workflow — always, in order:
-1. Call \`script.read\` to load the current script text for the active project. Use this before any edit or breakdown — never write blind.
+1. Call \`script.manage\` to load the current script text for the active project. Use this before any edit or breakdown — never write blind.
 2. Decide the operation:
-   - \`script.write\` — replace the project's script with generated or drafted content. This is the primary authoring path.
+   - \`script.manage\` — replace the project's script with generated or drafted content. This is the primary authoring path.
    - \`script.import\` — bring in an external script file from disk or a paste. This is the ingestion path for user-provided scripts.
-3. After write or import, re-read with \`script.read\` if downstream steps depend on the final state.
+3. After write or import, re-read with \`script.manage\` if downstream steps depend on the final state.
 
-script.write vs script.import decision tree:
-- User pasted script text into chat → \`script.write\` with that text. Import is for file-path or binary input, not chat content.
+script.manage { action: 'write' } vs script.import decision tree:
+- User pasted script text into chat → \`script.manage\` with that text. Import is for file-path or binary input, not chat content.
 - User referenced a file on disk → \`script.import\` with the path.
-- Generating new script from a brief → \`script.write\` with the generated text. Confirm creative direction first via \`commander.askUser\` (story structure, tone, length).
-- Converting a novel chapter → generate scene-level script via a subagent (novel-to-script is a system prompt), then \`script.write\` the output. Do not paste novel prose directly as script.
+- Generating new script from a brief → \`script.manage\` with the generated text. Confirm creative direction first via \`commander.askUser\` (story structure, tone, length).
+- Converting a novel chapter → generate scene-level script via a subagent (novel-to-script is a system prompt), then \`script.manage\` the output. Do not paste novel prose directly as script.
 
 Fountain format basics:
 - Scene headings / sluglines: \`INT. LOCATION - TIME\` or \`EXT. LOCATION - TIME\` or \`INT./EXT.\`. All caps, line-start, no indent.
@@ -1267,18 +941,18 @@ Fountain format basics:
 - Dual dialogue: supported via Fountain's \`^\` marker when two characters speak simultaneously.
 
 Script-to-canvas pipeline:
-- Scene extraction: each slug defines a scene; nodes can be created per scene as \`canvas.batchCreate\` text → image → video chains.
-- Character extraction: from action lines and dialogue cues, gather character names, then create character records (with \`commander.askUser\` for creative direction before \`character.create\`).
+- Scene extraction: each slug defines a scene; nodes can be created per scene as \`canvas.createNodes\` text → image → video chains.
+- Character extraction: from action lines and dialogue cues, gather character names, then create character records (with \`commander.askUser\` for creative direction before \`entity.create { type: "character" }\`).
 - Location extraction: from slugs, gather unique locations, then create location records (again, confirm direction first).
 - Breakdown workflow: read script → identify scenes + entities → ask user to approve entity list → batch create entities → batch create canvas structure. Do NOT create entities or nodes without user approval for creative content.
 
 Edit hygiene:
-- \`script.write\` replaces the entire script text. Preserve the user's existing content by reading first, modifying, then writing — do not write a fragment assuming the pipeline merges.
+- \`script.manage\` replaces the entire script text. Preserve the user's existing content by reading first, modifying, then writing — do not write a fragment assuming the pipeline merges.
 - Large restructures (act reshuffles, scene deletions) warrant confirmation with the user before writing.
 - Small fixes (typos, format normalizations) can proceed autonomously if the user has asked for them.
 
 Common pitfalls:
-- Using \`script.import\` for pasted chat content → import is file-based; use \`script.write\` instead.
+- Using \`script.import\` for pasted chat content → import is file-based; use \`script.manage\` instead.
 - Writing without reading first → silently overwrites the user's work.
 - Breaking the script into canvas nodes without confirming the entity list → creates unwanted characters or locations.
 - Fountain format violations (missing slugs, inconsistent caps) → downstream script-breakdown tools may misparse; normalize format when writing.
@@ -1292,18 +966,18 @@ After script edits:
     'vision-analysis',
     'Vision Analysis',
     'Guidance for extracting usable visual evidence from images.',
-    `Vision analysis covers reading visual content from images — \`vision.describeImage\` — and stateless text transformations like paraphrasing or summarization via \`text.transform\`. Three common intents drive vision work: reverse-engineer a prompt from an image, extract style for a color-style record, write findings back into a node's prompt.
+    `Vision analysis covers reading visual content from images — \`text.analyze\` — and stateless text transformations like paraphrasing or summarization via \`text.analyze\`. Three common intents drive vision work: reverse-engineer a prompt from an image, extract style for a color-style record, write findings back into a node's prompt.
 
 Workflow — always, in order:
 1. Identify the input image — usually a node asset hash, a canvas ref, or a file path the user provided.
-2. Identify the intent before calling the tool. The prompt passed to \`vision.describeImage\` is what shapes the output; vague intent produces vague output.
-3. Call \`vision.describeImage\` with the image + a targeted analysis prompt (see intents below).
+2. Identify the intent before calling the tool. The prompt passed to \`text.analyze\` is what shapes the output; vague intent produces vague output.
+3. Call \`text.analyze\` with the image + a targeted analysis prompt (see intents below).
 4. Depending on intent, route the output:
    - Prompt reverse-engineering → use as seed text for a new node prompt via \`canvas.updateNodes\`.
-   - Style extraction → use as the body of a new \`colorStyle.save\` record.
-   - Entity extraction → use as the seed for \`character.create\` / \`location.create\` / \`equipment.create\`, with user approval.
+   - Style extraction → use as the body of a new \`colorStyle.manage\` record.
+   - Entity extraction → use as the seed for \`entity.create\` (with appropriate \`type\`), with user approval.
    - Write-back to a node → use as the basis for updating an existing node's prompt via \`canvas.updateNodes\`.
-5. If the user wants the transformed result re-shaped (summary, simplification, translation, etc.), chain \`text.transform\` on the vision output. \`text.transform\` does not look at the image — it only reshapes text.
+5. If the user wants the transformed result re-shaped (summary, simplification, translation, etc.), chain \`text.analyze\` on the vision output. \`text.analyze\` does not look at the image — it only reshapes text.
 
 Intent 1 — reverse-engineer prompt:
 - Goal: produce a prompt that, if used with a generation model, would plausibly reproduce the image.
@@ -1311,7 +985,7 @@ Intent 1 — reverse-engineer prompt:
 - Use case: user wants a similar frame, or wants to learn what makes an existing reference tick.
 
 Intent 2 — extract style for color-style record:
-- Goal: produce palette + grade + material-response description suitable for a \`colorStyle.save\` body.
+- Goal: produce palette + grade + material-response description suitable for a \`colorStyle.manage\` body.
 - Analysis prompt: "Describe this image's color style as reusable palette + grade grammar. Cover: palette anchors (key colors with roles), saturation ceiling, contrast curve, temperature bias, highlight rolloff, shadow density, material response (skin, metal, foliage), texture response. 80-200 words. No story content."
 - Use case: building a color-style library from reference frames.
 
@@ -1326,16 +1000,16 @@ Intent 4 — entity field extraction:
 - Use case: onboarding a new character from a single hero image.
 - Adapt the field list for location (architectureStyle, lighting, weather, keyFeatures) or equipment (material, color, condition, visualDetails).
 
-text.transform usage:
-- \`text.transform\` is stateless — it does not look at images or persistent state. Feed it text + a transformation intent.
+text.analyze { action: 'transform' } usage:
+- \`text.analyze\` is stateless — it does not look at images or persistent state. Feed it text + a transformation intent.
 - Common transforms: translate, summarize, expand, rephrase as screenplay action, extract bullet list, convert to structured JSON.
-- Chain vision → text.transform when the vision output needs reshaping (e.g. vision produces prose, you need bullets for a UI list).
+- Chain vision → text.analyze { action: 'transform' } when the vision output needs reshaping (e.g. vision produces prose, you need bullets for a UI list).
 
 Common pitfalls:
 - Vague analysis prompt → vague vision output. Always state the intent explicitly.
 - Using vision output verbatim without review → hallucinated details may leak into records; skim before committing.
 - Writing extracted entity fields without user approval → creative direction gate still applies; vision extraction is technical, entity creation is creative.
-- Confusing \`text.transform\` as image-aware → it isn't. If the image matters, \`vision.describeImage\` must run first.
+- Confusing \`text.analyze\` as image-aware → it isn't. If the image matters, \`text.analyze\` must run first.
 - Running vision on a generated node to "improve" the prompt without establishing the target intent → rewrites based on what is there, not what was wanted.
 
 After analysis:
@@ -1354,18 +1028,18 @@ Workflow — always, in order:
 3. For restoring: \`snapshot.restore\` rewinds project state to the snapshot. MUST go through \`commander.askUser\` confirmation first — restoration is destructive to current state.
 
 When to create a snapshot:
-- Before a large \`canvas.batchCreate\` that adds many nodes.
+- Before a large \`canvas.createNodes\` that adds many nodes.
 - Before a sweeping preset or color-style change that affects many nodes.
 - Before \`canvas.deleteNode\` in bulk or any \`canvas.deleteCanvas\`.
 - Before a structural reorganization (big layout moves, edge restructures).
 - Before running \`canvas.importWorkflow\` into a populated canvas.
 - Before deleting a character / location / equipment record referenced elsewhere.
-- Before \`script.write\` that replaces a user-authored script.
-- Before major preset library cleanup (bulk \`preset.delete\`).
+- Before \`script.manage\` that replaces a user-authored script.
+- Before major preset library cleanup (bulk \`preset.manage { action: 'delete' }\`).
 - Before the final render pass, as an insurance snapshot.
 
 When NOT to snapshot (routine reads and small edits):
-- Reading state (\`canvas.getState\`, \`canvas.listNodes\`, \`character.list\`).
+- Reading state (\`canvas.getInfo\`, \`canvas.listNodes\`, \`entity.list\`).
 - Small single-node edits (\`canvas.updateNodes\` on one node).
 - Single ref attachment or variant selection.
 - Iteration on a single node's prompt or params.
@@ -1386,7 +1060,7 @@ Restoration — user confirmation required:
 - \`snapshot.restore\` rewinds the project to the chosen snapshot. Any work done since that snapshot is lost unless the user created a later snapshot to capture it.
 - BEFORE calling \`snapshot.restore\`: call \`commander.askUser\` with a clear summary of what will be rewound (snapshot label + timestamp + approximate scope of changes since then).
 - AFTER the user confirms: call \`snapshot.restore\`.
-- AFTER the restore completes: re-read state (\`canvas.getState\`, entity lists) to verify the restore landed and update the user.
+- AFTER the restore completes: re-read state (\`canvas.getInfo\`, entity lists) to verify the restore landed and update the user.
 
 Recovery workflows:
 - User regrets a recent change → \`snapshot.list\`, find the snapshot from before the change, \`commander.askUser\` to confirm, \`snapshot.restore\`.
@@ -1467,13 +1141,13 @@ After render and export:
     'workflow-orchestration',
     'Workflow Orchestration',
     'Guidance for workflow expansion and control.',
-    `Workflow orchestration covers two tools: \`workflow.expandIdea\` (concept → structured scene/shot text) and \`workflow.control\` (pause / resume / cancel / retry on in-flight workflow runs). These tools drive the higher-level creative pipeline — turning a director brief into canvas structure.
+    `Workflow orchestration covers two tools: \`workflow.manage { action: 'expandIdea' }\` (concept → structured scene/shot text) and \`workflow.manage { action: 'control' }\` (pause / resume / cancel / retry on in-flight workflow runs). These tools drive the higher-level creative pipeline — turning a director brief into canvas structure.
 
 Workflow — always, in order:
-1. For creative expansion: call \`workflow.expandIdea\` with a concept prompt (e.g. "A heist set in a decommissioned observatory, 8 shots, tense pacing"). Returns structured scene/shot text that can seed canvas node creation.
+1. For creative expansion: call \`workflow.manage { action: 'expandIdea' }\` with a concept prompt (e.g. "A heist set in a decommissioned observatory, 8 shots, tense pacing"). Returns structured scene/shot text that can seed canvas node creation.
 2. Expanded output is creative content the user has not approved — before acting on it, call \`commander.askUser\` to confirm the expansion direction, or present the expansion and ask for edits.
-3. Once approved, seed canvas structure: pass scenes through \`canvas.batchCreate\` (one batch per scene with text+image+video nodes), then iterate.
-4. For controlling in-flight workflows: \`workflow.control\` with the target workflowId and action (\`pause\` / \`resume\` / \`cancel\` / \`retry\`).
+3. Once approved, seed canvas structure: pass scenes through \`canvas.createNodes\` (one batch per scene with text+image+video nodes), then iterate.
+4. For controlling in-flight workflows: \`workflow.manage { action: 'control' }\` with the target workflowId and action (\`pause\` / \`resume\` / \`cancel\` / \`retry\`).
 
 expandIdea usage patterns:
 - Story concept → scene breakdown: "Expand this logline into a scene list with beats for each scene. 8 scenes max."
@@ -1482,55 +1156,55 @@ expandIdea usage patterns:
 - Location concept → place identity: "Expand this location premise into architecture, mood, lighting, recurring features."
 - The prompt you pass shapes the structure of the output; explicit structure requests (scene count, shot count, field list) produce more usable output.
 
-End-to-end story-to-video chain — when the user wants a full video from a one-liner or short novel, follow this phase sequence. After each phase, stop and ask the user to approve before starting the next. The user should be able to drive the whole pipeline by saying "yes" at each checkpoint.
+End-to-end story-to-video chain — when the user wants a full video from a one-liner or short novel, follow this phase sequence. At each phase boundary, present results and ask the user to approve via \`commander.askUser\`. When the user approves (says "yes", "go", "continue", "looks good", or answers a creative question), that is direction — proceed immediately to the next phase without re-asking.
 
 Phase 1 — Outline.
-- \`workflow.expandIdea\` → scene list.
-- \`canvas.addNode\` for each scene (type="text", title, data.content = 2-3 sentence summary). Place scenes left-to-right.
+- \`workflow.manage { action: 'expandIdea' }\` → scene list.
+- \`canvas.createNodes\` for each scene (type="text", title, data.content = 2-3 sentence summary). Place scenes left-to-right.
 - Present the outline; \`commander.askUser\` for approval.
 
 Phase 2 — Entity extraction.
 - Read every scene summary and identify recurring characters, equipment, locations.
 - Merge duplicates; one shared entity beats per-scene copies.
-- \`character.create\` / \`equipment.create\` / \`location.create\` for each unique entity.
+- \`entity.create\` with the appropriate \`type\` for each unique entity.
 
 Phase 3 — Node asset stores.
-- For each scene, \`canvas.addNode\` for first-frame image, last-frame image, and video.
+- For each scene, \`canvas.createNodes\` for first-frame image, last-frame image, and video.
 - \`canvas.updateNodes\` to set prompts from scene summaries.
-- \`canvas.setNodePresets\` for style + shot template.
+- \`canvas.presetTracks\` for style + shot template.
 - \`canvas.setNodeRefs\` to attach character/equipment/location refs.
 - \`canvas.connectNodes\` for first-frame → video → last-frame wiring.
 
 Phase 4 — Reference images.
-- For every character/equipment/location: \`character.generateRefImage\` (and the equivalent equipment/location tools).
+- For every entity: \`entity.generateRefImage\` with the appropriate \`type\`.
 - Wait for each to finish — refs gate downstream identity. Never skip.
 
 Phase 5 — First/last frames.
-- \`canvas.generate\` on every image node. Wait, then \`canvas.selectVariant\` for each.
+- \`canvas.generation\` on every image node. Wait, then \`canvas.selectVariant\` for each.
 
 Phase 6 — Video + final render.
 - Confirm \`canvas.setVideoFrames\` is wired on every video node.
-- \`canvas.generate\` with nodeType="video" on every video node. Wait, then \`canvas.selectVariant\`.
+- \`canvas.generation\` with nodeType="video" on every video node. Wait, then \`canvas.selectVariant\`.
 - \`render.start\` with format="mp4" (or "mov") for the full cut.
 
 Inter-phase rules:
-- At each boundary, summarize what was done, run \`canvas.estimateCost\` for the next phase, and ask "ready for the next phase?".
-- Never chain phases silently. A failed partial phase is fixed in place; do not restart the whole phase.
-- Between any two mutating tool calls, refresh state via \`canvas.getState\` or \`canvas.listNodes\` so decisions come from real canvas state, not model memory.
+- At each boundary, summarize what was done and present results via \`commander.askUser\`. When the user approves, proceed immediately.
+- Never chain phases silently without any user checkpoint. But once the user approves, execute — do not re-summarize or narrate your plan.
+- A failed partial phase is fixed in place; do not restart the whole phase.
 
 Creative-expansion decision tree:
-- User provides a rich brief → \`workflow.expandIdea\` may be unnecessary; parse the brief directly.
-- User provides a one-liner → \`workflow.expandIdea\` is the right tool; then confirm the expansion with the user before acting.
-- User asks "what would a full scene look like" → \`workflow.expandIdea\` for one scene only; show the user; do not proliferate without approval.
+- User provides a rich brief → \`workflow.manage { action: 'expandIdea' }\` may be unnecessary; parse the brief directly.
+- User provides a one-liner → \`workflow.manage { action: 'expandIdea' }\` is the right tool; then confirm the expansion with the user before acting.
+- User asks "what would a full scene look like" → \`workflow.manage { action: 'expandIdea' }\` for one scene only; show the user; do not proliferate without approval.
 - Expansion returns content the user has not approved → STOP. \`commander.askUser\` to review before anything is saved to records or canvas.
 
-workflow.control actions:
+workflow.manage { action: 'control' } actions:
 - \`pause\` — suspend the workflow run. In-progress tool calls may complete, but queued ones halt. Useful when the user wants to review mid-run.
 - \`resume\` — continue a paused workflow from where it paused.
 - \`cancel\` — abort the workflow entirely. Already-completed work persists; remaining steps are abandoned.
 - \`retry\` — re-run a failed step or a failed workflow. Useful after fixing the root cause of a failure.
 
-When to use workflow.control:
+When to use workflow.manage { action: 'control' }:
 - Long workflow hitting a clearly wrong branch → \`pause\`, review with user, decide to \`cancel\` or adjust and \`resume\`.
 - Workflow failed mid-run due to transient error → \`retry\`.
 - User changed their mind mid-run → \`pause\`, discuss with user, \`cancel\` or adjust.
@@ -1542,15 +1216,15 @@ Workflows vs manual tool chains:
 - Workflows buy speed and repeatability at the cost of mid-flight transparency; manual chains invert that tradeoff.
 
 Common pitfalls:
-- Acting on \`workflow.expandIdea\` output without user approval → creative content gate is still active; always \`commander.askUser\` before persisting expansion to records or canvas.
-- Using \`workflow.control\` without knowing the workflowId → fetch the id from the workflow's start response or from the running-workflow registry.
+- Acting on \`workflow.manage { action: 'expandIdea' }\` output without user approval → creative content gate is still active; always \`commander.askUser\` before persisting expansion to records or canvas.
+- Using \`workflow.manage { action: 'control' }\` without knowing the workflowId → fetch the id from the workflow's start response or from the running-workflow registry.
 - Canceling instead of pausing → if the user might still want the work, \`pause\` preserves the option. \`cancel\` is final.
 - Retrying without addressing the root cause → loops until the retry budget expires. Fix first, retry second.
 - Expanding too many scenes at once → expansion is creative; large expansions overwhelm review and risk scope drift. Prefer scene-by-scene expansion with user check-ins.
 
 After workflow operations:
-- \`workflow.expandIdea\` outputs text only; nothing persists until you explicitly write records, scripts, or canvas nodes.
-- \`workflow.control\` results affect the in-flight run; re-check workflow status to confirm the control action landed.`,
+- \`workflow.manage { action: 'expandIdea' }\` outputs text only; nothing persists until you explicitly write records, scripts, or canvas nodes.
+- \`workflow.manage { action: 'control' }\` results affect the in-flight run; re-check workflow status to confirm the control action landed.`,
   ),
   defineProcessPrompt(
     'series-management',
@@ -1648,7 +1322,7 @@ Workflow — always, in order:
 2. Decide the source of the new asset:
    - User provided a file path on disk → \`asset.import\` with the path.
    - User provided a URL → may require downloading first; check if \`asset.import\` accepts URLs or if a fetch step is needed.
-   - User wants to reuse a generated canvas node's output as a library asset → the ref-image tools (e.g. \`character.setRefImageFromNode\`) handle this directly; no separate import needed.
+   - User wants to reuse a generated canvas node's output as a library asset → the ref-image tools (e.g. \`entity.setRefImageFromNode\`) handle this directly; no separate import needed.
 3. Call \`asset.import\` with the source and intended usage metadata (type, tags, descriptive name).
 4. Verify via \`asset.list\` that the import landed.
 
@@ -1659,7 +1333,7 @@ When to use asset.import:
 - Importing a previously exported bundle's assets into a new project.
 
 When NOT to use asset.import:
-- Attaching a generated canvas node's output as an entity ref → use \`*.setRefImageFromNode\` (\`character.setRefImageFromNode\`, \`location.setRefImageFromNode\`, \`equipment.setRefImageFromNode\`). Those tools wire the asset correctly without a manual import round-trip.
+- Attaching a generated canvas node's output as an entity ref → use \`entity.setRefImageFromNode\`. That tool wires the asset correctly without a manual import round-trip.
 - Using an already-imported asset on a new node → find its hash via \`asset.list\` and reference directly.
 
 Metadata hygiene:
@@ -1680,7 +1354,7 @@ Common pitfalls:
 - Assuming \`asset.import\` accepts URLs when it may only accept file paths → check the tool schema before assuming.
 
 After import:
-- The asset is in the library but not yet attached to any node or entity. Further steps (\`canvas.updateNodes\`, \`canvas.setNodeRefs\`, \`character.setRefImage\`) are needed to use it.
+- The asset is in the library but not yet attached to any node or entity. Further steps (\`canvas.updateNodes\`, \`canvas.setNodeRefs\`, \`entity.setRefImage\`) are needed to use it.
 - The returned asset hash / id is the stable reference. Record it if downstream steps will reference this asset.`,
   ),
   defineProcessPrompt(
@@ -1741,19 +1415,18 @@ After control actions:
     `Before you generate any reference image on this canvas, verify that \`canvas.settings.stylePlate\` is locked. The stylePlate is a free-form style-description string (e.g. "flat 2D cel anime, saturated palette, no outlines") that every ref-image builder prepends as prompt segment 0. Without it, entities render in clashing styles and the whole project looks inconsistent.
 
 Workflow — non-negotiable order:
-1. Call \`canvas.getSettings({ canvasId })\` for the active canvas.
+1. Call \`canvas.getInfo({ scope: 'settings' })\` for the active canvas.
 2. Inspect \`stylePlate\` on the returned settings.
    - **Present and non-empty** → plate is locked. Proceed with the requested ref-image generation. The builder prepends \`Style: <stylePlate>.\` automatically.
-   - **Missing or empty string** → STOP. Do not call \`character.generateRefImage\` / \`equipment.generateRefImage\` / \`location.generateRefImage\` yet. Run the style-plate lock workflow first.
+   - **Missing or empty string** → STOP. Do not call \`entity.generateRefImage\` yet. Run the style-plate lock workflow first.
 
 Style-plate lock workflow (when no plate is set):
 - Call \`guide.get({ ids: ['workflow-style-plate'] })\` to read the full lock procedure.
 - Ask the user ONE question: which art style anchors this project (e.g. "Japanese anime, flat cel shading", "Pixar 3D with subsurface scatter", upload an image and describe it).
-- Compose a 20–60 word stylePlate string covering: medium, line work, palette, texture, lighting, era cue. No character names, no scene, no action.
-- Show the composed string to the user for confirmation. Accept tweaks.
-- Call \`canvas.setSettings({ canvasId, settings: { stylePlate: '<final string>' } })\`.
-- Re-call \`canvas.getSettings\` to verify it landed.
-- THEN return to the original ref-image request.
+- When the user answers, compose a 20–60 word stylePlate string covering: medium, line work, palette, texture, lighting, era cue. No character names, no scene, no action.
+- Immediately lock it: call \`canvas.setSettings({ settings: { stylePlate: '<composed string>' } })\`. Do NOT ask for confirmation again — the user already gave direction. If they want tweaks, they will say so.
+- Re-call \`canvas.getInfo\` to verify it landed.
+- THEN return to the original ref-image request without pausing.
 
 Hard rules:
 - Do NOT silently generate a ref image without a plate. The output will visually clash with every other entity in the same project and the user will redo it.
@@ -1765,7 +1438,7 @@ User-visible behavior:
 - If no plate: surface ONE short message explaining you need to lock a style plate first, then ask the style question. Keep it under 40 words.
 
 Verification after locking:
-- \`canvas.getSettings\` returns the exact string you wrote.
+- \`canvas.getInfo\` returns the exact string you wrote.
 - The originally requested ref-image tool now runs with the plate prepended (check \`stylePlateUsed: true\` in the result).`,
   ),
   defineProcessPrompt(
@@ -1778,11 +1451,9 @@ Why this matters:
 - Reference images are the identity anchors for the entire pipeline. Scene generation without them produces identity drift that is expensive to correct across dozens of shots.
 - Generating ref images first costs one extra step per entity but saves multiple regeneration passes later.
 
-Checklist — run before your first canvas.generate in this session:
-1. For each character ref attached to the target node(s): call \`character.list\` and check that the character's \`referenceImages\` array contains at least one entry with a non-null asset. If missing, call \`character.generateRefImage\` first.
-2. For each location ref: call \`location.list\` and check the same. If missing, call \`location.generateRefImage\`.
-3. For each equipment ref: call \`equipment.list\` and check the same. If missing, call \`equipment.generateRefImage\`.
-4. Only after all referenced entities have ref images should you proceed with \`canvas.generate\`.
+Checklist — run before your first canvas.generation in this session:
+1. For each entity ref attached to the target node(s): call \`entity.list\` with the entity's type and check that the entity's \`referenceImages\` array contains at least one entry with a non-null asset. If missing, call \`entity.generateRefImage\` first.
+2. Only after all referenced entities have ref images should you proceed with \`canvas.generation\`.
 
 Exceptions:
 - If the user explicitly asks to skip ref-image generation ("just generate the shot, I'll fix refs later"), comply but warn that identity may drift.
@@ -1792,14 +1463,14 @@ Exceptions:
   defineProcessPrompt(
     'batch-create-guidance',
     'Batch Create Guidance',
-    'Triggered when canvas.batchCreate is called with more than 5 nodes. Provides structural guidance for large batch operations.',
+    'Triggered when canvas.createNodes is called with more than 5 nodes. Provides structural guidance for large batch operations.',
     `You are about to batch-create a large number of nodes. Large batches benefit from deliberate structure — without it, the canvas becomes a disorganized pile that is hard to navigate and harder to edit.
 
 Structural guidance for large batches (>5 nodes):
 1. Group nodes by scene or sequence. Each scene should form a visual cluster on the canvas — text brief at the top, image nodes below, video nodes chained left-to-right.
-2. Use backdrops for scene containers. After batch-creating the nodes, call \`canvas.updateBackdrop\` to group each scene's nodes under a labeled backdrop (scene title, act number). This makes the canvas navigable.
+2. Use backdrops for scene containers. After batch-creating the nodes, call \`canvas.manage { action: 'updateBackdrop' }\` to group each scene's nodes under a labeled backdrop (scene title, act number). This makes the canvas navigable.
 3. Set proper edge flow between sequential shots. Image → video (first-frame), video → image (last-frame for next shot). Do not leave nodes disconnected — orphan nodes miss context during generation.
-4. Apply shot templates for consistent quality. If the project has established shot templates (check \`shotTemplate.list\`), apply them to new nodes via \`canvas.applyShotTemplate\` rather than manually setting preset tracks on each node.
+4. Apply shot templates for consistent quality. If the project has established shot templates (check \`shotTemplate.manage { action: 'list' }\`), apply them to new nodes via \`canvas.presetTracks { action: 'applyTemplate' }\` rather than manually setting preset tracks on each node.
 5. Consider splitting into multiple batch calls if creating >20 nodes. A single batch with 30+ nodes is atomic but harder to debug if something goes wrong. Two batches of 15 with a verification step in between is safer.
 6. After the batch completes, call \`canvas.layout\` to auto-arrange the graph so the director can visually scan the structure.
 7. Set entity refs (\`canvas.setNodeRefs\`) on the new nodes in a follow-up pass — batch-create supports inline refs via characterIds/locationIds/equipmentIds, but a dedicated pass lets you verify IDs first.`,
@@ -1807,7 +1478,7 @@ Structural guidance for large batches (>5 nodes):
   defineProcessPrompt(
     'prompt-quality-gate',
     'Prompt Quality Gate',
-    'Triggered when canvas.generate is called. Reminds Commander to verify and expand thin prompts before committing to generation.',
+    'Triggered when canvas.generation is called. Reminds Commander to verify and expand thin prompts before committing to generation.',
     `Before generating: verify that the target node has a detailed, actionable prompt. Short or empty prompts produce generic results that waste generation tokens and require regeneration.
 
 Quick check:
@@ -1829,7 +1500,7 @@ What a good prompt includes (for video nodes):
 
 What to do if the prompt is thin:
 - Use \`canvas.updateNodes\` to expand the prompt with shot type, angle, lighting, and mood.
-- Check \`canvas.readNodePresetTracks\` — if preset tracks already carry camera/lens/look direction, the prompt can be shorter because presets handle those layers.
+- Check \`canvas.presetTracks { action: 'read' }\` — if preset tracks already carry camera/lens/look direction, the prompt can be shorter because presets handle those layers.
 - Check attached entity refs — if character/location refs are attached, the prompt does not need to re-describe identity; focus on action and environment.
 - Use \`canvas.previewPrompt\` to see the full compiled prompt (node text + refs + presets + text edges) before generating.`,
   ),
@@ -1839,34 +1510,34 @@ What to do if the prompt is thin:
     'Triggered when workflow-orchestration is active. Reinforces phase-gate discipline for the story-to-video pipeline.',
     `You are in a story-to-video workflow. The pipeline has strict phase gates — skipping phases or reordering them produces cascading quality failures that are expensive to fix.
 
-Phase gates — follow in order, stop at each boundary for user confirmation:
+Phase gates — follow in order. At each boundary, present results and ask for approval via \`commander.askUser\`. When the user approves (says "yes", "go", "continue", "looks good", answers a creative question, or confirms a choice), immediately proceed to the next phase — do NOT re-summarize, re-ask, or narrate what you are about to do.
 
 Phase 1: Outline
 - Expand the story concept into scenes.
 - Create text nodes for each scene on the canvas.
-- STOP. Present the outline to the user. Do not proceed until approved.
+- Present the outline to the user via \`commander.askUser\`. Proceed when approved.
 
 Phase 2: Entity extraction
 - Identify recurring characters, locations, and equipment from the scene summaries.
-- Create entity records (character.create, location.create, equipment.create).
+- Create entity records via \`entity.create\` with the appropriate \`type\`.
 - Merge duplicates — one shared entity beats per-scene copies.
-- STOP. Present the entity list. Do not proceed until approved.
+- Present the entity list via \`commander.askUser\`. Proceed when approved.
 
 Phase 3: Canvas structure
 - Create image and video nodes for each scene.
 - Set prompts, preset tracks, and entity refs.
 - Connect nodes with proper edge flow (text → image → video chains).
-- STOP. Present the canvas structure. Do not proceed until approved.
+- Present the canvas structure via \`commander.askUser\`. Proceed when approved.
 
 Phase 4: Reference images
 - Generate ref images for EVERY character, location, and equipment entity.
 - Do this BEFORE generating any scene images. Ref images are identity anchors.
 - One at a time. Verify each before moving on.
-- STOP. Present ref images. Do not proceed until approved.
+- Present ref images via \`commander.askUser\`. Proceed when approved.
 
 Phase 5: Scene images (first/last frames)
 - Generate image nodes. Verify quality. Select best variants.
-- STOP. Present scene images. Do not proceed until approved.
+- Present scene images via \`commander.askUser\`. Proceed when approved.
 
 Phase 6: Video generation + final render
 - Set video frame anchors (canvas.setVideoFrames).
@@ -1875,9 +1546,29 @@ Phase 6: Video generation + final render
 
 Hard rules:
 - Never generate scene images before all referenced entity ref images are complete.
-- Never skip user confirmation at phase boundaries.
-- Between phases, run canvas.estimateCost for the next phase and present the estimate.
+- User approval = any affirmative response. Do not ask twice for the same phase.
+- Between phases, run canvas.generation { action: 'estimate' } for the next phase and present the estimate.
 - If a phase partially fails, fix in place — do not restart the whole pipeline.`,
+  ),
+
+  defineProcessPrompt(
+    'canvas-settings',
+    'Canvas Settings',
+    'Guidance for reading and updating canvas-scoped settings.',
+    `Canvas settings (\`canvas.getInfo\` / \`canvas.setSettings\`) control canvas-wide defaults that propagate to every node on that canvas.
+
+Key settings:
+- \`aspectRatio\`: Default output aspect ratio for new image/video nodes (e.g. "16:9", "9:16", "1:1", "4:3"). Changing this does NOT retroactively resize existing nodes — only new nodes inherit the canvas default.
+- \`stylePlate\`: The style-identity anchor for the canvas. A locked style plate means all generation uses the same visual language. Setting this to a preset name (e.g. "Ghibli Watercolor") locks it; setting to null unlocks. The style-plate-lock spec fires when generation is attempted on a canvas with no plate — lock it early.
+- \`defaultProvider\`: Canvas-level provider override. When set, all generation on this canvas uses this provider unless a node has its own override. When null, the global active provider is used.
+
+Rules:
+- Read before writing: call \`canvas.getInfo\` to see current values before calling \`canvas.setSettings\`.
+- Only set fields you intend to change — omitted fields are left untouched.
+- When the user asks to "set the style" or "lock the look", that maps to \`stylePlate\`.
+- When the user asks to "change the format" or "make it vertical/horizontal", that maps to \`aspectRatio\`.
+- Changing \`stylePlate\` mid-session is a significant creative decision — confirm with the user via \`commander.askUser\` if entities and ref images already exist, because changing the plate may require regenerating all ref images.
+- Changing \`aspectRatio\` mid-session only affects new nodes. Existing nodes keep their current dimensions.`,
   ),
 ];
 

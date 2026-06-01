@@ -130,6 +130,40 @@ export function formatProductionToolName(
     return t('commander.productionTool.createdRollback');
   }
 
+  if (domain === 'snapshot' && action === 'restore') {
+    const label = typeof a.label === 'string' ? a.label : '';
+    return t('commander.productionTool.restoredSnapshot').replace('{label}', label);
+  }
+
+  if (domain === 'location' && action === 'create') {
+    const name = typeof a.name === 'string' ? a.name : typeof r.name === 'string' ? r.name : '';
+    if (name) return t('commander.productionTool.createdLocation').replace('{name}', name);
+  }
+
+  if (domain === 'location' && action === 'update') {
+    const name = typeof a.name === 'string' ? a.name : typeof r.name === 'string' ? r.name : '';
+    if (name) return t('commander.productionTool.updatedLocation').replace('{name}', name);
+  }
+
+  if (domain === 'equipment' && action === 'create') {
+    const name = typeof a.name === 'string' ? a.name : typeof r.name === 'string' ? r.name : '';
+    if (name) return t('commander.productionTool.createdEquipment').replace('{name}', name);
+  }
+
+  if (domain === 'equipment' && action === 'update') {
+    const name = typeof a.name === 'string' ? a.name : typeof r.name === 'string' ? r.name : '';
+    if (name) return t('commander.productionTool.updatedEquipment').replace('{name}', name);
+  }
+
+  if (domain === 'commander' && action === 'askUser') {
+    return t('commander.productionTool.askedUser');
+  }
+
+  if (domain === 'canvas' && action === 'setNodeRefs') {
+    const nodeId = typeof a.nodeId === 'string' ? a.nodeId.slice(0, 8) : '';
+    return t('commander.productionTool.setNodeRefs').replace('{nodeId}', nodeId);
+  }
+
   return null;
 }
 
@@ -190,7 +224,17 @@ export function summarizeToolAction(
   else if (nodeCount === 1) detailParts.push(`1 ${t('commander.toolSummary.node')}`);
   if (name) detailParts.push(`"${name}"`);
   else if (id) detailParts.push(`#${id}…`);
-  if (canvasId && !name) detailParts.push(`${t('commander.toolSummary.canvas')} #${canvasId}…`);
+  if (canvasId && !name && !id) detailParts.push(`${t('commander.toolSummary.canvas')} #${canvasId}…`);
+
+  // Label (snapshot, template, etc.)
+  if (typeof args.label === 'string' && args.label.trim().length > 0) {
+    detailParts.push(`"${args.label.trim()}"`);
+  }
+
+  // Title (nodes)
+  if (typeof args.title === 'string' && args.title.trim().length > 0 && !name) {
+    detailParts.push(`"${args.title.trim()}"`);
+  }
 
   // Slot info
   if (typeof args.slot === 'string') detailParts.push(`slot: ${args.slot}`);
@@ -206,6 +250,6 @@ export function summarizeToolAction(
 
   return {
     action: `${domainLabel} — ${action}`,
-    detail: detailParts.join(' · ') || method,
+    detail: detailParts.join(' · '),
   };
 }

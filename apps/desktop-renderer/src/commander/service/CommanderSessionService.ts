@@ -167,8 +167,8 @@ interface RunEndLatch {
 }
 
 export class CommanderSessionService {
-  /** Maps in-flight tool call ids → tool names, so we can record usage on result. */
-  private readonly toolCallNames = new Map<string, string>();
+  /** Maps in-flight tool call ids → tool names + args, so we can record usage on result. */
+  private readonly toolCallNames = new Map<string, { name: string; args?: Record<string, unknown> }>();
 
   /**
    * D2b — Promise latches indexed by runId. `cancel()` awaits the
@@ -530,12 +530,14 @@ export class CommanderSessionService {
     switch (event.kind) {
       case 'tool_call': {
         const toolName = `${event.toolRef.domain}.${event.toolRef.action}`;
-        this.toolCallNames.set(event.toolCallId, toolName);
+        this.toolCallNames.set(event.toolCallId, { name: toolName, args: event.args });
         return;
       }
       case 'tool_result': {
-        const toolName = this.toolCallNames.get(event.toolCallId);
+        const entry = this.toolCallNames.get(event.toolCallId);
         this.toolCallNames.delete(event.toolCallId);
+        const toolName = entry?.name;
+        const toolArgs = entry?.args;
         const isError = !!event.error;
         if (toolName) {
           dispatch(recordToolCall({ toolName, error: isError }));
@@ -551,6 +553,15 @@ export class CommanderSessionService {
               dispatch(recordProjectActivity({ edgesCreated: 1 }));
             } else if (toolName === 'prop.create') {
               dispatch(recordEntityCreate({ entityType: 'prop' }));
+            } else if (toolName === 'entity.create') {
+              const entityType = toolArgs?.type;
+              if (
+                entityType === 'character' ||
+                entityType === 'location' ||
+                entityType === 'equipment'
+              ) {
+                dispatch(recordEntityCreate({ entityType }));
+              }
             } else if (toolName.endsWith('.create')) {
               const bucket = ENTITY_REFRESH_TOOL_ENTITY[toolName];
               if (bucket === 'character' || bucket === 'location' || bucket === 'equipment') {

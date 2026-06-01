@@ -33,6 +33,7 @@ import type {
   CancelArgs,
   RunningCanvasJob,
 } from './generation-helpers.js';
+import { getIpcRateLimiter, rateLimitedError } from '../rate-limiter.js';
 import {
   normalizeOptionalString,
   normalizeErrorMessage,
@@ -68,6 +69,10 @@ export function registerCanvasGenerationHandlers(
   const gateway = createRendererPushGateway({ getWindow: deps.getWindow });
 
   ipcMain.handle('canvas:generate', async (_event, args: GenerateArgs) => {
+    const rl = getIpcRateLimiter().consume('canvas:generate');
+    if (!rl.allowed) {
+      throw rateLimitedError('canvas:generate', rl.retryAfterMs ?? 0);
+    }
     return startCanvasGeneration(gateway, args, deps);
   });
 

@@ -134,7 +134,7 @@ describe('CommanderPanel', () => {
           toolCalls: [
             {
               id: 'tool-1',
-              name: 'canvas.setNodeProvider',
+              name: 'canvas.configureNode',
               arguments: { canvasId: 'canvas-1', nodeId: 'node-1' },
               result: { success: true, data: { nodeId: 'node-1', providerId: 'replicate' } },
               startedAt: 1,
@@ -148,7 +148,7 @@ describe('CommanderPanel', () => {
       [createCanvas([createCanvasNode({ id: 'node-1', title: 'Opening Shot' })])],
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Set Node Provider/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Configure Node/i }));
 
     // Switch to the Inputs tab to see annotated node references
     fireEvent.click(screen.getByRole('button', { name: /Inputs/i }));

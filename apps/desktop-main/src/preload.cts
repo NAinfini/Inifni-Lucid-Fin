@@ -386,7 +386,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       selectedNodeIds: string[],
       promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
       customLLMProvider?: LLMProviderRuntimeConfig,
-      permissionMode?: 'auto' | 'normal' | 'strict',
+      permissionMode?: 'danger' | 'auto' | 'normal' | 'strict',
       locale?: string,
       maxSteps?: number,
       temperature?: number,

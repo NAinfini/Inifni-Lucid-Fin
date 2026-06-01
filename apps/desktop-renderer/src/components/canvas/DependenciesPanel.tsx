@@ -5,6 +5,7 @@ import { selectActiveCanvas, selectNodesById } from '../../store/slices/canvas/c
 import { setSelection } from '../../store/slices/canvas/canvas.js';
 import { setHoveredDependencyNodeId } from '../../store/slices/ui.js';
 import { useI18n } from '../../hooks/use-i18n.js';
+import { EmptyState } from '../ui/EmptyState.js';
 
 export function DependenciesPanel() {
   const { t } = useI18n();
@@ -61,8 +62,8 @@ export function DependenciesPanel() {
       </div>
 
       {!hasSelection ? (
-        <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground px-3 text-center">
-          {t('dependencies.selectNode')}
+        <div className="flex-1 flex items-center justify-center">
+          <EmptyState icon={GitBranch} title={t('dependencies.selectNode')} />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
