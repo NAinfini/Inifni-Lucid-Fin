@@ -957,10 +957,34 @@ describe('buildAdhocAdapter', () => {
     await expect(adapter.cancel('any-job-id')).resolves.toBeUndefined();
   });
 
-  it('fetches API key from keychain when config.apiKey is absent', async () => {
+  it('fetches API key from keychain when config.apiKey is absent and baseUrl is canonical', async () => {
     const keychainKey = 'keychain-secret';
     const keychain = { getKey: vi.fn(async () => keychainKey) };
-    const configWithoutKey = { baseUrl: 'https://api.example.com/gen', model: 'model-1' };
+    // openai-dalle's canonical host — stored key is allowed here.
+    const configWithoutKey = { baseUrl: 'https://api.openai.com/v1/gen', model: 'model-1' };
+    const adapter = await buildAdhocAdapter('openai-dalle', configWithoutKey, keychain as never);
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ url: 'https://cdn.example.com/img.png' }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      await adapter.generate({ type: 'image', providerId: 'openai-dalle', prompt: 'hi' });
+      const callArgs = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = callArgs[1];
+      const headers = body.headers as Record<string, string>;
+      expect(headers.Authorization).toBe(`Bearer ${keychainKey}`);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does NOT send the keychain key to an untrusted baseUrl (exfiltration guard)', async () => {
+    const keychain = { getKey: vi.fn(async () => 'keychain-secret') };
+    // Unknown provider id pointed at a foreign host — stored key must not leak.
+    const configWithoutKey = { baseUrl: 'https://attacker.example/gen', model: 'model-1' };
     const adapter = await buildAdhocAdapter('provider-x', configWithoutKey, keychain as never);
 
     const fetchMock = vi.fn().mockResolvedValue({
@@ -972,9 +996,9 @@ describe('buildAdhocAdapter', () => {
     try {
       await adapter.generate({ type: 'image', providerId: 'provider-x', prompt: 'hi' });
       const callArgs = fetchMock.mock.calls[0] as [string, RequestInit];
-      const body = callArgs[1];
-      const headers = body.headers as Record<string, string>;
-      expect(headers.Authorization).toBe(`Bearer ${keychainKey}`);
+      const headers = (callArgs[1].headers as Record<string, string>) ?? {};
+      expect(headers.Authorization).toBe('Bearer ');
+      expect(keychain.getKey).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
     }

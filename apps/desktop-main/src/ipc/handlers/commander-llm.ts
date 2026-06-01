@@ -13,6 +13,7 @@ import {
   getLLMProviderLogFields,
   resolveLLMProviderRuntimeConfig,
 } from '../../llm-provider-runtime.js';
+import { isStoredKeyAllowedForBaseUrl } from './provider-host-allowlist.js';
 
 // ---------------------------------------------------------------------------
 // LLM adapter selection
@@ -43,11 +44,24 @@ export async function selectConfiguredAdapter(
     }
 
     const runtimeConfig = resolveLLMProviderRuntimeConfig(customProvider);
+    const isRegistered = !!llmRegistry.list().find((adapter) => adapter.id === runtimeConfig.id);
+    // Security: for a registered provider (known canonical host), never send the
+    // stored key to a renderer-supplied baseUrl that is not on its allowlist —
+    // this prevents key exfiltration via a forged baseUrl. Custom user-added
+    // providers legitimately use their own configured endpoint, so they are
+    // exempt (the stored key belongs to that custom endpoint by definition).
+    if (isRegistered && !isStoredKeyAllowedForBaseUrl(runtimeConfig.id, runtimeConfig.baseUrl)) {
+      logAttempt('warn', 'Refusing stored key for registered LLM provider with untrusted baseUrl', {
+        ...getLLMProviderLogFields(runtimeConfig),
+        source: 'untrusted-baseurl',
+      });
+      throw new Error(
+        `Provider "${runtimeConfig.name}" base URL is not permitted for its stored key.`,
+      );
+    }
     const apiKey = await keychain.getKey(runtimeConfig.id);
     const configuredAdapter = createConfiguredLLMAdapter(llmRegistry, runtimeConfig, apiKey);
-    const source = llmRegistry.list().find((adapter) => adapter.id === runtimeConfig.id)
-      ? 'selected-registered-provider'
-      : 'selected-custom-provider';
+    const source = isRegistered ? 'selected-registered-provider' : 'selected-custom-provider';
 
     if (!apiKey && runtimeConfig.authStyle !== 'none') {
       logAttempt('warn', 'Selected LLM provider has no stored API key', {

@@ -17,6 +17,7 @@ import {
 import type { CAS, Keychain } from '@lucid-fin/storage';
 import log from '../../logger.js';
 import { sanitizePng } from '../../sanitize-png.js';
+import { isStoredKeyAllowedForBaseUrl } from './provider-host-allowlist.js';
 import {
   extensionFromUrl,
   extractMediaUrlFromLLMText,
@@ -190,7 +191,19 @@ export async function buildAdhocAdapter(
   cas?: CAS,
 ): Promise<AIProviderAdapter> {
   const { baseUrl, model } = config;
-  const apiKey = config.apiKey || (await keychain.getKey(id)) || '';
+  // Security: only auto-fill the stored key when baseUrl is a canonical host for
+  // this provider (or loopback). Otherwise an explicit apiKey must be supplied;
+  // we will not send the keychain key to a renderer-chosen arbitrary endpoint.
+  const storedKeyAllowed = isStoredKeyAllowedForBaseUrl(id, baseUrl);
+  if (!config.apiKey && !storedKeyAllowed) {
+    log.warn('[ad-hoc adapter] refusing to attach stored key to untrusted baseUrl', {
+      category: 'canvas-generation',
+      providerId: id,
+      baseUrl,
+    });
+  }
+  const storedKey = storedKeyAllowed ? await keychain.getKey(id) : null;
+  const apiKey = config.apiKey || storedKey || '';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${apiKey}`,

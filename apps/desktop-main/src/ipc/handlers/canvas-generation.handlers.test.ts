@@ -1015,7 +1015,7 @@ describe('startCanvasGeneration progress events', () => {
         nodeId: 'node-1',
         providerId: 'openai-dalle',
         providerConfig: {
-          baseUrl: 'https://proxy.example/v1',
+          baseUrl: 'https://api.openai.com/v1',
           model: 'gpt-image-1',
         },
         variantCount: 1,
@@ -1063,7 +1063,7 @@ describe('startCanvasGeneration progress events', () => {
     expect(configure).toHaveBeenCalledWith(
       'sk-openai',
       expect.objectContaining({
-        baseUrl: 'https://proxy.example/v1',
+        baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-image-1',
       }),
     );

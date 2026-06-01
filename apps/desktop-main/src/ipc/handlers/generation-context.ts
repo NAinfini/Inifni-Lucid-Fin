@@ -15,6 +15,7 @@ import type {
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 import type { CAS, Keychain } from '@lucid-fin/storage';
 import log from '../../logger.js';
+import { isStoredKeyAllowedForBaseUrl } from './provider-host-allowlist.js';
 import {
   type BuiltGenerationContext,
   type CanvasGenerationDeps,
@@ -358,6 +359,18 @@ async function resolveProviderApiKey(
     return providerConfig.apiKey;
   }
   if (!keychain) {
+    return undefined;
+  }
+
+  // Security: never send the stored key to a renderer-supplied baseUrl that is
+  // not a canonical host for this provider. A compromised renderer could
+  // otherwise exfiltrate the key by pointing baseUrl at an arbitrary host.
+  if (!isStoredKeyAllowedForBaseUrl(providerId, providerConfig?.baseUrl)) {
+    log.warn('[canvas:generation] refusing to attach stored key to untrusted baseUrl', {
+      category: 'canvas-generation',
+      providerId,
+      baseUrl: providerConfig?.baseUrl,
+    });
     return undefined;
   }
 
