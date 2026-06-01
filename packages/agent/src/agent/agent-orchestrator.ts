@@ -32,7 +32,6 @@ import { detectOptionListMarkdown } from './detect-option-list-markdown.js';
 import { TranscriptIndex } from './transcript-index.js';
 import {
   detectProcess,
-  getProcessCategoryName,
   type ProcessCategory,
 } from './process-detection.js';
 import { ContextGraph } from './graph/context-graph.js';
@@ -47,12 +46,6 @@ import {
   classifyIntent,
   decide,
   contractRegistry,
-  evaluateProcessPromptSpecs,
-  createStylePlateLockSpec,
-  createEntitiesBeforeGenerationSpec,
-  createBatchCreateGuidanceSpec,
-  createPromptQualityGateSpec,
-  createStoryWorkflowPhaseSpec,
   type ExitDecision,
   type QualityGateBehavior,
   type ProcessPromptSpec,
@@ -67,8 +60,6 @@ import {
   type OrchestratorCompletion,
   stripInjectedParamsFromTool,
   destructResponse,
-  isProcessCategory,
-  isProcessPromptKey,
   extractEntityIdFromArgs,
 } from './orchestrator-utils.js';
 
