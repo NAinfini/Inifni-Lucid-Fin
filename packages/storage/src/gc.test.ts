@@ -36,8 +36,8 @@ describe('purgeSoftDeleted', () => {
     expect(result.characters).toBe(1); // only old-1 purged
     expect(result.total).toBe(1);
 
-    const remaining = db.prepare('SELECT id FROM characters').all();
-    expect(remaining.map((r: any) => r.id).sort()).toEqual(['alive-1', 'recent-1']);
+    const remaining = db.prepare('SELECT id FROM characters').all() as Array<{ id: string }>;
+    expect(remaining.map((r) => r.id).sort()).toEqual(['alive-1', 'recent-1']);
     db.close();
   });
 
