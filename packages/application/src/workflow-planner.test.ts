@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { StageRunStatus, TaskKind, TaskRunStatus, WorkflowRunStatus } from '@lucid-fin/contracts';
-import { WorkflowPlanner } from './workflow-planner.js';
-import type { RegisteredWorkflowDefinition } from './workflow-registry.js';
+import { WorkflowPlanner, type RegisteredWorkflowDefinition } from '@lucid-fin/workflows';
 
 function makeIdFactory(ids: string[]) {
   return () => {

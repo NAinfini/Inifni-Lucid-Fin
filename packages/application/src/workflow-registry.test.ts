@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TaskKind } from '@lucid-fin/contracts';
-import { WorkflowRegistry, type RegisteredWorkflowDefinition } from './workflow-registry.js';
+import { WorkflowRegistry, type RegisteredWorkflowDefinition } from '@lucid-fin/workflows';
 
 function makeDefinition(id: string): RegisteredWorkflowDefinition {
   return {
