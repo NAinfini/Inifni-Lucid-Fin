@@ -9,7 +9,7 @@ Purpose:
 Read phase:
 
 1. Call canvas.getNode for the reference node and every intended target node in as few calls as possible. Read title, prompt, negativePrompt, node type, provider, and refs.
-2. If the reference node has a finished image asset, call vision.describeImage(nodeId=<reference>, style="style-analysis"). Use the output to capture reusable style language rather than copying the full frame description.
+2. If the reference node has a finished image asset, call text.analyze(action="describeImage", nodeId=<reference>, style="style-analysis"). Use the output to capture reusable style language rather than copying the full frame description.
 3. Call canvas.readNodePresetTracks on the reference node and target nodes. Separate what already lives in preset tracks from what only exists in prompt text.
 
 Extraction rules:
@@ -49,7 +49,7 @@ Common failures:
 - Copying full-frame content instead of just style.
 - Stacking conflicting preset entries until the result becomes muddy.
 - Rewriting prompts that were already cleanly handled by preset tracks.
-- Treating vision.describeImage output as literal truth when the reference image itself is ambiguous.
+- Treating text.analyze (describeImage) output as literal truth when the reference image itself is ambiguous.
 
 Related process prompts:
 
@@ -62,9 +62,9 @@ This workflow is an **execution** workflow. If the user's intent is to apply
 style transfer across shots (not just learn about it), it is NOT complete
 until at least one of the following has executed successfully:
 
-- `canvas.batchCreate` — when style is being applied through new preset or reference nodes.
+- `canvas.createNodes` — when style is being applied through new preset or reference nodes.
 - `canvas.updateNodes` — when applying the style means updating preset tracks, prompts, or refs on existing shot nodes.
-- `preset.create` / `preset.update` — when the output is a reusable style preset rather than a per-canvas change.
+- `preset.manage` (action `create` / `update`) — when the output is a reusable style preset rather than a per-canvas change.
 
 Before ending the turn on an execution intent, confirm the terminal call
 returned `success: true`. Do not finish with a style recipe described in chat

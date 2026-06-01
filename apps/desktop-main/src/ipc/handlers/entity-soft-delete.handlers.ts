@@ -7,10 +7,9 @@
  */
 import type { IpcMain } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
+import type { EntityType } from '@lucid-fin/contracts';
 import { parseCharacterId, parseEquipmentId, parseLocationId } from '@lucid-fin/contracts-parse';
 import { safeHandle } from '../ipc-error-handler.js';
-
-type EntityType = 'character' | 'equipment' | 'location';
 
 export function registerEntitySoftDeleteHandlers(ipcMain: IpcMain, db: SqliteIndex): void {
   // ── List deleted entities ────────────────────────────────────

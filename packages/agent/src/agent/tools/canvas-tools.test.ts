@@ -344,7 +344,13 @@ describe('createCanvasTools', () => {
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>).nodeId).toBe('image-1');
     expect((result.data as Record<string, unknown>).status).toBe('done');
-    expect(deps.triggerGeneration).toHaveBeenCalledWith('canvas-1', 'image-1', 'runway', 4);
+    expect(deps.triggerGeneration).toHaveBeenCalledWith(
+      'canvas-1',
+      'image-1',
+      'runway',
+      4,
+      undefined,
+    );
   });
 
   it('returns error for missing canvas', async () => {

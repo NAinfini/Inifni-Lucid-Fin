@@ -113,7 +113,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
   const equipmentCreate: AgentTool = {
     name: 'equipment.create',
     description:
-      'Create a new equipment item in the current project. To update an existing item, use equipment.update instead. To generate a reference image, use equipment.generateRefImage after creation.',
+      'Create a new equipment item in the current project. To update an existing item, use equipment.update instead. To generate a reference image, use entity.generateRefImage after creation.',
     tags: ['equipment', 'mutate'],
     tier: 2,
     parameters: {

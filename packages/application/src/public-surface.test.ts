@@ -61,8 +61,6 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'createPresetTools',
   'createWorkflowTools',
   'createMetaTools',
-  'createCopywritingTools',
-  'createVisionTools',
   'createTextAnalyzeTools',
   'createSnapshotTools',
   'snapshotToolModule',

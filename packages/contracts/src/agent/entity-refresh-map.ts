@@ -3,7 +3,7 @@
  * `entity.refresh` uiEffect, and which entity bucket they target.
  *
  * This is a narrow, frozen copy of the subset of `ToolCatalog` that the
- * renderer needs — the full catalog lives in `@lucid-fin/application`, which
+ * renderer needs — the full catalog lives in `@lucid-fin/agent`, which
  * the renderer can't import (zod + main-only deps). Consumers:
  *
  *   - `apps/desktop-renderer/src/hooks/useCommander.ts` — folds entity-create

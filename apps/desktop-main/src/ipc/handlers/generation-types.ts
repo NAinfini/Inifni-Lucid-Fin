@@ -43,6 +43,9 @@ export type GenerateArgs = {
   providerConfig?: ProviderConfigOverride;
   variantCount?: number;
   seed?: number;
+  // Commander-authored final prompt sent to the provider verbatim (bypasses the
+  // deterministic compiler). Omitted for UI/manual generation.
+  finalPrompt?: string;
 };
 
 export type EstimateArgs = {

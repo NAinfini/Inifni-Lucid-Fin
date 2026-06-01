@@ -9,6 +9,7 @@ import {
   type Equipment,
   type EquipmentRefImageView,
   type EquipmentType,
+  type EntityType,
   type ImageNodeData,
   type Location,
   type LocationRefImageView,
@@ -153,8 +154,6 @@ export interface EntityToolDeps {
 // ---------------------------------------------------------------------------
 // Shared schema fragments
 // ---------------------------------------------------------------------------
-
-type EntityType = 'character' | 'location' | 'equipment';
 
 const ENTITY_TYPE_PARAM = {
   type: 'string' as const,

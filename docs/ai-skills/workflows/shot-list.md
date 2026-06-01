@@ -35,7 +35,7 @@ Recommended shot card schema:
 Creation workflow:
 
 1. Draft the shot order in memory first. Do not create nodes until the sequence is coherent.
-2. Use canvas.batchCreate when the order and titles are known up front. Create one text node per shot and connect them in temporal order.
+2. Use canvas.createNodes when the order and titles are known up front. Create one text node per shot and connect them in temporal order.
 3. If a scene already has a parent planning node, connect the scene node into the first shot or keep the shots grouped nearby with canvas.setNodeLayout.
 4. Use canvas.layout after creation if the canvas becomes unreadable; preserve a left-to-right timeline where possible.
 
@@ -71,8 +71,8 @@ This workflow is an **execution** workflow. If the user's intent is to produce
 a shot list on the canvas (not just learn about it), it is NOT complete until
 at least one of the following has executed successfully:
 
-- `canvas.batchCreate` — creating the shot nodes and edges atomically is the workflow's primary output.
-- `shotTemplate.create` — when the user wants a reusable template rather than canvas nodes.
+- `canvas.createNodes` — creating the shot nodes and edges atomically is the workflow's primary output.
+- `shotTemplate.manage` (action `create`) — when the user wants a reusable template rather than canvas nodes.
 
 Before ending the turn on an execution intent, confirm the terminal call
 returned `success: true`. If the user has not provided enough input, use

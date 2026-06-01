@@ -56,6 +56,11 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           description: 'The generation action to perform.',
         },
         nodeId: { type: 'string', description: 'The node ID (required for start; optional for cancel).' },
+        prompt: {
+          type: 'string',
+          description:
+            'The FINAL generation prompt YOU compose and send to the image/video provider VERBATIM (for start). You are the author: read the node\'s presets, its detail prompt, attached character/location/equipment descriptions, and the project style guide (use canvas.previewPrompt to inspect a reference draft), then write the complete, finished prompt yourself. When provided, the deterministic compiler is bypassed and your text is sent exactly as written. Omit ONLY to fall back to automatic compilation from node fields.',
+        },
         nodeIds: {
           type: 'array',
           items: { type: 'string', description: 'Node ID.' },
@@ -93,7 +98,11 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           const providerId = tryProviderId(args.providerId);
           const variantCount =
             typeof args.variantCount === 'number' ? Math.round(args.variantCount) : undefined;
-          await deps.triggerGeneration(canvasId, nodeId, providerId, variantCount);
+          const finalPrompt =
+            typeof args.prompt === 'string' && args.prompt.trim().length > 0
+              ? args.prompt
+              : undefined;
+          await deps.triggerGeneration(canvasId, nodeId, providerId, variantCount, finalPrompt);
 
           const shouldWait = args.wait === true;
           if (!shouldWait) {
@@ -643,7 +652,7 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   const previewPrompt: AgentTool = {
     name: 'canvas.previewPrompt',
     description:
-      'Preview the fully compiled prompt that would be sent to the generation provider, including all preset fragments, entity descriptions, and diagnostics. Does NOT trigger generation.',
+      'Preview a REFERENCE draft of the prompt the deterministic compiler would build from this node (preset fragments, entity descriptions, and connected text), plus diagnostics. The `segments` array breaks the draft into sources — entries with `source: "synergy"` are bonus phrases auto-suggested when specific presets combine, and `diagnostics` surfaces conflicts and advisories (e.g. co-active presets, image-to-video static clauses, video temporal order). Use this as INPUT when you author the final prompt: read the synergy segments and diagnostics, then fold what helps into the prompt you pass to canvas.generation. Does NOT trigger generation.',
     context: CANVAS_CONTEXT,
     tier: 1,
     parameters: {

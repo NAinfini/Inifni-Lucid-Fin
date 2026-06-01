@@ -70,13 +70,24 @@ function findSourcePriority(source: string, order: SourcePriority[]): number {
   return order.length;
 }
 
-function reorderForVideo(segments: PromptSegment[], mode: PromptMode): PromptSegment[] {
-  if (mode !== 'text-to-video' && mode !== 'image-to-video') return segments;
-  return [...segments].sort((a, b) => {
+// Advisory only: reports whether the segments' source order differs from the
+// suggested temporal order for video modes. We no longer silently reorder the
+// prompt — author/source order is preserved and any divergence is surfaced as
+// a diagnostic (Debug-First: visible, not hidden).
+function detectVideoOrderDivergence(
+  segments: PromptSegment[],
+  mode: PromptMode,
+): { diverges: boolean; suggestedSources: string[] } {
+  if (mode !== 'text-to-video' && mode !== 'image-to-video') {
+    return { diverges: false, suggestedSources: [] };
+  }
+  const suggested = [...segments].sort((a, b) => {
     const aPriority = findSourcePriority(a.source, VIDEO_TEMPORAL_ORDER);
     const bPriority = findSourcePriority(b.source, VIDEO_TEMPORAL_ORDER);
     return aPriority - bPriority;
   });
+  const diverges = suggested.some((seg, i) => seg.source !== segments[i].source);
+  return { diverges, suggestedSources: suggested.map((s) => s.source) };
 }
 
 // ---------------------------------------------------------------------------
@@ -499,39 +510,30 @@ function isPredominantlyAscii(value: string): boolean {
   return ascii / total >= 0.5;
 }
 
-function stripForImageToVideo(value: string): string {
+// Advisory detector for image-to-video mode. Returns the static-appearance
+// clauses that are unlikely to contribute motion, WITHOUT removing them. The
+// caller forwards the full prompt verbatim and surfaces these as a diagnostic
+// — we no longer silently strip clauses (Debug-First: visible, not hidden).
+// For non-English prompts the keyword pass cannot reason about the language,
+// so it returns nothing rather than guess.
+function detectStaticAppearanceClauses(value: string): string[] {
   const normalized = normalizeTextSegment(value);
-  if (!normalized) return '';
-  // English-only keyword match — for non-English prompts, run a minimal
-  // pass that keeps motion-like clauses by structural cues only (punctuation)
-  // and returns the normalized prompt otherwise. Better to pass an
-  // unfiltered motion-rich prompt to the provider than a silently empty
-  // one produced by a regex that doesn't understand the language.
-  if (!isPredominantlyAscii(normalized)) {
-    return normalized;
-  }
+  if (!normalized || !isPredominantlyAscii(normalized)) return [];
   const clauses = normalized
     .split(/(?:,|;|[.!?。！？])|\bthen\b/gi)
     .map((item) => item.trim())
     .filter(Boolean);
-  const motionOnly = clauses.filter((clause) => {
+  return clauses.filter((clause) => {
     const lower = clause.toLowerCase();
     const hasCamera = I2V_CAMERA_KEYWORDS.some((keyword) => lower.includes(keyword));
     const hasAction = I2V_ACTION_KEYWORDS.some((keyword) => lower.includes(keyword));
     const hasAppearance = I2V_APPEARANCE_KEYWORDS.some((keyword) => lower.includes(keyword));
-    const isStaticOnly =
-      !hasCamera &&
-      /\bstands?\b|\bsits?\b|\bis\b/.test(lower) &&
-      !/\bwalks?\b|\bturns?\b|\bmoves?\b|\blooks?\b/.test(lower);
-    if (!hasCamera && !hasAction) {
-      return false;
-    }
-    return !(hasAppearance && isStaticOnly);
+    // A clause is a static-appearance candidate when it describes how something
+    // looks (appearance cue) but carries no camera move and no action — i.e. it
+    // is unlikely to contribute motion in image-to-video. We surface it; we do
+    // not remove it.
+    return hasAppearance && !hasCamera && !hasAction;
   });
-  // If the keyword pass filtered everything out for English content, fall
-  // back to the normalized prompt — dropping all content is worse than
-  // forwarding a mixed-appearance prompt.
-  return motionOnly.length > 0 ? motionOnly.join('. ') : normalized;
 }
 
 function mergeParams(target: Record<string, unknown>, input?: Record<string, unknown>): void {
@@ -793,12 +795,14 @@ function detectConflicts(
     }
     if (activeMembers.length > 1) {
       activeMembers.sort((a, b) => b.intensity - a.intensity);
-      const winner = activeMembers[0];
-      const losers = activeMembers.slice(1);
+      // Report co-active presets in a conflict group. We do NOT drop any of
+      // them — every enabled preset's fragment is still emitted. This is a
+      // diagnostic so the author can decide whether the combination is
+      // intentional (Debug-First: surface, don't silently override).
       diagnostics.push({
         type: 'conflict',
         severity: 'warning',
-        message: `Conflicting presets in group "${groupName}": using ${winner.presetId} (${winner.intensity}%), skipping ${losers.map((l) => l.presetId).join(', ')}`,
+        message: `Multiple presets active in group "${groupName}" (highest intensity first): ${activeMembers.map((m) => `${m.presetId} (${m.intensity}%)`).join(', ')} — all are kept; review if unintended`,
         source: groupName,
       });
     }
@@ -825,10 +829,9 @@ function detectConflicts(
       diagnostics.push({
         type: 'conflict',
         severity: 'warning',
-        message: `Conflicting presets in group "${group}": using ${members[0].presetId} (${members[0].intensity}%), skipping ${members
-          .slice(1)
-          .map((m) => m.presetId)
-          .join(', ')}`,
+        message: `Multiple presets active in group "${group}" (highest intensity first): ${members
+          .map((m) => `${m.presetId} (${m.intensity}%)`)
+          .join(', ')} — all are kept; review if unintended`,
         source: group,
       });
     }
@@ -1641,13 +1644,17 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const negativeSegments: string[] = [];
   const adapterParams: Record<string, unknown> = {};
   const referenceImages = collectReferenceImages(input);
+  // Static-appearance clauses detected in image-to-video mode. Collected for an
+  // advisory diagnostic only — the prompt text is forwarded verbatim, never
+  // stripped (Debug-First).
+  const i2vStaticClauses: string[] = [];
 
   // 1. User text (scene prompt)
   if (input.prompt?.trim()) {
-    const normalized =
-      input.mode === 'image-to-video'
-        ? stripForImageToVideo(input.prompt)
-        : normalizeTextSegment(input.prompt);
+    const normalized = normalizeTextSegment(input.prompt);
+    if (input.mode === 'image-to-video') {
+      i2vStaticClauses.push(...detectStaticAppearanceClauses(input.prompt));
+    }
     if (normalized) {
       trackedSegments.push({ source: 'user-text', text: normalized, trimmed: false });
     }
@@ -1656,8 +1663,10 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   // 2. Connected text node content
   if (input.connectedTextContent) {
     for (const text of input.connectedTextContent) {
-      const trimmed =
-        input.mode === 'image-to-video' ? stripForImageToVideo(text) : normalizeTextSegment(text);
+      const trimmed = normalizeTextSegment(text);
+      if (input.mode === 'image-to-video') {
+        i2vStaticClauses.push(...detectStaticAppearanceClauses(text));
+      }
       if (trimmed)
         trackedSegments.push({ source: 'connected-text', text: trimmed, trimmed: false });
     }
@@ -1803,10 +1812,29 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   // Duplicate detection
   diagnostics.push(...detectDuplicatePhrases(trackedSegments));
 
-  // Apply temporal ordering for video modes
-  const orderedSegments = reorderForVideo(trackedSegments, input.mode);
+  // Image-to-video: advise on static-appearance clauses without removing them.
+  if (input.mode === 'image-to-video' && i2vStaticClauses.length > 0) {
+    diagnostics.push({
+      type: 'info',
+      severity: 'info',
+      message: `Image-to-video: ${i2vStaticClauses.length} static-appearance clause(s) may not contribute motion — kept as written: ${i2vStaticClauses.join(' | ')}`,
+      source: 'image-to-video',
+    });
+  }
 
-  const prompt = orderedSegments
+  // Video modes: advise on temporal order without reordering. Author/source
+  // order is preserved; we only surface the suggested order.
+  const orderAdvice = detectVideoOrderDivergence(trackedSegments, input.mode);
+  if (orderAdvice.diverges) {
+    diagnostics.push({
+      type: 'info',
+      severity: 'info',
+      message: `Video temporal order: segments kept in source order. Suggested order is: ${orderAdvice.suggestedSources.join(' → ')}`,
+      source: 'video-order',
+    });
+  }
+
+  const prompt = trackedSegments
     .map((s) => normalizeTextSegment(s.text))
     .filter(Boolean)
     .join('. ')
@@ -1821,7 +1849,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
     params,
     diagnostics,
-    segments: orderedSegments,
+    segments: trackedSegments,
     wordCount,
   };
 }

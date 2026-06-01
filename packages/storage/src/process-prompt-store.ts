@@ -124,9 +124,9 @@ Workflow — always, in order:
 2. Call \`canvas.getInfo\` (once per session, not per node) if you need the full edge map. Use that to find connected text nodes that feed context into this image node.
 3. Call \`canvas.presetTracks { action: 'read' }\` on this node to see what camera, lighting, style, and quality direction the preset system is already carrying. Do not duplicate those into the compiled prompt text.
 4. If character / location / equipment refs are missing, stale, or wrong entity, fix them with \`canvas.setNodeRefs\` before generation. Generating against missing refs produces identity drift that is hard to correct later.
-5. Compile one unified prompt that covers the five elements below. Order them however the provider and scene read best — the five elements are the checklist, not a rigid sequence.
+5. Compile one unified prompt that covers the five elements below. Order them however the provider and scene read best — the five elements are the checklist, not a rigid sequence. Optionally call \`canvas.previewPrompt\` to inspect a reference draft (node prompt + refs + preset tracks + connected text, with synergy and conflict diagnostics) — use it as input, not as the final answer; YOU write the final prompt.
 6. If the user has not clarified a significant creative choice (style direction, mood shift, alternate costume), call \`commander.askUser\` BEFORE calling \`canvas.generation\`. Technical execution proceeds autonomously; creative direction does not.
-7. Call \`canvas.generation\` with \`{ nodeId, nodeType: 'image' }\`. Always pass \`nodeType: 'image'\` — this routes the process prompt correctly. Set \`wait=false\` for fire-and-forget; set \`wait=true\` only when the next tool call depends on the output.
+7. Call \`canvas.generation\` with \`{ canvasId, action: 'start', nodeId, nodeType: 'image', prompt: <your compiled final prompt> }\`. \`canvasId\` and \`action: 'start'\` are REQUIRED — the start branch never runs without them. You are the author of the prompt: pass the complete prompt you compiled in the \`prompt\` argument and it is sent to the provider VERBATIM. Always pass \`nodeType: 'image'\` — this routes the process prompt correctly. Omit \`prompt\` ONLY to fall back to automatic compilation from node fields. Set \`wait=false\` for fire-and-forget; set \`wait=true\` only when the next tool call depends on the output.
 8. Verify result. If generation fails or drifts, correct the specific failure, do not retry blindly.
 
 Five elements (every compiled prompt should cover all five; order by what the frame needs to communicate first):
@@ -181,9 +181,9 @@ Workflow — always, in order:
 2. Call \`canvas.getInfo\` (if not already cached) to find incoming text edges and connected image nodes that might be first-frame or last-frame references.
 3. Call \`canvas.presetTracks { action: 'read' }\` to see what camera, lens, and motion direction presets are already carrying.
 4. If the clip depends on continuity images (first-frame image or last-frame image), verify them with \`canvas.setVideoFrames\`. First-frame and last-frame roles MUST be explicit — a video model that guesses direction from ambiguous anchors will drift.
-5. Compile ONE shot using the three-part thinking model below (stage, describe, land). Write it as natural prose — no SCENE/ACTION/BEAT labels.
+5. Compile ONE shot using the three-part thinking model below (stage, describe, land). Write it as natural prose — no SCENE/ACTION/BEAT labels. Optionally call \`canvas.previewPrompt\` to inspect a reference draft (refs + preset tracks + connected text, with synergy and conflict diagnostics) — use it as input, not as the final answer; YOU write the final shot.
 6. If the user has not approved a significant creative or motion choice (pacing, cut strategy, alternate action), call \`commander.askUser\` first.
-7. Call \`canvas.generation\` with \`{ nodeId, nodeType: 'video' }\`. Pass \`nodeType: 'video'\` always so process routing stays correct. Set \`wait=true\` only when the next call depends on the output.
+7. Call \`canvas.generation\` with \`{ canvasId, action: 'start', nodeId, nodeType: 'video', prompt: <your compiled final shot> }\`. \`canvasId\` and \`action: 'start'\` are REQUIRED — the start branch never runs without them. You are the author of the prompt: pass the complete shot you wrote in the \`prompt\` argument and it is sent to the provider VERBATIM. Pass \`nodeType: 'video'\` always so process routing stays correct. Omit \`prompt\` ONLY to fall back to automatic compilation from node fields. Set \`wait=true\` only when the next call depends on the output.
 8. Verify result. Short duration first — generate a 3-5s version to lock motion, then expand only when motion is right.
 
 Three-part structure (think the shot this way; write it as natural prose without labels):
@@ -423,9 +423,9 @@ Workflow — always, in order:
 1. Call \`shotTemplate.manage { action: 'list' }\` to see existing templates before creating. Confirm there is not already a template that covers 80% of this pattern.
 2. If editing, call the list or detail read to see the current bundle.
 3. Make the change:
-   - \`shotTemplate.create\` — add a new template. Confirm the bundle represents a durable, recurring pattern across shots.
-   - \`shotTemplate.update\` — modify an existing template's bundled tracks.
-   - \`shotTemplate.delete\` — remove a template. Verify it is not the only source of a recurring framing before deleting.
+   - \`shotTemplate.manage { action: 'create' }\` — add a new template. Confirm the bundle represents a durable, recurring pattern across shots.
+   - \`shotTemplate.manage { action: 'update' }\` — modify an existing template's bundled tracks.
+   - \`shotTemplate.manage { action: 'delete' }\` — remove a template. Verify it is not the only source of a recurring framing before deleting.
 4. To apply: call \`canvas.presetTracks { action: 'applyTemplate' }\` on a single node or on a \`nodes\` array for batch application. The template's track set overlays onto the node; node-specific subject, action, and entity refs are preserved.
 5. Verify by calling \`canvas.presetTracks { action: 'read' }\` on an affected node to confirm the template's tracks landed where expected.
 
@@ -446,7 +446,7 @@ Template naming and discoverability:
 - Include the primary camera decision in the name so \`shotTemplate.manage { action: 'list' }\` is scannable.
 
 Apply-vs-write decision tree:
-- Same 4-5 shots share a framing pattern → one \`shotTemplate.create\` + one \`canvas.presetTracks { action: 'applyTemplate' }\` per shot (or batch via \`nodes\` array).
+- Same 4-5 shots share a framing pattern → one \`shotTemplate.manage { action: 'create' }\` + one \`canvas.presetTracks { action: 'applyTemplate' }\` per shot (or batch via \`nodes\` array).
 - One-off shot with a unique framing → do not create a template. Write tracks directly with \`canvas.presetTracks { action: 'write' }\`.
 - Need to tweak a template for one shot after applying → apply the template, then \`canvas.presetTracks { action: 'updateEntry' }\` on the node for the local change. Do not fork the template for one deviation.
 - Template needs to replace a whole bundle across 12+ nodes → batch apply via \`canvas.presetTracks { action: 'applyTemplate' }\` with a \`nodes\` array is atomic and safer than 12 sequential calls.
@@ -468,9 +468,9 @@ After applying:
     `Color styles own palette logic, contrast behavior, material response, and grade direction in reusable form. They are the project's visual continuity layer — one style per look family, referenced by nodes via preset \`look\` entries or directly by generation pipelines that support it.
 
 Workflow — always, in order:
-1. Call \`colorStyle.manage\` to see existing styles before creating. Confirm there is not already a style that covers 80% of this look direction.
-2. To create or update: use \`colorStyle.manage\`. The tool upserts by id (create if new, update if existing).
-3. To delete: use \`colorStyle.manage\`. Verify no active nodes or templates reference the style before removing.
+1. Call \`colorStyle.manage { action: 'list' }\` to see existing styles before creating. Confirm there is not already a style that covers 80% of this look direction.
+2. To create or update: call \`colorStyle.manage { action: 'save', style }\`. The \`save\` action upserts by id (create if new, update if existing).
+3. To delete: call \`colorStyle.manage { action: 'delete', id }\`. Verify no active nodes or templates reference the style before removing.
 4. Verify by listing again, or by applying to a test node and generating a single image.
 
 Good color styles describe relationships, not taste words:
@@ -496,7 +496,7 @@ Style library hygiene:
 - Compact. 80-200 words per style body. Over 300 and scene content is leaking in.
 
 Decision tree — new style vs extend existing?
-- Look covers 80%+ of an existing style's description → extend the existing style via \`colorStyle.manage\` (update path).
+- Look covers 80%+ of an existing style's description → extend the existing style via \`colorStyle.manage { action: 'save' }\` reusing its id (update path).
 - Look is a variant of an existing style (warmer / cooler version) → create as new style; name it to reveal the relationship (e.g. "Warehouse noir — dawn variant").
 - Look is a one-shot experiment not expected to recur → keep it on the node prompt instead. Do not clutter the library.
 - Look is for a specific character (e.g. dream sequences) → create as new style; name it after the grammar, not the character or sequence.
@@ -540,16 +540,16 @@ Key fields: role, description, appearance, personality, face, hair, skinTone, bo
 
 --- Location-specific ---
 
-Key fields: type (interior/exterior/int-ext), subLocation, description, architectureStyle, mood, weather, lighting, timeOfDay, dominantColors, keyFeatures, atmosphereKeywords.
-- Set \`type\` — ref-image defaults read layout from it.
+Key fields: locationType (interior/exterior/int-ext), subLocation, description, architectureStyle, mood, weather, lighting, timeOfDay, dominantColors, keyFeatures, atmosphereKeywords.
+- Set \`locationType\` — ref-image defaults read layout from it. (Do not use the top-level \`type\` field for this; \`type\` is the domain discriminator and must be \`location\`.)
 - \`description\` is narrative role; \`mood\` is emotional grammar; \`atmosphereKeywords\` are short evocative tags. Keep them distinct.
 - \`keyFeatures\` must be image-identifiable landmarks. "Stained glass window above the entrance" yes; "history of conflict" no.
 - Repeat camera angles → captured as key-angle ref slots, not in presets.
 
 --- Equipment-specific ---
 
-Key fields: type, subtype, description, function, material, color, condition, visualDetails, tags.
-- Set \`type\` — ref-image defaults read the object category from it.
+Key fields: equipmentType, subtype, description, function, material, color, condition, visualDetails, tags.
+- Set \`equipmentType\` — ref-image defaults read the object category from it. (Do not use the top-level \`type\` field for this; \`type\` is the domain discriminator and must be \`equipment\`.)
 - \`function\` is mechanical ("fires via gas-operated bolt"); \`description\` is narrative ("the rifle Anna took from her father"). Do not mix.
 - \`visualDetails\` must be image-identifiable and stable. "Chipped enamel on the bolt" yes; "hand-made by her father" no.
 - \`condition\` is baseline wear, not a story beat. Per-shot damage goes on the node prompt.
@@ -561,7 +561,7 @@ Common pitfalls (all entity types):
 - Near-duplicates → check list output carefully; consolidate rather than fork.
 - Deleting an entity referenced by active nodes or loadouts → orphan refs. Check first.
 - Skipping structured fields when info exists → fill them; the ref-image system uses them.
-- Missing \`type\` on locations and equipment → ref-image defaults misread; always set it.
+- Missing \`locationType\` on locations or \`equipmentType\` on equipment → ref-image defaults misread; always set it.
 
 After editing:
 - Existing generated assets do NOT retro-update. If a change affects identity, regenerate affected nodes (or at minimum regenerate the entity's primary ref-image first).
@@ -746,13 +746,10 @@ Workflow — always, in order:
 1. Call \`provider.manage { action: 'list' }\` to see which providers are currently registered and their id strings.
 2. Call \`provider.manage { action: 'getActive' }\` to see which provider is the current default for a given capability (image, video, audio). The active provider is what nodes use when no explicit provider is set.
 3. Call \`provider.manage { action: 'getCapabilities' }\` with a specific providerId to learn what that provider can actually do — resolutions, durations, lip-sync support, emotion vector support, max variant counts, cost tiers. Always call this BEFORE assuming a capability exists.
-4. Pick the right write tool:
-   - \`provider.manage { action: 'setActive' }\` — change the default provider for a capability (image / video / audio).
-   - \`provider.setKey\` — store an API key for a provider. Never write plaintext keys into tool-output logs or chat.
-   - \`provider.update\` — modify settings on an existing registered provider.
-   - \`provider.addCustom\` — register a custom or self-hosted provider endpoint.
-   - \`provider.removeCustom\` — unregister a custom provider.
-5. After credential or provider changes, re-verify via \`provider.manage { action: 'list' }\` or \`provider.manage { action: 'getCapabilities' }\` before running generations.
+4. Pick the right write path:
+   - \`provider.manage { action: 'setActive' }\` — change the default provider for a capability (image / video / audio). This is the only provider write the agent can perform directly.
+   - Storing an API key, modifying a registered provider's settings, or registering/removing a custom endpoint are admin tasks the agent CANNOT perform — these live in Settings. Direct the user there (via \`commander.askUser\`); do not attempt a tool call for them.
+5. After the user reports a credential or provider change, re-verify via \`provider.manage { action: 'list' }\` or \`provider.manage { action: 'getCapabilities' }\` before running generations.
 
 Capability checks — always query before assuming:
 - Lip-sync: provider-specific. Many audio providers generate voice without lip-sync; only combined video+voice providers sync.
@@ -764,13 +761,12 @@ Capability checks — always query before assuming:
 
 API key handling:
 - Treat provider keys as secrets. Do not write them into notes, comments, or chat replies.
-- \`provider.setKey\` stores the key securely; never print the key back in tool output for confirmation.
-- If the user pastes a key in chat by mistake, call \`provider.setKey\` immediately and advise them to rotate the key.
+- Setting an API key is a Settings task the agent cannot perform; never echo a key back in tool output.
+- If the user pastes a key in chat by mistake, advise them to set it in Settings and rotate the leaked key immediately.
 
 Custom provider registration:
-- \`provider.addCustom\` — takes provider metadata (endpoint URL, auth scheme, capability manifest). Use for self-hosted endpoints, private API gateways, or provider variants not in the built-in registry.
-- Confirm capability manifest details with the user before registering — a wrong manifest causes silent failures downstream.
-- \`provider.removeCustom\` — only removes custom-registered providers, not built-ins.
+- Registering or removing a custom endpoint is a Settings task the agent cannot perform. When the user wants a self-hosted endpoint, private API gateway, or provider variant not in the built-in registry, walk them through Settings.
+- Confirm capability manifest details with the user before they register — a wrong manifest causes silent failures downstream.
 
 Active provider vs node-level provider:
 - Active provider (this process) is the project-wide DEFAULT.
@@ -781,13 +777,13 @@ Decision tree — when to change the active provider:
 - The project is committing to a new primary provider for all image generation → \`provider.manage { action: 'setActive' }\` for the image capability. Existing nodes with no override will pick up the new default on next generation.
 - One specific shot needs a different provider → do NOT change active. Use \`canvas.configureNode\` on that node only.
 - Switching providers mid-project → warn the user; style and identity may drift across the boundary. Consider regenerating reference images under the new provider to lock identity.
-- Testing a new provider → register with \`provider.addCustom\` (if not built-in), run a test node with explicit \`canvas.configureNode\`, evaluate, then decide whether to promote to active.
+- Testing a new provider → have the user register the custom endpoint in Settings (if not built-in), run a test node with explicit \`canvas.configureNode\`, evaluate, then decide whether to promote to active.
 
 Common pitfalls:
 - Setting API key and immediately generating without calling \`provider.manage { action: 'getCapabilities' }\` first → can mis-assume a feature exists.
 - Changing the active provider mid-sequence without coordinating regeneration → identity and style drift between early and late shots.
 - Printing or echoing API keys back to the user → security leak.
-- Using \`provider.removeCustom\` on a built-in providerId → silently rejected; verify the provider is custom first with \`provider.manage { action: 'list' }\`.
+- Using a custom-removal on a built-in providerId → not possible from the agent and would be rejected anyway; verify the provider is custom first with \`provider.manage { action: 'list' }\` before directing the user to remove it in Settings.
 - Forgetting that existing nodes with explicit \`canvas.configureNode\` overrides do not follow active-provider changes → audit overrides when switching defaults.
 
 After provider changes:
@@ -971,7 +967,7 @@ After script edits:
 Workflow — always, in order:
 1. Identify the input image — usually a node asset hash, a canvas ref, or a file path the user provided.
 2. Identify the intent before calling the tool. The prompt passed to \`text.analyze\` is what shapes the output; vague intent produces vague output.
-3. Call \`text.analyze\` with the image + a targeted analysis prompt (see intents below).
+3. Call \`text.analyze { action: 'describeImage' }\` with the image + a targeted analysis prompt (see intents below). \`action: 'describeImage'\` is REQUIRED for any image read — the call is rejected without it.
 4. Depending on intent, route the output:
    - Prompt reverse-engineering → use as seed text for a new node prompt via \`canvas.updateNodes\`.
    - Style extraction → use as the body of a new \`colorStyle.manage\` record.

@@ -134,7 +134,7 @@ describe('compilePrompt', () => {
     expect(result.prompt.split(/\s+/).length).toBe(200);
   });
 
-  it('strips non-motion context in image-to-video mode', () => {
+  it('keeps static-appearance clauses verbatim in image-to-video mode and surfaces an advisory', () => {
     const presets = [
       makePreset('p-look', 'look', 'highly detailed style'),
       makePreset('p-camera', 'camera', 'subject turns and walks forward'),
@@ -166,8 +166,43 @@ describe('compilePrompt', () => {
 
     expect(result.prompt).toContain('Camera pans left quickly');
     expect(result.prompt).toContain('subject turns and walks forward');
+    // 'look' is not an i2v-allowed preset category — its fragment is filtered
+    // structurally (not a text rewrite), so it stays absent.
     expect(result.prompt).not.toContain('highly detailed style');
-    expect(result.prompt).not.toContain('blue eyes');
+    // Static-appearance clauses are NO LONGER stripped — the text is forwarded
+    // verbatim and the concern is surfaced as an advisory diagnostic instead.
+    expect(result.prompt).toContain('blue eyes');
+    const advisories = result.diagnostics.filter((d) => d.source === 'image-to-video');
+    expect(advisories.length).toBeGreaterThanOrEqual(1);
+    expect(advisories[0].message).toContain('blue eyes');
+  });
+
+  it('preserves source order in video mode and surfaces a temporal-order advisory', () => {
+    const presets = [makePreset('scene:establishing', 'scene', 'scene fragment')];
+    const tracks = makeTracks();
+    tracks.scene.entries.push({
+      id: 'e-scene',
+      category: 'scene',
+      presetId: 'scene:establishing',
+      params: {},
+      order: 0,
+    });
+
+    const result = compilePrompt({
+      nodeType: 'video',
+      // user-text is emitted first (step 1) but the suggested temporal order
+      // would place the scene preset earlier — proving we did NOT reorder.
+      prompt: 'A car races down the highway',
+      presetTracks: tracks,
+      providerId: 'runway',
+      mode: 'text-to-video',
+      presetLibrary: presets,
+    });
+
+    expect(result.segments[0].source).toBe('user-text');
+    const orderAdvice = result.diagnostics.filter((d) => d.source === 'video-order');
+    expect(orderAdvice.length).toBeGreaterThanOrEqual(1);
+    expect(orderAdvice[0].message).toContain('source order');
   });
 
   it('collects negative prompts from preset fields', () => {

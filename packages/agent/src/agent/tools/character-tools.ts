@@ -110,7 +110,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
   const characterCreate: AgentTool = {
     name: 'character.create',
     description:
-      'Create a new character in the current project. To update an existing character, use character.update instead. To generate a reference image, use character.generateRefImage after creation.',
+      'Create a new character in the current project. To update an existing character, use character.update instead. To generate a reference image, use entity.generateRefImage after creation.',
     tags: ['character', 'mutate'],
     tier: 2,
     parameters: {

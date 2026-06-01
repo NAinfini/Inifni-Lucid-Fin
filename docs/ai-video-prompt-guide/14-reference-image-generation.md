@@ -150,7 +150,7 @@ Every entity supports `extra-angle` with a free-form angle string for rare custo
 ### Character Consistency
 
 - Fill the character record (face, hair, body, skinTone, distinctTraits, costume) before generating. `buildCharacterAppearancePrompt` assembles those fields automatically.
-- Generate 3–5 variants and promote the cleanest via `character.setRefImage` / `character.setRefImageFromNode`.
+- Generate 3–5 variants and promote the cleanest via `entity.setRefImage` / `entity.setRefImageFromNode`.
 - If variants keep missing, describe the failure in one line ("top row collapsed, only expressions returned") and regenerate with corrective language — do not retry blindly.
 
 ### Equipment Consistency
@@ -171,10 +171,10 @@ Every entity supports `extra-angle` with a free-form angle string for rare custo
 
 ## Integration with Lucid Fin
 
-These layouts are emitted by `buildCharacterRefImagePrompt`, `buildEquipmentRefImagePrompt`, and `buildLocationRefImagePrompt` when the agent calls the corresponding `*.generateRefImage` tool. The workflow is:
+These layouts are emitted by `buildCharacterRefImagePrompt`, `buildEquipmentRefImagePrompt`, and `buildLocationRefImagePrompt` when the agent calls the unified `entity.generateRefImage` tool (with the entity's `type`). The workflow is:
 
 1. Fill the entity record first — durable identity is the source of truth.
-2. Call `character.generateRefImage` / `equipment.generateRefImage` / `location.generateRefImage` with just the entity id. The builder compiles the prompt from the record and the layout rules above.
+2. Call `entity.generateRefImage` with the entity's `type` and `id`. The builder compiles the prompt from the record and the layout rules above.
 3. Only pass a custom `prompt` when you need direction the record cannot express. Do not repeat record fields in the custom prompt — it fights the auto-compiled appearance line.
 4. Review whether the sheet actually proves silhouette, construction, and identity before accepting it. The sheet is an anchor for the whole project — a broken anchor drifts every downstream shot.
 

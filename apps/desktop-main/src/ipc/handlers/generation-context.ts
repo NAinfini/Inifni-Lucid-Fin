@@ -61,6 +61,11 @@ export async function buildGenerationContext(
     requestedProviderConfig?: ProviderConfigOverride;
     requestedVariantCount?: number;
     requestedSeed?: number;
+    // Commander-authored final prompt. When provided, it is sent to the provider
+    // VERBATIM and the deterministic prompt compiler is bypassed — the AI itself
+    // composes the final prompt from the node's presets, detail prompt, entities,
+    // and style guide. Absent (UI/manual path) → compile as before.
+    finalPrompt?: string;
   },
 ): Promise<BuiltGenerationContext> {
   const canvas = deps.canvasStore.get(input.canvasId);
@@ -128,6 +133,8 @@ export async function buildGenerationContext(
   // All nodes: prompt > title
   const effectivePrompt = normalizeOptionalString(nodeData.prompt) ?? node.title;
 
+  const verbatimFinalPrompt = normalizeOptionalString(input.finalPrompt);
+
   const compiled = compilePrompt({
     nodeType: generableNodeType,
     prompt: effectivePrompt,
@@ -150,6 +157,21 @@ export async function buildGenerationContext(
       colorPalette: projectStyleGuide.global.colorPalette.primary,
     },
   });
+
+  // Commander authorship: when a final prompt is supplied, it is the finished
+  // article — send it verbatim. The compiler still resolved reference images,
+  // negative prompt, and provider params (binary/structural fields the AI cannot
+  // author), but the prompt TEXT is the AI's, untouched. Surface this explicitly
+  // rather than silently swapping (Debug-First: visible, not hidden).
+  if (verbatimFinalPrompt) {
+    compiled.prompt = verbatimFinalPrompt;
+    log.info('[prompt] using Commander-authored final prompt verbatim', {
+      category: 'prompt-compiler',
+      canvasId: input.canvasId,
+      nodeId: input.nodeId,
+      wordCount: verbatimFinalPrompt.split(/\s+/).filter(Boolean).length,
+    });
+  }
 
   if (compiled.diagnostics.length > 0) {
     for (const diag of compiled.diagnostics) {

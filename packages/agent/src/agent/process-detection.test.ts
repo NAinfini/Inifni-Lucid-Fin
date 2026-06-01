@@ -123,7 +123,7 @@ describe('detectProcess', () => {
 
   it('returns null for unrelated or nonexistent tools', () => {
     expect(detectProcess('tool.get')).toBeNull();
-    expect(detectProcess('guide.list')).toBeNull();
+    expect(detectProcess('guide.get')).toBeNull();
     expect(detectProcess('scene.create')).toBeNull();
   });
 

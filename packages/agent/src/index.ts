@@ -88,11 +88,8 @@ export { createPresetTools, type PresetToolDeps } from './agent/tools/preset-too
 export { createWorkflowTools, type WorkflowToolDeps } from './agent/tools/workflow-tools.js';
 export { type PromptGuide } from './agent/tools/workflow-guides.js';
 export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';
-export {
-  createCopywritingTools,
-  type CopywritingToolDeps,
-} from './agent/tools/copywriting-tools.js';
-export { createVisionTools, type VisionToolDeps } from './agent/tools/vision-tools.js';
+export { type CopywritingToolDeps } from './agent/tools/copywriting-tools.js';
+export { type VisionToolDeps } from './agent/tools/vision-tools.js';
 export { createTextAnalyzeTools, type TextAnalyzeToolDeps } from './agent/tools/text-analyze-tools.js';
 export { createSnapshotTools, type SnapshotToolDeps } from './agent/tools/snapshot-tools.js';
 export { snapshotToolModule } from './agent/tools/snapshot-tools.js';

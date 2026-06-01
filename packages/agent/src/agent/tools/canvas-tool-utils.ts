@@ -40,6 +40,7 @@ export interface CanvasToolDeps {
     nodeId: string,
     providerId?: string,
     variantCount?: number,
+    finalPrompt?: string,
   ) => Promise<void>;
   cancelGeneration: (canvasId: string, nodeId: string) => Promise<void>;
   deleteNode: (canvasId: string, nodeId: string) => Promise<void>;

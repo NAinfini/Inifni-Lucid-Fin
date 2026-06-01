@@ -65,25 +65,23 @@ function makeCanvas(nodeCount = 12): Canvas {
 }
 
 describe('entityMutatingToolNames', () => {
-  it('includes equipment mutating tools', () => {
-    expect(entityMutatingToolNames.has('equipment.create')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.update')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.delete')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.generateRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.setRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.deleteRefImage')).toBe(true);
+  it('includes entity mutating tools', () => {
+    expect(entityMutatingToolNames.has('entity.create')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.update')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.delete')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.generateRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.setRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.deleteRefImage')).toBe(true);
   });
 
-  it('includes reference image tools for all entity types', () => {
-    expect(entityMutatingToolNames.has('character.generateRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('character.setRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('character.deleteRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.generateRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.setRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('equipment.deleteRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('location.generateRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('location.setRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('location.deleteRefImage')).toBe(true);
+  it('includes the unified reference image tools', () => {
+    // Per-entity tools (character.*, equipment.*, location.*) were consolidated
+    // into the unified entity.* namespace for Commander AI; only entity.* is
+    // registered, so only entity.* appears in the catalog-derived set.
+    expect(entityMutatingToolNames.has('entity.generateRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.setRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.deleteRefImage')).toBe(true);
+    expect(entityMutatingToolNames.has('entity.setRefImageFromNode')).toBe(true);
   });
 });
 

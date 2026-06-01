@@ -102,10 +102,11 @@ export function registerCanvasTools(
       nodeId: string,
       providerId?: string,
       variantCount?: number,
+      finalPrompt?: string,
     ) => {
       await startCanvasGeneration(
         gateway,
-        { canvasId, nodeId, providerId, variantCount },
+        { canvasId, nodeId, providerId, variantCount, finalPrompt },
         canvasGenerationDeps,
       );
     },

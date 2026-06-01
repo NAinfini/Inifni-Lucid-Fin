@@ -7,7 +7,7 @@
  *
  * Every tool is declared here via `defineToolMeta` — metadata only (name,
  * process, category, permission, uiEffects). The legacy `AgentTool`
- * objects in `packages/application/src/agent/tools/*.ts` remain the
+ * objects in `packages/agent/src/agent/tools/*.ts` remain the
  * source of truth for JSON-Schema params + `execute()` bodies until a
  * later phase consolidates the two. This split is deliberate: Phase C
  * rips out string-based branching (`mutatingToolNames`, `startsWith`

@@ -9,11 +9,11 @@ Initial checks:
 
 1. Call canvas.getNode for the target node. Confirm it is an image node or another node with a finished image asset.
 2. Verify the node actually has an asset worth analyzing. If there is no finished image, stop and report that the workflow cannot proceed yet.
-3. Decide the intent before calling vision.describeImage: prompt recreation, broad description, or style analysis.
+3. Decide the intent before calling text.analyze (action="describeImage"): prompt recreation, broad description, or style analysis.
 
 Vision pass:
 
-- Use vision.describeImage(style="description") when the goal is to inventory visible people, objects, environment state, and scene evidence.
+- Use text.analyze(action="describeImage", style="description") when the goal is to inventory visible people, objects, environment state, and scene evidence.
 - Use style="prompt" when the user wants a recreatable prompt or prompt repair.
 - Use style="style-analysis" when the user wants reusable look language for presets or style transfer.
 
@@ -25,7 +25,7 @@ Extraction model:
 
 Entity workflow:
 
-1. If a clearly new recurring entity is visible and the user wants it captured, use character.create, location.create, or equipment.create with conservative structured data.
+1. If a clearly new recurring entity is visible and the user wants it captured, use entity.create (with type "character" | "location" | "equipment") with conservative structured data.
 2. If the entity already exists, prefer update only for fields that are strongly evidenced and currently missing or incorrect.
 3. After entity creation or update, use canvas.setNodeRefs to attach the right characterRefs, locationRefs, or equipmentRefs back to the analyzed node.
 
@@ -54,7 +54,7 @@ Common failures:
 - Creating records for transient props or background extras.
 - Overwriting durable records with speculative details from a single stylized image.
 - Forgetting to reattach entity refs after creating the records.
-- Claiming nonexistent tools such as scene.create; use location.create or location.update instead.
+- Claiming nonexistent tools such as scene.create; use entity.create or entity.update (type "location") instead.
 
 ## Terminal commitment
 
@@ -62,9 +62,9 @@ This workflow is an **execution** workflow. If the user's intent is to capture
 what's in an image as durable records (not just learn about it), it is NOT
 complete until at least one of the following has executed successfully:
 
-- `character.create` / `location.create` / `equipment.create` — when the image introduces a new entity worth persisting.
-- `character.update` / `location.update` / `equipment.update` — when updating an existing entity record with newly extracted details.
-- `preset.create` — when the image's value is primarily stylistic and should feed a preset track.
+- `entity.create` (type "character" | "location" | "equipment") — when the image introduces a new entity worth persisting.
+- `entity.update` (type "character" | "location" | "equipment") — when updating an existing entity record with newly extracted details.
+- `preset.manage` (action `create`) — when the image's value is primarily stylistic and should feed a preset track.
 - `canvas.updateNodes` — when re-attaching entity refs to shot nodes is the actual ask.
 
 Before ending the turn on an execution intent, confirm the terminal call

@@ -20,7 +20,7 @@ Phase 2 — Entities.
 
 1. Read every scene summary. List every recurring character, equipment, and location.
 2. Merge duplicates aggressively; prefer one shared entity over per-scene copies.
-3. Call character.create / equipment.create / location.create for each unique entity. Capture style and identity notes while they are fresh.
+3. Call entity.create (with type "character" | "equipment" | "location") for each unique entity. Capture style and identity notes while they are fresh.
 
 Phase 3 — Node asset stores.
 
@@ -33,7 +33,7 @@ Phase 3 — Node asset stores.
 
 Phase 4 — Reference images.
 
-1. For every character, equipment, and location: character.generateRefImage / equipment.generateRefImage / location.generateRefImage.
+1. For every character, equipment, and location: call `entity.generateRefImage` with the entity's `type` and `id`.
 2. Wait for each generation to finish before moving on. These refs gate every downstream image and video generation — if you skip them, identity drifts.
 3. Let the user review each ref and regenerate any that miss.
 
@@ -61,7 +61,7 @@ This workflow is an **execution** workflow. If the user's intent is to run
 this workflow (not just learn about it), it is NOT complete until at least one
 of the following has executed successfully:
 
-- `canvas.batchCreate` — scene seeding is the workflow's whole output; without at least one atomic create-nodes-and-edges call, nothing persists to the canvas.
+- `canvas.createNodes` — scene seeding is the workflow's whole output; without at least one atomic create-nodes-and-edges call, nothing persists to the canvas.
 
 Before ending the turn on an execution intent, confirm the terminal call
 returned `success: true`. If the user has not provided enough input, use

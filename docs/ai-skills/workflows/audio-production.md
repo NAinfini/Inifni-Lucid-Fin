@@ -17,10 +17,10 @@ Preparation:
 
 Creation flow:
 
-1. Use canvas.batchCreate when you already know the full line set and want all audio nodes created together. Otherwise use canvas.addNode per line.
+1. Use canvas.createNodes when you already know the full line set and want all audio nodes created together. Otherwise use canvas.addNode per line.
 2. Title each node so the line can be identified later — for example "VO 04 - confession under breath" instead of pasting the entire sentence into the title.
 3. Write the actual spoken text with canvas.updateNodes.
-4. Use canvas.setAudioParams to set audioType="voice" and a deliberate emotionVector.
+4. Use canvas.setMediaParams(mediaType="audio", set={ audioType: "voice", emotionVector: {...} }) to set a deliberate emotion vector.
 
 Emotion vector rules:
 
@@ -68,12 +68,12 @@ Read and verify first:
 
 1. Call canvas.getNode on the target video node and confirm it is the correct speaking shot.
 2. Confirm the voice node for this line exists (it should, from stage 1). Reuse it; do not duplicate.
-3. Confirm the target provider can support the requested setup. Use provider.getCapabilities when audio support, duration limits, or quality tiers are uncertain.
+3. Confirm the target provider can support the requested setup. Ask the user to verify provider capabilities when audio support, duration limits, or quality tiers are uncertain.
 
 Wire the pair:
 
 1. Connect the voice node to the video node with canvas.connectNodes so the editorial relationship is explicit.
-2. Enable video-side sync settings with canvas.setVideoParams(set={ audio: true, lipSyncEnabled: true, duration: <shot length if needed> }).
+2. Enable video-side sync settings with canvas.setMediaParams(mediaType="video", set={ audio: true, lipSyncEnabled: true, duration: <shot length if needed> }).
 3. If the speaking shot also depends on continuity anchors, set first or last frames with canvas.setVideoFrames after the image edges are wired in the correct direction.
 
 Generation order:
@@ -97,7 +97,7 @@ Decision branches:
 
 Common stage-2 failures:
 
-- Using canvas.updateNodes to set lip sync flags. The correct tool is canvas.setVideoParams.
+- Using canvas.updateNodes to set lip sync flags. The correct tool is canvas.setMediaParams (mediaType="video").
 - Generating the video before the voice node exists.
 - Leaving multiple dialogue nodes connected to one speaking shot without a clear editorial plan.
 - Trying to lip-sync a shot that visually cannot support readable mouth motion.
@@ -109,8 +109,8 @@ audio on the canvas (not just learn about it), it is NOT complete until at
 least one of the following has executed successfully:
 
 - `canvas.setSettings` — when the change is canvas-scoped audio configuration (provider, lip-sync toggles).
-- `canvas.batchCreate` — when creating voice or dialogue nodes is the output.
-- `canvas.setVideoParams` — when attaching lip-sync flags to existing video nodes (never `canvas.updateNodes` for this).
+- `canvas.createNodes` — when creating voice or dialogue nodes is the output.
+- `canvas.setMediaParams` (mediaType="video") — when attaching lip-sync flags to existing video nodes (never `canvas.updateNodes` for this).
 
 Before ending the turn on an execution intent, confirm the terminal call
 returned `success: true`. If the user has not provided enough input, use

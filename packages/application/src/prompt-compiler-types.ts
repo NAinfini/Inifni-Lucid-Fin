@@ -107,7 +107,7 @@ export interface PromptCompilerInput {
 }
 
 export interface PromptDiagnostic {
-  type: 'conflict' | 'duplicate' | 'trimmed' | 'info';
+  type: 'conflict' | 'duplicate' | 'info';
   severity: 'warning' | 'info';
   message: string;
   source?: string;

@@ -13,7 +13,14 @@
  * = virtual "Uncategorized" root.
  */
 
-export type FolderKind = 'character' | 'equipment' | 'location' | 'asset';
+/**
+ * Canonical entity domain discriminator. Used everywhere a tool, handler, or
+ * DTO must say which of the three entity kinds it targets. Member order is
+ * canonical: character, equipment, location.
+ */
+export type EntityType = 'character' | 'equipment' | 'location';
+
+export type FolderKind = EntityType | 'asset';
 
 export interface Folder {
   id: string;

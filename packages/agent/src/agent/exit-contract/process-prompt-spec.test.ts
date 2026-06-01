@@ -109,7 +109,7 @@ describe('isGenerationTool', () => {
 
   it('rejects read-only tools', () => {
     expect(isGenerationTool('canvas.getInfo')).toBe(false);
-    expect(isGenerationTool('tool.list')).toBe(false);
+    expect(isGenerationTool('tool.get')).toBe(false);
   });
 });
 
@@ -187,7 +187,7 @@ describe('configurable process prompt specs', () => {
         spec,
       ],
       ctx({
-        pendingToolCalls: [{ name: 'character.generateRefImage', arguments: {} }],
+        pendingToolCalls: [{ name: 'entity.generateRefImage', arguments: {} }],
         canvasSettings: { stylePlate: '' },
       }),
       new Set(),

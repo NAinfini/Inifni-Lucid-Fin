@@ -115,7 +115,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
   const locationCreate: AgentTool = {
     name: 'location.create',
     description:
-      'Create a new location in the current project. To update an existing location, use location.update instead. To generate a reference image, use location.generateRefImage after creation.',
+      'Create a new location in the current project. To update an existing location, use location.update instead. To generate a reference image, use entity.generateRefImage after creation.',
     tags: ['location', 'mutate'],
     tier: 2,
     parameters: {

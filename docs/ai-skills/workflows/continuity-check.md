@@ -22,7 +22,7 @@ What to compare:
 Evidence sources:
 
 - Prompts and refs are the baseline.
-- If a node already has a finished image asset, call vision.describeImage on the most important shots to verify what actually rendered rather than trusting prompt intent alone.
+- If a node already has a finished image asset, call text.analyze (action="describeImage") on the most important shots to verify what actually rendered rather than trusting prompt intent alone.
 - Use style="description" when you need broad factual readback and style="style-analysis" when continuity risk lives in grade or light behavior.
 - For generation-ready nodes, check the compiled prompt and attached refs together; continuity can break even when raw node prompt text looks correct.
 
@@ -78,7 +78,7 @@ Read everything first:
 
 1. Call canvas.getNode for every target node in one batch. Read prompt, negativePrompt, title, node type, refs, and provider.
 2. If the change is style-heavy, call canvas.readNodePresetTracks on representative nodes before touching prompt text. Some of the requested change may already belong in presets.
-3. If the user supplied a reference image or exemplar node, analyze it with vision.describeImage(style="style-analysis") before rewriting.
+3. If the user supplied a reference image or exemplar node, analyze it with text.analyze(action="describeImage", style="style-analysis") before rewriting.
 
 Rewrite method:
 

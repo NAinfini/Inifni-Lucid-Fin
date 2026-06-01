@@ -287,6 +287,28 @@ describe('createCanvasGenerationTools', () => {
       'image-1',
       undefined,
       undefined,
+      undefined,
+    );
+  });
+
+  it('forwards a Commander-authored prompt verbatim to triggerGeneration', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    await getTool('canvas.generation', deps).execute({
+      action: 'start',
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      prompt: 'A woman in a red dress steps into golden afternoon light, 50mm, centered',
+      wait: false,
+    });
+
+    expect(deps.triggerGeneration).toHaveBeenCalledWith(
+      'canvas-1',
+      'image-1',
+      undefined,
+      undefined,
+      'A woman in a red dress steps into golden afternoon light, 50mm, centered',
     );
   });
 
@@ -315,6 +337,7 @@ describe('createCanvasGenerationTools', () => {
     expect(deps.triggerGeneration).toHaveBeenCalledWith(
       'canvas-1',
       'video-1',
+      undefined,
       undefined,
       undefined,
     );

@@ -54,7 +54,7 @@ describe('ProcessPromptStore', () => {
       'prompt-template-management': ['prompt.setCustom', 'process-prompt store'],
       'asset-library-management': ['asset.import', 'asset.list'],
       'job-control': ['job.control', 'pause'],
-      'entities-before-generation': ['reference images', 'character.generateRefImage'],
+      'entities-before-generation': ['reference images', 'entity.generateRefImage'],
       'batch-create-guidance': ['batch-creating', 'backdrops'],
       'prompt-quality-gate': ['canvas.getNode', 'canvas.previewPrompt'],
       'story-workflow-phase': ['phase gates', 'ref images'],

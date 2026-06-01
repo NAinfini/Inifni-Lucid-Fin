@@ -158,6 +158,7 @@ export async function startCanvasGeneration(
     requestedProviderConfig: args.providerConfig,
     requestedVariantCount: args.variantCount,
     requestedSeed: args.seed,
+    finalPrompt: normalizeOptionalString(args.finalPrompt),
   });
 
   log.info('Canvas generation requested', {
