@@ -31,9 +31,17 @@ describe('Keychain', () => {
     expect(await kc.getKey('openai')).toBeNull();
   });
 
-  it('setKey does not throw on keytar error', async () => {
+  it('setKey throws on keytar error (write failures must not report success)', async () => {
     vi.mocked(keytar.setPassword).mockRejectedValueOnce(new Error('Permission denied'));
-    await expect(kc.setKey('openai', 'sk-123')).resolves.not.toThrow();
+    await expect(kc.setKey('openai', 'sk-123')).rejects.toThrow('Permission denied');
+  });
+
+  it('setKey invokes onError then rethrows', async () => {
+    const onError = vi.fn();
+    const kcWithCallback = new Keychain({ onError });
+    vi.mocked(keytar.setPassword).mockRejectedValueOnce(new Error('Permission denied'));
+    await expect(kcWithCallback.setKey('openai', 'sk-123')).rejects.toThrow('Permission denied');
+    expect(onError).toHaveBeenCalledWith('setKey', expect.any(Error));
   });
 
   it('deleteKey returns false on keytar error', async () => {

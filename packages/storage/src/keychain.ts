@@ -17,7 +17,10 @@ export class Keychain {
     try {
       await keytar.setPassword(SERVICE_NAME, provider, apiKey);
     } catch (error) {
+      // A write that fails MUST surface — reporting success while the OS
+      // keychain rejected the write would silently lose the user's key.
       this.onError?.('setKey', error);
+      throw error;
     }
   }
 
