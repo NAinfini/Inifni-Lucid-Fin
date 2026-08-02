@@ -17,9 +17,9 @@ describe('isStoredKeyAllowedForBaseUrl', () => {
   });
 
   it('refuses a host that merely contains the canonical host as a substring', () => {
-    expect(isStoredKeyAllowedForBaseUrl('openai-dalle', 'https://api.openai.com.attacker.test')).toBe(
-      false,
-    );
+    expect(
+      isStoredKeyAllowedForBaseUrl('openai-dalle', 'https://api.openai.com.attacker.test'),
+    ).toBe(false);
   });
 
   it('allows loopback hosts for self-hosted adapters', () => {

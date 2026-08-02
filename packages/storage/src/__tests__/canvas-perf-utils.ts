@@ -55,7 +55,8 @@ function buildImageData(): Record<string, unknown> {
   return {
     assetHash: 'sha256-' + 'a'.repeat(60),
     status: 'done',
-    prompt: 'A cinematic wide shot of a futuristic cityscape at dusk with neon lights reflecting off wet streets, cyberpunk aesthetic with high contrast lighting',
+    prompt:
+      'A cinematic wide shot of a futuristic cityscape at dusk with neon lights reflecting off wet streets, cyberpunk aesthetic with high contrast lighting',
     negativePrompt: 'text, watermark, blurry, low quality',
     width: 1920,
     height: 1080,
@@ -119,7 +120,8 @@ function buildAudioData(): Record<string, unknown> {
 
 function buildTextData(): Record<string, unknown> {
   return {
-    content: 'Scene 1: EXT. CITY STREET - NIGHT\n\nThe camera reveals a sprawling metropolis bathed in neon light. Rain falls steadily, creating reflections on the wet asphalt.',
+    content:
+      'Scene 1: EXT. CITY STREET - NIGHT\n\nThe camera reveals a sprawling metropolis bathed in neon light. Rain falls steadily, creating reflections on the wet asphalt.',
   };
 }
 
@@ -277,10 +279,7 @@ export function generateSyntheticCanvas(
   }
 
   // 4. Update the canvases.edges column with the generated edges
-  db.prepare(`UPDATE canvases SET edges = ? WHERE id = ?`).run(
-    JSON.stringify(edges),
-    canvasId,
-  );
+  db.prepare(`UPDATE canvases SET edges = ? WHERE id = ?`).run(JSON.stringify(edges), canvasId);
 
   return { canvasId, nodes, edges };
 }

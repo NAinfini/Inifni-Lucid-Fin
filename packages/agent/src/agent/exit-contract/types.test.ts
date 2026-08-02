@@ -201,7 +201,9 @@ describe('exit-contract/types — CompletionContract shape', () => {
           description: 'Seed at least one scene node',
         },
       ],
-      acceptableSubstitutes: [{ toolName: 'canvas.createNodes', description: 'Single-scene fallback' }],
+      acceptableSubstitutes: [
+        { toolName: 'canvas.createNodes', description: 'Single-scene fallback' },
+      ],
       infoIntentExemption: false,
       blockingQuestionsAllowed: 3,
       successSignals: [

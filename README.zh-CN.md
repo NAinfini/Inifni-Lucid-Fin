@@ -292,12 +292,12 @@ npm run build
 <details>
 <summary><strong>环境要求</strong></summary>
 
-| 要求     | 版本                      |
-| -------- | ------------------------- |
-| Node.js  | >= 22.12.0                |
-| npm      | >= 10                     |
-| FFmpeg   | >= 7（视频处理需要）      |
-| 操作系统 | Windows / macOS / Linux   |
+| 要求     | 版本                    |
+| -------- | ----------------------- |
+| Node.js  | >= 22.12.0              |
+| npm      | >= 10                   |
+| FFmpeg   | >= 7（视频处理需要）    |
+| 操作系统 | Windows / macOS / Linux |
 
 </details>
 

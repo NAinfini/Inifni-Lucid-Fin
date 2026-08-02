@@ -2,7 +2,11 @@ import { useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Plus, StickyNote, Trash2 } from 'lucide-react';
 import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
-import { addCanvasNote, updateCanvasNote, deleteCanvasNote } from '../../store/slices/canvas/canvas.js';
+import {
+  addCanvasNote,
+  updateCanvasNote,
+  deleteCanvasNote,
+} from '../../store/slices/canvas/canvas.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { useDebouncedDispatch } from '../../hooks/useDebouncedDispatch.js';
 import { EmptyState } from '../ui/EmptyState.js';

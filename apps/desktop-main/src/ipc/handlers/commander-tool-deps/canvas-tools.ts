@@ -33,8 +33,12 @@ export function registerCanvasTools(
   deps: ToolRegistrationDeps,
   getWindow: () => BrowserWindow | null,
   gateway: RendererPushGateway,
-  listCommanderPresets: (category?: import('@lucid-fin/contracts').PresetCategory) => Promise<import('@lucid-fin/contracts').PresetDefinition[]>,
-  persistCommanderPreset: (preset: import('@lucid-fin/contracts').PresetDefinition) => Promise<import('@lucid-fin/contracts').PresetDefinition>,
+  listCommanderPresets: (
+    category?: import('@lucid-fin/contracts').PresetCategory,
+  ) => Promise<import('@lucid-fin/contracts').PresetDefinition[]>,
+  persistCommanderPreset: (
+    preset: import('@lucid-fin/contracts').PresetDefinition,
+  ) => Promise<import('@lucid-fin/contracts').PresetDefinition>,
   defaultProviders?: Record<string, string>,
 ): void {
   const canvasGenerationDeps = {

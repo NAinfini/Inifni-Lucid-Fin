@@ -112,8 +112,7 @@ export interface CanvasToolDeps {
 }
 
 export type CanvasToolResult =
-  | { success: true; data?: unknown }
-  | { success: false; error: string };
+  { success: true; data?: unknown } | { success: false; error: string };
 
 export const CANVAS_CONTEXT = ['canvas'];
 export type TrackMap = Record<PresetCategory, PresetTrack>;

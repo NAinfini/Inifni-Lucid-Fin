@@ -195,16 +195,17 @@ function createWindow(): BrowserWindow {
   win.once('ready-to-show', () => win.show());
 
   const isDev = !app.isPackaged;
+  const shouldOpenDevTools = isDev && process.env.ELECTRON_IS_E2E !== '1';
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
-    win.webContents.openDevTools({ mode: 'bottom' });
+    if (shouldOpenDevTools) win.webContents.openDevTools({ mode: 'bottom' });
   } else {
     // Load built renderer HTML (works for both dev and production)
     const rendererPath = isDev
       ? path.resolve(__dirname, '..', '..', 'desktop-renderer', 'dist', 'index.html')
       : path.join(process.resourcesPath, 'renderer', 'index.html');
     win.loadFile(rendererPath);
-    if (isDev) win.webContents.openDevTools({ mode: 'bottom' });
+    if (shouldOpenDevTools) win.webContents.openDevTools({ mode: 'bottom' });
   }
 
   win.on('closed', () => {
@@ -421,16 +422,13 @@ app.whenReady().then(async () => {
 
     registerSettingsHandlers(ipcMain, db);
 
-    ipcMain.handle(
-      'settings:set-analytics-enabled',
-      async (_e, args: { enabled: boolean }) => {
-        if (!args || typeof args.enabled !== 'boolean') {
-          throw new Error('enabled (boolean) is required');
-        }
-        const { setAnalyticsEnabled } = await import('./analytics.js');
-        setAnalyticsEnabled(args.enabled);
-      },
-    );
+    ipcMain.handle('settings:set-analytics-enabled', async (_e, args: { enabled: boolean }) => {
+      if (!args || typeof args.enabled !== 'boolean') {
+        throw new Error('enabled (boolean) is required');
+      }
+      const { setAnalyticsEnabled } = await import('./analytics.js');
+      setAnalyticsEnabled(args.enabled);
+    });
 
     // Notify renderer that backend is ready
     mark('fully-loaded');

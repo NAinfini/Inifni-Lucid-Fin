@@ -106,8 +106,7 @@ describe('useBootstrap', () => {
 
   it('deduplicates updater toasts by version', () => {
     let progressCallback:
-      | ((status: { state: string; info?: { version?: string } }) => void)
-      | undefined;
+      ((status: { state: string; info?: { version?: string } }) => void) | undefined;
 
     vi.mocked(getAPI).mockReturnValue({
       updater: {

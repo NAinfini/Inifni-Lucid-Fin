@@ -1,4 +1,5 @@
 import { createCommand, runCommand } from './ffmpeg-utils.js';
+import { getLgplVideoCodecConfig } from './codec-policy.js';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -80,9 +81,15 @@ function stitchWithCrossfade(
     prevLabel = outLabel;
   }
 
+  const videoCodec = getLgplVideoCodecConfig('h264', { quality: 'standard' });
   cmd
     .complexFilter(filterParts)
-    .outputOptions(['-map [vout]', '-c:v libx264', '-pix_fmt yuv420p'])
+    .outputOptions([
+      '-map [vout]',
+      `-c:v ${videoCodec.encoder}`,
+      ...videoCodec.outputOptions,
+      '-pix_fmt yuv420p',
+    ])
     .output(outputPath);
 
   return runCommand(cmd);

@@ -28,8 +28,7 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         names: {
           type: 'array',
           items: { type: 'string', description: 'Tool name.' },
-          description:
-            'Tool name or array of tool names to load. Omit to list all tools grouped by domain.',
+          description: 'Tool names to load. Omit to list all tools grouped by domain.',
         },
       },
       required: [],

@@ -39,6 +39,8 @@ describe('registerWorkflowHandlers', () => {
       retryTask: vi.fn(async () => undefined),
       retryStage: vi.fn(async () => undefined),
       retryWorkflow: vi.fn(async () => undefined),
+      getPendingApprovalContext: vi.fn(() => undefined),
+      approvePendingGateFromUser: vi.fn(),
     };
 
     registerWorkflowHandlers(
@@ -136,6 +138,8 @@ describe('registerWorkflowHandlers', () => {
         retryTask: vi.fn(),
         retryStage: vi.fn(),
         retryWorkflow: vi.fn(),
+        getPendingApprovalContext: vi.fn(),
+        approvePendingGateFromUser: vi.fn(),
       } as never,
     );
 
@@ -151,5 +155,107 @@ describe('registerWorkflowHandlers', () => {
         workflowRunId: 'missing-run',
       }),
     );
+  });
+
+  it('exposes the exact pending revision and derives the approval actor in the main process', async () => {
+    const pending = {
+      run: { id: 'wf-plan-1', rowVersion: 4, currentGate: 'production_plan' },
+      approval: {
+        id: 'approval-1',
+        gateKey: 'production_plan',
+        subjectRevision: 2,
+        subjectHash: 'a'.repeat(64),
+      },
+      document: { id: 'doc-2', revision: 2, contentHash: 'a'.repeat(64), content: {} },
+    };
+    const engine = {
+      list: vi.fn(),
+      get: vi.fn(),
+      getStages: vi.fn(),
+      getTasks: vi.fn(),
+      start: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      cancel: vi.fn(),
+      retryTask: vi.fn(),
+      retryStage: vi.fn(),
+      retryWorkflow: vi.fn(),
+      getPendingApprovalContext: vi.fn(() => pending),
+      getVisualAuditionContext: vi.fn(() => ({
+        run: { id: 'wf-plan-1', rowVersion: 3 },
+        document: { revision: 7, contentHash: 'b'.repeat(64) },
+      })),
+      getFinalExportContext: vi.fn(() => ({
+        run: { id: 'wf-plan-1', rowVersion: 5 },
+        manifest: { revision: 1, contentHash: 'c'.repeat(64) },
+        approval: { gateKey: 'final_export', status: 'pending' },
+      })),
+      selectVisualConstitutionCandidateFromUser: vi.fn(() => ({
+        context: pending,
+        created: true,
+      })),
+      approvePendingGateFromUser: vi.fn(() => ({ ok: true, code: 'approved' })),
+    };
+    registerWorkflowHandlers(
+      {
+        handle(channel: string, handler: (...args: unknown[]) => unknown) {
+          handlers.set(channel, handler);
+        },
+      } as never,
+      engine as never,
+    );
+
+    await expect(
+      handlers.get('workflow:getPendingApproval')?.({}, { workflowRunId: 'wf-plan-1' }),
+    ).resolves.toBe(pending);
+    await expect(
+      handlers.get('workflow:getVisualAuditions')?.({}, { workflowRunId: 'wf-plan-1' }),
+    ).resolves.toMatchObject({ document: { revision: 7 } });
+    await expect(
+      handlers.get('workflow:getFinalExport')?.({}, { workflowRunId: 'wf-plan-1' }),
+    ).resolves.toMatchObject({
+      manifest: { revision: 1, contentHash: 'c'.repeat(64) },
+      approval: { gateKey: 'final_export', status: 'pending' },
+    });
+
+    const selection = {
+      workflowRunId: 'wf-plan-1',
+      candidateId: 'analog-horror',
+      expectedRowVersion: 3,
+      expectedAuditionRevision: 7,
+      expectedAuditionHash: 'b'.repeat(64),
+      actor: 'assistant',
+    };
+    await expect(
+      handlers.get('workflow:selectVisualCandidate')?.({}, selection),
+    ).resolves.toMatchObject({ created: true });
+    expect(engine.selectVisualConstitutionCandidateFromUser).toHaveBeenCalledWith({
+      workflowRunId: 'wf-plan-1',
+      candidateId: 'analog-horror',
+      expectedRowVersion: 3,
+      expectedAuditionRevision: 7,
+      expectedAuditionHash: 'b'.repeat(64),
+    });
+
+    const request = {
+      workflowRunId: 'wf-plan-1',
+      gateKey: 'production_plan',
+      expectedRowVersion: 4,
+      expectedSubjectRevision: 2,
+      expectedSubjectHash: 'a'.repeat(64),
+      actor: 'assistant',
+      resumeTokenHash: 'renderer-must-not-control-this',
+    };
+    await expect(handlers.get('workflow:approveGate')?.({}, request)).resolves.toEqual({
+      ok: true,
+      code: 'approved',
+    });
+    expect(engine.approvePendingGateFromUser).toHaveBeenCalledWith({
+      workflowRunId: 'wf-plan-1',
+      gateKey: 'production_plan',
+      expectedRowVersion: 4,
+      expectedSubjectRevision: 2,
+      expectedSubjectHash: 'a'.repeat(64),
+    });
   });
 });

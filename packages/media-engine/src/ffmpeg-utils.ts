@@ -1,14 +1,18 @@
 import ffmpeg from 'fluent-ffmpeg';
+import { resolveFfmpegBinary } from './ffmpeg-binary.js';
 
 export function detectFfmpeg(): string {
-  const envPath = process.env.FFMPEG_PATH;
-  if (envPath) return envPath;
-  return 'ffmpeg';
+  return resolveFfmpegBinary('ffmpeg');
+}
+
+export function detectFfprobe(): string {
+  return resolveFfmpegBinary('ffprobe');
 }
 
 export function createCommand(input?: string): ffmpeg.FfmpegCommand {
   const cmd = ffmpeg(input);
   cmd.setFfmpegPath(detectFfmpeg());
+  cmd.setFfprobePath(detectFfprobe());
   return cmd;
 }
 
@@ -47,13 +51,87 @@ export function extractLastFrame(videoPath: string, outputPath: string): Promise
   return runCommand(cmd);
 }
 
+export interface MediaProbeResult {
+  durationSeconds: number;
+  width?: number;
+  height?: number;
+  fps?: number;
+  videoCodec?: string;
+  audioCodec?: string;
+  hasAudio: boolean;
+  formatName?: string;
+}
+
+/** Read bounded technical metadata with the same packaged ffprobe as rendering. */
+export function probeMedia(filePath: string): Promise<MediaProbeResult> {
+  const cmd = createCommand(filePath);
+  return new Promise((resolve, reject) => {
+    cmd.ffprobe((error, data) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      const streams = Array.isArray(data.streams)
+        ? (data.streams as Array<Record<string, unknown>>)
+        : [];
+      const video = streams.find((stream) => stream.codec_type === 'video');
+      const audio = streams.find((stream) => stream.codec_type === 'audio');
+      const format = (data.format ?? {}) as Record<string, unknown>;
+      const duration =
+        finiteNonNegative(format.duration) ?? finiteNonNegative(video?.duration) ?? 0;
+      const rate = video?.avg_frame_rate ?? video?.r_frame_rate;
+      resolve({
+        durationSeconds: duration,
+        width: finitePositiveInteger(video?.width),
+        height: finitePositiveInteger(video?.height),
+        fps: parseFrameRate(rate),
+        videoCodec: nonEmptyString(video?.codec_name),
+        audioCodec: nonEmptyString(audio?.codec_name),
+        hasAudio: Boolean(audio),
+        formatName: nonEmptyString(format.format_name),
+      });
+    });
+  });
+}
+
+function parseFrameRate(value: unknown): number | undefined {
+  if (typeof value === 'number') return value > 0 && Number.isFinite(value) ? value : undefined;
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  const [numeratorText, denominatorText] = value.split('/');
+  const numerator = Number(numeratorText);
+  const denominator = denominatorText === undefined ? 1 : Number(denominatorText);
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+    return undefined;
+  }
+  const result = numerator / denominator;
+  return result > 0 && Number.isFinite(result) ? result : undefined;
+}
+
+function finiteNonNegative(value: unknown): number | undefined {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : undefined;
+}
+
+function finitePositiveInteger(value: unknown): number | undefined {
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(number) && number > 0 ? number : undefined;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
 export interface SceneCut {
   time: number; // seconds
   score: number; // scene change score (0-1)
 }
 
 export function detectScenes(videoPath: string, threshold?: number): Promise<SceneCut[]> {
-  const t = threshold ?? 0.4;
+  const raw = threshold ?? 0.4;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0 || raw > 1) {
+    throw new Error(`detectScenes: threshold must be a finite number between 0 and 1, got ${raw}`);
+  }
+  const t = raw;
   const nullOutput = process.platform === 'win32' ? 'NUL' : '/dev/null';
   return new Promise((resolve, reject) => {
     const cuts: SceneCut[] = [];

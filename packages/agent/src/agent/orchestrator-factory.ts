@@ -66,10 +66,14 @@ export interface OrchestratorFactoryInput {
     AgentOptions,
     | 'maxSteps'
     | 'temperature'
-    | 'maxTokens'
+    | 'maxOutputTokens'
+    | 'contextWindowTokens'
     | 'profile'
     | 'qualityGateBehavior'
     | 'requireStylePlateBeforeRefImage'
+    | 'onBeforeCompact'
+    | 'onPostCompact'
+    | 'resolvePersistentContext'
   >;
 
   /**

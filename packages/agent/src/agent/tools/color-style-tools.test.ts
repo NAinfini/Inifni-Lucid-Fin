@@ -46,13 +46,17 @@ describe('createColorStyleTools', () => {
     const deps = createDeps();
     const style = { id: 'style-3', name: 'Noir', palette: ['#000000'] };
 
-    await expect(getTool('colorStyle.manage', deps).execute({ action: 'save', style })).resolves.toEqual({
+    await expect(
+      getTool('colorStyle.manage', deps).execute({ action: 'save', style }),
+    ).resolves.toEqual({
       success: true,
       data: { style },
     });
     expect(deps.saveColorStyle).toHaveBeenCalledWith(style);
 
-    await expect(getTool('colorStyle.manage', deps).execute({ action: 'delete', id: 'style-3' })).resolves.toEqual({
+    await expect(
+      getTool('colorStyle.manage', deps).execute({ action: 'delete', id: 'style-3' }),
+    ).resolves.toEqual({
       success: true,
       data: { id: 'style-3' },
     });
@@ -63,16 +67,22 @@ describe('createColorStyleTools', () => {
     const deps = createDeps();
     vi.mocked(deps.deleteColorStyle).mockRejectedValueOnce(new Error('cannot delete'));
 
-    await expect(getTool('colorStyle.manage', deps).execute({ action: 'save', style: [] })).resolves.toEqual({
+    await expect(
+      getTool('colorStyle.manage', deps).execute({ action: 'save', style: [] }),
+    ).resolves.toEqual({
       success: false,
       error: 'style is required',
     });
-    await expect(getTool('colorStyle.manage', deps).execute({ action: 'delete', id: '  ' })).resolves.toEqual({
+    await expect(
+      getTool('colorStyle.manage', deps).execute({ action: 'delete', id: '  ' }),
+    ).resolves.toEqual({
       success: false,
       error: 'id is required',
       errorClass: 'validation',
     });
-    await expect(getTool('colorStyle.manage', deps).execute({ action: 'delete', id: 'style-1' })).resolves.toEqual({
+    await expect(
+      getTool('colorStyle.manage', deps).execute({ action: 'delete', id: 'style-1' }),
+    ).resolves.toEqual({
       success: false,
       error: 'cannot delete',
     });

@@ -107,7 +107,9 @@ describe('exportAllData', () => {
     expect(fs.existsSync(path.join(destDir, 'lucid-fin.db'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'prompts.db'))).toBe(true);
     expect(fs.existsSync(path.join(destDir, 'settings.json'))).toBe(false);
-    expect(fs.existsSync(path.join(destDir, 'assets', 'image', 'abcd1234', 'original.png'))).toBe(true);
+    expect(fs.existsSync(path.join(destDir, 'assets', 'image', 'abcd1234', 'original.png'))).toBe(
+      true,
+    );
     expect(fs.existsSync(path.join(destDir, 'manifest.json'))).toBe(true);
 
     // Verify manifest contents
@@ -164,7 +166,11 @@ describe('exportAllData', () => {
     const destDir = path.join(tmpDir, 'export');
     const paths = await setupSourceData(srcDir);
 
-    const mockDb = { pragma: vi.fn().mockImplementation(() => { throw new Error('WAL fail'); }) };
+    const mockDb = {
+      pragma: vi.fn().mockImplementation(() => {
+        throw new Error('WAL fail');
+      }),
+    };
     const result = await exportAllData(destDir, paths, mockDb, '1.0.0');
 
     // Should still succeed — WAL checkpoint is best-effort

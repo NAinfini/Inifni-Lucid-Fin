@@ -293,8 +293,14 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
           enum: ['protagonist', 'antagonist', 'supporting', 'extra'],
         },
         description: { type: 'string', description: 'A brief description of the entity.' },
-        appearance: { type: 'string', description: 'Physical appearance description (character only).' },
-        personality: { type: 'string', description: 'Personality traits description (character only).' },
+        appearance: {
+          type: 'string',
+          description: 'Physical appearance description (character only).',
+        },
+        personality: {
+          type: 'string',
+          description: 'Personality traits description (character only).',
+        },
         age: { type: 'number', description: 'Character age (character only).' },
         gender: {
           type: 'string',
@@ -351,7 +357,8 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         },
         distinctTraits: {
           type: 'array',
-          description: 'Distinctive physical traits (character only — scars, tattoos, piercings, etc.).',
+          description:
+            'Distinctive physical traits (character only — scars, tattoos, piercings, etc.).',
           items: { type: 'string', description: 'A distinctive trait.' },
         },
         vocalTraits: {
@@ -382,7 +389,10 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
           description: 'Typical time of day (location only).',
           enum: ['day', 'night', 'dawn', 'dusk', 'continuous'],
         },
-        mood: { type: 'string', description: 'The mood/atmosphere of the location (location only).' },
+        mood: {
+          type: 'string',
+          description: 'The mood/atmosphere of the location (location only).',
+        },
         weather: { type: 'string', description: 'Typical weather conditions (location only).' },
         lighting: { type: 'string', description: 'Lighting description (location only).' },
         architectureStyle: {
@@ -585,8 +595,14 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
               enum: ['protagonist', 'antagonist', 'supporting', 'extra'],
             },
             description: { type: 'string', description: 'Updated description.' },
-            appearance: { type: 'string', description: 'Updated appearance description (character only).' },
-            personality: { type: 'string', description: 'Updated personality description (character only).' },
+            appearance: {
+              type: 'string',
+              description: 'Updated appearance description (character only).',
+            },
+            personality: {
+              type: 'string',
+              description: 'Updated personality description (character only).',
+            },
             age: { type: 'number', description: 'Character age (character only).' },
             gender: {
               type: 'string',
@@ -658,7 +674,8 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
             },
             distinctTraits: {
               type: 'array',
-              description: 'Distinctive physical traits (character only — scars, tattoos, piercings, etc.).',
+              description:
+                'Distinctive physical traits (character only — scars, tattoos, piercings, etc.).',
               items: { type: 'string', description: 'A distinctive trait.' },
             },
             vocalTraits: {
@@ -680,7 +697,10 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
               description: 'Updated location type (location only).',
               enum: ['interior', 'exterior', 'int-ext'],
             },
-            subLocation: { type: 'string', description: 'Updated sub-location or area (location only).' },
+            subLocation: {
+              type: 'string',
+              description: 'Updated sub-location or area (location only).',
+            },
             timeOfDay: { type: 'string', description: 'Updated time of day (location only).' },
             mood: { type: 'string', description: 'Updated mood (location only).' },
             weather: { type: 'string', description: 'Updated weather (location only).' },
@@ -921,9 +941,17 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
   function resolveEntityHandlers(entityType: EntityType): {
     getEntity: (id: string) => Promise<AnyEntity | null>;
     saveEntity: (entity: AnyEntity) => Promise<void>;
-    parseView: (raw: unknown) => CharacterRefImageView | LocationRefImageView | EquipmentRefImageView;
-    buildPrompt: (entity: AnyEntity, view: CharacterRefImageView | LocationRefImageView | EquipmentRefImageView, stylePlate?: string) => string;
-    viewToSlot: (view: CharacterRefImageView | LocationRefImageView | EquipmentRefImageView) => string;
+    parseView: (
+      raw: unknown,
+    ) => CharacterRefImageView | LocationRefImageView | EquipmentRefImageView;
+    buildPrompt: (
+      entity: AnyEntity,
+      view: CharacterRefImageView | LocationRefImageView | EquipmentRefImageView,
+      stylePlate?: string,
+    ) => string;
+    viewToSlot: (
+      view: CharacterRefImageView | LocationRefImageView | EquipmentRefImageView,
+    ) => string;
     entityLabelCap: string;
   } {
     if (entityType === 'character') {
@@ -969,14 +997,8 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
     };
   }
 
-  async function resolveCanvasSettings(
-    canvasId: unknown,
-  ): Promise<CanvasSettings | undefined> {
-    if (
-      typeof canvasId === 'string' &&
-      canvasId.trim().length > 0 &&
-      deps.getCanvas
-    ) {
+  async function resolveCanvasSettings(canvasId: unknown): Promise<CanvasSettings | undefined> {
+    if (typeof canvasId === 'string' && canvasId.trim().length > 0 && deps.getCanvas) {
       try {
         const canvas = await deps.getCanvas(canvasId);
         return canvas.settings;
@@ -1077,8 +1099,7 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
 
         const canvasRefW = canvasSettings?.refResolution?.width;
         const canvasRefH = canvasSettings?.refResolution?.height;
-        const reqWidth =
-          typeof args.width === 'number' && args.width > 0 ? args.width : canvasRefW;
+        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : canvasRefW;
         const reqHeight =
           typeof args.height === 'number' && args.height > 0 ? args.height : canvasRefH;
 

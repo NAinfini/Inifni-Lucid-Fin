@@ -26,9 +26,7 @@
  *   settings write, entity records, generation). The workflow hint, when
  *   known, picks the matching contract.
  */
-export type RunIntent =
-  | { kind: 'informational' }
-  | { kind: 'execution'; workflow?: string };
+export type RunIntent = { kind: 'informational' } | { kind: 'execution'; workflow?: string };
 
 // ---------------------------------------------------------------------------
 // CompletionContract — what does "done" look like for this run?

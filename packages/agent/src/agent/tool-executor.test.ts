@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { needsConfirmation, validateArgs } from './tool-executor.js';
+import { describe, expect, it, vi } from 'vitest';
+import { needsConfirmation, ToolExecutor, validateArgs } from './tool-executor.js';
 import { AgentToolRegistry, type AgentTool } from './tool-registry.js';
 
 /**
@@ -125,5 +125,38 @@ describe('validateArgs', () => {
     const errors = validateArgs(tool, { canvasId: 'c-1', type: 123, title: 'T' });
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject({ field: 'type', expected: 'string' });
+  });
+});
+
+describe('workflow gate enforcement', () => {
+  it('hard-denies a forged generation call before the registered tool executes', async () => {
+    const execute = vi.fn(async () => ({ success: true }));
+    const registry = new AgentToolRegistry();
+    registry.register({
+      name: 'canvas.generation',
+      description: 'Generate media',
+      tier: 3,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute,
+    });
+    const executor = new ToolExecutor(registry, {
+      workflowPolicy: {
+        workflowRunId: 'workflow-1',
+        phase: 'production_plan_pending',
+        gate: 'production_plan',
+        rowVersion: 1,
+      },
+    });
+
+    const result = await executor.executeSingle(
+      { id: 'forged-call', name: 'canvas.generation', arguments: {} },
+      new Set(['canvas.generation']),
+      new Set(),
+      () => {},
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.resultContent).toMatch(/Production Plan/i);
+    expect(execute).not.toHaveBeenCalled();
   });
 });

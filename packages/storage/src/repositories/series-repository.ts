@@ -121,8 +121,7 @@ export class SeriesRepository {
   getSeries(id: SeriesId, tx?: Tx): Series | undefined {
     const d = tx ?? this.db;
     const row = d.prepare(`SELECT * FROM ${S_TBL} WHERE ${S.id.sqlName} = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (!row) return undefined;
     let candidate: Series | Record<string, unknown>;
     try {

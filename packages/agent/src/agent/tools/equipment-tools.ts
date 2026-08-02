@@ -181,7 +181,10 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'The equipment ID to update (obtain from equipment.list).' },
+        id: {
+          type: 'string',
+          description: 'The equipment ID to update (obtain from equipment.list).',
+        },
         set: {
           type: 'object',
           description:
@@ -257,7 +260,10 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'The equipment ID to delete (obtain from equipment.list).' },
+        id: {
+          type: 'string',
+          description: 'The equipment ID to delete (obtain from equipment.list).',
+        },
       },
       required: ['id'],
     },

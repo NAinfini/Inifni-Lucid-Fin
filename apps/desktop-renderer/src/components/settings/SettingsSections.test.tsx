@@ -461,7 +461,8 @@ describe('settings extracted sections', () => {
           {
             processKey: 'entity-ref-image-generation',
             name: 'Entity Reference Image Generation',
-            description: 'Guidance for entity (character, location, equipment) reference image creation.',
+            description:
+              'Guidance for entity (character, location, equipment) reference image creation.',
             defaultValue: 'Default rules',
             customValue: null,
             createdAt: 1,

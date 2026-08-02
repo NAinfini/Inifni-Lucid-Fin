@@ -37,6 +37,7 @@ import type {
   AssetQueryResponse,
   AssetReindexEmbeddingsRequest,
   AssetReindexEmbeddingsResponse,
+  AssetReindexProgressPayload,
   AssetSearchSemanticRequest,
   AssetSearchSemanticResponse,
   CanvasCancelGenerationRequest,
@@ -162,8 +163,6 @@ import type {
   JobSubmittedPayload,
   KeychainDeleteRequest,
   KeychainDeleteResponse,
-  KeychainGetRequest,
-  KeychainGetResponse,
   KeychainIsConfiguredRequest,
   KeychainIsConfiguredResponse,
   KeychainSetRequest,
@@ -197,7 +196,6 @@ import type {
   PresetImportResponse,
   PresetListRequest,
   PresetListResponse,
-  PresetResetRequest,
   PresetResetResponse,
   PresetSaveRequest,
   PresetSaveResponse,
@@ -284,14 +282,22 @@ import type {
   VideoPickFileResponse,
   VisionDescribeImageRequest,
   VisionDescribeImageResponse,
+  WorkflowApproveGateRequest,
+  WorkflowApproveGateResponse,
   WorkflowCancelRequest,
   WorkflowCancelResponse,
+  WorkflowGetFinalExportRequest,
+  WorkflowGetFinalExportResponse,
+  WorkflowGetPendingApprovalRequest,
+  WorkflowGetPendingApprovalResponse,
   WorkflowGetRequest,
   WorkflowGetResponse,
   WorkflowGetStagesRequest,
   WorkflowGetStagesResponse,
   WorkflowGetTasksRequest,
   WorkflowGetTasksResponse,
+  WorkflowGetVisualAuditionsRequest,
+  WorkflowGetVisualAuditionsResponse,
   WorkflowListRequest,
   WorkflowListResponse,
   WorkflowPauseRequest,
@@ -304,9 +310,101 @@ import type {
   WorkflowRetryTaskResponse,
   WorkflowRetryWorkflowRequest,
   WorkflowRetryWorkflowResponse,
+  WorkflowSelectVisualCandidateRequest,
+  WorkflowSelectVisualCandidateResponse,
   WorkflowStartRequest,
   WorkflowStartResponse,
 } from './channels/index.js';
+
+// The runtime registry owns these channels, but the pure contracts barrel does not
+// yet export corresponding DTOs. Keep the generated surface complete without
+// introducing a contracts -> contracts-parse package cycle.
+type AppRestartRequest = unknown;
+type AppRestartResponse = unknown;
+type AssetSetFolderRequest = unknown;
+type AssetSetFolderResponse = unknown;
+type CanvasGenerationCompletePayload = unknown;
+type CanvasGenerationFailedPayload = unknown;
+type CanvasGenerationProgressPayload = unknown;
+type CharacterSetFolderRequest = unknown;
+type CharacterSetFolderResponse = unknown;
+type CommanderEventsHydrateRequest = unknown;
+type CommanderEventsHydrateResponse = unknown;
+type EquipmentSetFolderRequest = unknown;
+type EquipmentSetFolderResponse = unknown;
+type FolderAssetCreateRequest = unknown;
+type FolderAssetCreateResponse = unknown;
+type FolderAssetDeleteRequest = unknown;
+type FolderAssetDeleteResponse = unknown;
+type FolderAssetListRequest = unknown;
+type FolderAssetListResponse = unknown;
+type FolderAssetMoveRequest = unknown;
+type FolderAssetMoveResponse = unknown;
+type FolderAssetRenameRequest = unknown;
+type FolderAssetRenameResponse = unknown;
+type FolderCharacterCreateRequest = unknown;
+type FolderCharacterCreateResponse = unknown;
+type FolderCharacterDeleteRequest = unknown;
+type FolderCharacterDeleteResponse = unknown;
+type FolderCharacterListRequest = unknown;
+type FolderCharacterListResponse = unknown;
+type FolderCharacterMoveRequest = unknown;
+type FolderCharacterMoveResponse = unknown;
+type FolderCharacterRenameRequest = unknown;
+type FolderCharacterRenameResponse = unknown;
+type FolderEquipmentCreateRequest = unknown;
+type FolderEquipmentCreateResponse = unknown;
+type FolderEquipmentDeleteRequest = unknown;
+type FolderEquipmentDeleteResponse = unknown;
+type FolderEquipmentListRequest = unknown;
+type FolderEquipmentListResponse = unknown;
+type FolderEquipmentMoveRequest = unknown;
+type FolderEquipmentMoveResponse = unknown;
+type FolderEquipmentRenameRequest = unknown;
+type FolderEquipmentRenameResponse = unknown;
+type FolderLocationCreateRequest = unknown;
+type FolderLocationCreateResponse = unknown;
+type FolderLocationDeleteRequest = unknown;
+type FolderLocationDeleteResponse = unknown;
+type FolderLocationListRequest = unknown;
+type FolderLocationListResponse = unknown;
+type FolderLocationMoveRequest = unknown;
+type FolderLocationMoveResponse = unknown;
+type FolderLocationRenameRequest = unknown;
+type FolderLocationRenameResponse = unknown;
+type KeychainGetMaskedRequest = unknown;
+type KeychainGetMaskedResponse = unknown;
+type LocationSetFolderRequest = unknown;
+type LocationSetFolderResponse = unknown;
+type PresetResetRequest = unknown;
+type ProcessPromptGetRequest = unknown;
+type ProcessPromptGetResponse = unknown;
+type ProcessPromptListRequest = unknown;
+type ProcessPromptListResponse = unknown;
+type ProcessPromptResetRequest = unknown;
+type ProcessPromptResetResponse = unknown;
+type ProcessPromptSetCustomRequest = unknown;
+type ProcessPromptSetCustomResponse = unknown;
+type ProviderHealthGetRequest = unknown;
+type ProviderHealthGetResponse = unknown;
+type ProviderHealthRequest = unknown;
+type ProviderHealthResponse = unknown;
+type SeriesDeleteRequest = unknown;
+type SeriesDeleteResponse = unknown;
+type SeriesEpisodesAddRequest = unknown;
+type SeriesEpisodesAddResponse = unknown;
+type SeriesEpisodesListRequest = unknown;
+type SeriesEpisodesListResponse = unknown;
+type SeriesEpisodesRemoveRequest = unknown;
+type SeriesEpisodesRemoveResponse = unknown;
+type SeriesEpisodesReorderRequest = unknown;
+type SeriesEpisodesReorderResponse = unknown;
+type SeriesGetRequest = unknown;
+type SeriesGetResponse = unknown;
+type SeriesSaveRequest = unknown;
+type SeriesSaveResponse = unknown;
+type UpdaterProgressPayload = unknown;
+type VideoCloneProgressPayload = unknown;
 
 /** Control surface injected alongside the per-namespace methods. */
 export interface LucidAPIInfrastructure {
@@ -322,83 +420,91 @@ export interface LucidAPIInfrastructure {
 
 export interface LucidAPI_Ai {
   chat(req: AiChatRequest): Promise<AiChatResponse>;
-  promptList(req: AiPromptListRequest): Promise<AiPromptListResponse>;
-  promptGet(req: AiPromptGetRequest): Promise<AiPromptGetResponse>;
-  promptSetCustom(req: AiPromptSetCustomRequest): Promise<AiPromptSetCustomResponse>;
-  promptClearCustom(req: AiPromptClearCustomRequest): Promise<AiPromptClearCustomResponse>;
-  onStream(cb: (payload: AiStreamPayload) => void): () => void;
   onEvent(cb: (payload: AiEventPayload) => void): () => void;
+  promptClearCustom(req: AiPromptClearCustomRequest): Promise<AiPromptClearCustomResponse>;
+  promptGet(req: AiPromptGetRequest): Promise<AiPromptGetResponse>;
+  promptList(req: AiPromptListRequest): Promise<AiPromptListResponse>;
+  promptSetCustom(req: AiPromptSetCustomRequest): Promise<AiPromptSetCustomResponse>;
+  onStream(cb: (payload: AiStreamPayload) => void): () => void;
 }
 
 export interface LucidAPI_App {
-  version(req: AppVersionRequest): Promise<AppVersionResponse>;
-  onReady(cb: (payload: AppReadyPayload) => void): () => void;
   onInitError(cb: (payload: AppInitErrorPayload) => void): () => void;
+  onReady(cb: (payload: AppReadyPayload) => void): () => void;
+  restart(req: AppRestartRequest): Promise<AppRestartResponse>;
+  version(req: AppVersionRequest): Promise<AppVersionResponse>;
 }
 
 export interface LucidAPI_Asset {
-  import(req: AssetImportRequest): Promise<AssetImportResponse>;
-  importBuffer(req: AssetImportBufferRequest): Promise<AssetImportBufferResponse>;
-  pickFile(req: AssetPickFileRequest): Promise<AssetPickFileResponse>;
-  query(req: AssetQueryRequest): Promise<AssetQueryResponse>;
-  getPath(req: AssetGetPathRequest): Promise<AssetGetPathResponse>;
   delete(req: AssetDeleteRequest): Promise<AssetDeleteResponse>;
   export(req: AssetExportRequest): Promise<AssetExportResponse>;
   exportBatch(req: AssetExportBatchRequest): Promise<AssetExportBatchResponse>;
   generateEmbedding(req: AssetGenerateEmbeddingRequest): Promise<AssetGenerateEmbeddingResponse>;
+  getPath(req: AssetGetPathRequest): Promise<AssetGetPathResponse>;
+  import(req: AssetImportRequest): Promise<AssetImportResponse>;
+  importBuffer(req: AssetImportBufferRequest): Promise<AssetImportBufferResponse>;
+  pickFile(req: AssetPickFileRequest): Promise<AssetPickFileResponse>;
+  query(req: AssetQueryRequest): Promise<AssetQueryResponse>;
+  onReindexProgress(cb: (payload: AssetReindexProgressPayload) => void): () => void;
   reindexEmbeddings(req: AssetReindexEmbeddingsRequest): Promise<AssetReindexEmbeddingsResponse>;
   searchSemantic(req: AssetSearchSemanticRequest): Promise<AssetSearchSemanticResponse>;
+  setFolder(req: AssetSetFolderRequest): Promise<AssetSetFolderResponse>;
 }
 
 export interface LucidAPI_Canvas {
-  list(req: CanvasListRequest): Promise<CanvasListResponse>;
-  load(req: CanvasLoadRequest): Promise<CanvasLoadResponse>;
-  save(req: CanvasSaveRequest): Promise<CanvasSaveResponse>;
+  cancelGeneration(req: CanvasCancelGenerationRequest): Promise<CanvasCancelGenerationResponse>;
   create(req: CanvasCreateRequest): Promise<CanvasCreateResponse>;
   delete(req: CanvasDeleteRequest): Promise<CanvasDeleteResponse>;
-  rename(req: CanvasRenameRequest): Promise<CanvasRenameResponse>;
-  patch(req: CanvasPatchRequest): Promise<CanvasPatchResponse>;
   estimateCost(req: CanvasEstimateCostRequest): Promise<CanvasEstimateCostResponse>;
   generate(req: CanvasGenerateRequest): Promise<CanvasGenerateResponse>;
-  cancelGeneration(req: CanvasCancelGenerationRequest): Promise<CanvasCancelGenerationResponse>;
+  onGenerationComplete(cb: (payload: CanvasGenerationCompletePayload) => void): () => void;
+  onGenerationFailed(cb: (payload: CanvasGenerationFailedPayload) => void): () => void;
+  onGenerationProgress(cb: (payload: CanvasGenerationProgressPayload) => void): () => void;
+  list(req: CanvasListRequest): Promise<CanvasListResponse>;
+  load(req: CanvasLoadRequest): Promise<CanvasLoadResponse>;
+  patch(req: CanvasPatchRequest): Promise<CanvasPatchResponse>;
+  rename(req: CanvasRenameRequest): Promise<CanvasRenameResponse>;
+  save(req: CanvasSaveRequest): Promise<CanvasSaveResponse>;
 }
 
 export interface LucidAPI_Character {
-  list(req: CharacterListRequest): Promise<CharacterListResponse>;
-  get(req: CharacterGetRequest): Promise<CharacterGetResponse>;
-  save(req: CharacterSaveRequest): Promise<CharacterSaveResponse>;
   delete(req: CharacterDeleteRequest): Promise<CharacterDeleteResponse>;
-  setRefImage(req: CharacterSetRefImageRequest): Promise<CharacterSetRefImageResponse>;
-  removeRefImage(req: CharacterRemoveRefImageRequest): Promise<CharacterRemoveRefImageResponse>;
-  saveLoadout(req: CharacterSaveLoadoutRequest): Promise<CharacterSaveLoadoutResponse>;
   deleteLoadout(req: CharacterDeleteLoadoutRequest): Promise<CharacterDeleteLoadoutResponse>;
+  get(req: CharacterGetRequest): Promise<CharacterGetResponse>;
+  list(req: CharacterListRequest): Promise<CharacterListResponse>;
+  removeRefImage(req: CharacterRemoveRefImageRequest): Promise<CharacterRemoveRefImageResponse>;
+  save(req: CharacterSaveRequest): Promise<CharacterSaveResponse>;
+  saveLoadout(req: CharacterSaveLoadoutRequest): Promise<CharacterSaveLoadoutResponse>;
+  setFolder(req: CharacterSetFolderRequest): Promise<CharacterSetFolderResponse>;
+  setRefImage(req: CharacterSetRefImageRequest): Promise<CharacterSetRefImageResponse>;
 }
 
 export interface LucidAPI_Clipboard {
-  setEnabled(req: ClipboardSetEnabledRequest): Promise<ClipboardSetEnabledResponse>;
   onAiDetected(cb: (payload: ClipboardAiDetectedPayload) => void): () => void;
+  setEnabled(req: ClipboardSetEnabledRequest): Promise<ClipboardSetEnabledResponse>;
 }
 
 export interface LucidAPI_ColorStyle {
-  list(req: ColorStyleListRequest): Promise<ColorStyleListResponse>;
-  save(req: ColorStyleSaveRequest): Promise<ColorStyleSaveResponse>;
   delete(req: ColorStyleDeleteRequest): Promise<ColorStyleDeleteResponse>;
   extract(req: ColorStyleExtractRequest): Promise<ColorStyleExtractResponse>;
+  list(req: ColorStyleListRequest): Promise<ColorStyleListResponse>;
+  save(req: ColorStyleSaveRequest): Promise<ColorStyleSaveResponse>;
 }
 
 export interface LucidAPI_Commander {
-  chat(req: CommanderChatRequest): Promise<CommanderChatResponse>;
   cancel(req: CommanderCancelRequest): Promise<CommanderCancelResponse>;
-  injectMessage(req: CommanderInjectMessageRequest): Promise<CommanderInjectMessageResponse>;
-  toolDecision(req: CommanderToolDecisionRequest): Promise<CommanderToolDecisionResponse>;
-  toolAnswer(req: CommanderToolAnswerRequest): Promise<CommanderToolAnswerResponse>;
+  onCanvasDispatch(cb: (payload: CommanderCanvasDispatchPayload) => void): () => void;
+  chat(req: CommanderChatRequest): Promise<CommanderChatResponse>;
   compact(req: CommanderCompactRequest): Promise<CommanderCompactResponse>;
+  onEntitiesUpdated(cb: (payload: CommanderEntitiesUpdatedPayload) => void): () => void;
+  eventsHydrate(req: CommanderEventsHydrateRequest): Promise<CommanderEventsHydrateResponse>;
+  injectMessage(req: CommanderInjectMessageRequest): Promise<CommanderInjectMessageResponse>;
+  onSettingsDispatch(cb: (payload: CommanderSettingsDispatchPayload) => void): () => void;
+  onStream(cb: (payload: CommanderStreamPayload) => void): () => void;
   toolList(req: CommanderToolListRequest): Promise<CommanderToolListResponse>;
   toolSearch(req: CommanderToolSearchRequest): Promise<CommanderToolSearchResponse>;
-  onStream(cb: (payload: CommanderStreamPayload) => void): () => void;
-  onCanvasDispatch(cb: (payload: CommanderCanvasDispatchPayload) => void): () => void;
-  onEntitiesUpdated(cb: (payload: CommanderEntitiesUpdatedPayload) => void): () => void;
-  onSettingsDispatch(cb: (payload: CommanderSettingsDispatchPayload) => void): () => void;
+  toolAnswer(req: CommanderToolAnswerRequest): Promise<CommanderToolAnswerResponse>;
+  toolDecision(req: CommanderToolDecisionRequest): Promise<CommanderToolDecisionResponse>;
   onUndoDispatch(cb: (payload: CommanderUndoDispatchPayload) => void): () => void;
 }
 
@@ -409,27 +515,51 @@ export interface LucidAPI_Entity {
 }
 
 export interface LucidAPI_Equipment {
-  list(req: EquipmentListRequest): Promise<EquipmentListResponse>;
-  get(req: EquipmentGetRequest): Promise<EquipmentGetResponse>;
-  save(req: EquipmentSaveRequest): Promise<EquipmentSaveResponse>;
   delete(req: EquipmentDeleteRequest): Promise<EquipmentDeleteResponse>;
-  setRefImage(req: EquipmentSetRefImageRequest): Promise<EquipmentSetRefImageResponse>;
+  get(req: EquipmentGetRequest): Promise<EquipmentGetResponse>;
+  list(req: EquipmentListRequest): Promise<EquipmentListResponse>;
   removeRefImage(req: EquipmentRemoveRefImageRequest): Promise<EquipmentRemoveRefImageResponse>;
+  save(req: EquipmentSaveRequest): Promise<EquipmentSaveResponse>;
+  setFolder(req: EquipmentSetFolderRequest): Promise<EquipmentSetFolderResponse>;
+  setRefImage(req: EquipmentSetRefImageRequest): Promise<EquipmentSetRefImageResponse>;
 }
 
 export interface LucidAPI_Export {
-  nle(req: ExportNleRequest): Promise<ExportNleResponse>;
   assetBundle(req: ExportAssetBundleRequest): Promise<ExportAssetBundleResponse>;
-  subtitles(req: ExportSubtitlesRequest): Promise<ExportSubtitlesResponse>;
-  storyboard(req: ExportStoryboardRequest): Promise<ExportStoryboardResponse>;
-  metadata(req: ExportMetadataRequest): Promise<ExportMetadataResponse>;
   capcut(req: ExportCapcutRequest): Promise<ExportCapcutResponse>;
+  metadata(req: ExportMetadataRequest): Promise<ExportMetadataResponse>;
+  nle(req: ExportNleRequest): Promise<ExportNleResponse>;
+  storyboard(req: ExportStoryboardRequest): Promise<ExportStoryboardResponse>;
+  subtitles(req: ExportSubtitlesRequest): Promise<ExportSubtitlesResponse>;
 }
 
 export interface LucidAPI_Ffmpeg {
   probe(req: FfmpegProbeRequest): Promise<FfmpegProbeResponse>;
   thumbnail(req: FfmpegThumbnailRequest): Promise<FfmpegThumbnailResponse>;
   transcode(req: FfmpegTranscodeRequest): Promise<FfmpegTranscodeResponse>;
+}
+
+export interface LucidAPI_Folder {
+  assetCreate(req: FolderAssetCreateRequest): Promise<FolderAssetCreateResponse>;
+  assetDelete(req: FolderAssetDeleteRequest): Promise<FolderAssetDeleteResponse>;
+  assetList(req: FolderAssetListRequest): Promise<FolderAssetListResponse>;
+  assetMove(req: FolderAssetMoveRequest): Promise<FolderAssetMoveResponse>;
+  assetRename(req: FolderAssetRenameRequest): Promise<FolderAssetRenameResponse>;
+  characterCreate(req: FolderCharacterCreateRequest): Promise<FolderCharacterCreateResponse>;
+  characterDelete(req: FolderCharacterDeleteRequest): Promise<FolderCharacterDeleteResponse>;
+  characterList(req: FolderCharacterListRequest): Promise<FolderCharacterListResponse>;
+  characterMove(req: FolderCharacterMoveRequest): Promise<FolderCharacterMoveResponse>;
+  characterRename(req: FolderCharacterRenameRequest): Promise<FolderCharacterRenameResponse>;
+  equipmentCreate(req: FolderEquipmentCreateRequest): Promise<FolderEquipmentCreateResponse>;
+  equipmentDelete(req: FolderEquipmentDeleteRequest): Promise<FolderEquipmentDeleteResponse>;
+  equipmentList(req: FolderEquipmentListRequest): Promise<FolderEquipmentListResponse>;
+  equipmentMove(req: FolderEquipmentMoveRequest): Promise<FolderEquipmentMoveResponse>;
+  equipmentRename(req: FolderEquipmentRenameRequest): Promise<FolderEquipmentRenameResponse>;
+  locationCreate(req: FolderLocationCreateRequest): Promise<FolderLocationCreateResponse>;
+  locationDelete(req: FolderLocationDeleteRequest): Promise<FolderLocationDeleteResponse>;
+  locationList(req: FolderLocationListRequest): Promise<FolderLocationListResponse>;
+  locationMove(req: FolderLocationMoveRequest): Promise<FolderLocationMoveResponse>;
+  locationRename(req: FolderLocationRenameRequest): Promise<FolderLocationRenameResponse>;
 }
 
 export interface LucidAPI_Health {
@@ -441,26 +571,26 @@ export interface LucidAPI_Import {
 }
 
 export interface LucidAPI_Job {
-  list(req: JobListRequest): Promise<JobListResponse>;
-  submit(req: JobSubmitRequest): Promise<JobSubmitResponse>;
   cancel(req: JobCancelRequest): Promise<JobCancelResponse>;
-  pause(req: JobPauseRequest): Promise<JobPauseResponse>;
-  resume(req: JobResumeRequest): Promise<JobResumeResponse>;
-  onSubmitted(cb: (payload: JobSubmittedPayload) => void): () => void;
-  onProgress(cb: (payload: JobProgressPayload) => void): () => void;
+  onCancelled(cb: (payload: JobCancelledPayload) => void): () => void;
   onComplete(cb: (payload: JobCompletePayload) => void): () => void;
   onFailed(cb: (payload: JobFailedPayload) => void): () => void;
-  onCancelled(cb: (payload: JobCancelledPayload) => void): () => void;
+  list(req: JobListRequest): Promise<JobListResponse>;
+  pause(req: JobPauseRequest): Promise<JobPauseResponse>;
   onPaused(cb: (payload: JobPausedPayload) => void): () => void;
+  onProgress(cb: (payload: JobProgressPayload) => void): () => void;
+  resume(req: JobResumeRequest): Promise<JobResumeResponse>;
   onResumed(cb: (payload: JobResumedPayload) => void): () => void;
+  submit(req: JobSubmitRequest): Promise<JobSubmitResponse>;
+  onSubmitted(cb: (payload: JobSubmittedPayload) => void): () => void;
 }
 
 export interface LucidAPI_Keychain {
-  get(req: KeychainGetRequest): Promise<KeychainGetResponse>;
-  set(req: KeychainSetRequest): Promise<KeychainSetResponse>;
   delete(req: KeychainDeleteRequest): Promise<KeychainDeleteResponse>;
-  test(req: KeychainTestRequest): Promise<KeychainTestResponse>;
+  getMasked(req: KeychainGetMaskedRequest): Promise<KeychainGetMaskedResponse>;
   isConfigured(req: KeychainIsConfiguredRequest): Promise<KeychainIsConfiguredResponse>;
+  set(req: KeychainSetRequest): Promise<KeychainSetResponse>;
+  test(req: KeychainTestRequest): Promise<KeychainTestResponse>;
 }
 
 export interface LucidAPI_Lipsync {
@@ -471,58 +601,81 @@ export interface LucidAPI_Lipsync {
 }
 
 export interface LucidAPI_Location {
-  list(req: LocationListRequest): Promise<LocationListResponse>;
-  get(req: LocationGetRequest): Promise<LocationGetResponse>;
-  save(req: LocationSaveRequest): Promise<LocationSaveResponse>;
   delete(req: LocationDeleteRequest): Promise<LocationDeleteResponse>;
-  setRefImage(req: LocationSetRefImageRequest): Promise<LocationSetRefImageResponse>;
+  get(req: LocationGetRequest): Promise<LocationGetResponse>;
+  list(req: LocationListRequest): Promise<LocationListResponse>;
   removeRefImage(req: LocationRemoveRefImageRequest): Promise<LocationRemoveRefImageResponse>;
+  save(req: LocationSaveRequest): Promise<LocationSaveResponse>;
+  setFolder(req: LocationSetFolderRequest): Promise<LocationSetFolderResponse>;
+  setRefImage(req: LocationSetRefImageRequest): Promise<LocationSetRefImageResponse>;
 }
 
 export interface LucidAPI_Logger {
-  getRecent(req: LoggerGetRecentRequest): Promise<LoggerGetRecentResponse>;
   onEntry(cb: (payload: LoggerEntryPayload) => void): () => void;
+  getRecent(req: LoggerGetRecentRequest): Promise<LoggerGetRecentResponse>;
 }
 
 export interface LucidAPI_Preset {
-  list(req: PresetListRequest): Promise<PresetListResponse>;
-  save(req: PresetSaveRequest): Promise<PresetSaveResponse>;
   delete(req: PresetDeleteRequest): Promise<PresetDeleteResponse>;
-  reset(req: PresetResetRequest): Promise<PresetResetResponse>;
-  import(req: PresetImportRequest): Promise<PresetImportResponse>;
   export(req: PresetExportRequest): Promise<PresetExportResponse>;
+  import(req: PresetImportRequest): Promise<PresetImportResponse>;
+  list(req: PresetListRequest): Promise<PresetListResponse>;
+  reset(req: PresetResetRequest): Promise<PresetResetResponse>;
+  save(req: PresetSaveRequest): Promise<PresetSaveResponse>;
+}
+
+export interface LucidAPI_ProcessPrompt {
+  get(req: ProcessPromptGetRequest): Promise<ProcessPromptGetResponse>;
+  list(req: ProcessPromptListRequest): Promise<ProcessPromptListResponse>;
+  reset(req: ProcessPromptResetRequest): Promise<ProcessPromptResetResponse>;
+  setCustom(req: ProcessPromptSetCustomRequest): Promise<ProcessPromptSetCustomResponse>;
+}
+
+export interface LucidAPI_Provider {
+  health(req: ProviderHealthRequest): Promise<ProviderHealthResponse>;
+  healthGet(req: ProviderHealthGetRequest): Promise<ProviderHealthGetResponse>;
 }
 
 export interface LucidAPI_Refimage {
-  onStart(cb: (payload: RefimageStartPayload) => void): () => void;
   onComplete(cb: (payload: RefimageCompletePayload) => void): () => void;
   onFailed(cb: (payload: RefimageFailedPayload) => void): () => void;
+  onStart(cb: (payload: RefimageStartPayload) => void): () => void;
 }
 
 export interface LucidAPI_Render {
-  start(req: RenderStartRequest): Promise<RenderStartResponse>;
   cancel(req: RenderCancelRequest): Promise<RenderCancelResponse>;
+  start(req: RenderStartRequest): Promise<RenderStartResponse>;
   status(req: RenderStatusRequest): Promise<RenderStatusResponse>;
 }
 
 export interface LucidAPI_Script {
+  import(req: ScriptImportRequest): Promise<ScriptImportResponse>;
+  load(req: ScriptLoadRequest): Promise<ScriptLoadResponse>;
   parse(req: ScriptParseRequest): Promise<ScriptParseResponse>;
   save(req: ScriptSaveRequest): Promise<ScriptSaveResponse>;
-  load(req: ScriptLoadRequest): Promise<ScriptLoadResponse>;
-  import(req: ScriptImportRequest): Promise<ScriptImportResponse>;
+}
+
+export interface LucidAPI_Series {
+  delete(req: SeriesDeleteRequest): Promise<SeriesDeleteResponse>;
+  episodesAdd(req: SeriesEpisodesAddRequest): Promise<SeriesEpisodesAddResponse>;
+  episodesList(req: SeriesEpisodesListRequest): Promise<SeriesEpisodesListResponse>;
+  episodesRemove(req: SeriesEpisodesRemoveRequest): Promise<SeriesEpisodesRemoveResponse>;
+  episodesReorder(req: SeriesEpisodesReorderRequest): Promise<SeriesEpisodesReorderResponse>;
+  get(req: SeriesGetRequest): Promise<SeriesGetResponse>;
+  save(req: SeriesSaveRequest): Promise<SeriesSaveResponse>;
 }
 
 export interface LucidAPI_Session {
-  list(req: SessionListRequest): Promise<SessionListResponse>;
-  get(req: SessionGetRequest): Promise<SessionGetResponse>;
-  upsert(req: SessionUpsertRequest): Promise<SessionUpsertResponse>;
   delete(req: SessionDeleteRequest): Promise<SessionDeleteResponse>;
+  get(req: SessionGetRequest): Promise<SessionGetResponse>;
+  list(req: SessionListRequest): Promise<SessionListResponse>;
+  upsert(req: SessionUpsertRequest): Promise<SessionUpsertResponse>;
 }
 
 export interface LucidAPI_Settings {
   load(req: SettingsLoadRequest): Promise<SettingsLoadResponse>;
-  save(req: SettingsSaveRequest): Promise<SettingsSaveResponse>;
   onProviderKeyUpdated(cb: (payload: SettingsProviderKeyUpdatedPayload) => void): () => void;
+  save(req: SettingsSaveRequest): Promise<SettingsSaveResponse>;
 }
 
 export interface LucidAPI_Shell {
@@ -531,42 +684,44 @@ export interface LucidAPI_Shell {
 
 export interface LucidAPI_Snapshot {
   capture(req: SnapshotCaptureRequest): Promise<SnapshotCaptureResponse>;
+  delete(req: SnapshotDeleteRequest): Promise<SnapshotDeleteResponse>;
   list(req: SnapshotListRequest): Promise<SnapshotListResponse>;
   restore(req: SnapshotRestoreRequest): Promise<SnapshotRestoreResponse>;
-  delete(req: SnapshotDeleteRequest): Promise<SnapshotDeleteResponse>;
 }
 
 export interface LucidAPI_Storage {
+  backupDatabase(req: StorageBackupDatabaseRequest): Promise<StorageBackupDatabaseResponse>;
+  clearEmbeddings(req: StorageClearEmbeddingsRequest): Promise<StorageClearEmbeddingsResponse>;
+  clearLogs(req: StorageClearLogsRequest): Promise<StorageClearLogsResponse>;
   getOverview(req: StorageGetOverviewRequest): Promise<StorageGetOverviewResponse>;
   openFolder(req: StorageOpenFolderRequest): Promise<StorageOpenFolderResponse>;
-  showInFolder(req: StorageShowInFolderRequest): Promise<StorageShowInFolderResponse>;
-  clearLogs(req: StorageClearLogsRequest): Promise<StorageClearLogsResponse>;
-  clearEmbeddings(req: StorageClearEmbeddingsRequest): Promise<StorageClearEmbeddingsResponse>;
-  vacuumDatabase(req: StorageVacuumDatabaseRequest): Promise<StorageVacuumDatabaseResponse>;
-  backupDatabase(req: StorageBackupDatabaseRequest): Promise<StorageBackupDatabaseResponse>;
-  restoreDatabase(req: StorageRestoreDatabaseRequest): Promise<StorageRestoreDatabaseResponse>;
   pickFolder(req: StoragePickFolderRequest): Promise<StoragePickFolderResponse>;
-  pickSaveFile(req: StoragePickSaveFileRequest): Promise<StoragePickSaveFileResponse>;
   pickOpenFile(req: StoragePickOpenFileRequest): Promise<StoragePickOpenFileResponse>;
+  pickSaveFile(req: StoragePickSaveFileRequest): Promise<StoragePickSaveFileResponse>;
+  restoreDatabase(req: StorageRestoreDatabaseRequest): Promise<StorageRestoreDatabaseResponse>;
+  showInFolder(req: StorageShowInFolderRequest): Promise<StorageShowInFolderResponse>;
+  vacuumDatabase(req: StorageVacuumDatabaseRequest): Promise<StorageVacuumDatabaseResponse>;
 }
 
 export interface LucidAPI_Style {
-  save(req: StyleSaveRequest): Promise<StyleSaveResponse>;
   load(req: StyleLoadRequest): Promise<StyleLoadResponse>;
+  save(req: StyleSaveRequest): Promise<StyleSaveResponse>;
 }
 
 export interface LucidAPI_Updater {
   check(req: UpdaterCheckRequest): Promise<UpdaterCheckResponse>;
   download(req: UpdaterDownloadRequest): Promise<UpdaterDownloadResponse>;
   install(req: UpdaterInstallRequest): Promise<UpdaterInstallResponse>;
+  onProgress(cb: (payload: UpdaterProgressPayload) => void): () => void;
   status(req: UpdaterStatusRequest): Promise<UpdaterStatusResponse>;
   onToast(cb: (payload: UpdaterToastPayload) => void): () => void;
 }
 
 export interface LucidAPI_Video {
-  pickFile(req: VideoPickFileRequest): Promise<VideoPickFileResponse>;
-  extractLastFrame(req: VideoExtractLastFrameRequest): Promise<VideoExtractLastFrameResponse>;
   clone(req: VideoCloneRequest): Promise<VideoCloneResponse>;
+  onCloneProgress(cb: (payload: VideoCloneProgressPayload) => void): () => void;
+  extractLastFrame(req: VideoExtractLastFrameRequest): Promise<VideoExtractLastFrameResponse>;
+  pickFile(req: VideoPickFileRequest): Promise<VideoPickFileResponse>;
 }
 
 export interface LucidAPI_Vision {
@@ -574,17 +729,28 @@ export interface LucidAPI_Vision {
 }
 
 export interface LucidAPI_Workflow {
-  list(req: WorkflowListRequest): Promise<WorkflowListResponse>;
+  approveGate(req: WorkflowApproveGateRequest): Promise<WorkflowApproveGateResponse>;
+  cancel(req: WorkflowCancelRequest): Promise<WorkflowCancelResponse>;
   get(req: WorkflowGetRequest): Promise<WorkflowGetResponse>;
+  getFinalExport(req: WorkflowGetFinalExportRequest): Promise<WorkflowGetFinalExportResponse>;
+  getPendingApproval(
+    req: WorkflowGetPendingApprovalRequest,
+  ): Promise<WorkflowGetPendingApprovalResponse>;
   getStages(req: WorkflowGetStagesRequest): Promise<WorkflowGetStagesResponse>;
   getTasks(req: WorkflowGetTasksRequest): Promise<WorkflowGetTasksResponse>;
-  start(req: WorkflowStartRequest): Promise<WorkflowStartResponse>;
+  getVisualAuditions(
+    req: WorkflowGetVisualAuditionsRequest,
+  ): Promise<WorkflowGetVisualAuditionsResponse>;
+  list(req: WorkflowListRequest): Promise<WorkflowListResponse>;
   pause(req: WorkflowPauseRequest): Promise<WorkflowPauseResponse>;
   resume(req: WorkflowResumeRequest): Promise<WorkflowResumeResponse>;
-  cancel(req: WorkflowCancelRequest): Promise<WorkflowCancelResponse>;
-  retryTask(req: WorkflowRetryTaskRequest): Promise<WorkflowRetryTaskResponse>;
   retryStage(req: WorkflowRetryStageRequest): Promise<WorkflowRetryStageResponse>;
+  retryTask(req: WorkflowRetryTaskRequest): Promise<WorkflowRetryTaskResponse>;
   retryWorkflow(req: WorkflowRetryWorkflowRequest): Promise<WorkflowRetryWorkflowResponse>;
+  selectVisualCandidate(
+    req: WorkflowSelectVisualCandidateRequest,
+  ): Promise<WorkflowSelectVisualCandidateResponse>;
+  start(req: WorkflowStartRequest): Promise<WorkflowStartResponse>;
 }
 
 export interface LucidAPI extends LucidAPIInfrastructure {
@@ -600,6 +766,7 @@ export interface LucidAPI extends LucidAPIInfrastructure {
   equipment: LucidAPI_Equipment;
   export: LucidAPI_Export;
   ffmpeg: LucidAPI_Ffmpeg;
+  folder: LucidAPI_Folder;
   health: LucidAPI_Health;
   import: LucidAPI_Import;
   job: LucidAPI_Job;
@@ -608,9 +775,12 @@ export interface LucidAPI extends LucidAPIInfrastructure {
   location: LucidAPI_Location;
   logger: LucidAPI_Logger;
   preset: LucidAPI_Preset;
+  processPrompt: LucidAPI_ProcessPrompt;
+  provider: LucidAPI_Provider;
   refimage: LucidAPI_Refimage;
   render: LucidAPI_Render;
   script: LucidAPI_Script;
+  series: LucidAPI_Series;
   session: LucidAPI_Session;
   settings: LucidAPI_Settings;
   shell: LucidAPI_Shell;

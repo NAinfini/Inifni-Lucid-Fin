@@ -11,16 +11,21 @@ import {
   type RenderPreset,
 } from '@lucid-fin/media-engine';
 import { assertSafePath, getSafeRoots } from '../path-safety.js';
+import type { FinalExportService } from '../../services/final-export.service.js';
 
 type RenderStartArgs = {
   sceneId: string;
-  segments: RenderSegment[];
-  outputFormat: 'mp4' | 'mov' | 'webm';
+  segments?: RenderSegment[];
+  outputFormat?: 'mp4' | 'mov' | 'webm';
   resolution?: { width: number; height: number };
   fps?: number;
   codec?: RenderCodec;
   quality?: RenderPreset;
   outputPath?: string;
+  workflowRunId?: string;
+  expectedManifestRevision?: number;
+  expectedManifestHash?: string;
+  retry?: boolean;
 };
 
 type RenderJob = {
@@ -45,12 +50,58 @@ function evictStaleJobs(): void {
   }
 }
 
-export function registerRenderHandlers(ipcMain: IpcMain): void {
+export function registerRenderHandlers(
+  ipcMain: IpcMain,
+  finalExportService: FinalExportService,
+): void {
   ipcMain.handle('render:start', async (_e, args: RenderStartArgs) => {
     evictStaleJobs();
-    if (!args || !Array.isArray(args.segments) || args.segments.length === 0) {
+    if (!args) throw new Error('render:start: request is required');
+    if (args.workflowRunId) {
+      const expectedManifestRevision = args.expectedManifestRevision;
+      const expectedManifestHash = args.expectedManifestHash;
+      if (
+        !args.sceneId ||
+        typeof expectedManifestRevision !== 'number' ||
+        !Number.isInteger(expectedManifestRevision) ||
+        expectedManifestRevision <= 0 ||
+        typeof expectedManifestHash !== 'string' ||
+        !expectedManifestHash.match(/^[a-f0-9]{64}$/i)
+      ) {
+        throw new Error('render:start: exact workflow manifest revision/hash is required');
+      }
+      if (
+        args.segments !== undefined ||
+        args.resolution !== undefined ||
+        args.fps !== undefined ||
+        args.codec !== undefined ||
+        args.quality !== undefined
+      ) {
+        throw new Error(
+          'render:start: persistent workflows derive segments and output settings only from the approved manifest',
+        );
+      }
+      return finalExportService.startApproved({
+        workflowRunId: args.workflowRunId,
+        canvasId: args.sceneId,
+        expectedManifestRevision,
+        expectedManifestHash,
+        ...(args.outputPath ? { destinationPath: args.outputPath } : {}),
+        ...(args.retry === true ? { retry: true } : {}),
+      });
+    }
+
+    finalExportService.assertLegacyRenderAllowed(args.sceneId || undefined);
+    if (Array.isArray(args.segments) && args.segments.length === 0) {
       throw new Error('render:start: segments array is required');
     }
+    const segments = Array.isArray(args.segments)
+      ? args.segments
+      : args.sceneId
+        ? finalExportService.resolveLegacyCanvasSegments(args.sceneId)
+        : undefined;
+    if (!segments?.length) throw new Error('render:start: segments array is required');
+    if (!args.outputFormat) throw new Error('render:start: outputFormat is required');
 
     const codec: RenderCodec = args.codec ?? (args.outputFormat === 'mov' ? 'prores' : 'h264');
     const quality: RenderPreset = args.quality ?? 'standard';
@@ -77,14 +128,14 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
       codec,
       quality,
       outputPath,
-      segmentCount: args.segments.length,
+      segmentCount: segments.length,
     });
 
     void (async () => {
       try {
         job.stage = 'rendering';
         job.progress = 10;
-        await renderTimeline(args.segments, outputPath, {
+        await renderTimeline(segments, outputPath, {
           codec,
           preset: quality,
           width,
@@ -109,6 +160,8 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('render:status', async (_e, args: { jobId: string }) => {
     if (!args?.jobId) throw new Error('render:status: jobId required');
+    const persistentStatus = finalExportService.getStatus(args.jobId);
+    if (persistentStatus.stage !== 'unknown') return persistentStatus;
     const job = runningJobs.get(args.jobId);
     if (!job) return { progress: 0, stage: 'unknown' as const };
     return {
@@ -121,6 +174,11 @@ export function registerRenderHandlers(ipcMain: IpcMain): void {
 
   ipcMain.handle('render:cancel', async (_e, args: { jobId: string }) => {
     if (!args?.jobId) throw new Error('render:cancel: jobId required');
+    const persistentStatus = finalExportService.getStatus(args.jobId);
+    if (persistentStatus.stage !== 'unknown') {
+      finalExportService.cancel(args.jobId);
+      return;
+    }
     const job = runningJobs.get(args.jobId);
     if (!job) return;
     job.abortController.abort();

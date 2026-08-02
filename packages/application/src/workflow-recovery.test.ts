@@ -9,7 +9,12 @@ import {
   type WorkflowTaskHandler,
 } from '@lucid-fin/contracts';
 import { SqliteIndex } from '@lucid-fin/storage';
-import { WorkflowEngine, WorkflowRegistry, WorkflowRecovery, type RegisteredWorkflowDefinition } from '@lucid-fin/workflows';
+import {
+  WorkflowEngine,
+  WorkflowRegistry,
+  WorkflowRecovery,
+  type RegisteredWorkflowDefinition,
+} from '@lucid-fin/workflows';
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-workflow-recovery-'));

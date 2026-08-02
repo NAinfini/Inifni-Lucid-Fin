@@ -1,0 +1,246 @@
+name: Publish immutable FFmpeg 8.1.2 macOS payloads
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_manifest_pr:
+        description: Open a PR from GITHUB_TOKEN (requires the repository Actions PR setting)
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: ffmpeg-8.1.2-lgpl-macos
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform_key }} natively
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            platform_key: darwin-x64
+          - os: macos-15
+            platform_key: darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and verify FFmpeg natively
+        run: bash scripts/build-ffmpeg-macos-lgpl.sh --output resources/bin/${{ matrix.platform_key }}
+
+      - name: Archive the verified payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="ffmpeg-${{ matrix.platform_key }}-8.1.2-lgpl.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$archive" -C resources/bin "${{ matrix.platform_key }}"
+          shasum -a 256 "$archive" > "$archive.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.platform_key }}-8.1.2-lgpl-build
+          path: |
+            ffmpeg-${{ matrix.platform_key }}-8.1.2-lgpl.tar.gz
+            ffmpeg-${{ matrix.platform_key }}-8.1.2-lgpl.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish and pin immutable artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    outputs:
+      release_tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.5.1
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ffmpeg-darwin-*-8.1.2-lgpl-build
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify archives and derive a content-addressed release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > artifacts/macos-archives.sha256
+          for platform in darwin-x64 darwin-arm64; do
+            archive="ffmpeg-${platform}-8.1.2-lgpl.tar.gz"
+            expected="$(cut -d ' ' -f 1 "artifacts/${archive}.sha256")"
+            actual="$(sha256sum "artifacts/${archive}" | cut -d ' ' -f 1)"
+            if [[ ! "$expected" =~ ^[a-f0-9]{64}$ || "$actual" != "$expected" ]]; then
+              echo "::error::Archive checksum mismatch for ${archive}"
+              exit 1
+            fi
+            printf '%s  %s\n' "$actual" "$archive" >> artifacts/macos-archives.sha256
+          done
+          digest="$(sha256sum artifacts/macos-archives.sha256 | cut -d ' ' -f 1)"
+          tag="ffmpeg-8.1.2-lgpl-${digest}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Release tag: ${tag}"
+
+      - name: Generate and validate the complete immutable manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/payloads
+          for platform in darwin-x64 darwin-arm64; do
+            archive="ffmpeg-${platform}-8.1.2-lgpl.tar.gz"
+            tar -xzf "artifacts/${archive}" -C artifacts/payloads
+            node scripts/finalize-ffmpeg-macos-artifacts.ts create \
+              --platform "$platform" \
+              --payload "artifacts/payloads/${platform}" \
+              --archive "artifacts/${archive}" \
+              --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.release.outputs.tag }}/${archive}" \
+              --output "artifacts/${platform}.platform.json"
+          done
+          node scripts/finalize-ffmpeg-macos-artifacts.ts merge \
+            --manifest packages/media-engine/ffmpeg-checksums.json \
+            --fragment artifacts/darwin-x64.platform.json \
+            --fragment artifacts/darwin-arm64.platform.json \
+            --output artifacts/ffmpeg-checksums.json
+
+      - name: Refuse to replace an existing release or tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${RELEASE_TAG} already exists; immutable assets will not be replaced."
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Release ${RELEASE_TAG} already exists; immutable assets will not be replaced."
+            exit 1
+          fi
+
+      - name: Create draft release with every asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            '# FFmpeg 8.1.2 LGPL macOS runtime' \
+            '' \
+            'Native Intel and Apple Silicon builds produced from pinned source archives.' \
+            'The attached manifest records the archive SHA-256 and every payload file SHA-256.' \
+            > artifacts/RELEASE-NOTES.md
+          gh release create "$RELEASE_TAG" \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "FFmpeg 8.1.2 LGPL macOS (${RELEASE_TAG#ffmpeg-8.1.2-lgpl-})" \
+            --notes-file artifacts/RELEASE-NOTES.md \
+            artifacts/ffmpeg-darwin-x64-8.1.2-lgpl.tar.gz \
+            artifacts/ffmpeg-darwin-x64-8.1.2-lgpl.tar.gz.sha256 \
+            artifacts/ffmpeg-darwin-arm64-8.1.2-lgpl.tar.gz \
+            artifacts/ffmpeg-darwin-arm64-8.1.2-lgpl.tar.gz.sha256 \
+            artifacts/macos-archives.sha256 \
+            artifacts/ffmpeg-checksums.json
+
+      - name: Verify GitHub asset digests before publishing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq '.databaseId')"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" --paginate \
+            --jq '.[] | [.name, .digest] | @tsv' > artifacts/release-assets.tsv
+          for path in \
+            artifacts/ffmpeg-darwin-x64-8.1.2-lgpl.tar.gz \
+            artifacts/ffmpeg-darwin-x64-8.1.2-lgpl.tar.gz.sha256 \
+            artifacts/ffmpeg-darwin-arm64-8.1.2-lgpl.tar.gz \
+            artifacts/ffmpeg-darwin-arm64-8.1.2-lgpl.tar.gz.sha256 \
+            artifacts/macos-archives.sha256 \
+            artifacts/ffmpeg-checksums.json; do
+            name="$(basename "$path")"
+            expected="sha256:$(sha256sum "$path" | cut -d ' ' -f 1)"
+            actual="$(awk -F '\t' -v name="$name" '$1 == name { print $2 }' artifacts/release-assets.tsv)"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "::error::GitHub asset digest mismatch for ${name}: expected ${expected}, got ${actual:-missing}"
+              exit 1
+            fi
+          done
+
+      - name: Publish and verify the release is immutable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_TAG" --draft=false --latest=false
+          immutable='false'
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            immutable="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.immutable')"
+            [[ "$immutable" == 'true' ]] && break
+            sleep 2
+          done
+          if [[ "$immutable" != 'true' ]]; then
+            echo "::error::GitHub did not seal ${RELEASE_TAG} as immutable; rolling back this new mutable release."
+            gh release delete "$RELEASE_TAG" --yes --cleanup-tag || \
+              echo "::error::Automatic rollback failed for ${RELEASE_TAG}; remove it before retrying."
+            exit 1
+          fi
+
+      - name: Open manifest pinning pull request
+        if: ${{ inputs.create_manifest_pr }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="codex/pin-${RELEASE_TAG}"
+          cp artifacts/ffmpeg-checksums.json packages/media-engine/ffmpeg-checksums.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch --create "$branch"
+          git add packages/media-engine/ffmpeg-checksums.json
+          git diff --cached --quiet && {
+            echo '::error::Generated manifest did not change.'
+            exit 1
+          }
+          git commit -m 'chore(ffmpeg): pin immutable macOS 8.1.2 artifacts'
+          git push --set-upstream origin "$branch"
+          gh pr create \
+            --base "$DEFAULT_BRANCH" \
+            --head "$branch" \
+            --title 'chore(ffmpeg): pin immutable macOS 8.1.2 artifacts' \
+            --body "Pins the native Intel and Apple Silicon LGPL archives from immutable release \`${RELEASE_TAG}\`, including archive and per-file SHA-256 values."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-8.1.2-lgpl-immutable-manifest
+          path: |
+            artifacts/ffmpeg-checksums.json
+            artifacts/macos-archives.sha256
+          if-no-files-found: error
+          retention-days: 30

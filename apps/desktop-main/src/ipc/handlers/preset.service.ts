@@ -138,10 +138,7 @@ export function ensurePresetDefinition(input: unknown, opName: string): PresetDe
 // Resolve / list
 // ---------------------------------------------------------------------------
 
-export function resolvePreset(
-  state: ProjectPresetState,
-  id: string,
-): PresetDefinition | undefined {
+export function resolvePreset(state: ProjectPresetState, id: string): PresetDefinition | undefined {
   const builtIn = builtInMap.get(id);
   if (builtIn) {
     const override = state.builtInOverrides.get(id);

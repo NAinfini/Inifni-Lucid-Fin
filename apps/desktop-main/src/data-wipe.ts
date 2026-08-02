@@ -98,10 +98,7 @@ async function removeDirSafe(dirPath: string): Promise<WipeStepResult> {
  * @param paths - Locations of all data stores
  * @param deps - Runtime dependencies (DB close, job cancellation, etc.)
  */
-export async function wipeAllData(
-  paths: WipePaths,
-  deps: WipeDeps,
-): Promise<WipeResult> {
+export async function wipeAllData(paths: WipePaths, deps: WipeDeps): Promise<WipeResult> {
   const start = Date.now();
   const steps: WipeStepResult[] = [];
 
@@ -190,7 +187,10 @@ export async function wipeAllData(
     // Step 8: Delete logs directories
     for (const logDir of paths.logDirs) {
       const result = await removeDirSafe(logDir);
-      steps.push({ ...result, step: `delete logs (${path.basename(path.dirname(logDir))}/${path.basename(logDir)})` });
+      steps.push({
+        ...result,
+        step: `delete logs (${path.basename(path.dirname(logDir))}/${path.basename(logDir)})`,
+      });
     }
     log.info('[data-wipe] Log directories deleted', { category: 'wipe' });
 

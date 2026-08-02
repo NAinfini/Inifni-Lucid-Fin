@@ -13,7 +13,12 @@ import { join, resolve, sep } from 'node:path';
  * @param precomputedHash - Optional pre-computed hash to avoid redundant SHA-256.
  * @returns Absolute path to the written file, always inside os.tmpdir().
  */
-export async function writeTmpAudioFile(buffer: Buffer, prefix: string, ext = 'mp3', precomputedHash?: string): Promise<string> {
+export async function writeTmpAudioFile(
+  buffer: Buffer,
+  prefix: string,
+  ext = 'mp3',
+  precomputedHash?: string,
+): Promise<string> {
   const hash = precomputedHash ?? createHash('sha256').update(buffer).digest('hex').slice(0, 16);
   const filename = `${prefix}-${hash}.${ext}`;
   const outPath = join(tmpdir(), filename);

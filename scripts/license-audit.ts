@@ -124,10 +124,7 @@ function run(cmd: string): string | null {
 }
 
 /** Collect all package names (flattened) from an npm ls --json output. */
-function collectDeps(
-  node: NpmLsOutput | NpmLsDep,
-  out: Map<string, string>,
-): void {
+function collectDeps(node: NpmLsOutput | NpmLsDep, out: Map<string, string>): void {
   const deps = node.dependencies;
   if (!deps) return;
   for (const [name, info] of Object.entries(deps)) {
@@ -277,9 +274,7 @@ function resolveTransitiveDeps(
 /** Get production deps for a workspace using npm ls, with fallback. */
 function getWorkspaceProdDeps(workspace: string): Map<string, string> {
   const out = new Map<string, string>();
-  const raw = run(
-    `npm ls --json --omit=dev --workspace=${workspace} --all`,
-  );
+  const raw = run(`npm ls --json --omit=dev --workspace=${workspace} --all`);
   if (raw) {
     const parsed = parseNpmJson(raw);
     if (parsed) collectDeps(parsed, out);
@@ -298,9 +293,7 @@ function getWorkspaceProdDeps(workspace: string): Map<string, string> {
 /** Get all deps (including dev) for computing the dev-only set. */
 function getWorkspaceAllDeps(workspace: string): Map<string, string> {
   const out = new Map<string, string>();
-  const raw = run(
-    `npm ls --json --workspace=${workspace} --all`,
-  );
+  const raw = run(`npm ls --json --workspace=${workspace} --all`);
   if (raw) {
     const parsed = parseNpmJson(raw);
     if (parsed) collectDeps(parsed, out);

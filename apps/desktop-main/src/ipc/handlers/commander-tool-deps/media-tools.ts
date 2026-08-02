@@ -1,5 +1,4 @@
 import {
-  requireCanvas,
   touchCanvas,
   createTextAnalyzeTools,
   createVideoTools,
@@ -289,70 +288,19 @@ export function registerMediaTools(
   }
 
   for (const tool of createRenderTools({
-    startRender: async (canvasId, format, outputPath) => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
-      const videoNodes = canvas.nodes
-        .filter((node) => node.type === 'video' && !node.bypassed)
-        .sort((a, b) => a.position.x - b.position.x);
-
-      const segments: Array<{
-        inputPath: string;
-        startTime: number;
-        duration: number;
-        speed: number;
-      }> = [];
-      for (const node of videoNodes) {
-        const data = node.data as {
-          variants?: string[];
-          selectedVariantIndex?: number;
-          duration?: number;
-        };
-        const variants = Array.isArray(data.variants) ? data.variants : [];
-        const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
-        const hash = variants[idx];
-        if (!hash) continue;
-        const candidateExts = ['mp4', 'mov', 'webm'];
-        let resolvedPath: string | null = null;
-        for (const ext of candidateExts) {
-          const p = deps.cas.getAssetPath(hash, 'video', ext);
-          if (fs.existsSync(p)) {
-            resolvedPath = p;
-            break;
-          }
-        }
-        if (!resolvedPath) continue;
-        segments.push({
-          inputPath: resolvedPath,
-          startTime: 0,
-          duration: typeof data.duration === 'number' && data.duration > 0 ? data.duration : 0,
-          speed: 1,
-        });
-      }
-
-      if (segments.length === 0) {
-        throw new Error(
-          'No rendered video variants available for this canvas — generate videos first.',
-        );
-      }
-
-      const codec = format === 'mov' ? 'prores' : 'h264';
-      const ext = codec === 'prores' ? 'mov' : 'mp4';
-      const finalOut = outputPath ?? path.join(os.tmpdir(), `lucid-render-${Date.now()}.${ext}`);
-
-      const { renderTimeline } = await import('@lucid-fin/media-engine');
-      await renderTimeline(segments, finalOut, {
-        codec: codec as 'h264' | 'prores',
-        preset: 'standard',
-        width: 1920,
-        height: 1080,
-        fps: 24,
+    startRender: async (input) => {
+      const result = await deps.finalExportService.startApproved({
+        workflowRunId: input.workflowRunId,
+        canvasId: input.canvasId,
+        expectedManifestRevision: input.expectedManifestRevision,
+        expectedManifestHash: input.expectedManifestHash,
+        ...(input.outputPath ? { destinationPath: input.outputPath } : {}),
+        ...(input.retry ? { retry: true } : {}),
       });
-      return { renderId: finalOut };
+      return { renderId: result.jobId };
     },
-    cancelRender: async () => {
-      throw new Error(
-        'Render cancellation is not yet wired to the media engine — render jobs complete uninterrupted.',
-      );
+    cancelRender: async (renderId) => {
+      deps.finalExportService.cancel(renderId);
     },
     exportBundle: async () => {
       throw new Error(

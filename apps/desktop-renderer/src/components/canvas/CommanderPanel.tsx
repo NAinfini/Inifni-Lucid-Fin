@@ -63,7 +63,10 @@ import { MessageList } from './commander/MessageList.js';
 import { LiveActivityBar } from './commander/LiveActivityBar.js';
 import { PipelineRail } from './commander/PipelineRail.js';
 import { computeContextUsage } from '../../commander/state/context-usage.js';
-import { selectActiveCanvasNodes, selectNodesById } from '../../store/slices/canvas/canvas-selectors.js';
+import {
+  selectActiveCanvasNodes,
+  selectNodesById,
+} from '../../store/slices/canvas/canvas-selectors.js';
 
 const SAFE_Y = 56;
 
@@ -540,7 +543,6 @@ export function CommanderPanel() {
       {/* Phase D (S5): LiveActivityBar moved into footer, directly above
           the textarea. Users see phase status where their eye is already
           resting — at the input field, not the top of the panel. */}
-
 
       <div
         ref={scrollRef}
@@ -1097,9 +1099,7 @@ export function CommanderPanel() {
                 className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
                 onClick={() => setPermPickerOpen((v) => !v)}
               >
-                {permissionMode === 'danger' && (
-                  <Flame className="h-2.5 w-2.5 text-red-400" />
-                )}
+                {permissionMode === 'danger' && <Flame className="h-2.5 w-2.5 text-red-400" />}
                 {permissionMode === 'auto' && <Sparkles className="h-2.5 w-2.5 text-sky-400" />}
                 {permissionMode === 'normal' && (
                   <ShieldCheck className="h-2.5 w-2.5 text-emerald-400" />

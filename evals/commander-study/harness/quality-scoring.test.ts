@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
-import { scoreSession, renderQualitySnippet, type QualityReport, type ScoringInput } from './quality-scoring.js';
+import {
+  scoreSession,
+  renderQualitySnippet,
+  type QualityReport,
+  type ScoringInput,
+} from './quality-scoring.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -94,8 +99,12 @@ function makeCanvas(overrides?: Partial<Canvas>): Canvas {
 }
 
 function makeGoodCanvas(): Canvas {
-  const img1 = makeImageNode('Character reference sheet with full body turnaround', { characterRefs: [{ id: 'char-1' }] });
-  const img2 = makeImageNode('Wide establishing shot of the cyberpunk city', { locationRefs: [{ id: 'loc-1' }] });
+  const img1 = makeImageNode('Character reference sheet with full body turnaround', {
+    characterRefs: [{ id: 'char-1' }],
+  });
+  const img2 = makeImageNode('Wide establishing shot of the cyberpunk city', {
+    locationRefs: [{ id: 'loc-1' }],
+  });
   const vid1 = makeVideoNode('Courier runs across neon rooftops', { firstFrameNodeId: img2.id });
   const vid2 = makeVideoNode('Confrontation on the rooftop at dawn');
   const aud1 = makeAudioNode('Tense electronic music building to climax');
@@ -306,8 +315,11 @@ describe('scoreSession', () => {
       const fewNodes = makeCanvas({ nodes: [makeImageNode()] });
       const manyNodes = makeCanvas({
         nodes: [
-          makeImageNode(), makeImageNode(), makeImageNode(),
-          makeVideoNode(), makeVideoNode(),
+          makeImageNode(),
+          makeImageNode(),
+          makeImageNode(),
+          makeVideoNode(),
+          makeVideoNode(),
           makeAudioNode(),
         ],
       });
@@ -343,12 +355,14 @@ describe('scoreSession', () => {
     it('scores higher for longer, more detailed prompts', () => {
       const shortPrompt = makeCanvas({ nodes: [makeImageNode('cat')] });
       const longPrompt = makeCanvas({
-        nodes: [makeImageNode(
-          'A highly detailed cinematic wide-angle shot of a cyberpunk city at night, ' +
-          'neon signs reflecting on wet asphalt, volumetric fog, three-point studio lighting, ' +
-          'rain particles caught in street lamp glow, establishing shot for film noir mood, ' +
-          'ultra-high resolution 4K render with ray tracing and global illumination',
-        )],
+        nodes: [
+          makeImageNode(
+            'A highly detailed cinematic wide-angle shot of a cyberpunk city at night, ' +
+              'neon signs reflecting on wet asphalt, volumetric fog, three-point studio lighting, ' +
+              'rain particles caught in street lamp glow, establishing shot for film noir mood, ' +
+              'ultra-high resolution 4K render with ray tracing and global illumination',
+          ),
+        ],
       });
       const rShort = scoreSession(makeResult(), shortPrompt);
       const rLong = scoreSession(makeResult(), longPrompt);
@@ -396,10 +410,7 @@ describe('scoreSession', () => {
 
     it('scores 0.5 when half of visual nodes have entity refs', () => {
       const canvas = makeCanvas({
-        nodes: [
-          makeImageNode('Shot', { characterRefs: [{ id: 'c1' }] }),
-          makeImageNode('Shot 2'),
-        ],
+        nodes: [makeImageNode('Shot', { characterRefs: [{ id: 'c1' }] }), makeImageNode('Shot 2')],
       });
       const report = scoreSession(makeResult(), canvas);
       const dim = report.dimensions.find((d) => d.name === 'Entity Bindings')!;

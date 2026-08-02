@@ -259,8 +259,7 @@ export function queryEmbeddingByHash(
   hash: string,
 ): EmbeddingRecord | undefined {
   const row = db.prepare('SELECT * FROM asset_embeddings WHERE hash = ?').get(hash) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   if (!row) return undefined;
   return {
     hash: row.hash as string,

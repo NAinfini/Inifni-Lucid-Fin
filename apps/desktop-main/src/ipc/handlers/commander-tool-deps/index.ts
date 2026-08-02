@@ -110,6 +110,7 @@ export function registerAllTools(
     listCommanderPresets,
     persistCommanderPreset,
     deleteCommanderPreset,
+    generateImage,
     compactRef,
   );
 

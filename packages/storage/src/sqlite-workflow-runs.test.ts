@@ -77,11 +77,23 @@ describe('workflow run storage api', () => {
     db.repos.workflows.insertRun(run);
 
     const fetched = db.repos.workflows.getRun(run.id);
-    expect(fetched).toEqual(run);
+    expect(fetched).toEqual({
+      ...run,
+      rowVersion: 0,
+      currentGate: undefined,
+      engineVersion: 'legacy',
+      definitionVersion: 1,
+    });
 
     const listed = db.repos.workflows.listRuns({ status: 'queued' }).rows;
     expect(listed).toHaveLength(1);
-    expect(listed[0]).toEqual(run);
+    expect(listed[0]).toEqual({
+      ...run,
+      rowVersion: 0,
+      currentGate: undefined,
+      engineVersion: 'legacy',
+      definitionVersion: 1,
+    });
 
     db.repos.workflows.updateRun(run.id, {
       status: WorkflowRunStatus.Running,

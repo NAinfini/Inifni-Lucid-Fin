@@ -5,11 +5,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ErrorCode } from '@lucid-fin/contracts';
-import {
-  RateLimiter,
-  rateLimitedError,
-  IPC_RATE_LIMITS,
-} from './rate-limiter.js';
+import { RateLimiter, rateLimitedError, IPC_RATE_LIMITS } from './rate-limiter.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

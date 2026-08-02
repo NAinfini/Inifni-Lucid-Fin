@@ -48,12 +48,7 @@ function openDb(): BetterSqlite3.Database {
   return db;
 }
 
-function insertAsset(
-  db: BetterSqlite3.Database,
-  hash: string,
-  tags: string,
-  prompt: string,
-): void {
+function insertAsset(db: BetterSqlite3.Database, hash: string, tags: string, prompt: string): void {
   db.prepare(
     `INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, created_at, file_size)
      VALUES (?, 'image', 'png', ?, ?, ?, 1024)`,

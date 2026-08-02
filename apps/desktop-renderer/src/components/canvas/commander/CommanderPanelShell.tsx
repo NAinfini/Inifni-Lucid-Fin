@@ -16,7 +16,10 @@ import {
 import { useCommander } from '../../../hooks/useCommander.js';
 import { useI18n } from '../../../hooks/use-i18n.js';
 import { computeContextUsage } from '../../../commander/state/context-usage.js';
-import { selectActiveCanvasNodes, selectNodesById } from '../../../store/slices/canvas/canvas-selectors.js';
+import {
+  selectActiveCanvasNodes,
+  selectNodesById,
+} from '../../../store/slices/canvas/canvas-selectors.js';
 import { usePanelDrag } from './usePanelDrag.js';
 import { useSlashCommands } from './useSlashCommands.js';
 import { MessageList } from './MessageList.js';
@@ -33,7 +36,9 @@ import { getAPI } from '../../../utils/api.js';
 
 const SAFE_Y = 56;
 
-function useTextCursorGate(phase: import('../../../commander/state/run-phase.js').RunPhase): boolean {
+function useTextCursorGate(
+  phase: import('../../../commander/state/run-phase.js').RunPhase,
+): boolean {
   const [isFresh, setIsFresh] = useState(false);
   useEffect(() => {
     if (phase.kind !== 'model_streaming' || phase.lastTextDeltaAt === null) {
@@ -508,9 +513,18 @@ export function CommanderPanelShell() {
           <span role="status">
             <span className="sr-only">{t('commander.streaming')}</span>
             <span className="flex gap-0.5" aria-hidden="true">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '0ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '150ms' }} />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" style={{ animationDelay: '300ms' }} />
+              <span
+                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                style={{ animationDelay: '0ms' }}
+              />
+              <span
+                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                style={{ animationDelay: '150ms' }}
+              />
+              <span
+                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
+                style={{ animationDelay: '300ms' }}
+              />
             </span>
           </span>
         )}
@@ -579,11 +593,7 @@ export function CommanderPanelShell() {
                   const api = getAPI();
                   const canvasId = activeCanvasIdRef.current;
                   if (api?.commander && canvasId) {
-                    void api.commander.answerQuestion(
-                      canvasId,
-                      pendingQuestion.toolCallId,
-                      answer,
-                    );
+                    void api.commander.answerQuestion(canvasId, pendingQuestion.toolCallId, answer);
                   }
                   dispatch(markQuestionResolvedLocally(pendingQuestion.toolCallId));
                   dispatch(resolveQuestion({ answer }));

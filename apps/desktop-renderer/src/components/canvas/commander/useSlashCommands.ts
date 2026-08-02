@@ -2,11 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { store } from '../../../store/index.js';
 import type { AppDispatch } from '../../../store/index.js';
-import {
-  newSession,
-  addSystemNotice,
-  compactLocalContext,
-} from '../../../store/slices/commander.js';
+import { newSession, addSystemNotice } from '../../../store/slices/commander.js';
 import {
   readCommanderTelemetry,
   resetCommanderTelemetry,
@@ -78,32 +74,8 @@ export function useSlashCommands({
   const triggerCompact = useCallback(async () => {
     dispatch(addSystemNotice(t('commander.slashCommand.compacting')));
 
-    // Measure chars before Phase 1
-    const measureChars = (msgs: typeof msgsBefore) =>
-      msgs.reduce((sum, m) => {
-        let c = m.content.length;
-        if (m.toolCalls) {
-          for (const tc of m.toolCalls) {
-            c += JSON.stringify(tc.arguments).length;
-            if (tc.result != null) {
-              c +=
-                typeof tc.result === 'string' ? tc.result.length : JSON.stringify(tc.result).length;
-            }
-          }
-        }
-        return sum + c;
-      }, 0);
-    const msgsBefore = store.getState().commander.messages;
-    const charsBefore = measureChars(msgsBefore);
-
-    // Phase 1: compact local Redux store (truncate old tool results + assistant text)
-    dispatch(compactLocalContext());
-
-    const msgsAfter = store.getState().commander.messages;
-    const charsAfter = measureChars(msgsAfter);
-    const localFreed = Math.max(0, charsBefore - charsAfter);
-
-    // Phase 2: compact backend activeMessages via IPC (only works during active session)
+    // Compact only the backend's model projection. Redux and SQLite retain the
+    // complete, immutable transcript for restart, audit, and later re-projection.
     let backendFreed = 0;
     let backendMsgCount = 0;
     let backendToolCount = 0;
@@ -120,49 +92,16 @@ export function useSlashCommands({
         backendMsgCount = result.messageCount;
         backendToolCount = result.toolCount;
       } catch {
-        /* IPC call failed — use local results only */
+        /* The backend has no active projection or the IPC request failed. */
       }
     }
 
-    const totalFreed = localFreed + backendFreed;
-    if (totalFreed > 0) {
-      // Persist compacted session to SQLite so restart preserves the savings
-      const freshState = store.getState() as {
-        commander: {
-          activeSessionId: string | null;
-          sessions: Array<{
-            id: string;
-            title: string;
-            messages: unknown[];
-            createdAt: number;
-            updatedAt: number;
-          }>;
-          messages: unknown[];
-        };
-        canvas: { activeCanvasId: string | null };
-      };
-      const sid = freshState.commander.activeSessionId;
-      if (sid && api?.session) {
-        const sess = freshState.commander.sessions.find((s) => s.id === sid);
-        if (sess) {
-          api.session
-            .upsert({
-              id: sess.id,
-              canvasId: freshState.canvas.activeCanvasId ?? null,
-              title: sess.title,
-              messages: JSON.stringify(sess.messages),
-              createdAt: sess.createdAt,
-              updatedAt: sess.updatedAt,
-            })
-            .catch(() => {});
-        }
-      }
-
+    if (backendFreed > 0) {
       dispatch(
         addSystemNotice(
           t('commander.slashCommand.compactResult')
-            .replace('{chars}', totalFreed.toLocaleString())
-            .replace('{messages}', String(backendMsgCount || msgsAfter.length))
+            .replace('{chars}', backendFreed.toLocaleString())
+            .replace('{messages}', String(backendMsgCount))
             .replace('{tools}', String(backendToolCount)),
         ),
       );

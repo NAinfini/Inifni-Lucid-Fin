@@ -88,16 +88,17 @@ describe('PushSeqTracker', () => {
     tracker.accept(envelope('ch:a', 1));
     tracker.accept(envelope('ch:a', 5)); // gap, no strategy
 
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('no re-sync strategy registered'),
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no re-sync strategy registered'));
     warnSpy.mockRestore();
   });
 
   it('prevents re-sync storms (no concurrent re-sync for same channel)', () => {
     let resolveFn!: () => void;
     const resyncFn = vi.fn(
-      () => new Promise<void>((r) => { resolveFn = r; }),
+      () =>
+        new Promise<void>((r) => {
+          resolveFn = r;
+        }),
     );
     const tracker = createPushSeqTracker();
     tracker.registerResync('ch:a', resyncFn);

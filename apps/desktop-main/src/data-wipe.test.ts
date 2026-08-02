@@ -37,7 +37,12 @@ vi.mock('keytar', () => ({
   deletePassword: mockDeletePassword,
 }));
 
-import { wipeAllData, WIPE_CONFIRMATION_TOKEN, type WipePaths, type WipeDeps } from './data-wipe.js';
+import {
+  wipeAllData,
+  WIPE_CONFIRMATION_TOKEN,
+  type WipePaths,
+  type WipeDeps,
+} from './data-wipe.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

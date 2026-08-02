@@ -235,8 +235,7 @@ describe('FolderRepository', () => {
       db.prepare('INSERT INTO assets (hash, folder_id) VALUES (?, ?)').run('h1', a.id);
       repo.delete('asset', a.id);
       const row = db.prepare('SELECT folder_id FROM assets WHERE hash = ?').get('h1') as
-        | { folder_id: string | null }
-        | undefined;
+        { folder_id: string | null } | undefined;
       expect(row?.folder_id).toBeNull();
     });
 

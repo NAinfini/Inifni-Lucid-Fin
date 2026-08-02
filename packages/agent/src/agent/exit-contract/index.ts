@@ -40,7 +40,11 @@ export { decide, type DecideInput } from './exit-decision-engine.js';
 // workflow contract + the `info-answer` fallback. Keep this import before
 // `contractRegistry` is used at runtime.
 export { contractRegistry } from './contract-registry.js';
-export { infoAnswerContract, mutationExecutionContract, workflowExecutionContract } from './contracts/index.js';
+export {
+  infoAnswerContract,
+  mutationExecutionContract,
+  workflowExecutionContract,
+} from './contracts/index.js';
 
 export type {
   ProcessPromptSpec,

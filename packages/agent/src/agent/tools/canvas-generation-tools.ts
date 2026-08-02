@@ -43,7 +43,8 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
   // ---------------------------------------------------------------------------
   const generation: AgentTool = {
     name: 'canvas.generation',
-    description: 'Generation control: start, cancel, or estimate cost for media generation.',
+    description:
+      'Manual or exploratory generation control: start, cancel, or estimate media generation. It is fail-closed for media owned by an active persistent workflow; use workflow.media there.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -55,11 +56,14 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           enum: ['start', 'cancel', 'estimate'],
           description: 'The generation action to perform.',
         },
-        nodeId: { type: 'string', description: 'The node ID (required for start; optional for cancel).' },
+        nodeId: {
+          type: 'string',
+          description: 'The node ID (required for start; optional for cancel).',
+        },
         prompt: {
           type: 'string',
           description:
-            'The FINAL generation prompt YOU compose and send to the image/video provider VERBATIM (for start). You are the author: read the node\'s presets, its detail prompt, attached character/location/equipment descriptions, and the project style guide (use canvas.previewPrompt to inspect a reference draft), then write the complete, finished prompt yourself. When provided, the deterministic compiler is bypassed and your text is sent exactly as written. Omit ONLY to fall back to automatic compilation from node fields.',
+            'Manual-mode only: the FINAL generation prompt sent to the image/video provider VERBATIM (for start). Never use this override for an active persistent workflow; workflow.media compiles its host-owned Generation Spec. Omit to use automatic compilation from node fields.',
         },
         nodeIds: {
           type: 'array',
@@ -79,7 +83,10 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
           enum: ['voice', 'music', 'sfx'],
         },
         providerId: { type: 'string', description: 'Optional provider override (for start).' },
-        variantCount: { type: 'number', description: 'Optional number of variants to generate (for start).' },
+        variantCount: {
+          type: 'number',
+          description: 'Optional number of variants to generate (for start).',
+        },
         wait: {
           type: 'boolean',
           description:
@@ -404,7 +411,8 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           properties: {
             providerId: {
               type: 'string',
-              description: 'AI provider ID. Verify hasKey=true via provider.manage { action: "list" } first.',
+              description:
+                'AI provider ID. Verify hasKey=true via provider.manage { action: "list" } first.',
             },
             seed: { type: 'number', description: 'Seed value.' },
             seedLock: { type: 'boolean', description: 'Pass true to toggle seed lock state.' },
@@ -471,7 +479,8 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   // ---------------------------------------------------------------------------
   const setMediaParams: AgentTool = {
     name: 'canvas.setMediaParams',
-    description: 'Set media generation parameters on nodes. Use mediaType to select which kind of parameters to set.',
+    description:
+      'Set media generation parameters on nodes. Use mediaType to select which kind of parameters to set.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -495,16 +504,31 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           properties: {
             width: { type: 'number', description: 'Width in pixels (image/video).' },
             height: { type: 'number', description: 'Height in pixels (image/video).' },
-            steps: { type: 'number', description: 'Inference steps, typically 20-50 (image/video).' },
-            cfgScale: { type: 'number', description: 'CFG scale / guidance, typically 3-15 (image/video).' },
+            steps: {
+              type: 'number',
+              description: 'Inference steps, typically 20-50 (image/video).',
+            },
+            cfgScale: {
+              type: 'number',
+              description: 'CFG scale / guidance, typically 3-15 (image/video).',
+            },
             scheduler: {
               type: 'string',
               description: 'Sampling scheduler (e.g. "euler_a", "dpm++_2m") (image/video).',
             },
-            img2imgStrength: { type: 'number', description: 'Image-to-image strength 0-1 (image/video).' },
+            img2imgStrength: {
+              type: 'number',
+              description: 'Image-to-image strength 0-1 (image/video).',
+            },
             duration: { type: 'number', description: 'Duration in seconds (video).' },
-            audio: { type: 'boolean', description: `Enable audio generation (video). Only ${AUDIO_CAPABLE_VIDEO_PROVIDER_IDS} support audio.` },
-            quality: { type: 'string', description: `Quality tier (video). ${KLING_QUALITY_DESCRIPTION}.` },
+            audio: {
+              type: 'boolean',
+              description: `Enable audio generation (video). Only ${AUDIO_CAPABLE_VIDEO_PROVIDER_IDS} support audio.`,
+            },
+            quality: {
+              type: 'string',
+              description: `Quality tier (video). ${KLING_QUALITY_DESCRIPTION}.`,
+            },
             lipSyncEnabled: { type: 'boolean', description: 'Enable lip sync (video).' },
             audioType: {
               type: 'string',
@@ -853,7 +877,8 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   // ---------------------------------------------------------------------------
   const manageEdge: AgentTool = {
     name: 'canvas.manageEdge',
-    description: 'Manage canvas edges: delete, swap direction, or disconnect all edges from a node.',
+    description:
+      'Manage canvas edges: delete, swap direction, or disconnect all edges from a node.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -903,7 +928,11 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           }
           if (ids.length === 1)
             return results[0].success ? ok({ edgeId: ids[0] }) : fail(results[0].error!);
-          return ok({ deleted: results.filter((r) => r.success).length, total: ids.length, results });
+          return ok({
+            deleted: results.filter((r) => r.success).length,
+            total: ids.length,
+            results,
+          });
         } catch (error) {
           return fail(error);
         }

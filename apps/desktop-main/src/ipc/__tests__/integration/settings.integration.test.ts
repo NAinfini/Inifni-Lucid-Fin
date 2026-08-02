@@ -127,7 +127,7 @@ describe('Settings (StyleGuide) integration', () => {
         referenceImages: [],
         freeformDescription: 'Updated',
       },
-      sceneOverrides: { 's1': { artStyle: 'anime' } },
+      sceneOverrides: { s1: { artStyle: 'anime' } },
     };
     await invoke(ipcMain, 'style:save', guide2);
 

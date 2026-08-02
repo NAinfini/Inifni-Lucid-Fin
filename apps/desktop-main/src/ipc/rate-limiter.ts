@@ -190,9 +190,8 @@ export function setIpcRateLimiter(limiter: RateLimiter): void {
  * `{ code: 'RATE_LIMITED', retryAfterMs, channel }`.
  */
 export function rateLimitedError(channel: string, retryAfterMs: number): LucidError {
-  return new LucidError(
-    ErrorCode.RateLimited,
-    'Too many requests. Please wait before retrying.',
-    { retryAfterMs, channel },
-  );
+  return new LucidError(ErrorCode.RateLimited, 'Too many requests. Please wait before retrying.', {
+    retryAfterMs,
+    channel,
+  });
 }

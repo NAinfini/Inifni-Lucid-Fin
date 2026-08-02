@@ -1,6 +1,11 @@
 import path from 'node:path';
 import { MAX_ACCUMULATED_VARIANTS } from './generation-constants.js';
-import type { CancelArgs, EstimateArgs, GenerateArgs, ProviderConfigOverride } from './generation-types.js';
+import type {
+  CancelArgs,
+  EstimateArgs,
+  GenerateArgs,
+  ProviderConfigOverride,
+} from './generation-types.js';
 
 export function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;

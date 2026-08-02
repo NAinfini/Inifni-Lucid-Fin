@@ -6,7 +6,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=26.5.1"
   },
   "workspaces": [
     "apps/*",
@@ -18,32 +18,32 @@
     "pretest": "npm rebuild better-sqlite3",
     "test": "vitest run",
     "test:coverage:critical": "vitest run --root apps/desktop-main src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/canvas-generation.handlers.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/workflow.handlers.test.ts src/ipc/handlers/job.handlers.test.ts --coverage",
-    "predev": "npx @electron/rebuild -f -w better-sqlite3 -v 41.2.0",
-    "postinstall": "npx patch-package && node -e \"if(!process.env.CI)require('child_process').execSync('npx @electron/rebuild -f -w better-sqlite3 -v 41.2.0',{stdio:'inherit'})\"",
+    "predev": "npx @electron/rebuild -f -w better-sqlite3 -v 43.2.0",
+    "postinstall": "npx patch-package && node -e \"if(!process.env.CI)require('child_process').execSync('npx @electron/rebuild -f -w better-sqlite3 -v 43.2.0',{stdio:'inherit'})\"",
     "lint": "eslint . && npm run lint:contracts",
-    "lint:contracts": "npx tsx scripts/lint-contract-drift.ts",
+    "lint:contracts": "node scripts/lint-contract-drift.ts",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "license:audit": "npx tsx scripts/license-audit.ts",
     "dist": "npm run build && npm run pack --workspace=apps/desktop-main",
     "audit:uncommitted": "npx tsx scripts/audit-uncommitted.ts",
-    "pretest:e2e": "npx @electron/rebuild -f -w better-sqlite3 -v 41.2.0",
+    "pretest:e2e": "npx @electron/rebuild -f -w better-sqlite3 -v 43.2.0",
     "test:e2e": "npx playwright test --config tests/e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.59.1",
-    "@vitest/coverage-v8": "^4.1.4",
-    "eslint": "^10.2.0",
+    "@playwright/test": "^1.62.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.0",
     "eslint-plugin-react-hooks": "^7.1.0-canary-404b38c7-20260408",
     "globals": "^17.4.0",
-    "jsdom": "^29.0.2",
+    "jsdom": "^30.0.1",
     "patch-package": "^8.0.1",
-    "prettier": "^3.8.2",
+    "prettier": "^3.9.6",
     "rimraf": "^6.1.3",
     "typescript": "^6.0.2",
-    "typescript-eslint": "^8.58.1",
-    "vitest": "^4.1.4"
+    "typescript-eslint": "^8.65.0",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "@radix-ui/react-slot": "1.2.4",

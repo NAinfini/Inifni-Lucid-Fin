@@ -584,9 +584,7 @@ export function CommanderInputBar() {
               className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => setPermPickerOpen(!permPickerOpen)}
             >
-              {permissionMode === 'danger' && (
-                <Flame className="h-2.5 w-2.5 text-red-400" />
-              )}
+              {permissionMode === 'danger' && <Flame className="h-2.5 w-2.5 text-red-400" />}
               {permissionMode === 'auto' && <Sparkles className="h-2.5 w-2.5 text-sky-400" />}
               {permissionMode === 'normal' && (
                 <ShieldCheck className="h-2.5 w-2.5 text-emerald-400" />

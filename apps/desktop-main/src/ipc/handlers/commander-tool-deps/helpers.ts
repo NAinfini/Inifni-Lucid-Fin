@@ -223,6 +223,8 @@ export interface ToolRegistrationDeps {
   cas: CAS;
   keychain: import('@lucid-fin/storage').Keychain;
   promptStore: PromptStore;
+  finalExportService: import('../../../services/final-export.service.js').FinalExportService;
+  productionMediaService: import('../../../services/production-media.service.js').ProductionMediaService;
 }
 
 type PromptGuide = { id: string; name: string; content: string };

@@ -172,8 +172,7 @@ export class JobRepository {
   get(id: JobId, tx?: Tx): Job | undefined {
     const d = tx ?? this.db;
     const row = d.prepare(`SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`).get(id) as
-      | RawRow
-      | undefined;
+      RawRow | undefined;
     if (!row) return undefined;
     const { rows } = parseRows([row]);
     return rows[0];

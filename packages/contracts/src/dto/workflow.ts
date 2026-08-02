@@ -1,5 +1,6 @@
 export const WorkflowRunStatus = {
   Pending: 'pending',
+  AwaitingApproval: 'awaiting_approval',
   Blocked: 'blocked',
   Ready: 'ready',
   Queued: 'queued',
@@ -14,6 +15,36 @@ export const WorkflowRunStatus = {
 } as const;
 
 export type WorkflowRunStatus = (typeof WorkflowRunStatus)[keyof typeof WorkflowRunStatus];
+
+/** The only approval gates supported by the persistent video workflow. */
+export const WorkflowApprovalGateKey = {
+  ProductionPlan: 'production_plan',
+  VisualConstitution: 'visual_constitution',
+  FinalExport: 'final_export',
+} as const;
+
+export type WorkflowApprovalGateKey =
+  (typeof WorkflowApprovalGateKey)[keyof typeof WorkflowApprovalGateKey];
+
+export const WorkflowDocumentStatus = {
+  Draft: 'draft',
+  Active: 'active',
+  Superseded: 'superseded',
+  Invalidated: 'invalidated',
+} as const;
+
+export type WorkflowDocumentStatus =
+  (typeof WorkflowDocumentStatus)[keyof typeof WorkflowDocumentStatus];
+
+export const WorkflowApprovalStatus = {
+  Pending: 'pending',
+  Approved: 'approved',
+  Rejected: 'rejected',
+  Invalidated: 'invalidated',
+} as const;
+
+export type WorkflowApprovalStatus =
+  (typeof WorkflowApprovalStatus)[keyof typeof WorkflowApprovalStatus];
 
 export const StageRunStatus = {
   Pending: 'pending',
@@ -131,7 +162,546 @@ export interface WorkflowRun {
   startedAt?: number;
   completedAt?: number;
   updatedAt: number;
+  /** Optimistic-concurrency version for durable workflow transitions. */
+  rowVersion?: number;
+  /** Present only while the run is blocked at one of the three approval gates. */
+  currentGate?: WorkflowApprovalGateKey;
+  /** Runtime engine version that owns this aggregate. Defaults to `legacy`. */
+  engineVersion?: string;
+  /** Persisted workflow-definition version. Defaults to `1`. */
+  definitionVersion?: number;
 }
+
+/** Immutable, revisioned workflow artifact used as an approval subject. */
+export interface WorkflowDocument {
+  id: string;
+  workflowRunId: string;
+  logicalKey: string;
+  documentType: string;
+  revision: number;
+  schemaVersion: number;
+  content: Record<string, unknown>;
+  /** Caller-computed SHA-256. Persistence stores and compares it verbatim. */
+  contentHash: string;
+  status: WorkflowDocumentStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WorkflowApproval {
+  id: string;
+  workflowRunId: string;
+  gateKey: WorkflowApprovalGateKey;
+  subjectLogicalKey: string;
+  subjectRevision: number;
+  /** Caller-computed SHA-256 of the exact subject revision. */
+  subjectHash: string;
+  /** Caller-computed SHA-256 of the approved generation/export manifest. */
+  manifestHash: string;
+  /** Caller-computed SHA-256 of the one-time resume token. */
+  resumeTokenHash: string;
+  status: WorkflowApprovalStatus;
+  createdAt: number;
+  updatedAt: number;
+  decidedAt?: number;
+}
+
+/** Approval metadata safe to expose outside the host process. */
+export type WorkflowApprovalView = Omit<WorkflowApproval, 'resumeTokenHash'>;
+
+export interface WorkflowEvent {
+  workflowRunId: string;
+  seq: number;
+  eventId: string;
+  actor: string;
+  correlationId?: string;
+  causationId?: string;
+  payload: Record<string, unknown>;
+  timestamp: number;
+}
+
+/** Host-facing view of the exact immutable revision awaiting human approval. */
+export interface WorkflowApprovalContext {
+  run: WorkflowRun;
+  approval: WorkflowApprovalView;
+  document: WorkflowDocument;
+}
+
+/** Host-UI view of the latest durable visual audition and its CAS version. */
+export interface WorkflowVisualAuditionContext {
+  run: WorkflowRun;
+  document: WorkflowDocument;
+}
+
+/** Creative grammar locked by the Visual Constitution approval. */
+export interface VisualConstitutionGrammar {
+  medium: string;
+  era: string;
+  rendering: string;
+  linework: string;
+  palette: string;
+  lighting: string;
+  texture: string;
+  mood: string;
+  cameraGrammar: string;
+  lensGrammar: string;
+  compositionGrammar: string;
+  motionGrammar: string;
+  characterAnchors: string[];
+  locationAnchors: string[];
+  negativeConstraints: string[];
+}
+
+/** Model-authored direction submitted to the bounded style-audition service. */
+export interface VisualDirectionCandidateProposal {
+  id: string;
+  name: string;
+  summary: string;
+  prompt: string;
+  negativePrompt?: string;
+  seed: number;
+  constitution: VisualConstitutionGrammar;
+}
+
+export interface VisualPreviewGrade {
+  rubricVersion: string;
+  promptAdherence: number;
+  styleClarity: number;
+  storyFit: number;
+  lighting: number;
+  composition: number;
+  continuityPotential: number;
+  total: number;
+  verdict: 'pass' | 'repair' | 'human_review';
+  strengths: string[];
+  risks: string[];
+  repairPrompt?: string;
+  evidence: string;
+  visionProviderId: string;
+  visionModel?: string;
+}
+
+/** One immutable provider submission, including failures and ambiguous outcomes. */
+export interface VisualPreviewAttempt {
+  attempt: number;
+  status: 'completed' | 'failed' | 'ambiguous';
+  prompt: string;
+  promptHash: string;
+  providerId: string;
+  model?: string;
+  requestedSeed: number;
+  reportedSeed?: number;
+  width: number;
+  height: number;
+  estimatedCostUsd: number;
+  reportedActualCostUsd?: number;
+  assetHash?: string;
+  grade?: VisualPreviewGrade;
+  error?: string;
+  startedAt: number;
+  completedAt: number;
+}
+
+export interface VisualAuditionCandidate extends VisualDirectionCandidateProposal {
+  status: 'pending' | 'completed' | 'failed' | 'ambiguous';
+  attempts: VisualPreviewAttempt[];
+  selectedAttempt?: number;
+}
+
+/** Content of the latest immutable `visual-auditions` workflow document. */
+export interface VisualAuditionDocumentContent extends Record<string, unknown> {
+  status: 'in_progress' | 'complete' | 'failed' | 'ambiguous';
+  requestHash: string;
+  rubricVersion: string;
+  productionPlan: { revision: number; contentHash: string };
+  providerId: string;
+  width: number;
+  height: number;
+  candidates: VisualAuditionCandidate[];
+  recommendedCandidateId?: string;
+  budget: {
+    approvedStyleAuditionCostUsd: number;
+    maxRegenerations: number;
+    maxAttemptsPerCandidate: number;
+    estimatedCommittedUsd: number;
+    reportedActualUsd?: number;
+    hasUnreportedActualCosts: boolean;
+    unpricedOperations: string[];
+  };
+  failure?: { candidateId?: string; message: string; ambiguous: boolean };
+}
+
+/** Content of the immutable subject shown at the Visual Constitution gate. */
+export interface VisualConstitutionDocumentContent extends Record<string, unknown> {
+  productionPlan: { revision: number; contentHash: string };
+  visualAuditions: { revision: number; contentHash: string };
+  selectedCandidateId: string;
+  selectedBy: 'user';
+  selectedPreview: {
+    assetHash: string;
+    providerId: string;
+    model?: string;
+    seed: number;
+    prompt: string;
+    promptHash: string;
+  };
+  locked: VisualConstitutionGrammar;
+  candidates: VisualAuditionCandidate[];
+  budget: VisualAuditionDocumentContent['budget'];
+}
+
+/** CAS-protected user choice sent only by the host approval UI. */
+export interface SelectVisualConstitutionCandidateInput {
+  workflowRunId: string;
+  candidateId: string;
+  expectedRowVersion: number;
+  expectedAuditionRevision: number;
+  expectedAuditionHash: string;
+}
+
+export interface VisualConstitutionSelectionResult {
+  context: WorkflowApprovalContext;
+  created: boolean;
+}
+
+export type FinalExportContainer = 'mp4' | 'mov';
+export type FinalExportCodec = 'h264' | 'h265' | 'prores';
+export type FinalExportQuality = 'draft' | 'standard' | 'high';
+
+/** One exact selected canvas clip locked into the final movie manifest. */
+export interface FinalExportManifestSegment {
+  order: number;
+  nodeId: string;
+  nodeUpdatedAt: number;
+  title: string;
+  assetHash: string;
+  assetFormat: string;
+  selectedVariantIndex: number;
+  trimInMs: number;
+  trimOutMs: number;
+  sourceDurationMs: number;
+  sourceStartSeconds: number;
+  durationSeconds: number;
+  speed: number;
+}
+
+export interface FinalExportOutputSettings {
+  container: FinalExportContainer;
+  codec: FinalExportCodec;
+  quality: FinalExportQuality;
+  width: number;
+  height: number;
+  fps: number;
+  logicalFileName: string;
+  audioCodec: 'aac' | 'pcm_s24le';
+  pixelFormat: 'yuv420p' | 'yuva444p10le';
+  overwritePolicy: 'fail';
+}
+
+/** Immutable subject of the third and final host approval gate. */
+export interface FinalExportManifestContent extends Record<string, unknown> {
+  manifestVersion: 1;
+  workflowRunId: string;
+  productionPlan: { revision: number; contentHash: string };
+  visualConstitution: { revision: number; contentHash: string };
+  canvasId: string;
+  assemblySnapshotHash: string;
+  segments: FinalExportManifestSegment[];
+  audioTracks: [];
+  subtitleTracks: [];
+  output: FinalExportOutputSettings;
+  expectedDurationMs: number;
+  estimatedDurationSeconds: number;
+  maxRenderAttempts: number;
+  capabilities: {
+    embeddedClipAudio: true;
+    separateAudioMix: false;
+    subtitles: false;
+  };
+}
+
+/** AI-authored output choices; the host derives all media inputs from the canvas and CAS. */
+export interface PrepareFinalExportManifestInput {
+  workflowRunId: string;
+  canvasId: string;
+  expectedRowVersion: number;
+  output: Pick<FinalExportOutputSettings, 'codec' | 'quality' | 'width' | 'height' | 'fps'>;
+}
+
+export type FinalExportExecutionStatus =
+  | 'queued'
+  | 'running'
+  | 'ready_to_publish'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'recovery_required';
+
+/** Persistent idempotency ledger for one approved Manifest render. */
+export interface WorkflowExportExecution {
+  id: string;
+  workflowRunId: string;
+  manifestRevision: number;
+  manifestHash: string;
+  idempotencyKey: string;
+  status: FinalExportExecutionStatus;
+  rowVersion: number;
+  stagingPath?: string;
+  destinationPath: string;
+  outputAssetHash?: string;
+  outputHash?: string;
+  outputSize?: number;
+  attempt: number;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+/** Immutable snapshots of one bounded local render execution. */
+export interface FinalExportExecutionDocumentContent extends Record<string, unknown> {
+  manifest: { revision: number; contentHash: string };
+  jobId: string;
+  attempt: number;
+  status: FinalExportExecutionStatus;
+  outputPath: string;
+  outputAssetHash?: string;
+  outputHash?: string;
+  outputFormat?: string;
+  outputBytes?: number;
+  error?: string;
+  toolchain: {
+    ffmpegBinary: string;
+    expectedPackagedVersion: string;
+    license: 'LGPL';
+  };
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+/** Durable Final Export state safe to expose to the renderer and Commander context. */
+export interface WorkflowFinalExportContext {
+  run: WorkflowRun;
+  manifest: WorkflowDocument;
+  approval: WorkflowApprovalView;
+  execution?: WorkflowExportExecution;
+}
+
+export interface PrepareFinalExportManifestResult {
+  context: WorkflowFinalExportContext;
+  created: boolean;
+}
+
+/** Media types governed by the persistent production-quality loop. */
+export type ProductionMediaType = 'image' | 'video';
+
+/** Durable lifecycle of one provider submission. */
+export type WorkflowMediaAttemptStatus =
+  | 'reserved'
+  | 'submitted'
+  | 'asset_ready'
+  | 'evaluating'
+  | 'accepted'
+  | 'repair_required'
+  | 'regenerate_required'
+  | 'human_review'
+  | 'failed'
+  | 'ambiguous'
+  | 'cancelled';
+
+export type WorkflowMediaEvaluationVerdict = 'pass' | 'repair' | 'regenerate' | 'human_review';
+
+/**
+ * Structured, reviewable change between immutable generation attempts.
+ * The host applies this delta deterministically; models never replace the
+ * already-approved story or Visual Constitution.
+ */
+export interface RepairDelta extends Record<string, unknown> {
+  version: 1;
+  reason: string;
+  promptAdditions: string[];
+  negativeAdditions: string[];
+  preserve: string[];
+  seedStrategy: 'keep' | 'increment';
+  parameterChanges?: Record<string, string | number | boolean>;
+}
+
+/** Immutable host-compiled request identity recorded before a provider call. */
+export interface ProductionMediaGenerationSpec extends Record<string, unknown> {
+  specVersion: 1;
+  workflowRunId: string;
+  canvasId: string;
+  nodeId: string;
+  nodeUpdatedAt: number;
+  mediaType: ProductionMediaType;
+  generationType: 'image' | 'video';
+  mode: 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video';
+  productionPlan: { revision: number; contentHash: string };
+  visualConstitution: { revision: number; contentHash: string };
+  providerId: string;
+  prompt: string;
+  negativePrompt?: string;
+  referenceAssetHashes: string[];
+  frameReferenceHashes?: { first?: string; last?: string };
+  request: {
+    width?: number;
+    height?: number;
+    duration?: number;
+    fps?: number;
+    seed?: number;
+    sourceImageHash?: string;
+    audio?: boolean;
+    quality?: string;
+    steps?: number;
+    cfgScale?: number;
+    scheduler?: string;
+    img2imgStrength?: number;
+    params?: Record<string, unknown>;
+  };
+  limits: {
+    maxAttemptsPerShot: number;
+    maxRegenerations: number;
+    maxTotalCostUsd: number;
+    styleAuditionCommittedCostUsd: number;
+  };
+  createdAt: number;
+}
+
+/** One immutable provider submission reservation and its monotonic state. */
+export interface WorkflowMediaAttempt {
+  id: string;
+  workflowRunId: string;
+  canvasId: string;
+  nodeId: string;
+  attempt: number;
+  idempotencyKey: string;
+  specHash: string;
+  generationSpec: ProductionMediaGenerationSpec;
+  repairDelta?: RepairDelta;
+  mediaType: ProductionMediaType;
+  status: WorkflowMediaAttemptStatus;
+  rowVersion: number;
+  providerId: string;
+  model?: string;
+  prompt: string;
+  promptHash: string;
+  negativePrompt?: string;
+  seed?: number;
+  estimatedCostUsd: number;
+  reportedActualCostUsd?: number;
+  providerJobId?: string;
+  assetHash?: string;
+  error?: string;
+  createdAt: number;
+  submittedAt?: number;
+  assetReadyAt?: number;
+  evaluatedAt?: number;
+  completedAt?: number;
+  updatedAt: number;
+}
+
+/** Fixed rubric scores used for both stills and timestamped video evidence. */
+export interface WorkflowMediaScoreSet extends Record<string, number> {
+  identity: number;
+  style: number;
+  scriptAlignment: number;
+  continuity: number;
+  composition: number;
+  lighting: number;
+  motion: number;
+  technical: number;
+  safety: number;
+}
+
+export interface WorkflowMediaFrameEvidence {
+  timestampSeconds: number;
+  assetHash: string;
+}
+
+/** Immutable vision/metadata evidence attached to exactly one attempt. */
+export interface WorkflowMediaEvaluation {
+  id: string;
+  attemptId: string;
+  workflowRunId: string;
+  canvasId: string;
+  nodeId: string;
+  assetHash: string;
+  mediaType: ProductionMediaType;
+  rubricVersion: string;
+  evaluatorProviderId: string;
+  evaluatorModel?: string;
+  scores: WorkflowMediaScoreSet;
+  total: number;
+  verdict: WorkflowMediaEvaluationVerdict;
+  strengths: string[];
+  risks: string[];
+  evidence: string[];
+  repairDelta?: RepairDelta;
+  metadata: Record<string, unknown>;
+  frameEvidence: WorkflowMediaFrameEvidence[];
+  createdAt: number;
+}
+
+export interface WorkflowMediaCostSummary {
+  attemptCount: number;
+  regenerationCount: number;
+  estimatedCostUsd: number;
+  reportedActualCostUsd: number;
+  committedCostUsd: number;
+  hasUnreportedActualCosts: boolean;
+}
+
+/** Input accepted by the workflow engine after the host UI records a real user action. */
+export interface UserApproveWorkflowGateInput {
+  workflowRunId: string;
+  gateKey: WorkflowApprovalGateKey;
+  expectedRowVersion: number;
+  expectedSubjectRevision: number;
+  expectedSubjectHash: string;
+}
+
+export interface ApproveWorkflowGateInput {
+  workflowRunId: string;
+  gateKey: WorkflowApprovalGateKey;
+  expectedRowVersion: number;
+  expectedSubjectRevision: number;
+  expectedSubjectHash: string;
+  resumeTokenHash: string;
+  eventId: string;
+  actor: string;
+  correlationId?: string;
+  causationId?: string;
+  approvedAt: number;
+  /** Engine-owned stage transition; never accepted directly from renderer or AI tools. */
+  nextStageId?: string;
+}
+
+export type ApproveWorkflowGateResult =
+  | {
+      ok: true;
+      code: 'approved';
+      run: WorkflowRun;
+      approval: WorkflowApproval;
+      event: WorkflowEvent;
+    }
+  | { ok: false; code: 'run_not_found' }
+  | { ok: false; code: 'no_approval' }
+  | { ok: false; code: 'already_approved'; approval: WorkflowApproval }
+  | {
+      ok: false;
+      code: 'approval_not_pending';
+      status: Exclude<WorkflowApprovalStatus, 'pending' | 'approved'>;
+    }
+  | {
+      ok: false;
+      code: 'gate_not_current';
+      actualGate?: WorkflowApprovalGateKey;
+    }
+  | { ok: false; code: 'stale_row_version'; actualRowVersion: number }
+  | { ok: false; code: 'stale_subject_revision'; actualSubjectRevision: number }
+  | { ok: false; code: 'subject_hash_mismatch' }
+  | { ok: false; code: 'resume_token_mismatch' };
 
 export interface WorkflowStageRun {
   id: string;

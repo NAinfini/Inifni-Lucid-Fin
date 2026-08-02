@@ -27,7 +27,8 @@ export interface QueuedMessage {
 
 export type MessageSegmentId = string;
 
-export type PhaseNoteKind = 'process_prompt_loaded' | 'compacted' | 'llm_retry' | 'tool_skipped_dedup' | 'force_ask_user';
+export type PhaseNoteKind =
+  'process_prompt_loaded' | 'compacted' | 'llm_retry' | 'tool_skipped_dedup' | 'force_ask_user';
 
 export type MessageSegment =
   | { kind: 'text'; id: MessageSegmentId; content: string }

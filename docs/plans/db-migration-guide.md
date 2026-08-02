@@ -45,42 +45,42 @@ Every statement uses `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`
 
 ### Key Files
 
-| File | Role |
-|------|------|
-| `packages/storage/src/schema-sql.ts` | Single source of truth for all DDL |
-| `packages/storage/src/sqlite-index.ts` | DB lifecycle: open, schema exec, close, repair, vacuum |
-| `packages/storage/src/storage-interfaces.ts` | `IStorageLayer` and `RepoBundle` interfaces |
-| `packages/storage/src/transactions.ts` | `withTx()` helper and `Tx` type alias |
-| `packages/storage/src/repositories/*.ts` | One repository per domain table (or table group) |
+| File                                               | Role                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------- |
+| `packages/storage/src/schema-sql.ts`               | Single source of truth for all DDL                         |
+| `packages/storage/src/sqlite-index.ts`             | DB lifecycle: open, schema exec, close, repair, vacuum     |
+| `packages/storage/src/storage-interfaces.ts`       | `IStorageLayer` and `RepoBundle` interfaces                |
+| `packages/storage/src/transactions.ts`             | `withTx()` helper and `Tx` type alias                      |
+| `packages/storage/src/repositories/*.ts`           | One repository per domain table (or table group)           |
 | `packages/contracts-parse/src/storage/tables/*.ts` | Compile-time table/column constants (`defineTable`, `col`) |
-| `packages/contracts-parse/src/tables.ts` | `defineTable()` and `col()` factory functions |
-| `packages/storage/src/backup.ts` | Periodic backup / restore utilities |
-| `packages/storage/src/migrations/` | **Empty** -- reserved for future versioned migrations |
+| `packages/contracts-parse/src/tables.ts`           | `defineTable()` and `col()` factory functions              |
+| `packages/storage/src/backup.ts`                   | Periodic backup / restore utilities                        |
+| `packages/storage/src/migrations/`                 | **Empty** -- reserved for future versioned migrations      |
 
 ### Repository Layer
 
 Each domain has its own repository class that receives a `BetterSqlite3.Database` in its constructor and owns all SQL for that domain. There are currently **18 repositories**:
 
-| Repository | Table(s) |
-|-----------|----------|
-| `SessionRepository` | `commander_sessions` |
-| `CommanderEventRepository` | `commander_events` |
-| `JobRepository` | `jobs` |
-| `AssetRepository` | `assets`, `assets_fts`, `asset_embeddings` |
-| `CanvasRepository` | `canvases` |
-| `CanvasNodeRepository` | `canvas_nodes` |
-| `CanvasEdgeRepository` | `canvas_edges` |
-| `EntityRepository` | `characters`, `equipment`, `locations` |
-| `FolderRepository` | `character_folders`, `equipment_folders`, `location_folders`, `asset_folders` |
-| `SeriesRepository` | `series`, `episodes` |
-| `PresetRepository` | `preset_overrides` |
-| `ShotTemplateRepository` | `custom_shot_templates` |
-| `SnapshotRepository` | `snapshots` |
-| `WorkflowRepository` | `workflow_runs`, `workflow_stage_runs`, `workflow_task_runs`, `workflow_task_dependencies`, `workflow_artifacts` |
-| `ScriptRepository` | `scripts` |
-| `ColorStyleRepository` | `color_styles` |
-| `DependencyRepository` | `dependencies` |
-| `ProjectSettingsRepository` | `project_settings` |
+| Repository                  | Table(s)                                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `SessionRepository`         | `commander_sessions`                                                                                             |
+| `CommanderEventRepository`  | `commander_events`                                                                                               |
+| `JobRepository`             | `jobs`                                                                                                           |
+| `AssetRepository`           | `assets`, `assets_fts`, `asset_embeddings`                                                                       |
+| `CanvasRepository`          | `canvases`                                                                                                       |
+| `CanvasNodeRepository`      | `canvas_nodes`                                                                                                   |
+| `CanvasEdgeRepository`      | `canvas_edges`                                                                                                   |
+| `EntityRepository`          | `characters`, `equipment`, `locations`                                                                           |
+| `FolderRepository`          | `character_folders`, `equipment_folders`, `location_folders`, `asset_folders`                                    |
+| `SeriesRepository`          | `series`, `episodes`                                                                                             |
+| `PresetRepository`          | `preset_overrides`                                                                                               |
+| `ShotTemplateRepository`    | `custom_shot_templates`                                                                                          |
+| `SnapshotRepository`        | `snapshots`                                                                                                      |
+| `WorkflowRepository`        | `workflow_runs`, `workflow_stage_runs`, `workflow_task_runs`, `workflow_task_dependencies`, `workflow_artifacts` |
+| `ScriptRepository`          | `scripts`                                                                                                        |
+| `ColorStyleRepository`      | `color_styles`                                                                                                   |
+| `DependencyRepository`      | `dependencies`                                                                                                   |
+| `ProjectSettingsRepository` | `project_settings`                                                                                               |
 
 ### Compile-Time Schema Safety
 
@@ -101,11 +101,11 @@ Repositories reference these constants:
 
 ```typescript
 // packages/storage/src/repositories/project-settings-repository.ts
-const TBL = ProjectSettingsTable.tableName;   // 'project_settings'
+const TBL = ProjectSettingsTable.tableName; // 'project_settings'
 const C = ProjectSettingsTable.cols;
 
 // Usage in queries:
-d.prepare(`SELECT ${C.value.sqlName} FROM ${TBL} WHERE ${C.key.sqlName} = ?`)
+d.prepare(`SELECT ${C.value.sqlName} FROM ${TBL} WHERE ${C.key.sqlName} = ?`);
 ```
 
 If a column is renamed in the schema but not in the table constant, TypeScript catches it at compile time.
@@ -136,6 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_my_new_table_updated
 ```
 
 Conventions observed in the existing schema:
+
 - **Primary key** is `TEXT` (UUIDs stored as strings), never `INTEGER AUTOINCREMENT`.
 - **Timestamps** are `INTEGER NOT NULL` (Unix epoch milliseconds), except `canvas_nodes` / `canvas_edges` which use `TEXT` with `datetime('now')` defaults.
 - **JSON blobs** are stored as `TEXT` with a `_json` suffix (e.g., `data_json`, `metadata_json`) and a `DEFAULT '{}'` or `DEFAULT '[]'`.
@@ -219,20 +220,13 @@ export class MyNewTableRepository {
          ${C.name.sqlName}=excluded.${C.name.sqlName},
          ${C.dataJson.sqlName}=excluded.${C.dataJson.sqlName},
          ${C.updatedAt.sqlName}=excluded.${C.updatedAt.sqlName}`,
-    ).run(
-      entity.id,
-      entity.name,
-      JSON.stringify(entity.data),
-      entity.createdAt,
-      entity.updatedAt,
-    );
+    ).run(entity.id, entity.name, JSON.stringify(entity.data), entity.createdAt, entity.updatedAt);
   }
 
   get(id: string, tx?: Tx): MyEntity | null {
     const d = tx ?? this.db;
-    const row = d
-      .prepare(`SELECT * FROM ${TBL} WHERE ${C.id.sqlName} = ?`)
-      .get(id) as Record<string, unknown> | undefined;
+    const row = d.prepare(`SELECT * FROM ${TBL} WHERE ${C.id.sqlName} = ?`).get(id) as
+      Record<string, unknown> | undefined;
     return row ? rowToEntity(row) : null;
   }
 
@@ -252,6 +246,7 @@ export class MyNewTableRepository {
 ```
 
 Key patterns from the codebase:
+
 - Accept optional `tx?: Tx` parameter so callers can compose multi-repo writes in a single transaction via `withTx()`.
 - Use `const d = tx ?? this.db;` at the top of each method.
 - Reference columns via the table constant (`C.xxx.sqlName`), never hardcoded strings.
@@ -368,9 +363,7 @@ In `sqlite-index.ts`, add a post-bootstrap migration block after `this.db.exec(S
 // Idempotent column additions for existing databases.
 // Each ALTER TABLE ADD COLUMN throws "duplicate column name" if
 // the column already exists; we catch and ignore that specific error.
-const addColumnMigrations = [
-  `ALTER TABLE characters ADD COLUMN nationality TEXT DEFAULT ''`,
-];
+const addColumnMigrations = [`ALTER TABLE characters ADD COLUMN nationality TEXT DEFAULT ''`];
 
 for (const sql of addColumnMigrations) {
   try {
@@ -391,7 +384,7 @@ Add the new column to the table's `defineTable()` call in `contracts-parse`:
 // packages/contracts-parse/src/storage/tables/entities.ts
 export const CharactersTable = defineTable('characters', {
   // ... existing cols ...
-  nationality: col<string>('nationality'),  // NEW
+  nationality: col<string>('nationality'), // NEW
 });
 ```
 
@@ -589,23 +582,24 @@ ALTER TABLE t ADD COLUMN c TEXT NOT NULL DEFAULT ''
 
 When adding a table or column, you must update **all** of these:
 
-| Sync Point | Location |
-|-----------|----------|
-| DDL | `packages/storage/src/schema-sql.ts` |
-| Table constant | `packages/contracts-parse/src/storage/tables/*.ts` |
-| Table barrel | `packages/contracts-parse/src/storage/tables/index.ts` |
-| Domain type | `packages/contracts/src/...` |
-| Repository | `packages/storage/src/repositories/*.ts` |
-| `SqliteIndex` fields | `packages/storage/src/sqlite-index.ts` (field, constructor, `repos`, `rebuildRepos`) |
-| `RepoBundle` interface | `packages/storage/src/storage-interfaces.ts` |
-| Storage barrel export | `packages/storage/src/index.ts` |
-| Tests | `packages/storage/src/repositories/*.test.ts` |
+| Sync Point             | Location                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| DDL                    | `packages/storage/src/schema-sql.ts`                                                 |
+| Table constant         | `packages/contracts-parse/src/storage/tables/*.ts`                                   |
+| Table barrel           | `packages/contracts-parse/src/storage/tables/index.ts`                               |
+| Domain type            | `packages/contracts/src/...`                                                         |
+| Repository             | `packages/storage/src/repositories/*.ts`                                             |
+| `SqliteIndex` fields   | `packages/storage/src/sqlite-index.ts` (field, constructor, `repos`, `rebuildRepos`) |
+| `RepoBundle` interface | `packages/storage/src/storage-interfaces.ts`                                         |
+| Storage barrel export  | `packages/storage/src/index.ts`                                                      |
+| Tests                  | `packages/storage/src/repositories/*.test.ts`                                        |
 
 Missing any of these will cause either a compile error (good -- caught early) or a runtime error (bad -- caught in production).
 
 ### 4. JSON column encoding/decoding mismatch
 
 The codebase stores complex objects as JSON-serialized `TEXT` columns. Always:
+
 - `JSON.stringify()` on write.
 - `JSON.parse()` on read with a fallback: `JSON.parse((row.col as string) || '{}')`.
 - Keep the TypeScript type and JSON shape in sync.

@@ -17,12 +17,7 @@ describe('estimateCost', () => {
       currency: 'USD',
       unit: 'per image',
     };
-    const result = estimateCost(
-      'openai-dalle',
-      'image',
-      { prompt: 'a sunset' },
-      adapterEstimate,
-    );
+    const result = estimateCost('openai-dalle', 'image', { prompt: 'a sunset' }, adapterEstimate);
     expect(result.estimatedCostUsd).toBe(0.04);
     expect(result.confidence).toBe('approximate');
     expect(result.disclaimer).toContain('Estimate only');

@@ -91,11 +91,15 @@ function hasAnchorFrames(node: CanvasNode): boolean {
 
 function scoreStylePlate(result: ScoringInput, canvas: Canvas | null): QualityDimension {
   const weight = 15;
-  const locked = result.stylePlateLocked ||
-    (typeof canvas?.settings?.stylePlate === 'string' && canvas.settings.stylePlate.trim().length > 0);
-  const hasNeg = typeof canvas?.settings?.negativePrompt === 'string' &&
+  const locked =
+    result.stylePlateLocked ||
+    (typeof canvas?.settings?.stylePlate === 'string' &&
+      canvas.settings.stylePlate.trim().length > 0);
+  const hasNeg =
+    typeof canvas?.settings?.negativePrompt === 'string' &&
     canvas.settings.negativePrompt.trim().length > 0;
-  const hasAspect = typeof canvas?.settings?.aspectRatio === 'string' &&
+  const hasAspect =
+    typeof canvas?.settings?.aspectRatio === 'string' &&
     canvas.settings.aspectRatio.trim().length > 0;
 
   let score = 0;
@@ -129,24 +133,39 @@ function scoreNodeCreation(result: ScoringInput, canvas: Canvas | null): Quality
   if (imageCount >= 1 && videoCount >= 1) score += 0.15;
   score = Math.min(score, 1);
 
-  const parts = [`${nodes.length} total nodes`, `${imageCount} image`, `${videoCount} video`, `${audioCount} audio`];
+  const parts = [
+    `${nodes.length} total nodes`,
+    `${imageCount} image`,
+    `${videoCount} video`,
+    `${audioCount} audio`,
+  ];
   return { name: 'Node Creation', score, maxScore: 1, weight, details: parts.join(', ') };
 }
 
 function scorePromptQuality(canvas: Canvas | null): QualityDimension {
   const weight = 15;
   const nodes = canvas?.nodes ?? [];
-  const generatable = nodes.filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio');
+  const generatable = nodes.filter(
+    (n) => n.type === 'image' || n.type === 'video' || n.type === 'audio',
+  );
   if (generatable.length === 0) {
-    return { name: 'Prompt Quality', score: 0, maxScore: 1, weight, details: 'no generatable nodes' };
+    return {
+      name: 'Prompt Quality',
+      score: 0,
+      maxScore: 1,
+      weight,
+      details: 'no generatable nodes',
+    };
   }
 
   const withPrompt = generatable.filter(hasPrompt);
   const promptRatio = withPrompt.length / generatable.length;
 
-  const avgLen = withPrompt.length > 0
-    ? withPrompt.reduce((sum, n) => sum + String((nodeData(n).prompt as string)).length, 0) / withPrompt.length
-    : 0;
+  const avgLen =
+    withPrompt.length > 0
+      ? withPrompt.reduce((sum, n) => sum + String(nodeData(n).prompt as string).length, 0) /
+        withPrompt.length
+      : 0;
 
   let score = promptRatio * 0.5;
   if (avgLen >= 50) score += 0.2;
@@ -154,7 +173,10 @@ function scorePromptQuality(canvas: Canvas | null): QualityDimension {
   if (avgLen >= 300) score += 0.15;
   score = Math.min(score, 1);
 
-  const parts = [`${withPrompt.length}/${generatable.length} nodes have prompts`, `avg length ${Math.round(avgLen)} chars`];
+  const parts = [
+    `${withPrompt.length}/${generatable.length} nodes have prompts`,
+    `avg length ${Math.round(avgLen)} chars`,
+  ];
   return { name: 'Prompt Quality', score, maxScore: 1, weight, details: parts.join('; ') };
 }
 
@@ -186,7 +208,13 @@ function scoreEdgeConnectivity(canvas: Canvas | null): QualityDimension {
   const videoNodes = nodes.filter((n) => n.type === 'video');
 
   if (nodes.length <= 1) {
-    return { name: 'Edge Connectivity', score: 0, maxScore: 1, weight, details: '≤1 node, no edges expected' };
+    return {
+      name: 'Edge Connectivity',
+      score: 0,
+      maxScore: 1,
+      weight,
+      details: '≤1 node, no edges expected',
+    };
   }
 
   const nodeIds = new Set(nodes.map((n) => n.id));
@@ -262,49 +290,91 @@ function collectFlags(result: ScoringInput, canvas: Canvas | null): QualityFlag[
   const byType = nodesByType(nodes);
 
   if (result.outcome === 'error') {
-    flags.push({ severity: 'critical', code: 'SESSION_ERROR', message: `Session errored: ${result.error ?? 'unknown'}` });
+    flags.push({
+      severity: 'critical',
+      code: 'SESSION_ERROR',
+      message: `Session errored: ${result.error ?? 'unknown'}`,
+    });
   }
 
   if (nodes.length === 0 && result.outcome === 'completed') {
-    flags.push({ severity: 'critical', code: 'EMPTY_CANVAS', message: 'Session completed but produced zero nodes' });
+    flags.push({
+      severity: 'critical',
+      code: 'EMPTY_CANVAS',
+      message: 'Session completed but produced zero nodes',
+    });
   }
 
   if (!result.stylePlateLocked && nodes.length > 0) {
-    flags.push({ severity: 'warning', code: 'NO_STYLE_PLATE', message: 'Nodes created without locking a style plate first' });
+    flags.push({
+      severity: 'warning',
+      code: 'NO_STYLE_PLATE',
+      message: 'Nodes created without locking a style plate first',
+    });
   }
 
   const videoNodes = byType.video ?? [];
   const audioNodes = byType.audio ?? [];
   if (videoNodes.length > 0 && audioNodes.length === 0) {
-    flags.push({ severity: 'warning', code: 'NO_AUDIO', message: `${videoNodes.length} video node(s) but no audio nodes` });
+    flags.push({
+      severity: 'warning',
+      code: 'NO_AUDIO',
+      message: `${videoNodes.length} video node(s) but no audio nodes`,
+    });
   }
 
-  const generatable = nodes.filter((n) => n.type === 'image' || n.type === 'video' || n.type === 'audio');
+  const generatable = nodes.filter(
+    (n) => n.type === 'image' || n.type === 'video' || n.type === 'audio',
+  );
   const withoutPrompt = generatable.filter((n) => !hasPrompt(n));
   if (withoutPrompt.length > 0) {
-    flags.push({ severity: 'warning', code: 'MISSING_PROMPTS', message: `${withoutPrompt.length} generatable node(s) lack prompts` });
+    flags.push({
+      severity: 'warning',
+      code: 'MISSING_PROMPTS',
+      message: `${withoutPrompt.length} generatable node(s) lack prompts`,
+    });
   }
 
   const toolErrors = result.toolCalls.filter((tc) => !tc.ok);
   if (toolErrors.length > 5) {
-    flags.push({ severity: 'warning', code: 'HIGH_ERROR_RATE', message: `${toolErrors.length} tool call errors in session` });
+    flags.push({
+      severity: 'warning',
+      code: 'HIGH_ERROR_RATE',
+      message: `${toolErrors.length} tool call errors in session`,
+    });
   }
 
   if (result.askUserCount > 5) {
-    flags.push({ severity: 'warning', code: 'EXCESSIVE_QUESTIONS', message: `Asked user ${result.askUserCount} times (may indicate confusion)` });
+    flags.push({
+      severity: 'warning',
+      code: 'EXCESSIVE_QUESTIONS',
+      message: `Asked user ${result.askUserCount} times (may indicate confusion)`,
+    });
   }
 
   if (result.steps > 50 && nodes.length < 3) {
-    flags.push({ severity: 'warning', code: 'LOW_PRODUCTIVITY', message: `${result.steps} steps but only ${nodes.length} nodes` });
+    flags.push({
+      severity: 'warning',
+      code: 'LOW_PRODUCTIVITY',
+      message: `${result.steps} steps but only ${nodes.length} nodes`,
+    });
   }
 
   const videoWithoutAnchors = videoNodes.filter((n) => !hasAnchorFrames(n));
   if (videoWithoutAnchors.length > 0) {
-    flags.push({ severity: 'info', code: 'VIDEO_NO_ANCHORS', message: `${videoWithoutAnchors.length} video node(s) without anchor frame references` });
+    flags.push({
+      severity: 'info',
+      code: 'VIDEO_NO_ANCHORS',
+      message: `${videoWithoutAnchors.length} video node(s) without anchor frame references`,
+    });
   }
 
   if (result.promptTokensEstimated > 300_000) {
-    flags.push({ severity: 'info', code: 'HIGH_TOKEN_USAGE', message: `Estimated ${Math.round(result.promptTokensEstimated / 1000)}k prompt tokens` });
+    flags.push({
+      severity: 'info',
+      code: 'HIGH_TOKEN_USAGE',
+      message: `Estimated ${Math.round(result.promptTokensEstimated / 1000)}k prompt tokens`,
+    });
   }
 
   return flags;

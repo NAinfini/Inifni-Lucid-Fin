@@ -100,9 +100,8 @@ function aggregatePackageCoverage(
 
   const result: Record<string, number> = {};
   for (const key of METRIC_KEYS) {
-    result[key] = totals[key].total > 0
-      ? Math.floor((totals[key].covered / totals[key].total) * 100)
-      : 0;
+    result[key] =
+      totals[key].total > 0 ? Math.floor((totals[key].covered / totals[key].total) * 100) : 0;
   }
   return result as Record<MetricKey, number>;
 }

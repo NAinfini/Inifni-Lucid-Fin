@@ -57,6 +57,9 @@ describe('PromptStore', () => {
     expect(val.length).toBeGreaterThan(0);
     expect(val).toContain('Lucid Fin');
     expect(val).toContain('You are Commander AI');
+    expect(val).toContain('workflow.visual');
+    expect(val).toContain('workflow.media');
+    expect(val).toContain('separate host-UI actions');
     expect(val).not.toContain('Generation baseline');
     expect(val).not.toContain('Prompt compilation');
     store.close();

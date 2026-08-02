@@ -146,7 +146,9 @@ describe('Canvas nodes integration', () => {
     expect(nodeRowMap.get('n3')?.type).toBe('text');
 
     const edgeRows = testDb.db.rawDb
-      .prepare('SELECT id, source, target, label FROM canvas_edges WHERE canvas_id = ? ORDER BY z_index ASC')
+      .prepare(
+        'SELECT id, source, target, label FROM canvas_edges WHERE canvas_id = ? ORDER BY z_index ASC',
+      )
       .all(created.id) as Array<{
       id: string;
       source: string;

@@ -52,7 +52,8 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   openai: {
     providerId: 'openai',
     displayName: 'OpenAI',
-    dataRetention: '30-day retention for abuse monitoring; no storage for Zero Data Retention eligible endpoints',
+    dataRetention:
+      '30-day retention for abuse monitoring; no storage for Zero Data Retention eligible endpoints',
     trainingUsage: 'API data is not used for training by default',
     commercialUse: 'yes',
     contentOwnership: 'User owns input and output; OpenAI assigns all rights to user',
@@ -67,7 +68,8 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   claude: {
     providerId: 'claude',
     displayName: 'Anthropic',
-    dataRetention: 'API inputs/outputs not stored beyond request processing unless flagged for Trust & Safety',
+    dataRetention:
+      'API inputs/outputs not stored beyond request processing unless flagged for Trust & Safety',
     trainingUsage: 'API data is not used for training models',
     commercialUse: 'yes',
     contentOwnership: 'User retains all rights to input and output content',
@@ -82,8 +84,10 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   gemini: {
     providerId: 'gemini',
     displayName: 'Google (Gemini)',
-    dataRetention: 'Paid API: data not retained beyond request processing. Free tier: prompts may be retained',
-    trainingUsage: 'Paid API data is not used for training. Free tier data may be used to improve products',
+    dataRetention:
+      'Paid API: data not retained beyond request processing. Free tier: prompts may be retained',
+    trainingUsage:
+      'Paid API data is not used for training. Free tier data may be used to improve products',
     commercialUse: 'yes',
     contentOwnership: 'User retains IP rights to content created with Gemini API',
     trainingOptOut: 'automatic',
@@ -165,7 +169,8 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
     dataRetention: 'Audio outputs stored per account settings; can be deleted by user',
     trainingUsage: 'User audio not used for training without explicit consent',
     commercialUse: 'conditional',
-    commercialUseNote: 'Commercial use allowed on paid plans; free tier has attribution requirements',
+    commercialUseNote:
+      'Commercial use allowed on paid plans; free tier has attribution requirements',
     contentOwnership: 'User owns generated audio on paid plans',
     trainingOptOut: 'available',
     privacyPolicyUrl: 'https://elevenlabs.io/privacy',
@@ -178,7 +183,8 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
   deepseek: {
     providerId: 'deepseek',
     displayName: 'DeepSeek',
-    dataRetention: 'API data retained for up to 30 days for service improvement and abuse prevention',
+    dataRetention:
+      'API data retained for up to 30 days for service improvement and abuse prevention',
     trainingUsage: 'API data may be used for model improvement unless opted out',
     commercialUse: 'yes',
     contentOwnership: 'User retains rights to output content',
@@ -356,7 +362,8 @@ export const PROVIDER_POLICIES: Record<string, ProviderPolicy> = {
     commercialUse: 'yes',
     contentOwnership: 'User retains rights to output content per service agreement',
     trainingOptOut: 'not-available',
-    privacyPolicyUrl: 'https://terms.alicdn.com/legal-agreement/terms/privacy_policy_full/20231109180545349/20231109180545349.html',
+    privacyPolicyUrl:
+      'https://terms.alicdn.com/legal-agreement/terms/privacy_policy_full/20231109180545349/20231109180545349.html',
     tosUrl: 'https://help.aliyun.com/document_detail/2846853.html',
     lastVerified: '2026-05-06',
     disclaimer: STANDARD_DISCLAIMER,

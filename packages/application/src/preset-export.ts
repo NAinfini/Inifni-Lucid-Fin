@@ -72,8 +72,7 @@ export function exportPresets(
       values: { ...p.defaults },
     };
     // Carry over intensity from the track entry defaults if present
-    const intensity =
-      typeof p.defaults.intensity === 'number' ? p.defaults.intensity : undefined;
+    const intensity = typeof p.defaults.intensity === 'number' ? p.defaults.intensity : undefined;
     if (intensity !== undefined && intensity !== 100) {
       entry.intensity = intensity;
     }

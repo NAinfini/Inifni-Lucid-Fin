@@ -44,8 +44,6 @@ export const EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   'series.addEpisode',
   'series.removeEpisode',
   'series.reorderEpisodes',
-  'render.start',
-  'render.cancel',
   'render.exportBundle',
   'job.list',
   'job.control',

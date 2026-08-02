@@ -131,9 +131,9 @@ function walkValue(value: unknown, hashes: Set<string>): void {
 // -- Individual collectors --------------------------------------------------
 
 const collectFromCanvasNodes: HashCollector = (db, hashes) => {
-  const rows = db
-    .prepare('SELECT data_json FROM canvas_nodes')
-    .all() as Array<{ data_json: string }>;
+  const rows = db.prepare('SELECT data_json FROM canvas_nodes').all() as Array<{
+    data_json: string;
+  }>;
   for (const row of rows) {
     if (row.data_json) extractHashesFromJson(row.data_json, hashes);
   }
@@ -192,9 +192,7 @@ const collectFromColorStyles: HashCollector = (db, hashes) => {
 };
 
 const collectFromAssetEmbeddings: HashCollector = (db, hashes) => {
-  const rows = db
-    .prepare('SELECT hash FROM asset_embeddings')
-    .all() as Array<{ hash: string }>;
+  const rows = db.prepare('SELECT hash FROM asset_embeddings').all() as Array<{ hash: string }>;
   for (const row of rows) {
     if (isValidHash(row.hash)) hashes.add(row.hash);
   }
@@ -202,9 +200,7 @@ const collectFromAssetEmbeddings: HashCollector = (db, hashes) => {
 };
 
 const collectFromAssets: HashCollector = (db, hashes) => {
-  const rows = db
-    .prepare('SELECT hash FROM assets')
-    .all() as Array<{ hash: string }>;
+  const rows = db.prepare('SELECT hash FROM assets').all() as Array<{ hash: string }>;
   for (const row of rows) {
     if (isValidHash(row.hash)) hashes.add(row.hash);
   }

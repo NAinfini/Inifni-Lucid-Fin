@@ -36,16 +36,24 @@ describe('createRenderTools', () => {
     await expect(
       getTool('render.start', deps).execute({
         canvasId: 'canvas-1',
-        format: 'mp4',
+        workflowRunId: 'run-1',
+        expectedManifestRevision: 2,
+        expectedManifestHash: 'a'.repeat(64),
         outputPath: ' C:/tmp/out.mp4 ',
       }),
     ).resolves.toEqual({ success: true, data: { renderId: 'render-1' } });
-    expect(deps.startRender).toHaveBeenCalledWith('canvas-1', 'mp4', 'C:/tmp/out.mp4');
+    expect(deps.startRender).toHaveBeenCalledWith({
+      canvasId: 'canvas-1',
+      workflowRunId: 'run-1',
+      expectedManifestRevision: 2,
+      expectedManifestHash: 'a'.repeat(64),
+      outputPath: 'C:/tmp/out.mp4',
+    });
 
-    await expect(getTool('render.cancel', deps).execute({ canvasId: 'canvas-1' })).resolves.toEqual(
+    await expect(getTool('render.cancel', deps).execute({ renderId: 'render-1' })).resolves.toEqual(
       {
         success: true,
-        data: { canvasId: 'canvas-1' },
+        data: { renderId: 'render-1' },
       },
     );
 
@@ -66,7 +74,12 @@ describe('createRenderTools', () => {
     vi.mocked(deps.cancelRender).mockRejectedValueOnce(new Error('cancel failed'));
 
     await expect(
-      getTool('render.start', deps).execute({ canvasId: '', format: 'mp4' }),
+      getTool('render.start', deps).execute({
+        canvasId: '',
+        workflowRunId: 'run-1',
+        expectedManifestRevision: 1,
+        expectedManifestHash: 'a'.repeat(64),
+      }),
     ).resolves.toEqual({
       success: false,
       error: 'canvasId is required',
@@ -82,7 +95,7 @@ describe('createRenderTools', () => {
       success: false,
       error: 'format must be "fcpxml" or "edl"',
     });
-    await expect(getTool('render.cancel', deps).execute({ canvasId: 'canvas-1' })).resolves.toEqual(
+    await expect(getTool('render.cancel', deps).execute({ renderId: 'render-1' })).resolves.toEqual(
       {
         success: false,
         error: 'cancel failed',

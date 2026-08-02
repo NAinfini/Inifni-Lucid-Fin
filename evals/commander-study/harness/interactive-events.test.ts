@@ -60,9 +60,9 @@ describe('getConfirmationPromptToolCallId', () => {
   });
 
   it('extracts from tool_confirm event', () => {
-    expect(
-      getConfirmationPromptToolCallId({ kind: 'tool_confirm', toolCallId: 'tc-2' }),
-    ).toBe('tc-2');
+    expect(getConfirmationPromptToolCallId({ kind: 'tool_confirm', toolCallId: 'tc-2' })).toBe(
+      'tc-2',
+    );
   });
 
   it('returns null for unrecognized event kind', () => {

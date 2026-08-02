@@ -21,7 +21,9 @@ function execContract(overrides: Partial<CompletionContract> = {}): CompletionCo
         description: 'Seed at least one scene node',
       },
     ],
-    acceptableSubstitutes: [{ toolName: 'canvas.manage', description: 'Alternative canvas mutation' }],
+    acceptableSubstitutes: [
+      { toolName: 'canvas.manage', description: 'Alternative canvas mutation' },
+    ],
     infoIntentExemption: false,
     blockingQuestionsAllowed: 3,
     ...overrides,

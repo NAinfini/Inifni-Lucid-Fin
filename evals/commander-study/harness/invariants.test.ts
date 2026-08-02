@@ -73,8 +73,20 @@ describe('checkInvariants', () => {
           step: 1,
           emittedAt: 3,
         }),
-        e({ kind: 'harness_answered', toolCallId: 'tc-1', answer: 'Option A', step: 1, emittedAt: 4 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-1', step: 1, emittedAt: 5, result: { success: true } }),
+        e({
+          kind: 'harness_answered',
+          toolCallId: 'tc-1',
+          answer: 'Option A',
+          step: 1,
+          emittedAt: 4,
+        }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-1',
+          step: 1,
+          emittedAt: 5,
+          result: { success: true },
+        }),
         runEnd(1, 6),
       ];
       expect(checkInvariants(makeBaseResult(), events)).toHaveLength(0);
@@ -84,11 +96,29 @@ describe('checkInvariants', () => {
       const events = [
         e({ kind: 'run_start', step: 0, emittedAt: 1 }),
         e({ kind: 'tool_call', toolCallId: 'tc-1', step: 1, emittedAt: 10 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-1', step: 1, emittedAt: 20, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-1',
+          step: 1,
+          emittedAt: 20,
+          result: { success: true },
+        }),
         e({ kind: 'tool_call', toolCallId: 'tc-2', step: 2, emittedAt: 30 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-2', step: 2, emittedAt: 40, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-2',
+          step: 2,
+          emittedAt: 40,
+          result: { success: true },
+        }),
         e({ kind: 'tool_call', toolCallId: 'tc-3', step: 3, emittedAt: 50 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-3', step: 3, emittedAt: 60, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-3',
+          step: 3,
+          emittedAt: 60,
+          result: { success: true },
+        }),
         runEnd(3, 70),
       ];
       expect(checkInvariants(makeBaseResult(), events)).toHaveLength(0);
@@ -112,7 +142,13 @@ describe('checkInvariants', () => {
       const events = [
         e({ kind: 'tool_call', toolCallId: 'tc-1', step: 1, emittedAt: 1 }),
         e({ kind: 'tool_call', toolCallId: 'tc-1', step: 2, emittedAt: 2 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-1', step: 2, emittedAt: 3, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-1',
+          step: 2,
+          emittedAt: 3,
+          result: { success: true },
+        }),
         runEnd(2, 4),
       ];
       const dupes = checkInvariants(makeBaseResult(), events).filter(
@@ -126,7 +162,13 @@ describe('checkInvariants', () => {
       const events = [
         e({ kind: 'tool_call', toolCallId: 'tc-1', step: 3, emittedAt: 1 }),
         e({ kind: 'tool_call', toolCallId: 'tc-1', step: 3, emittedAt: 2 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-1', step: 3, emittedAt: 3, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-1',
+          step: 3,
+          emittedAt: 3,
+          result: { success: true },
+        }),
         runEnd(3, 4),
       ];
       const dupes = checkInvariants(makeBaseResult(), events).filter(
@@ -150,9 +192,21 @@ describe('checkInvariants', () => {
     it('clears after a tool_result resets the pending state', () => {
       const events = [
         e({ kind: 'tool_call', toolCallId: 'tc-1', step: 1, emittedAt: 1 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-1', step: 1, emittedAt: 2, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-1',
+          step: 1,
+          emittedAt: 2,
+          result: { success: true },
+        }),
         e({ kind: 'tool_call', toolCallId: 'tc-1', step: 2, emittedAt: 3 }),
-        e({ kind: 'tool_result', toolCallId: 'tc-1', step: 2, emittedAt: 4, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'tc-1',
+          step: 2,
+          emittedAt: 4,
+          result: { success: true },
+        }),
         runEnd(2, 5),
       ];
       const dupes = checkInvariants(makeBaseResult(), events).filter(
@@ -179,8 +233,20 @@ describe('checkInvariants', () => {
       const events = [
         e({ kind: 'tool_call_started', toolCallId: 'a', step: 1, emittedAt: 1 }),
         e({ kind: 'tool_call_started', toolCallId: 'b', step: 1, emittedAt: 2 }),
-        e({ kind: 'tool_result', toolCallId: 'a', step: 1, emittedAt: 3, result: { success: true } }),
-        e({ kind: 'tool_result', toolCallId: 'b', step: 1, emittedAt: 4, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'a',
+          step: 1,
+          emittedAt: 3,
+          result: { success: true },
+        }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'b',
+          step: 1,
+          emittedAt: 4,
+          result: { success: true },
+        }),
         runEnd(1, 5),
       ];
       const dupes = checkInvariants(makeBaseResult(), events).filter(
@@ -199,7 +265,13 @@ describe('checkInvariants', () => {
       const events = [
         e({ kind: 'tool_call_started', toolCallId: 'orphan-1', step: 1, emittedAt: 1 }),
         e({ kind: 'tool_call_started', toolCallId: 'normal-1', step: 1, emittedAt: 2 }),
-        e({ kind: 'tool_result', toolCallId: 'normal-1', step: 1, emittedAt: 3, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'normal-1',
+          step: 1,
+          emittedAt: 3,
+          result: { success: true },
+        }),
         runEnd(1, 4),
       ];
       const orphans = checkInvariants(makeBaseResult(), events).filter(
@@ -352,7 +424,13 @@ describe('checkInvariants', () => {
           emittedAt: 1,
         }),
         e({ kind: 'harness_answered', toolCallId: 'ask-1', answer: 'A', step: 1, emittedAt: 2 }),
-        e({ kind: 'tool_result', toolCallId: 'ask-1', step: 1, emittedAt: 3, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'ask-1',
+          step: 1,
+          emittedAt: 3,
+          result: { success: true },
+        }),
         runEnd(1, 4),
       ];
       const violations = checkInvariants(makeBaseResult(), events).filter(
@@ -363,7 +441,13 @@ describe('checkInvariants', () => {
 
     it('does not flag when answer has no matching question', () => {
       const events = [
-        e({ kind: 'harness_answered', toolCallId: 'unmatched', answer: 'A', step: 1, emittedAt: 1 }),
+        e({
+          kind: 'harness_answered',
+          toolCallId: 'unmatched',
+          answer: 'A',
+          step: 1,
+          emittedAt: 1,
+        }),
         runEnd(1, 2),
       ];
       const violations = checkInvariants(makeBaseResult(), events).filter(
@@ -393,9 +477,25 @@ describe('checkInvariants', () => {
 
     it('flags multiple unanswered questions independently', () => {
       const events = [
-        e({ kind: 'question_prompt', questionId: 'q1', prompt: 'A?', options: [{ id: '1', label: 'A' }], allowFreeText: false, step: 1, emittedAt: 1 }),
+        e({
+          kind: 'question_prompt',
+          questionId: 'q1',
+          prompt: 'A?',
+          options: [{ id: '1', label: 'A' }],
+          allowFreeText: false,
+          step: 1,
+          emittedAt: 1,
+        }),
         e({ kind: 'harness_answered', toolCallId: 'q1', answer: 'A', step: 1, emittedAt: 2 }),
-        e({ kind: 'question_prompt', questionId: 'q2', prompt: 'B?', options: [{ id: '2', label: 'B' }], allowFreeText: false, step: 2, emittedAt: 3 }),
+        e({
+          kind: 'question_prompt',
+          questionId: 'q2',
+          prompt: 'B?',
+          options: [{ id: '2', label: 'B' }],
+          allowFreeText: false,
+          step: 2,
+          emittedAt: 3,
+        }),
         e({ kind: 'harness_answered', toolCallId: 'q2', answer: 'B', step: 2, emittedAt: 4 }),
         runEnd(2, 5),
       ];
@@ -422,7 +522,13 @@ describe('checkInvariants', () => {
           step: 1,
           emittedAt: 1,
         }),
-        e({ kind: 'tool_result', toolCallId: 'q-1', step: 1, emittedAt: 2, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'q-1',
+          step: 1,
+          emittedAt: 2,
+          result: { success: true },
+        }),
         runEnd(1, 3),
       ];
       const empty = checkInvariants(makeBaseResult(), events).filter(
@@ -441,7 +547,13 @@ describe('checkInvariants', () => {
           step: 1,
           emittedAt: 1,
         }),
-        e({ kind: 'tool_result', toolCallId: 'q-1', step: 1, emittedAt: 2, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'q-1',
+          step: 1,
+          emittedAt: 2,
+          result: { success: true },
+        }),
         runEnd(1, 3),
       ];
       const empty = checkInvariants(makeBaseResult(), events).filter(
@@ -463,7 +575,13 @@ describe('checkInvariants', () => {
           step: 1,
           emittedAt: 1,
         }),
-        e({ kind: 'tool_result', toolCallId: 'q-1', step: 1, emittedAt: 2, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'q-1',
+          step: 1,
+          emittedAt: 2,
+          result: { success: true },
+        }),
         runEnd(1, 3),
       ];
       const empty = checkInvariants(makeBaseResult(), events).filter(
@@ -504,7 +622,13 @@ describe('checkInvariants', () => {
           step: 1,
           emittedAt: 1,
         }),
-        e({ kind: 'tool_result', toolCallId: 'q-1', step: 1, emittedAt: 2, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'q-1',
+          step: 1,
+          emittedAt: 2,
+          result: { success: true },
+        }),
         runEnd(1, 3),
       ];
       const empty = checkInvariants(makeBaseResult(), events).filter(
@@ -515,10 +639,36 @@ describe('checkInvariants', () => {
 
     it('flags multiple question events with empty options', () => {
       const events = [
-        e({ kind: 'tool_question', toolCallId: 'q-1', prompt: 'A?', options: [], step: 1, emittedAt: 1 }),
-        e({ kind: 'tool_result', toolCallId: 'q-1', step: 1, emittedAt: 2, result: { success: true } }),
-        e({ kind: 'tool_question', toolCallId: 'q-2', prompt: 'B?', options: [], step: 2, emittedAt: 3 }),
-        e({ kind: 'tool_result', toolCallId: 'q-2', step: 2, emittedAt: 4, result: { success: true } }),
+        e({
+          kind: 'tool_question',
+          toolCallId: 'q-1',
+          prompt: 'A?',
+          options: [],
+          step: 1,
+          emittedAt: 1,
+        }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'q-1',
+          step: 1,
+          emittedAt: 2,
+          result: { success: true },
+        }),
+        e({
+          kind: 'tool_question',
+          toolCallId: 'q-2',
+          prompt: 'B?',
+          options: [],
+          step: 2,
+          emittedAt: 3,
+        }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'q-2',
+          step: 2,
+          emittedAt: 4,
+          result: { success: true },
+        }),
         runEnd(2, 5),
       ];
       const empty = checkInvariants(makeBaseResult(), events).filter(
@@ -597,11 +747,31 @@ describe('checkInvariants', () => {
 
     it('flags each duplicated key separately', () => {
       const events = [
-        e({ kind: 'evidence_appended', evidence: { kind: 'guide_activated', key: 'a' }, emittedAt: 1 }),
-        e({ kind: 'evidence_appended', evidence: { kind: 'guide_activated', key: 'b' }, emittedAt: 2 }),
-        e({ kind: 'evidence_appended', evidence: { kind: 'guide_activated', key: 'a' }, emittedAt: 3 }),
-        e({ kind: 'evidence_appended', evidence: { kind: 'guide_activated', key: 'b' }, emittedAt: 4 }),
-        e({ kind: 'evidence_appended', evidence: { kind: 'guide_activated', key: 'a' }, emittedAt: 5 }),
+        e({
+          kind: 'evidence_appended',
+          evidence: { kind: 'guide_activated', key: 'a' },
+          emittedAt: 1,
+        }),
+        e({
+          kind: 'evidence_appended',
+          evidence: { kind: 'guide_activated', key: 'b' },
+          emittedAt: 2,
+        }),
+        e({
+          kind: 'evidence_appended',
+          evidence: { kind: 'guide_activated', key: 'a' },
+          emittedAt: 3,
+        }),
+        e({
+          kind: 'evidence_appended',
+          evidence: { kind: 'guide_activated', key: 'b' },
+          emittedAt: 4,
+        }),
+        e({
+          kind: 'evidence_appended',
+          evidence: { kind: 'guide_activated', key: 'a' },
+          emittedAt: 5,
+        }),
         runEnd(1, 6),
       ];
       const dupes = checkInvariants(makeBaseResult(), events).filter(
@@ -730,7 +900,13 @@ describe('checkInvariants', () => {
     it('does not flag when tool_result progress resets the timer', () => {
       const events = [
         e({ kind: 'model_streaming', active: true, emittedAt: 1000 }),
-        e({ kind: 'tool_result', toolCallId: 'x', step: 1, emittedAt: 80_000, result: { success: true } }),
+        e({
+          kind: 'tool_result',
+          toolCallId: 'x',
+          step: 1,
+          emittedAt: 80_000,
+          result: { success: true },
+        }),
         e({ kind: 'model_streaming', active: true, emittedAt: 95_000 }),
         e({ kind: 'model_streaming', active: false, emittedAt: 96_000 }),
         runEnd(1, 97_000),

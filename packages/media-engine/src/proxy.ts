@@ -1,4 +1,5 @@
 import { createCommand, runCommand } from './ffmpeg-utils.js';
+import { getLgplVideoCodecConfig } from './codec-policy.js';
 
 // Reserved for future extension (e.g. custom bitrate override)
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- intentional placeholder interface
@@ -11,14 +12,10 @@ export function generateProxy(
   outputPath: string,
   _options: ProxyOptions = {},
 ): Promise<void> {
+  const { encoder } = getLgplVideoCodecConfig('h264');
   const cmd = createCommand(inputPath)
-    .videoCodec('libx264')
-    .addOutputOptions([
-      '-vf scale=trunc(iw/8)*2:trunc(ih/8)*2',
-      '-profile:v baseline',
-      '-b:v 2M',
-      '-preset fast',
-    ])
+    .videoCodec(encoder)
+    .addOutputOptions(['-vf scale=trunc(iw/8)*2:trunc(ih/8)*2', '-profile:v baseline', '-b:v 2M'])
     .output(outputPath);
 
   return runCommand(cmd);

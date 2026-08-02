@@ -1,13 +1,18 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { AlertTriangle, Sparkles, X } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
+import type { WorkflowApprovalContext, WorkflowVisualAuditionContext } from '@lucid-fin/contracts';
 import {
+  loadWorkflows,
   loadWorkflowStages,
   loadWorkflowTasks,
   retryWorkflow,
 } from '../../store/slices/workflows.js';
 import { t } from '../../i18n.js';
+import { FinalExportApprovalCard } from './FinalExportApprovalCard.js';
+import { ProductionPlanApprovalCard } from './ProductionPlanApprovalCard.js';
+import { VisualConstitutionApprovalCard } from './VisualConstitutionApprovalCard.js';
 
 type WorkflowDetailDrawerProps = {
   workflowRunId: string | null;
@@ -19,6 +24,8 @@ function workflowStatusLabel(status: string): string {
   switch (status) {
     case 'pending':
       return t('execution.status.pending');
+    case 'awaiting_approval':
+      return t('execution.status.awaitingApproval');
     case 'blocked':
       return t('execution.status.blocked');
     case 'ready':
@@ -48,6 +55,12 @@ function workflowStatusLabel(status: string): string {
 
 export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowDetailDrawerProps) {
   const dispatch = useDispatch();
+  const [approvalContext, setApprovalContext] = useState<WorkflowApprovalContext | null>(null);
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [approvalLoadError, setApprovalLoadError] = useState<string | null>(null);
+  const [visualAuditionContext, setVisualAuditionContext] =
+    useState<WorkflowVisualAuditionContext | null>(null);
+  const [visualLoadError, setVisualLoadError] = useState<string | null>(null);
   const workflow = useSelector((state: RootState) =>
     workflowRunId ? state.workflows.summariesById[workflowRunId] : undefined,
   );
@@ -66,6 +79,54 @@ export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowD
     dispatch(loadWorkflowStages(workflowRunId));
     dispatch(loadWorkflowTasks(workflowRunId));
   }, [dispatch, open, workflowRunId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setApprovalContext(null);
+    setApprovalLoadError(null);
+    if (!open || !workflowRunId || !window.lucidAPI?.workflow?.getPendingApproval) return;
+
+    setApprovalLoading(true);
+    void window.lucidAPI.workflow
+      .getPendingApproval(workflowRunId)
+      .then((context) => {
+        if (!cancelled) setApprovalContext(context);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setApprovalLoadError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setApprovalLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, workflowRunId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setVisualAuditionContext(null);
+    setVisualLoadError(null);
+    if (!open || !workflowRunId || !window.lucidAPI?.workflow?.getVisualAuditions) return;
+
+    void window.lucidAPI.workflow
+      .getVisualAuditions(workflowRunId)
+      .then((context) => {
+        if (!cancelled) setVisualAuditionContext(context);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setVisualLoadError(error instanceof Error ? error.message : String(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, workflowRunId]);
 
   if (!open || !workflowRunId || !workflow) {
     return null;
@@ -102,6 +163,103 @@ export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowD
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {approvalLoading && (
+            <div className="rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">
+              {t('workflowApproval.loading')}
+            </div>
+          )}
+          {approvalLoadError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+            >
+              {approvalLoadError}
+            </div>
+          )}
+          {visualLoadError && (
+            <div
+              role="alert"
+              className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+            >
+              {visualLoadError}
+            </div>
+          )}
+          {approvalContext?.approval.gateKey === 'production_plan' && (
+            <ProductionPlanApprovalCard
+              context={approvalContext}
+              onApprove={() =>
+                window.lucidAPI.workflow.approveGate({
+                  workflowRunId: approvalContext.run.id,
+                  gateKey: approvalContext.approval.gateKey,
+                  expectedRowVersion: approvalContext.run.rowVersion ?? 0,
+                  expectedSubjectRevision: approvalContext.approval.subjectRevision,
+                  expectedSubjectHash: approvalContext.approval.subjectHash,
+                })
+              }
+              onApproved={() => {
+                setApprovalContext(null);
+                dispatch(loadWorkflows({}));
+              }}
+            />
+          )}
+          {approvalContext?.approval.gateKey === 'final_export' && (
+            <FinalExportApprovalCard
+              context={approvalContext}
+              onApprove={() =>
+                window.lucidAPI.workflow.approveGate({
+                  workflowRunId: approvalContext.run.id,
+                  gateKey: approvalContext.approval.gateKey,
+                  expectedRowVersion: approvalContext.run.rowVersion ?? 0,
+                  expectedSubjectRevision: approvalContext.approval.subjectRevision,
+                  expectedSubjectHash: approvalContext.approval.subjectHash,
+                })
+              }
+              onApproved={() => {
+                setApprovalContext(null);
+                dispatch(loadWorkflows({}));
+              }}
+            />
+          )}
+          {visualAuditionContext &&
+            (visualAuditionContext.run.currentStageId === 'style-exploration' ||
+              approvalContext?.approval.gateKey === 'visual_constitution') && (
+              <VisualConstitutionApprovalCard
+                auditionContext={visualAuditionContext}
+                approvalContext={approvalContext}
+                onSelect={async (candidateId) => {
+                  const result = await window.lucidAPI.workflow.selectVisualCandidate({
+                    workflowRunId: visualAuditionContext.run.id,
+                    candidateId,
+                    expectedRowVersion: visualAuditionContext.run.rowVersion ?? 0,
+                    expectedAuditionRevision: visualAuditionContext.document.revision,
+                    expectedAuditionHash: visualAuditionContext.document.contentHash,
+                  });
+                  setApprovalContext(result.context);
+                  setVisualAuditionContext((current) =>
+                    current ? { ...current, run: result.context.run } : current,
+                  );
+                  dispatch(loadWorkflows({}));
+                  return result;
+                }}
+                onApprove={() => {
+                  if (approvalContext?.approval.gateKey !== 'visual_constitution') {
+                    throw new Error('Visual Constitution selection must be locked first');
+                  }
+                  return window.lucidAPI.workflow.approveGate({
+                    workflowRunId: approvalContext.run.id,
+                    gateKey: approvalContext.approval.gateKey,
+                    expectedRowVersion: approvalContext.run.rowVersion ?? 0,
+                    expectedSubjectRevision: approvalContext.approval.subjectRevision,
+                    expectedSubjectHash: approvalContext.approval.subjectHash,
+                  });
+                }}
+                onApproved={() => {
+                  setApprovalContext(null);
+                  setVisualAuditionContext(null);
+                  dispatch(loadWorkflows({}));
+                }}
+              />
+            )}
           <section className="rounded-xl border bg-card p-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full border bg-background px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">

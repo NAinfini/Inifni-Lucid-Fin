@@ -11,13 +11,7 @@ import type { NodeKind } from '../types/node-kinds.js';
 export type MediaNodeStatus = 'empty' | 'generating' | 'done' | 'failed';
 
 export type NodeStatus =
-  | 'idle'
-  | 'queued'
-  | 'generating'
-  | 'done'
-  | 'failed'
-  | 'locked'
-  | 'bypassed';
+  'idle' | 'queued' | 'generating' | 'done' | 'failed' | 'locked' | 'bypassed';
 
 export type EdgeStatus = 'idle' | 'generating' | 'done' | 'failed';
 
@@ -197,11 +191,7 @@ export interface BackdropNodeData {
 }
 
 export type CanvasNodeData =
-  | TextNodeData
-  | ImageNodeData
-  | VideoNodeData
-  | AudioNodeData
-  | BackdropNodeData;
+  TextNodeData | ImageNodeData | VideoNodeData | AudioNodeData | BackdropNodeData;
 
 // --- Canvas Node -----------------------------------------------------------
 

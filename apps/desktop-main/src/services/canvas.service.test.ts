@@ -132,9 +132,9 @@ describe('CanvasService', () => {
     });
 
     it('throws ValidationError for missing args', () => {
-      expect(() =>
-        service.renameCanvas(undefined as unknown as string, 'Name'),
-      ).toThrow(ValidationError);
+      expect(() => service.renameCanvas(undefined as unknown as string, 'Name')).toThrow(
+        ValidationError,
+      );
     });
   });
 

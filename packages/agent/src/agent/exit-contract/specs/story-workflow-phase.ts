@@ -26,7 +26,5 @@ export function createStoryWorkflowPhaseSpec(deps: StoryWorkflowPhaseSpecDeps): 
 export function storyWorkflowPhasePredicate(ctx: ActivationContext): boolean {
   // Fire when the workflow-orchestration process prompt has already been
   // activated in this run (visible via ledger evidence).
-  return ctx.ledger.some(
-    (e) => e.kind === 'guide_activated' && e.key === 'workflow-orchestration',
-  );
+  return ctx.ledger.some((e) => e.kind === 'guide_activated' && e.key === 'workflow-orchestration');
 }

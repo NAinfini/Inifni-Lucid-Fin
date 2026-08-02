@@ -2,7 +2,12 @@ import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
 import { Layers, Plus } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../store/index.js';
-import { addCanvas, setActiveCanvas, setCanvases, setLoading } from '../store/slices/canvas/canvas.js';
+import {
+  addCanvas,
+  setActiveCanvas,
+  setCanvases,
+  setLoading,
+} from '../store/slices/canvas/canvas.js';
 import { selectAllCanvases, selectActiveCanvas } from '../store/slices/canvas/canvas-selectors.js';
 import { toggleCommander } from '../store/slices/commander.js';
 import { setPresets, setPresetsLoading } from '../store/slices/presets.js';
@@ -180,10 +185,8 @@ export function CanvasPage() {
       try {
         const api = getAPI();
         if (!api) return;
-        const listed = await api?.canvas.list();
-        if (!Array.isArray(listed)) return;
-
-        const loaded = await Promise.all(listed.map((item) => api.canvas.load(item.id)));
+        const loaded = await api.canvas.loadAll();
+        if (!Array.isArray(loaded)) return;
 
         if (cancelled) return;
         dispatch(setCanvases(loaded));

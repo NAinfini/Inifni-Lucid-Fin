@@ -17,12 +17,7 @@ import * as matchers from 'vitest-axe/matchers';
 
 import { CanvasToolbar } from '../components/canvas/CanvasToolbar.js';
 import { SettingsSidebarNav } from '../components/settings/SettingsSidebarNav.js';
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from '../components/ui/Dialog.js';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/Dialog.js';
 import { EmptyState } from '../components/ui/EmptyState.js';
 import { Button } from '../components/ui/Button.js';
 import { settingsSlice } from '../store/slices/settings.js';

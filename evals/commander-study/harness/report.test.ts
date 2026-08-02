@@ -149,10 +149,7 @@ describe('renderMarkdownReport', () => {
 
   describe('headline stats', () => {
     it('computes average steps per session', () => {
-      const results = [
-        makeResult({ steps: 10 }),
-        makeResult({ steps: 20, personaIndex: 1 }),
-      ];
+      const results = [makeResult({ steps: 10 }), makeResult({ steps: 20, personaIndex: 1 })];
       const md = renderDefault(results);
       expect(md).toContain('15.0');
     });
@@ -363,7 +360,11 @@ describe('renderMarkdownReport', () => {
     it('cross-tabulates contract outcomes by archetype', () => {
       const results = [
         makeResult({ archetype: 'story', exitDecision: { outcome: 'satisfied' } }),
-        makeResult({ archetype: 'edge', exitDecision: { outcome: 'unsatisfied' }, personaIndex: 1 }),
+        makeResult({
+          archetype: 'edge',
+          exitDecision: { outcome: 'unsatisfied' },
+          personaIndex: 1,
+        }),
       ];
       const md = renderDefault(results);
       expect(md).toContain('### Contract outcomes × archetype');
@@ -408,8 +409,18 @@ describe('renderMarkdownReport', () => {
       const results = [
         makeResult({
           toolCalls: [
-            { step: 1, name: 'canvas.createNodes', ok: false, errorMessage: 'Node type not supported: banana' },
-            { step: 2, name: 'canvas.createNodes', ok: false, errorMessage: 'Node type not supported: banana' },
+            {
+              step: 1,
+              name: 'canvas.createNodes',
+              ok: false,
+              errorMessage: 'Node type not supported: banana',
+            },
+            {
+              step: 2,
+              name: 'canvas.createNodes',
+              ok: false,
+              errorMessage: 'Node type not supported: banana',
+            },
             { step: 3, name: 'character.create', ok: false, errorMessage: 'Name is required' },
           ],
         }),

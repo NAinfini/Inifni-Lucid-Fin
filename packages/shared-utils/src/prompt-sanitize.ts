@@ -75,8 +75,7 @@ const DEFAULT_MAX_LENGTH = 2000;
  * could trick the AI into treating user content as a role switch.
  * Matched case-insensitively.
  */
-const ROLE_MARKER_PATTERN =
-  /(?:^|\n)\s*(?:system|user|assistant|human|ai|claude|gpt|model)\s*:/gi;
+const ROLE_MARKER_PATTERN = /(?:^|\n)\s*(?:system|user|assistant|human|ai|claude|gpt|model)\s*:/gi;
 
 /**
  * Instruction-override patterns — phrases commonly used in prompt injection
@@ -140,13 +139,13 @@ function buildUnicodeControlPattern(): RegExp {
     [0x200b, 0x200f], // zero-width spaces + LTR/RTL marks
     [0x202a, 0x202e], // LTR/RTL embedding/override
     [0x2060, 0x2064], // word joiner + invisible operators
-    [0xfeff],         // BOM / zero-width no-break space
-    [0x00ad],         // soft hyphen
-    [0xfffc],         // object replacement character
+    [0xfeff], // BOM / zero-width no-break space
+    [0x00ad], // soft hyphen
+    [0xfffc], // object replacement character
     [0xfff9, 0xfffb], // interlinear annotation
     [0x0000, 0x0008], // ASCII control (NUL-BS)
-    [0x000b],         // vertical tab
-    [0x000c],         // form feed
+    [0x000b], // vertical tab
+    [0x000c], // form feed
     [0x000e, 0x001f], // ASCII control (SO-US)
   ];
   let charClass = '';

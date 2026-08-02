@@ -38,8 +38,7 @@ describe('matchKind', () => {
 });
 
 type Params =
-  | { mode: 'create'; name: string }
-  | { mode: 'update'; id: string; patch: Record<string, unknown> };
+  { mode: 'create'; name: string } | { mode: 'update'; id: string; patch: Record<string, unknown> };
 
 describe('matchParams', () => {
   it('uses mode for tool-style DUs', () => {

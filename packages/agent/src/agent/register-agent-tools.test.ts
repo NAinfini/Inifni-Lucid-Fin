@@ -121,14 +121,12 @@ function createMockDeps(): AllToolDeps {
     saveEquipment: vi.fn(async () => undefined),
     deleteEquipment: vi.fn(async () => undefined),
     // AssetToolDeps
-    importAsset: vi.fn(
-      async (): Promise<AssetRef> => ({
-        hash: 'hash-1',
-        type: 'image',
-        format: 'png',
-        path: '/tmp/hash-1.png',
-      }),
-    ),
+    importAsset: vi.fn(async (): Promise<AssetRef> => ({
+      hash: 'hash-1',
+      type: 'image',
+      format: 'png',
+      path: '/tmp/hash-1.png',
+    })),
     listAssets: vi.fn(async () => []),
     // PromptToolDeps
     listPrompts: vi.fn(async () => []),
@@ -158,6 +156,22 @@ function createMockDeps(): AllToolDeps {
     resumeWorkflow: vi.fn(async () => undefined),
     cancelWorkflow: vi.fn(async () => undefined),
     retryWorkflow: vi.fn(async () => undefined),
+    createProductionPlan: vi.fn(async () => ({
+      workflowRunId: 'wf-plan-1',
+      gate: 'production_plan' as const,
+      status: 'awaiting_approval' as const,
+      revision: 1,
+      contentHash: 'plan-hash-1',
+    })),
+    createVisualAuditions: vi.fn(async () => ({
+      workflowRunId: 'wf-plan-1',
+      status: 'complete' as const,
+      revision: 1,
+      contentHash: 'visual-hash-1',
+      recommendedCandidateId: 'candidate-1',
+      candidates: [],
+    })),
+    produceMedia: vi.fn(async () => ({ status: 'accepted' })),
     // LocationToolDeps
     listLocations: vi.fn(async () => []),
     saveLocation: vi.fn(async () => undefined),

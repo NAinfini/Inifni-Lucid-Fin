@@ -4,6 +4,168 @@
  * This is the single schema source. Keep each `CREATE TABLE IF NOT EXISTS`
  * idempotent so the same statement can run during normal boot and repair.
  */
+export const WORKFLOW_PERSISTENCE_TABLES_SQL = `
+CREATE TABLE IF NOT EXISTS workflow_documents (
+  id                  TEXT PRIMARY KEY,
+  workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  logical_key         TEXT NOT NULL,
+  document_type       TEXT NOT NULL,
+  revision            INTEGER NOT NULL CHECK (revision > 0),
+  schema_version      INTEGER NOT NULL CHECK (schema_version > 0),
+  content_json        TEXT NOT NULL,
+  content_hash        TEXT NOT NULL,
+  status              TEXT NOT NULL CHECK (status IN ('draft', 'active', 'superseded', 'invalidated')),
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL,
+  UNIQUE (workflow_run_id, logical_key, revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_documents_latest
+  ON workflow_documents(workflow_run_id, logical_key, revision DESC);
+
+CREATE TRIGGER IF NOT EXISTS trg_workflow_documents_immutable
+BEFORE UPDATE ON workflow_documents
+BEGIN
+  SELECT RAISE(ABORT, 'workflow documents are immutable');
+END;
+
+CREATE TABLE IF NOT EXISTS workflow_approvals (
+  id                    TEXT PRIMARY KEY,
+  workflow_run_id       TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  gate_key              TEXT NOT NULL CHECK (gate_key IN ('production_plan', 'visual_constitution', 'final_export')),
+  subject_logical_key   TEXT NOT NULL,
+  subject_revision      INTEGER NOT NULL CHECK (subject_revision > 0),
+  subject_hash          TEXT NOT NULL,
+  manifest_hash         TEXT NOT NULL,
+  resume_token_hash     TEXT NOT NULL,
+  status                TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'invalidated')),
+  created_at            INTEGER NOT NULL,
+  updated_at            INTEGER NOT NULL,
+  decided_at            INTEGER,
+  UNIQUE (workflow_run_id, gate_key, subject_revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_approvals_pending
+  ON workflow_approvals(workflow_run_id, gate_key, status, subject_revision DESC);
+
+CREATE TABLE IF NOT EXISTS workflow_events (
+  workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  seq               INTEGER NOT NULL CHECK (seq > 0),
+  event_id          TEXT NOT NULL,
+  actor             TEXT NOT NULL,
+  correlation_id    TEXT,
+  causation_id      TEXT,
+  payload_json      TEXT NOT NULL,
+  event_timestamp   INTEGER NOT NULL,
+  UNIQUE (workflow_run_id, seq),
+  UNIQUE (event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_events_run_seq
+  ON workflow_events(workflow_run_id, seq);
+
+CREATE TABLE IF NOT EXISTS workflow_export_executions (
+  id                  TEXT PRIMARY KEY,
+  workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  manifest_revision   INTEGER NOT NULL CHECK (manifest_revision > 0),
+  manifest_hash       TEXT NOT NULL,
+  idempotency_key     TEXT NOT NULL UNIQUE,
+  status              TEXT NOT NULL CHECK (status IN (
+                        'queued', 'running', 'ready_to_publish', 'completed',
+                        'failed', 'cancelled', 'recovery_required'
+                      )),
+  row_version         INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+  staging_path        TEXT,
+  destination_path    TEXT NOT NULL,
+  output_asset_hash   TEXT,
+  output_hash         TEXT,
+  output_size         INTEGER CHECK (output_size IS NULL OR output_size >= 0),
+  attempt             INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0),
+  error_text          TEXT,
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL,
+  completed_at        INTEGER,
+  UNIQUE (workflow_run_id, manifest_revision, manifest_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_export_executions_recovery
+  ON workflow_export_executions(status, updated_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_export_executions_run
+  ON workflow_export_executions(workflow_run_id, manifest_revision DESC);
+
+CREATE TABLE IF NOT EXISTS workflow_media_attempts (
+  id                        TEXT PRIMARY KEY,
+  workflow_run_id           TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  canvas_id                 TEXT NOT NULL,
+  node_id                   TEXT NOT NULL,
+  attempt                   INTEGER NOT NULL CHECK (attempt > 0),
+  idempotency_key           TEXT NOT NULL UNIQUE,
+  spec_hash                 TEXT NOT NULL,
+  generation_spec_json      TEXT NOT NULL,
+  repair_delta_json         TEXT,
+  media_type                TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  status                    TEXT NOT NULL CHECK (status IN (
+                              'reserved', 'submitted', 'asset_ready', 'evaluating',
+                              'accepted', 'repair_required', 'regenerate_required',
+                              'human_review', 'failed', 'ambiguous', 'cancelled'
+                            )),
+  row_version               INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+  provider_id               TEXT NOT NULL,
+  model                     TEXT,
+  prompt                    TEXT NOT NULL,
+  prompt_hash               TEXT NOT NULL,
+  negative_prompt           TEXT,
+  seed                      INTEGER,
+  estimated_cost_usd        REAL NOT NULL CHECK (estimated_cost_usd >= 0),
+  reported_actual_cost_usd  REAL CHECK (
+                              reported_actual_cost_usd IS NULL OR reported_actual_cost_usd >= 0
+                            ),
+  provider_job_id           TEXT,
+  asset_hash                TEXT,
+  error_text                TEXT,
+  created_at                INTEGER NOT NULL,
+  submitted_at              INTEGER,
+  asset_ready_at            INTEGER,
+  evaluated_at              INTEGER,
+  completed_at              INTEGER,
+  updated_at                INTEGER NOT NULL,
+  UNIQUE (workflow_run_id, node_id, attempt)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_media_attempts_run
+  ON workflow_media_attempts(workflow_run_id, node_id, attempt DESC);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_media_attempts_recovery
+  ON workflow_media_attempts(status, updated_at ASC);
+
+CREATE TABLE IF NOT EXISTS workflow_media_evaluations (
+  id                    TEXT PRIMARY KEY,
+  attempt_id            TEXT NOT NULL UNIQUE REFERENCES workflow_media_attempts(id) ON DELETE CASCADE,
+  workflow_run_id       TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  canvas_id             TEXT NOT NULL,
+  node_id               TEXT NOT NULL,
+  asset_hash            TEXT NOT NULL,
+  media_type            TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  rubric_version        TEXT NOT NULL,
+  evaluator_provider_id TEXT NOT NULL,
+  evaluator_model       TEXT,
+  scores_json           TEXT NOT NULL,
+  total                 REAL NOT NULL CHECK (total >= 0 AND total <= 100),
+  verdict               TEXT NOT NULL CHECK (verdict IN ('pass', 'repair', 'regenerate', 'human_review')),
+  strengths_json        TEXT NOT NULL,
+  risks_json            TEXT NOT NULL,
+  evidence_json         TEXT NOT NULL,
+  repair_delta_json     TEXT,
+  metadata_json         TEXT NOT NULL,
+  frame_evidence_json   TEXT NOT NULL,
+  created_at            INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_media_evaluations_run
+  ON workflow_media_evaluations(workflow_run_id, node_id, created_at DESC);
+`;
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS assets (
   hash        TEXT PRIMARY KEY,
@@ -217,7 +379,11 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
   created_at        INTEGER NOT NULL,
   started_at        INTEGER,
   completed_at      INTEGER,
-  updated_at        INTEGER NOT NULL
+  updated_at        INTEGER NOT NULL,
+  row_version       INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+  current_gate      TEXT CHECK (current_gate IS NULL OR current_gate IN ('production_plan', 'visual_constitution', 'final_export')),
+  engine_version    TEXT NOT NULL DEFAULT 'legacy',
+  definition_version INTEGER NOT NULL DEFAULT 1 CHECK (definition_version > 0)
 );
 
 CREATE INDEX IF NOT EXISTS idx_workflow_runs_status_updated
@@ -310,6 +476,8 @@ CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_entity
   ON workflow_artifacts(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_asset_hash
   ON workflow_artifacts(asset_hash);
+
+${WORKFLOW_PERSISTENCE_TABLES_SQL}
 
 CREATE TABLE IF NOT EXISTS project_settings (
   key         TEXT PRIMARY KEY,

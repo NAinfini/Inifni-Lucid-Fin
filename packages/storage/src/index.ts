@@ -93,18 +93,8 @@ export type { Dependent } from './repositories/dependency-repository.js';
 export { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
 
 // Backup and restore helpers
-export {
-  createBackup,
-  listBackups,
-  restoreBackup,
-  purgeAllBackups,
-} from './backup.js';
-export type {
-  BackupManifestEntry,
-  BackupManifest,
-  BackupResult,
-  BackupFailure,
-} from './backup.js';
+export { createBackup, listBackups, restoreBackup, purgeAllBackups } from './backup.js';
+export type { BackupManifestEntry, BackupManifest, BackupResult, BackupFailure } from './backup.js';
 
 // Schema migration system
 export { runMigrations, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './migrations.js';
@@ -113,4 +103,3 @@ export type { Migration } from './migrations.js';
 // ── Soft-delete GC ─────────────────────────────────────────────
 export { purgeSoftDeleted } from './gc.js';
 export type { GcResult } from './gc.js';
-

@@ -37,10 +37,7 @@ import type {
   SessionId,
   CommanderProcessBehaviorSettings,
 } from '@lucid-fin/contracts';
-import {
-  DEFAULT_PROVIDER_PROFILE,
-  COMMANDER_WIRE_VERSION,
-} from '@lucid-fin/contracts';
+import { DEFAULT_PROVIDER_PROFILE, COMMANDER_WIRE_VERSION } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { CanvasStore } from './canvas.handlers.js';
 
@@ -50,7 +47,12 @@ import { registerAllTools } from './commander-tool-deps/index.js';
 import { createEmitHandler, formatErrorDetail } from './commander-emit.js';
 import { commanderStreamChannel } from '@lucid-fin/contracts-parse';
 import { createRendererPushGateway } from '../../features/ipc/push-gateway.js';
-import { buildContext } from './commander-context.service.js';
+import {
+  buildContext,
+  buildPersistentWorkflowContext,
+  buildPersistentWorkflowManifest,
+  buildWorkspaceSnapshot,
+} from './commander-context.service.js';
 import { selectConfiguredAdapter, validateHistoryEntries } from './commander-llm.js';
 
 // Re-exported here so existing imports (tests, etc.) continue to resolve.
@@ -75,6 +77,8 @@ export function registerCommanderHandlers(
     cas: CAS;
     keychain: import('@lucid-fin/storage').Keychain;
     promptStore: import('@lucid-fin/storage').PromptStore;
+    finalExportService: import('../../services/final-export.service.js').FinalExportService;
+    productionMediaService: import('../../services/production-media.service.js').ProductionMediaService;
     resolvePrompt: (code: string) => string;
     resolveProcessPrompt: (processKey: string) => string | null;
     listProcessPromptKeys?: () => Array<{ processKey: string; name: string }>;
@@ -186,6 +190,8 @@ export function registerCommanderHandlers(
           cas: deps.cas,
           keychain: deps.keychain,
           promptStore: deps.promptStore,
+          finalExportService: deps.finalExportService,
+          productionMediaService: deps.productionMediaService,
         };
         const processPromptGuides = (deps.listProcessPromptKeys?.() ?? [])
           .map((entry) => ({
@@ -219,11 +225,55 @@ export function registerCommanderHandlers(
           options: {
             maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : undefined,
             temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
-            maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
+            // Legacy renderer field `maxTokens` is the user context-window
+            // cap. It must never be forwarded as a provider output limit.
+            contextWindowTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
             profile: adapterProfile,
             qualityGateBehavior: args.processSettings?.qualityGateBehavior,
-            requireStylePlateBeforeRefImage:
-              args.processSettings?.requireStylePlateBeforeRefImage,
+            requireStylePlateBeforeRefImage: args.processSettings?.requireStylePlateBeforeRefImage,
+            resolvePersistentContext: () => buildPersistentWorkflowContext(deps.db, args.canvasId),
+            onBeforeCompact: () => {
+              const projection = buildPersistentWorkflowContext(deps.db, args.canvasId);
+              const policy = projection.workflowToolPolicy;
+              if (!policy) return true;
+              if (!policy.workflowRunId || policy.phase === 'blocked') return false;
+              const runId = policy.workflowRunId as import('@lucid-fin/contracts').WorkflowRunId;
+              const documentRefs = Object.fromEntries(
+                [
+                  ['productionPlan', 'production-plan'],
+                  ['visualConstitution', 'visual-constitution'],
+                  ['finalExport', 'final-export'],
+                ].flatMap(([label, logicalKey]) => {
+                  const document = deps.db.repos.workflows.getLatestDocument(runId, logicalKey);
+                  return document
+                    ? [[label, { revision: document.revision, contentHash: document.contentHash }]]
+                    : [];
+                }),
+              );
+              deps.workflowEngine.createContextCheckpoint(policy.workflowRunId, {
+                canvasId: args.canvasId,
+                rowVersion: policy.rowVersion,
+                phase: policy.phase,
+                gate: policy.gate ?? null,
+                documentRefs,
+              });
+              return true;
+            },
+            onPostCompact: () => {
+              try {
+                const currentCanvas = deps.canvasStore.get(args.canvasId);
+                if (!currentCanvas) return null;
+                const workspace = buildWorkspaceSnapshot(
+                  currentCanvas,
+                  args.selectedNodeIds,
+                  deps.db,
+                );
+                const workflowManifest = buildPersistentWorkflowManifest(deps.db, args.canvasId);
+                return [workspace, workflowManifest].filter(Boolean).join('\n\n');
+              } catch {
+                return null;
+              }
+            },
           },
         });
         orchestrator = orchestratorInstance;

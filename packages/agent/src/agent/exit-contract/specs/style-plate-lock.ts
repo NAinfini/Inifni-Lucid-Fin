@@ -60,10 +60,7 @@ export function stylePlateLockPredicate(
  * trivial.
  */
 export function isGenerationTool(name: string, args?: Record<string, unknown>): boolean {
-  if (
-    name === 'canvas.generation' ||
-    name === 'entity.generateRefImage'
-  ) {
+  if (name === 'canvas.generation' || name === 'entity.generateRefImage') {
     return true;
   }
 

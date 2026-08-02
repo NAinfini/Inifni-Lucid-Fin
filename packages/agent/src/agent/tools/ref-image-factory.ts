@@ -124,7 +124,10 @@ export function createRefImageTools<T extends RefImageEntity, V>(
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: `The ${entityLabel} ID (obtain from ${toolNamePrefix}.list).` },
+          id: {
+            type: 'string',
+            description: `The ${entityLabel} ID (obtain from ${toolNamePrefix}.list).`,
+          },
           view: viewProperty,
           canvasId: {
             type: 'string',
@@ -206,13 +209,9 @@ export function createRefImageTools<T extends RefImageEntity, V>(
           const canvasRefW = canvasSettings?.refResolution?.width;
           const canvasRefH = canvasSettings?.refResolution?.height;
           const reqWidth =
-            typeof args.width === 'number' && args.width > 0
-              ? args.width
-              : canvasRefW;
+            typeof args.width === 'number' && args.width > 0 ? args.width : canvasRefW;
           const reqHeight =
-            typeof args.height === 'number' && args.height > 0
-              ? args.height
-              : canvasRefH;
+            typeof args.height === 'number' && args.height > 0 ? args.height : canvasRefH;
 
           // Provider resolution order: explicit arg > canvas setting > (fallback handled upstream).
           const explicitProvider = tryProviderId(args.providerId);
@@ -384,7 +383,10 @@ export function createRefImageTools<T extends RefImageEntity, V>(
       parameters: {
         type: 'object',
         properties: {
-          id: { type: 'string', description: `The ${entityLabel} ID (obtain from ${toolNamePrefix}.list).` },
+          id: {
+            type: 'string',
+            description: `The ${entityLabel} ID (obtain from ${toolNamePrefix}.list).`,
+          },
           view: viewProperty,
           canvasId: { type: 'string', description: 'Canvas ID containing the node.' },
           nodeId: { type: 'string', description: 'Image node ID to pull the asset from.' },

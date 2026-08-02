@@ -35,6 +35,8 @@ import { registerSnapshotHandlers } from './handlers/snapshot.handlers.js';
 import { registerProcessPromptHandlers } from './handlers/process-prompt.handlers.js';
 import { registerFolderHandlers } from './handlers/folder.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
+import { createFinalExportService } from '../services/final-export.service.js';
+import { createProductionMediaService } from '../services/production-media.service.js';
 
 const { ipcMain } = electron;
 
@@ -80,13 +82,22 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
   registerAiHandlers(ipcMain, getWindow, agent, promptStore);
   registerProcessPromptHandlers(ipcMain, processPromptStore);
   registerColorStyleHandlers(ipcMain, db, cas, workflowEngine);
+  const canvasStore = createCanvasStore(db);
+  const finalExportService = createFinalExportService({ db, cas, workflowEngine });
+  const productionMediaService = createProductionMediaService({
+    db,
+    cas,
+    keychain,
+    adapterRegistry: registry,
+    canvasStore,
+    workflowEngine,
+  });
   registerWorkflowHandlers(ipcMain, workflowEngine);
-  registerRenderHandlers(ipcMain);
+  registerRenderHandlers(ipcMain, finalExportService);
   registerFfmpegHandlers(ipcMain);
   registerSeriesHandlers(ipcMain, db);
-  const canvasStore = createCanvasStore(db);
   registerCanvasHandlers(ipcMain, canvasStore);
-  registerExportHandlers(ipcMain, cas, canvasStore);
+  registerExportHandlers(ipcMain, cas, canvasStore, finalExportService);
   registerCanvasGenerationHandlers(ipcMain, {
     adapterRegistry: registry,
     cas,
@@ -107,6 +118,8 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
     cas,
     keychain,
     promptStore,
+    finalExportService,
+    productionMediaService,
     resolvePrompt: (code: string) => promptStore.resolve(code),
     resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
     listProcessPromptKeys: () =>
@@ -123,6 +136,8 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
   registerStorageHandlers(ipcMain, { db, cas });
   registerSnapshotHandlers(ipcMain, db);
   registerFolderHandlers(ipcMain, db);
+  productionMediaService.recoverInterruptedAttempts();
+  finalExportService.recoverInterruptedExecutions();
   log.info('IPC handlers registered', {
     category: 'ipc',
     canvasStoreReady: true,

@@ -1,14 +1,7 @@
 import type { ReferenceImage } from './character.js';
 
 export type EquipmentType =
-  | 'weapon'
-  | 'armor'
-  | 'clothing'
-  | 'accessory'
-  | 'vehicle'
-  | 'tool'
-  | 'furniture'
-  | 'other';
+  'weapon' | 'armor' | 'clothing' | 'accessory' | 'vehicle' | 'tool' | 'furniture' | 'other';
 
 export const EQUIPMENT_STANDARD_SLOTS = [
   'front',

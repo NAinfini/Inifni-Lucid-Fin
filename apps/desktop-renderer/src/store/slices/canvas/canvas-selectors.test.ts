@@ -52,11 +52,13 @@ function makeCanvas(overrides: Partial<Canvas> = {}): Canvas {
   };
 }
 
-function makeState(overrides: {
-  canvases?: Canvas[];
-  activeCanvasId?: string | null;
-  selectedNodeIds?: string[];
-} = {}): RootState {
+function makeState(
+  overrides: {
+    canvases?: Canvas[];
+    activeCanvasId?: string | null;
+    selectedNodeIds?: string[];
+  } = {},
+): RootState {
   const canvases = overrides.canvases ?? [makeCanvas()];
   return {
     canvas: {
@@ -64,7 +66,8 @@ function makeState(overrides: {
         ids: canvases.map((c) => c.id),
         entities: Object.fromEntries(canvases.map((c) => [c.id, c])),
       },
-      activeCanvasId: 'activeCanvasId' in overrides ? overrides.activeCanvasId! : (canvases[0]?.id ?? null),
+      activeCanvasId:
+        'activeCanvasId' in overrides ? overrides.activeCanvasId! : (canvases[0]?.id ?? null),
       selectedNodeIds: overrides.selectedNodeIds ?? [],
       selectedEdgeIds: [],
       viewport: { x: 0, y: 0, zoom: 1 },
@@ -288,7 +291,9 @@ describe('canvas-selectors', () => {
 
   describe('selectActiveCanvasEdges', () => {
     it('returns edges of active canvas', () => {
-      const edges = [{ id: 'e1', source: 'n1', target: 'n2', data: { status: 'idle' as const } }] as Canvas['edges'];
+      const edges = [
+        { id: 'e1', source: 'n1', target: 'n2', data: { status: 'idle' as const } },
+      ] as Canvas['edges'];
       const state = makeState({ canvases: [makeCanvas({ edges })] });
       expect(selectActiveCanvasEdges(state)).toBe(edges);
     });

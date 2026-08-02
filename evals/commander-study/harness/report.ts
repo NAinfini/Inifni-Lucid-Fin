@@ -138,9 +138,7 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push(
     `| avg estimated prompt tokens peak | ${Math.round(totalPromptTokens / Math.max(1, n))} |`,
   );
-  lines.push(
-    `| avg quality score | ${(totalComposite / Math.max(1, n)).toFixed(1)} / 100 |`,
-  );
+  lines.push(`| avg quality score | ${(totalComposite / Math.max(1, n)).toFixed(1)} / 100 |`);
   lines.push('');
   // Quality score breakdown.
   lines.push('## Quality scores');
@@ -281,7 +279,9 @@ export function renderMarkdownReport(results: SessionResult[], options: ReportOp
   lines.push('');
   lines.push('## Per-session summary');
   lines.push('');
-  lines.push('| # | archetype | slug | outcome | steps | nodes | plate | askUser | tools | score | grade | ms |');
+  lines.push(
+    '| # | archetype | slug | outcome | steps | nodes | plate | askUser | tools | score | grade | ms |',
+  );
   lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const r of results) {
     const tools = Object.keys(r.toolCallCounts).length;

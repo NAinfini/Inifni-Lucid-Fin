@@ -20,6 +20,7 @@ const optionalString = z.string().optional();
 
 const WorkflowRunStatusEnum = z.enum([
   'pending',
+  'awaiting_approval',
   'blocked',
   'ready',
   'queued',
@@ -31,6 +32,12 @@ const WorkflowRunStatusEnum = z.enum([
   'failed',
   'cancelled',
   'dead',
+]);
+
+const WorkflowApprovalGateKeyEnum = z.enum([
+  'production_plan',
+  'visual_constitution',
+  'final_export',
 ]);
 
 const StageRunStatusEnum = z.enum([
@@ -93,6 +100,10 @@ export const WorkflowRunRecordSchema = z.object({
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
   updatedAt: baseTimestamp,
+  rowVersion: z.number().int().nonnegative().default(0),
+  currentGate: WorkflowApprovalGateKeyEnum.optional(),
+  engineVersion: z.string().min(1).default('legacy'),
+  definitionVersion: z.number().int().positive().default(1),
 });
 export type WorkflowRunRecordDto = z.infer<typeof WorkflowRunRecordSchema>;
 

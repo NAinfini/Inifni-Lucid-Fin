@@ -1,5 +1,9 @@
 import type { IpcMain } from 'electron';
 import type { WorkflowEngine } from '@lucid-fin/application';
+import type {
+  SelectVisualConstitutionCandidateInput,
+  WorkflowApprovalGateKey,
+} from '@lucid-fin/contracts';
 import log from '../../logger.js';
 
 export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: WorkflowEngine): void {
@@ -92,4 +96,69 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
   ipcMain.handle('workflow:retryWorkflow', async (_event, args: { id: string }) => {
     await workflowEngine.retryWorkflow(args.id);
   });
+
+  ipcMain.handle(
+    'workflow:getPendingApproval',
+    async (_event, args: { workflowRunId: string }) =>
+      workflowEngine.getPendingApprovalContext(args.workflowRunId) ?? null,
+  );
+
+  ipcMain.handle(
+    'workflow:getVisualAuditions',
+    async (_event, args: { workflowRunId: string }) =>
+      workflowEngine.getVisualAuditionContext(args.workflowRunId) ?? null,
+  );
+
+  ipcMain.handle(
+    'workflow:getFinalExport',
+    async (_event, args: { workflowRunId: string }) =>
+      workflowEngine.getFinalExportContext(args.workflowRunId) ?? null,
+  );
+
+  ipcMain.handle(
+    'workflow:selectVisualCandidate',
+    async (_event, args: SelectVisualConstitutionCandidateInput) => {
+      log.info('Human visual candidate selection requested', {
+        category: 'workflow',
+        workflowRunId: args.workflowRunId,
+        candidateId: args.candidateId,
+        auditionRevision: args.expectedAuditionRevision,
+      });
+      return workflowEngine.selectVisualConstitutionCandidateFromUser({
+        workflowRunId: args.workflowRunId,
+        candidateId: args.candidateId,
+        expectedRowVersion: args.expectedRowVersion,
+        expectedAuditionRevision: args.expectedAuditionRevision,
+        expectedAuditionHash: args.expectedAuditionHash,
+      });
+    },
+  );
+
+  ipcMain.handle(
+    'workflow:approveGate',
+    async (
+      _event,
+      args: {
+        workflowRunId: string;
+        gateKey: WorkflowApprovalGateKey;
+        expectedRowVersion: number;
+        expectedSubjectRevision: number;
+        expectedSubjectHash: string;
+      },
+    ) => {
+      log.info('Human workflow approval requested', {
+        category: 'workflow',
+        workflowRunId: args.workflowRunId,
+        gateKey: args.gateKey,
+        subjectRevision: args.expectedSubjectRevision,
+      });
+      return workflowEngine.approvePendingGateFromUser({
+        workflowRunId: args.workflowRunId,
+        gateKey: args.gateKey,
+        expectedRowVersion: args.expectedRowVersion,
+        expectedSubjectRevision: args.expectedSubjectRevision,
+        expectedSubjectHash: args.expectedSubjectHash,
+      });
+    },
+  );
 }

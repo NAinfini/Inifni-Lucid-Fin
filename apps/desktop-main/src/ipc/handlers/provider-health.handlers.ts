@@ -7,10 +7,7 @@
 import type { IpcMain, BrowserWindow } from 'electron';
 import { providerHealth } from '@lucid-fin/adapters-ai';
 import { registerInvoke, type RegistrarDeps } from '../../features/ipc/registrar.js';
-import {
-  providerHealthChannel,
-  providerHealthGetChannel,
-} from '@lucid-fin/contracts-parse';
+import { providerHealthChannel, providerHealthGetChannel } from '@lucid-fin/contracts-parse';
 
 export function registerProviderHealthHandlers(
   ipcMain: IpcMain,

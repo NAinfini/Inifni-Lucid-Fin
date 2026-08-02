@@ -37,13 +37,23 @@ async function findAssetFile(
 
   // 2. Try exact path
   const exactPath = cas.getAssetPath(hash, type, ext);
-  try { await fsp.access(exactPath); return exactPath; } catch { /* not found */ }
+  try {
+    await fsp.access(exactPath);
+    return exactPath;
+  } catch {
+    /* not found */
+  }
 
   // 3. Try fallback extensions for same type
   for (const tryExt of FALLBACK_EXTS[type] ?? []) {
     if (tryExt === ext) continue;
     const tryPath = cas.getAssetPath(hash, type, tryExt);
-    try { await fsp.access(tryPath); return tryPath; } catch { /* not found */ }
+    try {
+      await fsp.access(tryPath);
+      return tryPath;
+    } catch {
+      /* not found */
+    }
   }
 
   // 4. Try other asset type directories
@@ -51,7 +61,12 @@ async function findAssetFile(
     if (tryType === type) continue;
     for (const tryExt of FALLBACK_EXTS[tryType] ?? []) {
       const tryPath = cas.getAssetPath(hash, tryType, tryExt);
-      try { await fsp.access(tryPath); return tryPath; } catch { /* not found */ }
+      try {
+        await fsp.access(tryPath);
+        return tryPath;
+      } catch {
+        /* not found */
+      }
     }
   }
 

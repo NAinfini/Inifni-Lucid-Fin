@@ -403,9 +403,24 @@ const renderExportBundle = defineToolMeta({
   category: 'mutation',
 });
 
-// ── Workflow (1) ──────────────────────────────────────────────────
+// ── Workflow (4) ──────────────────────────────────────────────────
 const workflowManage = defineToolMeta({
   name: 'workflow.manage' as const,
+  process: 'workflow-orchestration',
+  category: 'mutation',
+});
+const workflowVisual = defineToolMeta({
+  name: 'workflow.visual' as const,
+  process: 'workflow-style-audition',
+  category: 'mutation',
+});
+const workflowMedia = defineToolMeta({
+  name: 'workflow.media' as const,
+  process: 'workflow-orchestration',
+  category: 'mutation',
+});
+const workflowFinalExport = defineToolMeta({
+  name: 'workflow.finalExport' as const,
   process: 'workflow-orchestration',
   category: 'mutation',
 });
@@ -538,6 +553,9 @@ export const ToolCatalog = createCatalog([
   renderCancel,
   renderExportBundle,
   workflowManage,
+  workflowVisual,
+  workflowMedia,
+  workflowFinalExport,
   // vision / text / meta
   textAnalyze,
   toolGet,

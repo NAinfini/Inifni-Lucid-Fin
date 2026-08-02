@@ -402,11 +402,7 @@ describe('buildCanvasClipboardPayload', () => {
 
   it('includes only selected nodes', () => {
     const canvas = makeCanvas({
-      nodes: [
-        makeNode({ id: 'n1' }),
-        makeNode({ id: 'n2' }),
-        makeNode({ id: 'n3' }),
-      ],
+      nodes: [makeNode({ id: 'n1' }), makeNode({ id: 'n2' }), makeNode({ id: 'n3' })],
       edges: [],
     });
     const result = buildCanvasClipboardPayload(canvas, ['n1', 'n3']);

@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { Download, Film, FileCode, Package, Play, Loader2 } from 'lucide-react';
 import type { AppDispatch, RootState } from '../store/index.js';
 import { addLog } from '../store/slices/logger.js';
@@ -25,8 +25,12 @@ const FPS_OPTIONS = [24, 25, 30, 60];
 
 export function ExportEngine() {
   const dispatch = useDispatch<AppDispatch>();
+  const activeCanvas = useSelector((state: RootState) => {
+    const id = state.canvas.activeCanvasId;
+    return id ? state.canvas.canvases.entities[id] : undefined;
+  });
   const [activeTab, setActiveTab] = useState<ExportTab>('render');
-  const [format, setFormat] = useState('h264');
+  const [format, setFormat] = useState<'h264' | 'h265' | 'prores'>('h264');
   const [resolution, setResolution] = useState('1080p');
   const [fps, setFps] = useState(30);
   const [nleFormat, setNleFormat] = useState<NLEFormat>('fcpxml');
@@ -44,14 +48,41 @@ export function ExportEngine() {
     try {
       const api = getAPI();
       if (!api) return;
+      if (!activeCanvas) throw new Error('Select a canvas before rendering');
       const res = RESOLUTIONS.find((r) => r.id === resolution);
       const outputFormat = format === 'prores' ? ('mov' as const) : ('mp4' as const);
-      await api.render.start({
-        sceneId: '',
-        outputFormat,
-        resolution: { width: res?.width ?? 1920, height: res?.height ?? 1080 },
-        fps,
-      });
+      const workflows = await api.workflow.list({});
+      const managedRun = workflows.find(
+        (run) =>
+          run.workflowType === 'movie.production.v2' &&
+          run.entityType === 'canvas' &&
+          run.entityId === activeCanvas.id &&
+          run.status !== 'cancelled' &&
+          run.status !== 'dead',
+      );
+      if (managedRun) {
+        const finalExport = await api.workflow.getFinalExport(managedRun.id);
+        if (!finalExport) {
+          throw new Error('The AI must prepare the Final Export manifest before rendering');
+        }
+        if (finalExport.approval.status !== 'approved') {
+          throw new Error('Approve the exact Final Export manifest in the workflow drawer first');
+        }
+        await api.render.start({
+          sceneId: activeCanvas.id,
+          workflowRunId: managedRun.id,
+          expectedManifestRevision: finalExport.manifest.revision,
+          expectedManifestHash: finalExport.manifest.contentHash,
+        });
+      } else {
+        await api.render.start({
+          sceneId: activeCanvas.id,
+          outputFormat,
+          codec: format,
+          resolution: { width: res?.width ?? 1920, height: res?.height ?? 1080 },
+          fps,
+        });
+      }
       setProgress(100);
     } catch (err) {
       dispatch(
@@ -65,14 +96,76 @@ export function ExportEngine() {
     } finally {
       setExporting(false);
     }
-  }, [dispatch, format, fps, resolution]);
+  }, [activeCanvas, dispatch, format, fps, resolution]);
 
   const handleNleExport = useCallback(async () => {
     setExporting(true);
     try {
       const api = getAPI();
       if (!api) return;
-      await api.export.nle({ format: nleFormat, includeAudio: true, includeSubtitles: true });
+      if (!activeCanvas) throw new Error('Select a canvas before exporting');
+      const videoAssets = await api.asset.query({ type: 'video' });
+      const assetsByHash = new Map(videoAssets.map((asset) => [asset.hash, asset]));
+      const res = RESOLUTIONS.find((entry) => entry.id === resolution);
+      const clips: Array<Record<string, unknown>> = [];
+      let startTime = 0;
+      const videoNodes = activeCanvas.nodes
+        .filter((node) => node.type === 'video' && !node.bypassed)
+        .sort(
+          (left, right) =>
+            left.position.x - right.position.x ||
+            left.position.y - right.position.y ||
+            left.id.localeCompare(right.id),
+        );
+      for (const node of videoNodes) {
+        const data = node.data as {
+          assetHash?: string;
+          variants?: string[];
+          selectedVariantIndex?: number;
+          duration?: number;
+          durationOverride?: number;
+          sceneNumber?: string;
+          shotOrder?: number;
+        };
+        const selectedIndex = Number.isInteger(data.selectedVariantIndex)
+          ? (data.selectedVariantIndex ?? 0)
+          : 0;
+        const hash = data.variants?.[selectedIndex] ?? data.assetHash;
+        const asset = hash ? assetsByHash.get(hash) : undefined;
+        if (!hash || !asset) throw new Error(`Video node "${node.title}" has no indexed asset`);
+        const duration = data.durationOverride ?? asset.duration ?? data.duration;
+        if (typeof duration !== 'number' || !Number.isFinite(duration) || duration <= 0) {
+          throw new Error(`Video node "${node.title}" has no valid duration`);
+        }
+        const assetPath = await api.asset.getPath(hash, 'video', asset.format);
+        clips.push({
+          id: node.id,
+          trackIndex: 0,
+          trackType: 'video',
+          assetPath,
+          startTime,
+          duration,
+          inPoint: 0,
+          outPoint: duration,
+          speed: 1,
+          title: node.title,
+          sceneNumber: data.sceneNumber,
+          shotOrder: data.shotOrder,
+        });
+        startTime += duration;
+      }
+      if (clips.length === 0) throw new Error('The active canvas has no video clips to export');
+      await api.export.nle({
+        format: nleFormat,
+        canvasId: activeCanvas.id,
+        project: {
+          name: activeCanvas.name,
+          fps,
+          width: res?.width ?? 1920,
+          height: res?.height ?? 1080,
+          clips,
+        },
+      });
     } catch (err) {
       dispatch(
         addLog({
@@ -85,18 +178,15 @@ export function ExportEngine() {
     } finally {
       setExporting(false);
     }
-  }, [dispatch, nleFormat]);
+  }, [activeCanvas, dispatch, fps, nleFormat, resolution]);
 
   const handleAssetPack = useCallback(async () => {
     setExporting(true);
     try {
       const api = getAPI();
       if (!api) return;
+      if (!activeCanvas) throw new Error('Select a canvas before exporting');
       // Collect all asset hashes from the active canvas
-      const state = (await import('../store/index.js')).store.getState() as RootState;
-      const activeCanvas = state.canvas.activeCanvasId
-        ? state.canvas.canvases.entities[state.canvas.activeCanvasId]
-        : undefined;
       const hashes: string[] = [];
       for (const node of activeCanvas?.nodes ?? []) {
         const data = node.data as { assetHash?: string; variants?: string[] };
@@ -108,7 +198,7 @@ export function ExportEngine() {
         }
       }
       if (hashes.length === 0) return;
-      await api.export.assetBundle(hashes);
+      await api.export.assetBundle(hashes, undefined, activeCanvas.id);
     } catch (err) {
       dispatch(
         addLog({
@@ -121,7 +211,7 @@ export function ExportEngine() {
     } finally {
       setExporting(false);
     }
-  }, [dispatch]);
+  }, [activeCanvas, dispatch]);
 
   const tabs = [
     { key: 'render' as const, icon: Film, label: t('export.render') },
@@ -169,7 +259,7 @@ export function ExportEngine() {
                 {VIDEO_FORMATS.map((f) => (
                   <button
                     key={f.id}
-                    onClick={() => setFormat(f.id)}
+                    onClick={() => setFormat(f.id as 'h264' | 'h265' | 'prores')}
                     className={`px-2.5 py-1.5 text-xs rounded-md border border-border/60 ${format === f.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-muted'}`}
                   >
                     {t(f.labelKey)}

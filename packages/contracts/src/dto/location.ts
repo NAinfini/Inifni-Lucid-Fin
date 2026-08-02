@@ -18,9 +18,7 @@ export type LocationStandardSlot = (typeof LOCATION_STANDARD_SLOTS)[number];
 // needs.
 
 export type LocationRefImageView =
-  | { kind: 'bible' }
-  | { kind: 'fake-360' }
-  | { kind: 'extra-angle'; angle: string };
+  { kind: 'bible' } | { kind: 'fake-360' } | { kind: 'extra-angle'; angle: string };
 
 export function locationViewToSlot(view: LocationRefImageView): string {
   if (view.kind === 'bible') return 'bible';

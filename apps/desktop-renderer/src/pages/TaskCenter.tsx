@@ -1,12 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { ClipboardList, Filter, Sparkles } from 'lucide-react';
+import { ClipboardList, Filter, ShieldCheck, Sparkles } from 'lucide-react';
 import type { RootState } from '../store/index.js';
 import { loadWorkflows } from '../store/slices/workflows.js';
 import { t } from '../i18n.js';
+import { WorkflowDetailDrawer } from '../components/execution/WorkflowDetailDrawer.js';
 
-const ACTIVE_STATUSES = new Set(['pending', 'blocked', 'ready', 'running', 'paused']);
+const ACTIVE_STATUSES = new Set([
+  'pending',
+  'awaiting_approval',
+  'blocked',
+  'ready',
+  'running',
+  'paused',
+]);
 
 const FAILED_STATUSES = new Set(['failed', 'completed_with_errors']);
 
@@ -16,6 +24,8 @@ function statusLabel(status: string): string {
   switch (status) {
     case 'pending':
       return t('execution.status.pending');
+    case 'awaiting_approval':
+      return t('execution.status.awaitingApproval');
     case 'blocked':
       return t('execution.status.blocked');
     case 'ready':
@@ -50,6 +60,7 @@ export function TaskCenter() {
   const dispatch = useDispatch();
   const { allIds, summariesById } = useSelector((state: RootState) => state.workflows);
   const [filter, setFilter] = useState<TaskFilter>('all');
+  const [reviewWorkflowId, setReviewWorkflowId] = useState<string | null>(null);
 
   useEffect(() => {
     dispatch(loadWorkflows({}));
@@ -220,6 +231,16 @@ export function TaskCenter() {
                   </div>
 
                   <div className="flex shrink-0 items-center gap-1.5">
+                    {workflow.status === 'awaiting_approval' && (
+                      <button
+                        type="button"
+                        onClick={() => setReviewWorkflowId(workflow.id)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-100 transition-colors hover:bg-amber-500/15"
+                      >
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        {t('workflowApproval.review')}
+                      </button>
+                    )}
                     <Link
                       to={routeForWorkflow(workflow.workflowType)}
                       className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
@@ -234,6 +255,11 @@ export function TaskCenter() {
           )}
         </div>
       </section>
+      <WorkflowDetailDrawer
+        workflowRunId={reviewWorkflowId}
+        open={reviewWorkflowId !== null}
+        onClose={() => setReviewWorkflowId(null)}
+      />
     </div>
   );
 }

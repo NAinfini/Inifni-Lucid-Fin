@@ -16,8 +16,6 @@ import {
   type HistoryEntry,
   type ToolSelectionInput,
   ALWAYS_LOADED_TOOLS,
-  ESTIMATED_CHARS_PER_TOKEN,
-  DEFAULT_IN_LOOP_CHAR_BUDGET,
   ContextManager,
   pruneHistory,
   measureMessageChars,
@@ -30,10 +28,7 @@ import { ToolExecutor } from './tool-executor.js';
 import { ToolCallDeduplicator } from './tool-call-deduplicator.js';
 import { detectOptionListMarkdown } from './detect-option-list-markdown.js';
 import { TranscriptIndex } from './transcript-index.js';
-import {
-  detectProcess,
-  type ProcessCategory,
-} from './process-detection.js';
+import { detectProcess, type ProcessCategory } from './process-detection.js';
 import { ContextGraph } from './graph/context-graph.js';
 import { serializeForOpenAI } from './graph/serializers/openai.js';
 import { freshContextItemId } from '@lucid-fin/contracts-parse';
@@ -51,17 +46,14 @@ import {
   type ProcessPromptSpec,
   type RunIntent,
 } from './exit-contract/index.js';
-import {
-  type Scratchpad,
-  createEmptyScratchpad,
-  serializeScratchpad,
-} from './run-context.js';
+import { type Scratchpad, createEmptyScratchpad, serializeScratchpad } from './run-context.js';
 import {
   type OrchestratorCompletion,
   stripInjectedParamsFromTool,
   destructResponse,
   extractEntityIdFromArgs,
 } from './orchestrator-utils.js';
+import { getWorkflowToolDenial, type WorkflowToolPolicy } from './workflow-tool-policy.js';
 
 // Re-export types so consumers don't break
 export type { AgentContext, HistoryEntry };
@@ -74,7 +66,10 @@ export type AgentStreamEvent = StampedStreamEvent;
 export interface AgentOptions {
   maxSteps?: number;
   temperature?: number;
-  maxTokens?: number;
+  /** Maximum output tokens sent to the provider. This is not the context window. */
+  maxOutputTokens?: number;
+  /** Optional user cap for the model input context window. */
+  contextWindowTokens?: number;
   profile?: ProviderProfile;
   /**
    * Optional canvas node-type lookup used to dispatch `canvas.generation`
@@ -98,6 +93,18 @@ export interface AgentOptions {
   qualityGateBehavior?: QualityGateBehavior;
   requireStylePlateBeforeRefImage?: boolean;
   todoStore?: TodoRunStore;
+  /** Called after LLM-based context compaction. Returns fresh workspace context
+   *  to inject into the compacted message. Wired by commander.handlers.ts. */
+  onPostCompact?: () => string | null;
+  /** Persist and verify durable workflow facts before LLM compaction. */
+  onBeforeCompact?: () => boolean;
+  /** Rebuild host-owned workflow facts and tool authorization from SQLite. */
+  resolvePersistentContext?: () => AgentPersistentContextProjection;
+}
+
+export interface AgentPersistentContextProjection {
+  workflowManifest?: string;
+  workflowToolPolicy?: WorkflowToolPolicy;
 }
 
 export interface AgentExecutionOptions {
@@ -125,14 +132,20 @@ export interface AgentLLMRequestDiagnostics {
   utilizationRatio: number;
 }
 
-const HISTORY_CHAR_BUDGET_FALLBACK = Math.floor(200000 * ESTIMATED_CHARS_PER_TOKEN);
+const CONSERVATIVE_CONTEXT_WINDOW_TOKENS = 32_768;
+const CONTEXT_TARGET_UTILIZATION = 0.7;
+const CONTEXT_REFERENCE_PRUNE_UTILIZATION = 0.75;
+const CONTEXT_CHECKPOINT_UTILIZATION = 0.85;
+const CONTEXT_HARD_STOP_UTILIZATION = 0.92;
+const MIN_OUTPUT_RESERVE_RATIO = 0.15;
 
 export class AgentOrchestrator {
   private adapter: LLMAdapter;
   private tools: AgentToolRegistry;
   private maxSteps: number;
   private temperature: number;
-  private maxTokens: number;
+  private maxOutputTokens: number;
+  private contextWindowTokens?: number;
   private profile: ProviderProfile;
   private pendingResolvers = new Map<string, (approved: boolean) => void>();
   private pendingQuestionResolvers = new Map<string, (answer: string) => void>();
@@ -193,6 +206,8 @@ export class AgentOrchestrator {
   private readonly qualityGateBehavior: QualityGateBehavior;
   private readonly requireStylePlateBeforeRefImage: boolean;
   private readonly todoStore?: TodoRunStore;
+  private readonly _hasPostCompactHook: boolean;
+  private readonly resolvePersistentContext?: () => AgentPersistentContextProjection;
   /**
    * Declarative process-prompt specs evaluated each turn. Seeded in the
    * constructor. Adding a new spec is "append to this list" — no other
@@ -257,19 +272,32 @@ export class AgentOrchestrator {
     this.tools = tools;
     this.maxSteps = opts?.maxSteps ?? 50;
     this.temperature = opts?.temperature ?? 0.7;
-    this.maxTokens = opts?.maxTokens ?? 200000;
     this.profile = opts?.profile ?? DEFAULT_PROVIDER_PROFILE;
+    const profileOutputCap = Math.max(1, this.profile.outputReserveTokens ?? 4096);
+    this.maxOutputTokens = Math.min(
+      Math.max(1, Math.floor(opts?.maxOutputTokens ?? profileOutputCap)),
+      profileOutputCap,
+    );
+    this.contextWindowTokens =
+      typeof opts?.contextWindowTokens === 'number' && opts.contextWindowTokens > 0
+        ? Math.floor(opts.contextWindowTokens)
+        : undefined;
     this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
     this.resolveCanvasSettings = opts?.resolveCanvasSettings;
     this.qualityGateBehavior = opts?.qualityGateBehavior ?? 'auto-expand';
     this.requireStylePlateBeforeRefImage = opts?.requireStylePlateBeforeRefImage ?? true;
     this.todoStore = opts?.todoStore;
+    this._hasPostCompactHook = typeof opts?.onPostCompact === 'function';
+    this.resolvePersistentContext = opts?.resolvePersistentContext;
 
     // Phase C spec infrastructure stays intact but dormant — no specs registered.
     // Re-enable individual guardrails by adding specs back here if needed.
     this.processPromptSpecs = [];
 
-    this.contextManager = new ContextManager(adapter, resolvePrompt);
+    this.contextManager = new ContextManager(adapter, resolvePrompt, {
+      onBeforeCompact: opts?.onBeforeCompact,
+      onPostCompact: opts?.onPostCompact,
+    });
     this.toolExecutor = new ToolExecutor(tools);
     this.transcriptIndex = new TranscriptIndex();
   }
@@ -361,6 +389,35 @@ export class AgentOrchestrator {
     return this.contextManager.compactNow(this.activeMessages, instructions);
   }
 
+  private refreshPersistentContext(context: AgentContext): WorkflowToolPolicy | undefined {
+    if (!this.resolvePersistentContext) {
+      return context.extra?.workflowToolPolicy as WorkflowToolPolicy | undefined;
+    }
+    if (!context.extra) context.extra = {};
+    try {
+      const projection = this.resolvePersistentContext();
+      if (typeof projection.workflowManifest === 'string') {
+        context.extra.workflowManifest = projection.workflowManifest;
+      } else {
+        delete context.extra.workflowManifest;
+      }
+      if (projection.workflowToolPolicy) {
+        context.extra.workflowToolPolicy = projection.workflowToolPolicy;
+      } else {
+        delete context.extra.workflowToolPolicy;
+      }
+    } catch {
+      context.extra.workflowManifest =
+        'Persistent workflow manifest unavailable; workflow mutations are fail-closed.';
+      context.extra.workflowToolPolicy = {
+        phase: 'blocked',
+        reason:
+          'Persistent workflow state could not be refreshed from SQLite. Mutating tools are fail-closed.',
+      } satisfies WorkflowToolPolicy;
+    }
+    return context.extra.workflowToolPolicy as WorkflowToolPolicy | undefined;
+  }
+
   /** Current step counter. */
   private _currentStep = 0;
 
@@ -379,24 +436,34 @@ export class AgentOrchestrator {
   ): Promise<OrchestratorCompletion> {
     const loadedToolNames = new Set<string>(ALWAYS_LOADED_TOOLS);
     const discoveredToolNames = new Set<string>(options?.discoveredTools ?? []);
+    this.contextManager.noteUserInput();
+    let workflowToolPolicy = this.refreshPersistentContext(context);
     let systemPrompt = this.contextManager.buildSystemPrompt(context, 1);
 
     // Compute context budget from adapter's context window.
-    const effectiveCtx = this.adapter.effectiveContextWindow;
+    const adapterContextWindow = this.adapter.effectiveContextWindow;
+    const effectiveCtx =
+      adapterContextWindow && this.contextWindowTokens
+        ? Math.min(adapterContextWindow, this.contextWindowTokens)
+        : (adapterContextWindow ?? this.contextWindowTokens ?? CONSERVATIVE_CONTEXT_WINDOW_TOKENS);
     const detectedCtx = this.adapter.contextWindow;
     const userCtx = this.adapter.userContextWindow;
 
-    const historyCharBudget = effectiveCtx
-      ? effectiveCtx * ESTIMATED_CHARS_PER_TOKEN
-      : HISTORY_CHAR_BUDGET_FALLBACK;
+    const historyCharBudget = Math.floor(
+      effectiveCtx * CONTEXT_TARGET_UTILIZATION * this.profile.charsPerToken,
+    );
     const history = pruneHistory(options?.history, historyCharBudget);
 
-    // 95% utilization ceiling (or provider-specific)
-    const maxUtil = this.profile.maxUtilization ?? 0.95;
-    const inLoopTokenBudget = effectiveCtx
-      ? Math.floor(effectiveCtx * maxUtil)
-      : Math.floor(DEFAULT_IN_LOOP_CHAR_BUDGET / ESTIMATED_CHARS_PER_TOKEN);
-    const inLoopCharBudget = inLoopTokenBudget * ESTIMATED_CHARS_PER_TOKEN;
+    const inLoopTokenBudget = Math.floor(effectiveCtx * CONTEXT_TARGET_UTILIZATION);
+    const inLoopCharBudget = Math.floor(inLoopTokenBudget * this.profile.charsPerToken);
+    const outputReserveTokens = Math.min(
+      Math.max(this.maxOutputTokens, Math.ceil(effectiveCtx * MIN_OUTPUT_RESERVE_RATIO)),
+      Math.max(1, effectiveCtx - 1),
+    );
+    const providerMaxOutputTokens = Math.min(
+      this.maxOutputTokens,
+      Math.max(1, effectiveCtx - outputReserveTokens),
+    );
 
     const messages: LLMMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -611,16 +678,17 @@ export class AgentOrchestrator {
         steps++;
         this._currentStep = steps;
 
-        // Rebuild system prompt with step-aware abbreviation (saves tokens after step 5).
-        if (steps > 1) {
-          systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
-          if (messages.length > 0 && messages[0].role === 'system') {
-            messages[0] = { ...messages[0], content: systemPrompt };
-          }
+        // Workflow facts and tool authorization are rebuilt from SQLite on
+        // every step. An approval clicked while this run is waiting therefore
+        // takes effect on the next turn, while stale chat text never does.
+        workflowToolPolicy = this.refreshPersistentContext(context);
+        systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
+        if (messages.length > 0 && messages[0].role === 'system') {
+          messages[0] = { ...messages[0], content: systemPrompt };
         }
 
-        // NOTE: removed unconditional step-1 compaction — utilization-based
-        // check at end-of-step handles compaction when genuinely needed.
+        // No unconditional step-1 compaction: the verified pre-request
+        // utilization state machine below compacts only when needed.
 
         // Merge tool sets
         const activeToolNames = new Set(loadedToolNames);
@@ -631,6 +699,10 @@ export class AgentOrchestrator {
           Array.from(activeToolNames),
           context.page,
         );
+        availableTools = availableTools.filter(
+          (tool) => getWorkflowToolDenial(workflowToolPolicy, tool.name) === null,
+        );
+        this.toolExecutor.opts.workflowPolicy = workflowToolPolicy;
 
         // Adaptive tool compaction
         const messageChars = measureMessageChars(messages);
@@ -653,34 +725,99 @@ export class AgentOrchestrator {
         const injectedParams: string[] = [];
         if (canvasId) injectedParams.push('canvasId');
 
-        this.rebuildGraphFromMessages(messages, steps);
-        // After rebuild, `this.contextGraph` is a NEW instance — keep the
-        // tool-executor's read-through cache pointed at it. Without this
-        // re-binding, the executor would hold a stale graph and miss every
-        // post-rebuild cache entry.
-        if (this.contextGraph) {
-          this.toolExecutor.opts.contextGraph = this.contextGraph;
-        }
         const graphToolsInput =
           injectedParams.length > 0
             ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
             : availableTools;
-        if (!this.contextGraph) {
-          throw new Error('ContextGraph missing — execute() was not initialized correctly.');
+
+        const serializeCurrentView = () => {
+          this.rebuildGraphFromMessages(messages, steps);
+          if (!this.contextGraph) {
+            throw new Error('ContextGraph missing — execute() was not initialized correctly.');
+          }
+          // Rebuild creates a new graph instance, so keep the executor's
+          // read-through cache attached to the current one.
+          this.toolExecutor.opts.contextGraph = this.contextGraph;
+          return serializeForOpenAI({
+            graph: this.contextGraph,
+            contextWindowTokens: effectiveCtx,
+            tools: graphToolsInput,
+            profile: this.profile,
+            reserveTokensForOutput: outputReserveTokens,
+          });
+        };
+
+        let serialized = serializeCurrentView();
+        let utilizationRatio = serialized.estimatedTokensUsed / effectiveCtx;
+        let didCompact = false;
+        let compactPhase: 'phase1' | 'llm' | undefined;
+
+        if (utilizationRatio >= CONTEXT_HARD_STOP_UTILIZATION) {
+          // At 92% no auxiliary LLM call is safe. Flush durable facts, then
+          // allow only deterministic pruning before deciding whether to pause.
+          if (this.contextManager.checkpointDurableFacts()) {
+            didCompact = this.contextManager.compactPhase1(messages, steps);
+            compactPhase = didCompact ? 'phase1' : undefined;
+          }
+        } else if (utilizationRatio >= CONTEXT_CHECKPOINT_UTILIZATION) {
+          didCompact = await this.contextManager.compactWithLLM(messages, inLoopCharBudget, steps);
+          compactPhase = didCompact ? 'llm' : undefined;
+        } else if (utilizationRatio >= CONTEXT_REFERENCE_PRUNE_UTILIZATION) {
+          didCompact = this.contextManager.compactPhase1(messages, steps);
+          compactPhase = didCompact ? 'phase1' : undefined;
         }
+
+        if (didCompact) {
+          workflowToolPolicy = this.refreshPersistentContext(context);
+          this.toolExecutor.opts.workflowPolicy = workflowToolPolicy;
+          systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
+          if (messages[0]?.role === 'system') {
+            messages[0] = { ...messages[0], content: systemPrompt };
+          }
+          serialized = serializeCurrentView();
+          utilizationRatio = serialized.estimatedTokensUsed / effectiveCtx;
+          wrappedEmit({
+            kind: 'phase_note',
+            note: 'compacted',
+            params: {
+              phase: compactPhase ?? 'phase1',
+              reloaded: compactPhase === 'llm' ? this._hasPostCompactHook : true,
+            },
+          });
+        }
+
+        if (utilizationRatio >= CONTEXT_HARD_STOP_UTILIZATION) {
+          const contextLimitMessage =
+            'Context safety pause: the protected workflow facts, tool schemas, and recent complete exchanges still exceed 92% of the verified model context window. No further model call was made. Start a fresh chat projection or reduce the configured tool/guide set; the persistent workflow and approval state remain intact.';
+          this.lastAssistantText = contextLimitMessage;
+          this.appendEvidence({ kind: 'budget_exhausted', metric: 'tokens', at: Date.now() });
+          const { decision, intent } = this.computeExitDecision();
+          wrappedEmit({
+            kind: 'assistant_text',
+            content: contextLimitMessage,
+            isDelta: false,
+          });
+          wrappedEmit({
+            kind: 'run_end',
+            status: 'failed',
+            exitDecision: this.toTimelineExitDecisionMeta(decision),
+          });
+          return {
+            content: contextLimitMessage,
+            toolCalls: [],
+            finishReason: 'stop',
+            exitDecision: decision,
+            exitIntent: intent,
+          };
+        }
+
         const {
           wireMessages,
           wireTools,
           toolNameReverseMap: graphReverseMap,
           estimatedTokensUsed,
-        } = serializeForOpenAI({
-          graph: this.contextGraph,
-          contextWindowTokens: effectiveCtx ?? 200000,
-          tools: graphToolsInput,
-          profile: this.profile,
-        });
-
-        const ctxWindow = effectiveCtx ?? 200000;
+        } = serialized;
+        const ctxWindow = effectiveCtx;
         // History-trim approximation: how many source messages didn't make it
         // into the wire window. Loses the exact "old-trim vs orphan-drop"
         // distinction the legacy constructor tracked, but preserves the same
@@ -713,7 +850,7 @@ export class AgentOrchestrator {
           cacheChars: entityCacheBlock.length,
           cacheEntryCount: graphToolResultCount,
           historyMessagesTrimmed,
-          utilizationRatio: ctxWindow > 0 ? estimatedTokensUsed / ctxWindow : 0,
+          utilizationRatio,
         });
 
         // Clear previous thinking before new LLM call — sends an empty
@@ -732,7 +869,7 @@ export class AgentOrchestrator {
                   : 'auto'
                 : undefined,
             temperature: this.temperature,
-            maxTokens: this.maxTokens,
+            maxTokens: providerMaxOutputTokens,
             signal: this._abortController?.signal,
           },
           wrappedEmit,
@@ -855,7 +992,8 @@ export class AgentOrchestrator {
           // it was trimmed, so skipping would cause an infinite re-read loop.
           if (!prior.wasError) {
             const priorStillVisible = messages.some(
-              (m) => m.role === 'tool' && (m as { toolCallId?: string }).toolCallId === prior.toolCallId,
+              (m) =>
+                m.role === 'tool' && (m as { toolCallId?: string }).toolCallId === prior.toolCallId,
             );
             if (!priorStillVisible) {
               callsToExecute.push(tc);
@@ -970,6 +1108,7 @@ export class AgentOrchestrator {
 
         // Delegate tool execution to ToolExecutor
         this.toolExecutor.opts.currentStep = steps;
+        const discoveredBeforeExecution = new Set(discoveredToolNames);
         const { cancelled, dupMap } = await this.toolExecutor.executeToolCalls(
           nonTodoCalls,
           activeToolNames,
@@ -980,6 +1119,11 @@ export class AgentOrchestrator {
           this.pendingResolvers,
           this.pendingQuestionResolvers,
         );
+        for (const discoveredName of discoveredToolNames) {
+          if (!discoveredBeforeExecution.has(discoveredName)) {
+            toolLastUsedStep.set(discoveredName, steps);
+          }
+        }
 
         if (cancelled) {
           wrappedEmit({
@@ -1146,19 +1290,6 @@ export class AgentOrchestrator {
 
         if (batchHints.length > 0) {
           messages.push({ role: 'system', content: batchHints.join('\n') });
-        }
-
-        // Predictive pre-compaction: trigger BEFORE next LLM call based on utilization.
-        // Thresholds raised to avoid premature compaction during bulk operations
-        // (e.g. 24-node rewrites) that need earlier tool results in context.
-        const ctxTokens = effectiveCtx ?? 200000;
-        const utilizationRatio = estimatedTokensUsed / ctxTokens;
-        if (utilizationRatio > 0.95) {
-          // Critical: full compaction (Phase 1 + Phase 2 LLM summarization)
-          await this.contextManager.compactWithLLM(messages, inLoopCharBudget);
-        } else if (utilizationRatio > 0.9) {
-          // Proactive: fast rule-based compaction only
-          this.contextManager.compactPhase1(messages);
         }
 
         // Handle injected messages
@@ -1970,6 +2101,17 @@ export class AgentOrchestrator {
             toolName: tc.name,
             attempts: count,
             at: now,
+          });
+          // Backpressure: inject a system message forcing the model to
+          // change strategy instead of retrying the same failing call.
+          (messages as LLMMessage[]).push({
+            role: 'user',
+            content:
+              `[SYSTEM] Tool "${tc.name}" has failed ${count} consecutive times. ` +
+              `STOP retrying this tool with the same approach. Either: ` +
+              `(1) call commander.askUser to get clarification, ` +
+              `(2) try a completely different tool or approach, or ` +
+              `(3) report the failure and stop.`,
           });
         }
         continue;

@@ -1080,7 +1080,16 @@ After restore:
     'render-and-export',
     'Render And Export',
     'Guidance for render execution and delivery handoff.',
-    `Render and export covers the final-output pipeline — compiling generated canvas assets into a deliverable render, canceling renders, exporting bundles. Three tools: \`render.start\`, \`render.cancel\`, \`render.exportBundle\`.
+    `AUTHORITATIVE PERSISTENT WORKFLOW RULES:
+- The implemented model tools are \`workflow.finalExport\`, \`render.start\`, and \`render.cancel\`. \`render.exportBundle\` is not an available persistent-workflow completion path.
+- After all required shot artifacts pass evaluation, call \`workflow.finalExport\` exactly once with workflowRunId, canvasId, expectedRowVersion, codec, quality, width, height, and fps. Never send clip paths, hashes, ordering, or trims; the host derives them from SQLite, canvas state, the asset index, and CAS.
+- Stop for the third host approval gate. Chat and \`commander.askUser\` cannot approve it.
+- After exact approval, call \`render.start\` with only workflowRunId, canvasId, expectedManifestRevision, expectedManifestHash, and optionally outputPath/retry. Never replace approved media or settings.
+- Reconstruct work after compaction/restart from the persisted Manifest and execution receipt. Do not resubmit an active/completed/ambiguous render. An interrupted queued/running render requires an explicit bounded retry; a different destination file is never overwritten.
+- Current approved-manifest support is ordered full video clips at speed 1, embedded clip audio, MP4 H.264/H.265 or MOV ProRes. Separate audio nodes/mixes and subtitle tracks fail explicitly.
+- Manual auxiliary exports are not Final Export completion and are blocked when a persistent workflow owns the canvas.
+
+The notes below apply only to a manual, unbound canvas and must never override the persistent rules above. Render and export covers compiling generated canvas assets into a local deliverable and canceling a render.
 
 Workflow — always, in order:
 1. Pre-render dependency check: before calling \`render.start\`, verify the render scope is complete.
@@ -1092,7 +1101,7 @@ Workflow — always, in order:
 2. Call \`render.start\` with the target canvas and scope (usually a canvas-wide render, sometimes scoped to a scene or a subgraph).
 3. Monitor: the render runs asynchronously. Report progress to the user; do not poll aggressively.
 4. If a render needs to stop: \`render.cancel\` aborts the in-flight render. Useful when the user spots an issue mid-render or when a pre-render check was missed.
-5. When the render is complete: \`render.exportBundle\` packages the output + metadata into a deliverable archive.
+5. When the render is complete, report the durable output receipt. Do not invent a bundle step.
 
 Pre-render dependency check — common missing items:
 - Image nodes with status "pending" or "error" → regenerate those first.
@@ -1117,17 +1126,16 @@ Cancel semantics:
 - After cancel, the canvas state is preserved; only the render job is terminated.
 - Common cancel triggers: user spotted a missing ref, user wants to change provider mid-render, the estimated cost is too high.
 
-Export bundle contents:
-- \`render.exportBundle\` produces a packaged deliverable. Contents typically include the rendered video, project metadata, and the canvas state snapshot used for the render.
-- Use after a successful render when the user wants the project ready for handoff (client delivery, archive, NLE import).
-- Bundles may be large for video-heavy projects; confirm with the user before starting the export if storage is tight.
+Auxiliary exports:
+- NLE, asset bundle, storyboard, metadata, subtitle, and CapCut exports are manual handoff aids. They do not render or complete a persistent workflow.
+- When a persistent workflow owns the canvas, the host blocks these paths so they cannot bypass the approved Manifest.
 
 Common pitfalls:
 - Starting a render without the pre-check → render fails mid-way, wasting minutes or hours of compute. Pre-check is non-optional.
 - Forgetting to set video frame anchors → rendered video drifts between clips; the "render looks fine but continuity is broken" failure mode.
 - Canceling a render on a minor issue instead of letting it finish → if the issue is cosmetic, finishing and regenerating the affected shot post-render is often cheaper than restarting everything.
 - Not monitoring long renders → user doesn't know progress; communicate milestones.
-- Assuming \`render.exportBundle\` re-renders — it doesn't, it packages the latest render output. Re-render with \`render.start\` if output is stale.
+- Inventing a bundle tool call after render — report the persisted output receipt and use only tools currently exposed by discovery.
 
 After render and export:
 - Notify the user of completion with the bundle location and a summary (duration, shot count, any warnings from the render log).
@@ -1136,63 +1144,50 @@ After render and export:
   defineProcessPrompt(
     'workflow-orchestration',
     'Workflow Orchestration',
-    'Guidance for workflow expansion and control.',
-    `Workflow orchestration covers two tools: \`workflow.manage { action: 'expandIdea' }\` (concept → structured scene/shot text) and \`workflow.manage { action: 'control' }\` (pause / resume / cancel / retry on in-flight workflow runs). These tools drive the higher-level creative pipeline — turning a director brief into canvas structure.
+    'Guidance for the persistent three-gate production workflow and run control.',
+    `Workflow orchestration has a deterministic host-owned state machine. The model creates structured creative documents; it never grants approvals, advances gates, or treats chat text as workflow state.
 
-Workflow — always, in order:
-1. For creative expansion: call \`workflow.manage { action: 'expandIdea' }\` with a concept prompt (e.g. "A heist set in a decommissioned observatory, 8 shots, tense pacing"). Returns structured scene/shot text that can seed canvas node creation.
-2. Expanded output is creative content the user has not approved — before acting on it, call \`commander.askUser\` to confirm the expansion direction, or present the expansion and ask for edits.
-3. Once approved, seed canvas structure: pass scenes through \`canvas.createNodes\` (one batch per scene with text+image+video nodes), then iterate.
-4. For controlling in-flight workflows: \`workflow.manage { action: 'control' }\` with the target workflowId and action (\`pause\` / \`resume\` / \`cancel\` / \`retry\`).
+Entry — one-line idea or full-video request:
+1. Expand the user's idea into the complete structure required by \`workflow.manage { action: 'createProductionPlan' }\`: title, logline, synopsis, genre, tone, audience, runtime/aspect ratio, ordered acts/scenes, explicit assumptions, budget/retry bounds, and a small set of visual directions.
+2. Call \`createProductionPlan\` exactly once. This persists an immutable revision and opens the Production Plan approval gate.
+3. STOP all canvas/entity/generation/render/export mutations while the run reports \`awaiting_approval\`. Explain that the exact revision is ready in the approval UI; do not call \`commander.askUser\` to simulate approval.
+4. When the host later reports the plan approved, continue from the persisted workflow state. Never recreate the plan merely because chat was cleared or compacted.
 
-expandIdea usage patterns:
-- Story concept → scene breakdown: "Expand this logline into a scene list with beats for each scene. 8 scenes max."
-- Scene concept → shot list: "Expand this scene into a shot list with action lines and coverage angles."
-- Character concept → backstory and motivation: "Expand this character premise into a structured character description including role, personality, distinct traits, and story arc."
-- Location concept → place identity: "Expand this location premise into architecture, mood, lighting, recurring features."
-- The prompt you pass shapes the structure of the output; explicit structure requests (scene count, shot count, field list) produce more usable output.
+Exactly three persistent approval gates:
+- Production Plan: locks story, assumptions, target format, total budget, audition budget, attempts per shot, and total regeneration count.
+- Visual Constitution: locks the selected medium/style, palette, lighting, texture, camera/lens/composition/motion grammar, and character/location reference anchors.
+- Final Export: locks the exact assembly/export manifest before the deliverable is written.
 
-End-to-end story-to-video chain — when the user wants a full video from a one-liner or short novel, follow this phase sequence. At each phase boundary, present results and ask the user to approve via \`commander.askUser\`. When the user approves (says "yes", "go", "continue", "looks good", or answers a creative question), that is direction — proceed immediately to the next phase without re-asking.
+There are no per-phase approval prompts. Inside already approved story, style, budget, provider/model, and retry bounds, continue autonomously through planning, generation, evaluation, repair, and regeneration. If a rejected document needs a revision, create a new immutable revision; never overwrite the approved or rejected one.
 
-Phase 1 — Outline.
-- \`workflow.manage { action: 'expandIdea' }\` → scene list.
-- \`canvas.createNodes\` for each scene (type="text", title, data.content = 2-3 sentence summary). Place scenes left-to-right.
-- Present the outline; \`commander.askUser\` for approval.
+Use \`commander.askUser\` only when:
+- a missing creative decision would materially change story, audience, style, or cost;
+- the next action would exceed an approved bound;
+- a provider submission has an ambiguous outcome that cannot be retried safely;
+- evaluation evidence requires human review.
+Persist ordinary low-risk assumptions in the next approvable document instead of interrupting the user.
 
-Phase 2 — Entity extraction.
-- Read every scene summary and identify recurring characters, equipment, locations.
-- Merge duplicates; one shared entity beats per-scene copies.
-- \`entity.create\` with the appropriate \`type\` for each unique entity.
+Style exploration after Production Plan approval:
+- Call \`workflow.visual\` exactly once with 2–4 complete, project-specific candidate directions. Each candidate must include its preview prompt, deterministic seed, negative constraints, and the full Visual Constitution grammar required by the tool schema.
+- \`workflow.visual\` uses the configured production image provider, persists a submission reservation before every provider call, generates real previews, grades the visible results with the configured vision provider, and resumes partial grading without blindly resubmitting generated assets.
+- After the tool returns, STOP and direct the user to the visible preview selector. The user first locks one candidate there, then separately approves the exact Visual Constitution revision. Do not use \`commander.askUser\` to replace either host-UI action.
+- If the SQLite manifest already contains an audition revision, resume or report that revision. Never submit a different candidate set or regenerate a completed audition because chat history was cleared.
+- A reusable style catalog may provide optional inspiration later, but it is not authoritative. The project-specific previews made by the configured provider are the decision surface and disclose image/vision provider, model, seed, score evidence, cost, and unknown cost fields.
 
-Phase 3 — Node asset stores.
-- For each scene, \`canvas.createNodes\` for first-frame image, last-frame image, and video.
-- \`canvas.updateNodes\` to set prompts from scene summaries.
-- \`canvas.presetTracks\` for style + shot template.
-- \`canvas.setNodeRefs\` to attach character/equipment/location refs.
-- \`canvas.connectNodes\` for first-frame → video → last-frame wiring.
+Generation after Visual Constitution approval:
+- Build character/location/equipment reference sheets as ordinary canvas image nodes bound to their real entity refs and the approved anchor text. Produce each with \`workflow.media\`, then attach only the accepted asset with the relevant \`entity.setRefImageFromNode\` action. Never use \`entity.generateRefImage\` inside the persistent run because it bypasses the durable grader.
+- For each production image or video node, call \`workflow.media\` once with only workflowRunId, canvasId, nodeId, and the current workflow rowVersion. Never send a prompt, provider override, raw asset path, grade, verdict, or Repair Delta.
+- The host deterministic compiler binds the approved plan, Visual Constitution, entity/reference anchors, node revision, provider request, seed, limits, and cost into an immutable Generation Spec before any provider call.
+- The host evaluates images directly and evaluates video with ffprobe metadata plus timestamped keyframes. Evaluators propose \`pass / repair / regenerate / human_review\`; host policy decides from visible evidence and remaining bounds.
+- \`workflow.media\` creates a new immutable attempt and artifact for every bounded repair/regeneration and selects only a passing artifact. Never use \`canvas.generation\` for media owned by this persistent run.
+- Follow the returned \`nextAction\`: \`retry_evaluation\` may call the same tool again because it resumes grading the existing CAS asset without another provider submission; \`ask_user\` must call \`commander.askUser\` once with the persisted evidence and exact configuration/bound decision. Never retry \`ambiguous\`, \`human_review\`, or \`budget_blocked\` provider work.
 
-Phase 4 — Reference images.
-- For every entity: \`entity.generateRefImage\` with the appropriate \`type\`.
-- Wait for each to finish — refs gate downstream identity. Never skip.
-
-Phase 5 — First/last frames.
-- \`canvas.generation\` on every image node. Wait, then \`canvas.selectVariant\` for each.
-
-Phase 6 — Video + final render.
-- Confirm \`canvas.setVideoFrames\` is wired on every video node.
-- \`canvas.generation\` with nodeType="video" on every video node. Wait, then \`canvas.selectVariant\`.
-- \`render.start\` with format="mp4" (or "mov") for the full cut.
-
-Inter-phase rules:
-- At each boundary, summarize what was done and present results via \`commander.askUser\`. When the user approves, proceed immediately.
-- Never chain phases silently without any user checkpoint. But once the user approves, execute — do not re-summarize or narrate your plan.
-- A failed partial phase is fixed in place; do not restart the whole phase.
-
-Creative-expansion decision tree:
-- User provides a rich brief → \`workflow.manage { action: 'expandIdea' }\` may be unnecessary; parse the brief directly.
-- User provides a one-liner → \`workflow.manage { action: 'expandIdea' }\` is the right tool; then confirm the expansion with the user before acting.
-- User asks "what would a full scene look like" → \`workflow.manage { action: 'expandIdea' }\` for one scene only; show the user; do not proliferate without approval.
-- Expansion returns content the user has not approved → STOP. \`commander.askUser\` to review before anything is saved to records or canvas.
+Final assembly:
+- Assemble only from accepted artifact revisions.
+- Call \`workflow.finalExport\` once with only output choices; the host derives the exact assembly and opens the Final Export gate.
+- Stop until the host records approval of that exact revision/hash.
+- After approval call \`render.start\` with only workflow/canvas identity and the exact Manifest revision/hash. Never supply caller-selected clips or settings.
+- On compaction or restart, resume from the persisted Manifest and execution receipt instead of preparing or submitting again.
 
 workflow.manage { action: 'control' } actions:
 - \`pause\` — suspend the workflow run. In-progress tool calls may complete, but queued ones halt. Useful when the user wants to review mid-run.
@@ -1207,19 +1202,20 @@ When to use workflow.manage { action: 'control' }:
 - Workflow stuck in a retry loop on a persistent error → \`cancel\`, fix root cause, restart fresh.
 
 Workflows vs manual tool chains:
-- Use workflows when the pipeline is well-defined and repeatable (concept expansion, shot breakdown, batch generation).
+- Use the persistent workflow for all end-to-end video creation, because approval, budget, attempts, evidence, and recovery must survive restarts.
 - Use manual tool chains when the work is exploratory, one-off, or requires tight user interaction at each step.
-- Workflows buy speed and repeatability at the cost of mid-flight transparency; manual chains invert that tradeoff.
+- Manual tool chains must not mutate artifacts that belong to an active persistent run outside its task permissions.
 
 Common pitfalls:
-- Acting on \`workflow.manage { action: 'expandIdea' }\` output without user approval → creative content gate is still active; always \`commander.askUser\` before persisting expansion to records or canvas.
+- Creating nodes or media before Production Plan approval → bypasses the first non-negotiable gate.
+- Treating "yes", "go", or an answer to \`commander.askUser\` as approval → only the host approval command can advance a gate.
 - Using \`workflow.manage { action: 'control' }\` without knowing the workflowId → fetch the id from the workflow's start response or from the running-workflow registry.
 - Canceling instead of pausing → if the user might still want the work, \`pause\` preserves the option. \`cancel\` is final.
 - Retrying without addressing the root cause → loops until the retry budget expires. Fix first, retry second.
-- Expanding too many scenes at once → expansion is creative; large expansions overwhelm review and risk scope drift. Prefer scene-by-scene expansion with user check-ins.
+- Replaying the same provider mutation after an ambiguous timeout → enter recovery instead of risking duplicate cost.
 
 After workflow operations:
-- \`workflow.manage { action: 'expandIdea' }\` outputs text only; nothing persists until you explicitly write records, scripts, or canvas nodes.
+- \`workflow.manage { action: 'createProductionPlan' }\` returns the run ID, exact revision/hash, and pending gate; that result is persisted truth.
 - \`workflow.manage { action: 'control' }\` results affect the in-flight run; re-check workflow status to confirm the control action landed.`,
   ),
   defineProcessPrompt(
@@ -1503,48 +1499,36 @@ What to do if the prompt is thin:
   defineProcessPrompt(
     'story-workflow-phase',
     'Story Workflow Phase',
-    'Triggered when workflow-orchestration is active. Reinforces phase-gate discipline for the story-to-video pipeline.',
-    `You are in a story-to-video workflow. The pipeline has strict phase gates — skipping phases or reordering them produces cascading quality failures that are expensive to fix.
+    'Triggered for story-to-video work. Reinforces persisted truth, three approvals, and bounded autonomy.',
+    `You are operating inside a persistent story-to-video workflow. Read the current run, gate, approved document revisions, remaining budget, and attempt counters from tools; do not reconstruct them from chat memory.
 
-Phase gates — follow in order. At each boundary, present results and ask for approval via \`commander.askUser\`. When the user approves (says "yes", "go", "continue", "looks good", answers a creative question, or confirms a choice), immediately proceed to the next phase — do NOT re-summarize, re-ask, or narrate what you are about to do.
+The only approval gates are:
+1. Production Plan — before any canvas/entity/provider mutation.
+2. Visual Constitution — before reference, scene-image, or video generation.
+3. Final Export — before writing the final deliverable.
 
-Phase 1: Outline
-- Expand the story concept into scenes.
-- Create text nodes for each scene on the canvas.
-- Present the outline to the user via \`commander.askUser\`. Proceed when approved.
+Chat affirmations and \`commander.askUser\` answers never approve a gate. Stop at \`awaiting_approval\` until the host approval UI advances the exact revision. Do not invent extra checkpoints.
 
-Phase 2: Entity extraction
-- Identify recurring characters, locations, and equipment from the scene summaries.
-- Create entity records via \`entity.create\` with the appropriate \`type\`.
-- Merge duplicates — one shared entity beats per-scene copies.
-- Present the entity list via \`commander.askUser\`. Proceed when approved.
+During \`style-exploration\`, call \`workflow.visual\` once with 2–4 complete project-specific directions. It creates durable provider previews and vision grades. Then stop for the host preview selector: candidate selection and Visual Constitution approval are two separate user actions. Never replace them with a chat question, and never repeat a completed audition after compaction or restart.
 
-Phase 3: Canvas structure
-- Create image and video nodes for each scene.
-- Set prompts, preset tracks, and entity refs.
-- Connect nodes with proper edge flow (text → image → video chains).
-- Present the canvas structure via \`commander.askUser\`. Proceed when approved.
+During \`media-generation\`, call \`workflow.media\` for each required image/video node with only workflow/canvas/node identity and the current rowVersion. The host compiles, reserves, generates, grades, and performs bounded repair/regeneration. Never use \`canvas.generation\` for an active persistent run and never author a replacement grade or Repair Delta in chat.
 
-Phase 4: Reference images
-- Generate ref images for EVERY character, location, and equipment entity.
-- Do this BEFORE generating any scene images. Ref images are identity anchors.
-- One at a time. Verify each before moving on.
-- Present ref images via \`commander.askUser\`. Proceed when approved.
+After all production artifacts are accepted, call \`workflow.finalExport\` exactly once. Stop at its host gate. After exact approval, call \`render.start\` with the persisted Manifest revision/hash only; never send clip paths or replacement output settings. Reconstruct any later action from the export execution receipt.
 
-Phase 5: Scene images (first/last frames)
-- Generate image nodes. Verify quality. Select best variants.
-- Present scene images via \`commander.askUser\`. Proceed when approved.
-
-Phase 6: Video generation + final render
-- Set video frame anchors (canvas.setVideoFrames).
-- Generate video nodes. Verify motion coherence.
-- Run render.start for the final cut.
+Between gates, work autonomously within approved bounds:
+- create/reuse entities and reference anchors from the approved documents;
+- compile prompts through the deterministic compiler;
+- generate, inspect, score, repair, and regenerate only while attempts and budget remain;
+- preserve every attempt, artifact, evaluator score, and repair delta;
+- pause and ask only when a material decision or approved bound must change.
 
 Hard rules:
-- Never generate scene images before all referenced entity ref images are complete.
-- User approval = any affirmative response. Do not ask twice for the same phase.
-- Between phases, run canvas.generation { action: 'estimate' } for the next phase and present the estimate.
-- If a phase partially fails, fix in place — do not restart the whole pipeline.`,
+- Never mutate canvas or media before Production Plan approval.
+- Never generate production media before Visual Constitution approval.
+- Never export before Final Export approval.
+- Never treat context compaction, chat clear, or app restart as permission to restart a completed stage.
+- Never retry an ambiguous provider submission unless the host proves it is safe and idempotent.
+- Fix partial failures at the smallest affected artifact; do not restart the entire production without evidence.`,
   ),
 
   defineProcessPrompt(

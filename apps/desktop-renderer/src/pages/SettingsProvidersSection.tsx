@@ -200,7 +200,7 @@ function ProviderCard({
 
     const loadKey = (attempt: number) => {
       void api.keychain
-        .get(provider.id)
+        .getMasked(provider.id)
         .then((storedKey) => {
           if (cancelled || !mountedRef.current) return;
           const value = storedKey ?? '';
@@ -301,22 +301,8 @@ function ProviderCard({
   }
 
   async function handleCopyKey() {
-    try {
-      let value = draftKey;
-      if (!value && provider.hasKey) {
-        const api = getAPI();
-        if (!api) throw new Error('API not available');
-        value = (await api.keychain.get(provider.id)) ?? '';
-      }
-      if (!value) return;
-      await navigator.clipboard.writeText(value);
-    } catch (error) {
-      const title = t('settings.providerCard.copyKeyFailed');
-      logProviderFailure(title, error);
-      showErrorToast({
-        title,
-        message: getErrorMessage(error),
-      });
+    if (draftKey) {
+      await navigator.clipboard.writeText(draftKey);
     }
   }
 
@@ -423,7 +409,7 @@ function ProviderCard({
                 const api = getAPI();
                 if (api) {
                   void api.keychain
-                    .get(provider.id)
+                    .getMasked(provider.id)
                     .then((storedKey) => {
                       if (!mountedRef.current) return;
                       const value = storedKey ?? '';

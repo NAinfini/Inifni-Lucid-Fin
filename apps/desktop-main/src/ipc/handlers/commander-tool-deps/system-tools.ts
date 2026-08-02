@@ -14,21 +14,33 @@ import {
   type PresetDefinition,
   type AgentToolRegistry,
 } from './helpers.js';
+import {
+  createStyleAuditionService,
+  createVisualPreviewGrader,
+} from '../style-audition.service.js';
 
 export function registerSystemTools(
   registry: AgentToolRegistry,
   deps: ToolRegistrationDeps,
   gateway: RendererPushGateway,
   mergedPromptGuides: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
-  listCommanderPresets: (category?: import('@lucid-fin/contracts').PresetCategory) => Promise<PresetDefinition[]>,
+  listCommanderPresets: (
+    category?: import('@lucid-fin/contracts').PresetCategory,
+  ) => Promise<PresetDefinition[]>,
   persistCommanderPreset: (preset: PresetDefinition) => Promise<PresetDefinition>,
   deleteCommanderPreset: (presetId: string) => Promise<void>,
+  generateImage: ReturnType<typeof import('./helpers.js').makeGenerateImage>,
   compactRef?: {
     compact?: (
       instructions?: string,
     ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
   },
 ): void {
+  const createVisualAuditions = createStyleAuditionService({
+    workflowEngine: deps.workflowEngine,
+    generateImage,
+    gradeImage: createVisualPreviewGrader({ cas: deps.cas, keychain: deps.keychain }),
+  });
   // job.* tools are excluded from Commander AI (human/UI only)
   // registerToolModule(registry, jobToolModule, {...}) — skipped
 
@@ -166,6 +178,51 @@ export function registerSystemTools(
     retryWorkflow: async (id: string) => {
       await deps.workflowEngine.retryWorkflow(id);
     },
+    createProductionPlan: async (input) => deps.workflowEngine.createProductionPlan(input),
+    createVisualAuditions,
+    produceMedia: async (input) => {
+      const result = await deps.productionMediaService.produce(input);
+      return {
+        workflowRunId: result.workflowRunId,
+        canvasId: result.canvasId,
+        nodeId: result.nodeId,
+        status: result.status,
+        nextAction: result.nextAction,
+        message: result.message,
+        attempt: result.attempt
+          ? {
+              id: result.attempt.id,
+              attempt: result.attempt.attempt,
+              status: result.attempt.status,
+              mediaType: result.attempt.mediaType,
+              specHash: result.attempt.specHash,
+              promptHash: result.attempt.promptHash,
+              providerId: result.attempt.providerId,
+              model: result.attempt.model,
+              seed: result.attempt.seed,
+              estimatedCostUsd: result.attempt.estimatedCostUsd,
+              reportedActualCostUsd: result.attempt.reportedActualCostUsd,
+              assetHash: result.attempt.assetHash,
+              repairDelta: result.attempt.repairDelta,
+              error: result.attempt.error,
+            }
+          : undefined,
+        evaluation: result.evaluation
+          ? {
+              rubricVersion: result.evaluation.rubricVersion,
+              total: result.evaluation.total,
+              verdict: result.evaluation.verdict,
+              scores: result.evaluation.scores,
+              strengths: result.evaluation.strengths,
+              risks: result.evaluation.risks,
+              evidence: result.evaluation.evidence,
+              repairDelta: result.evaluation.repairDelta,
+              frameEvidence: result.evaluation.frameEvidence,
+            }
+          : undefined,
+      };
+    },
+    prepareFinalExport: async (input) => deps.workflowEngine.prepareFinalExportManifest(input),
   })) {
     if (!EXCLUDED_TOOLS.has(tool.name)) registry.register(tool);
   }

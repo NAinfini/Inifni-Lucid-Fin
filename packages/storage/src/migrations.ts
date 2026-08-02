@@ -5,6 +5,7 @@
  * Migrations run inside a transaction for atomicity.
  */
 import type Database from 'better-sqlite3';
+import { WORKFLOW_PERSISTENCE_TABLES_SQL } from './schema-sql.js';
 
 export interface Migration {
   version: number;
@@ -16,25 +17,47 @@ export interface Migration {
  * Current schema version. Bump this when adding a new migration.
  * Version 1 = baseline (all existing tables via schema-sql.ts).
  */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 /**
  * Ordered list of migrations. Each migration's `version` field is its
  * target user_version after the migration runs.
  *
  * Version 1 is the baseline — the existing schema-sql.ts tables.
- * Future migrations go here as version 2, 3, etc.
+ * Future migrations continue here as version 5, 6, etc.
  */
 export const MIGRATIONS: Migration[] = [
-  // Version 1 is the baseline schema (schema-sql.ts). No migration needed.
-  // Example for future:
-  // {
-  //   version: 2,
-  //   description: 'Add soft-delete GC index',
-  //   up: (db) => {
-  //     db.exec(`CREATE INDEX IF NOT EXISTS idx_characters_deleted_at ON characters(deleted_at) WHERE deleted_at IS NOT NULL`);
-  //   },
-  // },
+  {
+    version: 2,
+    description: 'Add persistent workflow documents, approvals, events, and run CAS fields',
+    up: (db) => {
+      db.exec(`
+        ALTER TABLE workflow_runs
+          ADD COLUMN row_version INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0);
+        ALTER TABLE workflow_runs
+          ADD COLUMN current_gate TEXT CHECK (current_gate IS NULL OR current_gate IN ('production_plan', 'visual_constitution', 'final_export'));
+        ALTER TABLE workflow_runs
+          ADD COLUMN engine_version TEXT NOT NULL DEFAULT 'legacy';
+        ALTER TABLE workflow_runs
+          ADD COLUMN definition_version INTEGER NOT NULL DEFAULT 1 CHECK (definition_version > 0);
+        ${WORKFLOW_PERSISTENCE_TABLES_SQL}
+      `);
+    },
+  },
+  {
+    version: 3,
+    description: 'Add persistent Final Export execution ledger',
+    up: (db) => {
+      db.exec(WORKFLOW_PERSISTENCE_TABLES_SQL);
+    },
+  },
+  {
+    version: 4,
+    description: 'Add persistent production-media attempt and evaluation ledgers',
+    up: (db) => {
+      db.exec(WORKFLOW_PERSISTENCE_TABLES_SQL);
+    },
+  },
 ];
 
 /**

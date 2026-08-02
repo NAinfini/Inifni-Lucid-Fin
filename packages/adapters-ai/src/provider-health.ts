@@ -73,13 +73,16 @@ export class ProviderHealthTracker {
 
     if (entry.consecutiveFailures >= WARN_THRESHOLD && !entry.warnedAt5) {
       entry.warnedAt5 = true;
-      this.warnLogger?.(`Provider ${providerId} has ${entry.consecutiveFailures} consecutive failures`, {
-        category: 'provider-health',
-        providerId,
-        consecutiveFailures: entry.consecutiveFailures,
-        lastFailure: entry.lastFailure,
-        totalFailures: entry.totalFailures,
-      });
+      this.warnLogger?.(
+        `Provider ${providerId} has ${entry.consecutiveFailures} consecutive failures`,
+        {
+          category: 'provider-health',
+          providerId,
+          consecutiveFailures: entry.consecutiveFailures,
+          lastFailure: entry.lastFailure,
+          totalFailures: entry.totalFailures,
+        },
+      );
     }
   }
 

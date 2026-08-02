@@ -33,9 +33,7 @@ function resolveElectronBinary(): string {
     }
   }
 
-  throw new Error(
-    'Could not find Electron binary. Run `npm install` in the repo root first.',
-  );
+  throw new Error('Could not find Electron binary. Run `npm install` in the repo root first.');
 }
 
 /** Check whether the Electron build output exists. */

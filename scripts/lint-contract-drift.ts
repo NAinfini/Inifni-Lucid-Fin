@@ -52,7 +52,7 @@ function extractToolNamesFromProse(section: string): Set<string> {
   // Pattern: dotted identifier like `canvas.createNodes`. Backtick is the
   // canonical rendering in the guides.
   const reBacktick = /`([a-zA-Z]+(?:\.[a-zA-Z]+)+)`/g;
-  for (let m: RegExpExecArray | null; (m = reBacktick.exec(section)); ) {
+  for (let m: RegExpExecArray | null; (m = reBacktick.exec(section));) {
     names.add(m[1]);
   }
   return names;

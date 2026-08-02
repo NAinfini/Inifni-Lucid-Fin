@@ -19,6 +19,15 @@ export {
   type WorkflowPlanRequest,
   type WorkflowTaskDependencyRow,
   type WorkflowEngineOptions,
+  type ProductionPlanCreateRequest,
+  type ProductionPlanCreateResult,
+  type ContextCheckpointCreateResult,
+  type ProductionMediaWorkflowContext,
+  type VisualAuditionStartRequest,
+  type VisualAuditionStartResult,
+  type VisualAuditionSnapshotRequest,
+  type VisualConstitutionSelectionResult,
+  VISUAL_PREVIEW_RUBRIC_VERSION,
   type WorkflowStartRequest,
 } from '@lucid-fin/workflows';
 
@@ -86,6 +95,7 @@ export {
   type AgentOptions,
   type AgentExecutionOptions,
   type AgentLLMRequestDiagnostics,
+  type AgentPersistentContextProjection,
   type AgentStreamEvent,
   type HistoryEntry,
   type StampedStreamEvent,
@@ -126,6 +136,9 @@ export {
   type RenderToolDeps,
   type PresetToolDeps,
   type WorkflowToolDeps,
+  type CreateVisualAuditionsInput,
+  type CreateVisualAuditionsResult,
+  type ProduceWorkflowMediaInput,
   type PromptGuide,
   type MetaToolDeps,
   type CopywritingToolDeps,
@@ -141,6 +154,8 @@ export {
   type AppToolCatalog,
   type AppToolKey,
   type AppProcessCategory,
+  type WorkflowToolPolicy,
+  type WorkflowToolPolicyPhase,
 } from '@lucid-fin/agent';
 
 // Own exports (retained in this package)
