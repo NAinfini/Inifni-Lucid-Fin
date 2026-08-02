@@ -4,7 +4,7 @@
   "license": "LGPL-3.0-or-later",
   "sourceCode": {
     "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
-    "sha256": "32faba5ef67340d54724941eae1425580791195312a4fd13bf6f820a2818bf22"
+    "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
   },
   "platforms": {
     "win32-x64": {
@@ -256,7 +256,7 @@
       "builder": "scripts/build-ffmpeg-macos-lgpl.sh",
       "source": {
         "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
-        "sha256": "32faba5ef67340d54724941eae1425580791195312a4fd13bf6f820a2818bf22"
+        "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
       },
       "commands": {
         "ffmpeg": "bin/ffmpeg",
@@ -268,7 +268,7 @@
       "builder": "scripts/build-ffmpeg-macos-lgpl.sh",
       "source": {
         "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
-        "sha256": "32faba5ef67340d54724941eae1425580791195312a4fd13bf6f820a2818bf22"
+        "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c"
       },
       "commands": {
         "ffmpeg": "bin/ffmpeg",
