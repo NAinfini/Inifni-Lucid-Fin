@@ -240,7 +240,8 @@ mkdir -p "$LF_FFMPEG_BUILD"
     --enable-videotoolbox \
     --enable-zlib \
     --extra-cflags="-I$LF_PREFIX/include -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET" \
-    --extra-ldflags="-L$LF_PREFIX/lib -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+    --extra-ldflags="-L$LF_PREFIX/lib -mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET" \
+    --extra-libs=-liconv
   make -j"$(sysctl -n hw.logicalcpu)"
   make install
 )
