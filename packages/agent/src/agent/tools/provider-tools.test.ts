@@ -77,7 +77,9 @@ describe('createProviderTools', () => {
     });
     expect(deps.listProviders).toHaveBeenCalledWith('llm');
 
-    await expect(getTool('provider.manage', deps).execute({ action: 'getActive', group: 'llm' })).resolves.toEqual({
+    await expect(
+      getTool('provider.manage', deps).execute({ action: 'getActive', group: 'llm' }),
+    ).resolves.toEqual({
       success: true,
       data: { activeProvider: 'provider-1' },
     });
@@ -244,7 +246,10 @@ describe('createProviderTools', () => {
     );
 
     await expect(
-      getTool('provider.manage', deps).execute({ action: 'getCapabilities', providerId: 'kling-v1' }),
+      getTool('provider.manage', deps).execute({
+        action: 'getCapabilities',
+        providerId: 'kling-v1',
+      }),
     ).resolves.toEqual({
       success: true,
       data: expect.objectContaining({
@@ -253,7 +258,10 @@ describe('createProviderTools', () => {
       }),
     });
     await expect(
-      getTool('provider.manage', deps).execute({ action: 'getCapabilities', providerId: 'unknown-provider' }),
+      getTool('provider.manage', deps).execute({
+        action: 'getCapabilities',
+        providerId: 'unknown-provider',
+      }),
     ).resolves.toEqual({
       success: true,
       data: {

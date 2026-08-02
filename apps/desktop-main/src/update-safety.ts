@@ -193,7 +193,11 @@ export function initUpdateSafety(): void {
   const currentVersion = getAppVersion();
 
   // Check if we just updated (rollback exists, not yet healthy, version matches)
-  if (state.rollback && !state.rollback.healthy && state.rollback.currentVersion === currentVersion) {
+  if (
+    state.rollback &&
+    !state.rollback.healthy &&
+    state.rollback.currentVersion === currentVersion
+  ) {
     log('info', 'Post-update health check started', {
       category: 'update-safety',
       previousVersion: state.rollback.previousVersion,

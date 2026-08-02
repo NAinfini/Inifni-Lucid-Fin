@@ -12,13 +12,7 @@ export type LeftPanelId =
   | 'canvases';
 
 export type RightPanelId =
-  | 'inspector'
-  | 'logger'
-  | 'dependencies'
-  | 'queue'
-  | 'history'
-  | 'notes'
-  | 'export';
+  'inspector' | 'logger' | 'dependencies' | 'queue' | 'history' | 'notes' | 'export';
 
 export type Theme = 'light' | 'dark' | 'high-contrast' | 'auto';
 

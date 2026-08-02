@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { channelToSymbolBase, expectedGeneratedNames } from './gen-preload.js';
+import { channelToSymbolBase, expectedGeneratedNames, generateOutputs } from './gen-preload.js';
 
 describe('gen-preload helpers', () => {
   it('maps channel names to generated symbol bases', () => {
@@ -22,5 +22,41 @@ describe('gen-preload helpers', () => {
       channelConstant: 'updaterToastChannel',
       payloadType: 'UpdaterToastPayload',
     });
+  });
+
+  it('deterministically generates invoke, push, and dotted channel surfaces', async () => {
+    const channels = [
+      { kind: 'push' as const, channel: 'canvas:generation:progress' },
+      { kind: 'invoke' as const, channel: 'health:ping' },
+      { kind: 'invoke' as const, channel: 'folder.character:list' },
+    ];
+    const availableTypes = new Set([
+      'CanvasGenerationProgressPayload',
+      'HealthPingRequest',
+      'HealthPingResponse',
+    ]);
+
+    const first = await generateOutputs(channels, availableTypes);
+    const second = await generateOutputs([...channels].reverse(), availableTypes);
+
+    expect(second).toEqual(first);
+    expect(first.preload).toContain("ipcRenderer.invoke('folder.character:list', parsed)");
+    expect(first.preload).toContain("ipcRenderer.on('canvas:generation:progress', listener)");
+    expect(first.lucidApi).toContain('characterList(');
+    expect(first.lucidApi).toContain('onGenerationProgress(');
+    expect(first.lucidApi).toContain('type FolderCharacterListRequest = unknown;');
+    expect(first.lucidApi).toContain('type FolderCharacterListResponse = unknown;');
+  });
+
+  it('rejects duplicate channel entries instead of emitting ambiguous methods', async () => {
+    await expect(
+      generateOutputs(
+        [
+          { kind: 'invoke', channel: 'health:ping' },
+          { kind: 'invoke', channel: 'health:ping' },
+        ],
+        new Set(['HealthPingRequest', 'HealthPingResponse']),
+      ),
+    ).rejects.toThrow('Duplicate IPC channel: health:ping');
   });
 });

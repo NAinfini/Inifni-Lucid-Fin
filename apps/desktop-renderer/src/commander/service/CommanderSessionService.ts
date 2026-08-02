@@ -168,7 +168,10 @@ interface RunEndLatch {
 
 export class CommanderSessionService {
   /** Maps in-flight tool call ids → tool names + args, so we can record usage on result. */
-  private readonly toolCallNames = new Map<string, { name: string; args?: Record<string, unknown> }>();
+  private readonly toolCallNames = new Map<
+    string,
+    { name: string; args?: Record<string, unknown> }
+  >();
 
   /**
    * D2b — Promise latches indexed by runId. `cancel()` awaits the

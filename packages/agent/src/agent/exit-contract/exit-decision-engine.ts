@@ -74,10 +74,7 @@ export function decide(input: DecideInput): ExitDecision {
 
   // 5. Info-exempt short-circuit: informational intents on an exempt
   // contract exit "informational_answered" regardless of commits.
-  if (
-    contract.infoIntentExemption &&
-    intent.kind === 'informational'
-  ) {
+  if (contract.infoIntentExemption && intent.kind === 'informational') {
     return {
       outcome: 'informational_answered',
       reason: 'informational intent; contract exempts',

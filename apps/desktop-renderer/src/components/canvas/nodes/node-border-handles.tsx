@@ -4,10 +4,7 @@ import { cn } from '../../../lib/utils.js';
 
 type BorderSide = 'top' | 'right' | 'bottom' | 'left';
 type HandlePosition =
-  | typeof Position.Top
-  | typeof Position.Right
-  | typeof Position.Bottom
-  | typeof Position.Left;
+  typeof Position.Top | typeof Position.Right | typeof Position.Bottom | typeof Position.Left;
 
 /** Single anchor per side at 50% — reduced from 3 (25/50/75%) to cut DOM
  *  element count by 16 per node (from 24 handles to 8). */

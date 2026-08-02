@@ -28,7 +28,8 @@ const todoManage: AgentTool = {
     properties: {
       action: {
         type: 'string',
-        description: '"set" creates or replaces the todo list. "update" marks items as done/in_progress.',
+        description:
+          '"set" creates or replaces the todo list. "update" marks items as done/in_progress.',
         enum: ['set', 'update'],
       },
       items: {

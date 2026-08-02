@@ -1,4 +1,5 @@
 import { createCommand, runCommand } from './ffmpeg-utils.js';
+import { getLgplVideoCodecConfig } from './codec-policy.js';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, isAbsolute, dirname, resolve, sep } from 'path';
@@ -55,24 +56,34 @@ export interface RenderSegment {
   speed: number;
 }
 
-const CODEC_MAP: Record<RenderCodec, { vcodec: string; ext: string; opts: string[] }> = {
-  h264: { vcodec: 'libx264', ext: 'mp4', opts: ['-pix_fmt yuv420p', '-movflags +faststart'] },
+const CODEC_MAP: Record<RenderCodec, { ext: string; opts: string[] }> = {
+  h264: { ext: 'mp4', opts: ['-pix_fmt yuv420p', '-movflags +faststart'] },
   h265: {
-    vcodec: 'libx265',
     ext: 'mp4',
     opts: ['-pix_fmt yuv420p', '-tag:v hvc1', '-movflags +faststart'],
   },
-  prores: { vcodec: 'prores_ks', ext: 'mov', opts: ['-profile:v 3', '-pix_fmt yuva444p10le'] },
-};
-
-const PRESET_MAP: Record<RenderPreset, { crf: number; preset: string }> = {
-  draft: { crf: 28, preset: 'ultrafast' },
-  standard: { crf: 20, preset: 'medium' },
-  high: { crf: 14, preset: 'slow' },
+  prores: { ext: 'mov', opts: ['-profile:v 3', '-pix_fmt yuva444p10le'] },
 };
 
 export function getOutputExtension(codec: RenderCodec): string {
   return CODEC_MAP[codec].ext;
+}
+
+function getRenderCodecConfig(options: RenderOptions): {
+  encoder: string;
+  outputOptions: string[];
+} {
+  if (options.codec === 'prores') {
+    return {
+      encoder: 'prores_ks',
+      outputOptions: options.videoBitrate ? [`-b:v ${options.videoBitrate}`] : [],
+    };
+  }
+
+  return getLgplVideoCodecConfig(options.codec, {
+    quality: options.preset,
+    bitrate: options.videoBitrate,
+  });
 }
 
 /** Validate and sanitize a file path for FFmpeg concat list */
@@ -106,7 +117,7 @@ function renderTimelineInternal(
   validateOutputPath(outputPath);
 
   const codecCfg = CODEC_MAP[options.codec];
-  const presetCfg = PRESET_MAP[options.preset];
+  const renderCodec = getRenderCodecConfig(options);
 
   const listPath = join(tmpdir(), `lucid-render-${Date.now()}.txt`);
   const listContent = segments
@@ -123,15 +134,12 @@ function renderTimelineInternal(
   const cmd = createCommand()
     .input(listPath)
     .inputOptions(['-f concat', '-safe 0'])
-    .videoCodec(codecCfg.vcodec)
+    .videoCodec(renderCodec.encoder)
     .addOutputOptions([
       `-vf ${scaleFilter}`,
       `-r ${options.fps}`,
       ...codecCfg.opts,
-      ...(options.codec !== 'prores'
-        ? [`-crf ${presetCfg.crf}`, `-preset ${presetCfg.preset}`]
-        : []),
-      ...(options.videoBitrate ? [`-b:v ${options.videoBitrate}`] : []),
+      ...renderCodec.outputOptions,
       `-b:a ${options.audioBitrate ?? '192k'}`,
     ])
     .output(outputPath);
@@ -155,20 +163,18 @@ function renderSingleSegmentInternal(
   validateOutputPath(outputPath);
 
   const codecCfg = CODEC_MAP[options.codec];
-  const presetCfg = PRESET_MAP[options.preset];
+  const renderCodec = getRenderCodecConfig(options);
   const duration = (options.outPoint - options.inPoint) / options.speed;
 
   const cmd = createCommand(inputPath)
     .seekInput(options.inPoint)
     .duration(duration)
-    .videoCodec(codecCfg.vcodec)
+    .videoCodec(renderCodec.encoder)
     .addOutputOptions([
       `-vf setpts=${(1 / options.speed).toFixed(4)}*PTS,scale=trunc(${options.width}/2)*2:trunc(${options.height}/2)*2`,
       `-r ${options.fps}`,
       ...codecCfg.opts,
-      ...(options.codec !== 'prores'
-        ? [`-crf ${presetCfg.crf}`, `-preset ${presetCfg.preset}`]
-        : []),
+      ...renderCodec.outputOptions,
     ])
     .output(outputPath);
 

@@ -218,12 +218,7 @@ export async function exportAllData(
     );
 
     // 3. Copy CAS assets directory
-    await copyDirWithManifest(
-      paths.assetsRoot,
-      path.join(targetDir, 'assets'),
-      'assets',
-      items,
-    );
+    await copyDirWithManifest(paths.assetsRoot, path.join(targetDir, 'assets'), 'assets', items);
 
     // 4. Write manifest
     const totalBytes = items.reduce((sum, item) => sum + item.sizeBytes, 0);

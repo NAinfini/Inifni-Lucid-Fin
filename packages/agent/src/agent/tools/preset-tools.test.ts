@@ -54,7 +54,9 @@ describe('createPresetTools', () => {
     });
     expect(deps.listPresets).toHaveBeenCalledWith('camera');
 
-    await expect(getTool('preset.manage', deps).execute({ action: 'update', preset })).resolves.toEqual({
+    await expect(
+      getTool('preset.manage', deps).execute({ action: 'update', preset }),
+    ).resolves.toEqual({
       success: true,
       data: preset,
     });
@@ -78,18 +80,24 @@ describe('createPresetTools', () => {
     expect((customResult.data as PresetDefinition).id).toMatch(/^custom-/);
 
     await expect(
-      getTool('preset.manage', deps).execute({ action: 'reset', presetId: 'preset-2', scope: 'params' }),
+      getTool('preset.manage', deps).execute({
+        action: 'reset',
+        presetId: 'preset-2',
+        scope: 'params',
+      }),
     ).resolves.toEqual({
       success: true,
       data: { ...preset, id: 'preset-2' },
     });
-    await expect(getTool('preset.manage', deps).execute({ action: 'delete', presetId: 'preset-3' })).resolves.toEqual(
-      {
-        success: true,
-        data: { presetId: 'preset-3' },
-      },
-    );
-    await expect(getTool('preset.manage', deps).execute({ action: 'get', ids: 'preset-1' })).resolves.toEqual({
+    await expect(
+      getTool('preset.manage', deps).execute({ action: 'delete', presetId: 'preset-3' }),
+    ).resolves.toEqual({
+      success: true,
+      data: { presetId: 'preset-3' },
+    });
+    await expect(
+      getTool('preset.manage', deps).execute({ action: 'get', ids: 'preset-1' }),
+    ).resolves.toEqual({
       success: true,
       data: preset,
     });
@@ -98,22 +106,32 @@ describe('createPresetTools', () => {
   it('validates category, preset payload, reset scope, and missing preset cases', async () => {
     const deps = createDeps();
 
-    await expect(getTool('preset.manage', deps).execute({ action: 'list', category: 'invalid' })).resolves.toEqual({
+    await expect(
+      getTool('preset.manage', deps).execute({ action: 'list', category: 'invalid' }),
+    ).resolves.toEqual({
       success: false,
       error:
         'category must be one of camera, lens, look, scene, composition, emotion, flow, technical, voice-style, music-genre, sfx-environment',
     });
-    await expect(getTool('preset.manage', deps).execute({ action: 'update', preset: [] })).resolves.toEqual({
+    await expect(
+      getTool('preset.manage', deps).execute({ action: 'update', preset: [] }),
+    ).resolves.toEqual({
       success: false,
       error: 'preset must be a valid object',
     });
     await expect(
-      getTool('preset.manage', deps).execute({ action: 'reset', presetId: 'preset-1', scope: 'bad' }),
+      getTool('preset.manage', deps).execute({
+        action: 'reset',
+        presetId: 'preset-1',
+        scope: 'bad',
+      }),
     ).resolves.toEqual({
       success: false,
       error: 'scope must be one of all, prompt, or params',
     });
-    await expect(getTool('preset.manage', deps).execute({ action: 'get', ids: 'missing' })).resolves.toEqual({
+    await expect(
+      getTool('preset.manage', deps).execute({ action: 'get', ids: 'missing' }),
+    ).resolves.toEqual({
       success: false,
       error: 'Preset not found: missing',
     });
@@ -123,12 +141,12 @@ describe('createPresetTools', () => {
     const deps = createDeps();
     vi.mocked(deps.deletePreset).mockRejectedValueOnce(new Error('delete failed'));
 
-    await expect(getTool('preset.manage', deps).execute({ action: 'delete', presetId: 'preset-1' })).resolves.toEqual(
-      {
-        success: false,
-        error: 'delete failed',
-      },
-    );
+    await expect(
+      getTool('preset.manage', deps).execute({ action: 'delete', presetId: 'preset-1' }),
+    ).resolves.toEqual({
+      success: false,
+      error: 'delete failed',
+    });
   });
 
   describe('preset.manage list query and categories filter', () => {
@@ -177,7 +195,10 @@ describe('createPresetTools', () => {
 
     it('backward compat: category string filters correctly', async () => {
       const deps = createMultiDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'list', category: 'lens' });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'list',
+        category: 'lens',
+      });
       expect(result).toMatchObject({
         success: true,
         data: { total: 1, presets: [expect.objectContaining({ id: 'p-lens' })] },
@@ -186,7 +207,10 @@ describe('createPresetTools', () => {
 
     it('categories array OR-matches multiple categories', async () => {
       const deps = createMultiDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'list', categories: ['camera', 'lens'] });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'list',
+        categories: ['camera', 'lens'],
+      });
       expect(result).toMatchObject({ success: true, data: { total: 2 } });
       const data = (result as { success: true; data: { presets: { id: string }[] } }).data;
       expect(data.presets.map((p) => p.id)).toEqual(expect.arrayContaining(['p-camera', 'p-lens']));
@@ -194,7 +218,10 @@ describe('createPresetTools', () => {
 
     it('query filters by name (case-insensitive)', async () => {
       const deps = createMultiDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'list', query: 'noir' });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'list',
+        query: 'noir',
+      });
       expect(result).toMatchObject({
         success: true,
         data: { total: 1, presets: [expect.objectContaining({ id: 'p-look' })] },
@@ -203,7 +230,10 @@ describe('createPresetTools', () => {
 
     it('query filters by description (OR logic)', async () => {
       const deps = createMultiDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'list', query: 'wide' });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'list',
+        query: 'wide',
+      });
       expect(result).toMatchObject({
         success: true,
         data: { total: 1, presets: [expect.objectContaining({ id: 'p-lens' })] },
@@ -212,7 +242,10 @@ describe('createPresetTools', () => {
 
     it('returns empty when query matches nothing', async () => {
       const deps = createMultiDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'list', query: 'xyz123' });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'list',
+        query: 'xyz123',
+      });
       expect(result).toMatchObject({ success: true, data: { total: 0, presets: [] } });
     });
   });
@@ -236,13 +269,19 @@ describe('createPresetTools', () => {
 
     it('single string ID returns single preset (backward compat)', async () => {
       const deps = createBatchDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'get', ids: 'preset-1' });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'get',
+        ids: 'preset-1',
+      });
       expect(result).toEqual({ success: true, data: preset });
     });
 
     it('array of IDs returns array of presets', async () => {
       const deps = createBatchDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'get', ids: ['preset-1', 'preset-2'] });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'get',
+        ids: ['preset-1', 'preset-2'],
+      });
       expect(result.success).toBe(true);
       const data = result.data as PresetDefinition[];
       expect(data).toHaveLength(2);
@@ -251,7 +290,10 @@ describe('createPresetTools', () => {
 
     it('missing ID in batch returns error for first missing', async () => {
       const deps = createBatchDeps();
-      const result = await getTool('preset.manage', deps).execute({ action: 'get', ids: ['preset-1', 'missing'] });
+      const result = await getTool('preset.manage', deps).execute({
+        action: 'get',
+        ids: ['preset-1', 'missing'],
+      });
       expect(result).toEqual({ success: false, error: 'Preset not found: missing' });
     });
   });

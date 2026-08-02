@@ -331,7 +331,9 @@ function rowToCharacterLite(row: Record<string, unknown>): Character {
     distinctTraits: parseStringArrayOrUndef(row.distinct_traits),
     vocalTraits: parseJsonObjectOrUndef(row.vocal_traits) as VocalTraits | undefined,
     referenceImages: thumbnailHash
-      ? ([{ slot: 'main', assetHash: thumbnailHash, isStandard: true }] as Character['referenceImages'])
+      ? ([
+          { slot: 'main', assetHash: thumbnailHash, isStandard: true },
+        ] as Character['referenceImages'])
       : ([] as Character['referenceImages']),
     loadouts: [] as Character['loadouts'],
     defaultLoadoutId: (row.default_loadout_id as string) ?? '',
@@ -376,7 +378,9 @@ function rowToEquipmentLite(row: Record<string, unknown>): Equipment {
     visualDetails: (row.visual_details as string | null) ?? undefined,
     tags: parseStringArrayOrEmpty(row.tags),
     referenceImages: thumbnailHash
-      ? ([{ slot: 'main', assetHash: thumbnailHash, isStandard: true }] as Equipment['referenceImages'])
+      ? ([
+          { slot: 'main', assetHash: thumbnailHash, isStandard: true },
+        ] as Equipment['referenceImages'])
       : ([] as Equipment['referenceImages']),
     folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
@@ -425,7 +429,9 @@ function rowToLocationLite(row: Record<string, unknown>): Location {
     atmosphereKeywords: parseStringArrayOrUndef(row.atmosphere_keywords),
     tags: parseStringArrayOrEmpty(row.tags),
     referenceImages: thumbnailHash
-      ? ([{ slot: 'main', assetHash: thumbnailHash, isStandard: true }] as Location['referenceImages'])
+      ? ([
+          { slot: 'main', assetHash: thumbnailHash, isStandard: true },
+        ] as Location['referenceImages'])
       : ([] as Location['referenceImages']),
     folderId: (row.folder_id as string | null) ?? null,
     createdAt: (row.created_at as number) ?? Date.now(),
@@ -440,8 +446,7 @@ export class EntityRepository {
 
   private existsCharacter(id: string, d: BetterSqlite3.Database | Tx): boolean {
     const row = d.prepare(`SELECT 1 FROM ${CHAR_TBL} WHERE ${CHAR.id.sqlName} = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     return row !== undefined;
   }
 
@@ -562,9 +567,7 @@ export class EntityRepository {
   listCharacters(tx?: Tx): ListResult<Character> {
     const d = tx ?? this.db;
     const rows = d
-      .prepare(
-        `SELECT * FROM ${CHAR_TBL} WHERE deleted_at IS NULL ORDER BY ${CHAR.name.sqlName}`,
-      )
+      .prepare(`SELECT * FROM ${CHAR_TBL} WHERE deleted_at IS NULL ORDER BY ${CHAR.name.sqlName}`)
       .all() as Array<Record<string, unknown>>;
     const out: Character[] = [];
     let degradedCount = 0;
@@ -695,8 +698,7 @@ export class EntityRepository {
 
   private existsEquipment(id: string, d: BetterSqlite3.Database | Tx): boolean {
     const row = d.prepare(`SELECT 1 FROM ${EQUIP_TBL} WHERE ${EQUIP.id.sqlName} = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     return row !== undefined;
   }
 
@@ -936,8 +938,7 @@ export class EntityRepository {
 
   private existsLocation(id: string, d: BetterSqlite3.Database | Tx): boolean {
     const row = d.prepare(`SELECT 1 FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     return row !== undefined;
   }
 
@@ -1147,9 +1148,7 @@ export class EntityRepository {
   listDeletedLocations(tx?: Tx): ListResult<Location> {
     const d = tx ?? this.db;
     const rows = d
-      .prepare(
-        `SELECT * FROM ${LOC_TBL} WHERE deleted_at IS NOT NULL ORDER BY ${LOC.name.sqlName}`,
-      )
+      .prepare(`SELECT * FROM ${LOC_TBL} WHERE deleted_at IS NOT NULL ORDER BY ${LOC.name.sqlName}`)
       .all() as Array<Record<string, unknown>>;
     const out: Location[] = [];
     let degradedCount = 0;
@@ -1177,9 +1176,9 @@ export class EntityRepository {
 
   purgeLocation(id: LocationId, tx?: Tx): void {
     const d = tx ?? this.db;
-    d.prepare(
-      `DELETE FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ? AND deleted_at IS NOT NULL`,
-    ).run(id);
+    d.prepare(`DELETE FROM ${LOC_TBL} WHERE ${LOC.id.sqlName} = ? AND deleted_at IS NOT NULL`).run(
+      id,
+    );
   }
 
   purgeLocationsOlderThan(days: number, tx?: Tx): number {

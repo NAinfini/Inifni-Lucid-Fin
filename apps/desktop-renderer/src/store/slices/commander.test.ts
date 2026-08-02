@@ -4,6 +4,7 @@ import {
   addInjectedMessage,
   appendFinalizedAssistantMessage,
   clearHistory,
+  compactLocalContext,
   commanderSlice,
   finishStreaming,
   loadSession,
@@ -41,6 +42,16 @@ function makeFinalized(runId: string, content: string): CommanderMessage {
 }
 
 describe('commander slice', () => {
+  it('never rewrites the durable transcript when local context compaction is requested', () => {
+    let state = commanderSlice.reducer(undefined, addUserMessage('a'.repeat(500_000)));
+    state = commanderSlice.reducer(state, addUserMessage('b'.repeat(500_000)));
+    const before = state.messages.map((message) => ({ ...message }));
+
+    const compacted = commanderSlice.reducer(state, compactLocalContext());
+
+    expect(compacted.messages).toEqual(before);
+  });
+
   it('toggleCommander and setCommanderOpen update open state', () => {
     let state = commanderSlice.reducer(undefined, toggleCommander());
     expect(state.open).toBe(true);

@@ -30,8 +30,7 @@ function getUndoSettings(state: Record<string, unknown>): {
   groupWindowMs: number;
 } {
   const commander = state.commander as
-    | { undoStackDepth?: number; undoGroupWindowMs?: number }
-    | undefined;
+    { undoStackDepth?: number; undoGroupWindowMs?: number } | undefined;
   return {
     maxStack: commander?.undoStackDepth ?? DEFAULT_MAX_STACK,
     groupWindowMs: commander?.undoGroupWindowMs ?? DEFAULT_GROUP_WINDOW_MS,

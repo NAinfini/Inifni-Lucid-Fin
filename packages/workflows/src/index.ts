@@ -19,6 +19,15 @@ export {
 export {
   WorkflowEngine,
   type WorkflowEngineOptions,
+  type ProductionPlanCreateRequest,
+  type ProductionPlanCreateResult,
+  type ContextCheckpointCreateResult,
+  type ProductionMediaWorkflowContext,
+  type VisualAuditionStartRequest,
+  type VisualAuditionStartResult,
+  type VisualAuditionSnapshotRequest,
+  type VisualConstitutionSelectionResult,
+  VISUAL_PREVIEW_RUBRIC_VERSION,
   type WorkflowStartRequest,
 } from './workflow-engine.js';
 export { WorkflowRecovery } from './workflow-recovery.js';

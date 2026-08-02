@@ -38,10 +38,7 @@ describe('parseSseStream', () => {
   });
 
   it('skips data: [DONE] sentinel', async () => {
-    const response = mockSseResponse([
-      'data: {"id":"1"}\n',
-      'data: [DONE]\n',
-    ]);
+    const response = mockSseResponse(['data: {"id":"1"}\n', 'data: [DONE]\n']);
 
     const results = await collectAll(parseSseStream(response));
 
@@ -64,10 +61,7 @@ describe('parseSseStream', () => {
 
   it('handles multi-chunk data (JSON split across ReadableStream chunks)', async () => {
     // The JSON `{"split":"value"}` is split across two chunks
-    const response = mockSseResponse([
-      'data: {"spl',
-      'it":"value"}\n',
-    ]);
+    const response = mockSseResponse(['data: {"spl', 'it":"value"}\n']);
 
     const results = await collectAll(parseSseStream(response));
 
@@ -77,10 +71,7 @@ describe('parseSseStream', () => {
   it('skips malformed JSON lines silently', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const response = mockSseResponse([
-      'data: {invalid json}\n',
-      'data: {"valid":true}\n',
-    ]);
+    const response = mockSseResponse(['data: {invalid json}\n', 'data: {"valid":true}\n']);
 
     const results = await collectAll(parseSseStream(response));
 

@@ -15,41 +15,73 @@ env:
   NODE_OPTIONS: '--max-old-space-size=4096'
 
 jobs:
-  cleanup:
-    name: Clean Previous Release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Delete existing release for this tag (if any)
-        run: gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false 2>/dev/null || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build:
-    needs: cleanup
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             platform: win
-          - os: macos-latest
+            arch: x64
+            platform_key: win32-x64
+            artifact: win-x64
+          - os: windows-11-arm
+            platform: win
+            arch: arm64
+            platform_key: win32-arm64
+            artifact: win-arm64
+          - os: macos-15-intel
             platform: mac
+            arch: x64
+            platform_key: darwin-x64
+            artifact: mac-x64
+          - os: macos-15
+            platform: mac
+            arch: arm64
+            platform_key: darwin-arm64
+            artifact: mac-arm64
           - os: ubuntu-latest
             platform: linux
+            arch: x64
+            platform_key: linux-x64
+            artifact: linux-x64
 
     runs-on: ${{ matrix.os }}
-    name: Build (${{ matrix.platform }})
+    timeout-minutes: 90
+    name: Build (${{ matrix.artifact }})
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26.5.1
           cache: npm
 
       - run: npm ci
+
+      - name: Resolve the pinned FFmpeg artifact kind
+        id: ffmpeg
+        shell: bash
+        run: |
+          kind="$(node -e "const manifest = require('./packages/media-engine/ffmpeg-checksums.json'); process.stdout.write(manifest.platforms[process.argv[1]].kind)" "${{ matrix.platform_key }}")"
+          if [[ "$kind" != 'archive' && "$kind" != 'source-build' ]]; then
+            echo "Unsupported FFmpeg artifact kind: $kind" >&2
+            exit 1
+          fi
+          if [[ "$kind" == 'source-build' && "${{ matrix.platform_key }}" != darwin-* ]]; then
+            echo "Source builds are allowed only for macOS FFmpeg payloads" >&2
+            exit 1
+          fi
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+
+      - name: Restore verified FFmpeg archive
+        if: steps.ffmpeg.outputs.kind == 'archive'
+        run: node scripts/fetch-ffmpeg.ts --platform ${{ matrix.platform_key }}
+
+      - name: Build verified macOS LGPL FFmpeg payload
+        if: steps.ffmpeg.outputs.kind == 'source-build'
+        run: bash scripts/build-ffmpeg-macos-lgpl.sh --output resources/bin/${{ matrix.platform_key }}
 
       - name: Rebuild native modules
         run: npm rebuild better-sqlite3
@@ -58,7 +90,7 @@ jobs:
         run: npm run build
 
       - name: Package installer (local only, no publish)
-        run: npx electron-builder --config electron-builder.json --${{ matrix.platform }} --publish=never
+        run: npx electron-builder --config electron-builder.json --${{ matrix.platform }} --${{ matrix.arch }} --publish=never
         working-directory: apps/desktop-main
 
       - name: List built artifacts
@@ -68,7 +100,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}
+          name: release-${{ matrix.artifact }}
           path: |
             apps/desktop-main/release/*.exe
             apps/desktop-main/release/*.dmg
@@ -99,9 +131,14 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: false
+          draft: true
           generate_release_notes: true
           files: artifacts/*
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the complete draft release
+        run: gh release edit "${{ github.ref_name }}" --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

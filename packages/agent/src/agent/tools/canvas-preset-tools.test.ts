@@ -368,7 +368,10 @@ describe('shotTemplate.manage', () => {
 
   it('filters by query', async () => {
     const deps = createDeps();
-    const result = await getTool('shotTemplate.manage', deps).execute({ action: 'list', query: 'dramatic' });
+    const result = await getTool('shotTemplate.manage', deps).execute({
+      action: 'list',
+      query: 'dramatic',
+    });
     expect((result as { success: boolean }).success).toBe(true);
     const data = (result as { success: true; data: { total: number } }).data;
     expect(data.total).toBe(0);
@@ -410,7 +413,10 @@ describe('shotTemplate.manage (create)', () => {
 describe('shotTemplate.manage (update)', () => {
   it('rejects built-in templates in update mode', async () => {
     const deps = createDeps();
-    const result = await getTool('shotTemplate.manage', deps).execute({ action: 'update', templateId: 'tmpl-1' });
+    const result = await getTool('shotTemplate.manage', deps).execute({
+      action: 'update',
+      templateId: 'tmpl-1',
+    });
     expect((result as { success: boolean }).success).toBe(false);
     expect((result as { success: false; error: string }).error).toBe(
       'Cannot modify built-in templates.',
@@ -421,7 +427,10 @@ describe('shotTemplate.manage (update)', () => {
 describe('shotTemplate.manage (delete)', () => {
   it('rejects deletion of built-in templates', async () => {
     const deps = createDeps();
-    const result = await getTool('shotTemplate.manage', deps).execute({ action: 'delete', templateId: 'tmpl-1' });
+    const result = await getTool('shotTemplate.manage', deps).execute({
+      action: 'delete',
+      templateId: 'tmpl-1',
+    });
     expect((result as { success: boolean }).success).toBe(false);
     expect((result as { success: false; error: string }).error).toBe(
       'Cannot delete built-in templates.',

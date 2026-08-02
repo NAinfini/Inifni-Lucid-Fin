@@ -83,9 +83,7 @@ describe('backup module', () => {
 
       // Verify only 3 backup files exist in the backups directory
       const backupsDir = path.join(base, 'backups');
-      const backupFiles = fs
-        .readdirSync(backupsDir)
-        .filter((f) => f.endsWith('.sqlite'));
+      const backupFiles = fs.readdirSync(backupsDir).filter((f) => f.endsWith('.sqlite'));
       expect(backupFiles).toHaveLength(3);
     });
 

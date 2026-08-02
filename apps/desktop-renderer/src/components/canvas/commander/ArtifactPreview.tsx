@@ -21,7 +21,11 @@ export function extractChanges(
   if (!result || typeof result !== 'object') return [];
   const r = result as Record<string, unknown>;
 
-  if (toolName.includes('addNode') || toolName.includes('batchCreate') || toolName.includes('createNodes')) {
+  if (
+    toolName.includes('addNode') ||
+    toolName.includes('batchCreate') ||
+    toolName.includes('createNodes')
+  ) {
     const nodes = Array.isArray(r.nodes) ? r.nodes : r.nodeId ? [{ id: r.nodeId }] : [];
     return (nodes as Array<Record<string, unknown>>).map((n) => ({
       type: 'added' as const,

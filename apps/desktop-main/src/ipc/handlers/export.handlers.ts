@@ -22,6 +22,7 @@ import {
 import { matchNode } from '@lucid-fin/shared-utils';
 import type { CanvasStore } from './canvas.handlers.js';
 import { assertSafePath, getSafeRoots, getImportSafeRoots } from '../path-safety.js';
+import type { FinalExportService } from '../../services/final-export.service.js';
 
 const { dialog } = electron;
 
@@ -43,8 +44,9 @@ function findAssetFileForExport(cas: CAS, hash: string): string | null {
 
 export function registerExportHandlers(
   ipcMain: IpcMain,
-  cas?: CAS,
-  canvasStore?: CanvasStore,
+  cas: CAS | undefined,
+  canvasStore: CanvasStore | undefined,
+  finalExportService: FinalExportService,
 ): void {
   ipcMain.handle(
     'export:nle',
@@ -54,8 +56,10 @@ export function registerExportHandlers(
         format: 'fcpxml' | 'edl';
         project: NLEProject;
         outputPath?: string;
+        canvasId?: string;
       },
     ) => {
+      finalExportService.assertLegacyRenderAllowed(args?.canvasId);
       if (!args?.project) {
         throw new Error('export:nle: project is required');
       }
@@ -117,8 +121,10 @@ export function registerExportHandlers(
       args: {
         assetHashes: string[];
         outputPath?: string;
+        canvasId?: string;
       },
     ) => {
+      finalExportService.assertLegacyRenderAllowed(args?.canvasId);
       if (!cas) throw new Error('export:assetBundle: CAS not available');
       if (!Array.isArray(args?.assetHashes) || args.assetHashes.length === 0) {
         throw new Error('export:assetBundle: assetHashes array required');
@@ -197,8 +203,10 @@ export function registerExportHandlers(
         outputPath?: string;
         videoWidth?: number;
         videoHeight?: number;
+        canvasId?: string;
       },
     ) => {
+      finalExportService.assertLegacyRenderAllowed(args?.canvasId);
       if (!Array.isArray(args?.cues)) {
         throw new Error('export:subtitles: cues array required');
       }
@@ -264,8 +272,10 @@ export function registerExportHandlers(
         }>;
         projectTitle?: string;
         outputPath?: string;
+        canvasId?: string;
       },
     ) => {
+      finalExportService.assertLegacyRenderAllowed(args?.canvasId);
       if (!Array.isArray(args?.nodes) || args.nodes.length === 0) {
         throw new Error('export:storyboard: nodes array required');
       }
@@ -457,8 +467,10 @@ export function registerExportHandlers(
         }>;
         projectTitle?: string;
         outputPath?: string;
+        canvasId?: string;
       },
     ) => {
+      finalExportService.assertLegacyRenderAllowed(args?.canvasId);
       if (!Array.isArray(args?.nodes)) {
         throw new Error('export:metadata: nodes array required');
       }
@@ -652,8 +664,10 @@ export function registerExportHandlers(
         nodes: Array<{ title: string; assetHash: string; type: string; durationMs?: number }>;
         projectTitle?: string;
         outputDir?: string;
+        canvasId?: string;
       },
     ) => {
+      finalExportService.assertLegacyRenderAllowed(args?.canvasId);
       if (!cas) throw new Error('export:capcut: CAS not available');
       if (!Array.isArray(args?.nodes) || args.nodes.length === 0) {
         throw new Error('export:capcut: nodes array required');

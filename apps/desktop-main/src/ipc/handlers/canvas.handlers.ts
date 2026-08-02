@@ -76,6 +76,8 @@ export interface CanvasStore {
   save(canvas: Canvas): void;
   delete(id: string): void;
   list(): Array<{ id: string; name: string; updatedAt: number }>;
+  listFull(): Canvas[];
+  patchApply?(id: string, patch: CanvasPatch): void;
 }
 
 export function createCanvasStore(db: SqliteIndex): CanvasStore {
@@ -105,12 +107,61 @@ export function createCanvasStore(db: SqliteIndex): CanvasStore {
       canvases.delete(canvasId);
     },
     list: () => canvases.list(),
+    listFull: () => {
+      const result = canvases.listFull();
+      for (const canvas of result.rows) {
+        const canvasId = parseCanvasId(canvas.id);
+        canvas.id = canvasId;
+        cache.set(canvasId, canvas);
+      }
+      return result.rows;
+    },
+    patchApply: (id, patch) => {
+      const canvasId = parseCanvasId(id);
+      const canvas = cache.get(canvasId);
+      if (canvas) {
+        applyPatch(canvas, patch);
+        canvas.updatedAt = Date.now();
+      }
+
+      const updatedNodes: Array<{ node: CanvasNode; zIndex: number }> = [];
+      if (patch.updatedNodes) {
+        const currentCanvas = canvas ?? canvases.get(canvasId);
+        if (currentCanvas) {
+          const nodeMap = new Map(
+            currentCanvas.nodes.map((n, i) => [n.id, { node: n, zIndex: i }]),
+          );
+          for (const { id: nodeId } of patch.updatedNodes) {
+            const entry = nodeMap.get(nodeId);
+            if (entry) updatedNodes.push(entry);
+          }
+        }
+      }
+
+      canvases.patchApply(canvasId, {
+        addedNodes: patch.addedNodes,
+        removedNodeIds: patch.removedNodeIds,
+        updatedNodes,
+        addedEdges: patch.addedEdges,
+        removedEdgeIds: patch.removedEdgeIds,
+        updatedEdges: patch.updatedEdges?.map((u) => u.edge),
+        updatedAt: Date.now(),
+      });
+    },
   };
 }
 
 export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): void {
   ipcMain.handle('canvas:list', async () => {
     return store.list();
+  });
+
+  ipcMain.handle('canvas:loadAll', async () => {
+    const trace = startTrace('canvas-load-all');
+    const result = store.listFull();
+    trace.addMeasurement('canvasCount', result.length);
+    trace.finish();
+    return result;
   });
 
   ipcMain.handle('canvas:load', async (_e, args: { id: string }) => {
@@ -181,11 +232,17 @@ export function registerCanvasHandlers(ipcMain: IpcMain, store: CanvasStore): vo
 
   ipcMain.handle('canvas:patch', async (_e, args: { canvasId: string; patch: CanvasPatch }) => {
     if (!args || typeof args.canvasId !== 'string') throw new Error('canvasId is required');
-    const canvas = store.get(args.canvasId);
-    if (!canvas) throw new Error(`Canvas not found: ${args.canvasId}`);
-    applyPatch(canvas, args.patch);
-    canvas.updatedAt = Date.now();
-    store.save(canvas);
+    if (store.patchApply) {
+      const canvas = store.get(args.canvasId);
+      if (!canvas) throw new Error(`Canvas not found: ${args.canvasId}`);
+      store.patchApply(args.canvasId, args.patch);
+    } else {
+      const canvas = store.get(args.canvasId);
+      if (!canvas) throw new Error(`Canvas not found: ${args.canvasId}`);
+      applyPatch(canvas, args.patch);
+      canvas.updatedAt = Date.now();
+      store.save(canvas);
+    }
     log.debug('Canvas patched:', args.canvasId);
   });
 }

@@ -272,7 +272,10 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'The character ID to update (obtain from character.list).' },
+        id: {
+          type: 'string',
+          description: 'The character ID to update (obtain from character.list).',
+        },
         set: {
           type: 'object',
           description:
@@ -450,7 +453,10 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'The character ID to delete (obtain from character.list).' },
+        id: {
+          type: 'string',
+          description: 'The character ID to delete (obtain from character.list).',
+        },
       },
       required: ['id'],
     },

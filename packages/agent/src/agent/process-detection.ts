@@ -61,7 +61,6 @@ function normalizeNodeType(args?: Record<string, unknown>): 'image' | 'video' | 
   return null;
 }
 
-
 export function detectProcess(
   toolName: string,
   args?: Record<string, unknown>,

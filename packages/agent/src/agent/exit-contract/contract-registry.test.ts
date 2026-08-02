@@ -13,11 +13,7 @@ describe('contract-registry', () => {
   it('registers all Phase C contracts on load', () => {
     const ids = contractRegistry.ids();
     expect(ids).toEqual(
-      expect.arrayContaining([
-        'info-answer',
-        'mutation-execution',
-        'workflow-execution',
-      ]),
+      expect.arrayContaining(['info-answer', 'mutation-execution', 'workflow-execution']),
     );
     expect(ids).toHaveLength(3);
   });
@@ -55,7 +51,9 @@ describe('contract-registry', () => {
   });
 
   it('rejects re-setting the fallback to a different id', () => {
-    expect(() => contractRegistry.setFallback('mutation-execution')).toThrow(/fallback already set/i);
+    expect(() => contractRegistry.setFallback('mutation-execution')).toThrow(
+      /fallback already set/i,
+    );
   });
 
   it('accepts re-setting the fallback to the same id (idempotent)', () => {

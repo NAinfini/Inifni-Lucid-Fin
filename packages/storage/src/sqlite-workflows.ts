@@ -1,12 +1,120 @@
 import type {
+  ApproveWorkflowGateInput,
+  ApproveWorkflowGateResult,
+  WorkflowApproval,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
   WorkflowArtifact,
   WorkflowArtifactSummary,
+  WorkflowDocument,
+  WorkflowEvent,
+  WorkflowExportExecution,
+  WorkflowMediaAttempt,
+  WorkflowMediaAttemptStatus,
+  WorkflowMediaCostSummary,
+  WorkflowMediaEvaluation,
   WorkflowTaskSummary,
 } from '@lucid-fin/contracts';
 import type BetterSqlite3 from 'better-sqlite3';
+
+export interface WorkflowApprovalGateBundle {
+  run: WorkflowRun;
+  document: WorkflowDocument;
+  approval: WorkflowApproval;
+  events: WorkflowEvent[];
+}
+
+/** Atomic append of a later approval-gate revision to an existing run. */
+export interface WorkflowApprovalGateRevisionBundle {
+  expectedRowVersion: number;
+  document: WorkflowDocument;
+  approval: WorkflowApproval;
+  event: Omit<WorkflowEvent, 'seq'>;
+}
+
+export interface WorkflowApprovalGateRevisionResult {
+  run: WorkflowRun;
+  event: WorkflowEvent;
+}
+
+export interface ReserveWorkflowExportExecutionInput {
+  execution: WorkflowExportExecution;
+}
+
+export interface ReserveWorkflowExportExecutionResult {
+  execution: WorkflowExportExecution;
+  created: boolean;
+}
+
+export interface TransitionWorkflowExportExecutionInput {
+  id: string;
+  expectedRowVersion: number;
+  expectedStatuses: WorkflowExportExecution['status'][];
+  status: WorkflowExportExecution['status'];
+  updatedAt: number;
+  stagingPath?: string;
+  outputAssetHash?: string;
+  outputHash?: string;
+  outputSize?: number;
+  error?: string;
+}
+
+export interface CompleteWorkflowExportExecutionInput {
+  id: string;
+  expectedExecutionRowVersion: number;
+  expectedRunRowVersion: number;
+  outputAssetHash: string;
+  outputHash: string;
+  outputSize: number;
+  completedAt: number;
+  runOutput: Record<string, unknown>;
+  event: Omit<WorkflowEvent, 'seq'>;
+}
+
+export interface ReserveWorkflowMediaAttemptInput {
+  attempt: WorkflowMediaAttempt;
+  expectedRunRowVersion: number;
+}
+
+export interface ReserveWorkflowMediaAttemptResult {
+  attempt: WorkflowMediaAttempt;
+  created: boolean;
+}
+
+export interface TransitionWorkflowMediaAttemptInput {
+  id: string;
+  expectedRowVersion: number;
+  expectedStatuses: WorkflowMediaAttemptStatus[];
+  status: WorkflowMediaAttemptStatus;
+  updatedAt: number;
+  model?: string;
+  providerJobId?: string;
+  assetHash?: string;
+  reportedActualCostUsd?: number;
+  error?: string;
+  submittedAt?: number;
+  assetReadyAt?: number;
+  evaluatedAt?: number;
+  completedAt?: number;
+}
+
+export interface RecordWorkflowMediaEvaluationInput {
+  evaluation: WorkflowMediaEvaluation;
+  expectedAttemptRowVersion: number;
+  expectedAttemptStatuses: WorkflowMediaAttemptStatus[];
+  resultingAttemptStatus: Extract<
+    WorkflowMediaAttemptStatus,
+    'accepted' | 'repair_required' | 'regenerate_required' | 'human_review'
+  >;
+  evaluatedAt: number;
+}
+
+export interface RecordWorkflowMediaEvaluationResult {
+  evaluation: WorkflowMediaEvaluation;
+  attempt: WorkflowMediaAttempt;
+  created: boolean;
+}
 
 // --- Workflow Runs ---
 
@@ -18,8 +126,9 @@ export function insertWorkflowRun(db: BetterSqlite3.Database, run: WorkflowRun):
       status, summary, progress, completed_stages, total_stages,
       completed_tasks, total_tasks, current_stage_id, current_task_id,
       input_json, output_json, error_text, metadata_json,
-      created_at, started_at, completed_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      created_at, started_at, completed_at, updated_at,
+      row_version, current_gate, engine_version, definition_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     run.id,
@@ -44,13 +153,16 @@ export function insertWorkflowRun(db: BetterSqlite3.Database, run: WorkflowRun):
     run.startedAt ?? null,
     run.completedAt ?? null,
     run.updatedAt,
+    run.rowVersion ?? 0,
+    run.currentGate ?? null,
+    run.engineVersion ?? 'legacy',
+    run.definitionVersion ?? 1,
   );
 }
 
 export function getWorkflowRun(db: BetterSqlite3.Database, id: string): WorkflowRun | undefined {
   const row = db.prepare('SELECT * FROM workflow_runs WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   if (!row) return undefined;
   return rowToWorkflowRun(row);
 }
@@ -196,6 +308,1209 @@ export function updateWorkflowRun(
   db.prepare(`UPDATE workflow_runs SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 }
 
+// --- Persistent Workflow Documents, Approvals, and Events ---
+
+export function insertWorkflowDocument(
+  db: BetterSqlite3.Database,
+  document: WorkflowDocument,
+): void {
+  db.prepare(
+    `INSERT INTO workflow_documents (
+       id, workflow_run_id, logical_key, document_type, revision, schema_version,
+       content_json, content_hash, status, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    document.id,
+    document.workflowRunId,
+    document.logicalKey,
+    document.documentType,
+    document.revision,
+    document.schemaVersion,
+    JSON.stringify(document.content),
+    document.contentHash,
+    document.status,
+    document.createdAt,
+    document.updatedAt,
+  );
+}
+
+export function getLatestWorkflowDocument(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+  logicalKey: string,
+): WorkflowDocument | undefined {
+  const row = db
+    .prepare(
+      `SELECT * FROM workflow_documents
+       WHERE workflow_run_id = ? AND logical_key = ?
+       ORDER BY revision DESC
+       LIMIT 1`,
+    )
+    .get(workflowRunId, logicalKey) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowDocument(row) : undefined;
+}
+
+export function getWorkflowDocumentRevision(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+  logicalKey: string,
+  revision: number,
+): WorkflowDocument | undefined {
+  const row = db
+    .prepare(
+      `SELECT * FROM workflow_documents
+       WHERE workflow_run_id = ? AND logical_key = ? AND revision = ?
+       LIMIT 1`,
+    )
+    .get(workflowRunId, logicalKey, revision) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowDocument(row) : undefined;
+}
+
+export function insertPendingWorkflowApproval(
+  db: BetterSqlite3.Database,
+  approval: WorkflowApproval,
+): void {
+  if (approval.status !== 'pending') {
+    throw new TypeError('A newly created workflow approval must have pending status');
+  }
+
+  const create = db.transaction(() => {
+    const subject = db
+      .prepare(
+        `SELECT content_hash FROM workflow_documents
+         WHERE workflow_run_id = ? AND logical_key = ? AND revision = ?`,
+      )
+      .get(approval.workflowRunId, approval.subjectLogicalKey, approval.subjectRevision) as
+      { content_hash: string } | undefined;
+
+    if (!subject) {
+      throw new Error('Workflow approval subject revision does not exist');
+    }
+    if (subject.content_hash !== approval.subjectHash) {
+      throw new Error('Workflow approval subject hash does not match the stored document');
+    }
+
+    db.prepare(
+      `UPDATE workflow_approvals
+       SET status = 'invalidated', decided_at = ?, updated_at = ?
+       WHERE workflow_run_id = ? AND gate_key = ? AND status = 'pending'`,
+    ).run(approval.createdAt, approval.updatedAt, approval.workflowRunId, approval.gateKey);
+
+    db.prepare(
+      `INSERT INTO workflow_approvals (
+         id, workflow_run_id, gate_key, subject_logical_key, subject_revision,
+         subject_hash, manifest_hash, resume_token_hash, status,
+         created_at, updated_at, decided_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      approval.id,
+      approval.workflowRunId,
+      approval.gateKey,
+      approval.subjectLogicalKey,
+      approval.subjectRevision,
+      approval.subjectHash,
+      approval.manifestHash,
+      approval.resumeTokenHash,
+      approval.status,
+      approval.createdAt,
+      approval.updatedAt,
+      approval.decidedAt ?? null,
+    );
+
+    const changed = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET current_gate = ?, status = 'awaiting_approval', row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND (current_gate IS NULL OR current_gate = ?)`,
+      )
+      .run(approval.gateKey, approval.updatedAt, approval.workflowRunId, approval.gateKey).changes;
+    if (changed !== 1) {
+      throw new Error('Workflow run is missing or blocked at a different approval gate');
+    }
+  });
+
+  create.immediate();
+}
+
+/**
+ * Atomically creates a new workflow aggregate and its first approval gate.
+ * This is the durable boundary used by Commander: no partial run, document,
+ * approval, or event rows survive if any insert fails.
+ */
+export function insertWorkflowApprovalGateBundle(
+  db: BetterSqlite3.Database,
+  bundle: WorkflowApprovalGateBundle,
+): void {
+  const create = db.transaction(() => {
+    if (
+      bundle.document.workflowRunId !== bundle.run.id ||
+      bundle.approval.workflowRunId !== bundle.run.id ||
+      bundle.events.some((event) => event.workflowRunId !== bundle.run.id)
+    ) {
+      throw new Error('Workflow approval-gate bundle contains mismatched workflow run IDs');
+    }
+
+    const expectedSequences = bundle.events.map((_event, index) => index + 1);
+    if (bundle.events.some((event, index) => event.seq !== expectedSequences[index])) {
+      throw new Error('Initial workflow events must use contiguous sequences beginning at 1');
+    }
+
+    insertWorkflowRun(db, bundle.run);
+    insertWorkflowDocument(db, bundle.document);
+    insertPendingWorkflowApproval(db, bundle.approval);
+    for (const event of bundle.events) insertWorkflowEvent(db, event);
+  });
+
+  create.immediate();
+}
+
+/**
+ * Atomically appends an immutable document, replaces the pending approval for
+ * that gate, CAS-advances the run, and writes the next contiguous event.
+ */
+export function insertWorkflowApprovalGateRevision(
+  db: BetterSqlite3.Database,
+  bundle: WorkflowApprovalGateRevisionBundle,
+): WorkflowApprovalGateRevisionResult {
+  const create = db.transaction((): WorkflowApprovalGateRevisionResult => {
+    const { document, approval } = bundle;
+    if (
+      document.workflowRunId !== approval.workflowRunId ||
+      document.workflowRunId !== bundle.event.workflowRunId
+    ) {
+      throw new Error('Workflow gate revision contains mismatched workflow run IDs');
+    }
+    if (
+      approval.status !== 'pending' ||
+      approval.subjectLogicalKey !== document.logicalKey ||
+      approval.subjectRevision !== document.revision ||
+      approval.subjectHash !== document.contentHash
+    ) {
+      throw new Error('Workflow gate revision approval does not match its immutable subject');
+    }
+
+    const runRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(document.workflowRunId) as Record<string, unknown> | undefined;
+    if (!runRow) throw new Error(`Workflow "${document.workflowRunId}" not found`);
+    const actualRowVersion = Number(runRow.row_version ?? 0);
+    if (actualRowVersion !== bundle.expectedRowVersion) {
+      throw new Error(
+        `Workflow row version changed: expected ${bundle.expectedRowVersion}, got ${actualRowVersion}`,
+      );
+    }
+    const currentGate = runRow.current_gate == null ? undefined : String(runRow.current_gate);
+    if (currentGate && currentGate !== approval.gateKey) {
+      throw new Error(`Workflow is blocked at a different approval gate: ${currentGate}`);
+    }
+
+    const latestRevisionRow = db
+      .prepare(
+        `SELECT COALESCE(MAX(revision), 0) AS latest_revision
+         FROM workflow_documents
+         WHERE workflow_run_id = ? AND logical_key = ?`,
+      )
+      .get(document.workflowRunId, document.logicalKey) as { latest_revision: number };
+    const expectedRevision = Number(latestRevisionRow.latest_revision) + 1;
+    if (document.revision !== expectedRevision) {
+      throw new Error(
+        `Workflow document revision changed: expected ${expectedRevision}, got ${document.revision}`,
+      );
+    }
+
+    insertWorkflowDocument(db, document);
+    db.prepare(
+      `UPDATE workflow_approvals
+       SET status = 'invalidated', decided_at = ?, updated_at = ?
+       WHERE workflow_run_id = ? AND gate_key = ? AND status = 'pending'`,
+    ).run(approval.createdAt, approval.updatedAt, approval.workflowRunId, approval.gateKey);
+    db.prepare(
+      `INSERT INTO workflow_approvals (
+         id, workflow_run_id, gate_key, subject_logical_key, subject_revision,
+         subject_hash, manifest_hash, resume_token_hash, status,
+         created_at, updated_at, decided_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      approval.id,
+      approval.workflowRunId,
+      approval.gateKey,
+      approval.subjectLogicalKey,
+      approval.subjectRevision,
+      approval.subjectHash,
+      approval.manifestHash,
+      approval.resumeTokenHash,
+      approval.status,
+      approval.createdAt,
+      approval.updatedAt,
+      approval.decidedAt ?? null,
+    );
+
+    const changed = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET current_gate = ?, status = 'awaiting_approval',
+             row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND row_version = ?
+           AND (current_gate IS NULL OR current_gate = ?)`,
+      )
+      .run(
+        approval.gateKey,
+        approval.updatedAt,
+        approval.workflowRunId,
+        bundle.expectedRowVersion,
+        approval.gateKey,
+      ).changes;
+    if (changed !== 1) throw new Error('Workflow run CAS changed inside gate transaction');
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(document.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = { ...bundle.event, seq: Number(seqRow.next_seq) };
+    insertWorkflowEvent(db, event);
+
+    const updatedRunRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(document.workflowRunId) as Record<string, unknown>;
+    return { run: rowToWorkflowRun(updatedRunRow), event };
+  });
+
+  return create.immediate();
+}
+
+export function getPendingWorkflowApproval(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+  gateKey: WorkflowApproval['gateKey'],
+): WorkflowApproval | undefined {
+  const row = db
+    .prepare(
+      `SELECT * FROM workflow_approvals
+       WHERE workflow_run_id = ? AND gate_key = ? AND status = 'pending'
+       ORDER BY subject_revision DESC, created_at DESC
+       LIMIT 1`,
+    )
+    .get(workflowRunId, gateKey) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowApproval(row) : undefined;
+}
+
+export function getLatestWorkflowApproval(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+  gateKey: WorkflowApproval['gateKey'],
+): WorkflowApproval | undefined {
+  const row = db
+    .prepare(
+      `SELECT * FROM workflow_approvals
+       WHERE workflow_run_id = ? AND gate_key = ?
+       ORDER BY subject_revision DESC, created_at DESC
+       LIMIT 1`,
+    )
+    .get(workflowRunId, gateKey) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowApproval(row) : undefined;
+}
+
+export function approveWorkflowGate(
+  db: BetterSqlite3.Database,
+  input: ApproveWorkflowGateInput,
+): ApproveWorkflowGateResult {
+  const approve = db.transaction((): ApproveWorkflowGateResult => {
+    const runRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(input.workflowRunId) as Record<string, unknown> | undefined;
+    if (!runRow) {
+      return { ok: false, code: 'run_not_found' };
+    }
+
+    const approvalRow = db
+      .prepare(
+        `SELECT * FROM workflow_approvals
+         WHERE workflow_run_id = ? AND gate_key = ?
+         ORDER BY subject_revision DESC, created_at DESC
+         LIMIT 1`,
+      )
+      .get(input.workflowRunId, input.gateKey) as Record<string, unknown> | undefined;
+    if (!approvalRow) {
+      return { ok: false, code: 'no_approval' };
+    }
+
+    const approval = rowToWorkflowApproval(approvalRow);
+    if (approval.status === 'approved') {
+      return { ok: false, code: 'already_approved', approval };
+    }
+    if (approval.status !== 'pending') {
+      return { ok: false, code: 'approval_not_pending', status: approval.status };
+    }
+
+    const actualGate =
+      runRow.current_gate == null
+        ? undefined
+        : (String(runRow.current_gate) as WorkflowApproval['gateKey']);
+    if (actualGate !== input.gateKey) {
+      return { ok: false, code: 'gate_not_current', actualGate };
+    }
+
+    const actualRowVersion = Number(runRow.row_version ?? 0);
+    if (actualRowVersion !== input.expectedRowVersion) {
+      return { ok: false, code: 'stale_row_version', actualRowVersion };
+    }
+    if (approval.subjectRevision !== input.expectedSubjectRevision) {
+      return {
+        ok: false,
+        code: 'stale_subject_revision',
+        actualSubjectRevision: approval.subjectRevision,
+      };
+    }
+    if (approval.subjectHash !== input.expectedSubjectHash) {
+      return { ok: false, code: 'subject_hash_mismatch' };
+    }
+    if (approval.resumeTokenHash !== input.resumeTokenHash) {
+      return { ok: false, code: 'resume_token_mismatch' };
+    }
+
+    const approvalUpdated = db
+      .prepare(
+        `UPDATE workflow_approvals
+         SET status = 'approved', decided_at = ?, updated_at = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .run(input.approvedAt, input.approvedAt, approval.id).changes;
+    if (approvalUpdated !== 1) {
+      return { ok: false, code: 'already_approved', approval };
+    }
+
+    const runUpdated = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET current_gate = NULL, status = 'ready',
+             current_stage_id = COALESCE(?, current_stage_id),
+             row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND row_version = ? AND current_gate = ?`,
+      )
+      .run(
+        input.nextStageId ?? null,
+        input.approvedAt,
+        input.workflowRunId,
+        input.expectedRowVersion,
+        input.gateKey,
+      ).changes;
+    if (runUpdated !== 1) {
+      throw new Error('Workflow run CAS changed inside approval transaction');
+    }
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(input.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = {
+      workflowRunId: input.workflowRunId,
+      seq: Number(seqRow.next_seq),
+      eventId: input.eventId,
+      actor: input.actor,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+      payload: {
+        type: 'workflow.gate.approved',
+        gateKey: input.gateKey,
+        approvalId: approval.id,
+        subjectLogicalKey: approval.subjectLogicalKey,
+        subjectRevision: approval.subjectRevision,
+        subjectHash: approval.subjectHash,
+        manifestHash: approval.manifestHash,
+      },
+      timestamp: input.approvedAt,
+    };
+    insertWorkflowEvent(db, event);
+
+    const updatedRunRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(input.workflowRunId) as Record<string, unknown>;
+    const updatedApprovalRow = db
+      .prepare('SELECT * FROM workflow_approvals WHERE id = ?')
+      .get(approval.id) as Record<string, unknown>;
+
+    return {
+      ok: true,
+      code: 'approved',
+      run: rowToWorkflowRun(updatedRunRow),
+      approval: rowToWorkflowApproval(updatedApprovalRow),
+      event,
+    };
+  });
+
+  return approve.immediate();
+}
+
+export function listWorkflowEvents(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+): WorkflowEvent[] {
+  const rows = db
+    .prepare('SELECT * FROM workflow_events WHERE workflow_run_id = ? ORDER BY seq ASC')
+    .all(workflowRunId) as Array<Record<string, unknown>>;
+  return rows.map(rowToWorkflowEvent);
+}
+
+// --- Persistent Production Media Attempts and Evaluations ---
+
+export function reserveWorkflowMediaAttempt(
+  db: BetterSqlite3.Database,
+  input: ReserveWorkflowMediaAttemptInput,
+): ReserveWorkflowMediaAttemptResult {
+  const reserve = db.transaction((): ReserveWorkflowMediaAttemptResult => {
+    const proposed = input.attempt;
+    if (proposed.status !== 'reserved' || proposed.rowVersion !== 0 || proposed.attempt < 1) {
+      throw new Error('New production-media attempts must begin reserved at rowVersion 0');
+    }
+
+    const run = db
+      .prepare(
+        `SELECT workflow_type, entity_type, entity_id, status, current_stage_id,
+                current_gate, row_version
+         FROM workflow_runs WHERE id = ?`,
+      )
+      .get(proposed.workflowRunId) as
+      | {
+          workflow_type: string;
+          entity_type: string;
+          entity_id: string | null;
+          status: string;
+          current_stage_id: string | null;
+          current_gate: string | null;
+          row_version: number;
+        }
+      | undefined;
+    if (!run) throw new Error(`Workflow "${proposed.workflowRunId}" not found`);
+    if (
+      run.workflow_type !== 'movie.production.v2' ||
+      run.entity_type !== 'canvas' ||
+      run.entity_id !== proposed.canvasId
+    ) {
+      throw new Error('Production-media attempt is not bound to this persistent canvas workflow');
+    }
+    if (Number(run.row_version) !== input.expectedRunRowVersion) {
+      throw new Error('Workflow changed before production-media reservation');
+    }
+    if (run.current_gate !== null) {
+      throw new Error(`Workflow is awaiting ${run.current_gate} approval`);
+    }
+    if (
+      run.current_stage_id !== 'media-generation' ||
+      (run.status !== 'ready' && run.status !== 'running')
+    ) {
+      throw new Error(
+        `Workflow is not ready for media generation (status=${run.status}, stage=${run.current_stage_id ?? 'none'})`,
+      );
+    }
+
+    const spec = proposed.generationSpec;
+    if (
+      spec.workflowRunId !== proposed.workflowRunId ||
+      spec.canvasId !== proposed.canvasId ||
+      spec.nodeId !== proposed.nodeId ||
+      spec.mediaType !== proposed.mediaType ||
+      spec.providerId !== proposed.providerId
+    ) {
+      throw new Error('Generation Spec identity does not match its attempt reservation');
+    }
+
+    for (const [gateKey, subject] of [
+      ['production_plan', spec.productionPlan],
+      ['visual_constitution', spec.visualConstitution],
+    ] as const) {
+      const approval = db
+        .prepare(
+          `SELECT subject_revision, subject_hash, status
+           FROM workflow_approvals
+           WHERE workflow_run_id = ? AND gate_key = ?
+           ORDER BY subject_revision DESC, created_at DESC
+           LIMIT 1`,
+        )
+        .get(proposed.workflowRunId, gateKey) as
+        { subject_revision: number; subject_hash: string; status: string } | undefined;
+      if (
+        !approval ||
+        approval.status !== 'approved' ||
+        Number(approval.subject_revision) !== subject.revision ||
+        String(approval.subject_hash) !== subject.contentHash
+      ) {
+        throw new Error(`Exact approved ${gateKey} document is required before generation`);
+      }
+    }
+
+    const existingRow = db
+      .prepare(
+        `SELECT * FROM workflow_media_attempts
+         WHERE idempotency_key = ? OR id = ?
+         LIMIT 1`,
+      )
+      .get(proposed.idempotencyKey, proposed.id) as Record<string, unknown> | undefined;
+    if (existingRow) {
+      const existing = rowToWorkflowMediaAttempt(existingRow);
+      if (
+        existing.id !== proposed.id ||
+        existing.idempotencyKey !== proposed.idempotencyKey ||
+        existing.workflowRunId !== proposed.workflowRunId ||
+        existing.nodeId !== proposed.nodeId ||
+        existing.attempt !== proposed.attempt ||
+        existing.specHash !== proposed.specHash
+      ) {
+        throw new Error('Production-media idempotency key already belongs to another attempt');
+      }
+      return { attempt: existing, created: false };
+    }
+
+    const limits = spec.limits;
+    if (
+      !Number.isInteger(limits.maxAttemptsPerShot) ||
+      limits.maxAttemptsPerShot < 0 ||
+      !Number.isInteger(limits.maxRegenerations) ||
+      limits.maxRegenerations < 0 ||
+      !Number.isFinite(limits.maxTotalCostUsd) ||
+      limits.maxTotalCostUsd < 0 ||
+      !Number.isFinite(limits.styleAuditionCommittedCostUsd) ||
+      limits.styleAuditionCommittedCostUsd < 0 ||
+      !Number.isFinite(proposed.estimatedCostUsd) ||
+      proposed.estimatedCostUsd < 0
+    ) {
+      throw new Error('Generation Spec contains invalid approved budget limits');
+    }
+    if (proposed.attempt > Math.max(1, limits.maxAttemptsPerShot)) {
+      throw new Error('Approved per-shot production-media attempt limit is exhausted');
+    }
+    const aggregate = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN attempt > 1 THEN 1 ELSE 0 END), 0) AS regeneration_count,
+                COALESCE(SUM(COALESCE(reported_actual_cost_usd, estimated_cost_usd)), 0) AS committed_cost_usd
+         FROM workflow_media_attempts WHERE workflow_run_id = ?`,
+      )
+      .get(proposed.workflowRunId) as {
+      regeneration_count: number;
+      committed_cost_usd: number;
+    };
+    const projectedRegenerations =
+      Number(aggregate.regeneration_count) + (proposed.attempt > 1 ? 1 : 0);
+    if (projectedRegenerations > limits.maxRegenerations) {
+      throw new Error('Approved global production-media regeneration limit is exhausted');
+    }
+    const projectedCostUsd =
+      limits.styleAuditionCommittedCostUsd +
+      Number(aggregate.committed_cost_usd) +
+      proposed.estimatedCostUsd;
+    if (projectedCostUsd > limits.maxTotalCostUsd + 1e-9) {
+      throw new Error('Approved total production-media budget would be exceeded');
+    }
+
+    const latest = db
+      .prepare(
+        `SELECT COALESCE(MAX(attempt), 0) AS latest_attempt
+         FROM workflow_media_attempts
+         WHERE workflow_run_id = ? AND node_id = ?`,
+      )
+      .get(proposed.workflowRunId, proposed.nodeId) as { latest_attempt: number };
+    const expectedAttempt = Number(latest.latest_attempt) + 1;
+    if (proposed.attempt !== expectedAttempt) {
+      throw new Error(
+        `Production-media attempt must be ${expectedAttempt}; received ${proposed.attempt}`,
+      );
+    }
+
+    db.prepare(
+      `INSERT INTO workflow_media_attempts (
+         id, workflow_run_id, canvas_id, node_id, attempt, idempotency_key,
+         spec_hash, generation_spec_json, repair_delta_json, media_type, status,
+         row_version, provider_id, model, prompt, prompt_hash, negative_prompt,
+         seed, estimated_cost_usd, reported_actual_cost_usd, provider_job_id,
+         asset_hash, error_text, created_at, submitted_at, asset_ready_at,
+         evaluated_at, completed_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      proposed.id,
+      proposed.workflowRunId,
+      proposed.canvasId,
+      proposed.nodeId,
+      proposed.attempt,
+      proposed.idempotencyKey,
+      proposed.specHash,
+      JSON.stringify(proposed.generationSpec),
+      proposed.repairDelta ? JSON.stringify(proposed.repairDelta) : null,
+      proposed.mediaType,
+      proposed.status,
+      proposed.rowVersion,
+      proposed.providerId,
+      proposed.model ?? null,
+      proposed.prompt,
+      proposed.promptHash,
+      proposed.negativePrompt ?? null,
+      proposed.seed ?? null,
+      proposed.estimatedCostUsd,
+      proposed.reportedActualCostUsd ?? null,
+      proposed.providerJobId ?? null,
+      proposed.assetHash ?? null,
+      proposed.error ?? null,
+      proposed.createdAt,
+      proposed.submittedAt ?? null,
+      proposed.assetReadyAt ?? null,
+      proposed.evaluatedAt ?? null,
+      proposed.completedAt ?? null,
+      proposed.updatedAt,
+    );
+    return {
+      attempt: requireWorkflowMediaAttempt(db, proposed.id),
+      created: true,
+    };
+  });
+  return reserve.immediate();
+}
+
+export function getWorkflowMediaAttempt(
+  db: BetterSqlite3.Database,
+  id: string,
+): WorkflowMediaAttempt | undefined {
+  const row = db.prepare('SELECT * FROM workflow_media_attempts WHERE id = ?').get(id) as
+    Record<string, unknown> | undefined;
+  return row ? rowToWorkflowMediaAttempt(row) : undefined;
+}
+
+function requireWorkflowMediaAttempt(db: BetterSqlite3.Database, id: string): WorkflowMediaAttempt {
+  const attempt = getWorkflowMediaAttempt(db, id);
+  if (!attempt) throw new Error(`Production-media attempt "${id}" disappeared after persistence`);
+  return attempt;
+}
+
+export function getLatestWorkflowMediaAttempt(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+  nodeId: string,
+): WorkflowMediaAttempt | undefined {
+  const row = db
+    .prepare(
+      `SELECT * FROM workflow_media_attempts
+       WHERE workflow_run_id = ? AND node_id = ?
+       ORDER BY attempt DESC LIMIT 1`,
+    )
+    .get(workflowRunId, nodeId) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowMediaAttempt(row) : undefined;
+}
+
+export function listWorkflowMediaAttempts(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+): WorkflowMediaAttempt[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_media_attempts
+       WHERE workflow_run_id = ? ORDER BY node_id ASC, attempt ASC`,
+    )
+    .all(workflowRunId) as Array<Record<string, unknown>>;
+  return rows.map(rowToWorkflowMediaAttempt);
+}
+
+export function listRecoverableWorkflowMediaAttempts(
+  db: BetterSqlite3.Database,
+): WorkflowMediaAttempt[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_media_attempts
+       WHERE status IN ('reserved', 'submitted', 'asset_ready', 'evaluating')
+       ORDER BY updated_at ASC, id ASC`,
+    )
+    .all() as Array<Record<string, unknown>>;
+  return rows.map(rowToWorkflowMediaAttempt);
+}
+
+export function transitionWorkflowMediaAttempt(
+  db: BetterSqlite3.Database,
+  input: TransitionWorkflowMediaAttemptInput,
+): WorkflowMediaAttempt {
+  if (input.expectedStatuses.length === 0) {
+    throw new Error('Production-media transition requires at least one expected status');
+  }
+  if (
+    input.reportedActualCostUsd !== undefined &&
+    (!Number.isFinite(input.reportedActualCostUsd) || input.reportedActualCostUsd < 0)
+  ) {
+    throw new Error('reportedActualCostUsd must be a non-negative finite number');
+  }
+  const placeholders = input.expectedStatuses.map(() => '?').join(', ');
+  const changed = db
+    .prepare(
+      `UPDATE workflow_media_attempts
+       SET status = ?, row_version = row_version + 1,
+           model = COALESCE(?, model), provider_job_id = COALESCE(?, provider_job_id),
+           asset_hash = COALESCE(?, asset_hash),
+           reported_actual_cost_usd = COALESCE(?, reported_actual_cost_usd),
+           error_text = ?, submitted_at = COALESCE(?, submitted_at),
+           asset_ready_at = COALESCE(?, asset_ready_at),
+           evaluated_at = COALESCE(?, evaluated_at),
+           completed_at = COALESCE(?, completed_at), updated_at = ?
+       WHERE id = ? AND row_version = ? AND status IN (${placeholders})`,
+    )
+    .run(
+      input.status,
+      input.model ?? null,
+      input.providerJobId ?? null,
+      input.assetHash ?? null,
+      input.reportedActualCostUsd ?? null,
+      input.error ?? null,
+      input.submittedAt ?? null,
+      input.assetReadyAt ?? null,
+      input.evaluatedAt ?? null,
+      input.completedAt ?? null,
+      input.updatedAt,
+      input.id,
+      input.expectedRowVersion,
+      ...input.expectedStatuses,
+    ).changes;
+  if (changed !== 1) {
+    throw new Error('Production-media attempt state changed concurrently');
+  }
+  return requireWorkflowMediaAttempt(db, input.id);
+}
+
+export function recordWorkflowMediaEvaluation(
+  db: BetterSqlite3.Database,
+  input: RecordWorkflowMediaEvaluationInput,
+): RecordWorkflowMediaEvaluationResult {
+  if (input.expectedAttemptStatuses.length === 0) {
+    throw new Error('Media evaluation requires an expected attempt status');
+  }
+  const record = db.transaction((): RecordWorkflowMediaEvaluationResult => {
+    const evaluation = input.evaluation;
+    const attemptRow = db
+      .prepare('SELECT * FROM workflow_media_attempts WHERE id = ?')
+      .get(evaluation.attemptId) as Record<string, unknown> | undefined;
+    if (!attemptRow)
+      throw new Error(`Production-media attempt "${evaluation.attemptId}" not found`);
+    const attempt = rowToWorkflowMediaAttempt(attemptRow);
+    if (
+      attempt.workflowRunId !== evaluation.workflowRunId ||
+      attempt.canvasId !== evaluation.canvasId ||
+      attempt.nodeId !== evaluation.nodeId ||
+      attempt.assetHash !== evaluation.assetHash ||
+      attempt.mediaType !== evaluation.mediaType
+    ) {
+      throw new Error('Media evaluation identity does not match its provider attempt');
+    }
+
+    const existingRow = db
+      .prepare('SELECT * FROM workflow_media_evaluations WHERE attempt_id = ?')
+      .get(evaluation.attemptId) as Record<string, unknown> | undefined;
+    if (existingRow) {
+      const existing = rowToWorkflowMediaEvaluation(existingRow);
+      if (JSON.stringify(existing) !== JSON.stringify(evaluation)) {
+        throw new Error('A different immutable evaluation already exists for this attempt');
+      }
+      return { evaluation: existing, attempt, created: false };
+    }
+
+    if (
+      attempt.rowVersion !== input.expectedAttemptRowVersion ||
+      !input.expectedAttemptStatuses.includes(attempt.status)
+    ) {
+      throw new Error('Production-media attempt changed before evaluation was recorded');
+    }
+
+    db.prepare(
+      `INSERT INTO workflow_media_evaluations (
+         id, attempt_id, workflow_run_id, canvas_id, node_id, asset_hash,
+         media_type, rubric_version, evaluator_provider_id, evaluator_model,
+         scores_json, total, verdict, strengths_json, risks_json, evidence_json,
+         repair_delta_json, metadata_json, frame_evidence_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      evaluation.id,
+      evaluation.attemptId,
+      evaluation.workflowRunId,
+      evaluation.canvasId,
+      evaluation.nodeId,
+      evaluation.assetHash,
+      evaluation.mediaType,
+      evaluation.rubricVersion,
+      evaluation.evaluatorProviderId,
+      evaluation.evaluatorModel ?? null,
+      JSON.stringify(evaluation.scores),
+      evaluation.total,
+      evaluation.verdict,
+      JSON.stringify(evaluation.strengths),
+      JSON.stringify(evaluation.risks),
+      JSON.stringify(evaluation.evidence),
+      evaluation.repairDelta ? JSON.stringify(evaluation.repairDelta) : null,
+      JSON.stringify(evaluation.metadata),
+      JSON.stringify(evaluation.frameEvidence),
+      evaluation.createdAt,
+    );
+
+    const placeholders = input.expectedAttemptStatuses.map(() => '?').join(', ');
+    const changed = db
+      .prepare(
+        `UPDATE workflow_media_attempts
+         SET status = ?, row_version = row_version + 1, evaluated_at = ?,
+             completed_at = ?, error_text = NULL, updated_at = ?
+         WHERE id = ? AND row_version = ? AND status IN (${placeholders})`,
+      )
+      .run(
+        input.resultingAttemptStatus,
+        input.evaluatedAt,
+        input.evaluatedAt,
+        input.evaluatedAt,
+        attempt.id,
+        input.expectedAttemptRowVersion,
+        ...input.expectedAttemptStatuses,
+      ).changes;
+    if (changed !== 1) throw new Error('Production-media evaluation CAS failed');
+
+    return {
+      evaluation: requireWorkflowMediaEvaluation(db, evaluation.attemptId),
+      attempt: requireWorkflowMediaAttempt(db, attempt.id),
+      created: true,
+    };
+  });
+  return record.immediate();
+}
+
+export function getWorkflowMediaEvaluation(
+  db: BetterSqlite3.Database,
+  attemptId: string,
+): WorkflowMediaEvaluation | undefined {
+  const row = db
+    .prepare('SELECT * FROM workflow_media_evaluations WHERE attempt_id = ?')
+    .get(attemptId) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowMediaEvaluation(row) : undefined;
+}
+
+function requireWorkflowMediaEvaluation(
+  db: BetterSqlite3.Database,
+  attemptId: string,
+): WorkflowMediaEvaluation {
+  const evaluation = getWorkflowMediaEvaluation(db, attemptId);
+  if (!evaluation) {
+    throw new Error(`Production-media evaluation "${attemptId}" disappeared after persistence`);
+  }
+  return evaluation;
+}
+
+export function listWorkflowMediaEvaluations(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+): WorkflowMediaEvaluation[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_media_evaluations
+       WHERE workflow_run_id = ? ORDER BY created_at ASC, id ASC`,
+    )
+    .all(workflowRunId) as Array<Record<string, unknown>>;
+  return rows.map(rowToWorkflowMediaEvaluation);
+}
+
+export function getWorkflowMediaCostSummary(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+): WorkflowMediaCostSummary {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS attempt_count,
+              COALESCE(SUM(CASE WHEN attempt > 1 THEN 1 ELSE 0 END), 0) AS regeneration_count,
+              COALESCE(SUM(estimated_cost_usd), 0) AS estimated_cost_usd,
+              COALESCE(SUM(reported_actual_cost_usd), 0) AS reported_actual_cost_usd,
+              COALESCE(SUM(COALESCE(reported_actual_cost_usd, estimated_cost_usd)), 0) AS committed_cost_usd,
+              COALESCE(SUM(CASE WHEN reported_actual_cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS unreported_count
+       FROM workflow_media_attempts WHERE workflow_run_id = ?`,
+    )
+    .get(workflowRunId) as Record<string, unknown>;
+  return {
+    attemptCount: Number(row.attempt_count),
+    regenerationCount: Number(row.regeneration_count),
+    estimatedCostUsd: Number(row.estimated_cost_usd),
+    reportedActualCostUsd: Number(row.reported_actual_cost_usd),
+    committedCostUsd: Number(row.committed_cost_usd),
+    hasUnreportedActualCosts: Number(row.unreported_count) > 0,
+  };
+}
+
+export function reserveWorkflowExportExecution(
+  db: BetterSqlite3.Database,
+  input: ReserveWorkflowExportExecutionInput,
+): ReserveWorkflowExportExecutionResult {
+  const reserve = db.transaction((): ReserveWorkflowExportExecutionResult => {
+    const proposed = input.execution;
+    if (proposed.status !== 'queued' || proposed.rowVersion !== 0 || proposed.attempt !== 1) {
+      throw new Error('New Final Export execution must begin queued at rowVersion 0 and attempt 1');
+    }
+    const run = db
+      .prepare('SELECT current_gate FROM workflow_runs WHERE id = ?')
+      .get(proposed.workflowRunId) as { current_gate: string | null } | undefined;
+    if (!run) throw new Error(`Workflow "${proposed.workflowRunId}" not found`);
+    if (run.current_gate !== null) {
+      throw new Error(`Workflow is awaiting ${run.current_gate} approval`);
+    }
+    const approval = db
+      .prepare(
+        `SELECT subject_revision, subject_hash, status
+         FROM workflow_approvals
+         WHERE workflow_run_id = ? AND gate_key = 'final_export'
+         ORDER BY subject_revision DESC, created_at DESC
+         LIMIT 1`,
+      )
+      .get(proposed.workflowRunId) as
+      { subject_revision: number; subject_hash: string; status: string } | undefined;
+    if (
+      !approval ||
+      approval.status !== 'approved' ||
+      Number(approval.subject_revision) !== proposed.manifestRevision ||
+      String(approval.subject_hash) !== proposed.manifestHash
+    ) {
+      throw new Error('Exact approved Final Export manifest is required before execution');
+    }
+
+    const existingRow = db
+      .prepare(
+        `SELECT * FROM workflow_export_executions
+         WHERE idempotency_key = ?
+            OR (workflow_run_id = ? AND manifest_revision = ? AND manifest_hash = ?)
+         LIMIT 1`,
+      )
+      .get(
+        proposed.idempotencyKey,
+        proposed.workflowRunId,
+        proposed.manifestRevision,
+        proposed.manifestHash,
+      ) as Record<string, unknown> | undefined;
+    if (existingRow) {
+      const existing = rowToWorkflowExportExecution(existingRow);
+      if (
+        existing.idempotencyKey !== proposed.idempotencyKey ||
+        existing.destinationPath !== proposed.destinationPath
+      ) {
+        throw new Error(
+          'Final Export execution already exists with a different identity or destination',
+        );
+      }
+      return { execution: existing, created: false };
+    }
+
+    db.prepare(
+      `INSERT INTO workflow_export_executions (
+         id, workflow_run_id, manifest_revision, manifest_hash, idempotency_key,
+         status, row_version, staging_path, destination_path, output_asset_hash,
+         output_hash, output_size, attempt, error_text, created_at, updated_at, completed_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      proposed.id,
+      proposed.workflowRunId,
+      proposed.manifestRevision,
+      proposed.manifestHash,
+      proposed.idempotencyKey,
+      proposed.status,
+      proposed.rowVersion,
+      proposed.stagingPath ?? null,
+      proposed.destinationPath,
+      proposed.outputAssetHash ?? null,
+      proposed.outputHash ?? null,
+      proposed.outputSize ?? null,
+      proposed.attempt,
+      proposed.error ?? null,
+      proposed.createdAt,
+      proposed.updatedAt,
+      proposed.completedAt ?? null,
+    );
+    const createdRow = db
+      .prepare('SELECT * FROM workflow_export_executions WHERE id = ?')
+      .get(proposed.id) as Record<string, unknown>;
+    return { execution: rowToWorkflowExportExecution(createdRow), created: true };
+  });
+  return reserve.immediate();
+}
+
+export function getWorkflowExportExecution(
+  db: BetterSqlite3.Database,
+  id: string,
+): WorkflowExportExecution | undefined {
+  const row = db.prepare('SELECT * FROM workflow_export_executions WHERE id = ?').get(id) as
+    Record<string, unknown> | undefined;
+  return row ? rowToWorkflowExportExecution(row) : undefined;
+}
+
+function requireWorkflowExportExecution(
+  db: BetterSqlite3.Database,
+  id: string,
+): WorkflowExportExecution {
+  const execution = getWorkflowExportExecution(db, id);
+  if (!execution) throw new Error(`Final Export execution "${id}" disappeared after persistence`);
+  return execution;
+}
+
+export function getLatestWorkflowExportExecution(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+): WorkflowExportExecution | undefined {
+  const row = db
+    .prepare(
+      `SELECT * FROM workflow_export_executions
+       WHERE workflow_run_id = ?
+       ORDER BY manifest_revision DESC, created_at DESC
+       LIMIT 1`,
+    )
+    .get(workflowRunId) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowExportExecution(row) : undefined;
+}
+
+export function listRecoverableWorkflowExportExecutions(
+  db: BetterSqlite3.Database,
+): WorkflowExportExecution[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_export_executions
+       WHERE status IN ('queued', 'running', 'ready_to_publish', 'recovery_required')
+       ORDER BY updated_at ASC, id ASC`,
+    )
+    .all() as Array<Record<string, unknown>>;
+  return rows.map(rowToWorkflowExportExecution);
+}
+
+export function transitionWorkflowExportExecution(
+  db: BetterSqlite3.Database,
+  input: TransitionWorkflowExportExecutionInput,
+): WorkflowExportExecution {
+  if (input.expectedStatuses.length === 0) {
+    throw new Error('Final Export transition requires at least one expected status');
+  }
+  const placeholders = input.expectedStatuses.map(() => '?').join(', ');
+  const changed = db
+    .prepare(
+      `UPDATE workflow_export_executions
+       SET status = ?, row_version = row_version + 1,
+           staging_path = COALESCE(?, staging_path),
+           output_asset_hash = COALESCE(?, output_asset_hash),
+           output_hash = COALESCE(?, output_hash),
+           output_size = COALESCE(?, output_size),
+           error_text = ?, updated_at = ?
+       WHERE id = ? AND row_version = ? AND status IN (${placeholders})`,
+    )
+    .run(
+      input.status,
+      input.stagingPath ?? null,
+      input.outputAssetHash ?? null,
+      input.outputHash ?? null,
+      input.outputSize ?? null,
+      input.error ?? null,
+      input.updatedAt,
+      input.id,
+      input.expectedRowVersion,
+      ...input.expectedStatuses,
+    ).changes;
+  if (changed !== 1) throw new Error('Final Export execution state changed concurrently');
+  return requireWorkflowExportExecution(db, input.id);
+}
+
+export function retryWorkflowExportExecution(
+  db: BetterSqlite3.Database,
+  input: { id: string; expectedRowVersion: number; updatedAt: number },
+): WorkflowExportExecution {
+  const changed = db
+    .prepare(
+      `UPDATE workflow_export_executions
+       SET status = 'queued', row_version = row_version + 1, attempt = attempt + 1,
+           staging_path = NULL, output_asset_hash = NULL, output_hash = NULL,
+           output_size = NULL, error_text = NULL, completed_at = NULL, updated_at = ?
+       WHERE id = ? AND row_version = ?
+         AND status IN ('failed', 'cancelled', 'recovery_required')`,
+    )
+    .run(input.updatedAt, input.id, input.expectedRowVersion).changes;
+  if (changed !== 1)
+    throw new Error('Final Export execution is not retryable or changed concurrently');
+  return requireWorkflowExportExecution(db, input.id);
+}
+
+export function completeWorkflowExportExecution(
+  db: BetterSqlite3.Database,
+  input: CompleteWorkflowExportExecutionInput,
+): { execution: WorkflowExportExecution; run: WorkflowRun; event: WorkflowEvent } {
+  const complete = db.transaction(() => {
+    const executionRow = db
+      .prepare('SELECT * FROM workflow_export_executions WHERE id = ?')
+      .get(input.id) as Record<string, unknown> | undefined;
+    if (!executionRow) throw new Error(`Final Export execution "${input.id}" not found`);
+    const execution = rowToWorkflowExportExecution(executionRow);
+    if (
+      execution.rowVersion !== input.expectedExecutionRowVersion ||
+      execution.status !== 'ready_to_publish'
+    ) {
+      throw new Error('Final Export execution is not ready to complete or changed concurrently');
+    }
+    const executionChanged = db
+      .prepare(
+        `UPDATE workflow_export_executions
+         SET status = 'completed', row_version = row_version + 1,
+             output_asset_hash = ?, output_hash = ?, output_size = ?,
+             error_text = NULL, updated_at = ?, completed_at = ?
+         WHERE id = ? AND row_version = ? AND status = 'ready_to_publish'`,
+      )
+      .run(
+        input.outputAssetHash,
+        input.outputHash,
+        input.outputSize,
+        input.completedAt,
+        input.completedAt,
+        input.id,
+        input.expectedExecutionRowVersion,
+      ).changes;
+    if (executionChanged !== 1) throw new Error('Final Export completion CAS failed');
+
+    const runChanged = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET status = 'completed', summary = 'Final export completed', progress = 100,
+             output_json = ?, error_text = NULL, completed_at = ?, updated_at = ?,
+             row_version = row_version + 1
+         WHERE id = ? AND row_version = ? AND current_gate IS NULL`,
+      )
+      .run(
+        JSON.stringify(input.runOutput),
+        input.completedAt,
+        input.completedAt,
+        execution.workflowRunId,
+        input.expectedRunRowVersion,
+      ).changes;
+    if (runChanged !== 1) throw new Error('Workflow changed before Final Export completion');
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(execution.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = { ...input.event, seq: Number(seqRow.next_seq) };
+    insertWorkflowEvent(db, event);
+
+    const updatedExecution = requireWorkflowExportExecution(db, input.id);
+    const updatedRunRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(execution.workflowRunId) as Record<string, unknown>;
+    return { execution: updatedExecution, run: rowToWorkflowRun(updatedRunRow), event };
+  });
+  return complete.immediate();
+}
+
+function insertWorkflowEvent(db: BetterSqlite3.Database, event: WorkflowEvent): void {
+  db.prepare(
+    `INSERT INTO workflow_events (
+       workflow_run_id, seq, event_id, actor, correlation_id, causation_id,
+       payload_json, event_timestamp
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    event.workflowRunId,
+    event.seq,
+    event.eventId,
+    event.actor,
+    event.correlationId ?? null,
+    event.causationId ?? null,
+    JSON.stringify(event.payload),
+    event.timestamp,
+  );
+}
+
 // --- Workflow Stage Runs ---
 
 export function insertWorkflowStageRun(
@@ -243,8 +1558,7 @@ export function getWorkflowStageRun(
   id: string,
 ): WorkflowStageRun | undefined {
   const row = db.prepare('SELECT * FROM workflow_stage_runs WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   if (!row) return undefined;
   return rowToWorkflowStageRun(row);
 }
@@ -424,8 +1738,7 @@ export function getWorkflowTaskRun(
   id: string,
 ): WorkflowTaskRun | undefined {
   const row = db.prepare('SELECT * FROM workflow_task_runs WHERE id = ?').get(id) as
-    | Record<string, unknown>
-    | undefined;
+    Record<string, unknown> | undefined;
   if (!row) return undefined;
   return rowToWorkflowTaskRun(db, row);
 }
@@ -1025,6 +2338,143 @@ export function rowToWorkflowRun(row: Record<string, unknown>): WorkflowRun {
     startedAt: row.started_at == null ? undefined : Number(row.started_at),
     completedAt: row.completed_at == null ? undefined : Number(row.completed_at),
     updatedAt: row.updated_at as number,
+    rowVersion: Number(row.row_version ?? 0),
+    currentGate:
+      row.current_gate == null
+        ? undefined
+        : (String(row.current_gate) as WorkflowRun['currentGate']),
+    engineVersion: row.engine_version == null ? 'legacy' : String(row.engine_version),
+    definitionVersion: Number(row.definition_version ?? 1),
+  };
+}
+
+function rowToWorkflowDocument(row: Record<string, unknown>): WorkflowDocument {
+  return {
+    id: String(row.id),
+    workflowRunId: String(row.workflow_run_id),
+    logicalKey: String(row.logical_key),
+    documentType: String(row.document_type),
+    revision: Number(row.revision),
+    schemaVersion: Number(row.schema_version),
+    content: JSON.parse(String(row.content_json || '{}')) as Record<string, unknown>,
+    contentHash: String(row.content_hash),
+    status: row.status as WorkflowDocument['status'],
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+function rowToWorkflowApproval(row: Record<string, unknown>): WorkflowApproval {
+  return {
+    id: String(row.id),
+    workflowRunId: String(row.workflow_run_id),
+    gateKey: row.gate_key as WorkflowApproval['gateKey'],
+    subjectLogicalKey: String(row.subject_logical_key),
+    subjectRevision: Number(row.subject_revision),
+    subjectHash: String(row.subject_hash),
+    manifestHash: String(row.manifest_hash),
+    resumeTokenHash: String(row.resume_token_hash),
+    status: row.status as WorkflowApproval['status'],
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    decidedAt: row.decided_at == null ? undefined : Number(row.decided_at),
+  };
+}
+
+function rowToWorkflowExportExecution(row: Record<string, unknown>): WorkflowExportExecution {
+  return {
+    id: String(row.id),
+    workflowRunId: String(row.workflow_run_id),
+    manifestRevision: Number(row.manifest_revision),
+    manifestHash: String(row.manifest_hash),
+    idempotencyKey: String(row.idempotency_key),
+    status: row.status as WorkflowExportExecution['status'],
+    rowVersion: Number(row.row_version ?? 0),
+    stagingPath: row.staging_path == null ? undefined : String(row.staging_path),
+    destinationPath: String(row.destination_path),
+    outputAssetHash: row.output_asset_hash == null ? undefined : String(row.output_asset_hash),
+    outputHash: row.output_hash == null ? undefined : String(row.output_hash),
+    outputSize: row.output_size == null ? undefined : Number(row.output_size),
+    attempt: Number(row.attempt),
+    error: row.error_text == null ? undefined : String(row.error_text),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    completedAt: row.completed_at == null ? undefined : Number(row.completed_at),
+  };
+}
+
+function rowToWorkflowMediaAttempt(row: Record<string, unknown>): WorkflowMediaAttempt {
+  return {
+    id: String(row.id),
+    workflowRunId: String(row.workflow_run_id),
+    canvasId: String(row.canvas_id),
+    nodeId: String(row.node_id),
+    attempt: Number(row.attempt),
+    idempotencyKey: String(row.idempotency_key),
+    specHash: String(row.spec_hash),
+    generationSpec: JSON.parse(String(row.generation_spec_json || '{}')),
+    repairDelta:
+      row.repair_delta_json == null ? undefined : JSON.parse(String(row.repair_delta_json)),
+    mediaType: row.media_type as WorkflowMediaAttempt['mediaType'],
+    status: row.status as WorkflowMediaAttempt['status'],
+    rowVersion: Number(row.row_version ?? 0),
+    providerId: String(row.provider_id),
+    model: row.model == null ? undefined : String(row.model),
+    prompt: String(row.prompt),
+    promptHash: String(row.prompt_hash),
+    negativePrompt: row.negative_prompt == null ? undefined : String(row.negative_prompt),
+    seed: row.seed == null ? undefined : Number(row.seed),
+    estimatedCostUsd: Number(row.estimated_cost_usd),
+    reportedActualCostUsd:
+      row.reported_actual_cost_usd == null ? undefined : Number(row.reported_actual_cost_usd),
+    providerJobId: row.provider_job_id == null ? undefined : String(row.provider_job_id),
+    assetHash: row.asset_hash == null ? undefined : String(row.asset_hash),
+    error: row.error_text == null ? undefined : String(row.error_text),
+    createdAt: Number(row.created_at),
+    submittedAt: row.submitted_at == null ? undefined : Number(row.submitted_at),
+    assetReadyAt: row.asset_ready_at == null ? undefined : Number(row.asset_ready_at),
+    evaluatedAt: row.evaluated_at == null ? undefined : Number(row.evaluated_at),
+    completedAt: row.completed_at == null ? undefined : Number(row.completed_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+function rowToWorkflowMediaEvaluation(row: Record<string, unknown>): WorkflowMediaEvaluation {
+  return {
+    id: String(row.id),
+    attemptId: String(row.attempt_id),
+    workflowRunId: String(row.workflow_run_id),
+    canvasId: String(row.canvas_id),
+    nodeId: String(row.node_id),
+    assetHash: String(row.asset_hash),
+    mediaType: row.media_type as WorkflowMediaEvaluation['mediaType'],
+    rubricVersion: String(row.rubric_version),
+    evaluatorProviderId: String(row.evaluator_provider_id),
+    evaluatorModel: row.evaluator_model == null ? undefined : String(row.evaluator_model),
+    scores: JSON.parse(String(row.scores_json || '{}')),
+    total: Number(row.total),
+    verdict: row.verdict as WorkflowMediaEvaluation['verdict'],
+    strengths: JSON.parse(String(row.strengths_json || '[]')),
+    risks: JSON.parse(String(row.risks_json || '[]')),
+    evidence: JSON.parse(String(row.evidence_json || '[]')),
+    repairDelta:
+      row.repair_delta_json == null ? undefined : JSON.parse(String(row.repair_delta_json)),
+    metadata: JSON.parse(String(row.metadata_json || '{}')),
+    frameEvidence: JSON.parse(String(row.frame_evidence_json || '[]')),
+    createdAt: Number(row.created_at),
+  };
+}
+
+function rowToWorkflowEvent(row: Record<string, unknown>): WorkflowEvent {
+  return {
+    workflowRunId: String(row.workflow_run_id),
+    seq: Number(row.seq),
+    eventId: String(row.event_id),
+    actor: String(row.actor),
+    correlationId: row.correlation_id == null ? undefined : String(row.correlation_id),
+    causationId: row.causation_id == null ? undefined : String(row.causation_id),
+    payload: JSON.parse(String(row.payload_json || '{}')) as Record<string, unknown>,
+    timestamp: Number(row.event_timestamp),
   };
 }
 

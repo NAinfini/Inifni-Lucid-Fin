@@ -14,6 +14,24 @@ function createStore() {
   return configureStore({
     reducer: {
       project: (s = { title: 'Test Project' }) => s,
+      canvas: (
+        s = {
+          activeCanvasId: 'canvas-1',
+          canvases: {
+            ids: ['canvas-1'],
+            entities: {
+              'canvas-1': {
+                id: 'canvas-1',
+                name: 'Test Canvas',
+                nodes: [],
+                edges: [],
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            },
+          },
+        },
+      ) => s,
     },
   });
 }
@@ -75,6 +93,7 @@ describe('ExportEngine', () => {
     vi.mocked(getAPI).mockReturnValue({
       render: { start, status: vi.fn(), cancel: vi.fn() },
       export: { nle: vi.fn(), assetBundle: vi.fn(), subtitles: vi.fn() },
+      workflow: { list: vi.fn(async () => []), getFinalExport: vi.fn() },
     } as unknown as ReturnType<typeof getAPI>);
 
     render(
@@ -89,7 +108,85 @@ describe('ExportEngine', () => {
     fireEvent.click(screen.getByText(/开始渲染|Start Render/));
 
     await waitFor(() => {
-      expect(start).toHaveBeenCalledWith(expect.objectContaining({ fps: 60 }));
+      expect(start).toHaveBeenCalledWith(
+        expect.objectContaining({ sceneId: 'canvas-1', codec: 'h264', fps: 60 }),
+      );
     });
+  });
+
+  it('renders a persistent workflow only from its exact approved manifest', async () => {
+    const start = vi.fn().mockResolvedValue({ outputPath: '', duration: 5, format: 'mp4' });
+    const manifestHash = 'a'.repeat(64);
+    vi.mocked(getAPI).mockReturnValue({
+      render: { start, status: vi.fn(), cancel: vi.fn() },
+      export: { nle: vi.fn(), assetBundle: vi.fn(), subtitles: vi.fn() },
+      workflow: {
+        list: vi.fn(async () => [
+          {
+            id: 'run-1',
+            workflowType: 'movie.production.v2',
+            entityType: 'canvas',
+            entityId: 'canvas-1',
+            status: 'ready',
+          },
+        ]),
+        getFinalExport: vi.fn(async () => ({
+          approval: { status: 'approved' },
+          manifest: { revision: 3, contentHash: manifestHash },
+        })),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    render(
+      <Provider store={createStore()}>
+        <MemoryRouter>
+          <ExportEngine />
+        </MemoryRouter>
+      </Provider>,
+    );
+    fireEvent.click(screen.getByText(/开始渲染|Start Render/));
+
+    await waitFor(() => {
+      expect(start).toHaveBeenCalledWith({
+        sceneId: 'canvas-1',
+        workflowRunId: 'run-1',
+        expectedManifestRevision: 3,
+        expectedManifestHash: manifestHash,
+      });
+    });
+  });
+
+  it('does not bypass a pending persistent Final Export approval', async () => {
+    const start = vi.fn();
+    vi.mocked(getAPI).mockReturnValue({
+      render: { start, status: vi.fn(), cancel: vi.fn() },
+      export: { nle: vi.fn(), assetBundle: vi.fn(), subtitles: vi.fn() },
+      workflow: {
+        list: vi.fn(async () => [
+          {
+            id: 'run-1',
+            workflowType: 'movie.production.v2',
+            entityType: 'canvas',
+            entityId: 'canvas-1',
+            status: 'awaiting_approval',
+          },
+        ]),
+        getFinalExport: vi.fn(async () => ({
+          approval: { status: 'pending' },
+          manifest: { revision: 1, contentHash: 'b'.repeat(64) },
+        })),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    render(
+      <Provider store={createStore()}>
+        <MemoryRouter>
+          <ExportEngine />
+        </MemoryRouter>
+      </Provider>,
+    );
+    fireEvent.click(screen.getByText(/开始渲染|Start Render/));
+
+    await waitFor(() => expect(start).not.toHaveBeenCalled());
   });
 });

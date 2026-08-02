@@ -171,6 +171,13 @@ describe('SqliteIndex', () => {
         input: { sceneIds: ['s1'] },
         output: {},
         metadata: { source: 'test' },
+        definitionVersion: 1,
+        engineVersion: 'legacy',
+        rowVersion: 0,
+        currentGate: undefined,
+        error: undefined,
+        startedAt: undefined,
+        completedAt: undefined,
         createdAt: 1,
         updatedAt: 1,
       });

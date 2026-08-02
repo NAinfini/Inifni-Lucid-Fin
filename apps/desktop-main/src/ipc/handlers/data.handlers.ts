@@ -63,10 +63,7 @@ export interface DataHandlerDeps {
   jobQueue: JobQueue | null;
 }
 
-export function registerDataHandlers(
-  ipcMain: IpcMain,
-  deps: DataHandlerDeps,
-): void {
+export function registerDataHandlers(ipcMain: IpcMain, deps: DataHandlerDeps): void {
   // --- Estimate export size ---
   ipcMain.handle('data:estimateExportSize', async () => {
     const paths = resolveExportPaths();

@@ -1,223 +1,132 @@
 /**
- * FFmpeg binary download and checksum verification script.
+ * Installs a pinned, checksum-verified FFmpeg payload for one platform.
  *
  * Usage:
- *   npx tsx scripts/fetch-ffmpeg.ts                    # Download + verify for current platform
- *   npx tsx scripts/fetch-ffmpeg.ts --verify           # Verify existing binaries only
- *   npx tsx scripts/fetch-ffmpeg.ts --compute-checksums # Compute SHA-256 for existing binaries
- *   npx tsx scripts/fetch-ffmpeg.ts --platform win32-x64 # Target a specific platform
- *
- * Binaries are placed in resources/bin/<platform>/
- * Checksums are read from packages/media-engine/ffmpeg-checksums.json
+ *   node scripts/fetch-ffmpeg.ts
+ *   node scripts/fetch-ffmpeg.ts --verify
+ *   node scripts/fetch-ffmpeg.ts --platform linux-x64
+ *   node scripts/fetch-ffmpeg.ts --archive /path/to/pinned-build.zip
  */
 
-import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import {
+  PLATFORM_KEYS,
+  currentPlatformKey,
+  installArchivePlatform,
+  loadManifest,
+  smokeTestPayload,
+  verifyPayload,
+  type PlatformKey,
+} from './ffmpeg-artifacts.ts';
 
-interface BinaryEntry {
-  filename: string;
-  sha256: string;
+interface CliOptions {
+  archivePath?: string;
+  platform?: PlatformKey;
+  verifyOnly: boolean;
+  skipSmoke: boolean;
 }
 
-interface PlatformBinaries {
-  ffmpeg: BinaryEntry;
-  ffprobe: BinaryEntry;
-}
-
-interface ChecksumManifest {
-  version: string;
-  license: string;
-  licenseNote: string;
-  sourceUrls: Record<string, string>;
-  binaries: Record<string, PlatformBinaries>;
-  upgradePlaybook: string[];
-}
-
-const REPO_ROOT = resolve(import.meta.dirname ?? '.', '..');
+const REPO_ROOT = resolve(import.meta.dirname, '..');
 const MANIFEST_PATH = join(REPO_ROOT, 'packages', 'media-engine', 'ffmpeg-checksums.json');
-const BIN_DIR = join(REPO_ROOT, 'resources', 'bin');
+const BIN_ROOT = join(REPO_ROOT, 'resources', 'bin');
 
-function loadManifest(): ChecksumManifest {
-  if (!existsSync(MANIFEST_PATH)) {
-    throw new Error(`Checksum manifest not found: ${MANIFEST_PATH}`);
-  }
-  return JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as ChecksumManifest;
+function usage(): string {
+  return [
+    'Usage: node scripts/fetch-ffmpeg.ts [options]',
+    '',
+    'Options:',
+    '  --platform <platform>  Target an exact supported platform',
+    '  --archive <path>       Install from a local archive after checksum verification',
+    '  --verify               Verify an already-installed payload only',
+    '  --skip-smoke           Skip executable version/build/encoder checks',
+    '  --help                 Show this help',
+  ].join('\n');
 }
 
-async function computeSha256(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(filePath);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', () => resolve(hash.digest('hex')));
-    stream.on('error', reject);
-  });
+function parsePlatform(value: string | undefined): PlatformKey {
+  if (!value || !PLATFORM_KEYS.includes(value as PlatformKey)) {
+    throw new Error(`Unsupported --platform value. Expected one of: ${PLATFORM_KEYS.join(', ')}`);
+  }
+  return value as PlatformKey;
 }
 
-function getCurrentPlatform(): string {
-  return `${process.platform}-${process.arch}`;
+function requireOptionValue(args: string[], index: number, option: string): string {
+  const value = args[index + 1];
+  if (!value || value.startsWith('--')) throw new Error(`${option} requires a value`);
+  return value;
 }
 
-async function verifyPlatform(
-  manifest: ChecksumManifest,
-  platformKey: string,
-): Promise<boolean> {
-  const platformBinaries = manifest.binaries[platformKey];
-  if (!platformBinaries) {
-    console.error(`[ERROR] Platform "${platformKey}" not found in manifest.`);
-    return false;
-  }
-
-  const platformDir = join(BIN_DIR, platformKey);
-  if (!existsSync(platformDir)) {
-    console.error(`[ERROR] Binary directory not found: ${platformDir}`);
-    console.error(
-      `  Download FFmpeg ${manifest.version} for ${platformKey} and place binaries in ${platformDir}/`,
-    );
-    return false;
-  }
-
-  let allValid = true;
-
-  for (const [name, entry] of Object.entries(platformBinaries) as [string, BinaryEntry][]) {
-    const filePath = join(platformDir, entry.filename);
-    if (!existsSync(filePath)) {
-      console.error(`[MISSING] ${name}: ${filePath}`);
-      allValid = false;
-      continue;
-    }
-
-    if (entry.sha256.startsWith('PLACEHOLDER')) {
-      console.warn(`[SKIP] ${name}: checksum is a placeholder — run --compute-checksums first`);
-      continue;
-    }
-
-    const actual = await computeSha256(filePath);
-    if (actual !== entry.sha256) {
-      console.error(`[MISMATCH] ${name}: expected ${entry.sha256}, got ${actual}`);
-      allValid = false;
-    } else {
-      console.log(`[OK] ${name}: ${entry.filename} (${actual.slice(0, 12)}...)`);
+function parseArgs(args: string[]): CliOptions {
+  const options: CliOptions = { verifyOnly: false, skipSmoke: false };
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    switch (argument) {
+      case '--platform':
+        options.platform = parsePlatform(requireOptionValue(args, index, argument));
+        index += 1;
+        break;
+      case '--archive':
+        options.archivePath = resolve(requireOptionValue(args, index, argument));
+        index += 1;
+        break;
+      case '--verify':
+        options.verifyOnly = true;
+        break;
+      case '--skip-smoke':
+        options.skipSmoke = true;
+        break;
+      case '--help':
+        console.log(usage());
+        process.exit(0);
+        break;
+      default:
+        throw new Error(`Unknown option: ${argument}\n\n${usage()}`);
     }
   }
-
-  return allValid;
-}
-
-async function computeChecksums(
-  manifest: ChecksumManifest,
-  platformKey: string,
-): Promise<void> {
-  const platformBinaries = manifest.binaries[platformKey];
-  if (!platformBinaries) {
-    console.error(`Platform "${platformKey}" not found in manifest.`);
-    return;
+  if (options.verifyOnly && options.archivePath) {
+    throw new Error('--verify and --archive cannot be used together');
   }
-
-  const platformDir = join(BIN_DIR, platformKey);
-  if (!existsSync(platformDir)) {
-    console.error(`Binary directory not found: ${platformDir}`);
-    return;
-  }
-
-  console.log(`Computing SHA-256 checksums for ${platformKey}:\n`);
-
-  for (const [name, entry] of Object.entries(platformBinaries) as [string, BinaryEntry][]) {
-    const filePath = join(platformDir, entry.filename);
-    if (!existsSync(filePath)) {
-      console.error(`  ${name}: file not found at ${filePath}`);
-      continue;
-    }
-
-    const hash = await computeSha256(filePath);
-    console.log(`  "${name}": "${hash}"`);
-  }
-
-  console.log(
-    '\nCopy these values into packages/media-engine/ffmpeg-checksums.json and replace the PLACEHOLDER entries.',
-  );
+  return options;
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const verifyOnly = args.includes('--verify');
-  const computeOnly = args.includes('--compute-checksums');
-  const platformFlag = args.indexOf('--platform');
-  const targetPlatform =
-    platformFlag >= 0 && args[platformFlag + 1]
-      ? args[platformFlag + 1]
-      : getCurrentPlatform();
+  const options = parseArgs(process.argv.slice(2));
+  const manifest = await loadManifest(MANIFEST_PATH);
+  const platformKey = options.platform ?? currentPlatformKey();
+  const platform = manifest.platforms[platformKey];
+  const destination = join(BIN_ROOT, platformKey);
 
-  const manifest = loadManifest();
+  console.log(`FFmpeg ${manifest.version} (${manifest.license})`);
+  console.log(`Platform: ${platformKey}`);
 
-  console.log(`FFmpeg version: ${manifest.version} (${manifest.license})`);
-  console.log(`Target platform: ${targetPlatform}\n`);
-
-  if (computeOnly) {
-    await computeChecksums(manifest, targetPlatform);
-    return;
-  }
-
-  if (verifyOnly) {
-    const valid = await verifyPlatform(manifest, targetPlatform);
-    if (!valid) {
-      console.error('\nChecksum verification FAILED.');
-      process.exitCode = 1;
-    } else {
-      console.log('\nAll checksums verified.');
-    }
-    return;
-  }
-
-  // Default: check if binaries exist, verify if they do, guide if they don't
-  const platformDir = join(BIN_DIR, targetPlatform);
-  if (!existsSync(platformDir)) {
-    mkdirSync(platformDir, { recursive: true });
-    console.log(`Created binary directory: ${platformDir}`);
-  }
-
-  const platformBinaries = manifest.binaries[targetPlatform];
-  if (!platformBinaries) {
-    console.error(`Platform "${targetPlatform}" is not in the supported platform matrix.`);
-    console.error(`Supported platforms: ${Object.keys(manifest.binaries).join(', ')}`);
-    process.exitCode = 1;
-    return;
-  }
-
-  const sourceUrl = manifest.sourceUrls[targetPlatform];
-  const anyMissing = Object.values(platformBinaries).some(
-    (entry) => !existsSync(join(platformDir, entry.filename)),
-  );
-
-  if (anyMissing) {
-    console.log('FFmpeg binaries not found locally. Manual download required:\n');
-    console.log(`  1. Download FFmpeg ${manifest.version} from:`);
-    console.log(`     ${sourceUrl}\n`);
-    console.log(`  2. Extract and place binaries in: ${platformDir}/`);
-    console.log(
-      `     Required files: ${Object.values(platformBinaries)
-        .map((e) => e.filename)
-        .join(', ')}\n`,
+  if (platform.kind === 'source-build') {
+    throw new Error(
+      `No trusted prebuilt payload is registered for ${platformKey}. ` +
+        `Build it with ${platform.builder}, publish the immutable artifact, then replace this ` +
+        'source-build gate with its archive and per-file checksums.',
     );
-    console.log('  3. Run this script again with --compute-checksums to generate hashes.');
-    console.log('  4. Update packages/media-engine/ffmpeg-checksums.json with the hashes.');
-    console.log('  5. Run this script again with --verify to confirm.\n');
-    process.exitCode = 1;
-    return;
   }
 
-  // Binaries exist — verify checksums
-  const valid = await verifyPlatform(manifest, targetPlatform);
-  if (!valid) {
-    console.error('\nChecksum verification FAILED.');
-    process.exitCode = 1;
+  if (options.verifyOnly) {
+    await verifyPayload(destination, platform);
   } else {
-    console.log('\nAll binaries present and verified.');
+    await installArchivePlatform(platform, destination, {
+      ...(options.archivePath ? { archivePath: options.archivePath } : {}),
+    });
+  }
+
+  const canRunNatively = platformKey === currentPlatformKey();
+  if (!options.skipSmoke && canRunNatively) {
+    await smokeTestPayload(destination, manifest.version, platform);
+    console.log('Payload checksum and native smoke checks passed.');
+  } else if (!options.skipSmoke) {
+    console.log('Payload checksums passed; native smoke skipped for cross-architecture target.');
+  } else {
+    console.log('Payload checksums passed; smoke checks explicitly skipped.');
   }
 }
 
-main().catch((err: unknown) => {
-  console.error('Fatal error:', err);
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 });

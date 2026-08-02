@@ -89,9 +89,12 @@ function mkNode(id: string, overrides: Partial<CanvasNode> = {}): CanvasNode {
 }
 
 function insertCanvas(db: BetterSqlite3.Database, id: string): void {
-  db.prepare(
-    `INSERT INTO canvases (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-  ).run(id, `Canvas ${id}`, 100, 100);
+  db.prepare(`INSERT INTO canvases (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`).run(
+    id,
+    `Canvas ${id}`,
+    100,
+    100,
+  );
 }
 
 describe('CanvasNodeRepository', () => {

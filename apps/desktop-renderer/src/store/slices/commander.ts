@@ -23,7 +23,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 import {
-  compactCommanderMessages,
   COMMANDER_PROVIDER_KEY,
   DEFAULT_AUTO_SAVE_DELAY_MS,
   DEFAULT_CLIPBOARD_MIN_LENGTH,
@@ -539,11 +538,12 @@ export const commanderSlice = createSlice({
       });
     },
     /**
-     * Compact local message store to reclaim context space. See
-     * `commander/state/compactor.ts` for the strategy documentation.
+     * Kept for persisted-action compatibility. The Redux message list is the
+     * durable transcript, so context compaction must happen only in the
+     * backend model projection and must never rewrite this state.
      */
-    compactLocalContext(state) {
-      compactCommanderMessages(state);
+    compactLocalContext(_state) {
+      // Intentionally empty.
     },
     restore(_state, action: PayloadAction<CommanderState>) {
       // Defensive destructure — old persisted payloads may include the

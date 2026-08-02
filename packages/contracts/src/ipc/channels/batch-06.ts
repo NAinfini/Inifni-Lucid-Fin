@@ -9,6 +9,16 @@
  * plain `string`; brand enforcement is compile-time only.
  */
 
+import type {
+  ApproveWorkflowGateResult,
+  SelectVisualConstitutionCandidateInput,
+  VisualConstitutionSelectionResult,
+  WorkflowApprovalContext,
+  WorkflowApprovalGateKey,
+  WorkflowFinalExportContext,
+  WorkflowVisualAuditionContext,
+} from '../../dto/workflow.js';
+
 // ── workflow:list (invoke) ───────────────────────────────────
 export interface WorkflowListRequest {
   status?: string;
@@ -81,3 +91,35 @@ export interface WorkflowRetryWorkflowRequest {
   id: string;
 }
 export type WorkflowRetryWorkflowResponse = void;
+
+// ── workflow:getPendingApproval (invoke) ────────────────────
+export interface WorkflowGetPendingApprovalRequest {
+  workflowRunId: string;
+}
+export type WorkflowGetPendingApprovalResponse = WorkflowApprovalContext | null;
+
+// ── workflow:getVisualAuditions (invoke) ────────────────────
+export interface WorkflowGetVisualAuditionsRequest {
+  workflowRunId: string;
+}
+export type WorkflowGetVisualAuditionsResponse = WorkflowVisualAuditionContext | null;
+
+// ── workflow:getFinalExport (invoke) ────────────────────────
+export interface WorkflowGetFinalExportRequest {
+  workflowRunId: string;
+}
+export type WorkflowGetFinalExportResponse = WorkflowFinalExportContext | null;
+
+// ── workflow:selectVisualCandidate (invoke, human UI only) ──
+export type WorkflowSelectVisualCandidateRequest = SelectVisualConstitutionCandidateInput;
+export type WorkflowSelectVisualCandidateResponse = VisualConstitutionSelectionResult;
+
+// ── workflow:approveGate (invoke, human UI only) ─────────────
+export interface WorkflowApproveGateRequest {
+  workflowRunId: string;
+  gateKey: WorkflowApprovalGateKey;
+  expectedRowVersion: number;
+  expectedSubjectRevision: number;
+  expectedSubjectHash: string;
+}
+export type WorkflowApproveGateResponse = ApproveWorkflowGateResult;

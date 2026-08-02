@@ -8,6 +8,7 @@ const {
   unlinkSyncMock,
   existsSyncMock,
   tmpdirMock,
+  getLgplVideoCodecConfigMock,
 } = vi.hoisted(() => ({
   createCommandMock: vi.fn(),
   runCommandMock: vi.fn(),
@@ -15,11 +16,16 @@ const {
   unlinkSyncMock: vi.fn(),
   existsSyncMock: vi.fn(),
   tmpdirMock: vi.fn(),
+  getLgplVideoCodecConfigMock: vi.fn(),
 }));
 
 vi.mock('./ffmpeg-utils.js', () => ({
   createCommand: createCommandMock,
   runCommand: runCommandMock,
+}));
+
+vi.mock('./codec-policy.js', () => ({
+  getLgplVideoCodecConfig: getLgplVideoCodecConfigMock,
 }));
 
 vi.mock('fs', () => ({
@@ -70,9 +76,14 @@ describe('renderTimeline', () => {
     unlinkSyncMock.mockReset();
     existsSyncMock.mockReset();
     tmpdirMock.mockReset();
+    getLgplVideoCodecConfigMock.mockReset();
     runCommandMock.mockResolvedValue(undefined);
     existsSyncMock.mockReturnValue(true);
     tmpdirMock.mockReturnValue('C:\\temp');
+    getLgplVideoCodecConfigMock.mockImplementation((codec, options) => ({
+      encoder: `test-${codec}`,
+      outputOptions: [`-b:v ${options?.bitrate ?? (options?.quality === 'high' ? '16M' : '8M')}`],
+    }));
     vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
   });
 
@@ -120,14 +131,17 @@ describe('renderTimeline', () => {
     expect(createCommandMock).toHaveBeenCalledWith();
     expect(cmd.input).toHaveBeenCalledWith(listPath);
     expect(cmd.inputOptions).toHaveBeenCalledWith(['-f concat', '-safe 0']);
-    expect(cmd.videoCodec).toHaveBeenCalledWith('libx264');
+    expect(getLgplVideoCodecConfigMock).toHaveBeenCalledWith('h264', {
+      quality: 'standard',
+      bitrate: undefined,
+    });
+    expect(cmd.videoCodec).toHaveBeenCalledWith('test-h264');
     expect(cmd.addOutputOptions).toHaveBeenCalledWith([
       '-vf scale=trunc(1920/2)*2:trunc(1080/2)*2',
       '-r 24',
       '-pix_fmt yuv420p',
       '-movflags +faststart',
-      '-crf 20',
-      '-preset medium',
+      '-b:v 8M',
       '-b:a 192k',
     ]);
     expect(cmd.output).toHaveBeenCalledWith('C:\\exports\\timeline.mp4');
@@ -283,8 +297,13 @@ describe('renderSingleSegment', () => {
     createCommandMock.mockReset();
     runCommandMock.mockReset();
     existsSyncMock.mockReset();
+    getLgplVideoCodecConfigMock.mockReset();
     runCommandMock.mockResolvedValue(undefined);
     existsSyncMock.mockReturnValue(true);
+    getLgplVideoCodecConfigMock.mockImplementation((codec, options) => ({
+      encoder: `test-${codec}`,
+      outputOptions: [`-b:v ${options?.bitrate ?? (options?.quality === 'high' ? '16M' : '8M')}`],
+    }));
   });
 
   it('builds a single-segment render command with seek, duration, and speed-adjusted setpts', async () => {
@@ -306,15 +325,18 @@ describe('renderSingleSegment', () => {
     expect(createCommandMock).toHaveBeenCalledWith('C:\\assets\\clip.mp4');
     expect(cmd.seekInput).toHaveBeenCalledWith(4);
     expect(cmd.duration).toHaveBeenCalledWith(3);
-    expect(cmd.videoCodec).toHaveBeenCalledWith('libx265');
+    expect(getLgplVideoCodecConfigMock).toHaveBeenCalledWith('h265', {
+      quality: 'high',
+      bitrate: undefined,
+    });
+    expect(cmd.videoCodec).toHaveBeenCalledWith('test-h265');
     expect(cmd.addOutputOptions).toHaveBeenCalledWith([
       '-vf setpts=0.5000*PTS,scale=trunc(1920/2)*2:trunc(1080/2)*2',
       '-r 30',
       '-pix_fmt yuv420p',
       '-tag:v hvc1',
       '-movflags +faststart',
-      '-crf 14',
-      '-preset slow',
+      '-b:v 16M',
     ]);
     expect(cmd.output).toHaveBeenCalledWith('C:\\exports\\shot.mp4');
     expect(runCommandMock).toHaveBeenCalledWith(cmd, undefined);

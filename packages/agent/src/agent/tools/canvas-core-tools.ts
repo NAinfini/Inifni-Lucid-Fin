@@ -691,7 +691,9 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
           );
         }
 
-        const edges = Array.isArray(args.edges) ? (args.edges as Array<Record<string, unknown>>) : [];
+        const edges = Array.isArray(args.edges)
+          ? (args.edges as Array<Record<string, unknown>>)
+          : [];
 
         if (args.nodes.length === 1 && edges.length === 0) {
           // Single-node path: use addNode logic
@@ -801,7 +803,12 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
             const fromIdx = e.fromIndex as number;
             const toIdx = e.toIndex as number;
             if (typeof fromIdx !== 'number' || typeof toIdx !== 'number') continue;
-            if (fromIdx < 0 || fromIdx >= nodeDescs.length || toIdx < 0 || toIdx >= nodeDescs.length)
+            if (
+              fromIdx < 0 ||
+              fromIdx >= nodeDescs.length ||
+              toIdx < 0 ||
+              toIdx >= nodeDescs.length
+            )
               continue;
             const fromType = nodeDescs[fromIdx].type;
             const toType = nodeDescs[toIdx].type;
@@ -939,7 +946,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
   const getInfo: AgentTool = {
     name: 'canvas.getInfo',
     description:
-      'Read canvas metadata, edge list, and/or settings. Use scope to control what\'s returned.',
+      "Read canvas metadata, edge list, and/or settings. Use scope to control what's returned.",
     tags: ['canvas', 'read'],
     context: CANVAS_CONTEXT,
     tier: 1,
@@ -1023,7 +1030,10 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
           enum: ['rename', 'updateBackdrop'],
         },
         name: { type: 'string', description: 'The new canvas name (for rename).' },
-        nodeId: { type: 'string', description: 'The backdrop node ID to update (for updateBackdrop).' },
+        nodeId: {
+          type: 'string',
+          description: 'The backdrop node ID to update (for updateBackdrop).',
+        },
         set: {
           type: 'object',
           description:

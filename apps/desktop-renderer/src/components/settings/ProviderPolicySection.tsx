@@ -88,9 +88,7 @@ function PolicyCard({ policy }: { policy: ProviderPolicy }) {
               </span>
             )}
           </div>
-          <div className="truncate text-[10px] text-muted-foreground">
-            {policy.dataRetention}
-          </div>
+          <div className="truncate text-[10px] text-muted-foreground">{policy.dataRetention}</div>
         </div>
         <div className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted">
           {expanded ? (
@@ -159,7 +157,9 @@ function PolicyCard({ policy }: { policy: ProviderPolicy }) {
                 <FileCheck className="h-3 w-3 text-muted-foreground" />
                 <span className={outdated ? 'text-amber-400' : ''}>{policy.lastVerified}</span>
                 {outdated && (
-                  <span className="text-[10px] text-amber-400">({t('settings.providerPolicy.mayBeOutdated')})</span>
+                  <span className="text-[10px] text-amber-400">
+                    ({t('settings.providerPolicy.mayBeOutdated')})
+                  </span>
                 )}
               </div>
             </div>

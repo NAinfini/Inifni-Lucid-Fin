@@ -82,6 +82,90 @@ describe('AgentOrchestrator', () => {
     ).toBe(true);
   });
 
+  it('keeps the context-window cap separate from the provider output limit', async () => {
+    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+    Object.assign(adapter, {
+      contextWindow: 128_000,
+      effectiveContextWindow: 128_000,
+    });
+    const diagnostics: Array<{ contextWindowTokens: number }> = [];
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      contextWindowTokens: 200_000,
+      maxOutputTokens: 200_000,
+    });
+
+    await agent.execute('hello', {}, () => {}, {
+      onLLMRequest: (value) => diagnostics.push(value),
+    });
+
+    const options = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      maxTokens: number;
+    };
+    expect(options.maxTokens).toBe(4096);
+    expect(diagnostics[0]?.contextWindowTokens).toBe(128_000);
+  });
+
+  it('does not call the provider when protected context remains at or above 92 percent', async () => {
+    const adapter = createMockAdapter([
+      { content: 'must not run', toolCalls: [], finishReason: 'stop' },
+    ]);
+    Object.assign(adapter, {
+      contextWindow: 1024,
+      effectiveContextWindow: 1024,
+    });
+    const agent = new AgentOrchestrator(adapter, toolRegistry, () => 'x'.repeat(8_000), {
+      contextWindowTokens: 1024,
+    });
+
+    const result = await agent.execute('hello', {}, () => {});
+
+    expect(result.content).toMatch(/Context safety pause/i);
+    expect(adapter.completeWithTools).not.toHaveBeenCalled();
+    expect(result.exitDecision).toEqual({ outcome: 'budget_exhausted', metric: 'tokens' });
+  });
+
+  it('removes workflow-blocked tool schemas before the model request', async () => {
+    toolRegistry.register({
+      name: 'canvas.generation',
+      description: 'Generate media',
+      tier: 3,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true })),
+    });
+    toolRegistry.register({
+      name: 'canvas.listNodes',
+      description: 'List nodes',
+      tier: 1,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true, data: [] })),
+    });
+    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+    await agent.execute(
+      'continue',
+      {
+        page: 'canvas',
+        extra: {
+          workflowToolPolicy: {
+            workflowRunId: 'workflow-1',
+            phase: 'production_plan_pending',
+            gate: 'production_plan',
+            rowVersion: 1,
+          },
+        },
+      },
+      () => {},
+    );
+
+    const options = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
+      tools?: Array<{ name: string }>;
+    };
+    const names = options.tools?.map((tool) => tool.name) ?? [];
+    expect(names).toContain('canvas.listNodes');
+    expect(names).not.toContain('canvas.generation');
+  });
+
   it('executes tool calls and feeds results back', async () => {
     const mockTool = vi.fn(async () => ({ success: true, data: { count: 5 } }));
     toolRegistry.register({
@@ -670,9 +754,13 @@ describe('AgentOrchestrator', () => {
       execute: vi.fn(async () => ({
         success: true,
         data: {
-          name: 'series.addEpisode',
-          description: 'Add an episode to a series',
-          parameters: { type: 'object', properties: {}, required: [] },
+          tools: [
+            {
+              name: 'series.addEpisode',
+              description: 'Add an episode to a series',
+              parameters: { type: 'object', properties: {}, required: [] },
+            },
+          ],
         },
       })),
     });
@@ -731,7 +819,9 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-get', name: 'tool.get', arguments: { names: 'series.addEpisode' } }],
+        toolCalls: [
+          { id: 'tc-get', name: 'tool.get', arguments: { names: ['series.addEpisode'] } },
+        ],
         finishReason: 'tool_calls',
       },
       {

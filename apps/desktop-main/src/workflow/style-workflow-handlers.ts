@@ -16,6 +16,7 @@ import type {
 import { TaskKind, TaskRunStatus } from '@lucid-fin/contracts';
 import type { CAS } from '@lucid-fin/storage';
 import { parseWorkflowRunId } from '@lucid-fin/contracts-parse';
+import { detectFfmpeg } from '@lucid-fin/media-engine';
 
 const EXTRACT_PROMPT = `Analyze this image and extract its color/style profile as JSON. Return ONLY valid JSON with this exact structure:
 {
@@ -447,7 +448,7 @@ async function extractVideoFrameWithFfmpeg(videoPath: string): Promise<Extracted
 }
 
 async function runFfmpegFrameExtract(videoPath: string, framePath: string): Promise<void> {
-  const ffmpegPath = process.env.FFMPEG_PATH?.trim() || 'ffmpeg';
+  const ffmpegPath = detectFfmpeg();
   const args = ['-y', '-i', videoPath, '-frames:v', '1', framePath];
 
   await new Promise<void>((resolve, reject) => {

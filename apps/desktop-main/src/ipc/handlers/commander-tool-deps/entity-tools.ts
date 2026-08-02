@@ -53,13 +53,19 @@ export function registerEntityTools(
 
   for (const tool of createEntityTools({
     listCharacters: async () => deps.db.repos.entities.listCharacters().rows,
-    saveCharacter: async (c) => { deps.db.repos.entities.upsertCharacter({ ...c }); },
+    saveCharacter: async (c) => {
+      deps.db.repos.entities.upsertCharacter({ ...c });
+    },
     deleteCharacter: async (id) => deps.db.repos.entities.deleteCharacter(parseCharacterId(id)),
     listLocations: async () => deps.db.repos.entities.listLocations().rows,
-    saveLocation: async (l) => { deps.db.repos.entities.upsertLocation({ ...l }); },
+    saveLocation: async (l) => {
+      deps.db.repos.entities.upsertLocation({ ...l });
+    },
     deleteLocation: async (id) => deps.db.repos.entities.deleteLocation(parseLocationId(id)),
     listEquipment: async () => deps.db.repos.entities.listEquipment().rows,
-    saveEquipment: async (e) => { deps.db.repos.entities.upsertEquipment({ ...e }); },
+    saveEquipment: async (e) => {
+      deps.db.repos.entities.upsertEquipment({ ...e });
+    },
     deleteEquipment: async (id) => deps.db.repos.entities.deleteEquipment(parseEquipmentId(id)),
     generateImage,
     getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),

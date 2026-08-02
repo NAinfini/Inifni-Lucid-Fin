@@ -22,6 +22,10 @@ release-updater-check-final/
 # Native module build artifacts
 **/*.node
 
+# Verified FFmpeg payloads are restored during local/CI builds, never committed.
+resources/bin/*
+!resources/bin/README.md
+
 # Coverage & test artifacts
 coverage/
 playwright-report/

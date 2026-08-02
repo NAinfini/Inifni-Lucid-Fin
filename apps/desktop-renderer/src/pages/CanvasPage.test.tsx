@@ -2,9 +2,9 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { render, waitFor } from '@testing-library/react';
+import { cleanup, render, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanvasPage } from './CanvasPage.js';
 import { getAPI } from '../utils/api.js';
 import { canvasReducer } from '../store/slices/canvas/canvas.js';
@@ -103,10 +103,15 @@ function createStore() {
 }
 
 describe('CanvasPage logger startup', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
   it('does not load the commander panel module until it is opened', async () => {
     vi.mocked(getAPI).mockReturnValue({
       canvas: {
-        list: vi.fn().mockResolvedValue([]),
+        loadAll: vi.fn().mockResolvedValue([]),
       },
       preset: {
         list: vi.fn().mockResolvedValue([]),
@@ -149,7 +154,7 @@ describe('CanvasPage logger startup', () => {
 
     vi.mocked(getAPI).mockReturnValue({
       canvas: {
-        list: vi.fn().mockResolvedValue([]),
+        loadAll: vi.fn().mockResolvedValue([]),
       },
       preset: {
         list: vi.fn().mockResolvedValue([]),
@@ -179,12 +184,12 @@ describe('CanvasPage logger startup', () => {
   });
 
   it('does not continuously reload canvases when the project has no canvases yet', async () => {
-    const listCanvases = vi.fn().mockResolvedValue([]);
+    const loadAllCanvases = vi.fn().mockResolvedValue([]);
     const listPresets = vi.fn().mockResolvedValue([]);
 
     vi.mocked(getAPI).mockReturnValue({
       canvas: {
-        list: listCanvases,
+        loadAll: loadAllCanvases,
       },
       preset: {
         list: listPresets,
@@ -203,12 +208,12 @@ describe('CanvasPage logger startup', () => {
     );
 
     await waitFor(() => {
-      expect(listCanvases).toHaveBeenCalled();
+      expect(loadAllCanvases).toHaveBeenCalled();
     });
 
     await new Promise((resolve) => setTimeout(resolve, 25));
 
-    expect(listCanvases).toHaveBeenCalledTimes(1);
+    expect(loadAllCanvases).toHaveBeenCalledTimes(1);
   });
 
   it('deduplicates recent and streamed log entries and normalizes fatal entries to error', async () => {
@@ -226,7 +231,7 @@ describe('CanvasPage logger startup', () => {
 
     vi.mocked(getAPI).mockReturnValue({
       canvas: {
-        list: vi.fn().mockResolvedValue([]),
+        loadAll: vi.fn().mockResolvedValue([]),
       },
       preset: {
         list: vi.fn().mockResolvedValue([]),

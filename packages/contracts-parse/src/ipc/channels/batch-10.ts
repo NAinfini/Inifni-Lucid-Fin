@@ -171,6 +171,7 @@ const ExportNleRequest = z
     format: z.enum(['fcpxml', 'edl']),
     project: z.unknown(),
     outputPath: z.string().optional(),
+    canvasId: z.string().optional(),
   })
   .passthrough();
 const ExportNleResponse = z.union([
@@ -193,6 +194,7 @@ export type ExportNleResponse = z.infer<typeof ExportNleResponse>;
 const ExportAssetBundleRequest = z.object({
   assetHashes: z.array(z.string()),
   outputPath: z.string().optional(),
+  canvasId: z.string().optional(),
 });
 const ExportAssetBundleResponse = z.union([
   z.null(),
@@ -218,6 +220,7 @@ const ExportSubtitlesRequest = z
     outputPath: z.string().optional(),
     videoWidth: z.number().optional(),
     videoHeight: z.number().optional(),
+    canvasId: z.string().optional(),
   })
   .passthrough();
 const ExportSubtitlesResponse = z.void().or(z.null());
@@ -249,6 +252,7 @@ const ExportStoryboardRequest = z.object({
   nodes: z.array(ExportStoryboardNodeShape),
   projectTitle: z.string().optional(),
   outputPath: z.string().optional(),
+  canvasId: z.string().optional(),
 });
 const ExportStoryboardResponse = z.union([
   z.null(),
@@ -292,6 +296,7 @@ const ExportMetadataRequest = z.object({
   nodes: z.array(ExportMetadataNodeShape),
   projectTitle: z.string().optional(),
   outputPath: z.string().optional(),
+  canvasId: z.string().optional(),
 });
 const ExportMetadataResponse = z.union([
   z.null(),
@@ -324,6 +329,7 @@ const ExportCapcutRequest = z.object({
   ),
   projectTitle: z.string().optional(),
   outputDir: z.string().optional(),
+  canvasId: z.string().optional(),
 });
 const ExportCapcutResponse = z.union([z.null(), z.object({ draftDir: z.string() })]);
 export const exportCapcutChannel = defineInvokeChannel({
@@ -435,8 +441,8 @@ export type AppRestartResponse = z.infer<typeof AppRestartResponse>;
 // ─── keychain:* ──────────────────────────────────────────────
 const KeychainGetRequest = z.object({ provider: z.string() });
 const KeychainGetResponse = z.string().nullable();
-export const keychainGetChannel = defineInvokeChannel({
-  channel: 'keychain:get',
+export const keychainGetMaskedChannel = defineInvokeChannel({
+  channel: 'keychain:getMasked',
   request: KeychainGetRequest,
   response: KeychainGetResponse,
 });
@@ -565,15 +571,36 @@ export type LoggerGetRecentResponse = z.infer<typeof LoggerGetRecentResponse>;
 const RenderStartRequest = z
   .object({
     sceneId: z.string(),
-    segments: z.array(z.unknown()),
-    outputFormat: z.enum(['mp4', 'mov', 'webm']),
-    resolution: z.object({ width: z.number(), height: z.number() }).optional(),
-    fps: z.number().optional(),
-    codec: z.string().optional(),
-    quality: z.string().optional(),
+    segments: z
+      .array(
+        z
+          .object({
+            inputPath: z.string().min(1),
+            startTime: z.number().finite().nonnegative(),
+            duration: z.number().finite().positive(),
+            speed: z.number().finite().positive(),
+          })
+          .strict(),
+      )
+      .optional(),
+    outputFormat: z.enum(['mp4', 'mov', 'webm']).optional(),
+    resolution: z
+      .object({ width: z.number().int().positive(), height: z.number().int().positive() })
+      .strict()
+      .optional(),
+    fps: z.number().int().positive().optional(),
+    codec: z.enum(['h264', 'h265', 'prores']).optional(),
+    quality: z.enum(['draft', 'standard', 'high']).optional(),
     outputPath: z.string().optional(),
+    workflowRunId: z.string().min(1).optional(),
+    expectedManifestRevision: z.number().int().positive().optional(),
+    expectedManifestHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/i)
+      .optional(),
+    retry: z.boolean().optional(),
   })
-  .passthrough();
+  .strict();
 const RenderStartResponse = z.object({
   jobId: z.string(),
   outputPath: z.string(),
@@ -1016,7 +1043,7 @@ export const ffmpegChannels = [
 export const importChannels = [importSrtChannel] as const;
 
 export const keychainChannels = [
-  keychainGetChannel,
+  keychainGetMaskedChannel,
   keychainSetChannel,
   keychainDeleteChannel,
   keychainTestChannel,

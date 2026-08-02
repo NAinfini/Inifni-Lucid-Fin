@@ -18,7 +18,14 @@
  */
 
 import type BetterSqlite3 from 'better-sqlite3';
-import type { Canvas, CanvasId, CanvasSettings, CanvasAspectRatio } from '@lucid-fin/contracts';
+import type {
+  Canvas,
+  CanvasId,
+  CanvasSettings,
+  CanvasAspectRatio,
+  CanvasNode,
+  CanvasEdge,
+} from '@lucid-fin/contracts';
 import { CanvasesTable, CanvasSchema, parseOrDegrade } from '@lucid-fin/contracts-parse';
 import type { Tx } from '../transactions.js';
 import type { CanvasNodeRepository } from './canvas-node-repository.js';
@@ -92,10 +99,7 @@ export class CanvasRepository {
 
   constructor(private readonly db: BetterSqlite3.Database) {}
 
-  setGraphRepositories(repos: {
-    nodes: CanvasNodeRepository;
-    edges: CanvasEdgeRepository;
-  }): void {
+  setGraphRepositories(repos: { nodes: CanvasNodeRepository; edges: CanvasEdgeRepository }): void {
     this.nodeRepository = repos.nodes;
     this.edgeRepository = repos.edges;
   }
@@ -241,8 +245,7 @@ export class CanvasRepository {
   get(id: CanvasId, tx?: Tx): Canvas | undefined {
     const d = tx ?? this.db;
     const row = d.prepare(`SELECT ${SELECT_COLS} FROM ${TBL} WHERE ${C.id.sqlName} = ?`).get(id) as
-      | RawRow
-      | undefined;
+      RawRow | undefined;
     if (!row) return undefined;
     const { rows } = parseRows([row], this.nodeRepository, this.edgeRepository, d);
     return rows[0];
@@ -282,6 +285,47 @@ export class CanvasRepository {
     this.nodeRepository?.deleteByCanvasId(id, d);
     this.edgeRepository?.deleteByCanvasId(id, d);
     d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} = ?`).run(id);
+  }
+
+  patchApply(
+    id: CanvasId,
+    patch: {
+      addedNodes?: CanvasNode[];
+      removedNodeIds?: string[];
+      updatedNodes?: Array<{ node: CanvasNode; zIndex: number }>;
+      addedEdges?: CanvasEdge[];
+      removedEdgeIds?: string[];
+      updatedEdges?: CanvasEdge[];
+      updatedAt: number;
+    },
+    tx?: Tx,
+  ): void {
+    const runPatch = (d: Tx) => {
+      d.prepare(`UPDATE ${TBL} SET ${C.updatedAt.sqlName} = ? WHERE ${C.id.sqlName} = ?`).run(
+        patch.updatedAt,
+        id,
+      );
+      this.nodeRepository?.patchApply(
+        id,
+        patch.addedNodes ?? [],
+        patch.removedNodeIds ?? [],
+        patch.updatedNodes ?? [],
+        d,
+      );
+      this.edgeRepository?.patchApply(
+        id,
+        patch.addedEdges ?? [],
+        patch.removedEdgeIds ?? [],
+        patch.updatedEdges ?? [],
+        d,
+      );
+    };
+
+    if (tx) {
+      runPatch(tx);
+    } else {
+      this.db.transaction(() => runPatch(this.db))();
+    }
   }
 }
 

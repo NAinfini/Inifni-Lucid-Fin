@@ -77,8 +77,7 @@ export class FolderRepository {
   get(kind: FolderKind, id: string): Folder | null {
     const table = FOLDER_TABLE[kind];
     const row = this.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     return row ? rowToFolder(kind, row) : null;
   }
 

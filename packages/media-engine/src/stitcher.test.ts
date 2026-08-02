@@ -1,18 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { join } from 'path';
 
-const { createCommandMock, runCommandMock, writeFileSyncMock, unlinkSyncMock, tmpdirMock } =
-  vi.hoisted(() => ({
-    createCommandMock: vi.fn(),
-    runCommandMock: vi.fn(),
-    writeFileSyncMock: vi.fn(),
-    unlinkSyncMock: vi.fn(),
-    tmpdirMock: vi.fn(),
-  }));
+const {
+  createCommandMock,
+  runCommandMock,
+  writeFileSyncMock,
+  unlinkSyncMock,
+  tmpdirMock,
+  getLgplVideoCodecConfigMock,
+} = vi.hoisted(() => ({
+  createCommandMock: vi.fn(),
+  runCommandMock: vi.fn(),
+  writeFileSyncMock: vi.fn(),
+  unlinkSyncMock: vi.fn(),
+  tmpdirMock: vi.fn(),
+  getLgplVideoCodecConfigMock: vi.fn(),
+}));
 
 vi.mock('./ffmpeg-utils.js', () => ({
   createCommand: createCommandMock,
   runCommand: runCommandMock,
+}));
+
+vi.mock('./codec-policy.js', () => ({
+  getLgplVideoCodecConfig: getLgplVideoCodecConfigMock,
 }));
 
 vi.mock('fs', () => ({
@@ -51,8 +62,13 @@ describe('stitchVideos', () => {
     writeFileSyncMock.mockReset();
     unlinkSyncMock.mockReset();
     tmpdirMock.mockReset();
+    getLgplVideoCodecConfigMock.mockReset();
     tmpdirMock.mockReturnValue('C:\\temp');
     runCommandMock.mockResolvedValue(undefined);
+    getLgplVideoCodecConfigMock.mockReturnValue({
+      encoder: 'test-h264',
+      outputOptions: ['-b:v 8M'],
+    });
     vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
   });
 
@@ -126,9 +142,11 @@ describe('stitchVideos', () => {
       '[0:v][1:v]xfade=transition=fade:duration=1:offset=4[v1]',
       '[v1][2:v]xfade=transition=fade:duration=1:offset=10[vout]',
     ]);
+    expect(getLgplVideoCodecConfigMock).toHaveBeenCalledWith('h264', { quality: 'standard' });
     expect(cmd.outputOptions).toHaveBeenCalledWith([
       '-map [vout]',
-      '-c:v libx264',
+      '-c:v test-h264',
+      '-b:v 8M',
       '-pix_fmt yuv420p',
     ]);
     expect(cmd.output).toHaveBeenCalledWith('output.mp4');

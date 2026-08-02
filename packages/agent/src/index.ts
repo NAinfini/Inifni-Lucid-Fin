@@ -11,11 +11,17 @@ export {
   type AgentOptions,
   type AgentExecutionOptions,
   type AgentLLMRequestDiagnostics,
+  type AgentPersistentContextProjection,
   type AgentStreamEvent,
   type HistoryEntry,
   type StampedStreamEvent,
   type StreamEmit,
 } from './agent/agent-orchestrator.js';
+export {
+  getWorkflowToolDenial,
+  type WorkflowToolPolicy,
+  type WorkflowToolPolicyPhase,
+} from './agent/workflow-tool-policy.js';
 export {
   createAgentOrchestratorForRun,
   type OrchestratorFactoryInput,
@@ -57,7 +63,12 @@ export {
   createEmptyScratchpad,
   serializeScratchpad,
 } from './agent/run-context.js';
-export { registerAgentTools, registerFiltered, EXCLUDED_TOOLS, type AllToolDeps } from './agent/register-agent-tools.js';
+export {
+  registerAgentTools,
+  registerFiltered,
+  EXCLUDED_TOOLS,
+  type AllToolDeps,
+} from './agent/register-agent-tools.js';
 export { createCanvasTools, type CanvasToolDeps } from './agent/tools/canvas-tools.js';
 export { createEntityTools, type EntityToolDeps } from './agent/tools/entity-tools.js';
 export { createScriptTools, type ScriptToolDeps } from './agent/tools/script-tools.js';
@@ -85,12 +96,21 @@ export {
 } from './agent/tools/prompt-tools.js';
 export { createRenderTools, type RenderToolDeps } from './agent/tools/render-tools.js';
 export { createPresetTools, type PresetToolDeps } from './agent/tools/preset-tools.js';
-export { createWorkflowTools, type WorkflowToolDeps } from './agent/tools/workflow-tools.js';
+export {
+  createWorkflowTools,
+  type WorkflowToolDeps,
+  type CreateVisualAuditionsInput,
+  type CreateVisualAuditionsResult,
+  type ProduceWorkflowMediaInput,
+} from './agent/tools/workflow-tools.js';
 export { type PromptGuide } from './agent/tools/workflow-guides.js';
 export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';
 export { type CopywritingToolDeps } from './agent/tools/copywriting-tools.js';
 export { type VisionToolDeps } from './agent/tools/vision-tools.js';
-export { createTextAnalyzeTools, type TextAnalyzeToolDeps } from './agent/tools/text-analyze-tools.js';
+export {
+  createTextAnalyzeTools,
+  type TextAnalyzeToolDeps,
+} from './agent/tools/text-analyze-tools.js';
 export { createSnapshotTools, type SnapshotToolDeps } from './agent/tools/snapshot-tools.js';
 export { snapshotToolModule } from './agent/tools/snapshot-tools.js';
 export { createTodoTools } from './agent/tools/todo-tools.js';

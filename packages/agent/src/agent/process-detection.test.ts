@@ -38,7 +38,9 @@ describe('detectProcess', () => {
 
   it('defaults canvas.generation to image-node-generation when nodeType is missing or unknown', () => {
     expect(detectProcess('canvas.generation')).toBe('image-node-generation');
-    expect(detectProcess('canvas.generation', { nodeType: 'unknown' })).toBe('image-node-generation');
+    expect(detectProcess('canvas.generation', { nodeType: 'unknown' })).toBe(
+      'image-node-generation',
+    );
   });
 
   it('maps preset, style, and template tools into split preset categories', () => {

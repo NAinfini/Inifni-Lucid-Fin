@@ -39,12 +39,7 @@ export const PROCESS_GUIDE_GROUPS: ProcessGuideGroup[] = [
   {
     groupKey: 'canvas',
     labelI18nKey: 'settings.processGuides.group.canvas',
-    keys: [
-      'canvas-structure',
-      'canvas-graph-and-layout',
-      'canvas-node-editing',
-      'canvas-settings',
-    ],
+    keys: ['canvas-structure', 'canvas-graph-and-layout', 'canvas-node-editing', 'canvas-settings'],
   },
   {
     groupKey: 'entities',
@@ -240,10 +235,7 @@ export function SettingsProcessPromptsSection({
     });
   }, []);
 
-  const promptsByKey = useMemo(
-    () => new Map(prompts.map((p) => [p.processKey, p])),
-    [prompts],
-  );
+  const promptsByKey = useMemo(() => new Map(prompts.map((p) => [p.processKey, p])), [prompts]);
 
   const otherPrompts = useMemo(
     () => prompts.filter((p) => !ALL_GROUPED_KEYS.has(p.processKey)),
@@ -259,8 +251,7 @@ export function SettingsProcessPromptsSection({
   const renderPromptCard = (prompt: IpcProcessPrompt) => {
     const isEditing = editingKey === prompt.processKey;
     const isSaving = savingKey === prompt.processKey;
-    const currentValue =
-      drafts[prompt.processKey] ?? prompt.customValue ?? prompt.defaultValue;
+    const currentValue = drafts[prompt.processKey] ?? prompt.customValue ?? prompt.defaultValue;
     const localizedName = localizeProcessPromptName(prompt.processKey, prompt.name);
     const localizedDescription = localizeProcessPromptDescription(
       prompt.processKey,
@@ -287,9 +278,7 @@ export function SettingsProcessPromptsSection({
                 </span>
               )}
             </div>
-            <p className="text-[11px] leading-snug text-muted-foreground">
-              {localizedDescription}
-            </p>
+            <p className="text-[11px] leading-snug text-muted-foreground">{localizedDescription}</p>
             {triggerTools.length > 0 && (
               <div className="flex flex-wrap items-center gap-1 pt-0.5">
                 <span className="text-[10px] font-medium text-muted-foreground">
@@ -370,7 +359,11 @@ export function SettingsProcessPromptsSection({
     );
   };
 
-  const renderGroup = (groupKey: string, labelI18nKey: string, groupPrompts: IpcProcessPrompt[]) => {
+  const renderGroup = (
+    groupKey: string,
+    labelI18nKey: string,
+    groupPrompts: IpcProcessPrompt[],
+  ) => {
     if (groupPrompts.length === 0) return null;
     const isExpanded = expandedGroups.has(groupKey);
     const label = t(labelI18nKey);
@@ -416,11 +409,7 @@ export function SettingsProcessPromptsSection({
           return renderGroup(group.groupKey, group.labelI18nKey, groupPrompts);
         })}
         {otherPrompts.length > 0 &&
-          renderGroup(
-            'other',
-            'settings.processGuides.group.other',
-            otherPrompts,
-          )}
+          renderGroup('other', 'settings.processGuides.group.other', otherPrompts)}
       </div>
     </section>
   );

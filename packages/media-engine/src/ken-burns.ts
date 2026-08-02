@@ -1,4 +1,5 @@
 import { createCommand, runCommand } from './ffmpeg-utils.js';
+import { getLgplVideoCodecConfig } from './codec-policy.js';
 
 export interface KenBurnsOptions {
   duration: number;
@@ -33,12 +34,13 @@ export function kenBurns(
   const xExpr = panX !== 0 ? `x+${panX}` : `iw/2-(iw/zoom/2)`;
   const yExpr = panY !== 0 ? `y+${panY}` : `ih/2-(ih/zoom/2)`;
   const zoompan = `zoompan=z='${zoomExpr}':x='${xExpr}':y='${yExpr}':d=${totalFrames}:s=${width}x${height}:fps=${fps}`;
+  const videoCodec = getLgplVideoCodecConfig('h264', { quality: 'standard' });
 
   const cmd = createCommand(inputImage)
     .inputOptions(['-loop 1', `-t ${duration}`])
     .videoFilters(zoompan)
-    .videoCodec('libx264')
-    .outputOptions(['-pix_fmt yuv420p', `-r ${fps}`, '-an'])
+    .videoCodec(videoCodec.encoder)
+    .outputOptions(['-pix_fmt yuv420p', `-r ${fps}`, ...videoCodec.outputOptions, '-an'])
     .output(outputVideo);
 
   return runCommand(cmd);

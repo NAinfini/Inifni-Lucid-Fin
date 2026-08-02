@@ -224,7 +224,8 @@ export function summarizeToolAction(
   else if (nodeCount === 1) detailParts.push(`1 ${t('commander.toolSummary.node')}`);
   if (name) detailParts.push(`"${name}"`);
   else if (id) detailParts.push(`#${id}…`);
-  if (canvasId && !name && !id) detailParts.push(`${t('commander.toolSummary.canvas')} #${canvasId}…`);
+  if (canvasId && !name && !id)
+    detailParts.push(`${t('commander.toolSummary.canvas')} #${canvasId}…`);
 
   // Label (snapshot, template, etc.)
   if (typeof args.label === 'string' && args.label.trim().length > 0) {

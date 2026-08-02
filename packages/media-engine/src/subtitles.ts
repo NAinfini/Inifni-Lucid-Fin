@@ -1,4 +1,5 @@
 import { createCommand, runCommand } from './ffmpeg-utils.js';
+import { getLgplVideoCodecConfig } from './codec-policy.js';
 
 export interface SubtitleCue {
   id: string;
@@ -134,7 +135,7 @@ export async function burnSubtitles(
   options?: { codec?: 'h264' | 'h265'; fontDir?: string },
 ): Promise<void> {
   const codec = options?.codec ?? 'h264';
-  const vcodec = codec === 'h265' ? 'libx265' : 'libx264';
+  const videoCodec = getLgplVideoCodecConfig(codec, { quality: 'standard' });
   const subFilter = subtitlePath.endsWith('.ass')
     ? `ass='${subtitlePath.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`
     : `subtitles='${subtitlePath.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`;
@@ -144,8 +145,8 @@ export async function burnSubtitles(
     : '';
 
   const cmd = createCommand(videoPath)
-    .videoCodec(vcodec)
-    .addOutputOptions([`-vf ${subFilter}${fontsDir}`, '-crf 18', '-preset medium', '-c:a copy'])
+    .videoCodec(videoCodec.encoder)
+    .addOutputOptions([`-vf ${subFilter}${fontsDir}`, ...videoCodec.outputOptions, '-c:a copy'])
     .output(outputPath);
 
   await runCommand(cmd);

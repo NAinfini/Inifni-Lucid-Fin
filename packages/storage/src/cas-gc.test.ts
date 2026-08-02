@@ -67,13 +67,19 @@ describe('CAS Garbage Collector', () => {
     // Add columns/tables from migrations that aren't in SCHEMA_SQL
     try {
       db.exec('ALTER TABLE characters ADD COLUMN deleted_at TEXT');
-    } catch { /* already exists */ }
+    } catch {
+      /* already exists */
+    }
     try {
       db.exec('ALTER TABLE equipment ADD COLUMN deleted_at TEXT');
-    } catch { /* already exists */ }
+    } catch {
+      /* already exists */
+    }
     try {
       db.exec('ALTER TABLE locations ADD COLUMN deleted_at TEXT');
-    } catch { /* already exists */ }
+    } catch {
+      /* already exists */
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS canvas_nodes (
         id         TEXT PRIMARY KEY,
@@ -114,9 +120,12 @@ describe('CAS Garbage Collector', () => {
 
     // Insert hashes A, B, C into the assets table (referenced)
     for (const h of [hashA, hashB, hashC]) {
-      db.prepare(
-        'INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)',
-      ).run(h, 'image', 'png', Date.now());
+      db.prepare('INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)').run(
+        h,
+        'image',
+        'png',
+        Date.now(),
+      );
     }
 
     // Create CAS files for A, B, C, D, E
@@ -171,9 +180,12 @@ describe('CAS Garbage Collector', () => {
     const pastTime = Date.now() - 60_000;
     const filePath = createCasFile(assetsRoot, hashRef, 'image', 'png', pastTime);
 
-    db.prepare(
-      'INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)',
-    ).run(hashRef, 'image', 'png', Date.now());
+    db.prepare('INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)').run(
+      hashRef,
+      'image',
+      'png',
+      Date.now(),
+    );
 
     const result = collectGarbage(db, assetsRoot, { dryRun: false });
 
@@ -207,8 +219,13 @@ describe('CAS Garbage Collector', () => {
 
     // Insert a canvas node referencing the hash
     db.prepare(
-      "INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)",
-    ).run('n1', 'c1', 'image', JSON.stringify({ assetHash: hash, status: 'done', variants: [], selectedVariantIndex: 0 }));
+      'INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)',
+    ).run(
+      'n1',
+      'c1',
+      'image',
+      JSON.stringify({ assetHash: hash, status: 'done', variants: [], selectedVariantIndex: 0 }),
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
@@ -227,13 +244,18 @@ describe('CAS Garbage Collector', () => {
     ).run('c2', 'Test Canvas 2', '{"x":0,"y":0,"zoom":1}', '[]', Date.now(), Date.now());
 
     db.prepare(
-      "INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)",
-    ).run('n2', 'c2', 'image', JSON.stringify({
-      assetHash: hashMain,
-      status: 'done',
-      variants: [hashVariant],
-      selectedVariantIndex: 0,
-    }));
+      'INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)',
+    ).run(
+      'n2',
+      'c2',
+      'image',
+      JSON.stringify({
+        assetHash: hashMain,
+        status: 'done',
+        variants: [hashVariant],
+        selectedVariantIndex: 0,
+      }),
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
@@ -249,7 +271,13 @@ describe('CAS Garbage Collector', () => {
     const now = Date.now();
     db.prepare(
       'INSERT INTO characters (id, name, reference_images, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-    ).run('ch1', 'Test Char', JSON.stringify([{ slot: 'main', assetHash: hash, isStandard: true }]), now, now);
+    ).run(
+      'ch1',
+      'Test Char',
+      JSON.stringify([{ slot: 'main', assetHash: hash, isStandard: true }]),
+      now,
+      now,
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
@@ -264,7 +292,13 @@ describe('CAS Garbage Collector', () => {
     const now = Date.now();
     db.prepare(
       "INSERT INTO equipment (id, name, type, reference_images, created_at, updated_at) VALUES (?, ?, 'weapon', ?, ?, ?)",
-    ).run('eq1', 'Test Equip', JSON.stringify([{ slot: 'ortho-grid', assetHash: hash, isStandard: true }]), now, now);
+    ).run(
+      'eq1',
+      'Test Equip',
+      JSON.stringify([{ slot: 'ortho-grid', assetHash: hash, isStandard: true }]),
+      now,
+      now,
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
@@ -279,7 +313,13 @@ describe('CAS Garbage Collector', () => {
     const now = Date.now();
     db.prepare(
       "INSERT INTO locations (id, name, type, reference_images, created_at, updated_at) VALUES (?, ?, 'interior', ?, ?, ?)",
-    ).run('loc1', 'Test Loc', JSON.stringify([{ slot: 'bible', assetHash: hash, isStandard: true }]), now, now);
+    ).run(
+      'loc1',
+      'Test Loc',
+      JSON.stringify([{ slot: 'bible', assetHash: hash, isStandard: true }]),
+      now,
+      now,
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
@@ -352,16 +392,21 @@ describe('CAS Garbage Collector', () => {
     ).run('c3', 'Canvas 3', '{"x":0,"y":0,"zoom":1}', '[]', Date.now(), Date.now());
 
     db.prepare(
-      "INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)",
-    ).run('n3', 'c3', 'image', JSON.stringify({
-      assetHash: hashCurrent,
-      status: 'done',
-      variants: [],
-      selectedVariantIndex: 0,
-      generationHistory: [
-        { assetHash: hashHistory, prompt: 'test', providerId: 'p1', createdAt: Date.now() },
-      ],
-    }));
+      'INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)',
+    ).run(
+      'n3',
+      'c3',
+      'image',
+      JSON.stringify({
+        assetHash: hashCurrent,
+        status: 'done',
+        variants: [],
+        selectedVariantIndex: 0,
+        generationHistory: [
+          { assetHash: hashHistory, prompt: 'test', providerId: 'p1', createdAt: Date.now() },
+        ],
+      }),
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
@@ -379,13 +424,18 @@ describe('CAS Garbage Collector', () => {
     ).run('c4', 'Canvas 4', '{"x":0,"y":0,"zoom":1}', '[]', Date.now(), Date.now());
 
     db.prepare(
-      "INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)",
-    ).run('n4', 'c4', 'image', JSON.stringify({
-      sourceImageHash: hashSource,
-      status: 'done',
-      variants: [],
-      selectedVariantIndex: 0,
-    }));
+      'INSERT INTO canvas_nodes (id, canvas_id, type, position_x, position_y, data_json, z_index) VALUES (?, ?, ?, 0, 0, ?, 0)',
+    ).run(
+      'n4',
+      'c4',
+      'image',
+      JSON.stringify({
+        sourceImageHash: hashSource,
+        status: 'done',
+        variants: [],
+        selectedVariantIndex: 0,
+      }),
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
@@ -402,9 +452,12 @@ describe('CAS Garbage Collector', () => {
     createCasFile(assetsRoot, hashOrphan1, 'image', 'png', pastTime);
     createCasFile(assetsRoot, hashOrphan2, 'video', 'mp4', pastTime);
 
-    db.prepare(
-      'INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)',
-    ).run(hashLive, 'image', 'png', Date.now());
+    db.prepare('INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)').run(
+      hashLive,
+      'image',
+      'png',
+      Date.now(),
+    );
 
     const result = collectGarbage(db, assetsRoot);
 
@@ -431,7 +484,13 @@ describe('CAS Garbage Collector', () => {
     const now = Date.now();
     db.prepare(
       "INSERT INTO characters (id, name, reference_images, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-    ).run('ch2', 'Deleted Char', JSON.stringify([{ slot: 'main', assetHash: hash, isStandard: true }]), now, now);
+    ).run(
+      'ch2',
+      'Deleted Char',
+      JSON.stringify([{ slot: 'main', assetHash: hash, isStandard: true }]),
+      now,
+      now,
+    );
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);

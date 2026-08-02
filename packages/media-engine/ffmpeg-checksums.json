@@ -1,64 +1,279 @@
 {
-  "version": "7.1",
-  "license": "LGPL",
-  "licenseNote": "Using LGPL builds as conservative default. See R48 (ffmpeg-licensing) for final GPL vs LGPL decision.",
-  "sourceUrls": {
-    "win32-x64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-04-01-14-18/ffmpeg-n7.1-37-g194813a674-win64-lgpl-shared-7.1.zip",
-    "darwin-x64": "https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip",
-    "darwin-arm64": "https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip",
-    "linux-x64": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2025-04-01-14-18/ffmpeg-n7.1-37-g194813a674-linux64-lgpl-shared-7.1.tar.xz"
+  "schemaVersion": 2,
+  "version": "8.1.2",
+  "license": "LGPL-3.0-or-later",
+  "sourceCode": {
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+    "sha256": "32faba5ef67340d54724941eae1425580791195312a4fd13bf6f820a2818bf22"
   },
-  "binaries": {
+  "platforms": {
     "win32-x64": {
-      "ffmpeg": {
-        "filename": "ffmpeg.exe",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      "kind": "archive",
+      "buildVersion": "n8.1.2-34-g9b6c8969e0-20260731",
+      "archive": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n8.1.2-34-g9b6c8969e0-win64-lgpl-shared-8.1.zip",
+        "sha256": "c222a490dde4e7059f45495deef6bfb98dbcacc2b43df5b607546252037aa95c",
+        "root": "ffmpeg-n8.1.2-34-g9b6c8969e0-win64-lgpl-shared-8.1"
       },
-      "ffprobe": {
-        "filename": "ffprobe.exe",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
-      }
+      "commands": {
+        "ffmpeg": "bin/ffmpeg.exe",
+        "ffprobe": "bin/ffprobe.exe"
+      },
+      "requiredEncoders": ["libopenh264", "libkvazaar"],
+      "forbiddenBuildFlags": ["--enable-gpl", "--enable-nonfree"],
+      "files": [
+        {
+          "source": "bin/avcodec-62.dll",
+          "destination": "bin/avcodec-62.dll",
+          "sha256": "4b9f8f2dcf6ff62f8a3136f31afdd31f90c24625ce8ea618951e356a7a5a8ce2",
+          "size": 70876672
+        },
+        {
+          "source": "bin/avdevice-62.dll",
+          "destination": "bin/avdevice-62.dll",
+          "sha256": "51e3fc99da896f3b16ccb381369df8de4e263e8eb0ea7564b950e117e314863b",
+          "size": 3699712
+        },
+        {
+          "source": "bin/avfilter-11.dll",
+          "destination": "bin/avfilter-11.dll",
+          "sha256": "d1f8efbabe72ca1786feb6613f76690514c1d0c4bde03d3731c84cd145b1d0ef",
+          "size": 29817856
+        },
+        {
+          "source": "bin/avformat-62.dll",
+          "destination": "bin/avformat-62.dll",
+          "sha256": "148cfc25efafb0b63998740685e7789636309bb8a8304cbde3241bda66dbc77b",
+          "size": 22070784
+        },
+        {
+          "source": "bin/avutil-60.dll",
+          "destination": "bin/avutil-60.dll",
+          "sha256": "93ba0919a68532a718edc8de25c5f4c48a68e5ce3609fd128602c129783fab73",
+          "size": 2937856
+        },
+        {
+          "source": "bin/ffmpeg.exe",
+          "destination": "bin/ffmpeg.exe",
+          "sha256": "cfa7457eab838db74cb8888ccaf46549a931a2913312e8dede423a26ddac33d5",
+          "size": 542208,
+          "executable": true
+        },
+        {
+          "source": "bin/ffprobe.exe",
+          "destination": "bin/ffprobe.exe",
+          "sha256": "51b5386857751698dcd679613a61306a45f2466189e41cd6a78ba96b37d2ddda",
+          "size": 227840,
+          "executable": true
+        },
+        {
+          "source": "bin/swresample-6.dll",
+          "destination": "bin/swresample-6.dll",
+          "sha256": "a7a66dffe5a5611ef7f7879ab4def1d9f18eaed5dafcdb0e9ac8191461f4dda5",
+          "size": 723968
+        },
+        {
+          "source": "bin/swscale-9.dll",
+          "destination": "bin/swscale-9.dll",
+          "sha256": "65656f162298df89fda00ddedb5669f4233a6a1e6bd159e093168732be62d91d",
+          "size": 12570624
+        },
+        {
+          "source": "LICENSE.txt",
+          "destination": "LICENSE.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+          "size": 7651
+        }
+      ]
+    },
+    "win32-arm64": {
+      "kind": "archive",
+      "buildVersion": "n8.1.2-34-g9b6c8969e0-20260731",
+      "archive": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n8.1.2-34-g9b6c8969e0-winarm64-lgpl-shared-8.1.zip",
+        "sha256": "4abab52904037ecad91b54811d69005a0b2e1f591242fd1517d32b299246ece0",
+        "root": "ffmpeg-n8.1.2-34-g9b6c8969e0-winarm64-lgpl-shared-8.1"
+      },
+      "commands": {
+        "ffmpeg": "bin/ffmpeg.exe",
+        "ffprobe": "bin/ffprobe.exe"
+      },
+      "requiredEncoders": ["libopenh264", "libkvazaar"],
+      "forbiddenBuildFlags": ["--enable-gpl", "--enable-nonfree"],
+      "files": [
+        {
+          "source": "bin/avcodec-62.dll",
+          "destination": "bin/avcodec-62.dll",
+          "sha256": "5b7fcadb9468ba4b6e659c98bd23d6cb461d17f4c0805b1ef0eeb5fc2ba6c166",
+          "size": 34796544
+        },
+        {
+          "source": "bin/avdevice-62.dll",
+          "destination": "bin/avdevice-62.dll",
+          "sha256": "61125c1728f7261b355af02a8539bac93482aa1837a452f2f184e472ee1729da",
+          "size": 3079168
+        },
+        {
+          "source": "bin/avfilter-11.dll",
+          "destination": "bin/avfilter-11.dll",
+          "sha256": "8100fb5692ac0292f11bee295815a1b232d50714936559289c1092dc77eab81f",
+          "size": 19689984
+        },
+        {
+          "source": "bin/avformat-62.dll",
+          "destination": "bin/avformat-62.dll",
+          "sha256": "678c1e63661ea5cfd2ce07971e7d786d2460e978183c97a5a45e61591bd83457",
+          "size": 14436864
+        },
+        {
+          "source": "bin/avutil-60.dll",
+          "destination": "bin/avutil-60.dll",
+          "sha256": "bc3a16170767bd98abfd40ad7263e2b47b4f2a5e0356ef80d0e054acd8039f6f",
+          "size": 1170944
+        },
+        {
+          "source": "bin/ffmpeg.exe",
+          "destination": "bin/ffmpeg.exe",
+          "sha256": "d9de51becf60c4405a94803a53aa51e38b334fa63a8a60e3c3d32340dd674898",
+          "size": 468480,
+          "executable": true
+        },
+        {
+          "source": "bin/ffprobe.exe",
+          "destination": "bin/ffprobe.exe",
+          "sha256": "a19777dc302b07a5704e1e58b2e749359135fb24084f04f3385b41dfbab8746a",
+          "size": 206848,
+          "executable": true
+        },
+        {
+          "source": "bin/swresample-6.dll",
+          "destination": "bin/swresample-6.dll",
+          "sha256": "36f54b87b243a6049b504c4e4decb71e0f0541d2bc717d880af43ba08d5b94c0",
+          "size": 245248
+        },
+        {
+          "source": "bin/swscale-9.dll",
+          "destination": "bin/swscale-9.dll",
+          "sha256": "c3869f2351b7906df825ae670cc20273ff6fb79544d4ad0d1dd94d996c51c3b6",
+          "size": 8401920
+        },
+        {
+          "source": "LICENSE.txt",
+          "destination": "LICENSE.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+          "size": 7651
+        }
+      ]
+    },
+    "linux-x64": {
+      "kind": "archive",
+      "buildVersion": "n8.1.2-34-g9b6c8969e0-20260731",
+      "archive": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-lgpl-shared-8.1.tar.xz",
+        "sha256": "c882a80f06617149198a98a07a0880a7e881953ae9f9cb931f5be09a4f93caae",
+        "root": "ffmpeg-n8.1.2-34-g9b6c8969e0-linux64-lgpl-shared-8.1"
+      },
+      "commands": {
+        "ffmpeg": "bin/ffmpeg",
+        "ffprobe": "bin/ffprobe"
+      },
+      "requiredEncoders": ["libopenh264", "libkvazaar"],
+      "forbiddenBuildFlags": ["--enable-gpl", "--enable-nonfree"],
+      "files": [
+        {
+          "source": "bin/ffmpeg",
+          "destination": "bin/ffmpeg",
+          "sha256": "54ac543ac6b6ff5a21ab737f8f8ef7ad4a2ff35fe85691028cdb1f6bb36d84c3",
+          "size": 485592,
+          "executable": true
+        },
+        {
+          "source": "bin/ffprobe",
+          "destination": "bin/ffprobe",
+          "sha256": "50f116d5e0d79badb0b7f4df5ff9dcec6af9f78321ca305392e57a04be72c50c",
+          "size": 215184,
+          "executable": true
+        },
+        {
+          "source": "lib/libavcodec.so.62.28.102",
+          "destination": "lib/libavcodec.so.62",
+          "sha256": "e764cb8e423b837b7c600f23cee7188e548b1451ec190b4691b95386ea870fc3",
+          "size": 71655248,
+          "executable": true
+        },
+        {
+          "source": "lib/libavdevice.so.62.3.102",
+          "destination": "lib/libavdevice.so.62",
+          "sha256": "e194f18571f675149dfa9d130df64e733b9af738008f3a34b4e3e807a9f8eee3",
+          "size": 5246664,
+          "executable": true
+        },
+        {
+          "source": "lib/libavfilter.so.11.14.102",
+          "destination": "lib/libavfilter.so.11",
+          "sha256": "00b7baabe290369eab0f3ba2c31ae9c9ca21c2b46f62ebc32b3136238a186ea4",
+          "size": 30568224,
+          "executable": true
+        },
+        {
+          "source": "lib/libavformat.so.62.12.102",
+          "destination": "lib/libavformat.so.62",
+          "sha256": "fad88584a80c883b7c1d159b90b9e3b26a2df060de42099f709a75bb61dd7eda",
+          "size": 24615520,
+          "executable": true
+        },
+        {
+          "source": "lib/libavutil.so.60.26.102",
+          "destination": "lib/libavutil.so.60",
+          "sha256": "19e62b5ed04178807b0489d7cff8aa69d8f9bf99429a0740f9b438220ed5d248",
+          "size": 8377032,
+          "executable": true
+        },
+        {
+          "source": "lib/libswresample.so.6.3.102",
+          "destination": "lib/libswresample.so.6",
+          "sha256": "bb6e402d91995f38a80d650b0c166c44f0618f3611175eb3fca047d491dd337d",
+          "size": 498632,
+          "executable": true
+        },
+        {
+          "source": "lib/libswscale.so.9.5.102",
+          "destination": "lib/libswscale.so.9",
+          "sha256": "88c41a7e04a4a686ffb695480dd885b59f91044b9ed268ca287f1adc21d33815",
+          "size": 12791784,
+          "executable": true
+        },
+        {
+          "source": "LICENSE.txt",
+          "destination": "LICENSE.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768",
+          "size": 7651
+        }
+      ]
     },
     "darwin-x64": {
-      "ffmpeg": {
-        "filename": "ffmpeg",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      "kind": "source-build",
+      "builder": "scripts/build-ffmpeg-macos-lgpl.sh",
+      "source": {
+        "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+        "sha256": "32faba5ef67340d54724941eae1425580791195312a4fd13bf6f820a2818bf22"
       },
-      "ffprobe": {
-        "filename": "ffprobe",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      "commands": {
+        "ffmpeg": "bin/ffmpeg",
+        "ffprobe": "bin/ffprobe"
       }
     },
     "darwin-arm64": {
-      "ffmpeg": {
-        "filename": "ffmpeg",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      "kind": "source-build",
+      "builder": "scripts/build-ffmpeg-macos-lgpl.sh",
+      "source": {
+        "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+        "sha256": "32faba5ef67340d54724941eae1425580791195312a4fd13bf6f820a2818bf22"
       },
-      "ffprobe": {
-        "filename": "ffprobe",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
-      }
-    },
-    "linux-x64": {
-      "ffmpeg": {
-        "filename": "ffmpeg",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
-      },
-      "ffprobe": {
-        "filename": "ffprobe",
-        "sha256": "PLACEHOLDER_HASH_UPDATE_AFTER_DOWNLOAD"
+      "commands": {
+        "ffmpeg": "bin/ffmpeg",
+        "ffprobe": "bin/ffprobe"
       }
     }
-  },
-  "upgradePlaybook": [
-    "1. Download new FFmpeg binaries for all platforms from the source URLs (or update URLs for new version).",
-    "2. Place binaries in resources/bin/<platform>/ (e.g., resources/bin/win32-x64/ffmpeg.exe).",
-    "3. Run: npx tsx scripts/fetch-ffmpeg.ts --compute-checksums to generate SHA-256 hashes.",
-    "4. Update this file: bump 'version', replace all sha256 values with computed hashes.",
-    "5. Run: npx tsx scripts/fetch-ffmpeg.ts --verify to confirm checksums match.",
-    "6. Run smoke test: npm test -- --grep ffmpeg-binary to verify binary responds to -version.",
-    "7. Test video/audio processing features (probe, thumbnail, transcode, render).",
-    "8. If build flags changed (GPL vs LGPL), update licenseNote and sourceUrls.",
-    "9. Commit all changes including updated checksums and binaries."
-  ]
+  }
 }

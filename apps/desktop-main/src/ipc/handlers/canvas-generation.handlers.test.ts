@@ -1213,13 +1213,11 @@ describe('startCanvasGeneration progress events', () => {
             maxConcurrent: 1,
             configure: vi.fn(),
             validate: vi.fn(async () => true),
-            generate: vi.fn(
-              async (): Promise<GenerationResult> => ({
-                assetHash: '',
-                assetPath,
-                provider: 'mock-provider',
-              }),
-            ),
+            generate: vi.fn(async (): Promise<GenerationResult> => ({
+              assetHash: '',
+              assetPath,
+              provider: 'mock-provider',
+            })),
             estimateCost: vi.fn(() => ({
               estimatedCost: 0,
               currency: 'USD',

@@ -6,6 +6,7 @@ import {
   ChevronUp,
   PauseCircle,
   PlayCircle,
+  ShieldCheck,
   XCircle,
 } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
@@ -17,9 +18,11 @@ import {
   resumeWorkflow,
 } from '../../store/slices/workflows.js';
 import { t } from '../../i18n.js';
+import { WorkflowDetailDrawer } from './WorkflowDetailDrawer.js';
 
 const STATUS_BADGE: Record<string, string> = {
   pending: 'bg-slate-500/15 text-slate-300 border-slate-400/20',
+  awaiting_approval: 'bg-amber-500/15 text-amber-200 border-amber-400/30',
   blocked: 'bg-amber-500/15 text-amber-300 border-amber-400/20',
   ready: 'bg-sky-500/15 text-sky-300 border-sky-400/20',
   running: 'bg-blue-500/15 text-blue-300 border-blue-400/20',
@@ -31,6 +34,7 @@ const STATUS_BADGE: Record<string, string> = {
 
 const VISIBLE_STATUSES = new Set([
   'pending',
+  'awaiting_approval',
   'blocked',
   'ready',
   'running',
@@ -39,7 +43,14 @@ const VISIBLE_STATUSES = new Set([
   'completed_with_errors',
 ]);
 
-const ACTIVE_STATUSES = new Set(['pending', 'blocked', 'ready', 'running', 'paused']);
+const ACTIVE_STATUSES = new Set([
+  'pending',
+  'awaiting_approval',
+  'blocked',
+  'ready',
+  'running',
+  'paused',
+]);
 
 const ATTENTION_STATUSES = new Set(['failed', 'completed_with_errors']);
 
@@ -51,6 +62,8 @@ function statusLabel(status: string): string {
   switch (status) {
     case 'pending':
       return t('execution.status.pending');
+    case 'awaiting_approval':
+      return t('execution.status.awaitingApproval');
     case 'blocked':
       return t('execution.status.blocked');
     case 'ready':
@@ -76,6 +89,7 @@ export function ExecutionPanel() {
     (state: RootState) => state.workflows,
   );
   const [expandedWorkflowId, setExpandedWorkflowId] = useState<string | null>(null);
+  const [reviewWorkflowId, setReviewWorkflowId] = useState<string | null>(null);
 
   const workflows = useMemo(() => {
     return allIds
@@ -201,6 +215,15 @@ export function ExecutionPanel() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-3">
+                  {workflow.status === 'awaiting_approval' && (
+                    <button
+                      onClick={() => setReviewWorkflowId(workflow.id)}
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-400/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-100 hover:bg-amber-500/15"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      {t('workflowApproval.review')}
+                    </button>
+                  )}
                   {canPause && (
                     <button
                       onClick={() => dispatch(pauseWorkflow(workflow.id))}
@@ -341,6 +364,11 @@ export function ExecutionPanel() {
           );
         })}
       </div>
+      <WorkflowDetailDrawer
+        workflowRunId={reviewWorkflowId}
+        open={reviewWorkflowId !== null}
+        onClose={() => setReviewWorkflowId(null)}
+      />
     </div>
   );
 }

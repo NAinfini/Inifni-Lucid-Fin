@@ -39,9 +39,7 @@ test.describe('Canvas workspace', () => {
     const createButton = mainWindow.locator('button', { hasText: /Canvas/ });
 
     // One of these should appear within the timeout
-    await expect(
-      workspace.or(createButton).first(),
-    ).toBeVisible({ timeout: 30_000 });
+    await expect(workspace.or(createButton).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test('right toolbar is visible with panel toggle buttons', async ({ mainWindow }) => {

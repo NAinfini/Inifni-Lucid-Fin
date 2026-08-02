@@ -123,9 +123,7 @@ function runBenchmark(
     // To measure pure deserialization separately, we re-read the raw
     // rows and time JSON.parse explicitly.
     const rawRows = db
-      .prepare(
-        `SELECT data_json FROM canvas_nodes WHERE canvas_id = ? ORDER BY z_index ASC`,
-      )
+      .prepare(`SELECT data_json FROM canvas_nodes WHERE canvas_id = ? ORDER BY z_index ASC`)
       .all(canvasId) as Array<{ data_json: string }>;
 
     const t2 = performance.now();

@@ -187,13 +187,7 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   // Build context the same way commander.handlers does.
   const canvas = env.canvasStore.get(canvasId);
   if (!canvas) throw new Error('seed canvas missing — harness bug');
-  const context: AgentContext = buildContext(
-    canvas,
-    [],
-    [],
-    env.db,
-    promptGuides,
-  );
+  const context: AgentContext = buildContext(canvas, [], [], env.db, promptGuides);
 
   // Orchestrator — factory is the only supported construction path (Phase D).
   // Wiring `canvasStore` here is what the pre-Phase-D harness was missing,

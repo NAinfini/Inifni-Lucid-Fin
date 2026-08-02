@@ -1,13 +1,8 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useEffect, useRef } from 'react';
 import type { RootState } from '../../../store/index.js';
-import type {
-  PendingConfirmation,
-} from '../../../commander/state/types.js';
-import {
-  clearPendingConfirmation,
-  setConfirmAutoMode,
-} from '../../../store/slices/commander.js';
+import type { PendingConfirmation } from '../../../commander/state/types.js';
+import { clearPendingConfirmation, setConfirmAutoMode } from '../../../store/slices/commander.js';
 import { markConfirmationResolvedLocally } from '../../../commander/state/commander-timeline-slice.js';
 import { getAPI } from '../../../utils/api.js';
 import { ToolConfirmCard } from './ToolConfirmCard.js';

@@ -216,7 +216,10 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'The location ID to update (obtain from location.list).' },
+        id: {
+          type: 'string',
+          description: 'The location ID to update (obtain from location.list).',
+        },
         set: {
           type: 'object',
           description:
@@ -324,7 +327,10 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'The location ID to delete (obtain from location.list).' },
+        id: {
+          type: 'string',
+          description: 'The location ID to delete (obtain from location.list).',
+        },
       },
       required: ['id'],
     },

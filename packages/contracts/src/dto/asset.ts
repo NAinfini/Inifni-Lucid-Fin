@@ -26,6 +26,18 @@ export interface AssetGenerationMetadata {
   model?: string;
   generationTimeMs?: number;
   cost?: number;
+  /** Persistent production-media provenance. */
+  workflowRunId?: string;
+  attemptId?: string;
+  specHash?: string;
+  promptHash?: string;
+  referenceAssetHashes?: string[];
+  estimatedCostUsd?: number;
+  reportedActualCostUsd?: number;
+  /** Timestamped evaluation-frame provenance. */
+  sourceVideoHash?: string;
+  timestampSeconds?: number;
+  rubricVersion?: string;
 }
 
 export interface AssetMeta {

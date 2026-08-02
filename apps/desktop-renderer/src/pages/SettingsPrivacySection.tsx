@@ -84,11 +84,7 @@ export function SettingsPrivacySection() {
           <div className="pt-1">
             <button
               type="button"
-              onClick={() =>
-                void window.lucidAPI.openExternal(
-                  'https://lucid-fin.app/privacy',
-                )
-              }
+              onClick={() => void window.lucidAPI.openExternal('https://lucid-fin.app/privacy')}
               className="flex items-center gap-1 text-[10px] text-primary hover:underline"
             >
               <ExternalLink className="h-3 w-3" />
@@ -117,9 +113,7 @@ export function SettingsPrivacySection() {
               )}
             />
             <div className="space-y-1">
-              <div className="text-xs font-medium">
-                {t('settings.privacy.analyticsToggle')}
-              </div>
+              <div className="text-xs font-medium">{t('settings.privacy.analyticsToggle')}</div>
               <p className="text-[10px] text-muted-foreground leading-relaxed">
                 {t('settings.privacy.analyticsDescription')}
               </p>

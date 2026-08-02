@@ -14,11 +14,7 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'preset-definition-management': ['preset.manage'],
   'shot-template-management': ['shotTemplate.manage'],
   'color-style-management': ['colorStyle.manage'],
-  'entity-management': [
-    'entity.create',
-    'entity.update',
-    'entity.delete',
-  ],
+  'entity-management': ['entity.create', 'entity.update', 'entity.delete'],
   'canvas-structure': [
     'canvas.createNodes',
     'canvas.duplicateNodes',

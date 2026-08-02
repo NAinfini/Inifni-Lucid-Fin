@@ -173,9 +173,7 @@ describe('configurable process prompt specs', () => {
     // v2: Both cases fire because the predicate checks workspace state
     // (plate empty), not pending tool call types.
     const canvasGenerate = evaluateProcessPromptSpecs(
-      [
-        spec,
-      ],
+      [spec],
       ctx({
         pendingToolCalls: [{ name: 'canvas.generation', arguments: {} }],
         canvasSettings: { stylePlate: '' },
@@ -183,9 +181,7 @@ describe('configurable process prompt specs', () => {
       new Set(),
     );
     const refImageGenerate = evaluateProcessPromptSpecs(
-      [
-        spec,
-      ],
+      [spec],
       ctx({
         pendingToolCalls: [{ name: 'entity.generateRefImage', arguments: {} }],
         canvasSettings: { stylePlate: '' },
@@ -203,9 +199,7 @@ describe('configurable process prompt specs', () => {
       behavior: 'block-generation',
     });
     const result = evaluateProcessPromptSpecs(
-      [
-        spec,
-      ],
+      [spec],
       ctx({
         pendingToolCalls: [{ name: 'canvas.generation', arguments: { prompt: '' } }],
       }),

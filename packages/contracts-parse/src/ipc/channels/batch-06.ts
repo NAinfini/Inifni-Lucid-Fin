@@ -151,6 +151,81 @@ export const workflowRetryWorkflowChannel = defineInvokeChannel({
 export type WorkflowRetryWorkflowRequest = z.infer<typeof WorkflowRetryWorkflowRequest>;
 export type WorkflowRetryWorkflowResponse = z.infer<typeof WorkflowRetryWorkflowResponse>;
 
+// ── workflow:getPendingApproval (invoke) ────────────────────
+const WorkflowGetPendingApprovalRequest = z.object({ workflowRunId: z.string().min(1) }).strict();
+const WorkflowGetPendingApprovalResponse = z.unknown();
+export const workflowGetPendingApprovalChannel = defineInvokeChannel({
+  channel: 'workflow:getPendingApproval',
+  request: WorkflowGetPendingApprovalRequest,
+  response: WorkflowGetPendingApprovalResponse,
+});
+export type WorkflowGetPendingApprovalRequest = z.infer<typeof WorkflowGetPendingApprovalRequest>;
+export type WorkflowGetPendingApprovalResponse = z.infer<typeof WorkflowGetPendingApprovalResponse>;
+
+// ── workflow:getVisualAuditions (invoke) ────────────────────
+const WorkflowGetVisualAuditionsRequest = z.object({ workflowRunId: z.string().min(1) }).strict();
+const WorkflowGetVisualAuditionsResponse = z.unknown();
+export const workflowGetVisualAuditionsChannel = defineInvokeChannel({
+  channel: 'workflow:getVisualAuditions',
+  request: WorkflowGetVisualAuditionsRequest,
+  response: WorkflowGetVisualAuditionsResponse,
+});
+export type WorkflowGetVisualAuditionsRequest = z.infer<typeof WorkflowGetVisualAuditionsRequest>;
+export type WorkflowGetVisualAuditionsResponse = z.infer<typeof WorkflowGetVisualAuditionsResponse>;
+
+// ── workflow:getFinalExport (invoke) ────────────────────────
+const WorkflowGetFinalExportRequest = z.object({ workflowRunId: z.string().min(1) }).strict();
+const WorkflowGetFinalExportResponse = z.unknown();
+export const workflowGetFinalExportChannel = defineInvokeChannel({
+  channel: 'workflow:getFinalExport',
+  request: WorkflowGetFinalExportRequest,
+  response: WorkflowGetFinalExportResponse,
+});
+export type WorkflowGetFinalExportRequest = z.infer<typeof WorkflowGetFinalExportRequest>;
+export type WorkflowGetFinalExportResponse = z.infer<typeof WorkflowGetFinalExportResponse>;
+
+// ── workflow:selectVisualCandidate (invoke, human UI only) ──
+const WorkflowSelectVisualCandidateRequest = z
+  .object({
+    workflowRunId: z.string().min(1),
+    candidateId: z.string().min(1),
+    expectedRowVersion: z.number().int().nonnegative(),
+    expectedAuditionRevision: z.number().int().positive(),
+    expectedAuditionHash: z.string().regex(/^[a-f0-9]{64}$/i),
+  })
+  .strict();
+const WorkflowSelectVisualCandidateResponse = z.unknown();
+export const workflowSelectVisualCandidateChannel = defineInvokeChannel({
+  channel: 'workflow:selectVisualCandidate',
+  request: WorkflowSelectVisualCandidateRequest,
+  response: WorkflowSelectVisualCandidateResponse,
+});
+export type WorkflowSelectVisualCandidateRequest = z.infer<
+  typeof WorkflowSelectVisualCandidateRequest
+>;
+export type WorkflowSelectVisualCandidateResponse = z.infer<
+  typeof WorkflowSelectVisualCandidateResponse
+>;
+
+// ── workflow:approveGate (invoke, human UI only) ─────────────
+const WorkflowApproveGateRequest = z
+  .object({
+    workflowRunId: z.string().min(1),
+    gateKey: z.enum(['production_plan', 'visual_constitution', 'final_export']),
+    expectedRowVersion: z.number().int().nonnegative(),
+    expectedSubjectRevision: z.number().int().positive(),
+    expectedSubjectHash: z.string().regex(/^[a-f0-9]{64}$/i),
+  })
+  .strict();
+const WorkflowApproveGateResponse = z.unknown();
+export const workflowApproveGateChannel = defineInvokeChannel({
+  channel: 'workflow:approveGate',
+  request: WorkflowApproveGateRequest,
+  response: WorkflowApproveGateResponse,
+});
+export type WorkflowApproveGateRequest = z.infer<typeof WorkflowApproveGateRequest>;
+export type WorkflowApproveGateResponse = z.infer<typeof WorkflowApproveGateResponse>;
+
 export const workflowChannels = [
   workflowListChannel,
   workflowGetChannel,
@@ -163,4 +238,9 @@ export const workflowChannels = [
   workflowRetryTaskChannel,
   workflowRetryStageChannel,
   workflowRetryWorkflowChannel,
+  workflowGetPendingApprovalChannel,
+  workflowGetVisualAuditionsChannel,
+  workflowGetFinalExportChannel,
+  workflowSelectVisualCandidateChannel,
+  workflowApproveGateChannel,
 ] as const;

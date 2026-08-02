@@ -71,22 +71,52 @@ function resolveAssetFilePath(
 // Exported core function (reusable by embedding handler)
 // ---------------------------------------------------------------------------
 
-export async function describeImageAsset(
+export interface AnalyzeImageAssetOptions {
+  systemPrompt: string;
+  userPrompt?: string;
+  providerId?: string;
+}
+
+export interface AnalyzeImageAssetResult {
+  text: string;
+  providerId: string;
+  model: string;
+}
+
+export async function analyzeImageAsset(
   cas: CAS,
   keychain: Keychain,
   assetHash: string,
-  style: 'prompt' | 'description' | 'style-analysis' = 'description',
-): Promise<string> {
-  const systemPrompt = PROMPT_STYLE_MAP[style] ?? PROMPT_STYLE_MAP['prompt'];
+  options: AnalyzeImageAssetOptions,
+): Promise<AnalyzeImageAssetResult> {
+  return analyzeImageAssets(cas, keychain, [assetHash], options);
+}
 
+/** Analyze a bounded ordered set of stills in one vision request. */
+export async function analyzeImageAssets(
+  cas: CAS,
+  keychain: Keychain,
+  assetHashes: string[],
+  options: AnalyzeImageAssetOptions,
+): Promise<AnalyzeImageAssetResult> {
+  if (assetHashes.length === 0) throw new Error('At least one image asset is required');
+  if (assetHashes.length > 12) throw new Error('At most 12 image assets may be analyzed together');
+  if (assetHashes.some((hash) => typeof hash !== 'string' || hash.trim().length === 0)) {
+    throw new Error('Every image asset hash must be a non-empty string');
+  }
   const visionProviders = getCachedProviders('vision');
-  const providerInfo = visionProviders[0];
-  if (!providerInfo || !providerInfo.id) {
-    throw new Error('Vision provider not configured. Go to Settings → Vision.');
+  const providerInfo = options.providerId
+    ? visionProviders.find((provider) => provider.id === options.providerId)
+    : visionProviders[0];
+  if (!providerInfo?.id) {
+    throw new Error(
+      options.providerId
+        ? `Configured vision provider not found: ${options.providerId}`
+        : 'Vision provider not configured. Go to Settings → Vision.',
+    );
   }
 
   const apiKey = await keychain.getKey(providerInfo.id);
-
   const preset = getBuiltinVisionProviderPreset(providerInfo.id);
   const runtimeConfig = normalizeLLMProviderRuntimeConfig({
     id: providerInfo.id,
@@ -96,32 +126,39 @@ export async function describeImageAsset(
     protocol: providerInfo.protocol ?? preset?.protocol,
     authStyle: providerInfo.authStyle ?? preset?.authStyle,
   });
-
   const adapter = buildRuntimeLLMAdapter(runtimeConfig);
   adapter.configure(apiKey ?? '', {
     baseUrl: runtimeConfig.baseUrl,
     model: runtimeConfig.model,
   });
 
-  const resolved = resolveAssetFilePath(cas, assetHash);
-  if (!resolved) {
-    throw new Error(`Asset file not found for hash: ${assetHash}`);
-  }
-
-  const imageBuffer = fs.readFileSync(resolved.filePath);
-  const base64Data = imageBuffer.toString('base64');
-  const mimeType = MIME_MAP[resolved.ext] ?? 'image/jpeg';
-
-  const result = await adapter.complete([
-    { role: 'system', content: systemPrompt },
+  const images = assetHashes.map((assetHash) => {
+    const resolved = resolveAssetFilePath(cas, assetHash);
+    if (!resolved) throw new Error(`Asset file not found for hash: ${assetHash}`);
+    return {
+      data: fs.readFileSync(resolved.filePath).toString('base64'),
+      mimeType: MIME_MAP[resolved.ext] ?? 'image/jpeg',
+    };
+  });
+  const text = await adapter.complete([
+    { role: 'system', content: options.systemPrompt },
     {
       role: 'user',
-      content: 'Describe this image.',
-      images: [{ data: base64Data, mimeType }],
+      content: options.userPrompt ?? 'Analyze this image.',
+      images,
     },
   ]);
+  return { text, providerId: providerInfo.id, model: runtimeConfig.model };
+}
 
-  return result;
+export async function describeImageAsset(
+  cas: CAS,
+  keychain: Keychain,
+  assetHash: string,
+  style: 'prompt' | 'description' | 'style-analysis' = 'description',
+): Promise<string> {
+  const systemPrompt = PROMPT_STYLE_MAP[style] ?? PROMPT_STYLE_MAP['prompt'];
+  return (await analyzeImageAsset(cas, keychain, assetHash, { systemPrompt })).text;
 }
 
 // ---------------------------------------------------------------------------

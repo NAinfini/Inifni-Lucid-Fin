@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import type { IpcMain } from 'electron';
 import log from '../../logger.js';
-import { createCommand, runCommand, detectFfmpeg } from '@lucid-fin/media-engine';
+import {
+  createCommand,
+  runCommand,
+  detectFfprobe,
+  getLgplVideoCodecConfig,
+} from '@lucid-fin/media-engine';
 import { assertSafePath, getImportSafeRoots } from '../path-safety.js';
 
 const APP_ROOT = path.join(os.homedir(), '.lucid-fin');
@@ -33,8 +38,7 @@ export function registerFfmpegHandlers(ipcMain: IpcMain): void {
       fps: number;
     }>((resolve, reject) => {
       const ffmpeg = ffmpegMod;
-      const ffmpegPath = detectFfmpeg();
-      ffmpeg.setFfprobePath(ffmpegPath.replace(/ffmpeg(\.exe)?$/i, 'ffprobe$1'));
+      ffmpeg.setFfprobePath(detectFfprobe());
 
       ffmpeg.ffprobe(
         filePath,
@@ -101,7 +105,14 @@ export function registerFfmpegHandlers(ipcMain: IpcMain): void {
       const cmd = createCommand(resolvedInput);
 
       if (args.options?.videoCodec && typeof args.options.videoCodec === 'string') {
-        cmd.videoCodec(args.options.videoCodec);
+        const requestedCodec = args.options.videoCodec.toLowerCase();
+        if (requestedCodec === 'h264' || requestedCodec === 'libx264') {
+          cmd.videoCodec(getLgplVideoCodecConfig('h264').encoder);
+        } else if (requestedCodec === 'h265' || requestedCodec === 'libx265') {
+          cmd.videoCodec(getLgplVideoCodecConfig('h265').encoder);
+        } else {
+          cmd.videoCodec(args.options.videoCodec);
+        }
       }
       if (args.options?.audioCodec && typeof args.options.audioCodec === 'string') {
         cmd.audioCodec(args.options.audioCodec);

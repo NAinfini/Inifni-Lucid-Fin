@@ -112,6 +112,7 @@ export interface ExportNleRequest {
   // NLEProject lives in media-engine; not contract-owned yet.
   project: unknown;
   outputPath?: string;
+  canvasId?: string;
 }
 export type ExportNleResponse = null | {
   outputPath: string;
@@ -122,6 +123,7 @@ export type ExportNleResponse = null | {
 export interface ExportAssetBundleRequest {
   assetHashes: string[];
   outputPath?: string;
+  canvasId?: string;
 }
 export type ExportAssetBundleResponse = null | {
   outputPath: string;
@@ -136,6 +138,7 @@ export interface ExportSubtitlesRequest {
   outputPath: string;
   videoWidth?: number;
   videoHeight?: number;
+  canvasId?: string;
 }
 export type ExportSubtitlesResponse = void;
 
@@ -156,6 +159,7 @@ export interface ExportStoryboardRequest {
   nodes: ExportStoryboardNode[];
   projectTitle?: string;
   outputPath?: string;
+  canvasId?: string;
 }
 export type ExportStoryboardResponse = null | {
   outputPath: string;
@@ -186,6 +190,7 @@ export interface ExportMetadataRequest {
   nodes: ExportMetadataNode[];
   projectTitle?: string;
   outputPath?: string;
+  canvasId?: string;
 }
 export type ExportMetadataResponse = null | {
   outputPath: string;
@@ -204,6 +209,7 @@ export interface ExportCapcutRequest {
   nodes: ExportCapcutNode[];
   projectTitle?: string;
   outputDir?: string;
+  canvasId?: string;
 }
 export type ExportCapcutResponse = null | { draftDir: string };
 
@@ -310,14 +316,18 @@ export type LoggerGetRecentResponse = LoggerEntry[];
 export interface RenderStartRequest {
   sceneId: string;
   // RenderSegment[] is media-engine-owned.
-  segments: unknown[];
-  outputFormat: 'mp4' | 'mov' | 'webm';
+  segments?: Array<{ inputPath: string; startTime: number; duration: number; speed: number }>;
+  outputFormat?: 'mp4' | 'mov' | 'webm';
   resolution?: { width: number; height: number };
   fps?: number;
   // RenderCodec / RenderPreset unions live in media-engine.
   codec?: string;
   quality?: string;
   outputPath?: string;
+  workflowRunId?: string;
+  expectedManifestRevision?: number;
+  expectedManifestHash?: string;
+  retry?: boolean;
 }
 export interface RenderStartResponse {
   jobId: string;

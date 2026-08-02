@@ -171,7 +171,17 @@ describe('personas', () => {
 
     it('power personas reference specific workflows or tools', () => {
       const power = personas.filter((p) => p.archetype === 'power');
-      const toolTerms = ['shot-list', 'script', 'batch', 'clone', 'export', 'workflow', 'canvas', 'preset', 'style'];
+      const toolTerms = [
+        'shot-list',
+        'script',
+        'batch',
+        'clone',
+        'export',
+        'workflow',
+        'canvas',
+        'preset',
+        'style',
+      ];
       const referencesTool = power.filter((p) =>
         toolTerms.some((t) => p.opener.toLowerCase().includes(t) || p.slug.includes(t)),
       );
@@ -187,9 +197,7 @@ describe('personas', () => {
 
     it('minimal personas include near-empty inputs', () => {
       const minimal = personas.filter((p) => p.archetype === 'minimal');
-      const nearEmpty = minimal.filter(
-        (p) => p.opener.trim().length <= 3,
-      );
+      const nearEmpty = minimal.filter((p) => p.opener.trim().length <= 3);
       expect(nearEmpty.length).toBeGreaterThanOrEqual(3);
     });
   });

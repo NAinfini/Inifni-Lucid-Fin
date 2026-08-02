@@ -164,9 +164,7 @@ export function ToolCallCard({
         <span className="flex-1 text-left">
           {displayName}
           {displayStatus === 'skipped' && skippedMessage && (
-            <span className="ml-1.5 text-[10px] text-muted-foreground/70">
-              {skippedMessage}
-            </span>
+            <span className="ml-1.5 text-[10px] text-muted-foreground/70">{skippedMessage}</span>
           )}
           {displayStatus === 'retrying' && (
             <span className="ml-1.5 text-[10px] text-amber-400">

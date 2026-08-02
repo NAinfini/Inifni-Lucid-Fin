@@ -41,8 +41,12 @@ function openDb(): BetterSqlite3.Database {
 }
 
 function insertCanvas(db: BetterSqlite3.Database, id: string): void {
-  db.prepare('INSERT INTO canvases (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
-    .run(id, `Canvas ${id}`, 100, 100);
+  db.prepare('INSERT INTO canvases (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)').run(
+    id,
+    `Canvas ${id}`,
+    100,
+    100,
+  );
 }
 
 function mkEdge(id: string, overrides: Partial<CanvasEdge> = {}): CanvasEdge {
@@ -114,11 +118,7 @@ describe('CanvasEdgeRepository', () => {
     insertCanvas(db, 'c1');
     repo.upsertMany('c1', [mkEdge('back'), mkEdge('middle'), mkEdge('front')]);
 
-    expect(repo.getByCanvasId('c1').map((edge) => edge.id)).toEqual([
-      'back',
-      'middle',
-      'front',
-    ]);
+    expect(repo.getByCanvasId('c1').map((edge) => edge.id)).toEqual(['back', 'middle', 'front']);
   });
 
   it('deleting a canvas cascades to canvas_edges', () => {

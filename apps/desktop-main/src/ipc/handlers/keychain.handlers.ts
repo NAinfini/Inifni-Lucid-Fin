@@ -29,8 +29,11 @@ export function registerKeychainHandlers(
     return hasConfiguredKey(keychain, args.provider);
   });
 
-  ipcMain.handle('keychain:get', async (_e, args: { provider: string }) => {
-    return getStoredKey(keychain, args.provider);
+  ipcMain.handle('keychain:getMasked', async (_e, args: { provider: string }) => {
+    const key = await getStoredKey(keychain, args.provider);
+    if (!key) return null;
+    if (key.length <= 4) return '••••';
+    return key.slice(0, 3) + '•'.repeat(Math.min(key.length - 7, 20)) + key.slice(-4);
   });
 
   ipcMain.handle('keychain:set', async (_e, args: { provider: string; apiKey: string }) => {

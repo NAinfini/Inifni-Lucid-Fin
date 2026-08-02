@@ -204,11 +204,7 @@ function inferChangeType(filePath: string): ChangeType {
   if (lower.startsWith('scripts/')) return 'script';
 
   // Contracts/types
-  if (
-    lower.includes('contracts') ||
-    lower.includes('/types') ||
-    lower.endsWith('.d.ts')
-  ) {
+  if (lower.includes('contracts') || lower.includes('/types') || lower.endsWith('.d.ts')) {
     return 'contract';
   }
 
@@ -516,7 +512,8 @@ function renderMarkdown(entries: FileEntry[], groups: CommitGroup[]): string {
     lines.push(`**Files (${g.files.length}):**`);
     lines.push('');
     for (const f of g.files) {
-      const statusBadge = f.status === 'untracked' ? ' (new)' : f.status === 'modified' ? ' (mod)' : ` (${f.status})`;
+      const statusBadge =
+        f.status === 'untracked' ? ' (new)' : f.status === 'modified' ? ' (mod)' : ` (${f.status})`;
       const flagStr = f.flags.length > 0 ? ` [${f.flags.join(', ')}]` : '';
       lines.push(`- \`${f.path}\`${statusBadge}${flagStr}`);
     }
@@ -616,7 +613,9 @@ function main(): void {
   const entries = getStatusEntries();
 
   if (entries.length === 0) {
-    console.log(jsonMode ? '{"message":"No uncommitted changes found."}' : 'No uncommitted changes found.');
+    console.log(
+      jsonMode ? '{"message":"No uncommitted changes found."}' : 'No uncommitted changes found.',
+    );
     return;
   }
 

@@ -137,7 +137,8 @@ export function createPresetTools(deps: PresetToolDeps): AgentTool[] {
             if (query) {
               presets = presets.filter(
                 (p) =>
-                  p.name?.toLowerCase().includes(query) || p.description?.toLowerCase().includes(query),
+                  p.name?.toLowerCase().includes(query) ||
+                  p.description?.toLowerCase().includes(query),
               );
             }
 

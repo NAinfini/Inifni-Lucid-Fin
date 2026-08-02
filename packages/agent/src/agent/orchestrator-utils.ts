@@ -1,8 +1,4 @@
-import type {
-  LLMToolCall,
-  LLMFinishReason,
-  LLMToolDefinition,
-} from '@lucid-fin/contracts';
+import type { LLMToolCall, LLMFinishReason, LLMToolDefinition } from '@lucid-fin/contracts';
 import type { ProcessCategory } from './process-detection.js';
 import { ToolCatalog } from './tool-catalog.js';
 import type { ExitDecision, ProcessPromptSpec, RunIntent } from './exit-contract/index.js';

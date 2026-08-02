@@ -214,14 +214,102 @@ export class CanvasNodeRepository {
     d.prepare(`DELETE FROM ${TBL} WHERE ${C.canvasId.sqlName} = ?`).run(canvasId);
   }
 
+  patchApply(
+    canvasId: string,
+    added: CanvasNode[],
+    removedIds: string[],
+    updated: Array<{ node: CanvasNode; zIndex: number }>,
+    tx?: Tx,
+  ): void {
+    const d = tx ?? this.db;
+
+    if (removedIds.length > 0) {
+      this.deleteByIds(removedIds, d);
+    }
+
+    if (added.length > 0) {
+      const upsertStmt = d.prepare(
+        `INSERT INTO ${TBL}
+           (${C.id.sqlName}, ${C.canvasId.sqlName}, ${C.type.sqlName},
+            ${C.positionX.sqlName}, ${C.positionY.sqlName},
+            ${C.width.sqlName}, ${C.height.sqlName},
+            ${C.dataJson.sqlName}, ${C.zIndex.sqlName},
+            ${C.createdAt.sqlName}, ${C.updatedAt.sqlName})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(${C.id.sqlName}) DO UPDATE SET
+           ${C.canvasId.sqlName}  = excluded.${C.canvasId.sqlName},
+           ${C.type.sqlName}      = excluded.${C.type.sqlName},
+           ${C.positionX.sqlName} = excluded.${C.positionX.sqlName},
+           ${C.positionY.sqlName} = excluded.${C.positionY.sqlName},
+           ${C.width.sqlName}     = excluded.${C.width.sqlName},
+           ${C.height.sqlName}    = excluded.${C.height.sqlName},
+           ${C.dataJson.sqlName}  = excluded.${C.dataJson.sqlName},
+           ${C.zIndex.sqlName}    = excluded.${C.zIndex.sqlName},
+           ${C.updatedAt.sqlName} = excluded.${C.updatedAt.sqlName}`,
+      );
+      for (const node of added) {
+        const p = canvasNodeToParams(canvasId, node, 0);
+        upsertStmt.run(
+          p.id,
+          p.canvasId,
+          p.type,
+          p.positionX,
+          p.positionY,
+          p.width,
+          p.height,
+          p.dataJson,
+          p.zIndex,
+          p.createdAt,
+          p.updatedAt,
+        );
+      }
+    }
+
+    if (updated.length > 0) {
+      const upsertStmt = d.prepare(
+        `INSERT INTO ${TBL}
+           (${C.id.sqlName}, ${C.canvasId.sqlName}, ${C.type.sqlName},
+            ${C.positionX.sqlName}, ${C.positionY.sqlName},
+            ${C.width.sqlName}, ${C.height.sqlName},
+            ${C.dataJson.sqlName}, ${C.zIndex.sqlName},
+            ${C.createdAt.sqlName}, ${C.updatedAt.sqlName})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(${C.id.sqlName}) DO UPDATE SET
+           ${C.canvasId.sqlName}  = excluded.${C.canvasId.sqlName},
+           ${C.type.sqlName}      = excluded.${C.type.sqlName},
+           ${C.positionX.sqlName} = excluded.${C.positionX.sqlName},
+           ${C.positionY.sqlName} = excluded.${C.positionY.sqlName},
+           ${C.width.sqlName}     = excluded.${C.width.sqlName},
+           ${C.height.sqlName}    = excluded.${C.height.sqlName},
+           ${C.dataJson.sqlName}  = excluded.${C.dataJson.sqlName},
+           ${C.zIndex.sqlName}    = excluded.${C.zIndex.sqlName},
+           ${C.updatedAt.sqlName} = excluded.${C.updatedAt.sqlName}`,
+      );
+      for (const { node, zIndex } of updated) {
+        const p = canvasNodeToParams(canvasId, node, zIndex);
+        upsertStmt.run(
+          p.id,
+          p.canvasId,
+          p.type,
+          p.positionX,
+          p.positionY,
+          p.width,
+          p.height,
+          p.dataJson,
+          p.zIndex,
+          p.createdAt,
+          p.updatedAt,
+        );
+      }
+    }
+  }
+
   /** Delete specific nodes by their ids. */
   deleteByIds(ids: string[], tx?: Tx): void {
     if (ids.length === 0) return;
     const d = tx ?? this.db;
     const placeholders = ids.map(() => '?').join(', ');
-    d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} IN (${placeholders})`).run(
-      ...ids,
-    );
+    d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} IN (${placeholders})`).run(...ids);
   }
 
   /** Query nodes by type within a canvas. */

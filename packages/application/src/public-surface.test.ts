@@ -24,6 +24,7 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'WorkflowPlanner',
   'WorkflowEngine',
   'WorkflowRecovery',
+  'VISUAL_PREVIEW_RUBRIC_VERSION',
   'registerDefaultWorkflows',
   'styleExtractWorkflow',
   'characterGenerateReferencesWorkflow',

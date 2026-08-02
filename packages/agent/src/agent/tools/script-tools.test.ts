@@ -39,10 +39,7 @@ describe('createScriptTools', () => {
     const deps = createDeps();
     const tools = createScriptTools(deps);
 
-    expect(tools.map((tool) => tool.name)).toEqual([
-      'script.manage',
-      'script.import',
-    ]);
+    expect(tools.map((tool) => tool.name)).toEqual(['script.manage', 'script.import']);
     expect(getTool('script.manage', deps).context).toEqual([
       'script-editor',
       'storyboard',

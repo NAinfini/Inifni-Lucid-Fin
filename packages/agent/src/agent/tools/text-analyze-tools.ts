@@ -33,7 +33,10 @@ export function createTextAnalyzeTools(deps: TextAnalyzeToolDeps): AgentTool[] {
         },
         // describeImage params
         canvasId: { type: 'string', description: 'Canvas ID (for describeImage).' },
-        nodeId: { type: 'string', description: 'Node ID whose asset to analyze (for describeImage).' },
+        nodeId: {
+          type: 'string',
+          description: 'Node ID whose asset to analyze (for describeImage).',
+        },
         style: {
           type: 'string',
           description: 'For describeImage: analysis mode. For transform/refine: style direction.',
@@ -94,7 +97,9 @@ export function createTextAnalyzeTools(deps: TextAnalyzeToolDeps): AgentTool[] {
           const mode = args.mode as string;
           const basePrompt = MODES[mode];
           if (!basePrompt) {
-            throw new Error(`Unknown mode: ${mode}. Must be expand, condense, refine, or viralHook.`);
+            throw new Error(
+              `Unknown mode: ${mode}. Must be expand, condense, refine, or viralHook.`,
+            );
           }
           let systemPrompt = basePrompt;
           if (

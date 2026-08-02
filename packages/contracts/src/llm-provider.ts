@@ -1,9 +1,5 @@
 export type LLMProviderProtocol =
-  | 'openai-compatible'
-  | 'openai-responses'
-  | 'anthropic'
-  | 'gemini'
-  | 'cohere';
+  'openai-compatible' | 'openai-responses' | 'anthropic' | 'gemini' | 'cohere';
 
 export type LLMProviderAuthStyle = 'bearer' | 'x-api-key' | 'x-goog-api-key' | 'none';
 

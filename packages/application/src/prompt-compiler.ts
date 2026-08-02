@@ -101,18 +101,66 @@ interface SynergyRule {
 }
 
 const SYNERGY_PAIRS: SynergyRule[] = [
-  { presetA: 'scene:fog', presetB: 'lens:telephoto', bonus: 'atmospheric depth compression through fog layers' },
-  { presetA: 'scene:golden-hour', presetB: 'look:cinematic-realism', bonus: 'warm golden rim light with cinematic color separation' },
-  { presetA: 'scene:rain', presetB: 'scene:neon-noir', bonus: 'neon reflections scattered across wet surfaces' },
-  { presetA: 'camera:dolly-in', presetB: 'emotion:tension', bonus: 'building tension through approaching perspective' },
-  { presetA: 'scene:low-key', presetB: 'look:cinematic-realism', bonus: 'deep shadow detail with filmic highlight rolloff' },
-  { presetA: 'lens:ultra-wide', presetB: 'scene:fog', bonus: 'exaggerated atmospheric perspective with depth fog' },
-  { presetA: 'camera:orbit', presetB: 'flow:smooth', bonus: 'fluid continuous reveal around subject' },
-  { presetA: 'scene:snow', presetB: 'scene:moonlit-night', bonus: 'moonlit snow with blue-white ambient glow' },
-  { presetA: 'lens:macro', presetB: 'scene:rim-light', bonus: 'backlit micro-detail with luminous edge separation' },
-  { presetA: 'camera:static-hold', presetB: 'emotion:calm', bonus: 'contemplative stillness with grounded composition' },
-  { presetA: 'look:anime-cel', presetB: 'scene:high-key', bonus: 'bright cel-shaded fill with clean line contrast' },
-  { presetA: 'camera:handheld', presetB: 'emotion:anxiety', bonus: 'uneasy handheld shake amplifying nervous energy' },
+  {
+    presetA: 'scene:fog',
+    presetB: 'lens:telephoto',
+    bonus: 'atmospheric depth compression through fog layers',
+  },
+  {
+    presetA: 'scene:golden-hour',
+    presetB: 'look:cinematic-realism',
+    bonus: 'warm golden rim light with cinematic color separation',
+  },
+  {
+    presetA: 'scene:rain',
+    presetB: 'scene:neon-noir',
+    bonus: 'neon reflections scattered across wet surfaces',
+  },
+  {
+    presetA: 'camera:dolly-in',
+    presetB: 'emotion:tension',
+    bonus: 'building tension through approaching perspective',
+  },
+  {
+    presetA: 'scene:low-key',
+    presetB: 'look:cinematic-realism',
+    bonus: 'deep shadow detail with filmic highlight rolloff',
+  },
+  {
+    presetA: 'lens:ultra-wide',
+    presetB: 'scene:fog',
+    bonus: 'exaggerated atmospheric perspective with depth fog',
+  },
+  {
+    presetA: 'camera:orbit',
+    presetB: 'flow:smooth',
+    bonus: 'fluid continuous reveal around subject',
+  },
+  {
+    presetA: 'scene:snow',
+    presetB: 'scene:moonlit-night',
+    bonus: 'moonlit snow with blue-white ambient glow',
+  },
+  {
+    presetA: 'lens:macro',
+    presetB: 'scene:rim-light',
+    bonus: 'backlit micro-detail with luminous edge separation',
+  },
+  {
+    presetA: 'camera:static-hold',
+    presetB: 'emotion:calm',
+    bonus: 'contemplative stillness with grounded composition',
+  },
+  {
+    presetA: 'look:anime-cel',
+    presetB: 'scene:high-key',
+    bonus: 'bright cel-shaded fill with clean line contrast',
+  },
+  {
+    presetA: 'camera:handheld',
+    presetB: 'emotion:anxiety',
+    bonus: 'uneasy handheld shake amplifying nervous energy',
+  },
 ];
 
 function detectSynergies(activePresetIds: Set<string>): string[] {
@@ -774,9 +822,10 @@ function applyIntensityAndDirection(
 function detectConflicts(
   presetTracks: PresetTrackSet | undefined,
   presetMap: Record<string, PresetDefinition>,
-): PromptDiagnostic[] {
-  if (!presetTracks) return [];
+): { diagnostics: PromptDiagnostic[]; suppressedPresetIds: Set<string> } {
+  if (!presetTracks) return { diagnostics: [], suppressedPresetIds: new Set() };
   const diagnostics: PromptDiagnostic[] = [];
+  const suppressedPresetIds = new Set<string>();
 
   // Check built-in conflict groups
   for (const [groupName, memberIds] of Object.entries(CONFLICT_GROUPS)) {
@@ -795,14 +844,17 @@ function detectConflicts(
     }
     if (activeMembers.length > 1) {
       activeMembers.sort((a, b) => b.intensity - a.intensity);
-      // Report co-active presets in a conflict group. We do NOT drop any of
-      // them — every enabled preset's fragment is still emitted. This is a
-      // diagnostic so the author can decide whether the combination is
-      // intentional (Debug-First: surface, don't silently override).
+      // Keep highest-intensity preset, suppress the rest.
+      for (let i = 1; i < activeMembers.length; i++) {
+        suppressedPresetIds.add(activeMembers[i].presetId);
+      }
       diagnostics.push({
         type: 'conflict',
         severity: 'warning',
-        message: `Multiple presets active in group "${groupName}" (highest intensity first): ${activeMembers.map((m) => `${m.presetId} (${m.intensity}%)`).join(', ')} — all are kept; review if unintended`,
+        message: `Conflict group "${groupName}": keeping ${activeMembers[0].presetId} (${activeMembers[0].intensity}%), suppressed ${activeMembers
+          .slice(1)
+          .map((m) => `${m.presetId} (${m.intensity}%)`)
+          .join(', ')}`,
         source: groupName,
       });
     }
@@ -826,18 +878,22 @@ function detectConflicts(
   for (const [group, members] of byGroup) {
     if (members.length > 1) {
       members.sort((a, b) => b.intensity - a.intensity);
+      for (let i = 1; i < members.length; i++) {
+        suppressedPresetIds.add(members[i].presetId);
+      }
       diagnostics.push({
         type: 'conflict',
         severity: 'warning',
-        message: `Multiple presets active in group "${group}" (highest intensity first): ${members
+        message: `Conflict group "${group}": keeping ${members[0].presetId} (${members[0].intensity}%), suppressed ${members
+          .slice(1)
           .map((m) => `${m.presetId} (${m.intensity}%)`)
-          .join(', ')} — all are kept; review if unintended`,
+          .join(', ')}`,
         source: group,
       });
     }
   }
 
-  return diagnostics;
+  return { diagnostics, suppressedPresetIds };
 }
 
 function detectDuplicatePhrases(segments: PromptSegment[]): PromptDiagnostic[] {
@@ -1708,7 +1764,13 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
     }
   }
 
-  // 4. Stack presets in order
+  // 4. Stack presets in order (skip conflict-suppressed presets)
+  // Conflict detection runs early so suppressed presets are excluded from
+  // prompt fragments. Diagnostics are collected in step 6.
+  const { diagnostics: conflictDiagsEarly, suppressedPresetIds: suppressedEarly } = detectConflicts(
+    effectivePresetTracks,
+    presetMap,
+  );
   {
     for (const category of PRESET_STACK_ORDER) {
       if (input.mode === 'image-to-video' && !I2V_ALLOWED_CATEGORIES.has(category)) {
@@ -1719,7 +1781,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
       if (!track || !track.entries || track.entries.length === 0) continue;
 
       const withIntensity = track.entries
-        .filter((entry) => entry.enabled !== false)
+        .filter((entry) => entry.enabled !== false && !suppressedEarly.has(entry.presetId))
         .map((entry) => ({
           entry,
           effective: computeEffectiveIntensity(track.intensity, entry.intensity),
@@ -1806,8 +1868,8 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   // Always pass negative prompt through
   const negativePrompt = Array.from(new Set(negativeSegments)).join(', ') || undefined;
 
-  // Conflict detection
-  diagnostics.push(...detectConflicts(effectivePresetTracks, presetMap));
+  // Conflict detection (already computed in step 4)
+  diagnostics.push(...conflictDiagsEarly);
 
   // Duplicate detection
   diagnostics.push(...detectDuplicatePhrases(trackedSegments));

@@ -15,10 +15,13 @@ const logger = vi.hoisted(() => ({
 }));
 
 const showSaveDialog = vi.hoisted(() => vi.fn());
+const showOpenDialog = vi.hoisted(() => vi.fn());
 const exportFCPXML = vi.hoisted(() => vi.fn(() => '<fcpxml />'));
 const exportEDL = vi.hoisted(() => vi.fn(() => 'TITLE: test'));
 const exportSRT = vi.hoisted(() => vi.fn(() => '1\n00:00:00,000 --> 00:00:01,000\nhello'));
 const exportASS = vi.hoisted(() => vi.fn(() => '[Script Info]'));
+const exportCapCut = vi.hoisted(() => vi.fn());
+const assertLegacyRenderAllowed = vi.hoisted(() => vi.fn());
 const archiveInstances = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 const pdfDocs = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 
@@ -114,6 +117,7 @@ vi.mock('../../logger.js', () => ({
 vi.mock('electron', () => ({
   dialog: {
     showSaveDialog,
+    showOpenDialog,
   },
 }));
 
@@ -122,6 +126,7 @@ vi.mock('@lucid-fin/media-engine', () => ({
   exportEDL,
   exportSRT,
   exportASS,
+  exportCapCut,
 }));
 
 vi.mock('archiver', () => ({
@@ -138,10 +143,14 @@ function resetCommon() {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   showSaveDialog.mockReset();
+  showOpenDialog.mockReset();
   exportFCPXML.mockReset();
   exportEDL.mockReset();
   exportSRT.mockReset();
   exportASS.mockReset();
+  exportCapCut.mockReset();
+  assertLegacyRenderAllowed.mockReset();
+  assertLegacyRenderAllowed.mockImplementation(() => undefined);
   exportFCPXML.mockReturnValue('<fcpxml />');
   exportEDL.mockReturnValue('TITLE: test');
   exportSRT.mockReturnValue('1\n00:00:00,000 --> 00:00:01,000\nhello');
@@ -151,7 +160,10 @@ function resetCommon() {
   pdfDocs.length = 0;
 }
 
-function registerHandlers(cas?: Record<string, unknown>) {
+function registerHandlers(
+  cas?: Record<string, unknown>,
+  finalExportService: Record<string, unknown> = { assertLegacyRenderAllowed },
+) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
 
   registerExportHandlers(
@@ -161,6 +173,8 @@ function registerHandlers(cas?: Record<string, unknown>) {
       },
     } as never,
     cas as never,
+    undefined,
+    finalExportService as never,
   );
 
   return handlers;
@@ -180,6 +194,70 @@ describe('registerExportHandlers', () => {
       'export:subtitles',
       'import:srt',
     ]);
+  });
+
+  it.each([
+    [
+      'export:nle',
+      {
+        canvasId: 'canvas-guarded',
+        format: 'fcpxml',
+        project: { metadata: { title: 'Pilot' }, tracks: [] },
+      },
+    ],
+    ['export:assetBundle', { canvasId: 'canvas-guarded', assetHashes: ['asset-1'] }],
+    [
+      'export:subtitles',
+      {
+        canvasId: 'canvas-guarded',
+        format: 'srt',
+        cues: [{ id: 'cue-1', startTime: 0, endTime: 1, text: 'hello' }],
+      },
+    ],
+    [
+      'export:storyboard',
+      { canvasId: 'canvas-guarded', nodes: [{ title: 'Shot 1', type: 'image' }] },
+    ],
+    [
+      'export:metadata',
+      {
+        canvasId: 'canvas-guarded',
+        format: 'json',
+        nodes: [{ id: 'node-1', type: 'image', title: 'Shot 1' }],
+      },
+    ],
+    [
+      'export:capcut',
+      {
+        canvasId: 'canvas-guarded',
+        nodes: [{ title: 'Shot 1', assetHash: 'asset-1', type: 'image' }],
+      },
+    ],
+  ])('blocks %s before it opens a dialog or invokes a writer', async (channel, args) => {
+    resetCommon();
+    const denied = new Error('Final Export owns this canvas');
+    assertLegacyRenderAllowed.mockImplementation(() => {
+      throw denied;
+    });
+    const writeFile = vi.spyOn(fsp, 'writeFile').mockImplementation(async () => undefined);
+    const createWriteStream = vi
+      .spyOn(fs, 'createWriteStream')
+      .mockReturnValue(createFakeStream() as never);
+    const handlers = registerHandlers({
+      getAssetPath: vi.fn(),
+      getAssetsRoot: vi.fn(() => 'C:\\cas'),
+    });
+
+    await expect(handlers.get(channel)?.({}, args)).rejects.toThrow(denied);
+
+    expect(assertLegacyRenderAllowed).toHaveBeenCalledWith('canvas-guarded');
+    expect(showSaveDialog).not.toHaveBeenCalled();
+    expect(showOpenDialog).not.toHaveBeenCalled();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(createWriteStream).not.toHaveBeenCalled();
+    expect(archiverFactory).not.toHaveBeenCalled();
+    expect(exportCapCut).not.toHaveBeenCalled();
+    expect(pdfDocs).toHaveLength(0);
   });
 
   it('exports NLE timelines to the requested output path and logs file size', async () => {

@@ -56,13 +56,7 @@ const STORAGE_KEY = 'lucid-skills-v1';
  */
 export type SkillSource = 'promptTemplate' | 'workflowSkill' | 'workflowGuide' | 'user';
 export type SkillCategory =
-  | 'system'
-  | 'core'
-  | 'visual'
-  | 'audio'
-  | 'skill'
-  | 'workflow'
-  | 'process';
+  'system' | 'core' | 'visual' | 'audio' | 'skill' | 'workflow' | 'process';
 
 export interface SkillDefinition {
   id: string;

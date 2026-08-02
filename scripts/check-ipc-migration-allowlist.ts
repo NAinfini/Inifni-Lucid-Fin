@@ -148,7 +148,7 @@ async function findRegistrations(
     const searchableSource = stripCommentsPreservingOffsets(source);
     const relativeFile = toRepoPath(repoRoot, filePath);
     IPC_HANDLE_PATTERN.lastIndex = 0;
-    for (let match: RegExpExecArray | null; (match = IPC_HANDLE_PATTERN.exec(searchableSource)); ) {
+    for (let match: RegExpExecArray | null; (match = IPC_HANDLE_PATTERN.exec(searchableSource));) {
       const channel = normalizeChannel(match[1] ?? '');
       const line = lineNumberAt(source, match.index);
       registrations.push({

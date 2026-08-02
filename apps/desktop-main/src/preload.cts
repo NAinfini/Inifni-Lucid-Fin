@@ -292,6 +292,14 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     get: (id: string) => invoke('workflow:get', { id }),
     getStages: (workflowRunId: string) => invoke('workflow:getStages', { workflowRunId }),
     getTasks: (workflowRunId: string) => invoke('workflow:getTasks', { workflowRunId }),
+    getPendingApproval: (workflowRunId: string) =>
+      invoke('workflow:getPendingApproval', { workflowRunId }),
+    getVisualAuditions: (workflowRunId: string) =>
+      invoke('workflow:getVisualAuditions', { workflowRunId }),
+    getFinalExport: (workflowRunId: string) => invoke('workflow:getFinalExport', { workflowRunId }),
+    selectVisualCandidate: (request: Record<string, unknown>) =>
+      invoke('workflow:selectVisualCandidate', request),
+    approveGate: (request: Record<string, unknown>) => invoke('workflow:approveGate', request),
     start: (request: Record<string, unknown>) => invoke('workflow:start', request),
     pause: (id: string) => invoke('workflow:pause', { id }),
     resume: (id: string) => invoke('workflow:resume', { id }),
@@ -304,7 +312,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Keychain
   keychain: {
     isConfigured: (provider: string) => invoke('keychain:isConfigured', { provider }),
-    get: (provider: string) => invoke<string | null>('keychain:get', { provider }),
+    getMasked: (provider: string) => invoke<string | null>('keychain:getMasked', { provider }),
     set: (provider: string, apiKey: string) => invoke('keychain:set', { provider, apiKey }),
     delete: (provider: string) => invoke('keychain:delete', { provider }),
     test: (
@@ -548,8 +556,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Export
   export: {
     nle: (preset: Record<string, unknown>) => invoke('export:nle', preset),
-    assetBundle: (assetHashes: string[], outputPath?: string) =>
-      invoke('export:assetBundle', { assetHashes, outputPath }),
+    assetBundle: (assetHashes: string[], outputPath?: string, canvasId?: string) =>
+      invoke('export:assetBundle', { assetHashes, outputPath, canvasId }),
     subtitles: (format: string, outputPath: string) =>
       invoke('export:subtitles', { format, outputPath }),
     storyboard: (
@@ -594,6 +602,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
   // Canvas
   canvas: {
     list: () => invoke('canvas:list'),
+    loadAll: () => invoke<Canvas[]>('canvas:loadAll'),
     load: (id: string) => typedInvoke('canvas:load', { id }),
     save: (data: Canvas) => typedInvoke('canvas:save', data),
     patch: (args: IpcRequest<'canvas:patch'>) => typedInvoke('canvas:patch', args),

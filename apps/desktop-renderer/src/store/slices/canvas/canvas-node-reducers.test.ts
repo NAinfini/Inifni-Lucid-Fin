@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Canvas, CanvasEdge, CanvasNode, CanvasNodeData, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
+import type {
+  Canvas,
+  CanvasEdge,
+  CanvasNode,
+  CanvasNodeData,
+  ImageNodeData,
+  VideoNodeData,
+} from '@lucid-fin/contracts';
 import type { EntityState } from '@reduxjs/toolkit';
 import type { CanvasSliceState } from './canvas.js';
 import {
@@ -64,7 +71,9 @@ function makeCanvas(overrides: Partial<Canvas> = {}): Canvas {
   };
 }
 
-function makeEdge(overrides: Partial<CanvasEdge> & { id: string; source: string; target: string }): CanvasEdge {
+function makeEdge(
+  overrides: Partial<CanvasEdge> & { id: string; source: string; target: string },
+): CanvasEdge {
   return {
     data: { status: 'idle' as const, label: '' },
     ...overrides,
@@ -174,7 +183,12 @@ describe('canvas-node-reducers', () => {
       const node = makeNode({
         id: 'b1',
         type: 'backdrop',
-        data: { color: '#000', padding: 24, opacity: 0.14, collapsed: true } as unknown as CanvasNodeData,
+        data: {
+          color: '#000',
+          padding: 24,
+          opacity: 0.14,
+          collapsed: true,
+        } as unknown as CanvasNodeData,
         height: 100,
       });
       const state = makeState(makeCanvas({ nodes: [node] }));
@@ -215,10 +229,13 @@ describe('canvas-node-reducers', () => {
       const n1 = makeNode({ id: 'n1' });
       const n2 = makeNode({ id: 'n2', locked: true });
       const state = makeState(makeCanvas({ nodes: [n1, n2] }));
-      moveNodes(state, action([
-        { id: 'n1', position: { x: 5, y: 5 } },
-        { id: 'n2', position: { x: 10, y: 10 } },
-      ]));
+      moveNodes(
+        state,
+        action([
+          { id: 'n1', position: { x: 5, y: 5 } },
+          { id: 'n2', position: { x: 10, y: 10 } },
+        ]),
+      );
       const nodes = state.canvases.entities['canvas-1']!.nodes;
       expect(nodes[0].position).toEqual({ x: 5, y: 5 });
       expect(nodes[1].position).toEqual({ x: 0, y: 0 });
@@ -270,7 +287,9 @@ describe('canvas-node-reducers', () => {
       });
       const state = makeState(makeCanvas({ nodes: [node] }));
       toggleBackdropCollapse(state, action({ id: 'b1' }));
-      expect((state.canvases.entities['canvas-1']!.nodes[0].data as { collapsed: boolean }).collapsed).toBe(true);
+      expect(
+        (state.canvases.entities['canvas-1']!.nodes[0].data as { collapsed: boolean }).collapsed,
+      ).toBe(true);
     });
 
     it('ignores non-backdrop nodes', () => {
@@ -290,10 +309,14 @@ describe('canvas-node-reducers', () => {
       const state = makeState(makeCanvas({ nodes: [node] }));
 
       setBackdropOpacity(state, action({ id: 'b1', opacity: 0.01 }));
-      expect((state.canvases.entities['canvas-1']!.nodes[0].data as { opacity: number }).opacity).toBe(0.05);
+      expect(
+        (state.canvases.entities['canvas-1']!.nodes[0].data as { opacity: number }).opacity,
+      ).toBe(0.05);
 
       setBackdropOpacity(state, action({ id: 'b1', opacity: 2.0 }));
-      expect((state.canvases.entities['canvas-1']!.nodes[0].data as { opacity: number }).opacity).toBe(1);
+      expect(
+        (state.canvases.entities['canvas-1']!.nodes[0].data as { opacity: number }).opacity,
+      ).toBe(1);
     });
 
     it('does not change locked backdrop', () => {
@@ -305,7 +328,9 @@ describe('canvas-node-reducers', () => {
       });
       const state = makeState(makeCanvas({ nodes: [node] }));
       setBackdropOpacity(state, action({ id: 'b1', opacity: 0.8 }));
-      expect((state.canvases.entities['canvas-1']!.nodes[0].data as { opacity: number }).opacity).toBe(0.5);
+      expect(
+        (state.canvases.entities['canvas-1']!.nodes[0].data as { opacity: number }).opacity,
+      ).toBe(0.5);
     });
   });
 
@@ -318,7 +343,9 @@ describe('canvas-node-reducers', () => {
       });
       const state = makeState(makeCanvas({ nodes: [node] }));
       setBackdropColor(state, action({ id: 'b1', color: '#fff' }));
-      expect((state.canvases.entities['canvas-1']!.nodes[0].data as { color: string }).color).toBe('#fff');
+      expect((state.canvases.entities['canvas-1']!.nodes[0].data as { color: string }).color).toBe(
+        '#fff',
+      );
     });
   });
 
@@ -326,7 +353,9 @@ describe('canvas-node-reducers', () => {
     it('sets providerId on generation node', () => {
       const state = makeState(makeCanvas({ nodes: [makeNode({ id: 'n1' })] }));
       setNodeProvider(state, action({ id: 'n1', providerId: 'dalle' }));
-      expect((state.canvases.entities['canvas-1']!.nodes[0].data as ImageNodeData).providerId).toBe('dalle');
+      expect((state.canvases.entities['canvas-1']!.nodes[0].data as ImageNodeData).providerId).toBe(
+        'dalle',
+      );
     });
   });
 
@@ -334,7 +363,9 @@ describe('canvas-node-reducers', () => {
     it('sets variantCount on generation node', () => {
       const state = makeState(makeCanvas({ nodes: [makeNode({ id: 'n1' })] }));
       setNodeVariantCount(state, action({ id: 'n1', count: 4 }));
-      expect((state.canvases.entities['canvas-1']!.nodes[0].data as ImageNodeData).variantCount).toBe(4);
+      expect(
+        (state.canvases.entities['canvas-1']!.nodes[0].data as ImageNodeData).variantCount,
+      ).toBe(4);
     });
   });
 
@@ -353,7 +384,9 @@ describe('canvas-node-reducers', () => {
       const node = makeNode({ id: 'n1' });
       (node.data as ImageNodeData).assetHash = 'old';
       (node.data as ImageNodeData).status = 'done';
-      (node.data as ImageNodeData).variants = [{ assetHash: 'old', seed: 1 }] as unknown as ImageNodeData['variants'];
+      (node.data as ImageNodeData).variants = [
+        { assetHash: 'old', seed: 1 },
+      ] as unknown as ImageNodeData['variants'];
       const state = makeState(makeCanvas({ nodes: [node] }));
       clearNodeAsset(state, action({ id: 'n1' }));
       const data = state.canvases.entities['canvas-1']!.nodes[0].data as ImageNodeData;

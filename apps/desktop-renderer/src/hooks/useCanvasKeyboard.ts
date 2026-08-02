@@ -176,10 +176,8 @@ export function useCanvasKeyboard({
               // Existing behavior: nudge selected nodes
               event.preventDefault();
               const step = event.shiftKey ? 20 : 5;
-              const dx =
-                event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
-              const dy =
-                event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
+              const dx = event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0;
+              const dy = event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0;
               if (dx === 0 && dy === 0) return;
               if (!canvas) return;
               const moves = selectedNodeIds
@@ -193,16 +191,8 @@ export function useCanvasKeyboard({
             } else if (canvas && canvas.nodes.length > 0) {
               // New behavior: navigate keyboard focus between nodes
               event.preventDefault();
-              const direction = event.key as
-                | 'ArrowUp'
-                | 'ArrowDown'
-                | 'ArrowLeft'
-                | 'ArrowRight';
-              const nextId = findNearestNodeInDirection(
-                canvas.nodes,
-                focusedNodeId,
-                direction,
-              );
+              const direction = event.key as 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight';
+              const nextId = findNearestNodeInDirection(canvas.nodes, focusedNodeId, direction);
               if (nextId) {
                 setFocusedNodeId(nextId);
               }

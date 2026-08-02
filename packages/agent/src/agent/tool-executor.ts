@@ -8,6 +8,7 @@ import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
 import { ToolCatalog } from './tool-catalog.js';
 import { inferErrorCodeFromMessage } from './error-inference.js';
+import { getWorkflowToolDenial, type WorkflowToolPolicy } from './workflow-tool-policy.js';
 
 function commanderErrorFromMessage(message: string): CommanderError {
   return { code: inferErrorCodeFromMessage(message), params: { message } };
@@ -415,6 +416,8 @@ export interface ToolExecutorOptions {
   currentStep?: number;
   /** Auto-injected into tool arguments so the LLM never needs to provide it. */
   canvasId?: string;
+  /** Host-derived workflow authorization, refreshed from SQLite each step. */
+  workflowPolicy?: WorkflowToolPolicy;
 }
 
 /**
@@ -457,6 +460,29 @@ export class ToolExecutor {
     emit: StreamEmit,
   ): Promise<ToolExecutionEntry> {
     const tool = this.tools.get(tc.name);
+
+    // Approval gates are enforced at execution time even when a stale model
+    // response forges a call whose schema is no longer exposed. This check is
+    // deliberately independent of permission mode and cannot be confirmed
+    // away by the model or chat text.
+    const workflowDenial = getWorkflowToolDenial(this.opts.workflowPolicy, tc.name, tc.arguments);
+    if (workflowDenial) {
+      const deniedPayload = { success: false, error: workflowDenial };
+      const mirrorError = commanderErrorFromMessage(workflowDenial);
+      emit({
+        kind: 'tool_result',
+        toolCallId: tc.id,
+        error: mirrorError,
+        durationMs: 0,
+        skipped: true,
+      });
+      return {
+        tc,
+        resultContent: safeStringify(deniedPayload),
+        success: false,
+        mirror: { error: mirrorError, durationMs: 0 },
+      };
+    }
 
     // Block unloaded tools
     if (tool && !activeToolNames.has(tc.name)) {
@@ -638,7 +664,11 @@ export class ToolExecutor {
         // tool.get discovery
         if (tc.name === 'tool.get' && toolResult.success && toolResult.data != null) {
           const data = toolResult.data;
-          const items = Array.isArray(data) ? data : [data];
+          const items = Array.isArray(data)
+            ? data
+            : isRecord(data) && Array.isArray(data.tools)
+              ? data.tools
+              : [data];
           for (const item of items) {
             if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
               discoveredToolNames.add(item.name);

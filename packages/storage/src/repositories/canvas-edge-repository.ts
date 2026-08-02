@@ -131,4 +131,58 @@ export class CanvasEdgeRepository {
     const d = tx ?? this.db;
     d.prepare(`DELETE FROM ${TBL} WHERE ${C.canvasId.sqlName} = ?`).run(canvasId);
   }
+
+  patchApply(
+    canvasId: string,
+    added: CanvasEdge[],
+    removedIds: string[],
+    updated: CanvasEdge[],
+    tx?: Tx,
+  ): void {
+    const d = tx ?? this.db;
+
+    if (removedIds.length > 0) {
+      const placeholders = removedIds.map(() => '?').join(', ');
+      d.prepare(`DELETE FROM ${TBL} WHERE ${C.id.sqlName} IN (${placeholders})`).run(...removedIds);
+    }
+
+    if (added.length > 0 || updated.length > 0) {
+      const upsertStmt = d.prepare(
+        `INSERT INTO ${TBL}
+           (${C.id.sqlName}, ${C.canvasId.sqlName}, ${C.source.sqlName}, ${C.target.sqlName},
+            ${C.sourceHandle.sqlName}, ${C.targetHandle.sqlName}, ${C.label.sqlName},
+            ${C.status.sqlName}, ${C.autoLabel.sqlName}, ${C.zIndex.sqlName},
+            ${C.createdAt.sqlName}, ${C.updatedAt.sqlName})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(${C.id.sqlName}) DO UPDATE SET
+           ${C.canvasId.sqlName}     = excluded.${C.canvasId.sqlName},
+           ${C.source.sqlName}       = excluded.${C.source.sqlName},
+           ${C.target.sqlName}       = excluded.${C.target.sqlName},
+           ${C.sourceHandle.sqlName} = excluded.${C.sourceHandle.sqlName},
+           ${C.targetHandle.sqlName} = excluded.${C.targetHandle.sqlName},
+           ${C.label.sqlName}        = excluded.${C.label.sqlName},
+           ${C.status.sqlName}       = excluded.${C.status.sqlName},
+           ${C.autoLabel.sqlName}    = excluded.${C.autoLabel.sqlName},
+           ${C.zIndex.sqlName}       = excluded.${C.zIndex.sqlName},
+           ${C.updatedAt.sqlName}    = excluded.${C.updatedAt.sqlName}`,
+      );
+      for (const edge of [...added, ...updated]) {
+        const p = edgeToParams(canvasId, edge, 0);
+        upsertStmt.run(
+          p.id,
+          p.canvasId,
+          p.source,
+          p.target,
+          p.sourceHandle,
+          p.targetHandle,
+          p.label,
+          p.status,
+          p.autoLabel,
+          p.zIndex,
+          p.now,
+          p.now,
+        );
+      }
+    }
+  }
 }

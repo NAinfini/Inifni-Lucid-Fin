@@ -1,27 +1,21 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const {
-  createServerMock,
-  randomUUIDMock,
-  writeFileMock,
-  readFileMock,
-  tmpdirMock,
-  logger,
-} = vi.hoisted(() => ({
-  createServerMock: vi.fn(),
-  randomUUIDMock: vi.fn(() => 'test-token'),
-  writeFileMock: vi.fn(),
-  readFileMock: vi.fn(() => JSON.stringify({ version: '0.0.4' })),
-  tmpdirMock: vi.fn(() => 'C:/temp'),
-  logger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    fatal: vi.fn(),
-  },
-}));
+const { createServerMock, randomUUIDMock, writeFileMock, readFileMock, tmpdirMock, logger } =
+  vi.hoisted(() => ({
+    createServerMock: vi.fn(),
+    randomUUIDMock: vi.fn(() => 'test-token'),
+    writeFileMock: vi.fn(),
+    readFileMock: vi.fn(() => JSON.stringify({ version: '0.0.4' })),
+    tmpdirMock: vi.fn(() => 'C:/temp'),
+    logger: {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      fatal: vi.fn(),
+    },
+  }));
 
 vi.mock('node:http', () => ({
   default: {

@@ -71,7 +71,9 @@ async function launchAndWaitForStartup(): Promise<string> {
 
       proc.on('exit', (code, signal) => {
         clearTimeout(timeout);
-        reject(new Error(`Electron exited before startup: code=${code} signal=${signal}\n${output}`));
+        reject(
+          new Error(`Electron exited before startup: code=${code} signal=${signal}\n${output}`),
+        );
       });
 
       const checkReady = () => {

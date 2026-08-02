@@ -208,6 +208,23 @@ describe('new agent tool groups', () => {
       resumeWorkflow: vi.fn(async () => undefined),
       cancelWorkflow: vi.fn(async () => undefined),
       retryWorkflow: vi.fn(async () => undefined),
+      createProductionPlan: vi.fn(async () => ({
+        workflowRunId: 'wf-plan-1',
+        gate: 'production_plan',
+        status: 'awaiting_approval',
+        revision: 1,
+        contentHash: 'plan-hash-1',
+      })),
+      createVisualAuditions: vi.fn(async () => ({
+        workflowRunId: 'wf-plan-1',
+        status: 'complete' as const,
+        revision: 1,
+        contentHash: 'visual-hash-1',
+        recommendedCandidateId: 'candidate-1',
+        candidates: [],
+      })),
+      produceMedia: vi.fn(async () => ({ status: 'accepted' })),
+      prepareFinalExport: vi.fn(async () => ({}) as never),
     });
 
     await expect(
@@ -217,7 +234,12 @@ describe('new agent tool groups', () => {
       data: { jobId: 'job-1', action: 'cancel' },
     });
     await expect(
-      getTool(renderTools, 'render.start').execute({ canvasId: 'canvas-1', format: 'mp4' }),
+      getTool(renderTools, 'render.start').execute({
+        canvasId: 'canvas-1',
+        workflowRunId: 'run-1',
+        expectedManifestRevision: 1,
+        expectedManifestHash: 'a'.repeat(64),
+      }),
     ).resolves.toEqual({
       success: true,
       data: { renderId: 'render-1' },
@@ -229,88 +251,99 @@ describe('new agent tool groups', () => {
       data: { presetId: 'preset-1' },
     });
     await expect(
-      getTool(workflowTools, 'workflow.manage').execute({ action: 'control', id: 'wf-1', controlAction: 'retry' }),
+      getTool(workflowTools, 'workflow.manage').execute({
+        action: 'control',
+        id: 'wf-1',
+        controlAction: 'retry',
+      }),
     ).resolves.toEqual({
       success: true,
       data: { id: 'wf-1', action: 'retry' },
     });
   });
 
-  it('workflow tools return built-in structured idea expansion instructions', async () => {
+  it('workflow tools persist a structured production plan behind the first approval gate', async () => {
+    const createProductionPlan = vi.fn(async () => ({
+      workflowRunId: 'wf-plan-1',
+      gate: 'production_plan' as const,
+      status: 'awaiting_approval' as const,
+      revision: 1,
+      contentHash: 'plan-hash-1',
+    }));
     const workflowTools = createWorkflowTools({
       pauseWorkflow: vi.fn(async () => undefined),
       resumeWorkflow: vi.fn(async () => undefined),
       cancelWorkflow: vi.fn(async () => undefined),
       retryWorkflow: vi.fn(async () => undefined),
+      createProductionPlan,
+      createVisualAuditions: vi.fn(async () => ({
+        workflowRunId: 'wf-plan-1',
+        status: 'complete' as const,
+        revision: 1,
+        contentHash: 'visual-hash-1',
+        recommendedCandidateId: 'candidate-1',
+        candidates: [],
+      })),
+      produceMedia: vi.fn(async () => ({ status: 'accepted' })),
+      prepareFinalExport: vi.fn(async () => ({}) as never),
     });
+
+    const plan = {
+      title: 'Chrono Ronin',
+      logline: 'A samurai is thrown into a city that remembers his future crimes.',
+      synopsis:
+        'He must expose the time fracture before the city executes him for an unwritten act.',
+      genre: 'anime science fiction',
+      tone: 'kinetic and melancholic',
+      targetAudience: 'teen and adult animation audience',
+      format: { targetDurationSeconds: 120, aspectRatio: '16:9' },
+      story: {
+        acts: [
+          {
+            name: 'Act 1',
+            purpose: 'Displace the hero and reveal the accusation.',
+            scenes: [
+              {
+                title: 'Neon Arrival',
+                summary: 'The samurai lands in a future city and is immediately hunted.',
+                storyBeat: 'inciting incident',
+                dialogueIntent: 'Confusion against institutional certainty.',
+              },
+            ],
+          },
+        ],
+      },
+      assumptions: ['One protagonist', 'Short-form runtime'],
+      budget: {
+        maxTotalCostUsd: 30,
+        styleAuditionCostUsd: 4,
+        maxAttemptsPerShot: 3,
+        maxRegenerations: 10,
+      },
+      visualDirections: ['graphic cel animation', 'cinematic anime realism'],
+    };
 
     await expect(
       getTool(workflowTools, 'workflow.manage').execute({
-        action: 'expandIdea',
-        prompt: 'samurai travels through time',
+        action: 'createProductionPlan',
+        canvasId: 'canvas-1',
+        idea: 'samurai travels through time',
+        plan,
       }),
     ).resolves.toEqual({
       success: true,
-      data: expect.objectContaining({
-        instructions: expect.stringContaining('samurai travels through time'),
-        outlineFormat: {
-          title: '<story title>',
-          genre: 'cinematic',
-          logline: '<one sentence summary>',
-          acts: [
-            {
-              name: 'Act 1',
-              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
-            },
-            {
-              name: 'Act 2',
-              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
-            },
-            {
-              name: 'Act 3',
-              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
-            },
-          ],
-        },
-      }),
+      data: {
+        workflowRunId: 'wf-plan-1',
+        gate: 'production_plan',
+        status: 'awaiting_approval',
+        revision: 1,
+        contentHash: 'plan-hash-1',
+      },
     });
-  });
-
-  it('workflow expandIdea succeeds without a delegated handler', async () => {
-    const workflowTools = createWorkflowTools({
-      pauseWorkflow: vi.fn(async () => undefined),
-      resumeWorkflow: vi.fn(async () => undefined),
-      cancelWorkflow: vi.fn(async () => undefined),
-      retryWorkflow: vi.fn(async () => undefined),
-    });
-
-    await expect(
-      getTool(workflowTools, 'workflow.manage').execute({
-        action: 'expandIdea',
-        prompt: 'samurai travels through time',
-        genre: 'anime',
-        actCount: 2,
-      }),
-    ).resolves.toEqual({
-      success: true,
-      data: expect.objectContaining({
-        instructions: expect.stringContaining('anime story with 2 acts'),
-        outlineFormat: {
-          title: '<story title>',
-          genre: 'anime',
-          logline: '<one sentence summary>',
-          acts: [
-            {
-              name: 'Act 1',
-              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
-            },
-            {
-              name: 'Act 2',
-              scenes: [{ title: '<scene title>', summary: '<2-3 sentence summary>' }],
-            },
-          ],
-        },
-      }),
+    expect(createProductionPlan).toHaveBeenCalledWith({
+      canvasId: 'canvas-1',
+      idea: 'samurai travels through time',
+      plan,
     });
   });
 
@@ -381,7 +414,9 @@ describe('new agent tool groups', () => {
       data: { episodeId: 'episode-1' },
     });
 
-    await expect(getTool(colorStyleTools, 'colorStyle.manage').execute({ action: 'list' })).resolves.toEqual({
+    await expect(
+      getTool(colorStyleTools, 'colorStyle.manage').execute({ action: 'list' }),
+    ).resolves.toEqual({
       success: true,
       data: { total: 1, offset: 0, limit: 50, colorStyles: [{ id: 'style-1', name: 'Warm' }] },
     });

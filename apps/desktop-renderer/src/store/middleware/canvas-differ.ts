@@ -58,17 +58,18 @@ export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch 
     hasChanges = true;
   }
 
-  // Updated nodes (compare updatedAt timestamp)
+  // Updated nodes (compare updatedAt timestamp, then shallow diff)
   const updated: Array<{ id: string; changes: Record<string, unknown> }> = [];
   for (const nextNode of next.nodes) {
     const prevNode = prevNodeMap.get(nextNode.id);
     if (!prevNode) continue;
     if (prevNode.updatedAt !== nextNode.updatedAt) {
-      // Compute shallow changes
       const changes: Record<string, unknown> = {};
       for (const key of Object.keys(nextNode) as Array<keyof CanvasNode>) {
-        if (JSON.stringify(prevNode[key]) !== JSON.stringify(nextNode[key])) {
-          changes[key] = nextNode[key];
+        const pv = prevNode[key];
+        const nv = nextNode[key];
+        if (pv !== nv && JSON.stringify(pv) !== JSON.stringify(nv)) {
+          changes[key] = nv;
         }
       }
       if (Object.keys(changes).length > 0) {
@@ -105,7 +106,15 @@ export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch 
   for (const nextEdge of next.edges) {
     const prevEdge = prevEdgeMap.get(nextEdge.id);
     if (!prevEdge) continue;
-    if (JSON.stringify(prevEdge) !== JSON.stringify(nextEdge)) {
+    if (
+      prevEdge.source !== nextEdge.source ||
+      prevEdge.target !== nextEdge.target ||
+      prevEdge.sourceHandle !== nextEdge.sourceHandle ||
+      prevEdge.targetHandle !== nextEdge.targetHandle ||
+      prevEdge.data.label !== nextEdge.data.label ||
+      prevEdge.data.status !== nextEdge.data.status ||
+      prevEdge.data.autoLabel !== nextEdge.data.autoLabel
+    ) {
       updatedEdges.push({ id: nextEdge.id, edge: nextEdge });
     }
   }

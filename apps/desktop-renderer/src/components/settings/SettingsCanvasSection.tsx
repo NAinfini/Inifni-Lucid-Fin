@@ -41,9 +41,7 @@ const PUBLISH_IMAGE_PRESETS: Array<{
   { id: 'vertical-720p', width: 720, height: 1280, aspect: '9:16' },
 ];
 type PublishImagePresetId =
-  | (typeof PUBLISH_IMAGE_PRESETS)[number]['id']
-  | 'provider-default'
-  | 'custom';
+  (typeof PUBLISH_IMAGE_PRESETS)[number]['id'] | 'provider-default' | 'custom';
 
 // Video-publishing presets. Dropped 4K because only Veo supports it —
 // everywhere else it would force a clamp-down.
@@ -59,9 +57,7 @@ const PUBLISH_VIDEO_PRESETS: Array<{
   { id: 'vertical-720p', width: 720, height: 1280, aspect: '9:16' },
 ];
 type PublishVideoPresetId =
-  | (typeof PUBLISH_VIDEO_PRESETS)[number]['id']
-  | 'provider-default'
-  | 'custom';
+  (typeof PUBLISH_VIDEO_PRESETS)[number]['id'] | 'provider-default' | 'custom';
 
 // Ref-image presets: sizes accepted natively by every mainstream image
 // provider we ship (OpenAI gpt-image-1, Imagen 4, Flux 1.1 Pro/Ultra,

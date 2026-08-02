@@ -108,6 +108,10 @@ describe('registerAllHandlers', () => {
             capture: vi.fn(),
             restore: vi.fn(),
           },
+          workflows: {
+            listRecoverableMediaAttempts: vi.fn(() => []),
+            listRecoverableExportExecutions: vi.fn(() => []),
+          },
         },
       },
       cas: { tag: 'cas' },

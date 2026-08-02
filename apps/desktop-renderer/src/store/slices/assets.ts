@@ -248,7 +248,5 @@ export const selectFilteredAssets = createSelector(
 export const selectAssetsByFolder = createSelector(
   [selectAssetItems, (_state: { assets: AssetsState }, folderId: string | null) => folderId],
   (items, folderId) =>
-    items.filter((asset) =>
-      folderId === null ? !asset.folderId : asset.folderId === folderId,
-    ),
+    items.filter((asset) => (folderId === null ? !asset.folderId : asset.folderId === folderId)),
 );

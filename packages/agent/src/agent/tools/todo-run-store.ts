@@ -118,7 +118,7 @@ export class TodoRunStore {
   } {
     if (!this.snapshot) {
       throw new TodoRunStoreError(
-        'todo.manage { action: \'update\' } called before todo.manage { action: \'set\' }. Call todo.manage { action: \'set\' } first to author the list.',
+        "todo.manage { action: 'update' } called before todo.manage { action: 'set' }. Call todo.manage { action: 'set' } first to author the list.",
         'no_active_todo',
       );
     }
@@ -148,7 +148,7 @@ export class TodoRunStore {
     ).length;
     if (inProgressCount > 1) {
       throw new TodoRunStoreError(
-        'todo.manage { action: \'update\' } would leave more than one item in_progress. Mark prior items done or pending first.',
+        "todo.manage { action: 'update' } would leave more than one item in_progress. Mark prior items done or pending first.",
         'duplicate_in_progress',
       );
     }

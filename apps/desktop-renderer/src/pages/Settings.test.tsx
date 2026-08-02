@@ -134,7 +134,8 @@ describe('Settings updater UI', () => {
           {
             processKey: 'entity-ref-image-generation',
             name: 'Entity Reference Image Generation',
-            description: 'Guidance for entity (character, location, equipment) reference image creation.',
+            description:
+              'Guidance for entity (character, location, equipment) reference image creation.',
             defaultValue: 'Default rules',
             customValue: null,
             createdAt: 1,
@@ -168,7 +169,7 @@ describe('Settings updater UI', () => {
             updatedAt: 1,
           },
         ]),
-        get: vi.fn(),
+        getMasked: vi.fn(),
         setCustom: vi.fn().mockResolvedValue(undefined),
         reset: vi.fn().mockResolvedValue(undefined),
       },
@@ -226,7 +227,7 @@ describe('Settings updater UI', () => {
             updatedAt: 1,
           },
         ]),
-        get: vi.fn(),
+        getMasked: vi.fn(),
         setCustom: vi.fn().mockResolvedValue(undefined),
         reset: vi.fn().mockResolvedValue(undefined),
       },
@@ -524,7 +525,7 @@ describe('Settings updater UI', () => {
       onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
-        get: vi.fn().mockResolvedValue(null),
+        getMasked: vi.fn().mockResolvedValue(null),
         set: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
         test: vi.fn().mockResolvedValue({ ok: false }),
@@ -574,7 +575,7 @@ describe('Settings updater UI', () => {
     const isConfigured = vi
       .fn()
       .mockImplementation(async (provider: string) => provider === 'openai');
-    const getKey = vi.fn().mockResolvedValue('sk-live-old');
+    const getKey = vi.fn().mockResolvedValue('sk-••••-old');
     const setKey = vi.fn().mockResolvedValue(undefined);
     const deleteKey = vi.fn().mockResolvedValue(undefined);
 
@@ -582,7 +583,7 @@ describe('Settings updater UI', () => {
       onReady: mockOnReady(),
       keychain: {
         isConfigured,
-        get: getKey,
+        getMasked: getKey,
         set: setKey,
         delete: deleteKey,
         test: vi.fn().mockResolvedValue({ ok: true }),
@@ -610,14 +611,14 @@ describe('Settings updater UI', () => {
 
     await waitFor(() => {
       expect(getKey).toHaveBeenCalledWith('openai');
-      expect(screen.getByDisplayValue('sk-live-old')).toBeTruthy();
+      expect(screen.getByDisplayValue('sk-••••-old')).toBeTruthy();
       expect(within(openAiCard).getByText('Configured in keychain')).toBeTruthy();
     });
 
     fireEvent.click(within(openAiCard).getByRole('button', { name: 'Copy Key' }));
-    expect(writeText).toHaveBeenCalledWith('sk-live-old');
+    expect(writeText).toHaveBeenCalledWith('sk-••••-old');
 
-    const input = screen.getByDisplayValue('sk-live-old');
+    const input = screen.getByDisplayValue('sk-••••-old');
     fireEvent.change(input, { target: { value: 'sk-live-new' } });
     fireEvent.click(within(openAiCard).getByRole('button', { name: 'Save' }));
 
@@ -644,7 +645,7 @@ describe('Settings updater UI', () => {
       onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
-        get: vi.fn().mockResolvedValue(null),
+        getMasked: vi.fn().mockResolvedValue(null),
         set: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
       },
@@ -707,14 +708,14 @@ describe('Settings updater UI', () => {
     const isConfigured = vi
       .fn()
       .mockImplementation(async (provider: string) => provider === 'custom-llm-localized');
-    const getKey = vi.fn().mockResolvedValue('sk-localized');
+    const getKey = vi.fn().mockResolvedValue('sk-••••-ized');
     const setKey = vi.fn().mockResolvedValue(undefined);
 
     vi.mocked(getAPI).mockReturnValue({
       onReady: mockOnReady(),
       keychain: {
         isConfigured,
-        get: getKey,
+        getMasked: getKey,
         set: setKey,
         delete: vi.fn().mockResolvedValue(undefined),
         test: vi.fn().mockResolvedValue({ ok: true }),
@@ -762,7 +763,7 @@ describe('Settings updater UI', () => {
       ).toBeTruthy();
     });
 
-    const input = screen.getByDisplayValue('sk-localized');
+    const input = screen.getByDisplayValue('sk-••••-ized');
     fireEvent.change(input, { target: { value: 'sk-localized-new' } });
     fireEvent.click(
       within(resolvedCustomCard).getByRole('button', { name: t('settings.providerCard.save') }),
@@ -783,7 +784,7 @@ describe('Settings updater UI', () => {
       onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
-        get: vi.fn().mockResolvedValue(null),
+        getMasked: vi.fn().mockResolvedValue(null),
         set: setKey,
         delete: vi.fn().mockResolvedValue(undefined),
         test: vi.fn().mockResolvedValue({ ok: true }),
@@ -846,7 +847,7 @@ describe('Settings updater UI', () => {
         isConfigured: vi
           .fn()
           .mockImplementation(async (provider: string) => provider === 'custom-llm-refresh'),
-        get: getKey,
+        getMasked: getKey,
         set: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
         test: vi.fn().mockResolvedValue({ ok: true }),
@@ -996,7 +997,9 @@ describe('Settings updater UI', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Commander AI' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Block generation' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Require style plate before reference images' }));
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Require style plate before reference images' }),
+    );
 
     expect(store.getState().commander.qualityGateBehavior).toBe('block-generation');
     expect(store.getState().commander.requireStylePlateBeforeRefImage).toBe(false);
@@ -1009,7 +1012,7 @@ describe('Settings updater UI', () => {
       onReady: mockOnReady(),
       keychain: {
         isConfigured: vi.fn().mockResolvedValue(false),
-        get: vi.fn().mockResolvedValue(null),
+        getMasked: vi.fn().mockResolvedValue(null),
         set: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
         test: vi.fn().mockResolvedValue({ ok: false }),

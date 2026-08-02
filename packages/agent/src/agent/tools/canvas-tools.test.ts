@@ -286,7 +286,10 @@ describe('createCanvasTools', () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
-    const result = await getTool('canvas.getInfo', deps).execute({ canvasId: 'canvas-1', scope: 'state' });
+    const result = await getTool('canvas.getInfo', deps).execute({
+      canvasId: 'canvas-1',
+      scope: 'state',
+    });
 
     expect(result).toEqual({
       success: true,
@@ -356,7 +359,10 @@ describe('createCanvasTools', () => {
   it('returns error for missing canvas', async () => {
     const deps = createDeps(createCanvas());
 
-    const result = await getTool('canvas.getInfo', deps).execute({ canvasId: 'missing', scope: 'state' });
+    const result = await getTool('canvas.getInfo', deps).execute({
+      canvasId: 'missing',
+      scope: 'state',
+    });
 
     expect(result).toEqual({ success: false, error: 'Canvas not found: missing' });
   });

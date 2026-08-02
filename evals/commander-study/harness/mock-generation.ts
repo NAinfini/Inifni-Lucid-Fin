@@ -78,8 +78,7 @@ export function installMockGeneration(registry: AgentToolRegistry): MockStats {
       'Generate reference image for an entity (character/location/equipment).',
       3,
       (args) => {
-        const entityId =
-          typeof args.id === 'string' ? args.id : 'unknown';
+        const entityId = typeof args.id === 'string' ? args.id : 'unknown';
         return {
           jobId: `mock-ref-${randomUUID().slice(0, 8)}`,
           entity: typeof args.type === 'string' ? args.type : 'unknown',

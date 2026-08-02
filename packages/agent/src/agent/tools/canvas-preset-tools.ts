@@ -72,7 +72,15 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         action: {
           type: 'string',
           description: 'Operation to perform.',
-          enum: ['read', 'write', 'writeBatch', 'addEntry', 'removeEntry', 'updateEntry', 'applyTemplate'],
+          enum: [
+            'read',
+            'write',
+            'writeBatch',
+            'addEntry',
+            'removeEntry',
+            'updateEntry',
+            'applyTemplate',
+          ],
         },
         nodeId: { type: 'string', description: 'The node ID. Used by all actions.' },
         nodeIds: {
@@ -110,8 +118,14 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           description:
             'Object keyed by category name. Each value has optional "intensity" (0-100) and optional "entries" array. Used by writeBatch action.',
         },
-        presetId: { type: 'string', description: 'The preset definition ID to add. Used by addEntry.' },
-        entryId: { type: 'string', description: 'The preset track entry ID. Used by removeEntry and updateEntry.' },
+        presetId: {
+          type: 'string',
+          description: 'The preset definition ID to add. Used by addEntry.',
+        },
+        entryId: {
+          type: 'string',
+          description: 'The preset track entry ID. Used by removeEntry and updateEntry.',
+        },
         changes: {
           type: 'object',
           description: 'Changes to apply to an entry. Used by updateEntry.',
@@ -220,7 +234,11 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           const canvasId = requireString(args, 'canvasId');
           const nodeId = requireString(args, 'nodeId');
 
-          if (args.tracks == null || typeof args.tracks !== 'object' || Array.isArray(args.tracks)) {
+          if (
+            args.tracks == null ||
+            typeof args.tracks !== 'object' ||
+            Array.isArray(args.tracks)
+          ) {
             throw new Error('tracks must be an object keyed by category name.');
           }
 
@@ -498,7 +516,11 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         }
       }
 
-      return fail(new Error(`Unknown action "${action}". Valid: read, write, writeBatch, addEntry, removeEntry, updateEntry, applyTemplate`));
+      return fail(
+        new Error(
+          `Unknown action "${action}". Valid: read, write, writeBatch, addEntry, removeEntry, updateEntry, applyTemplate`,
+        ),
+      );
     },
   };
 
@@ -520,10 +542,14 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
         },
         query: {
           type: 'string',
-          description: 'Optional search query to filter templates by name (case-insensitive). Used by list.',
+          description:
+            'Optional search query to filter templates by name (case-insensitive). Used by list.',
         },
         name: { type: 'string', description: 'Display name for the template. Used by create.' },
-        description: { type: 'string', description: 'Short description of the shot type. Used by create.' },
+        description: {
+          type: 'string',
+          description: 'Short description of the shot type. Used by create.',
+        },
         entries: {
           type: 'array',
           items: {

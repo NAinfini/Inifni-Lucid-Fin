@@ -1,73 +1,74 @@
-End-to-end story-to-video workflow.
+# Persistent story-to-video workflow
 
-Purpose:
+## Purpose
 
-- Drive a one-line idea or short novel into a fully rendered video without user prompts for every step. The user approves at phase boundaries; Commander plans the contents of each phase.
-- This is the default "from a sentence to a full video" path. Use it whenever the canvas is empty and the user asks for something to be built from a story.
+Turn a one-line idea or longer brief into a complete video while keeping the run recoverable, auditable, and understandable to a user who may not know film-production terminology.
 
-Entry posture:
+The SQLite workflow aggregate is the source of truth. Chat, canvas state, model memory, localStorage, and compacted summaries are projections or artifacts; none may approve or advance the run by themselves.
 
-- If the user's message is vague ("make a story", "I want a short film"), Commander must propose a starting idea and 1-3 alternative directions before any tool is called. Do not stall waiting for a perfect brief.
-- If the canvas already has content, stop and ask the user whether to extend the existing story or start a new canvas.
+## Entry posture
 
-Phase 1 — Outline.
+- For an execution request, expand the brief into the complete structured plan required by `workflow.manage { action: "createProductionPlan" }`.
+- Put low-risk creative defaults in `assumptions` so the user can review them at the first gate.
+- Use `commander.askUser` before plan creation only when a missing answer would materially change story, audience, format, budget, or safety.
+- Do not create canvas nodes, entities, reference images, media, renders, or exports before the persisted workflow allows them.
 
-1. workflow.expandIdea { prompt, genre?, actCount? } to get the outline scaffold.
-2. canvas.addNode for each scene (type: "text", title = scene name, data.content = 2-3 sentence summary). Place scenes left-to-right along the X axis.
-3. Present the full outline and ask the user to approve before continuing.
+## The only three approval gates
 
-Phase 2 — Entities.
+### Gate 1 — Production Plan
 
-1. Read every scene summary. List every recurring character, equipment, and location.
-2. Merge duplicates aggressively; prefer one shared entity over per-scene copies.
-3. Call entity.create (with type "character" | "equipment" | "location") for each unique entity. Capture style and identity notes while they are fresh.
+The plan revision includes:
 
-Phase 3 — Node asset stores.
+- title, logline, synopsis, genre, tone, and target audience;
+- target runtime and aspect ratio;
+- ordered acts and scenes, visible action, dramatic beats, and dialogue intent;
+- explicit assumptions;
+- total budget, style-audition budget, attempts per shot, and total regeneration limit;
+- a small set of candidate visual directions for later exploration.
 
-1. For each scene, add the media nodes needed: image (first frame), image (last frame), video. Use canvas.addNode with placements that continue the X-axis flow.
-2. Populate each media node:
-   - prompt = scene summary (plus any per-shot hints)
-   - preset tracks via canvas.setNodePresets (style + shot template)
-   - character / equipment / location refs via canvas.setNodeRefs
-3. Connect first-frame image → video → last-frame image with canvas.connectNodes. Verify edge direction: first frame is INCOMING, last frame is OUTGOING.
+Call `workflow.manage { action: "createProductionPlan" }` exactly once for a new plan. The call persists an immutable revision and opens the gate. Stop all downstream mutation until the host approval UI reports that exact revision approved. A chat message such as "yes", "go", or "looks good" is not an approval command.
 
-Phase 4 — Reference images.
+### Gate 2 — Visual Constitution
 
-1. For every character, equipment, and location: call `entity.generateRefImage` with the entity's `type` and `id`.
-2. Wait for each generation to finish before moving on. These refs gate every downstream image and video generation — if you skip them, identity drifts.
-3. Let the user review each ref and regenerate any that miss.
+After the Production Plan is approved:
 
-Phase 5 — First/last frames.
+1. Call `workflow.visual` exactly once with 2–4 complete, project-specific candidate directions. Include the preview prompt, deterministic seed, negative constraints, and full medium/era/rendering/linework/palette/lighting/texture/mood/camera/lens/composition/motion/identity grammar required by its schema.
+2. Let the durable audition service generate each preview through the configured production image provider, grade the visible asset through the configured vision provider, persist provider/model/seed/prompt hashes/cost/evidence, and repair at most within approved bounds.
+3. Stop and direct the user to the visible preview selector. The AI recommendation is advisory: the user explicitly locks one candidate, which creates an immutable Visual Constitution revision.
+4. Stop production generation until the user separately approves that exact Visual Constitution revision in the host UI. `commander.askUser` cannot select or approve it.
 
-1. canvas.generate on every image node. Use wait=true when the user wants sequential review; otherwise fire-and-forget and poll status.
-2. When variants return, canvas.selectVariant for the user-preferred option of each frame.
+A reusable catalog may later offer optional inspiration, but cross-provider catalog images are illustrative only. The authoritative decision surface is the project-specific audition generated by the user's configured provider. If an audition revision already exists after restart or compaction, resume or report it; never submit a different set or repeat completed provider work.
 
-Phase 6 — Video + final render.
+### Gate 3 — Final Export
 
-1. For each video node, confirm canvas.setVideoFrames is wired to the first/last frame nodes.
-2. canvas.generate on every video node (nodeType="video"). Wait for completion; run canvas.selectVariant on the best take.
-3. render.start with format="mp4" (or "mov" for ProRes) to produce the full cut. If render.exportBundle is requested and not yet wired to a canvas→NLE compiler, surface the typed error to the user instead of pretending success.
+After accepted shots are assembled, call `workflow.finalExport` exactly once with only the workflow/canvas identity, current row version, and output choices. The host derives the exact selected CAS artifacts, ordering, supported trims/tracks, dimensions, codec/container, and expected duration, then opens gate 3. Stop until the host approval UI approves that exact Manifest revision/hash. After approval, call `render.start` with only the workflow ID, canvas ID, exact Manifest revision/hash, and an optional destination/retry; never send clip paths or replacement settings for a persistent run.
 
-Inter-phase rules:
+## Bounded autonomous production
 
-- At the end of every phase, summarize what was done, estimate cost for the next phase via canvas.estimateCost, and ask "ready for the next phase?".
-- Never chain phases silently. User must be able to say "stop" or "let me edit" between any two phases.
-- If a phase fails partially, fix only the broken nodes and continue; do not restart the whole phase.
-- Every tool call that writes to the canvas should be followed by canvas.getState or canvas.listNodes before the next phase so Commander is reading real state, not model memory.
+Between the three gates, proceed without additional approval prompts while remaining inside the approved story, Visual Constitution, budget, provider/model allowlist, concurrency, and retry limits.
+
+For each asset:
+
+1. Build a structured Generation Spec from approved documents and entity/reference anchors.
+2. Let the deterministic prompt compiler merge hard constraints, constitution fields, preset knowledge, provider capabilities, and any Repair Delta.
+3. Persist the provider attempt before or atomically with submission and use a stable idempotency key.
+4. Evaluate images directly. For video, inspect ffprobe metadata and timestamped keyframes from the beginning, middle, end, and shot transitions.
+5. Score identity, style, script alignment, continuity, composition, lighting, motion, technical quality, and safety with evidence.
+6. Let host policy choose `pass`, `repair`, `regenerate`, or `human_review` from scores and remaining bounds.
+7. Create a new attempt and artifact revision for every repair/regeneration. Never overwrite prior evidence.
+
+If a provider submission has an ambiguous outcome and cannot be checked idempotently, enter recovery and ask the user instead of submitting again.
+
+## Context and recovery rules
+
+- After compaction, chat clear, or app restart, query the workflow and continue from persisted documents, events, gate, attempts, and artifact heads.
+- For Final Export, also reload the immutable Manifest and execution receipt; do not prepare or submit again merely because the previous tool narration is absent.
+- Preserve tool-call/result pairs and unresolved mutating failures.
+- Do not repeat a completed stage because its narration disappeared from context.
+- If the model context cannot be made safe after bounded compaction attempts, pause the run rather than guessing.
 
 ## Terminal commitment
 
-This workflow is an **execution** workflow. If the user's intent is to run
-this workflow (not just learn about it), it is NOT complete until at least one
-of the following has executed successfully:
+For a new execution request, the first turn is complete only after `workflow.manage { action: "createProductionPlan" }` returns success with a workflow run ID, plan revision/hash, and `production_plan` gate. Report that the plan is waiting in the approval UI and stop; do not simulate approval with `commander.askUser`.
 
-- `canvas.createNodes` — scene seeding is the workflow's whole output; without at least one atomic create-nodes-and-edges call, nothing persists to the canvas.
-
-Before ending the turn on an execution intent, confirm the terminal call
-returned `success: true`. If the user has not provided enough input, use
-`commander.askUser` to get the missing information — do not finish with a
-planning summary.
-
-**Information-intent exception**: if the user's message was purely a question
-("what is this?", "explain", "how does X work?"), respond in plain text. The
-guide is also a teaching resource, not a forced action.
+For information-only questions, explain the workflow without creating a run.

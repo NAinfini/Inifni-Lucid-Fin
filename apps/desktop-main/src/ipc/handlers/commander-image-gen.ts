@@ -24,6 +24,47 @@ export type MaterializedAsset = {
   sourceUrl?: string;
 };
 
+export interface CommanderImageGenerationOptions {
+  providerId?: string;
+  width?: number;
+  height?: number;
+  seed?: number;
+  negativePrompt?: string;
+  /** Fail before provider submission when its USD estimate exceeds this bound. */
+  maxEstimatedCostUsd?: number;
+}
+
+export interface CommanderImageGenerationResult {
+  assetHash: string;
+  providerId: string;
+  model?: string;
+  requestedSeed?: number;
+  reportedSeed?: number;
+  width: number;
+  height: number;
+  estimatedCostUsd: number;
+  reportedActualCostUsd?: number;
+}
+
+export class CommanderImageGenerationError extends Error {
+  readonly submissionAmbiguous = true;
+
+  constructor(
+    message: string,
+    readonly details: {
+      providerId: string;
+      width: number;
+      height: number;
+      estimatedCostUsd: number;
+      requestedSeed?: number;
+    },
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'CommanderImageGenerationError';
+  }
+}
+
 /** Clamp width/height to the provider's maxDimension while preserving aspect ratio. */
 function clampDimensions(
   width: number,
@@ -53,9 +94,7 @@ function clampDimensions(
  * width/height is given. Used for reference images where we want the
  * highest resolution the provider supports.
  */
-function resolveProviderMaxDimensions(
-  providerId: string,
-): { width: number; height: number } {
+function resolveProviderMaxDimensions(providerId: string): { width: number; height: number } {
   const profile = getBuiltinProviderCapabilityProfile(providerId);
   const max = profile?.maxDimension ?? 1024;
   // Round down to nearest 8 for alignment safety
@@ -76,12 +115,9 @@ export function makeGenerateImage(deps: {
   onFailed?: (jobId: string, error: string) => void;
 }): (
   prompt: string,
-  options?: { providerId?: string; width?: number; height?: number },
-) => Promise<{ assetHash: string }> {
-  return async (
-    prompt: string,
-    options?: { providerId?: string; width?: number; height?: number },
-  ) => {
+  options?: CommanderImageGenerationOptions,
+) => Promise<CommanderImageGenerationResult> {
+  return async (prompt: string, options?: CommanderImageGenerationOptions) => {
     const providerId = options?.providerId;
     const explicitWidth = options?.width;
     const explicitHeight = options?.height;
@@ -108,16 +144,38 @@ export function makeGenerateImage(deps: {
         clamped = resolveProviderMaxDimensions(actualProviderId);
       }
 
+      const generationRequest = {
+        type: 'image' as const,
+        providerId: actualProviderId,
+        prompt,
+        ...(options?.negativePrompt ? { negativePrompt: options.negativePrompt } : {}),
+        width: clamped.width,
+        height: clamped.height,
+        ...(options?.seed !== undefined ? { seed: options.seed } : {}),
+      };
+      const estimate = adapter.estimateCost(generationRequest);
+      if (estimate.currency.toUpperCase() !== 'USD') {
+        throw new Error(
+          `Image provider ${actualProviderId} returned a non-USD cost estimate; the approved audition budget cannot be enforced safely`,
+        );
+      }
+      if (!Number.isFinite(estimate.estimatedCost) || estimate.estimatedCost < 0) {
+        throw new Error(`Image provider ${actualProviderId} returned an invalid cost estimate`);
+      }
+      if (
+        options?.maxEstimatedCostUsd !== undefined &&
+        estimate.estimatedCost > options.maxEstimatedCostUsd + 1e-9
+      ) {
+        throw new Error(
+          `Image generation estimate $${estimate.estimatedCost.toFixed(4)} exceeds the remaining approved audition budget $${options.maxEstimatedCostUsd.toFixed(4)}`,
+        );
+      }
+
       deps.onStart?.(jobId, actualProviderId, clamped.width, clamped.height);
       try {
-        const generated = await adapter.generate({
-          type: 'image',
-          providerId: actualProviderId,
-          prompt,
-          width: clamped.width,
-          height: clamped.height,
-        });
+        const generated = await adapter.generate(generationRequest);
         providerHealth.recordSuccess(adapter.id);
+        const reportedActualCostUsd = normalizeFiniteNumber(generated.cost);
         const materialized = await materializeAsset(generated);
         try {
           const { ref } = await deps.cas.importAsset(materialized.filePath, 'image');
@@ -125,6 +183,10 @@ export function makeGenerateImage(deps: {
           // Register in asset library so the image appears in the asset browser
           if (deps.db) {
             try {
+              const model = normalizeOptionalString(
+                generated.provenance?.model ?? generated.metadata?.model,
+              );
+              const reportedSeed = normalizeFiniteNumber(generated.metadata?.seed);
               deps.db.repos.assets.insert({
                 hash: ref.hash,
                 type: 'image',
@@ -133,6 +195,20 @@ export function makeGenerateImage(deps: {
                 provider: actualProviderId,
                 width: clamped.width,
                 height: clamped.height,
+                generationMetadata: {
+                  prompt,
+                  ...(options?.negativePrompt ? { negativePrompt: options.negativePrompt } : {}),
+                  provider: actualProviderId,
+                  ...(reportedSeed !== undefined
+                    ? { seed: reportedSeed }
+                    : options?.seed !== undefined
+                      ? { seed: options.seed }
+                      : {}),
+                  width: clamped.width,
+                  height: clamped.height,
+                  ...(model ? { model } : {}),
+                  ...(reportedActualCostUsd !== undefined ? { cost: reportedActualCostUsd } : {}),
+                },
               });
             } catch (dbErr) {
               // Non-fatal — CAS already has the file
@@ -151,7 +227,21 @@ export function makeGenerateImage(deps: {
             path: ref.path,
           });
           deps.onComplete?.(jobId, ref.hash);
-          return { assetHash: ref.hash };
+          const model = normalizeOptionalString(
+            generated.provenance?.model ?? generated.metadata?.model,
+          );
+          const reportedSeed = normalizeFiniteNumber(generated.metadata?.seed);
+          return {
+            assetHash: ref.hash,
+            providerId: actualProviderId,
+            ...(model ? { model } : {}),
+            ...(options?.seed !== undefined ? { requestedSeed: options.seed } : {}),
+            ...(reportedSeed !== undefined ? { reportedSeed } : {}),
+            width: clamped.width,
+            height: clamped.height,
+            estimatedCostUsd: estimate.estimatedCost,
+            ...(reportedActualCostUsd !== undefined ? { reportedActualCostUsd } : {}),
+          };
         } finally {
           if (materialized.cleanupPath) {
             await fsp.rm(materialized.cleanupPath, { recursive: true, force: true });
@@ -160,7 +250,17 @@ export function makeGenerateImage(deps: {
       } catch (genErr) {
         providerHealth.recordFailure(adapter.id);
         deps.onFailed?.(jobId, genErr instanceof Error ? genErr.message : String(genErr));
-        throw genErr;
+        throw new CommanderImageGenerationError(
+          genErr instanceof Error ? genErr.message : String(genErr),
+          {
+            providerId: actualProviderId,
+            width: clamped.width,
+            height: clamped.height,
+            estimatedCostUsd: estimate.estimatedCost,
+            ...(options?.seed !== undefined ? { requestedSeed: options.seed } : {}),
+          },
+          genErr instanceof Error ? { cause: genErr } : undefined,
+        );
       }
     }
 
@@ -251,4 +351,8 @@ export function isRemoteUrl(value: string): boolean {
 
 export function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }

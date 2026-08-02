@@ -23,18 +23,18 @@ const updateSafetyMock = vi.hoisted(() => ({
 vi.mock('electron', () => {
   const electronMock = {
     app: {
-    isPackaged: false,
-    whenReady: vi.fn(() => ({ then: vi.fn() })),
-    on: vi.fn(),
-    getPath: vi.fn(() => 'C:/temp'),
-    quit: vi.fn(),
+      isPackaged: false,
+      whenReady: vi.fn(() => ({ then: vi.fn() })),
+      on: vi.fn(),
+      getPath: vi.fn(() => 'C:/temp'),
+      quit: vi.fn(),
     },
     BrowserWindow: vi.fn(),
     Menu: { setApplicationMenu: vi.fn() },
     ipcMain: { handle: ipcHandleMock },
     protocol: {
-    registerSchemesAsPrivileged: vi.fn(),
-    handle: vi.fn(),
+      registerSchemesAsPrivileged: vi.fn(),
+      handle: vi.fn(),
     },
     net: { fetch: vi.fn() },
     shell: { openExternal: vi.fn() },
@@ -180,8 +180,7 @@ describe('electron startup observability', () => {
     );
 
     const forwarder = setLogForwarderMock.mock.calls[0]?.[0] as
-      | ((entry: { id: string }) => void)
-      | undefined;
+      ((entry: { id: string }) => void) | undefined;
     expect(forwarder).toBeTypeOf('function');
 
     forwarder?.({

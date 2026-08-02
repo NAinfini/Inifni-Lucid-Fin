@@ -26,6 +26,13 @@ import type {
   PresetResetRequest,
   ReferenceImage,
   WorkflowActivitySummary,
+  WorkflowApprovalContext,
+  WorkflowApprovalGateKey,
+  WorkflowFinalExportContext,
+  ApproveWorkflowGateResult,
+  SelectVisualConstitutionCandidateInput,
+  VisualConstitutionSelectionResult,
+  WorkflowVisualAuditionContext,
   WorkflowStageRun,
   WorkflowTaskSummary,
 } from '@lucid-fin/contracts';
@@ -70,8 +77,10 @@ interface StyleGuide {
 interface AssetMeta {
   hash: string;
   type: string;
+  format: string;
   mimeType: string;
   size: number;
+  duration?: number;
   createdAt: string;
   [key: string]: unknown;
 }
@@ -110,10 +119,17 @@ interface SnapshotMeta {
 /** Render request (P2 — expand as render pipeline is built) */
 interface RenderRequest {
   sceneId: string;
-  segmentIds?: string[];
-  outputFormat: 'mp4' | 'mov' | 'webm';
+  segments?: Array<{ inputPath: string; startTime: number; duration: number; speed: number }>;
+  outputFormat?: 'mp4' | 'mov' | 'webm';
   resolution?: { width: number; height: number };
   fps?: number;
+  codec?: 'h264' | 'h265' | 'prores';
+  quality?: 'draft' | 'standard' | 'high';
+  outputPath?: string;
+  workflowRunId?: string;
+  expectedManifestRevision?: number;
+  expectedManifestHash?: string;
+  retry?: boolean;
 }
 
 /** Render result */
@@ -126,8 +142,9 @@ interface RenderResult {
 /** Export preset */
 interface ExportPreset {
   format: 'fcpxml' | 'edl';
-  includeAudio: boolean;
-  includeSubtitles: boolean;
+  project: unknown;
+  outputPath?: string;
+  canvasId?: string;
 }
 
 /** Export result */
@@ -355,6 +372,21 @@ declare global {
         get: (id: string) => Promise<WorkflowActivitySummary>;
         getStages: (workflowRunId: string) => Promise<WorkflowStageRun[]>;
         getTasks: (workflowRunId: string) => Promise<WorkflowTaskSummary[]>;
+        getPendingApproval: (workflowRunId: string) => Promise<WorkflowApprovalContext | null>;
+        getVisualAuditions: (
+          workflowRunId: string,
+        ) => Promise<WorkflowVisualAuditionContext | null>;
+        getFinalExport: (workflowRunId: string) => Promise<WorkflowFinalExportContext | null>;
+        selectVisualCandidate: (
+          request: SelectVisualConstitutionCandidateInput,
+        ) => Promise<VisualConstitutionSelectionResult>;
+        approveGate: (request: {
+          workflowRunId: string;
+          gateKey: WorkflowApprovalGateKey;
+          expectedRowVersion: number;
+          expectedSubjectRevision: number;
+          expectedSubjectHash: string;
+        }) => Promise<ApproveWorkflowGateResult>;
         start: (request: Record<string, unknown>) => Promise<{ workflowRunId: string }>;
         pause: (id: string) => Promise<void>;
         resume: (id: string) => Promise<void>;
@@ -365,7 +397,7 @@ declare global {
       };
       keychain: {
         isConfigured: (provider: string) => Promise<boolean>;
-        get: (provider: string) => Promise<string | null>;
+        getMasked: (provider: string) => Promise<string | null>;
         set: (provider: string, apiKey: string) => Promise<void>;
         delete: (provider: string) => Promise<void>;
         test: (
@@ -508,7 +540,11 @@ declare global {
       };
       export: {
         nle: (preset: ExportPreset) => Promise<ExportResult>;
-        assetBundle: (assetHashes: string[], outputPath?: string) => Promise<ExportResult | null>;
+        assetBundle: (
+          assetHashes: string[],
+          outputPath?: string,
+          canvasId?: string,
+        ) => Promise<ExportResult | null>;
         subtitles: (format: 'srt' | 'ass', outputPath: string) => Promise<void>;
         storyboard: (
           nodes: Array<Record<string, unknown>>,
@@ -554,6 +590,7 @@ declare global {
       };
       canvas: {
         list: () => Promise<Array<{ id: string; name: string; updatedAt: number }>>;
+        loadAll: () => Promise<Canvas[]>;
         load: (id: string) => Promise<Canvas>;
         save: (data: Canvas) => Promise<void>;
         create: (name: string) => Promise<Canvas>;

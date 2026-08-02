@@ -9,7 +9,11 @@ import { useCallback, useMemo } from 'react';
 import { useDispatch } from 'react-redux';
 
 import type { AppDispatch } from '../../store/index.js';
-import { removeEdges, swapEdgeDirection, insertNodeIntoEdge } from '../../store/slices/canvas/canvas.js';
+import {
+  removeEdges,
+  swapEdgeDirection,
+  insertNodeIntoEdge,
+} from '../../store/slices/canvas/canvas.js';
 import type { NodeKind } from '@lucid-fin/contracts';
 import type { EdgeCallbacks } from './edge-callbacks-context.js';
 

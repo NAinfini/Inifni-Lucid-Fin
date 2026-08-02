@@ -161,8 +161,7 @@ export type CommanderToolSearchResponse = Array<{
  * codegen/lint check to prevent drift.
  */
 export type CommanderIntentPayload =
-  | { kind: 'informational' }
-  | { kind: 'execution'; workflow?: string };
+  { kind: 'informational' } | { kind: 'execution'; workflow?: string };
 
 export type CommanderEvidencePayload =
   | { kind: 'guide_loaded'; guideId: string; at: number }

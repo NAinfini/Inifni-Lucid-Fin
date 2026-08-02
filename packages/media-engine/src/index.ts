@@ -1,12 +1,31 @@
 export {
   detectFfmpeg,
+  detectFfprobe,
   createCommand,
   runCommand,
   extractLastFrame,
+  probeMedia,
   detectScenes,
   extractFrameAtTime,
   type SceneCut,
+  type MediaProbeResult,
 } from './ffmpeg-utils.js';
+export {
+  resolveFfmpegBinary,
+  isPlatformSupported,
+  requirePlatformKey,
+  SUPPORTED_PLATFORMS,
+  type FfmpegBinaryName,
+  type FfmpegResolutionContext,
+  type SupportedPlatform,
+} from './ffmpeg-binary.js';
+export {
+  getLgplVideoCodecConfig,
+  type LgplVideoCodec,
+  type LgplVideoCodecConfig,
+  type LgplVideoCodecOptions,
+  type LgplVideoQuality,
+} from './codec-policy.js';
 export { kenBurns, type KenBurnsOptions } from './ken-burns.js';
 export { stitchVideos, type StitchOptions } from './stitcher.js';
 export { generateProxy, type ProxyOptions } from './proxy.js';

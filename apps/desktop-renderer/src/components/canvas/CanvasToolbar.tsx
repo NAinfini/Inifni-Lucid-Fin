@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import {
-  Download,
-  Grid2X2,
-  Map,
-  Palette,
-  Search,
-  Upload,
-} from 'lucide-react';
+import { Download, Grid2X2, Map, Palette, Search, Upload } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/Tooltip.js';

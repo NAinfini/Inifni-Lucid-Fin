@@ -9,10 +9,7 @@ export function isRetryableError(error: unknown): boolean {
   return false;
 }
 
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  retries = MAX_RETRIES,
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, retries = MAX_RETRIES): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await fn();

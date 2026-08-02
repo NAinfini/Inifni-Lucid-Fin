@@ -36,7 +36,9 @@ function buildOrthoGridPrompt(entity: Equipment, stylePlate?: string): string {
     segments.push(`Style: ${stylePlate}`);
   }
 
-  segments.push(`Professional product orthographic reference sheet of ${entity.name} (${entity.type})`);
+  segments.push(
+    `Professional product orthographic reference sheet of ${entity.name} (${entity.type})`,
+  );
   if (desc) segments.push(desc);
   segments.push(
     'Clean matte white cyclorama backdrop, soft three-point studio lighting with diffused key light, fill light to eliminate harsh shadows, and rim light for clean edge separation. No characters, no environment, no text labels',
@@ -47,7 +49,7 @@ function buildOrthoGridPrompt(entity: Equipment, stylePlate?: string): string {
     'Top-left: front elevation view. Top-right: rear elevation view. Middle-left: left profile view. Middle-right: right profile view. Bottom-center: macro detail close-up showing surface textures, material finish, wear patterns, and construction details',
   );
   segments.push(
-    'All panels share identical scale, identical lighting angle, and centered composition. Each view clearly shows the object\'s form, proportions, and surface materials',
+    "All panels share identical scale, identical lighting angle, and centered composition. Each view clearly shows the object's form, proportions, and surface materials",
   );
 
   return segments.join('. ') + '.';

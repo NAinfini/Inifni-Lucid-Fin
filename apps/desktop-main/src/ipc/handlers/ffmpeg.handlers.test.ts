@@ -4,11 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 const createCommandMock = vi.hoisted(() => vi.fn());
+const getLgplVideoCodecConfigMock = vi.hoisted(() => vi.fn());
 const runCommandMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock('@lucid-fin/media-engine', () => ({
   createCommand: createCommandMock,
-  detectFfmpeg: vi.fn(() => 'C:\\ffmpeg\\ffmpeg.exe'),
+  detectFfprobe: vi.fn(() => 'C:\\ffmpeg\\ffprobe.exe'),
+  getLgplVideoCodecConfig: getLgplVideoCodecConfigMock,
   runCommand: runCommandMock,
 }));
 
@@ -49,6 +51,8 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   createCommandMock.mockReset();
+  getLgplVideoCodecConfigMock.mockReset();
+  getLgplVideoCodecConfigMock.mockReturnValue({ encoder: 'test-lgpl-h264', outputOptions: [] });
   runCommandMock.mockClear();
 });
 
@@ -78,7 +82,8 @@ describe('registerFfmpegHandlers', () => {
     ).resolves.toBeUndefined();
 
     expect(createCommandMock).toHaveBeenCalledWith(input);
-    expect(command.videoCodec).toHaveBeenCalledWith('libx264');
+    expect(getLgplVideoCodecConfigMock).toHaveBeenCalledWith('h264');
+    expect(command.videoCodec).toHaveBeenCalledWith('test-lgpl-h264');
     expect(command.audioCodec).toHaveBeenCalledWith('aac');
     expect(command.addOutputOptions).toHaveBeenCalledWith(['-movflags']);
     expect(command.output).toHaveBeenCalledWith(output);
